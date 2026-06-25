@@ -1,3 +1,19 @@
+let body_string body = Lwt_main.run (Cohttp_lwt.Body.to_string body)
+
+let contains_str haystack needle =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+    true
+  with Not_found -> false
+
+let insert_cached_model ?(deprecated = false) ?(unavailable = false) db
+    ~provider ~model_id =
+  ignore
+    (Model_discovery.upsert_model_rich ~db ~provider ~model_id
+       ~display_name:(Some model_id) ~context_window:(Some 123000)
+       ~supports_vision:false ~supports_tools:true ~supports_thinking:false
+       ~deprecated ~unavailable ~source:"provider-api" ())
+
 let test_require_pairing_blocks_chat () =
   let config = Runtime_config.default in
   let session_manager = Session.create ~config () in
@@ -63,13 +79,117 @@ let test_chat_rejects_missing_auth_token () =
     "unauthorized" 401
     (Cohttp.Code.code_of_status (Cohttp.Response.status resp))
 
-let body_string body = Lwt_main.run (Cohttp_lwt.Body.to_string body)
+let test_models_route_includes_db_only_models_and_filters_availability () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model db ~provider:"dbprov" ~model_id:"fresh-model";
+  insert_cached_model ~unavailable:true db ~provider:"dbprov"
+    ~model_id:"disabled-model";
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let request uri =
+    let req = Cohttp.Request.make ~meth:`GET (Uri.of_string uri) in
+    let resp, body =
+      Lwt_main.run
+        (Http_server.handler ~session_manager ~require_pairing:false
+           ~auth_token:None (Obj.magic ()) req Cohttp_lwt.Body.empty)
+    in
+    (Cohttp.Code.code_of_status (Cohttp.Response.status resp), body_string body)
+  in
+  let status_default, body_default =
+    request "http://127.0.0.1/models?provider=dbprov"
+  in
+  let status_all, body_all =
+    request "http://127.0.0.1/models?provider=dbprov&availability=all"
+  in
+  let status_unavailable, body_unavailable =
+    request "http://127.0.0.1/models?provider=dbprov&availability=unavailable"
+  in
+  Alcotest.(check int) "default status" 200 status_default;
+  Alcotest.(check int) "all status" 200 status_all;
+  Alcotest.(check int) "unavailable status" 200 status_unavailable;
+  Alcotest.(check bool)
+    "default includes available DB-only model" true
+    (contains_str body_default "\"id\":\"fresh-model\"");
+  Alcotest.(check bool)
+    "default excludes unavailable DB-only model" true
+    (not (contains_str body_default "disabled-model"));
+  Alcotest.(check bool)
+    "all includes unavailable DB-only model" true
+    (contains_str body_all "disabled-model");
+  Alcotest.(check bool)
+    "unavailable includes unavailable DB-only model" true
+    (contains_str body_unavailable "disabled-model");
+  Alcotest.(check bool)
+    "unavailable excludes available DB-only model" true
+    (not (contains_str body_unavailable "fresh-model"))
 
-let contains_str haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
+let chat_stream_response ~session_manager message =
+  let req =
+    Cohttp.Request.make ~meth:`POST
+      (Uri.of_string "http://127.0.0.1/chat/stream")
+  in
+  let body =
+    Cohttp_lwt.Body.of_string
+      (Printf.sprintf {|{"session_id":"s","message":%s}|}
+         (Yojson.Safe.to_string (`String message)))
+  in
+  let resp, body =
+    Lwt_main.run
+      (Http_server.handler ~session_manager ~require_pairing:false
+         ~auth_token:None (Obj.magic ()) req body)
+  in
+  let body = body_string body in
+  let status = Cohttp.Code.code_of_status (Cohttp.Response.status resp) in
+  if status <> 200 then Alcotest.failf "expected 200, got %d: %s" status body;
+  body
+
+let test_chat_model_set_force_rejects_unavailable_cached_model () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model ~unavailable:true db ~provider:"dbprov"
+    ~model_id:"disabled-model";
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let response =
+    chat_stream_response ~session_manager
+      "/model set-force dbprov:disabled-model"
+  in
+  Alcotest.(check bool)
+    "rejects unavailable cached model" true
+    (contains_str response "marked unavailable");
+  Alcotest.(check (option string))
+    "does not persist session override" None
+    (Memory.get_session_model_override ~db ~session_key:"web:s")
+
+let with_temp_clawq_home_for_model_test f =
+  let base = Filename.temp_file "clawq-home" ".tmp" in
+  Sys.remove base;
+  Unix.mkdir base 0o755;
+  let previous = Sys.getenv_opt "CLAWQ_HOME" in
+  Unix.putenv "CLAWQ_HOME" base;
+  Fun.protect
+    ~finally:(fun () ->
+      (match previous with
+      | Some v -> Unix.putenv "CLAWQ_HOME" v
+      | None -> Unix.putenv "CLAWQ_HOME" "");
+      ignore (Sys.command (Printf.sprintf "rm -rf %S" base)))
+    (fun () -> f base)
+
+let test_chat_model_set_default_rejects_deprecated_cached_model () =
+  with_temp_clawq_home_for_model_test (fun _home ->
+      let db = Memory.init ~db_path:":memory:" () in
+      insert_cached_model ~deprecated:true db ~provider:"dbprov"
+        ~model_id:"old-model";
+      let session_manager =
+        Session.create ~config:Runtime_config.default ~db ()
+      in
+      let response =
+        chat_stream_response ~session_manager
+          "/model set-default dbprov:old-model"
+      in
+      Alcotest.(check bool)
+        "rejects deprecated cached model" true
+        (contains_str response "marked deprecated");
+      Alcotest.(check bool)
+        "does not report default update" false
+        (contains_str response "Default model set to:"))
 
 let debug_lines payload =
   match Yojson.Safe.Util.member "debug" payload with
@@ -1500,6 +1620,12 @@ let suite =
       test_require_pairing_blocks_chat_stream;
     Alcotest.test_case "chat rejects missing auth token" `Quick
       test_chat_rejects_missing_auth_token;
+    Alcotest.test_case "GET /models includes DB-only models and filters" `Quick
+      test_models_route_includes_db_only_models_and_filters_availability;
+    Alcotest.test_case "chat model set-force rejects unavailable cached model"
+      `Quick test_chat_model_set_force_rejects_unavailable_cached_model;
+    Alcotest.test_case "chat model set-default rejects deprecated cached model"
+      `Quick test_chat_model_set_default_rejects_deprecated_cached_model;
     Alcotest.test_case "chat runtime ctx returns runtime context" `Quick
       test_chat_runtime_ctx_returns_runtime_context;
     Alcotest.test_case "chat help returns plain help" `Quick

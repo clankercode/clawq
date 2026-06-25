@@ -12,7 +12,7 @@ Reference for OpenAI-compatible provider path when using `zai` or `zai_coding` p
 ## Coding Plan Models
 
 Only these models are callable under the coding plan quota:
-- `glm-5`, `glm-4.7`, `glm-4.6`, `glm-4.5`
+- `glm-5.2`, `glm-5.1`, `glm-5-turbo`, `glm-5`, `glm-4.7`, `glm-4.6`, `glm-4.5`
 
 Other models (e.g. `glm-4.7-flash`) use the general API endpoint, not the coding one.
 

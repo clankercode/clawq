@@ -194,6 +194,7 @@
  (modules
   http_server_0_util
   http_server_webhooks
+  http_server_models
   http_server
   telegram_api
   telegram
@@ -201,6 +202,7 @@
   telegram_format
   daemon_util
   daemon
+  command_bridge_models
   command_bridge_helpers
   command_bridge_session
   command_bridge_debug

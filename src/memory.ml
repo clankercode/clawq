@@ -103,6 +103,12 @@ let init ~db_path ?(search_enabled = false) () =
   init_core_schema db;
   init_models_cache_schema db;
   init_model_discovery_state_schema db;
+  (try
+     let seeded = Model_discovery.seed_catalog_models ~db in
+     Logs.debug (fun m -> m "models_cache: seeded %d catalog rows" seeded)
+   with exn ->
+     Logs.warn (fun m ->
+         m "models_cache: catalog seed failed: %s" (Printexc.to_string exn)));
   init_request_stats_schema db;
   init_quota_cache_schema db;
   init_postmortems_schema db;

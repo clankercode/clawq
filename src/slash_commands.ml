@@ -484,8 +484,39 @@ let handle ?(skill_names = []) text =
             | [ "unfav"; name ] ->
                 Model (ModelUnfav (Models_catalog.resolve_alias_or_name name))
             | "list" :: rest ->
-                let provider = match rest with [ p ] -> Some p | _ -> None in
-                Model (ModelList provider)
+                let parse_availability value =
+                  Models_catalog.availability_filter_of_string value
+                in
+                let is_flag value =
+                  String.length value > 0 && value.[0] = '-'
+                in
+                let rec parse provider availability = function
+                  | [] -> Ok (provider, availability)
+                  | "--provider" :: [] -> Error "--provider"
+                  | "--provider" :: p :: _ when is_flag p -> Error p
+                  | "--provider" :: p :: tail ->
+                      parse (Some p) availability tail
+                  | "--availability" :: [] -> Error "--availability"
+                  | "--availability" :: value :: tail -> (
+                      match parse_availability value with
+                      | Some availability -> parse provider availability tail
+                      | None -> Error value)
+                  | ("--available" | "available") :: tail ->
+                      parse provider Models_catalog.Available tail
+                  | ("--unavailable" | "unavailable") :: tail ->
+                      parse provider Models_catalog.Unavailable tail
+                  | ("--all" | "all") :: tail ->
+                      parse provider Models_catalog.All tail
+                  | value :: _ when is_flag value -> Error value
+                  | value :: tail -> parse (Some value) availability tail
+                in
+                begin match parse None Models_catalog.Available rest with
+                | Ok (provider, availability) ->
+                    Model (ModelList (provider, availability))
+                | Error _ ->
+                    FormattedReply
+                      (fun connector -> format_model_usage_text ~connector)
+                end
             | [ "usage" ] -> Model ModelUsage
             | first :: _
               when not

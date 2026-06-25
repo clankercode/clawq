@@ -866,15 +866,27 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
   let set_model_lwt ?session_key ?(skip_validation = false) raw_model =
     let open Lwt.Syntax in
     let model = Models_catalog.resolve_alias_or_name raw_model in
-    match Models_catalog.find_by_full_name model with
-    | None ->
+    let db =
+      match session_mgr with Some mgr -> Session.get_db mgr | None -> None
+    in
+    let db_model_exists =
+      match (db, Models_catalog.split_name model) with
+      | Some db, (_, _, (Models_catalog.Canonical | Models_catalog.Legacy)) ->
+          Model_discovery.cached_model_exists ~db model
+      | _ -> false
+    in
+    let catalog_model_exists =
+      Option.is_some (Models_catalog.find_by_full_name model)
+    in
+    match (catalog_model_exists, db_model_exists) with
+    | false, false ->
         Lwt.return
           (Printf.sprintf
              "Error: model '%s' not found in catalog. Use 'models list' to see \
               available models. Format: provider:model-name (e.g., \
               openai:gpt-5.4)"
              model)
-    | Some _ -> (
+    | _ -> (
         match session_mgr with
         | None ->
             Lwt.return
@@ -890,32 +902,43 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
               | None ->
                   Runtime_config.effective_primary_model cfg.agent_defaults
             in
-            if skip_validation then
-              Lwt.return
-                (do_set ~cfg ~session_key ~model ~provider ~model_id ~fmt
-                   ~previous_model
-                ^ "\nNote: validation skipped (skip_validation=true).")
-            else
-              let* result = Model_validation.validate ~config:cfg ~model () in
-              match result with
-              | Model_validation.Ok_validated ->
+            match
+              match db with
+              | Some db ->
+                  Model_discovery.validate_cached_model_allowed ~db model
+              | None -> None
+            with
+            | Some msg -> Lwt.return ("Error: " ^ msg)
+            | None -> (
+                if skip_validation then
                   Lwt.return
                     (do_set ~cfg ~session_key ~model ~provider ~model_id ~fmt
-                       ~previous_model)
-              | Model_validation.Error_msg msg ->
-                  let rollback_cmd =
-                    Printf.sprintf "models set %s (previous model still active)"
-                      previous_model
+                       ~previous_model
+                    ^ "\nNote: validation skipped (skip_validation=true).")
+                else
+                  let* result =
+                    Model_validation.validate ~config:cfg ~model ()
                   in
-                  Lwt.return
-                    (Printf.sprintf
-                       "Error: model validation failed for '%s' — %s\n\
-                        Previous model '%s' remains active. To re-attempt or \
-                        rollback explicitly:\n\
-                       \  %s\n\
-                        To bypass validation (not recommended), call this tool \
-                        again with skip_validation=true."
-                       model msg previous_model rollback_cmd)))
+                  match result with
+                  | Model_validation.Ok_validated ->
+                      Lwt.return
+                        (do_set ~cfg ~session_key ~model ~provider ~model_id
+                           ~fmt ~previous_model)
+                  | Model_validation.Error_msg msg ->
+                      let rollback_cmd =
+                        Printf.sprintf
+                          "models set %s (previous model still active)"
+                          previous_model
+                      in
+                      Lwt.return
+                        (Printf.sprintf
+                           "Error: model validation failed for '%s' — %s\n\
+                            Previous model '%s' remains active. To re-attempt \
+                            or rollback explicitly:\n\
+                           \  %s\n\
+                            To bypass validation (not recommended), call this \
+                            tool again with skip_validation=true."
+                           model msg previous_model rollback_cmd))))
   in
   {
     Tool.name = "models";
@@ -965,6 +988,22 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                           "Filter by provider for 'list' action (e.g., \
                            'openai', 'anthropic')" );
                     ] );
+                ( "availability",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional filter for 'list': 'available' (default), \
+                           'unavailable', or 'all'." );
+                      ( "enum",
+                        `List
+                          [
+                            `String "available";
+                            `String "unavailable";
+                            `String "all";
+                          ] );
+                    ] );
                 ( "skip_validation",
                   `Assoc
                     [
@@ -991,7 +1030,32 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             let provider_filter =
               try Some (args |> member "provider" |> to_string) with _ -> None
             in
-            Lwt.return (Models_catalog.to_plain_list ~provider_filter ())
+            let availability =
+              try
+                args |> member "availability" |> to_string
+                |> Models_catalog.availability_filter_of_string
+              with _ -> Some Models_catalog.Available
+            in
+            begin match availability with
+            | None ->
+                Lwt.return
+                  "Error: parameter \"availability\" must be one of: \
+                   available, unavailable, all."
+            | Some availability ->
+                let db_extras =
+                  match session_mgr with
+                  | None -> []
+                  | Some mgr -> (
+                      match Session.get_db mgr with
+                      | None -> []
+                      | Some db ->
+                          Model_discovery.get_db_only_model_infos ~db
+                            ~provider_filter ~availability ())
+                in
+                Lwt.return
+                  (Models_catalog.to_plain_list ~provider_filter ~availability
+                     ~db_extras ())
+            end
         | "get" ->
             let model =
               match (session_mgr, session_key) with

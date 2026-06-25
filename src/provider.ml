@@ -982,7 +982,9 @@ let codex_associated_models =
     "gpt-5.3-codex";
     "gpt-5.3-codex-spark";
     "gpt-5.4";
+    "gpt-5.4-mini";
     "gpt-5.4-pro";
+    "gpt-5.5";
   ]
 
 let is_codex_associated_model norm =

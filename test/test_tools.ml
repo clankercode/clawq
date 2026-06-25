@@ -22,6 +22,14 @@ let contains hay needle =
     true
   with Not_found -> false
 
+let insert_cached_model ?(deprecated = false) ?(unavailable = false) db
+    ~provider ~model_id =
+  ignore
+    (Model_discovery.upsert_model_rich ~db ~provider ~model_id
+       ~display_name:(Some model_id) ~context_window:(Some 123000)
+       ~supports_vision:false ~supports_tools:true ~supports_thinking:false
+       ~deprecated ~unavailable ~source:"provider-api" ())
+
 let extract_saved_output_path result =
   try
     ignore
@@ -3178,6 +3186,148 @@ let test_list_dir_uses_effective_cwd () =
         "lists effective CWD contents" true
         (contains result "nested.txt"))
 
+let test_models_tool_list_includes_db_only_rows () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model db ~provider:"dbprov" ~model_id:"fresh-model";
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let result =
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("action", `String "list") ]))
+  in
+  Alcotest.(check bool)
+    "models tool list includes db-only row" true
+    (contains result "dbprov:fresh-model")
+
+let test_models_tool_list_availability_filters_db_only_rows () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model db ~provider:"dbprov" ~model_id:"fresh-model";
+  insert_cached_model ~unavailable:true db ~provider:"dbprov"
+    ~model_id:"disabled-model";
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let default_result =
+    Lwt_main.run
+      (tool.Tool.invoke
+         (`Assoc [ ("action", `String "list"); ("provider", `String "dbprov") ]))
+  in
+  let unavailable_result =
+    Lwt_main.run
+      (tool.Tool.invoke
+         (`Assoc
+            [
+              ("action", `String "list");
+              ("provider", `String "dbprov");
+              ("availability", `String "unavailable");
+            ]))
+  in
+  Alcotest.(check bool)
+    "default excludes unavailable db-only row" true
+    (not (contains default_result "disabled-model"));
+  Alcotest.(check bool)
+    "unavailable includes unavailable db-only row" true
+    (contains unavailable_result "dbprov:disabled-model");
+  Alcotest.(check bool)
+    "unavailable excludes available db-only row" true
+    (not (contains unavailable_result "fresh-model"))
+
+let test_models_tool_set_accepts_db_only_provider_qualified_model () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model db ~provider:"dbprov" ~model_id:"fresh-model";
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let context =
+    {
+      Tool.session_key = Some "telegram:42:test";
+      send_progress = None;
+      interrupt_check = None;
+      inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
+    }
+  in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke ~context
+         (`Assoc
+            [
+              ("action", `String "set");
+              ("model", `String "dbprov:fresh-model");
+              ("skip_validation", `Bool true);
+            ]))
+  in
+  Alcotest.(check bool)
+    "set accepts db-only provider-qualified model" true
+    (contains result "Model set to: fresh-model")
+
+let test_models_tool_set_rejects_unavailable_cached_model () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model ~unavailable:true db ~provider:"dbprov"
+    ~model_id:"disabled-model";
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let context =
+    {
+      Tool.session_key = Some "telegram:42:test";
+      send_progress = None;
+      interrupt_check = None;
+      inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
+    }
+  in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke ~context
+         (`Assoc
+            [
+              ("action", `String "set");
+              ("model", `String "dbprov:disabled-model");
+              ("skip_validation", `Bool true);
+            ]))
+  in
+  Alcotest.(check bool)
+    "set rejects unavailable cached model" true
+    (contains result "marked unavailable")
+
+let test_models_tool_set_rejects_plain_catalog_deprecated_cached_model () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model ~deprecated:true db ~provider:"openai" ~model_id:"gpt-4";
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let context =
+    {
+      Tool.session_key = Some "telegram:42:test";
+      send_progress = None;
+      interrupt_check = None;
+      inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
+    }
+  in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke ~context
+         (`Assoc
+            [
+              ("action", `String "set");
+              ("model", `String "gpt-4");
+              ("skip_validation", `Bool true);
+            ]))
+  in
+  Alcotest.(check bool)
+    "set rejects deprecated bare catalog model" true
+    (contains result "marked deprecated")
+
 (* B604: every tool must declare a "required" array in its JSON schema (even
    if empty) so the Anthropic Messages API (and other strict format providers)
    don't reject the schema. *)
@@ -3777,6 +3927,18 @@ let suite =
       test_shell_exec_uses_effective_cwd;
     Alcotest.test_case "list_dir uses effective CWD" `Quick
       test_list_dir_uses_effective_cwd;
+    Alcotest.test_case "models tool list includes DB-only rows" `Quick
+      test_models_tool_list_includes_db_only_rows;
+    Alcotest.test_case "models tool list availability filters DB-only rows"
+      `Quick test_models_tool_list_availability_filters_db_only_rows;
+    Alcotest.test_case
+      "models tool set accepts DB-only provider-qualified model" `Quick
+      test_models_tool_set_accepts_db_only_provider_qualified_model;
+    Alcotest.test_case "models tool set rejects unavailable cached model" `Quick
+      test_models_tool_set_rejects_unavailable_cached_model;
+    Alcotest.test_case
+      "models tool set rejects plain catalog deprecated cached model" `Quick
+      test_models_tool_set_rejects_plain_catalog_deprecated_cached_model;
     Alcotest.test_case "B604: every builtin tool has 'required' in schema"
       `Quick test_every_builtin_tool_has_required_field;
     Alcotest.test_case

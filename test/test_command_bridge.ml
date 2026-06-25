@@ -23,6 +23,17 @@ let with_temp_home f =
       (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
+let contains s sub =
+  let sl = String.length s and subl = String.length sub in
+  if subl > sl then false
+  else if subl = 0 then true
+  else
+    let found = ref false in
+    for i = 0 to sl - subl do
+      if String.sub s i subl = sub then found := true
+    done;
+    !found
+
 let test_handle_phase2 () =
   let result = Command_bridge.handle [ "phase2" ] in
   Alcotest.(check bool)
@@ -123,6 +134,90 @@ let session_db home =
   if not (Sys.file_exists clawq_dir) then Unix.mkdir clawq_dir 0o755;
   Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
 
+let insert_cached_model ?(deprecated = false) ?(unavailable = false) db
+    ~provider ~model_id =
+  ignore
+    (Model_discovery.upsert_model_rich ~db ~provider ~model_id
+       ~display_name:(Some model_id) ~context_window:(Some 123000)
+       ~supports_vision:false ~supports_tools:true ~supports_thinking:false
+       ~deprecated ~unavailable ~source:"provider-api" ())
+
+let test_models_list_json_includes_db_only_model () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      insert_cached_model db ~provider:"dbprov" ~model_id:"fresh-model";
+      let result = Command_bridge.handle [ "models"; "list"; "--json" ] in
+      Alcotest.(check bool)
+        "json includes db-only provider" true
+        (contains result "\"provider\":\"dbprov\"");
+      Alcotest.(check bool)
+        "json includes db-only model" true
+        (contains result "\"id\":\"fresh-model\""))
+
+let test_models_list_json_provider_filter_includes_db_only_only_for_provider ()
+    =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      insert_cached_model db ~provider:"dbprov" ~model_id:"fresh-model";
+      insert_cached_model db ~provider:"otherdb" ~model_id:"other-model";
+      let result =
+        Command_bridge.handle
+          [ "models"; "list"; "--provider"; "dbprov"; "--json" ]
+      in
+      Alcotest.(check bool)
+        "json includes requested db-only model" true
+        (contains result "\"id\":\"fresh-model\"");
+      Alcotest.(check bool)
+        "json excludes other provider db-only model" true
+        (not (contains result "other-model")))
+
+let test_models_list_availability_filters_db_rows () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      insert_cached_model db ~provider:"dbprov" ~model_id:"available-model";
+      insert_cached_model ~unavailable:true db ~provider:"dbprov"
+        ~model_id:"disabled-model";
+      let default_result =
+        Command_bridge.handle
+          [ "models"; "list"; "--provider"; "dbprov"; "--json" ]
+      in
+      let all_result =
+        Command_bridge.handle
+          [
+            "models";
+            "list";
+            "--provider";
+            "dbprov";
+            "--json";
+            "--availability";
+            "all";
+          ]
+      in
+      let unavailable_result =
+        Command_bridge.handle
+          [
+            "models";
+            "list";
+            "--provider";
+            "dbprov";
+            "--json";
+            "--availability";
+            "unavailable";
+          ]
+      in
+      Alcotest.(check bool)
+        "default excludes unavailable db row" true
+        (not (contains default_result "disabled-model"));
+      Alcotest.(check bool)
+        "all includes unavailable db row" true
+        (contains all_result "disabled-model");
+      Alcotest.(check bool)
+        "unavailable includes unavailable db row" true
+        (contains unavailable_result "disabled-model");
+      Alcotest.(check bool)
+        "unavailable excludes available db row" true
+        (not (contains unavailable_result "available-model")))
+
 let write_json_file path json =
   let oc = open_out path in
   output_string oc (Yojson.Safe.to_string json);
@@ -132,17 +227,6 @@ let write_config_json home json =
   let clawq_dir = Filename.concat home ".clawq" in
   if not (Sys.file_exists clawq_dir) then Unix.mkdir clawq_dir 0o755;
   write_json_file (Filename.concat clawq_dir "config.json") json
-
-let contains s sub =
-  let sl = String.length s and subl = String.length sub in
-  if subl > sl then false
-  else if subl = 0 then true
-  else
-    let found = ref false in
-    for i = 0 to sl - subl do
-      if String.sub s i subl = sub then found := true
-    done;
-    !found
 
 let test_handle_doctor_flags_codex_provider_with_api_key_only () =
   with_temp_home (fun home ->
@@ -2960,7 +3044,7 @@ let test_models_set_default_accepts_known_plain () =
          live validation safety net (B600). *)
       let result =
         Command_bridge.handle
-          [ "models"; "set-default"; "claude-3-5-sonnet"; "--skip-validation" ]
+          [ "models"; "set-default"; "claude-sonnet-4-6"; "--skip-validation" ]
       in
       let contains s sub =
         let re = Re.(compile (str sub)) in
@@ -2989,6 +3073,27 @@ let test_models_set_default_accepts_unknown_with_provider () =
         "confirms set" true
         (contains result "Default model set to:");
       Alcotest.(check bool) "no error" true (not (contains result "Error:")))
+
+let test_models_set_default_rejects_unavailable_cached_model () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      insert_cached_model ~unavailable:true db ~provider:"dbprov"
+        ~model_id:"disabled-model";
+      let result =
+        Command_bridge.handle
+          [
+            "models";
+            "set-default";
+            "dbprov:disabled-model";
+            "--skip-validation";
+          ]
+      in
+      Alcotest.(check bool)
+        "rejects unavailable cached model" true
+        (contains result "marked unavailable");
+      Alcotest.(check bool)
+        "does not commit unavailable cached model" true
+        (not (contains result "Default model set to:")))
 
 (* B600: validation safety net aborts switch when provider has no auth. *)
 let test_models_set_default_validation_aborts_on_bad_model () =
@@ -3063,6 +3168,13 @@ let suite =
     Alcotest.test_case "handle doctor distinguishes refresh window from expired"
       `Quick test_handle_doctor_distinguishes_refresh_window_from_expired;
     Alcotest.test_case "handle models" `Quick test_handle_models;
+    Alcotest.test_case "models list --json includes DB-only model" `Quick
+      test_models_list_json_includes_db_only_model;
+    Alcotest.test_case
+      "models list --provider --json includes only matching DB-only rows" `Quick
+      test_models_list_json_provider_filter_includes_db_only_only_for_provider;
+    Alcotest.test_case "models list availability filters DB rows" `Quick
+      test_models_list_availability_filters_db_rows;
     Alcotest.test_case "models set-default rejects unknown plain model" `Quick
       test_models_set_default_rejects_unknown_plain;
     Alcotest.test_case "models set-default accepts known plain model" `Quick
@@ -3073,6 +3185,8 @@ let suite =
       test_models_set_default_skip_validation_commits;
     Alcotest.test_case "models set-default accepts unknown with provider" `Quick
       test_models_set_default_accepts_unknown_with_provider;
+    Alcotest.test_case "models set-default rejects unavailable cached model"
+      `Quick test_models_set_default_rejects_unavailable_cached_model;
     Alcotest.test_case
       "models usage excludes session-only set without live session" `Quick
       test_models_set_usage_excludes_session_only_set_without_live_session;

@@ -109,7 +109,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `session keepalive SESSION [on|off|status]` | Show or toggle the persisted keepalive flag for a session |
 | `session heartbeat SESSION [on|off|status]` | Show or toggle per-session heartbeat routing for Telegram/Slack/Discord/Teams sessions |
 | `migrate` | Run database migrations |
-| `models` | List configured LLM providers and models |
+| `models` | List configured LLM providers and models; `models list` defaults to available models and accepts `--availability available|unavailable|all` |
 | `onboard` | Create initial config if missing; runs onboarding wizard in TTY, otherwise writes a starter template |
 | `otp-show` | Show current browser pairing code and TOTP codes |
 | `phase2` | Show Phase 2 feature status |
@@ -218,7 +218,7 @@ Available in chat-integrated channels that support slash commands. Admin-only co
 - `/model set-default <name>` — write model to `~/.clawq/config.json` as the new default; applies to new sessions (not the current one); auto-normalizes legacy `provider/model` format to canonical `provider:model`
 - `/model fav <name>` — toggle a model as favorite
 - `/model unfav <name>` — remove a model from favorites
-- `/model list [provider]` — list available models, optionally filtered by provider
+- `/model list [provider] [available|unavailable|all]` — list models, optionally filtered by provider and availability; defaults to available only
 - `/model usage` — show provider quota and model usage stats
 - `/model menu [page]` — interactive model selection from favorites (paginated, 9 per page); on Teams sends an Adaptive Card with buttons
 - `/costs [session [KEY]|model|provider]` — show cost breakdowns; no args shows a summary by time period (today, 7d, 30d, all)
@@ -345,6 +345,8 @@ The legacy `provider/model` slash format is still accepted but deprecated. Depre
 - **`models set-default` / `/model set-default`**: auto-normalizes the legacy format to canonical before writing to config.
 
 Note: `providers.*.default_model` is the model identifier as understood by that provider's API (e.g. `openai/gpt-4o` on OpenRouter). This is a provider-specific model name, not a `provider:model` reference, and is not subject to the format deprecation.
+
+Dynamic provider model discovery stores rows in `models_cache`, seeded from the catalog and refreshed from provider `/models` endpoints where supported. Cached rows have `deprecated` and `unavailable` flags; either flag makes a model unavailable for selection, and list surfaces hide unavailable models by default unless `availability=all` or an unavailable filter is requested.
 
 ### Model resolution hierarchy
 

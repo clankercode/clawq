@@ -7,7 +7,30 @@ type model_info = {
   supports_tools : bool;
   supports_thinking : bool;
   deprecated : bool;
+  unavailable : bool;
 }
+
+type availability_filter = Available | Unavailable | All
+
+let is_available (m : model_info) = (not m.deprecated) && not m.unavailable
+
+let matches_availability availability m =
+  match availability with
+  | Available -> is_available m
+  | Unavailable -> not (is_available m)
+  | All -> true
+
+let availability_filter_of_string value =
+  match String.lowercase_ascii (String.trim value) with
+  | "" | "available" -> Some Available
+  | "unavailable" -> Some Unavailable
+  | "all" -> Some All
+  | _ -> None
+
+let availability_filter_to_string = function
+  | Available -> "available"
+  | Unavailable -> "unavailable"
+  | All -> "all"
 
 (* B697: Xiaomi MiMo catalog entries, derived from Xiaomi.catalog_specs so the
    data lives in xiaomi.ml (one source of truth across catalog/pricing/routing).
@@ -24,8 +47,24 @@ let xiaomi_catalog_models : model_info list =
         supports_tools = true;
         supports_thinking = true;
         deprecated = false;
+        unavailable = false;
       })
     Xiaomi.catalog_specs
+
+let model ?display_name ?context_window ?(supports_vision = false)
+    ?(supports_tools = true) ?(supports_thinking = false) ?(deprecated = false)
+    ?(unavailable = false) provider id =
+  {
+    provider;
+    id;
+    display_name;
+    context_window;
+    supports_vision;
+    supports_tools;
+    supports_thinking;
+    deprecated;
+    unavailable;
+  }
 
 let known_models : model_info list =
   [
@@ -39,6 +78,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -49,6 +89,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -59,6 +100,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -69,6 +111,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -79,6 +122,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -89,6 +133,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -99,6 +144,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -109,6 +155,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -119,6 +166,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -129,6 +177,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -139,6 +188,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -149,6 +199,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -159,6 +210,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = true;
+      unavailable = false;
     };
     {
       provider = "anthropic";
@@ -169,189 +221,65 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     (* OpenAI *)
-    {
-      provider = "openai";
-      id = "gpt-5.4-pro";
-      display_name = None;
-      context_window = Some 272000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5.4";
-      display_name = None;
-      context_window = Some 272000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
+    model "openai" "gpt-5.5" ~context_window:272000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5.4" ~context_window:1050000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5.4-pro" ~context_window:1050000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5.2" ~context_window:400000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5.2-pro" ~context_window:400000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5-pro" ~context_window:400000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5-mini" ~context_window:400000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5" ~context_window:400000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5.1" ~context_window:200000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "gpt-5-nano" ~context_window:400000 ~supports_vision:true;
+    model "openai" "gpt-4.1" ~context_window:1000000 ~supports_vision:true;
+    model "openai" "gpt-4.1-mini" ~context_window:1000000 ~supports_vision:true;
+    model "openai" "gpt-4.1-nano" ~context_window:1000000 ~supports_vision:true;
+    model "openai" "gpt-4o" ~context_window:128000 ~supports_vision:true;
+    model "openai" "gpt-4o-mini" ~context_window:128000 ~supports_vision:true;
+    model "openai" "gpt-4-turbo" ~context_window:128000 ~supports_vision:true;
+    model "openai" "gpt-4" ~context_window:8192 ~deprecated:true;
+    model "openai" "gpt-3.5-turbo" ~context_window:16385 ~deprecated:true;
+    model "openai" "o3" ~context_window:200000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "o3-pro" ~context_window:200000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "o3-mini" ~context_window:200000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "o4-mini" ~context_window:200000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai" "o1" ~context_window:200000 ~supports_tools:false
+      ~supports_thinking:true;
+    model "openai" "o1-pro" ~context_window:200000 ~supports_tools:false
+      ~supports_thinking:true;
+    model "openai" "o1-mini" ~context_window:128000 ~supports_tools:false
+      ~supports_thinking:true;
+    model "openai" "o1-preview" ~context_window:128000 ~supports_tools:false
+      ~supports_thinking:true ~deprecated:true;
     (* OpenAI Codex *)
-    {
-      provider = "openai-codex";
-      id = "gpt-5.3-codex-spark";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai-codex";
-      id = "gpt-5.3-codex";
-      display_name = None;
-      context_window = Some 272000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai-codex";
-      id = "gpt-5.5";
-      display_name = None;
-      context_window = Some 272000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5.1";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5-nano";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-4o";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-4o-mini";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-4-turbo";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-4";
-      display_name = None;
-      context_window = Some 8192;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = true;
-    };
-    {
-      provider = "openai";
-      id = "gpt-3.5-turbo";
-      display_name = None;
-      context_window = Some 16385;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = true;
-    };
-    {
-      provider = "openai";
-      id = "o3";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "o3-mini";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "o1";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = false;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "o1-mini";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = false;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "o1-preview";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = false;
-      supports_thinking = true;
-      deprecated = true;
-    };
+    model "openai-codex" "gpt-5-codex" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-5.3-codex-spark" ~context_window:128000
+      ~supports_thinking:true;
+    model "openai-codex" "gpt-5.3-codex" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-5.4" ~context_window:1050000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "openai-codex" "gpt-5.4-mini" ~context_window:400000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-5.5" ~context_window:272000 ~supports_vision:true
+      ~supports_thinking:true;
     (* Google Gemini *)
     {
       provider = "gemini";
@@ -362,6 +290,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -372,6 +301,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -382,6 +312,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -392,6 +323,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -402,6 +334,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -412,6 +345,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -422,6 +356,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "gemini";
@@ -432,28 +367,12 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     (* DeepSeek *)
-    {
-      provider = "deepseek";
-      id = "deepseek-v3";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "deepseek";
-      id = "deepseek-r1";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
+    model "deepseek" "deepseek-chat" ~context_window:131072;
+    model "deepseek" "deepseek-reasoner" ~context_window:131072
+      ~supports_thinking:true;
     (* Meta Llama *)
     {
       provider = "ollama";
@@ -464,6 +383,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "ollama";
@@ -474,6 +394,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "ollama";
@@ -484,6 +405,7 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     {
       provider = "ollama";
@@ -494,288 +416,102 @@ let known_models : model_info list =
       supports_tools = true;
       supports_thinking = false;
       deprecated = false;
+      unavailable = false;
     };
     (* Mistral *)
-    {
-      provider = "mistral";
-      id = "mistral-large";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "mistral";
-      id = "mixtral-8x7b";
-      display_name = None;
-      context_window = Some 32768;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
+    model "mistral" "mistral-large-latest" ~context_window:262144
+      ~supports_vision:true;
+    model "mistral" "mistral-medium-latest" ~context_window:131072
+      ~supports_vision:true;
+    model "mistral" "mistral-small-latest" ~context_window:131072
+      ~supports_vision:true;
+    model "mistral" "codestral-latest" ~context_window:262144;
     (* Cohere *)
-    {
-      provider = "cohere";
-      id = "command-r-plus";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "cohere";
-      id = "command-r";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
+    model "cohere" "command-a-03-2025" ~context_window:262144;
+    model "cohere" "command-r-plus-08-2024" ~context_window:131072;
+    model "cohere" "command-r-08-2024" ~context_window:131072;
+    (* Groq *)
+    model "groq" "llama-3.3-70b-versatile" ~context_window:131072;
+    model "groq" "llama-3.1-8b-instant" ~context_window:131072;
+    model "groq" "meta-llama/llama-4-scout-17b-16e-instruct"
+      ~context_window:131072 ~supports_vision:true;
+    model "groq" "meta-llama/llama-4-maverick-17b-128e-instruct"
+      ~context_window:131072 ~supports_vision:true;
+    model "groq" "openai/gpt-oss-20b" ~context_window:131072
+      ~supports_thinking:true;
+    model "groq" "openai/gpt-oss-120b" ~context_window:131072
+      ~supports_thinking:true;
+    model "groq" "qwen/qwen3-32b" ~context_window:131072 ~supports_thinking:true;
+    model "groq" "moonshotai/kimi-k2-instruct-0905" ~context_window:262144;
     (* Kimi via Moonshot platform — K2 preview series EOL 2026-05-25 *)
-    {
-      provider = "kimi";
-      id = "kimi-k2.6";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "kimi";
-      id = "kimi-k2.5";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "kimi";
-      id = "kimi-k2-thinking";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "kimi";
-      id = "kimi-k2-thinking-turbo";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "kimi";
-      id = "kimi-k2-turbo-preview";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      (* K2 preview series scheduled EOL 2026-05-25 *)
-      deprecated = true;
-    };
-    {
-      provider = "kimi";
-      id = "kimi-k2-0905-preview";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = true;
-    };
+    model "kimi" "kimi-k2.6" ~context_window:262144 ~supports_vision:true
+      ~supports_thinking:true;
+    model "kimi" "kimi-k2.5" ~context_window:262144 ~supports_vision:true
+      ~supports_thinking:true;
+    model "kimi" "kimi-k2-thinking" ~context_window:262144
+      ~supports_thinking:true;
+    model "kimi" "kimi-k2-thinking-turbo" ~context_window:262144
+      ~supports_thinking:true;
+    model "kimi" "kimi-k2-turbo-preview" ~context_window:262144 ~deprecated:true;
+    model "kimi" "kimi-k2-0905-preview" ~context_window:262144 ~deprecated:true;
     (* Kimi Coding subscription — kimi-for-coding is a stable backend-routed
-       alias that automatically points at the current model (currently K2.6).
+       alias that automatically points at the current coding backend.
        Always use kimi-for-coding as the default on this endpoint per docs. *)
-    {
-      provider = "kimi_coding";
-      id = "kimi-for-coding";
-      display_name = Some "Kimi for Coding";
-      context_window = Some 262144;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "kimi_coding";
-      id = "kimi-k2.6";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "kimi_coding";
-      id = "kimi-k2.5";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
+    model "kimi_coding" "kimi-for-coding" ~display_name:"Kimi for Coding"
+      ~context_window:262144 ~supports_vision:true ~supports_thinking:true;
+    model "kimi_coding" "kimi-k2.7-code" ~context_window:262144
+      ~supports_vision:true ~supports_thinking:true;
+    model "kimi_coding" "kimi-k2.7-code-highspeed" ~context_window:262144
+      ~supports_vision:true ~supports_thinking:true;
+    model "kimi_coding" "kimi-k2.6" ~context_window:262144 ~supports_vision:true
+      ~supports_thinking:true;
+    model "kimi_coding" "kimi-k2.5" ~context_window:262144 ~supports_vision:true
+      ~supports_thinking:true;
     (* Z.ai *)
-    {
-      provider = "zai";
-      id = "glm-5.2";
-      display_name = None;
-      (* Advertised window; the runtime compaction budget caps glm-5.2 to 272k
-         (see default_model_context_caps) because the API slows past ~500k. *)
-      context_window = Some 1048576;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "zai";
-      id = "glm-5.1";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "zai";
-      id = "glm-5-turbo";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "zai";
-      id = "glm-5";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "zai";
-      id = "glm-4.7";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "zai";
-      id = "glm-4.6";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
+    (* Runtime compaction budget caps glm-5.2 to 272k
+       (see default_model_context_caps) because the API slows past ~500k. *)
+    model "zai" "glm-5.2" ~context_window:1000000 ~supports_thinking:true;
+    model "zai" "glm-5.1" ~context_window:204800 ~supports_thinking:true;
+    model "zai" "glm-5-turbo" ~context_window:200000 ~supports_thinking:true;
+    model "zai" "glm-5" ~context_window:200000 ~supports_thinking:true;
+    model "zai" "glm-4.7" ~context_window:200000 ~supports_thinking:true;
+    model "zai" "glm-4.7-flashx" ~context_window:200000;
+    model "zai" "glm-4.7-flash" ~context_window:200000;
+    model "zai" "glm-4.6" ~context_window:200000 ~supports_thinking:true;
+    model "zai" "glm-4.6v" ~context_window:200000 ~supports_vision:true;
+    model "zai" "glm-4.5" ~context_window:128000;
+    model "zai" "glm-4.5-x" ~context_window:128000;
+    model "zai" "glm-4.5-air" ~context_window:128000;
+    model "zai" "glm-4.5-airx" ~context_window:128000;
+    model "zai" "glm-4.5-flash" ~context_window:128000;
+    model "zai_coding" "glm-5" ~context_window:200000 ~supports_thinking:true;
+    model "zai_coding" "glm-5.2" ~context_window:1000000 ~supports_thinking:true;
+    model "zai_coding" "glm-5.1" ~context_window:204800 ~supports_thinking:true;
+    model "zai_coding" "glm-5-turbo" ~context_window:200000
+      ~supports_thinking:true;
+    model "zai_coding" "glm-4.7" ~context_window:200000 ~supports_thinking:true;
+    model "zai_coding" "glm-4.6" ~context_window:200000 ~supports_thinking:true;
+    model "zai_coding" "glm-4.5" ~context_window:128000;
     (* Minimax *)
-    {
-      provider = "minimax";
-      id = "MiniMax-M3";
-      display_name = Some "MiniMax-M3";
-      context_window = Some 512000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2.7";
-      display_name = Some "MiniMax-M2.7";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2.7-highspeed";
-      display_name = Some "MiniMax-M2.7-highspeed";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2.5";
-      display_name = Some "MiniMax-M2.5";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2.5-highspeed";
-      display_name = Some "MiniMax-M2.5-highspeed";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2.1";
-      display_name = Some "MiniMax-M2.1";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2.1-highspeed";
-      display_name = Some "MiniMax-M2.1-highspeed";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "minimax";
-      id = "MiniMax-M2";
-      display_name = Some "MiniMax-M2";
-      context_window = Some 204800;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
+    model "minimax" "MiniMax-M3" ~display_name:"MiniMax-M3"
+      ~context_window:512000 ~supports_vision:true ~supports_thinking:true;
+    model "minimax" "MiniMax-M2.7" ~display_name:"MiniMax-M2.7"
+      ~context_window:204800 ~supports_thinking:true;
+    model "minimax" "MiniMax-M2.7-highspeed"
+      ~display_name:"MiniMax-M2.7-highspeed" ~context_window:204800
+      ~supports_thinking:true;
+    model "minimax" "MiniMax-M2.5" ~display_name:"MiniMax-M2.5"
+      ~context_window:204800 ~supports_thinking:true ~deprecated:true;
+    model "minimax" "MiniMax-M2.5-highspeed"
+      ~display_name:"MiniMax-M2.5-highspeed" ~context_window:204800
+      ~supports_thinking:true ~deprecated:true;
+    model "minimax" "MiniMax-M2.1" ~display_name:"MiniMax-M2.1"
+      ~context_window:204800 ~supports_thinking:true ~deprecated:true;
+    model "minimax" "MiniMax-M2.1-highspeed"
+      ~display_name:"MiniMax-M2.1-highspeed" ~context_window:204800
+      ~supports_thinking:true ~deprecated:true;
+    model "minimax" "MiniMax-M2" ~display_name:"MiniMax-M2"
+      ~context_window:204800 ~supports_thinking:true ~deprecated:true;
   ]
   @ xiaomi_catalog_models
 
@@ -907,33 +643,57 @@ let format_context_window = function
         Printf.sprintf "%.1fM" (float_of_int n /. 1_000_000.0)
       else Printf.sprintf "%dK" (n / 1000)
 
-let to_plain_list ?(provider_filter = None) ?(db_extras = []) () =
+let to_plain_list ?(provider_filter = None) ?(availability = Available)
+    ?(db_extras = []) () =
   let filtered =
     match provider_filter with None -> known_models | Some p -> by_provider p
   in
-  let non_deprecated = List.filter (fun m -> not m.deprecated) filtered in
+  let visible = List.filter (matches_availability availability) filtered in
+  let format_badges m =
+    let badges = Buffer.create 16 in
+    if m.supports_vision then Buffer.add_string badges " vision";
+    if m.supports_thinking then Buffer.add_string badges " thinking";
+    if m.deprecated then Buffer.add_string badges " deprecated";
+    if m.unavailable then Buffer.add_string badges " unavailable";
+    Buffer.contents badges
+  in
   let catalog_lines =
     List.map
       (fun m ->
         let full = Printf.sprintf "%s:%s" m.provider m.id in
         let ctx = format_context_window m.context_window in
-        let badges = Buffer.create 16 in
-        if m.supports_vision then Buffer.add_string badges " vision";
-        if m.supports_thinking then Buffer.add_string badges " thinking";
-        let badge_str = Buffer.contents badges in
+        let badge_str = format_badges m in
         if ctx = "" then full
         else if badge_str = "" then Printf.sprintf "%s (%s)" full ctx
         else Printf.sprintf "%s (%s%s)" full ctx badge_str)
-      non_deprecated
+      visible
   in
   let extra_lines =
-    List.map (fun (p, m) -> Printf.sprintf "%s:%s [db]" p m) db_extras
+    List.map
+      (fun m ->
+        let tags =
+          String.concat ""
+            (List.filter_map
+               (fun (enabled, label) ->
+                 if enabled then Some (" [" ^ label ^ "]") else None)
+               [
+                 (true, "db");
+                 (m.deprecated, "deprecated");
+                 (m.unavailable, "unavailable");
+               ])
+        in
+        Printf.sprintf "%s:%s%s" m.provider m.id tags)
+      (List.filter (matches_availability availability) db_extras)
   in
   String.concat "\n" (catalog_lines @ extra_lines)
 
-let to_json ?(provider_filter = None) () : Yojson.Safe.t =
+let to_json ?(provider_filter = None) ?(availability = Available)
+    ?(db_extras = []) () : Yojson.Safe.t =
   let filtered =
     match provider_filter with None -> known_models | Some p -> by_provider p
+  in
+  let filtered =
+    List.filter (matches_availability availability) (filtered @ db_extras)
   in
   `List
     (List.map
@@ -956,6 +716,7 @@ let to_json ?(provider_filter = None) () : Yojson.Safe.t =
            :: ("supports_tools", `Bool m.supports_tools)
            :: ("supports_thinking", `Bool m.supports_thinking)
            :: ("deprecated", `Bool m.deprecated)
+           :: ("unavailable", `Bool m.unavailable)
            :: fields
          in
          `Assoc (List.rev fields))

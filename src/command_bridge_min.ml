@@ -155,12 +155,52 @@ let cmd_config args =
       \  search QUERY     Search config keys matching QUERY"
 
 let cmd_models args =
+  let parse_availability value =
+    match Models_catalog.availability_filter_of_string value with
+    | Some availability -> Ok availability
+    | None ->
+        Error
+          (Printf.sprintf
+             "Error: invalid availability filter '%s'. Use available, \
+              unavailable, or all."
+             value)
+  in
+  let parse_list_args args =
+    let rec loop provider_filter availability = function
+      | [] -> Ok (provider_filter, availability)
+      | "--provider" :: p :: rest -> loop (Some p) availability rest
+      | "--availability" :: value :: rest -> (
+          match parse_availability value with
+          | Ok availability -> loop provider_filter availability rest
+          | Error _ as err -> err)
+      | "--available" :: rest ->
+          loop provider_filter Models_catalog.Available rest
+      | "--unavailable" :: rest ->
+          loop provider_filter Models_catalog.Unavailable rest
+      | "--all" :: rest -> loop provider_filter Models_catalog.All rest
+      | "--availability" :: [] ->
+          Error
+            "Error: --availability requires one of: available, unavailable, \
+             all."
+      | bad :: _ ->
+          Error
+            (Printf.sprintf
+               "Error: unrecognized models list option '%s'. Usage: clawq-min \
+                models list [--provider P] [--availability \
+                available|unavailable|all]"
+               bad)
+    in
+    loop None Models_catalog.Available args
+  in
   match args with
   | [] | [ "list" ] ->
       let provider_filter = None in
       Models_catalog.to_plain_list ~provider_filter ()
-  | [ "list"; "--provider"; p ] ->
-      Models_catalog.to_plain_list ~provider_filter:(Some p) ()
+  | "list" :: rest -> (
+      match parse_list_args rest with
+      | Ok (provider_filter, availability) ->
+          Models_catalog.to_plain_list ~provider_filter ~availability ()
+      | Error msg -> msg)
   | [ "set-default"; model ] -> (
       match Models_catalog.find_by_full_name model with
       | Some _ -> Config_set.set_value "agent_defaults.primary_model" model
@@ -170,8 +210,7 @@ let cmd_models args =
   | _ ->
       "Usage: clawq-min models <subcommand>\n\n\
        Subcommands:\n\
-      \  list [--provider P]     List known models (optionally filter by \
-       provider)\n\
+      \  list [--provider P] [--availability available|unavailable|all]\n\
       \  set-default MODEL       Set default model"
 
 let cmd_usage _ =

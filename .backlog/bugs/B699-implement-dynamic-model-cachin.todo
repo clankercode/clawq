@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-06-25T17:42:03Z"
+claimed_by: cli-user
+completed_at: "2026-06-25T19:57:23Z"
 complexity: medium
 depends_on: []
+duration_minutes: 135.33562867323334
 estimate_hours: 1
 id: B699
 priority: high
-status: pending
+started_at: "2026-06-25T17:42:03Z"
+status: done
 tags: []
 title: Implement dynamic model caching and ensure we keep an up-to-date record of models available for each provider in the DB. We should seed this with our offline cached list if the table doesn't exist, and we can add new models. There's a `<baseurl>/models` route on the OpenAI API thing I think at least. xiaomi supports that at least.
 ---

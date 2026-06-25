@@ -18,7 +18,7 @@ type model_action =
   | ModelSetDefault of string
   | ModelFav of string
   | ModelUnfav of string
-  | ModelList of string option
+  | ModelList of string option * Models_catalog.availability_filter
   | ModelUsage
 
 type costs_action =
@@ -726,8 +726,9 @@ let format_model_usage_text ~connector =
   ^ "         \xe2\x80\x94 Toggle favorite status\n  "
   ^ Format_adapter.code connector "/model unfav <name>"
   ^ "       \xe2\x80\x94 Remove from favorites\n  "
-  ^ Format_adapter.code connector "/model list [provider]"
-  ^ "    \xe2\x80\x94 List available models\n  "
+  ^ Format_adapter.code connector
+      "/model list [provider] [available|unavailable|all]"
+  ^ " \xe2\x80\x94 List models\n  "
   ^ Format_adapter.code connector "/model usage"
   ^ "              \xe2\x80\x94 Show provider quota/usage"
 

@@ -127,6 +127,289 @@ let test_load_codex_missing_file () =
       in
       Alcotest.(check int) "0 when missing" 0 count)
 
+let query_one_string db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> "")
+      | _ -> "")
+
+let query_one_int db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0)
+      | _ -> 0)
+
+let exec db sql =
+  match Sqlite3.exec db sql with
+  | Sqlite3.Rc.OK -> ()
+  | rc ->
+      Alcotest.failf "sqlite exec failed (%s): %s" (Sqlite3.Rc.to_string rc) sql
+
+let test_seed_catalog_models_populates_models_cache () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      let seeded = Model_discovery.seed_catalog_models ~db in
+      Alcotest.(check bool) "seeded some catalog rows" true (seeded > 0);
+      Alcotest.(check string)
+        "source" "catalog"
+        (query_one_string db
+           "SELECT source FROM models_cache WHERE provider = 'openai' AND \
+            model_id = 'gpt-5.4'");
+      Alcotest.(check int)
+        "context" 1050000
+        (query_one_int db
+           "SELECT context_window FROM models_cache WHERE provider = 'openai' \
+            AND model_id = 'gpt-5.4'");
+      Alcotest.(check int)
+        "deprecated false" 0
+        (query_one_int db
+           "SELECT deprecated FROM models_cache WHERE provider = 'openai' AND \
+            model_id = 'gpt-5.4'");
+      Alcotest.(check int)
+        "unavailable false" 0
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openai' AND \
+            model_id = 'gpt-5.4'"))
+
+let test_seed_catalog_models_is_idempotent () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      ignore (Model_discovery.seed_catalog_models ~db);
+      let before = query_one_int db "SELECT COUNT(*) FROM models_cache" in
+      ignore (Model_discovery.seed_catalog_models ~db);
+      let after = query_one_int db "SELECT COUNT(*) FROM models_cache" in
+      Alcotest.(check int) "row count stable" before after)
+
+let test_seed_catalog_models_preserves_codex_cli_metadata () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      Alcotest.(check bool)
+        "inserted" true
+        (Model_discovery.upsert_model_rich ~db ~provider:"openai-codex"
+           ~model_id:"gpt-5.3-codex" ~display_name:(Some "From Codex")
+           ~context_window:(Some 999) ~supports_vision:false
+           ~supports_tools:false ~supports_thinking:false ~source:"codex-cli" ());
+      ignore (Model_discovery.seed_catalog_models ~db);
+      Alcotest.(check string)
+        "source preserved" "codex-cli"
+        (query_one_string db
+           "SELECT source FROM models_cache WHERE provider = 'openai-codex' \
+            AND model_id = 'gpt-5.3-codex'");
+      Alcotest.(check string)
+        "display preserved" "From Codex"
+        (query_one_string db
+           "SELECT display_name FROM models_cache WHERE provider = \
+            'openai-codex' AND model_id = 'gpt-5.3-codex'"))
+
+let test_seed_catalog_models_updates_catalog_status_flags () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      exec db
+        "INSERT INTO models_cache (provider, model_id, display_name, \
+         context_window, supports_vision, supports_tools, supports_thinking, \
+         source, deprecated, unavailable) VALUES ('openai', 'gpt-4', 'From \
+         Provider', 999, 1, 1, 1, 'provider-api', 0, 0)";
+      ignore (Model_discovery.seed_catalog_models ~db);
+      Alcotest.(check string)
+        "source preserved" "provider-api"
+        (query_one_string db
+           "SELECT source FROM models_cache WHERE provider = 'openai' AND \
+            model_id = 'gpt-4'");
+      Alcotest.(check string)
+        "display preserved" "From Provider"
+        (query_one_string db
+           "SELECT display_name FROM models_cache WHERE provider = 'openai' \
+            AND model_id = 'gpt-4'");
+      Alcotest.(check int)
+        "context preserved" 999
+        (query_one_int db
+           "SELECT context_window FROM models_cache WHERE provider = 'openai' \
+            AND model_id = 'gpt-4'");
+      Alcotest.(check int)
+        "catalog deprecated authoritative" 1
+        (query_one_int db
+           "SELECT deprecated FROM models_cache WHERE provider = 'openai' AND \
+            model_id = 'gpt-4'");
+      Alcotest.(check int)
+        "catalog unavailable authoritative" 0
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openai' AND \
+            model_id = 'gpt-4'"))
+
+let test_provider_refresh_preserves_catalog_metadata () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      ignore (Model_discovery.seed_catalog_models ~db);
+      let count =
+        Model_discovery.upsert_models ~db ~provider:"openai" [ "gpt-5.4" ]
+      in
+      Alcotest.(check int) "upserted one id" 1 count;
+      Alcotest.(check int)
+        "context preserved" 1050000
+        (query_one_int db
+           "SELECT context_window FROM models_cache WHERE provider = 'openai' \
+            AND model_id = 'gpt-5.4'");
+      Alcotest.(check int)
+        "supports thinking preserved" 1
+        (query_one_int db
+           "SELECT supports_thinking FROM models_cache WHERE provider = \
+            'openai' AND model_id = 'gpt-5.4'"))
+
+let test_provider_refresh_reconciles_provider_api_availability () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      exec db
+        "INSERT INTO models_cache (provider, model_id, display_name, \
+         context_window, supports_vision, supports_tools, supports_thinking, \
+         source, deprecated, unavailable) VALUES ('openrouter', \
+         'returned-model', 'Rich Returned', 12345, 1, 1, 1, 'provider-api', 0, \
+         1)";
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'stale-model', 'provider-api', 0, \
+         0)";
+      let count =
+        Model_discovery.upsert_models ~db ~provider:"openrouter"
+          [ "returned-model"; "new-model" ]
+      in
+      Alcotest.(check int) "upserted returned rows" 2 count;
+      Alcotest.(check int)
+        "returned row made available" 0
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openrouter' \
+            AND model_id = 'returned-model'");
+      Alcotest.(check string)
+        "display metadata preserved" "Rich Returned"
+        (query_one_string db
+           "SELECT display_name FROM models_cache WHERE provider = \
+            'openrouter' AND model_id = 'returned-model'");
+      Alcotest.(check int)
+        "context metadata preserved" 12345
+        (query_one_int db
+           "SELECT context_window FROM models_cache WHERE provider = \
+            'openrouter' AND model_id = 'returned-model'");
+      Alcotest.(check int)
+        "stale provider-api row retired" 1
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openrouter' \
+            AND model_id = 'stale-model'");
+      Alcotest.(check int)
+        "new row available" 0
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openrouter' \
+            AND model_id = 'new-model'"))
+
+let test_provider_refresh_does_not_retire_non_provider_api_rows () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'catalog-only', 'catalog', 0, 0)";
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'codex-only', 'codex-cli', 0, 0)";
+      ignore
+        (Model_discovery.upsert_models ~db ~provider:"openrouter"
+           [ "returned-model" ]);
+      Alcotest.(check int)
+        "catalog row remains available" 0
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openrouter' \
+            AND model_id = 'catalog-only'");
+      Alcotest.(check int)
+        "codex-cli row remains available" 0
+        (query_one_int db
+           "SELECT unavailable FROM models_cache WHERE provider = 'openrouter' \
+            AND model_id = 'codex-only'"))
+
+let test_xiaomi_kind_is_refreshable_with_key_and_base_url () =
+  let pc =
+    {
+      Runtime_config.default_provider_config with
+      api_key = "sk-xiaomi-test";
+      kind = Some "xiaomi";
+      base_url = Some "http://127.0.0.1:1/v1";
+    }
+  in
+  Alcotest.(check bool)
+    "xiaomi with key is not skipped" false
+    (Model_discovery.should_skip_provider ~name:"xiaomi" pc)
+
+let test_get_db_only_model_infos_excludes_catalog_and_marks_flags () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      ignore (Model_discovery.seed_catalog_models ~db);
+      exec db
+        "INSERT INTO models_cache (provider, model_id, display_name, \
+         context_window, supports_vision, supports_tools, supports_thinking, \
+         source, deprecated, unavailable) VALUES ('openrouter', 'custom-live', \
+         'Custom Live', 12345, 1, 1, 0, 'provider-api', 0, 0)";
+      let infos =
+        Model_discovery.get_db_only_model_infos ~db
+          ~provider_filter:(Some "openrouter") ()
+      in
+      Alcotest.(check int) "one db-only info" 1 (List.length infos);
+      let info = List.hd infos in
+      Alcotest.(check string)
+        "provider" "openrouter" info.Models_catalog.provider;
+      Alcotest.(check string) "model id" "custom-live" info.Models_catalog.id;
+      Alcotest.(check (option int))
+        "context" (Some 12345) info.Models_catalog.context_window;
+      Alcotest.(check bool) "vision" true info.Models_catalog.supports_vision;
+      Alcotest.(check bool) "deprecated" false info.Models_catalog.deprecated)
+
+let test_cached_model_disallowed_when_deprecated_or_unavailable () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'old-model', 'provider-api', 1, 0)";
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'off-model', 'provider-api', 0, 1)";
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'live-model', 'provider-api', 0, \
+         0)";
+      Alcotest.(check bool)
+        "deprecated disallowed" true
+        (Model_discovery.cached_model_disallowed ~db "openrouter:old-model");
+      Alcotest.(check bool)
+        "unavailable disallowed" true
+        (Model_discovery.cached_model_disallowed ~db "openrouter:off-model");
+      Alcotest.(check bool)
+        "live not disallowed" false
+        (Model_discovery.cached_model_disallowed ~db "openrouter:live-model");
+      Alcotest.(check bool)
+        "live exists" true
+        (Model_discovery.cached_model_exists ~db "openrouter:live-model"))
+
+let test_cached_model_status_resolves_known_plain_catalog_name () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory_0_schema.init_models_cache_schema db;
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openai', 'gpt-4', 'catalog', 1, 0)";
+      exec db
+        "INSERT INTO models_cache (provider, model_id, source, deprecated, \
+         unavailable) VALUES ('openrouter', 'old-model', 'provider-api', 1, 0)";
+      Alcotest.(check bool)
+        "known plain catalog model is disallowed" true
+        (Model_discovery.cached_model_disallowed ~db "gpt-4");
+      Alcotest.(check bool)
+        "unknown plain db-only model is not invented" false
+        (Model_discovery.cached_model_disallowed ~db "old-model"))
+
 (* B676: provider configs without an explicit `kind` should still be skipped
    when the provider NAME matches a known-non-/v1/models-supporting backend
    (e.g. kimi_coding, zai_coding). Previously these triggered HTTP 401. *)
@@ -160,6 +443,39 @@ let suite =
   [
     ("load codex file models", `Quick, test_load_codex_file_models);
     ("load codex missing file", `Quick, test_load_codex_missing_file);
+    ( "seed_catalog_models populates models_cache",
+      `Quick,
+      test_seed_catalog_models_populates_models_cache );
+    ( "seed_catalog_models is idempotent",
+      `Quick,
+      test_seed_catalog_models_is_idempotent );
+    ( "seed_catalog_models preserves codex-cli metadata",
+      `Quick,
+      test_seed_catalog_models_preserves_codex_cli_metadata );
+    ( "seed_catalog_models updates catalog status flags",
+      `Quick,
+      test_seed_catalog_models_updates_catalog_status_flags );
+    ( "provider refresh preserves catalog metadata",
+      `Quick,
+      test_provider_refresh_preserves_catalog_metadata );
+    ( "provider refresh reconciles provider-api availability",
+      `Quick,
+      test_provider_refresh_reconciles_provider_api_availability );
+    ( "provider refresh does not retire non-provider-api rows",
+      `Quick,
+      test_provider_refresh_does_not_retire_non_provider_api_rows );
+    ( "xiaomi kind is refreshable with key/base_url",
+      `Quick,
+      test_xiaomi_kind_is_refreshable_with_key_and_base_url );
+    ( "get_db_only_model_infos excludes catalog and marks flags",
+      `Quick,
+      test_get_db_only_model_infos_excludes_catalog_and_marks_flags );
+    ( "cached model disallowed when deprecated or unavailable",
+      `Quick,
+      test_cached_model_disallowed_when_deprecated_or_unavailable );
+    ( "cached model status resolves known plain catalog name",
+      `Quick,
+      test_cached_model_status_resolves_known_plain_catalog_name );
     ( "skip by name when kind absent (B676)",
       `Quick,
       test_skip_by_name_when_kind_absent );

@@ -15,6 +15,73 @@ let contains s sub =
     done;
     !found
 
+let read_all ic =
+  let buf = Buffer.create 1024 in
+  (try
+     while true do
+       Buffer.add_channel buf ic 1024
+     done
+   with End_of_file -> ());
+  Buffer.contents buf
+
+let repo_root () =
+  let exe =
+    if Filename.is_relative Sys.executable_name then
+      Filename.concat (Sys.getcwd ()) Sys.executable_name
+    else Sys.executable_name
+  in
+  exe |> Filename.dirname |> Filename.dirname |> Filename.dirname
+  |> Filename.dirname
+
+let main_exe () = Filename.concat (repo_root ()) "_build/default/src/main.exe"
+let source_main () = Filename.concat (repo_root ()) "src/main.ml"
+
+let file_mtime path =
+  try Some (Unix.stat path).Unix.st_mtime with Unix.Unix_error _ -> None
+
+let main_exe_available_and_fresh () =
+  match (file_mtime (main_exe ()), file_mtime (source_main ())) with
+  | Some exe_mtime, Some source_mtime -> exe_mtime >= source_mtime
+  | _ -> false
+
+let with_temp_home f =
+  let dir = Filename.temp_file "clawq_cmd_home_" ".tmp" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o755;
+  Fun.protect
+    (fun () -> f dir)
+    ~finally:(fun () ->
+      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
+      try Unix.rmdir dir with _ -> ())
+
+let run_main_command ~home args =
+  let main = main_exe () in
+  let skip_env entry =
+    List.exists
+      (fun prefix ->
+        let plen = String.length prefix in
+        String.length entry >= plen && String.sub entry 0 plen = prefix)
+      [ "HOME="; "CLAWQ_HOME=" ]
+  in
+  let env =
+    Unix.environment () |> Array.to_list
+    |> List.filter (fun entry -> not (skip_env entry))
+    |> fun env -> Array.of_list (("HOME=" ^ home) :: env)
+  in
+  let argv = Array.of_list (main :: args) in
+  let ic, oc, ec = Unix.open_process_args_full main argv env in
+  close_out oc;
+  let stdout_text = read_all ic in
+  let stderr_text = read_all ec in
+  let status = Unix.close_process_full (ic, oc, ec) in
+  let exit_code =
+    match status with
+    | Unix.WEXITED n -> n
+    | Unix.WSIGNALED n -> 128 + n
+    | Unix.WSTOPPED n -> 128 + n
+  in
+  (exit_code, stdout_text, stderr_text)
+
 let test_help_returns_something () =
   (* Test the version info or config show via direct function calls *)
   (* We test the help-equivalent: status returns non-empty output *)
@@ -87,6 +154,54 @@ let test_min_delegate_disabled_message () =
   Alcotest.(check bool)
     "minimal delegate explains disabled surface" true
     (contains out "not available in the minimal build")
+
+let test_min_models_list_accepts_availability_flags () =
+  let unavailable =
+    Command_bridge_min.handle [ "models"; "list"; "--unavailable" ]
+  in
+  let all =
+    Command_bridge_min.handle
+      [ "models"; "list"; "--availability"; "all"; "--provider"; "openai" ]
+  in
+  let available =
+    Command_bridge_min.handle [ "models"; "list"; "--available" ]
+  in
+  Alcotest.(check bool)
+    "unavailable flag accepted" false
+    (contains unavailable "Usage: clawq-min models");
+  Alcotest.(check bool)
+    "unavailable output shows deprecated badge" true
+    (contains unavailable "deprecated");
+  Alcotest.(check bool)
+    "all availability accepted with provider" false
+    (contains all "Usage: clawq-min models");
+  Alcotest.(check bool)
+    "available flag accepted" false
+    (contains available "Usage: clawq-min models")
+
+let test_real_models_list_accepts_availability_flags () =
+  if not (main_exe_available_and_fresh ()) then Alcotest.skip ();
+  with_temp_home (fun home ->
+      let cases =
+        [
+          [ "models"; "list"; "--availability"; "all"; "--provider"; "openai" ];
+          [ "models"; "list"; "--available" ];
+          [ "models"; "list"; "--unavailable" ];
+          [ "models"; "list"; "--all" ];
+        ]
+      in
+      List.iter
+        (fun args ->
+          let exit_code, stdout_text, stderr_text =
+            run_main_command ~home args
+          in
+          Alcotest.(check int) ("exit " ^ String.concat " " args) 0 exit_code;
+          Alcotest.(check bool)
+            ("no unknown option for " ^ String.concat " " args)
+            false
+            (contains stderr_text "unknown option"
+            || contains stdout_text "unknown option"))
+        cases)
 
 (* ===== Config parsing without file I/O ===== *)
 
@@ -427,6 +542,10 @@ let suite =
       test_min_background_disabled_message;
     Alcotest.test_case "minimal delegate disabled message" `Quick
       test_min_delegate_disabled_message;
+    Alcotest.test_case "minimal models list accepts availability flags" `Quick
+      test_min_models_list_accepts_availability_flags;
+    Alcotest.test_case "real models list accepts availability flags" `Quick
+      test_real_models_list_accepts_availability_flags;
     Alcotest.test_case "config default model" `Quick test_config_default_model;
     Alcotest.test_case "config default temperature" `Quick
       test_config_default_temperature;

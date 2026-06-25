@@ -65,9 +65,17 @@ let rec result_to_string = function
       "Model(Fav " ^ name ^ ")"
   | Slash_commands.Model (Slash_commands.ModelUnfav name) ->
       "Model(Unfav " ^ name ^ ")"
-  | Slash_commands.Model (Slash_commands.ModelList None) -> "Model(List)"
-  | Slash_commands.Model (Slash_commands.ModelList (Some p)) ->
+  | Slash_commands.Model
+      (Slash_commands.ModelList (None, Models_catalog.Available)) ->
+      "Model(List)"
+  | Slash_commands.Model
+      (Slash_commands.ModelList (Some p, Models_catalog.Available)) ->
       "Model(List " ^ p ^ ")"
+  | Slash_commands.Model
+      (Slash_commands.ModelList (p, Models_catalog.Unavailable)) ->
+      "Model(List " ^ Option.value ~default:"-" p ^ " unavailable)"
+  | Slash_commands.Model (Slash_commands.ModelList (p, Models_catalog.All)) ->
+      "Model(List " ^ Option.value ~default:"-" p ^ " all)"
   | Slash_commands.Model Slash_commands.ModelUsage -> "Model(Usage)"
   | Slash_commands.Model (Slash_commands.ModelSetDefault name) ->
       "Model(SetDefault " ^ name ^ ")"
@@ -906,6 +914,39 @@ let test_model_set_default () =
       Alcotest.fail
         (Printf.sprintf "expected Model(ModelSetDefault), got %s"
            (result_to_string other))
+
+let test_model_list_provider_and_availability_flags () =
+  match Slash_commands.handle "/model list --provider openai --all" with
+  | Slash_commands.Model
+      (Slash_commands.ModelList (Some "openai", Models_catalog.All)) ->
+      ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(List openai all), got %s"
+           (result_to_string other))
+
+let test_model_list_malformed_provider_flags_show_usage () =
+  let cases =
+    [
+      "/model list --provider";
+      "/model list --provider --all";
+      "/model list --foo";
+    ]
+  in
+  List.iter
+    (fun command ->
+      match extract_text (Slash_commands.handle command) with
+      | Some text ->
+          Alcotest.(check bool)
+            (command ^ " mentions /model")
+            true
+            (contains_str text "/model");
+          Alcotest.(check bool)
+            (command ^ " mentions list")
+            true (contains_str text "list")
+      | None ->
+          Alcotest.failf "expected usage text for malformed command %s" command)
+    cases
 
 let test_debug_dump_chat_command () =
   Alcotest.check result_testable "/debug_dump_chat returns AdminRequired"
@@ -2860,6 +2901,10 @@ let suite =
     Alcotest.test_case "/model set slash format" `Quick
       test_model_set_slash_format;
     Alcotest.test_case "/model set-default" `Quick test_model_set_default;
+    Alcotest.test_case "/model list provider and availability flags" `Quick
+      test_model_list_provider_and_availability_flags;
+    Alcotest.test_case "/model list malformed provider flags show usage" `Quick
+      test_model_list_malformed_provider_flags_show_usage;
     Alcotest.test_case "/debug_dump_chat returns DebugDumpChat" `Quick
       test_debug_dump_chat_command;
     Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;

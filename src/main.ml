@@ -49,13 +49,34 @@ let models_list_cmd =
       & info [ "provider" ] ~docv:"P" ~doc:"Filter by provider name.")
   in
   let json = Arg.(value & flag & info [ "json" ] ~doc:"Output as JSON.") in
+  let availability_values =
+    [
+      ("available", Models_catalog.Available);
+      ("unavailable", Models_catalog.Unavailable);
+      ("all", Models_catalog.All);
+    ]
+  in
+  let availability =
+    Arg.(
+      value
+      & opt (some (enum availability_values)) None
+      & info [ "availability" ] ~docv:"MODE"
+          ~doc:"Filter by availability: available, unavailable, or all.")
+  in
+  let available =
+    Arg.(value & flag & info [ "available" ] ~doc:"Show available models.")
+  in
+  let unavailable =
+    Arg.(value & flag & info [ "unavailable" ] ~doc:"Show unavailable models.")
+  in
+  let all = Arg.(value & flag & info [ "all" ] ~doc:"Show all models.") in
   Cmd.v
     (Cmd.info "list"
        ~doc:
          "List known models from the catalog (optionally filter by provider).")
     Term.(
       ret
-        (const (fun provider json ->
+        (const (fun provider json availability available unavailable all ->
              let args = [ "list" ] in
              let args =
                match provider with
@@ -63,8 +84,23 @@ let models_list_cmd =
                | None -> args
              in
              let args = if json then args @ [ "--json" ] else args in
+             let args =
+               match availability with
+               | Some mode ->
+                   args
+                   @ [
+                       "--availability";
+                       Models_catalog.availability_filter_to_string mode;
+                     ]
+               | None -> args
+             in
+             let args = if available then args @ [ "--available" ] else args in
+             let args =
+               if unavailable then args @ [ "--unavailable" ] else args
+             in
+             let args = if all then args @ [ "--all" ] else args in
              run "models" args)
-        $ provider $ json))
+        $ provider $ json $ availability $ available $ unavailable $ all))
 
 let models_set_default_cmd =
   let model =

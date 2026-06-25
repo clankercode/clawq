@@ -1,4 +1,4 @@
-let schema_version = 30
+let schema_version = 31
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -161,6 +161,8 @@ let init_models_cache_schema db =
     \     supports_thinking INTEGER NOT NULL DEFAULT 0,\n\
     \     input_price_per_m REAL,\n\
     \     output_price_per_m REAL,\n\
+    \     deprecated INTEGER NOT NULL DEFAULT 0,\n\
+    \     unavailable INTEGER NOT NULL DEFAULT 0,\n\
     \     source TEXT,\n\
     \     fetched_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     UNIQUE(provider, model_id)\n\
@@ -519,6 +521,17 @@ let migrate_step db v =
           "ALTER TABLE session_state ADD COLUMN debug_enabled INTEGER NOT NULL \
            DEFAULT 0"
       with _ -> ())
+  | 30 -> (
+      (try
+         exec_exn db
+           "ALTER TABLE models_cache ADD COLUMN deprecated INTEGER NOT NULL \
+            DEFAULT 0"
+       with _ -> ());
+      try
+        exec_exn db
+          "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL \
+           DEFAULT 0"
+      with _ -> ())
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -542,7 +555,11 @@ let repair_missing_columns db =
      DEFAULT 0";
   try_add "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER";
   try_add "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL";
-  try_add "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+  try_add "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL";
+  try_add
+    "ALTER TABLE models_cache ADD COLUMN deprecated INTEGER NOT NULL DEFAULT 0";
+  try_add
+    "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0"
 
 let migrate_schema db current_version =
   match current_version with

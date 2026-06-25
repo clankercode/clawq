@@ -973,78 +973,93 @@ let handle_event ~(config : Runtime_config.slack_config)
                             ~channel_id ~text:err
                         in
                         Lwt.return "ok"
-                    | None ->
-                        let provider, model_id, fmt =
-                          Models_catalog.split_name name
-                        in
-                        let hint =
-                          match fmt with
-                          | Models_catalog.Legacy ->
-                              Printf.sprintf
-                                "\nHint: use %s:%s format instead of %s/%s."
-                                provider model_id provider model_id
-                          | _ -> ""
-                        in
-                        let warn =
-                          match fmt with
-                          | Models_catalog.Canonical | Models_catalog.Legacy ->
-                              let provider_in_config =
-                                List.mem_assoc provider cfg.providers
-                              in
-                              if not provider_in_config then
-                                Printf.sprintf
-                                  "\n\
-                                   Warning: provider '%s' not found in config. \
-                                   Add it to your config.json to use this \
-                                   model."
-                                  provider
-                              else ""
-                          | Models_catalog.Plain -> ""
-                        in
-                        Session.set_session_model session_manager ~key
-                          ~model:name;
-                        let model_info =
-                          Models_catalog.find_by_full_name name
-                        in
-                        let display =
-                          match (fmt, model_info) with
-                          | ( (Models_catalog.Canonical | Models_catalog.Legacy),
-                              _ ) ->
-                              Printf.sprintf
-                                "Model set to: %s (provider: %s)%s%s\n\
-                                 Persisted for this session across restarts. \
-                                 Use /model set-default to change the global \
-                                 default."
-                                model_id provider hint warn
-                          | Models_catalog.Plain, None ->
-                              Printf.sprintf
-                                "Warning: '%s' not found in model catalog. \
-                                 Setting anyway.\n\
-                                 Persisted for this session across restarts. \
-                                 Use /model set-default to change the global \
-                                 default."
-                                name
-                          | Models_catalog.Plain, Some m ->
-                              if m.Models_catalog.provider <> "" then
-                                Printf.sprintf
-                                  "Model set to: %s (provider: %s)\n\
-                                   Persisted for this session across restarts. \
-                                   Use /model set-default to change the global \
-                                   default."
-                                  m.Models_catalog.id m.Models_catalog.provider
-                              else
-                                Printf.sprintf
-                                  "Model set to: %s\n\
-                                   Persisted for this session across restarts. \
-                                   Use /model set-default to change the global \
-                                   default."
-                                  name
-                        in
-                        let* () =
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text:display
-                        in
-                        Lwt.return "ok")
+                    | None -> (
+                        match
+                          Model_discovery.validate_cached_model_allowed_opt
+                            (Session.get_db session_manager)
+                            name
+                        with
+                        | Some err ->
+                            let* () =
+                              send_message_fn ~bot_token:config.bot_token
+                                ~channel_id ~text:err
+                            in
+                            Lwt.return "ok"
+                        | None ->
+                            let provider, model_id, fmt =
+                              Models_catalog.split_name name
+                            in
+                            let hint =
+                              match fmt with
+                              | Models_catalog.Legacy ->
+                                  Printf.sprintf
+                                    "\nHint: use %s:%s format instead of %s/%s."
+                                    provider model_id provider model_id
+                              | _ -> ""
+                            in
+                            let warn =
+                              match fmt with
+                              | Models_catalog.Canonical | Models_catalog.Legacy
+                                ->
+                                  let provider_in_config =
+                                    List.mem_assoc provider cfg.providers
+                                  in
+                                  if not provider_in_config then
+                                    Printf.sprintf
+                                      "\n\
+                                       Warning: provider '%s' not found in \
+                                       config. Add it to your config.json to \
+                                       use this model."
+                                      provider
+                                  else ""
+                              | Models_catalog.Plain -> ""
+                            in
+                            Session.set_session_model session_manager ~key
+                              ~model:name;
+                            let model_info =
+                              Models_catalog.find_by_full_name name
+                            in
+                            let display =
+                              match (fmt, model_info) with
+                              | ( ( Models_catalog.Canonical
+                                  | Models_catalog.Legacy ),
+                                  _ ) ->
+                                  Printf.sprintf
+                                    "Model set to: %s (provider: %s)%s%s\n\
+                                     Persisted for this session across \
+                                     restarts. Use /model set-default to \
+                                     change the global default."
+                                    model_id provider hint warn
+                              | Models_catalog.Plain, None ->
+                                  Printf.sprintf
+                                    "Warning: '%s' not found in model catalog. \
+                                     Setting anyway.\n\
+                                     Persisted for this session across \
+                                     restarts. Use /model set-default to \
+                                     change the global default."
+                                    name
+                              | Models_catalog.Plain, Some m ->
+                                  if m.Models_catalog.provider <> "" then
+                                    Printf.sprintf
+                                      "Model set to: %s (provider: %s)\n\
+                                       Persisted for this session across \
+                                       restarts. Use /model set-default to \
+                                       change the global default."
+                                      m.Models_catalog.id
+                                      m.Models_catalog.provider
+                                  else
+                                    Printf.sprintf
+                                      "Model set to: %s\n\
+                                       Persisted for this session across \
+                                       restarts. Use /model set-default to \
+                                       change the global default."
+                                      name
+                            in
+                            let* () =
+                              send_message_fn ~bot_token:config.bot_token
+                                ~channel_id ~text:display
+                            in
+                            Lwt.return "ok"))
                 | ModelSetDefault name -> (
                     let provider, model_id, fmt =
                       Models_catalog.split_name name
@@ -1056,37 +1071,51 @@ let handle_event ~(config : Runtime_config.slack_config)
                             provider model_id
                       | _ -> ""
                     in
-                    let result =
-                      Config_set.set_json_value "agent_defaults.primary_model"
-                        (`String name)
-                    in
-                    match result with
-                    | Error e ->
+                    match
+                      Model_discovery.validate_cached_model_allowed_opt
+                        (Session.get_db session_manager)
+                        name
+                    with
+                    | Some err ->
                         let* () =
                           send_message_fn ~bot_token:config.bot_token
-                            ~channel_id
-                            ~text:(Printf.sprintf "Error writing config: %s" e)
+                            ~channel_id ~text:err
                         in
                         Lwt.return "ok"
-                    | Ok () ->
-                        let msg =
-                          match fmt with
-                          | Models_catalog.Canonical | Models_catalog.Legacy ->
-                              Printf.sprintf
-                                "Default model set to: %s (provider: %s)%s\n\
-                                 Applies to new sessions."
-                                model_id provider hint
-                          | Models_catalog.Plain ->
-                              Printf.sprintf
-                                "Default model set to: %s\n\
-                                 Applies to new sessions."
-                                name
+                    | None -> (
+                        let result =
+                          Config_set.set_json_value
+                            "agent_defaults.primary_model" (`String name)
                         in
-                        let* () =
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text:msg
-                        in
-                        Lwt.return "ok")
+                        match result with
+                        | Error e ->
+                            let* () =
+                              send_message_fn ~bot_token:config.bot_token
+                                ~channel_id
+                                ~text:
+                                  (Printf.sprintf "Error writing config: %s" e)
+                            in
+                            Lwt.return "ok"
+                        | Ok () ->
+                            let msg =
+                              match fmt with
+                              | Models_catalog.Canonical | Models_catalog.Legacy
+                                ->
+                                  Printf.sprintf
+                                    "Default model set to: %s (provider: %s)%s\n\
+                                     Applies to new sessions."
+                                    model_id provider hint
+                              | Models_catalog.Plain ->
+                                  Printf.sprintf
+                                    "Default model set to: %s\n\
+                                     Applies to new sessions."
+                                    name
+                            in
+                            let* () =
+                              send_message_fn ~bot_token:config.bot_token
+                                ~channel_id ~text:msg
+                            in
+                            Lwt.return "ok"))
                 | ModelFav name ->
                     let prefs = Model_preferences.toggle_favorite name in
                     let status =
@@ -1105,17 +1134,17 @@ let handle_event ~(config : Runtime_config.slack_config)
                         ~text:(Printf.sprintf "Removed from favorites: %s" name)
                     in
                     Lwt.return "ok"
-                | ModelList provider ->
+                | ModelList (provider, availability) ->
                     let db_extras =
                       match Session.get_db session_manager with
                       | None -> []
                       | Some db ->
-                          Model_discovery.get_db_only_models ~db
-                            ~provider_filter:provider
+                          Model_discovery.get_db_only_model_infos ~db
+                            ~provider_filter:provider ~availability ()
                     in
                     let models =
                       Models_catalog.to_plain_list ~provider_filter:provider
-                        ~db_extras ()
+                        ~availability ~db_extras ()
                       |> String.split_on_char '\n'
                       |> List.filter (fun s -> s <> "")
                     in
