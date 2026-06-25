@@ -110,8 +110,13 @@ let get_outbound_mutex chat_id =
   | Some m -> m
   | None ->
       let m = Lwt_mutex.create () in
-      Hashtbl.add outbound_mutexes chat_id m;
-      m
+      Hashtbl.replace outbound_mutexes chat_id m;
+      (* F3: re-check after insertion to handle concurrent creation race.
+         If two Lwt threads both passed find_opt=None, the second replace
+         overwrites the first. Re-fetch to return the canonical mutex. *)
+      (match Hashtbl.find_opt outbound_mutexes chat_id with
+       | Some existing -> existing
+       | None -> m)
 
 let with_outbound_lock ~chat_id f =
   let mutex = get_outbound_mutex chat_id in
