@@ -281,16 +281,26 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                               |> to_string
                             with _ -> ""
                           in
+                          (* H4: process message first, then ACK. If processing
+                             fails, the message can be retried by the server. *)
+                          let* result =
+                            handle_webhook_body ~config:lark_config
+                              ~session_mgr:session_manager msg
+                          in
+                          (* H3: log errors from handle_webhook_body instead of
+                             silently discarding. *)
+                          (match result with
+                          | Ok () -> ()
+                          | Error err ->
+                              Logs.warn (fun m ->
+                                  m "Lark WS handle_webhook_body error: %s"
+                                    err));
                           let ack =
                             Yojson.Safe.to_string
                               (`Assoc
                                  [ ("code", `Int 0); ("logId", `String log_id) ])
                           in
                           let* () = Ws_client.send_text ws ack in
-                          let* _ =
-                            handle_webhook_body ~config:lark_config
-                              ~session_mgr:session_manager msg
-                          in
                           Lwt.return_unit
                         with exn ->
                           Logs.warn (fun m ->
