@@ -164,8 +164,12 @@ let remove_pid_file () =
   try Sys.remove tmp with _ -> ()
 
 let process_alive pid =
+  (* Check the process group (negative pid) to match background_task's
+     convention where child processes run in their own process group via
+     setsid. This avoids false negatives when the leader exits but a child
+     is still alive. *)
   try
-    Unix.kill pid 0;
+    Unix.kill (-pid) 0;
     true
   with Unix.Unix_error _ -> false
 

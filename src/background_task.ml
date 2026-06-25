@@ -181,9 +181,23 @@ let delete_queued_message ~db ~queue_id =
       ignore (Sqlite3.step stmt))
 
 let take_queued_messages ~db ~task_id =
-  let rows = list_queued_messages ~db ~task_id in
-  List.iter (fun msg -> delete_queued_message ~db ~queue_id:msg.id) rows;
-  rows
+  (* Wrap SELECT + DELETE in a single transaction so another reader cannot
+     grab the same messages between the read and the delete. *)
+  let exec_sql sql =
+    match Sqlite3.exec db sql with
+    | Sqlite3.Rc.OK -> ()
+    | rc ->
+        failwith
+          (Printf.sprintf "take_queued_messages txn error: %s (sql: %s)"
+             (Sqlite3.Rc.to_string rc) sql)
+  in
+  exec_sql "BEGIN IMMEDIATE";
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.exec db "COMMIT"))
+    (fun () ->
+      let rows = list_queued_messages ~db ~task_id in
+      List.iter (fun msg -> delete_queued_message ~db ~queue_id:msg.id) rows;
+      rows)
 
 let queued_message_count ~db ~task_id =
   let sql =
@@ -930,7 +944,18 @@ let request_resume ~message ~db ~id =
             | None -> ()
           else
             match task.pid with
-            | Some pid when pid > 0 -> Process_group.terminate_blocking pid
+            | Some pid when pid > 0 ->
+                Process_group.terminate_blocking pid;
+                (* Wait briefly for the process group to fully exit before
+                   requeueing, so the next scheduler tick does not race
+                   against the dying process. *)
+                let deadline = Unix.gettimeofday () +. 3.0 in
+                while
+                  Process_group.group_alive pid
+                  && Unix.gettimeofday () < deadline
+                do
+                  Unix.sleepf 0.1
+                done
             | _ -> ())
       | _ -> ());
       match normalized_message with
@@ -1931,10 +1956,23 @@ let readopt_running_tasks ~db ~on_task_finished =
                         Lwt.return (exit_code_of_status (snd status)))
                       (function
                         | Unix.Unix_error (Unix.ECHILD, _, _) ->
+                            (* ECHILD means the process is not our child
+                               (likely reparented to init after daemon
+                               restart). Poll group_alive: once the process
+                               group is gone, return 0 (clean exit) since we
+                               cannot inspect the real exit status. Return 1
+                               only if we time out while still alive. *)
+                            let deadline =
+                              Unix.gettimeofday () +. 300.0
+                            in
                             let rec poll () =
-                              let* () = Lwt_unix.sleep 5.0 in
-                              if Process_group.group_alive pid then poll ()
-                              else Lwt.return 1
+                              if not (Process_group.group_alive pid) then
+                                Lwt.return 0
+                              else if Unix.gettimeofday () >= deadline then
+                                Lwt.return 1
+                              else
+                                let* () = Lwt_unix.sleep 5.0 in
+                                poll ()
                             in
                             poll ()
                         | exn -> Lwt.fail exn)
