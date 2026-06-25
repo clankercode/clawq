@@ -17,6 +17,8 @@ See `/tmp/clawq-review/master-list.md` for full details.
 | I8 | agent_router naming | Cosmetic naming issue |
 | E7 | IMAP literal handling | Complex structural change, low real-world impact |
 | H2 | Config loader fallback logging | 100+ fallback sites in config_loader.ml; only key channel/provider fields covered. Full coverage requires touching every `try...with _ -> default` pattern. |
+| R3-1 | make test stale lock after make build | Docker test container cannot inspect host-owned `_build/.lock`. Pre-existing harness issue; workaround is `scripts/clean_stale_dune_locks.sh`. |
+| R3-2 | Additional resource leaks in untouched files | 11 unprotected `open_in`/`open_out` patterns in background_task.ml, command_bridge*.ml, completions.ml, daemon*.ml. Low-impact paths (state files, completions); original master list focused on the most critical leaks. |
 
 ## I4 Architectural Note
 
