@@ -360,8 +360,7 @@ let test_service_signal_restart_preserves_history () =
           ""
       in
       Alcotest.(check bool)
-        "stream saw drain warning or gateway stopped cleanly"
-        true
+        "stream saw drain warning or gateway stopped cleanly" true
         (let warning = "Restarting soon, finishing current requests..." in
          try
            ignore

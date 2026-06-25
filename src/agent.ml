@@ -2,10 +2,23 @@ include Agent_0_compact
 
 let restart_interrupt_token = "__clawq_restart__"
 let queued_message_interrupt_token = "[queued inbound message]"
+let stop_interrupt_token = "__clawq_stop__"
+let stopped_by_admin_message = "Stopped by admin."
+
+let is_stop_interrupt = function
+  | Some reason when reason = stop_interrupt_token -> true
+  | _ -> false
 
 let is_queued_message_interrupt = function
   | Some reason when reason = queued_message_interrupt_token -> true
   | _ -> false
+
+let record_stopped_by_admin agent =
+  agent.history <-
+    Provider.make_message ~role:"assistant" ~content:stopped_by_admin_message
+    :: agent.history;
+  trim_history agent;
+  stopped_by_admin_message
 
 let active_workspace_files_for_config (config : Runtime_config.t) =
   let workspace = Runtime_config.effective_workspace config in
@@ -536,7 +549,8 @@ let perform_cwd_history_wipe agent =
    modify the same file, accepted in exchange for keeping attribution
    correct. *)
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-    ?interrupt_check ?on_tool_round_complete ~on_chunk calls =
+    ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug ~on_chunk calls
+    =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let notification_promises = ref [] in
@@ -563,6 +577,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           | None -> false)
       | None -> false
   in
+  let reserved_no_arg_skills = Hashtbl.create 8 in
   (* B607: emit ToolStart for every call up-front so the UI sees "running N"
      immediately. Audit log entries also fire up-front to match. *)
   List.iter
@@ -637,7 +652,14 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                         validate_required_with_escalation agent tool args
                       with
                       | Error msg -> (tc, Error msg)
-                      | Ok () -> (tc, Ok (Some (tool, args)))))))
+                      | Ok () -> (
+                          match
+                            Skill_invocation_guard.use_skill_loaded_noop
+                              ~reserved_no_arg_skills ~history:agent.history
+                              tool args
+                          with
+                          | Some response -> (tc, Error response)
+                          | None -> (tc, Ok (Some (tool, args))))))))
       calls
   in
   let* results =
@@ -740,7 +762,8 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                 let* result_for_history =
                   Tool_postprocess.process_tool_result ~config:agent.config ~db
                     ~session_key ~tool_name:tc.function_name
-                    ~history:agent.history ~raw_result:result
+                    ~history:agent.history ?on_llm_call_debug ~raw_result:result
+                    ()
                 in
                 let result_for_event =
                   if !streamed_output then result_for_history else result
@@ -846,7 +869,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
   Lwt.return_unit
 
 let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
-    ?on_tool_round_complete calls =
+    ?on_tool_round_complete ?on_llm_call_debug calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let pending_history_wipe = ref false in
@@ -864,6 +887,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           | None -> false)
       | None -> false
   in
+  let reserved_no_arg_skills = Hashtbl.create 8 in
   (* B607: emit tool invocation audit entries up-front for the whole batch. *)
   List.iter
     (fun (tc : Provider.tool_call) ->
@@ -923,7 +947,14 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                         validate_required_with_escalation agent tool args
                       with
                       | Error msg -> (tc, Error msg)
-                      | Ok () -> (tc, Ok (Some (tool, args)))))))
+                      | Ok () -> (
+                          match
+                            Skill_invocation_guard.use_skill_loaded_noop
+                              ~reserved_no_arg_skills ~history:agent.history
+                              tool args
+                          with
+                          | Some response -> (tc, Error response)
+                          | None -> (tc, Ok (Some (tool, args))))))))
       calls
   in
   let* results =
@@ -998,7 +1029,8 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                 let* result_for_history =
                   Tool_postprocess.process_tool_result ~config:agent.config ~db
                     ~session_key ~tool_name:tc.function_name
-                    ~history:agent.history ~raw_result:result
+                    ~history:agent.history ?on_llm_call_debug ~raw_result:result
+                    ()
                 in
                 Lwt.return
                   (Provider.make_tool_result ~tool_call_id:tc.id
@@ -1151,7 +1183,8 @@ let filter_content_parts_for_model config content_parts =
   | _ -> content_parts
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])
-    ?(workspace_refresh_checked = false) ?db () =
+    ?(workspace_refresh_checked = false) ?db
+    ?on_llm_call_debug:_on_llm_call_debug () =
   let open Lwt.Syntax in
   let* () =
     if workspace_refresh_checked then Lwt.return_unit
@@ -1183,7 +1216,8 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     ?on_inject_messages ?on_tool_round_complete ?runtime_context
-    ?(history_prepared = false) ?on_history_update ?on_stuck () =
+    ?(history_prepared = false) ?on_history_update ?on_stuck ?on_llm_call_debug
+    () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1375,6 +1409,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
       | None -> runtime_context
     in
     let current_request_history_len = List.length agent.history in
+    let llm_start = Unix.gettimeofday () in
     let* response =
       Lwt.catch
         (fun () ->
@@ -1396,6 +1431,32 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     track_cost ~current_request_history_len response;
     agent.last_request_history_len <- Some current_request_history_len;
+    (* Invoke debug callback if provided *)
+    (match on_llm_call_debug with
+    | Some cb ->
+        let llm_duration = Unix.gettimeofday () -. llm_start in
+        let model, usage, tool_call_count =
+          match response with
+          | Provider.Text { model; usage; _ } -> (model, usage, 0)
+          | Provider.ToolCalls { model; usage; calls; _ } ->
+              (model, usage, List.length calls)
+        in
+        let pname, _, _ =
+          Provider.select_provider ~config:agent.config
+            ?quota_states:quota_states_opt ()
+        in
+        let call =
+          {
+            Session_debug.provider = pname;
+            model;
+            duration_s = llm_duration;
+            usage;
+            tool_call_count;
+          }
+        in
+        Lwt.async (fun () ->
+            Lwt.catch (fun () -> cb call) (fun _exn -> Lwt.return_unit))
+    | None -> ());
     match response with
     | Provider.Text { content; provider_response_items_json; thinking; _ } ->
         let thinking =
@@ -1456,7 +1517,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         agent.history <- assistant_msg :: agent.history;
         let* () =
           execute_tool_calls agent ~db ~audit_enabled ~session_key
-            ?interrupt_check ?on_tool_round_complete calls
+            ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug calls
         in
         (match inject_messages with
         | Some get_msgs ->
@@ -1561,6 +1622,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
                    Restart-resume turns remap this token to a real stop
                    signal in daemon_util.ml. *)
                       loop (iteration + 1)
+                  | interrupt when is_stop_interrupt interrupt ->
+                      Lwt.return (record_stopped_by_admin agent)
                   | Some _ ->
                       let partial =
                         "[Agent was interrupted mid-task] --- [NOTE: \
@@ -1579,7 +1642,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     ?inject_messages ?on_inject_messages ?on_tool_round_complete
     ?runtime_context ?(history_prepared = false) ?on_history_update ?on_stuck
-    ~on_chunk () =
+    ?on_llm_call_debug ~on_chunk () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1792,6 +1855,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
       | None -> runtime_context
     in
     let current_request_history_len = List.length agent.history in
+    let llm_start = Unix.gettimeofday () in
     Lwt.catch
       (fun () ->
         let* response =
@@ -1815,6 +1879,32 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         in
         track_cost ~current_request_history_len response;
         agent.last_request_history_len <- Some current_request_history_len;
+        (* Invoke debug callback if provided *)
+        (match on_llm_call_debug with
+        | Some cb ->
+            let llm_duration = Unix.gettimeofday () -. llm_start in
+            let model, usage, tool_call_count =
+              match response with
+              | Provider.Text { model; usage; _ } -> (model, usage, 0)
+              | Provider.ToolCalls { model; usage; calls; _ } ->
+                  (model, usage, List.length calls)
+            in
+            let pname, _, _ =
+              Provider.select_provider ~config:agent.config
+                ?quota_states:quota_states_opt ()
+            in
+            let call =
+              {
+                Session_debug.provider = pname;
+                model;
+                duration_s = llm_duration;
+                usage;
+                tool_call_count;
+              }
+            in
+            Lwt.async (fun () ->
+                Lwt.catch (fun () -> cb call) (fun _exn -> Lwt.return_unit))
+        | None -> ());
         match response with
         | Provider.Text { content; provider_response_items_json; thinking; _ }
           ->
@@ -1874,7 +1964,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             agent.history <- assistant_msg :: agent.history;
             let* () =
               execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-                ?interrupt_check ?on_tool_round_complete ~on_chunk calls
+                ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
+                ~on_chunk calls
             in
             (match inject_messages with
             | Some get_msgs ->
@@ -1970,6 +2061,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                           Lwt.fail Restart_requested
                       | interrupt when is_queued_message_interrupt interrupt ->
                           loop (iteration + 1)
+                      | interrupt when is_stop_interrupt interrupt ->
+                          let stopped = record_stopped_by_admin agent in
+                          let* () = on_chunk (Provider.Delta stopped) in
+                          Lwt.return stopped
                       | Some _ ->
                           let partial = " --- [NOTE: interrupted by user]" in
                           agent.history <-
