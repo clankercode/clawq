@@ -696,3 +696,4 @@ bugs:
     - file: B699-implement-dynamic-model-cachin.todo
     - file: B700-limit-codex-gpt-5-5-to-272k-to.todo
     - file: B701-default-model-in-config-keeps.todo
+    - file: B702-add-memories-slash-command-to.todo

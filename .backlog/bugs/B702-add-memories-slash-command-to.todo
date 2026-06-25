@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B702
+priority: high
+status: pending
+tags: []
+title: Add /memories slash command to list memories (sorted by most recent, or '/memories oldest' sorting other way, should also have a way to like paginate or something. assuming we can order them at all.)
+---
+
+Add /memories slash command to list memories (sorted by most recent, or '/memories oldest' sorting other way, should also have a way to like paginate or something. assuming we can order them at all.)
