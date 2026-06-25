@@ -30,10 +30,16 @@ let generate_session_id () =
 let json_headers =
   Cohttp.Header.of_list [ ("Content-Type", "application/json") ]
 
-let cors_headers base =
+let cors_headers base config =
+  let origin =
+    match config.Runtime_config.allowed_origins with
+    | [] -> "*"
+    | [ single ] -> single
+    | multiple -> String.concat ", " multiple
+  in
   Cohttp.Header.add_list base
     [
-      ("Access-Control-Allow-Origin", "*");
+      ("Access-Control-Allow-Origin", origin);
       ("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       ("Access-Control-Allow-Headers", "Content-Type, Authorization");
     ]
@@ -68,7 +74,7 @@ let handle_pair t body_str =
     match t.config.totp_secret with
     | None ->
         Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
-          ~headers:(cors_headers json_headers)
+          ~headers:(cors_headers json_headers t.config)
           ~body:{|{"error":"pairing not configured"}|} ()
     | Some secret ->
         let now = Unix.gettimeofday () in
@@ -83,16 +89,16 @@ let handle_pair t body_str =
             |> Yojson.Safe.to_string
           in
           Cohttp_lwt_unix.Server.respond_string ~status:`OK
-            ~headers:(cors_headers json_headers)
+            ~headers:(cors_headers json_headers t.config)
             ~body:resp ()
         end
         else
           Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
-            ~headers:(cors_headers json_headers)
+            ~headers:(cors_headers json_headers t.config)
             ~body:{|{"error":"invalid pairing code"}|} ()
   with _ ->
     Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
-      ~headers:(cors_headers json_headers)
+      ~headers:(cors_headers json_headers t.config)
       ~body:{|{"error":"invalid request"}|} ()
 
 let handle_message t req body_str =
@@ -100,13 +106,13 @@ let handle_message t req body_str =
   match extract_bearer req with
   | None ->
       Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
-        ~headers:(cors_headers json_headers)
+        ~headers:(cors_headers json_headers t.config)
         ~body:{|{"error":"unauthorized"}|} ()
   | Some bearer -> (
       match validate_token t bearer with
       | None ->
           Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
-            ~headers:(cors_headers json_headers)
+            ~headers:(cors_headers json_headers t.config)
             ~body:{|{"error":"invalid or expired token"}|} ()
       | Some entry -> (
           let open Yojson.Safe.Util in
@@ -135,7 +141,7 @@ let handle_message t req body_str =
                   `Assoc [ ("reply", `String reply) ] |> Yojson.Safe.to_string
                 in
                 Cohttp_lwt_unix.Server.respond_string ~status:`OK
-                  ~headers:(cors_headers json_headers)
+                  ~headers:(cors_headers json_headers t.config)
                   ~body:resp ()
             | Error err ->
                 let resp =
@@ -143,24 +149,24 @@ let handle_message t req body_str =
                 in
                 Cohttp_lwt_unix.Server.respond_string
                   ~status:`Internal_server_error
-                  ~headers:(cors_headers json_headers)
+                  ~headers:(cors_headers json_headers t.config)
                   ~body:resp ()
           with _ ->
             Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
-              ~headers:(cors_headers json_headers)
+              ~headers:(cors_headers json_headers t.config)
               ~body:{|{"error":"invalid request body"}|} ()))
 
 let handle_events t req =
   match extract_bearer req with
   | None ->
       Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
-        ~headers:(cors_headers json_headers)
+        ~headers:(cors_headers json_headers t.config)
         ~body:{|{"error":"unauthorized"}|} ()
   | Some bearer -> (
       match validate_token t bearer with
       | None ->
           Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
-            ~headers:(cors_headers json_headers)
+            ~headers:(cors_headers json_headers t.config)
             ~body:{|{"error":"invalid or expired token"}|} ()
       | Some _entry ->
           let stream, push = Lwt_stream.create () in
@@ -174,13 +180,19 @@ let handle_events t req =
               push (Some "data: {\"type\":\"ping\"}\n\n");
               push None;
               Lwt.return_unit);
+          let origin =
+            match t.config.Runtime_config.allowed_origins with
+            | [] -> "*"
+            | [ single ] -> single
+            | multiple -> String.concat ", " multiple
+          in
           let headers =
             Cohttp.Header.of_list
               [
                 ("Content-Type", "text/event-stream");
                 ("Cache-Control", "no-cache");
                 ("Connection", "keep-alive");
-                ("Access-Control-Allow-Origin", "*");
+                ("Access-Control-Allow-Origin", origin);
               ]
           in
           Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
@@ -201,9 +213,9 @@ let handle_request t path meth req body_str =
   | `GET, "/events" -> handle_events t req
   | `OPTIONS, _ ->
       Cohttp_lwt_unix.Server.respond_string ~status:`No_content
-        ~headers:(cors_headers json_headers)
+        ~headers:(cors_headers json_headers t.config)
         ~body:"" ()
   | _ ->
       Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
-        ~headers:(cors_headers json_headers)
+        ~headers:(cors_headers json_headers t.config)
         ~body:{|{"error":"not found"}|} ()

@@ -64,7 +64,7 @@ let test_is_loopback () =
   Alcotest.(check bool) "127.0.0.1" true (Runner_relay.is_loopback "127.0.0.1");
   Alcotest.(check bool) "::1" true (Runner_relay.is_loopback "::1");
   Alcotest.(check bool) "localhost" true (Runner_relay.is_loopback "localhost");
-  Alcotest.(check bool) "unknown" true (Runner_relay.is_loopback "unknown");
+  Alcotest.(check bool) "unknown" false (Runner_relay.is_loopback "unknown");
   Alcotest.(check bool)
     "192.168.1.1" false
     (Runner_relay.is_loopback "192.168.1.1");

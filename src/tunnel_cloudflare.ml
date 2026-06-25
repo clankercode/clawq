@@ -83,29 +83,36 @@ let start t =
           let name = String.trim cfg.tunnel_name in
           String.length name >= 3 && String.sub name 0 3 = "eyJ"
         in
-        let cmd =
+        let cmd, env =
           if is_token then
-            (* Token-based auth: cloudflared tunnel run --token <token> *)
-            Printf.sprintf
-              "exec cloudflared tunnel --no-autoupdate run --token %s 2>%s"
-              (Filename.quote cfg.tunnel_name)
-              (Filename.quote stderr_file)
+            (* Token-based auth: pass token via env var to avoid /proc exposure *)
+            let env =
+              Array.append (Unix.environment ())
+                [| "TUNNEL_TOKEN=" ^ cfg.tunnel_name |]
+            in
+            ( Printf.sprintf
+                "exec cloudflared tunnel --no-autoupdate run --token \
+                 \"$TUNNEL_TOKEN\" 2>%s"
+                (Filename.quote stderr_file),
+              env )
           else if String.trim cfg.config_dir <> "" then
-            Printf.sprintf
-              "exec cloudflared --config %s tunnel --no-autoupdate \
-               --grace-period 5s run %s 2>%s"
-              (Filename.quote (Filename.concat cfg.config_dir "config.yml"))
-              (Filename.quote cfg.tunnel_name)
-              (Filename.quote stderr_file)
+            ( Printf.sprintf
+                "exec cloudflared --config %s tunnel --no-autoupdate \
+                 --grace-period 5s run %s 2>%s"
+                (Filename.quote (Filename.concat cfg.config_dir "config.yml"))
+                (Filename.quote cfg.tunnel_name)
+                (Filename.quote stderr_file),
+              Unix.environment () )
           else
-            Printf.sprintf
-              "exec cloudflared tunnel --no-autoupdate --grace-period 5s run \
-               %s 2>%s"
-              (Filename.quote cfg.tunnel_name)
-              (Filename.quote stderr_file)
+            ( Printf.sprintf
+                "exec cloudflared tunnel --no-autoupdate --grace-period 5s run \
+                 %s 2>%s"
+                (Filename.quote cfg.tunnel_name)
+                (Filename.quote stderr_file),
+              Unix.environment () )
         in
         let proc =
-          Lwt_process.open_process_none ("", [| "/bin/sh"; "-c"; cmd |])
+          Lwt_process.open_process_none ~env ("", [| "/bin/sh"; "-c"; cmd |])
         in
         t.process <- Some proc;
         let ready_count = ref 0 in

@@ -50,8 +50,12 @@ let cleanup_expired (tokens : tokens) =
   in
   List.iter (Hashtbl.remove tokens) to_remove
 
-let is_loopback ip =
-  ip = "127.0.0.1" || ip = "::1" || ip = "localhost" || ip = "unknown"
+(* Check if IP is a loopback address.
+   SECURITY: "unknown" is NOT treated as loopback. When no reverse proxy is
+   configured (no X-Forwarded-For header), client_ip returns "unknown" and
+   this function correctly rejects it. Deployments behind a reverse proxy must
+   ensure X-Forwarded-For is set. *)
+let is_loopback ip = ip = "127.0.0.1" || ip = "::1" || ip = "localhost"
 
 let relay_question
     ~(ask_fn :

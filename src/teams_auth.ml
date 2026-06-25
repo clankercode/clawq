@@ -96,7 +96,17 @@ let base64url_decode s =
   done;
   try Some (Base64.decode_exn (Buffer.contents buf)) with _ -> None
 
-(* Check JWT claims only — no RS256 signature verification.
+(* SECURITY WARNING: JWT claims-only validation — NO cryptographic signature
+   verification is performed.
+
+   This function validates aud/iss/exp/nbf claims but does NOT verify the
+   RS256 signature. Any attacker who knows the app_id and tenant_id can forge
+   a valid-looking JWT without access to Microsoft's signing keys.
+
+   Production deployments should fetch Microsoft's signing keys from
+   https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys
+   and verify the RS256 signature before trusting the claims.
+
    See TEAMS_API.md for the known limitation note. *)
 let check_jwt_claims ~(config : Runtime_config.teams_config) token =
   let parts = String.split_on_char '.' token in

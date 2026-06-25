@@ -156,21 +156,17 @@ let parse_gemini_response body model =
       with _ -> []
     in
     (* Check for function calls *)
-    let _tc_counter = ref 0 in
     let tool_calls =
-      List.filter_map
-        (fun part ->
+      List.mapi (fun idx part -> (idx, part)) parts
+      |> List.filter_map (fun (idx, part) ->
           try
             let fc = part |> member "functionCall" in
             let name = fc |> member "name" |> to_string in
             let args = fc |> member "args" in
             let arguments = Yojson.Safe.to_string args in
-            let idx = !_tc_counter in
-            incr _tc_counter;
             let id = Printf.sprintf "gemini_%s_%d" name idx in
             Some { Provider.id; function_name = name; arguments }
           with _ -> None)
-        parts
     in
     if tool_calls <> [] then
       Ok

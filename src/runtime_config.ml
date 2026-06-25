@@ -411,6 +411,7 @@ type web_channel_config = {
   path_prefix : string;
   totp_secret : string option;
   token_ttl_hours : int;
+  allowed_origins : string list;
 }
 
 type telemetry_config = {

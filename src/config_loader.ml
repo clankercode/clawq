@@ -1497,8 +1497,18 @@ let parse_config ?(resolve_secrets = true) json =
         let token_ttl_hours =
           try wc |> member "token_ttl_hours" |> to_int with _ -> 24
         in
+        let allowed_origins =
+          try wc |> member "allowed_origins" |> to_list |> List.map to_string
+          with _ -> []
+        in
         Some
-          ({ enabled; path_prefix; totp_secret; token_ttl_hours }
+          ({
+             enabled;
+             path_prefix;
+             totp_secret;
+             token_ttl_hours;
+             allowed_origins;
+           }
             : Runtime_config.web_channel_config)
     with _ -> None
   in
