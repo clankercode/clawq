@@ -4,6 +4,9 @@ let chunk_text ?(max_bytes = 4000) text =
   Channel_util.chunk_text ~max_len:max_bytes text
 
 let txn_counter = ref 0
+(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
+   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
+   protect with a mutex. *)
 
 let make_txn_id ~room_id =
   incr txn_counter;

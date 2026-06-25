@@ -534,6 +534,9 @@ type skill_cache = {
 }
 
 let global_cache : skill_cache option ref = ref None
+(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
+   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
+   protect with a mutex. *)
 let global_cache_get () = !global_cache
 
 let get_dir_mtime dir =

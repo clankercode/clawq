@@ -43,6 +43,9 @@ let api_base (endpoint : string) =
 
 (* Tenant access token cache *)
 let token_cache : (string * float) option ref = ref None
+(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
+   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
+   protect with a mutex. *)
 
 let get_tenant_access_token ~(config : Runtime_config.lark_config) =
   let open Lwt.Syntax in

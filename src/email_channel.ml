@@ -193,6 +193,9 @@ let imap_quote s =
   Buffer.contents buf
 
 let tag_counter = ref 0
+(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
+   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
+   protect with a mutex. *)
 
 let next_tag () =
   incr tag_counter;
