@@ -147,8 +147,8 @@ let handle_fs_write t ~id ~params =
         let* () =
           if Sys.file_exists dir then Lwt.return_unit
           else begin
-            ignore
-              (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)));
+            let cmd = Printf.sprintf "mkdir -p %s" (Filename.quote dir) in
+            let* _status = Lwt_process.exec (Lwt_process.shell cmd) in
             Lwt.return_unit
           end
         in
