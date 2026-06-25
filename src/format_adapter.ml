@@ -27,7 +27,21 @@ let escape connector text =
           | _ -> Buffer.add_char buf c)
         text;
       Buffer.contents buf
-  | Telegram_markdown | Telegram_mdv2 | Discord | Slack | Teams | Plain -> text
+  | Discord | Slack | Teams ->
+      (* Escape Markdown special characters to prevent unintended formatting.
+         Covers bold/italic (*_), strikethrough (~), code (`), and link syntax
+         ([ ] ( )). *)
+      let buf = Buffer.create (String.length text + 16) in
+      String.iter
+        (fun c ->
+          match c with
+          | '*' | '_' | '~' | '`' | '[' | ']' | '(' | ')' ->
+              Buffer.add_char buf '\\';
+              Buffer.add_char buf c
+          | _ -> Buffer.add_char buf c)
+        text;
+      Buffer.contents buf
+  | Telegram_markdown | Telegram_mdv2 | Plain -> text
 
 let of_parse_mode = function
   | "HTML" -> Telegram_html

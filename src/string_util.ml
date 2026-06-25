@@ -19,6 +19,10 @@ let contains haystack needle =
     done;
     !found
 
+(* Alias matching the name used across provider, ui_server, and
+   command_bridge_helpers — prefer this over local redefinitions. *)
+let string_contains = contains
+
 let unescape_newlines s =
   let len = String.length s in
   let buf = Buffer.create len in
