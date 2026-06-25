@@ -6,6 +6,7 @@ NPM_BIN="./npm-pkg/bin/clawq"
 NPM_DEBUG="./npm-pkg/bin/clawq.debug"
 
 echo "==> Building release-speed (-O2)..."
+mkdir -p npm-pkg/bin
 make build-opt-speed
 
 echo "==> Copying binary..."

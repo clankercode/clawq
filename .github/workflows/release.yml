@@ -36,12 +36,33 @@ jobs:
       - name: Build optimized size variant
         run: make build-opt-size-stripped SHELL_SWITCH="${{ steps.opam-switch.outputs.name }}"
 
-      - name: Rename artifacts
+      - name: Prepare npm binary + debug symbols
+        run: |
+          mkdir -p npm-pkg/bin
+          cp _build_opt_speed/default/src/main.exe npm-pkg/bin/clawq
+          objcopy --only-keep-debug npm-pkg/bin/clawq npm-pkg/bin/clawq.debug
+          chmod -x npm-pkg/bin/clawq.debug
+          strip npm-pkg/bin/clawq
+          objcopy --add-gnu-debuglink=npm-pkg/bin/clawq.debug npm-pkg/bin/clawq
+
+      - name: Set npm package version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd npm-pkg
+          npm version "${VERSION}" --no-git-tag-version
+
+      - name: Rename release artifacts
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARCH="$(uname -m)"
           mv dist/clawq-speed "dist/clawq-${VERSION}-linux-${ARCH}-speed"
           mv dist/clawq-size "dist/clawq-${VERSION}-linux-${ARCH}-size"
+
+      - name: Upload npm package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-pkg
+          path: npm-pkg/
 
       - name: Ensure GitHub release exists
         run: |
@@ -73,39 +94,16 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Download npm package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-pkg
+          path: npm-pkg
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
-
-      - name: Setup OCaml + opam
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5.1.1
-          cache-prefix: deps-${{ hashFiles('clawq.opam', 'dune-project') }}
-
-      - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
-
-      - name: Install opam deps
-        run: opam install -y . --deps-only
-
-      - name: Detect opam switch
-        id: opam-switch
-        run: echo "name=$(opam switch show)" >> "$GITHUB_OUTPUT"
-
-      - name: Build npm package
-        run: ./scripts/build-install.sh
-        env:
-          SHELL_SWITCH: ${{ steps.opam-switch.outputs.name }}
-
-      - name: Set package version from tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          cd npm-pkg
-          npm version "${VERSION}" --no-git-tag-version
 
       - name: Publish to npm (trusted, OIDC)
         run: cd npm-pkg && npm publish --access=public --provenance
