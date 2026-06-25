@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B690
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: "need to check logs around 2:52 am on 26th: are there multiple overlapping clawq instances processing this session? (this session being max DM with clawq.)\n\nSometimes it feels like the agent's replies happen multiple times. Also look into what happened in the `Amaroo HQ` room, where this happened:\n\n\n\n ✓ \U0001F4AC send_message — Understood. I will not use the task tree for this; I’ll ke... → ~23 tokens 1.634 s\n\n \n\nUnderstood. I will not use the task tree for this; I’ll keep any working notes in files only.\n\n \n\n✓ \U0001F50E grep — Slack|Teams|connector|background|memory|ambient|schedule|sch... in ~/src/clawq/README.md match *.md → 35 matches 1 ms\n✓ \U0001F4C2 glob — docs/**/*.md in ~/src/clawq → No files matched, , (warning: stopped after visiting 50... 15 ms\n✓ \U0001F50E grep — Claude Tag|Tag|Slack|Teams in ~/src/clawq match *.md → 42 matches 28 ms\n\n \n\n✓ \U0001F4AC send_message — Understood — no task tree. I’ll keep state in files if n... → ~23 tokens 2.285 s\n\n \n\nUnderstood — no task tree. I’ll keep state in files if needed, and I’m proceeding with the Claude Tag comparison artefacts.\n\n \n\n✓ \U0001F4AC send_message — Understood — I will not use the task tree. I’ll keep any... → ~23 tokens 1.632 s\n\n \n\nUnderstood — I will not use the task tree. I’ll keep any working notes in files instead, and I’m proceeding with the Claude Tag comparison deliverables.\n\n \n\n✓ \U0001F4AC send_message — Understood — I’ll avoid the task tree and use ordinary f... → ~23 tokens 1.799 s\n\n \n\nUnderstood — I’ll avoid the task tree and use ordinary files for working state/artifacts.\n\n \n\n\n\nI also note that clawq just now (in max DMs) has stored a memory at `user:bug_processing_preference` multiple times over, like 3 or 4 times now. Which is odd and probably wrong / a bug."
 ---
