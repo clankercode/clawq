@@ -1848,13 +1848,12 @@ let handler ~session_manager ~require_pairing ~auth_token
                     | ModelUsage ->
                         let cfg = Session.get_config session_manager in
                         Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
-                        let results =
-                          Lwt_main.run
-                            (Lwt_list.map_s
-                               (fun (name, pc) ->
-                                 Provider_quota.fetch_for_provider ~config:pc
-                                   ~name ())
-                               cfg.providers)
+                        let* results =
+                          Lwt_list.map_s
+                            (fun (name, pc) ->
+                              Provider_quota.fetch_for_provider ~config:pc ~name
+                                ())
+                            cfg.providers
                         in
                         let text =
                           Slash_commands.format_model_usage

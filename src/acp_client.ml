@@ -148,8 +148,10 @@ let handle_fs_write t ~id ~params =
           if Sys.file_exists dir then Lwt.return_unit
           else begin
             let cmd = Printf.sprintf "mkdir -p %s" (Filename.quote dir) in
-            let* _status = Lwt_process.exec (Lwt_process.shell cmd) in
-            Lwt.return_unit
+            let* status = Lwt_process.exec (Lwt_process.shell cmd) in
+            match status with
+            | Unix.WEXITED 0 -> Lwt.return_unit
+            | _ -> Lwt.fail (Failure (Printf.sprintf "mkdir failed for %s" dir))
           end
         in
         let* () =
@@ -307,15 +309,7 @@ let handle_permission_request t ~id ~params =
     | None ->
         send_response t ~id
           ~result:
-            (`Assoc
-               [
-                 ( "outcome",
-                   `Assoc
-                     [
-                       ("outcome", `String "selected");
-                       ("optionId", `String "allow-once");
-                     ] );
-               ])
+            (`Assoc [ ("outcome", `Assoc [ ("outcome", `String "cancelled") ]) ])
   end
   else
     send_response t ~id
@@ -591,6 +585,13 @@ let connect ?log_path ?db ?task_id ~command ~cwd ~auto_approve () =
            ])
   in
   let open Yojson.Safe.Util in
+  let resp_error =
+    try Some (resp |> member "error" |> member "message" |> to_string)
+    with _ -> None
+  in
+  (match resp_error with
+  | Some msg -> failwith (Printf.sprintf "ACP initialize failed: %s" msg)
+  | None -> ());
   let result = resp |> member "result" in
   let agent_caps =
     try
