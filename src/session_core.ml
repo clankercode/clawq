@@ -69,6 +69,11 @@ type t = {
   pending_questions : (string, string Lwt.u) Hashtbl.t;
   question_callbacks : (string, string) Hashtbl.t;
       (** Maps callback_id -> answer_text for pending questions. *)
+  resetting_sessions : (string, unit) Hashtbl.t;
+      (** F2: tombstone entries for sessions currently in reset() Phase 2.
+          Prevents new session creation during the race window between
+          removing the session from [sessions] and waiting for the
+          per-session mutex. *)
 }
 
 type drain_progress = {
@@ -277,6 +282,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     postmortem_circuit_breakers = Hashtbl.create 8;
     pending_questions = Hashtbl.create 8;
     question_callbacks = Hashtbl.create 16;
+    resetting_sessions = Hashtbl.create 8;
   }
 
 let is_draining mgr = mgr.draining
@@ -1380,6 +1386,9 @@ let reset mgr ~key =
           | Some (_, mutex, _) -> Some mutex
           | None -> None
         in
+        (* F2: add tombstone before removing session to prevent new session
+           creation during the race window between Phase 1 and Phase 2. *)
+        Hashtbl.replace mgr.resetting_sessions key ();
         clear_db ();
         remove_from_tables ();
         Lwt.return m)
@@ -1393,13 +1402,27 @@ let reset mgr ~key =
             ~label:(Printf.sprintf "session_mutex/reset[%s]" key)
             mutex
         in
-        (match mgr.db with
-        | Some db -> Memory.clear_session ~db ~session_key:key
-        | None -> ());
+        (* F2: only re-clear DB if no new session was created during the gap.
+           If a new session exists, its data should not be wiped.
+           This is a racy read (no sessions_lock) but is only used for the
+           optimization of skipping the redundant clear — if we miss a
+           concurrent creation, we clear unnecessarily (original behavior). *)
+        let new_session_created = Hashtbl.mem mgr.sessions key in
+        (match (mgr.db, new_session_created) with
+        | Some db, false -> Memory.clear_session ~db ~session_key:key
+        | Some _db, true ->
+            Logs.info (fun m ->
+                m
+                  "Session %s was recreated during reset; skipping Phase 2 \
+                   DB clear to preserve new session data"
+                  key)
+        | None, _ -> ());
         Lwt_mutex.unlock mutex;
         Lwt.return_unit
     | None -> Lwt.return_unit
   in
+  (* F2: remove tombstone now that reset is complete *)
+  Hashtbl.remove mgr.resetting_sessions key;
   let active_bg_tasks =
     match mgr.db with
     | Some db -> (
