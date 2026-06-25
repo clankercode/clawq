@@ -104,6 +104,13 @@ let draining_message =
 
 let autonomous_stay_idle_message = "STAY_IDLE"
 
+let is_admin_stop_message ~user_group message =
+  match user_group with
+  | Some "admin" ->
+      let normalized = String.lowercase_ascii (String.trim message) in
+      normalized = "stop" || normalized = "/stop"
+  | _ -> false
+
 (* STAY_IDLE remains a valid hidden control response for runtime logic, but do
    not mention or spell it out in visible autonomous check-in/keepalive prompt
    text. Advertising the token makes the agent over-index on idling and tempts
@@ -403,6 +410,17 @@ let queueable_channel_key key =
   | Some _ -> true
   | None -> false
 
+let run_interrupt_finalizer mgr ~key =
+  match Hashtbl.find_opt mgr.interrupt_finalizers key with
+  | Some cb ->
+      Lwt.async (fun () ->
+          Lwt.catch cb (fun exn ->
+              Logs.warn (fun m ->
+                  m "[%s] interrupt finalizer error: %s" key
+                    (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ()
+
 let question_cancelled_sentinel = "__clawq_question_cancelled__"
 
 let register_pending_question mgr ~key =
@@ -418,6 +436,18 @@ let cancel_pending_question mgr ~key =
   | None -> ()
 
 let has_pending_question mgr ~key = Hashtbl.mem mgr.pending_questions key
+
+let stop_busy_session_if_admin_stop mgr ~key ~message ?user_group () =
+  if not (is_admin_stop_message ~user_group message) then Lwt.return_false
+  else
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+      ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+        match Hashtbl.find_opt mgr.sessions key with
+        | Some (_, mutex, interrupt) when Lwt_mutex.is_locked mutex ->
+            cancel_pending_question mgr ~key;
+            interrupt := Some Agent.stop_interrupt_token;
+            Lwt.return_true
+        | _ -> Lwt.return_false)
 
 let register_question_callbacks mgr ~key ~callbacks =
   Logs.debug (fun m ->
@@ -451,23 +481,29 @@ let clear_question_callbacks mgr ~key:_ ~callback_ids =
     (fun cb_id -> Hashtbl.remove mgr.question_callbacks cb_id)
     callback_ids
 
-let enqueue_message_if_busy mgr ~key queued_message =
+let enqueue_message_if_busy mgr ~key ?raw_message queued_message =
   Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
     ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+      let control_message =
+        Option.value raw_message ~default:queued_message.message
+      in
       let is_bang =
-        String.length queued_message.message > 0
-        && queued_message.message.[0] = '!'
+        String.length control_message > 0 && control_message.[0] = '!'
+      in
+      let is_admin_stop =
+        is_admin_stop_message ~user_group:queued_message.user_group
+          control_message
       in
       (* If a pending question is waiting, intercept the reply. *)
       let consumed_by_question =
         match Hashtbl.find_opt mgr.pending_questions key with
-        | Some resolver when not is_bang ->
+        | Some resolver when (not is_bang) && not is_admin_stop ->
             Hashtbl.remove mgr.pending_questions key;
             Lwt.wakeup_later resolver queued_message.message;
             true
-        | Some _ when is_bang ->
-            (* Bang cancels the pending question AND falls through to set
-               interrupt token via normal queuing path. *)
+        | Some _ when is_bang || is_admin_stop ->
+            (* Bang falls through to the normal queuing path; admin stop falls
+               through to the clean stop path. Both cancel active questions. *)
             cancel_pending_question mgr ~key;
             false
         | _ -> false
@@ -475,6 +511,10 @@ let enqueue_message_if_busy mgr ~key queued_message =
       if consumed_by_question then Lwt.return_true
       else
         match Hashtbl.find_opt mgr.sessions key with
+        | Some (_, mutex, interrupt)
+          when Lwt_mutex.is_locked mutex && is_admin_stop ->
+            interrupt := Some Agent.stop_interrupt_token;
+            Lwt.return_true
         | Some (_, mutex, interrupt)
           when Lwt_mutex.is_locked mutex && queueable_channel_key key ->
             let existing =
@@ -513,22 +553,14 @@ let enqueue_message_if_busy mgr ~key queued_message =
                   key
                   (List.length existing + 1));
             (* NOTE: queued_message_interrupt_token does not interrupt the
-               normal agent loop (agent.ml checks it but continues looping).
-               Its effects: (1) inject_messages picks up queued messages
-               between tool-call batches when wired by run_locked_turn, and
-               (2) restart-resume turns remap it to a real stop signal in
-               daemon_util.ml:restart_resume_interrupt_check. *)
+                 normal agent loop (agent.ml checks it but continues looping).
+                 Its effects: (1) inject_messages picks up queued messages
+                 between tool-call batches when wired by run_locked_turn, and
+                 (2) restart-resume turns remap it to a real stop signal in
+                 daemon_util.ml:restart_resume_interrupt_check. *)
             if !interrupt = None then
               interrupt := Some Agent.queued_message_interrupt_token;
-            (match Hashtbl.find_opt mgr.interrupt_finalizers key with
-            | Some cb ->
-                Lwt.async (fun () ->
-                    Lwt.catch cb (fun exn ->
-                        Logs.warn (fun m ->
-                            m "[%s] interrupt finalizer error: %s" key
-                              (Printexc.to_string exn));
-                        Lwt.return_unit))
-            | None -> ());
+            run_interrupt_finalizer mgr ~key;
             Lwt.return_true
         | _ -> Lwt.return_false)
 

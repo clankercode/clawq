@@ -19,6 +19,12 @@ webhook-driven integrations such as GitHub and MS Teams.
   sends <code>stop</code> next. A bare <code>!</code> becomes
   <code>[interrupted]</code>.
 
+  Admins can send bare <code>stop</code> or <code>/stop</code> while the
+  session is busy to stop the active agent turn cleanly with
+  <code>Stopped by admin.</code>. That clean-stop form does not enqueue a
+  follow-up message; <code>!stop</code> keeps the interrupt-plus-follow-up
+  semantics.
+
   If a <code>shell_exec</code> tool call is running when interrupted, the
   process is moved to a background shell instead of being killed. Use
   <code>bg_shell_status</code>, <code>bg_shell_wait</code>, and

@@ -609,6 +609,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
+      let raw_message = message in
       let* message = normalize_incoming_message mgr ~key ~message in
       let* handled =
         Session_core.handle_special_command mgr ~key ~message
@@ -636,7 +637,8 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
             }
           in
           let* queued =
-            Session_core.enqueue_message_if_busy mgr ~key queued_message
+            Session_core.enqueue_message_if_busy mgr ~key ~raw_message
+              queued_message
           in
           if queued then Lwt.return Session_core.queued_message_response
           else
@@ -701,6 +703,7 @@ let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
+      let raw_message = message in
       let* message = normalize_incoming_message mgr ~key ~message in
       let* handled =
         Session_core.handle_special_command mgr ~key ~message
@@ -711,22 +714,30 @@ let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
       match handled with
       | Some response -> Lwt.return_some response
       | None ->
-          Session_core.try_session_lock mgr ~key (fun agent interrupt ->
-              Session_core.with_in_flight mgr (fun () ->
-                  let* response =
-                    run_locked_turn mgr ~key agent interrupt ~message
-                      ~content_parts ~attachments ~skill_injections
-                      ?channel_name ?channel_type ?sender_id ?sender_name
-                      ?user_group ?channel ?channel_id ?on_tool_round_complete
-                      ()
-                  in
-                  let* () =
-                    match before_drain with
-                    | Some f -> f response
-                    | None -> Lwt.return_unit
-                  in
-                  let* () = drain_queued_messages mgr ~key agent interrupt () in
-                  Lwt.return response)))
+          let* stopped =
+            Session_core.stop_busy_session_if_admin_stop mgr ~key
+              ~message:raw_message ?user_group ()
+          in
+          if stopped then Lwt.return_some Agent.stopped_by_admin_message
+          else
+            Session_core.try_session_lock mgr ~key (fun agent interrupt ->
+                Session_core.with_in_flight mgr (fun () ->
+                    let* response =
+                      run_locked_turn mgr ~key agent interrupt ~message
+                        ~content_parts ~attachments ~skill_injections
+                        ?channel_name ?channel_type ?sender_id ?sender_name
+                        ?user_group ?channel ?channel_id ?on_tool_round_complete
+                        ()
+                    in
+                    let* () =
+                      match before_drain with
+                      | Some f -> f response
+                      | None -> Lwt.return_unit
+                    in
+                    let* () =
+                      drain_queued_messages mgr ~key agent interrupt ()
+                    in
+                    Lwt.return response)))
 
 let () =
   spawn_postmortem_agent_fn :=
@@ -1009,6 +1020,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
+      let raw_message = message in
       let* message = normalize_incoming_message mgr ~key ~message in
       let send_progress text = on_chunk (Provider.Delta (text ^ "\n")) in
       let* handled =
@@ -1039,7 +1051,8 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
             }
           in
           let* queued =
-            Session_core.enqueue_message_if_busy mgr ~key queued_message
+            Session_core.enqueue_message_if_busy mgr ~key ~raw_message
+              queued_message
           in
           if queued then Lwt.return Session_core.queued_message_response
           else

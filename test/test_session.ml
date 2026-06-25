@@ -1205,8 +1205,8 @@ let test_drain_queued_messages_marks_live_activity () =
       Alcotest.(check bool)
         "drain progress sees live activity" true !active_during_progress)
 
-let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
-    ?channel_id ?message_id message =
+let queued_message ?channel_name ?channel_type ?sender_id ?sender_name
+    ?user_group ?channel ?channel_id ?message_id message =
   {
     Session.message;
     content_parts = [];
@@ -1215,12 +1215,85 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
     channel_type;
     sender_id;
     sender_name;
-    user_group = None;
+    user_group;
     channel;
     channel_id;
     message_id;
     inbound_queue_id = None;
   }
+
+let stop_interrupt_token_for_test = Agent.stop_interrupt_token
+
+let check_pending_question_cancelled mgr ~key promise =
+  let open Lwt.Syntax in
+  let* () = Lwt.pause () in
+  Alcotest.(check bool)
+    "pending question removed" false
+    (Session.has_pending_question mgr ~key);
+  (match Lwt.state promise with
+  | Lwt.Return raw ->
+      Alcotest.(check string)
+        "pending question cancelled" Session.question_cancelled_sentinel raw
+  | Lwt.Sleep -> Alcotest.fail "expected pending question cancellation"
+  | Lwt.Fail exn ->
+      Alcotest.fail
+        (Printf.sprintf "pending question failed: %s" (Printexc.to_string exn)));
+  Lwt.return_unit
+
+let test_enqueue_admin_stop_if_busy_does_not_run_interrupt_finalizer () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  let finalizer_calls = ref 0 in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Session.register_interrupt_finalizer mgr ~key (fun () ->
+      incr finalizer_calls;
+      Lwt.return_unit);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" ~user_group:"admin"
+            "stop")
+     in
+     Alcotest.(check bool) "admin stop handled" true queued;
+     Alcotest.(check (option string))
+       "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+     Alcotest.(check int) "admin stop finalizer not run" 0 !finalizer_calls;
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" "follow-up")
+     in
+     Alcotest.(check bool) "follow-up queued" true queued;
+     Alcotest.(check int) "queued follow-up finalizer run" 1 !finalizer_calls;
+     Lwt.return_unit)
+
+let test_stop_busy_session_if_admin_stop_does_not_run_interrupt_finalizer () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  let finalizer_calls = ref 0 in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Session.register_interrupt_finalizer mgr ~key (fun () ->
+      incr finalizer_calls;
+      Lwt.return_unit);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* stopped =
+       Session.stop_busy_session_if_admin_stop mgr ~key ~message:"/stop"
+         ~user_group:"admin" ()
+     in
+     Alcotest.(check bool) "admin stop handled" true stopped;
+     Alcotest.(check (option string))
+       "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+     Alcotest.(check int) "admin stop finalizer not run" 0 !finalizer_calls;
+     Lwt.return_unit)
 
 let test_enqueue_message_if_busy_marks_interrupt_and_preserves_message () =
   let config = Runtime_config.default in
@@ -1277,6 +1350,176 @@ let test_enqueue_message_if_busy_queues_without_channel_notifier () =
   | Some queued ->
       Alcotest.(check string)
         "queued content preserved" "task result injected" queued.Session.message
+
+let test_enqueue_admin_stop_if_busy_sets_stop_interrupt_without_queue () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions "telegram:1:u"
+    (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key:"telegram:1:u"
+         (queued_message ~channel:"telegram" ~channel_id:"1" ~user_group:"admin"
+            " stop ")
+     in
+     Alcotest.(check bool) "stop handled as busy message" true queued;
+     Alcotest.(check (option string))
+       "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+     Lwt.return_unit);
+  Alcotest.(check (option string))
+    "stop message not stored in queue" None
+    (Option.map
+       (fun msg -> msg.Session.message)
+       (Session.take_next_queued_message mgr ~key:"telegram:1:u"))
+
+let test_turn_admin_stop_on_queueable_busy_session_returns_queued_sentinel () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions "telegram:1:u"
+    (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* response =
+       Session.turn mgr ~key:"telegram:1:u" ~message:"/stop" ~user_group:"admin"
+         ~channel:"telegram" ~channel_id:"1" ()
+     in
+     Alcotest.(check string)
+       "queueable stop uses queued sentinel" Session.queued_message_response
+       response;
+     Alcotest.(check (option string))
+       "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+     Lwt.return_unit);
+  Alcotest.(check (option string))
+    "stop message not stored in queue" None
+    (Option.map
+       (fun msg -> msg.Session.message)
+       (Session.take_next_queued_message mgr ~key:"telegram:1:u"))
+
+let test_enqueue_admin_stop_if_busy_cancels_pending_question () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  let promise, _resolver = Session.register_pending_question mgr ~key in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" ~user_group:"admin"
+            "/stop")
+     in
+     Alcotest.(check bool) "stop handled as busy message" true queued;
+     Alcotest.(check (option string))
+       "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+     check_pending_question_cancelled mgr ~key promise)
+
+let test_stop_busy_session_if_admin_stop_cancels_pending_question () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  let promise, _resolver = Session.register_pending_question mgr ~key in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* stopped =
+       Session.stop_busy_session_if_admin_stop mgr ~key ~message:"stop"
+         ~user_group:"admin" ()
+     in
+     Alcotest.(check bool) "busy admin stop handled" true stopped;
+     Alcotest.(check (option string))
+       "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+     check_pending_question_cancelled mgr ~key promise)
+
+let test_turn_admin_bang_stop_if_busy_queues_followup () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* response =
+       Session.turn mgr ~key ~message:"!stop" ~user_group:"admin"
+         ~channel:"telegram" ~channel_id:"1" ()
+     in
+     Alcotest.(check string)
+       "bang stop still queues follow-up" Session.queued_message_response
+       response;
+     Alcotest.(check (option string))
+       "bang interrupt remains normalized content" (Some "stop") !interrupt;
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key with
+  | None -> Alcotest.fail "expected queued bang stop follow-up"
+  | Some queued ->
+      Alcotest.(check string)
+        "queued bang stop content" "stop" queued.Session.message
+
+let test_enqueue_admin_bang_stop_raw_message_queues_followup () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Session.set_interrupt_if_present mgr ~key "stop" in
+     let* () = Lwt_mutex.lock mutex in
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key ~raw_message:"!stop"
+         (queued_message ~channel:"telegram" ~channel_id:"1" ~user_group:"admin"
+            "stop")
+     in
+     Alcotest.(check bool) "raw bang stop queues follow-up" true queued;
+     Alcotest.(check (option string))
+       "normalized bang interrupt preserved" (Some "stop") !interrupt;
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key with
+  | None -> Alcotest.fail "expected queued raw bang stop follow-up"
+  | Some queued ->
+      Alcotest.(check string)
+        "queued raw bang stop content" "stop" queued.Session.message
+
+let test_enqueue_guest_stop_if_busy_queues_normally () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions "telegram:1:u"
+    (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key:"telegram:1:u"
+         (queued_message ~channel:"telegram" ~channel_id:"1" ~user_group:"guest"
+            "stop")
+     in
+     Alcotest.(check bool) "guest stop queued" true queued;
+     Alcotest.(check (option string))
+       "queued interrupt marked" (Some Agent.queued_message_interrupt_token)
+       !interrupt;
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key:"telegram:1:u" with
+  | None -> Alcotest.fail "expected queued guest stop"
+  | Some queued ->
+      Alcotest.(check string)
+        "queued guest stop content" "stop" queued.Session.message
 
 let test_drain_queued_messages_sends_followup_response () =
   with_fake_chat_provider (fun config ->
@@ -1627,6 +1870,71 @@ let test_interrupt_latch_skips_after_first_tool () =
   Alcotest.(check int)
     "three tool results in history" 3
     (List.length agent.history)
+
+let tool_enabled_config (config : Runtime_config.t) =
+  {
+    config with
+    security = { config.security with tools_enabled = true };
+    agent_defaults = { config.agent_defaults with max_tool_iterations = 5 };
+  }
+
+let test_agent_turn_stop_interrupt_returns_stopped_by_admin () =
+  let request_count = ref 0 in
+  let handle_request ~stream:_ ~messages:_ ~json:_ =
+    incr request_count;
+    if !request_count = 1 then Fake_tool_calls [ ("tc_1", "tool_a", "{}") ]
+    else Fake_text "continued after stop"
+  in
+  with_fake_openai_provider ~handle_request (fun base_config ->
+      let config = tool_enabled_config base_config in
+      let invocations = ref [] in
+      let registry = Tool_registry.create () in
+      Tool_registry.register registry (make_fake_tool "tool_a" invocations);
+      let agent = Agent.create ~config ~tool_registry:registry () in
+      let interrupt_check () = Some stop_interrupt_token_for_test in
+      let response =
+        Lwt_main.run
+          (Agent.turn agent ~user_message:"do work" ~interrupt_check ())
+      in
+      Alcotest.(check string) "stop response" "Stopped by admin." response;
+      Alcotest.(check (list string)) "tool not invoked" [] !invocations;
+      Alcotest.(check int) "no follow-up provider call" 1 !request_count)
+
+let test_agent_turn_stream_stop_interrupt_returns_stopped_by_admin () =
+  let request_count = ref 0 in
+  let handle_request ~stream:_ ~messages:_ ~json:_ =
+    incr request_count;
+    if !request_count = 1 then Fake_tool_calls [ ("tc_1", "tool_a", "{}") ]
+    else Fake_text "continued after stop"
+  in
+  with_fake_openai_provider ~handle_request (fun base_config ->
+      let config = tool_enabled_config base_config in
+      let invocations = ref [] in
+      let registry = Tool_registry.create () in
+      Tool_registry.register registry (make_fake_tool "tool_a" invocations);
+      let agent = Agent.create ~config ~tool_registry:registry () in
+      let chunks = ref [] in
+      let interrupt_check () = Some stop_interrupt_token_for_test in
+      let response =
+        Lwt_main.run
+          (Agent.turn_stream agent ~user_message:"do work" ~interrupt_check
+             ~on_chunk:(fun chunk ->
+               chunks := chunk :: !chunks;
+               Lwt.return_unit)
+             ())
+      in
+      let deltas =
+        List.filter_map
+          (function Provider.Delta text -> Some text | _ -> None)
+          (List.rev !chunks)
+      in
+      Alcotest.(check string)
+        "stream stop response" "Stopped by admin." response;
+      Alcotest.(check bool)
+        "stream emits stopped response" true
+        (List.mem "Stopped by admin." deltas);
+      Alcotest.(check (list string)) "stream tool not invoked" [] !invocations;
+      Alcotest.(check int) "stream no follow-up provider call" 1 !request_count)
 
 let test_with_registered_notifier_restores_previous () =
   let config = Runtime_config.default in
@@ -3972,6 +4280,30 @@ let suite =
       test_enqueue_message_if_busy_marks_interrupt_and_preserves_message;
     Alcotest.test_case "enqueue message if busy queues without channel notifier"
       `Quick test_enqueue_message_if_busy_queues_without_channel_notifier;
+    Alcotest.test_case
+      "enqueue admin stop if busy does not run interrupt finalizer" `Quick
+      test_enqueue_admin_stop_if_busy_does_not_run_interrupt_finalizer;
+    Alcotest.test_case
+      "enqueue admin stop if busy sets stop interrupt without queue" `Quick
+      test_enqueue_admin_stop_if_busy_sets_stop_interrupt_without_queue;
+    Alcotest.test_case "enqueue admin stop if busy cancels pending question"
+      `Quick test_enqueue_admin_stop_if_busy_cancels_pending_question;
+    Alcotest.test_case
+      "stop busy session if admin stop cancels pending question" `Quick
+      test_stop_busy_session_if_admin_stop_cancels_pending_question;
+    Alcotest.test_case
+      "stop busy session if admin stop does not run interrupt finalizer" `Quick
+      test_stop_busy_session_if_admin_stop_does_not_run_interrupt_finalizer;
+    Alcotest.test_case
+      "turn admin stop on queueable busy session returns queued sentinel" `Quick
+      test_turn_admin_stop_on_queueable_busy_session_returns_queued_sentinel;
+    Alcotest.test_case "turn admin bang stop if busy queues follow-up" `Quick
+      test_turn_admin_bang_stop_if_busy_queues_followup;
+    Alcotest.test_case
+      "enqueue admin bang stop with raw message queues follow-up" `Quick
+      test_enqueue_admin_bang_stop_raw_message_queues_followup;
+    Alcotest.test_case "enqueue guest stop if busy queues normally" `Quick
+      test_enqueue_guest_stop_if_busy_queues_normally;
     Alcotest.test_case "drain queued messages sends followup response" `Quick
       test_drain_queued_messages_sends_followup_response;
     Alcotest.test_case "turn uses special command handler" `Quick
@@ -4020,6 +4352,11 @@ let suite =
       test_interrupt_skips_remaining_tools_stream;
     Alcotest.test_case "interrupt latch skips after first tool" `Quick
       test_interrupt_latch_skips_after_first_tool;
+    Alcotest.test_case "agent turn stop interrupt returns stopped by admin"
+      `Quick test_agent_turn_stop_interrupt_returns_stopped_by_admin;
+    Alcotest.test_case
+      "agent turn stream stop interrupt returns stopped by admin" `Quick
+      test_agent_turn_stream_stop_interrupt_returns_stopped_by_admin;
     Alcotest.test_case "notifier restores previous after nested registration"
       `Quick test_with_registered_notifier_restores_previous;
     Alcotest.test_case "notifier cleanup preserves factory and capabilities"

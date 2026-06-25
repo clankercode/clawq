@@ -385,10 +385,16 @@ Options for `plan start`:
   Prefix a message with <code>!</code> to interrupt the current turn for that
   session and send the rest as a normal message. Works in the web UI, Telegram,
   Discord, Slack, Teams, and all other chat channels.
+
+  Admin users may send bare <code>stop</code> or <code>/stop</code> while a
+  session is busy to stop the active turn cleanly with
+  <code>Stopped by admin.</code>. This clean stop does not enqueue a follow-up;
+  use <code>!stop</code> for the interrupt-plus-follow-up behavior.
 </Callout>
 
 - `!stop` — interrupts the in-flight turn and sends "stop" as the next message
 - `!` (bare) — interrupts and sends "[interrupted]"
+- Admin `stop` or `/stop` while busy — terminates the active turn cleanly and replies `Stopped by admin.` without enqueueing a follow-up message
 
 When `shell_exec` is interrupted, the running process is moved to a background shell instead of being killed. Use `/tools` to see `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result` for tracking background shell jobs.
 

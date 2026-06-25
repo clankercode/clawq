@@ -2,10 +2,23 @@ include Agent_0_compact
 
 let restart_interrupt_token = "__clawq_restart__"
 let queued_message_interrupt_token = "[queued inbound message]"
+let stop_interrupt_token = "__clawq_stop__"
+let stopped_by_admin_message = "Stopped by admin."
+
+let is_stop_interrupt = function
+  | Some reason when reason = stop_interrupt_token -> true
+  | _ -> false
 
 let is_queued_message_interrupt = function
   | Some reason when reason = queued_message_interrupt_token -> true
   | _ -> false
+
+let record_stopped_by_admin agent =
+  agent.history <-
+    Provider.make_message ~role:"assistant" ~content:stopped_by_admin_message
+    :: agent.history;
+  trim_history agent;
+  stopped_by_admin_message
 
 let active_workspace_files_for_config (config : Runtime_config.t) =
   let workspace = Runtime_config.effective_workspace config in
@@ -1515,6 +1528,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
               match interrupt_check with
               | Some check -> (
                   match check () with
+                  | interrupt when is_stop_interrupt interrupt ->
+                      Lwt.return (record_stopped_by_admin agent)
                   | interrupt when is_restart_interrupt interrupt ->
                       Lwt.fail Restart_requested
                   | interrupt when is_queued_message_interrupt interrupt ->
@@ -1592,6 +1607,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         match interrupt_check with
         | Some check -> (
             match check () with
+            | interrupt when is_stop_interrupt interrupt ->
+                Lwt.fail Stop_requested
             | interrupt when is_restart_interrupt interrupt ->
                 Lwt.fail Restart_requested
             | interrupt when is_queued_message_interrupt interrupt ->
@@ -1928,6 +1945,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                   match interrupt_check with
                   | Some check -> (
                       match check () with
+                      | interrupt when is_stop_interrupt interrupt ->
+                          let response = record_stopped_by_admin agent in
+                          let* () = on_chunk (Provider.Delta response) in
+                          Lwt.return response
                       | interrupt when is_restart_interrupt interrupt ->
                           Lwt.fail Restart_requested
                       | interrupt when is_queued_message_interrupt interrupt ->
@@ -1945,6 +1966,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                   | None -> loop (iteration + 1))))
       (fun exn ->
         match exn with
+        | Stop_requested ->
+            let response = record_stopped_by_admin agent in
+            let* () = on_chunk (Provider.Delta response) in
+            Lwt.return response
         | Restart_requested -> Lwt.fail Restart_requested
         | Interrupted partial ->
             let annotated = partial ^ " --- [NOTE: interrupted by user]" in

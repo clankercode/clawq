@@ -1205,7 +1205,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               else Lwt.return_unit
             in
             let* early_queued =
-              Session.enqueue_message_if_busy session_mgr ~key
+              Session.enqueue_message_if_busy session_mgr ~key ~raw_message:msg
                 ({
                    message = normalized_msg;
                    content_parts = !image_content_parts;
