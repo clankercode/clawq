@@ -151,7 +151,10 @@ let parse_config ?(resolve_secrets = true) json =
                http_timeout_s;
              }
               : Runtime_config.provider_config) ))
-    with _ -> []
+    with exn ->
+      Logs.warn (fun m ->
+          m "Failed to parse providers config: %s" (Printexc.to_string exn));
+      []
   in
   (* B697: backfill declared xiaomi providers and synthesize absent ones when a
      key is discoverable (env vars / ~/.mimo). No-op on the resolve_secrets=false
@@ -1941,7 +1944,14 @@ let load_readonly ?(path = "") () : Runtime_config.t =
   let config_path = if path <> "" then path else default_path () in
   if not (Sys.file_exists config_path) then default_with_discovered_providers ()
   else
-    match try Some (Yojson.Safe.from_file config_path) with _ -> None with
+    match
+      try Some (Yojson.Safe.from_file config_path)
+      with exn ->
+        Logs.warn (fun m ->
+            m "Failed to parse config %s: %s (using defaults)" config_path
+              (Printexc.to_string exn));
+        None
+    with
     | None -> default_with_discovered_providers ()
     | Some json ->
         let json = migrate_config_json json in
