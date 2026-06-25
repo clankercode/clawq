@@ -386,11 +386,10 @@ let detect_platform () =
     | "Unix" -> Other "unix"
     | s -> Other (String.lowercase_ascii s))
 
-(** Run a hardcoded shell command and return its stdout trimmed.
-    All current callers pass compile-time constant strings (e.g.
-    "systemctl --user is-active clawq"). Do NOT pass user-supplied or
-    unsanitised input — the command is executed via [Unix.open_process_in]
-    without shell quoting. *)
+(** Run a hardcoded shell command and return its stdout trimmed. All current
+    callers pass compile-time constant strings (e.g. "systemctl --user is-active
+    clawq"). Do NOT pass user-supplied or unsanitised input — the command is
+    executed via [Unix.open_process_in] without shell quoting. *)
 let run_command_default cmd =
   try
     let ic = Unix.open_process_in cmd in

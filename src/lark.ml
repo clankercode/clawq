@@ -287,14 +287,14 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                             handle_webhook_body ~config:lark_config
                               ~session_mgr:session_manager msg
                           in
-                          (* H3: log errors from handle_webhook_body instead of
-                             silently discarding. *)
+                          (* H3: log non-ok results from handle_webhook_body
+                             instead of silently discarding. *)
                           (match result with
-                          | Ok () -> ()
-                          | Error err ->
+                          | `Ok _ -> ()
+                          | `Challenge _ -> ()
+                          | `Error err ->
                               Logs.warn (fun m ->
-                                  m "Lark WS handle_webhook_body error: %s"
-                                    err));
+                                  m "Lark WS handle_webhook_body error: %s" err));
                           let ack =
                             Yojson.Safe.to_string
                               (`Assoc

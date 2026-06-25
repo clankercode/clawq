@@ -71,9 +71,8 @@ type t = {
       (** Maps callback_id -> answer_text for pending questions. *)
   resetting_sessions : (string, unit) Hashtbl.t;
       (** F2: tombstone entries for sessions currently in reset() Phase 2.
-          Prevents new session creation during the race window between
-          removing the session from [sessions] and waiting for the
-          per-session mutex. *)
+          Prevents new session creation during the race window between removing
+          the session from [sessions] and waiting for the per-session mutex. *)
 }
 
 type drain_progress = {
@@ -1413,8 +1412,8 @@ let reset mgr ~key =
         | Some _db, true ->
             Logs.info (fun m ->
                 m
-                  "Session %s was recreated during reset; skipping Phase 2 \
-                   DB clear to preserve new session data"
+                  "Session %s was recreated during reset; skipping Phase 2 DB \
+                   clear to preserve new session data"
                   key)
         | None, _ -> ());
         Lwt_mutex.unlock mutex;

@@ -305,9 +305,7 @@ let run () =
         | Ok m -> m
         | Error _ ->
             Logs.warn (fun m ->
-                m
-                  "H5: invalid summarizer model '%s', falling back to \
-                   default"
+                m "H5: invalid summarizer model '%s', falling back to default"
                   model_str);
             d.model);
       escalation_model =
@@ -317,9 +315,7 @@ let run () =
            | Ok m -> Some m
            | Error _ ->
                Logs.warn (fun m ->
-                   m
-                     "H5: invalid summarizer escalation model '%s', \
-                      ignoring"
+                   m "H5: invalid summarizer escalation model '%s', ignoring"
                      esc_str);
                None);
       threshold_chars = Setup_tui.get_int threshold_chars;
