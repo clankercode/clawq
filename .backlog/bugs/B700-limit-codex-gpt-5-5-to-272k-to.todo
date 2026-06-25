@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-06-25T18:49:53Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B700
 priority: high
-status: pending
+started_at: "2026-06-25T18:49:53Z"
+status: in_progress
 tags: []
 title: Limit codex gpt-5.5 to 272k tokens (compact at 80%)
 ---
