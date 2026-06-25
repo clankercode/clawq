@@ -20,6 +20,36 @@ let query_single_int db sql =
           | _ -> 0)
       | _ -> 0)
 
+let query_single_int_with_params db sql params =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      List.iteri
+        (fun i p -> ignore (Sqlite3.bind stmt (i + 1) p : Sqlite3.Rc.t))
+        params;
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0)
+      | _ -> 0)
+
+let exec_with_params db sql params =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      List.iteri
+        (fun i p -> ignore (Sqlite3.bind stmt (i + 1) p : Sqlite3.Rc.t))
+        params;
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "SQLite error: %s (sql: %s)"
+               (Sqlite3.Rc.to_string rc) sql))
+
 let set_schema_version db version =
   let stmt = Sqlite3.prepare db "UPDATE schema_version SET version = ?" in
   Fun.protect

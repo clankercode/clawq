@@ -1530,7 +1530,7 @@ let cmd_auth args =
                            (Printexc.to_string exn))));
                 Printf.sprintf
                   "Paired successfully! Token saved to %s\nToken: %s" token_path
-                  token
+                  (redact_key token)
             | _ -> (
                 match json |> member "error" with
                 | `String err -> Printf.sprintf "Pairing failed: %s" err

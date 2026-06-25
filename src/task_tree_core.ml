@@ -232,11 +232,10 @@ let load_tasks ?(include_deleted = false) ~db ~session_key () =
       List.rev !results)
 
 let count_tasks ~db ~session_key =
-  Memory.query_single_int db
-    (Printf.sprintf
-       "SELECT COUNT(*) FROM task_tree WHERE session_key = '%s' AND deleted_at \
-        IS NULL"
-       (String.concat "''" (String.split_on_char '\'' session_key)))
+  Memory.query_single_int_with_params db
+    "SELECT COUNT(*) FROM task_tree WHERE session_key = ? AND deleted_at IS \
+     NULL"
+    [ Sqlite3.Data.TEXT session_key ]
 
 let find_active_session_key ~db ~preferred =
   if count_tasks ~db ~session_key:preferred > 0 then Some preferred
@@ -363,11 +362,10 @@ let rec get_subtree_ids ~tasks ~id =
   id :: List.concat_map (fun c -> get_subtree_ids ~tasks ~id:c.id) children
 
 let count_in_progress ~db ~session_key =
-  Memory.query_single_int db
-    (Printf.sprintf
-       "SELECT COUNT(*) FROM task_tree WHERE session_key = '%s' AND status = \
-        'in_progress' AND deleted_at IS NULL"
-       (String.concat "''" (String.split_on_char '\'' session_key)))
+  Memory.query_single_int_with_params db
+    "SELECT COUNT(*) FROM task_tree WHERE session_key = ? AND status = \
+     'in_progress' AND deleted_at IS NULL"
+    [ Sqlite3.Data.TEXT session_key ]
 
 let get_ancestors ~tasks ~id =
   let rec go current_id acc =
@@ -1241,26 +1239,21 @@ let do_remove ~db ~session_key ~id ?(recursive = false) () =
 
 (* Soft-delete all done/cancelled tasks; returns the count affected *)
 let do_clear ~db ~session_key =
-  let escaped_key =
-    String.concat "''" (String.split_on_char '\'' session_key)
-  in
-  Memory.exec_exn db
-    (Printf.sprintf
-       "UPDATE task_tree SET deleted_at = datetime('now'), updated_at = \
-        datetime('now') WHERE session_key = '%s' AND status IN ('done', \
-        'cancelled') AND deleted_at IS NULL"
-       escaped_key);
+  Memory.exec_with_params db
+    "UPDATE task_tree SET deleted_at = datetime('now'), updated_at = \
+     datetime('now') WHERE session_key = ? AND status IN ('done', 'cancelled') \
+     AND deleted_at IS NULL"
+    [ Sqlite3.Data.TEXT session_key ];
   Ok (Sqlite3.changes db)
 
 (* Archive completed subtrees *)
 let do_archive ~db ~session_key ~id =
   let tasks = load_tasks ~db ~session_key () in
   let next_archive_group () =
-    Memory.query_single_int db
-      (Printf.sprintf
-         "SELECT COALESCE(MAX(archive_group), 0) + 1 FROM task_tree_archive \
-          WHERE session_key = '%s'"
-         (String.concat "''" (String.split_on_char '\'' session_key)))
+    Memory.query_single_int_with_params db
+      "SELECT COALESCE(MAX(archive_group), 0) + 1 FROM task_tree_archive WHERE \
+       session_key = ?"
+      [ Sqlite3.Data.TEXT session_key ]
   in
   let archive_subtree root_id =
     let subtree_ids = get_subtree_ids ~tasks ~id:root_id in

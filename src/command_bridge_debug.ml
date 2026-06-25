@@ -172,9 +172,8 @@ let cmd_debug args =
                      Lwt_io.flush oc)
                    (fun _exn -> Lwt.return_unit))
            in
-           let waiter, _wakener = Lwt.wait () in
-           let* () = waiter in
-           Lwt.return "debug html-preview: stopped")
+           let forever, _ = Lwt.wait () in
+           forever)
       in
       "debug html-preview: stopped"
   | "http" :: rest -> cmd_debug_http rest
