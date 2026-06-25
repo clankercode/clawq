@@ -10,7 +10,14 @@ let read_message ic =
         else
           match Yojson.Safe.from_string trimmed with
           | json -> Lwt.return_some json
-          | exception _ -> Lwt.return_none)
+          | exception exn ->
+              Logs.warn (fun m ->
+                  m "ACP: malformed JSON line, skipping: %s (%s)"
+                    (if String.length trimmed > 200 then
+                       String.sub trimmed 0 200 ^ "..."
+                     else trimmed)
+                    (Printexc.to_string exn));
+              try_read ())
   in
   try_read ()
 

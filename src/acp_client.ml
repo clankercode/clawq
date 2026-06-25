@@ -17,11 +17,26 @@ type t = {
   stderr_drain : unit Lwt.t;
 }
 
+let safe_realpath ~cwd path =
+  let abs_path =
+    if Filename.is_relative path then Filename.concat cwd path else path
+  in
+  try Unix.realpath abs_path
+  with Unix.Unix_error _ -> (
+    (* File doesn't exist yet; resolve parent directory symlinks *)
+    let parent = Filename.dirname abs_path in
+    try
+      let resolved_parent = Unix.realpath parent in
+      Filename.concat resolved_parent (Filename.basename abs_path)
+    with Unix.Unix_error _ -> abs_path)
+
 let path_within_cwd ~cwd resolved =
-  let cwd_len = String.length cwd in
-  String.length resolved >= cwd_len
-  && String.sub resolved 0 cwd_len = cwd
-  && (String.length resolved = cwd_len || resolved.[cwd_len] = '/')
+  let real_path = safe_realpath ~cwd resolved in
+  let real_cwd = try Unix.realpath cwd with Unix.Unix_error _ -> cwd in
+  let cwd_len = String.length real_cwd in
+  String.length real_path >= cwd_len
+  && String.sub real_path 0 cwd_len = real_cwd
+  && (String.length real_path = cwd_len || real_path.[cwd_len] = '/')
 
 let fresh_id t =
   let id = t.next_id in
@@ -63,8 +78,13 @@ let send_request t ~method_ ~params =
   Hashtbl.replace t.pending_requests id resolver;
   persist_record t ~direction:"client_to_agent" ~msg_type:"request"
     ~raw_json:msg ();
-  let* () = Acp_transport.write_message t.process#stdin msg in
-  promise
+  Lwt.catch
+    (fun () ->
+      let* () = Acp_transport.write_message t.process#stdin msg in
+      promise)
+    (fun exn ->
+      Hashtbl.remove t.pending_requests id;
+      Lwt.fail exn)
 
 let send_notification t ~method_ ~params =
   let open Lwt.Syntax in
@@ -610,6 +630,13 @@ let create_session t () =
       ~params:(`Assoc [ ("cwd", `String t.cwd); ("mcpServers", `List []) ])
   in
   let open Yojson.Safe.Util in
+  let resp_error =
+    try Some (resp |> member "error" |> member "message" |> to_string)
+    with _ -> None
+  in
+  (match resp_error with
+  | Some msg -> failwith (Printf.sprintf "ACP session/new failed: %s" msg)
+  | None -> ());
   let result = resp |> member "result" in
   let session_id = result |> member "sessionId" |> to_string in
   t.session_id <- Some session_id;
@@ -637,6 +664,13 @@ let prompt t text =
   let* () = log_write t (Printf.sprintf "-- User --\n%s" text) in
   let* resp = send_request t ~method_:"session/prompt" ~params:prompt_json in
   let open Yojson.Safe.Util in
+  let resp_error =
+    try Some (resp |> member "error" |> member "message" |> to_string)
+    with _ -> None
+  in
+  (match resp_error with
+  | Some msg -> failwith (Printf.sprintf "ACP session/prompt failed: %s" msg)
+  | None -> ());
   let result = resp |> member "result" in
   let stop_reason =
     try
