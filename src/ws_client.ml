@@ -1,6 +1,8 @@
 module Ws_tls = Httpun_ws_lwt.Client (Gluten_lwt_unix.Client.TLS)
 module Ws_tcp = Httpun_ws_lwt.Client (Gluten_lwt_unix.Client)
 
+type any_ref = Any : 'a -> any_ref
+
 type t = {
   wsd : Httpun_ws.Wsd.t;
   mutable on_message_cb : (string -> unit Lwt.t) option;
@@ -8,6 +10,7 @@ type t = {
   closed_p : unit Lwt.t;
   closed_u : unit Lwt.u;
   send_mutex : Lwt_mutex.t;
+  mutable _transport_keepalive : any_ref;
 }
 
 let is_resolved p = not (Lwt.is_sleeping p)
@@ -122,6 +125,10 @@ let connect_common ~default_port ~do_connect ~uri () =
   match wsd_result with
   | Error msg -> Lwt.fail_with msg
   | Ok wsd ->
+      (* Store transport connection in t to prevent premature GC. The
+         connection holds the underlying socket/TLS session alive; if it is
+         collected the WebSocket would fail. *)
+      let transport_holder = Any _transport_conn in
       let t =
         {
           wsd;
@@ -130,6 +137,7 @@ let connect_common ~default_port ~do_connect ~uri () =
           closed_p;
           closed_u;
           send_mutex = Lwt_mutex.create ();
+          _transport_keepalive = transport_holder;
         }
       in
       on_message_ref :=
@@ -138,7 +146,6 @@ let connect_common ~default_port ~do_connect ~uri () =
             match t.on_message_cb with
             | Some cb -> cb msg
             | None -> Lwt.return_unit);
-      ignore _transport_conn;
       Lwt.return t
 
 let connect_wss ~uri () =
