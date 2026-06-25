@@ -686,3 +686,4 @@ bugs:
     - file: B689-add-a-debug-mode-flag-to-each.todo
     - file: B690-need-to-check-logs-around-2-52.todo
     - file: B691-when-i-use-a-skill-multiple-ti.todo
+    - file: B692-task-tree-should-give-out-ids.todo
