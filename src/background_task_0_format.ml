@@ -343,8 +343,7 @@ let diagnose_health ?(now = Unix.gettimeofday ())
           | Some path -> not (log_has_content path)
           | None -> true
         in
-        if (not is_local) && log_empty && elapsed >= startup_timeout_seconds
-        then Startup_failed
+        if log_empty && elapsed >= startup_timeout_seconds then Startup_failed
         else if log_fresh then Active
         else if elapsed < log_stale_threshold_seconds then Active
         else if elapsed >= stalled_threshold_seconds then Stalled

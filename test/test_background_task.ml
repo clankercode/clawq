@@ -4283,7 +4283,7 @@ let test_health_local_task_no_startup_failed () =
       task
   in
   Alcotest.(check string)
-    "local task with no log after 35s is active, not startup-failed" "active"
+    "local task with no log after 35s is startup-failed" "startup-failed"
     (Background_task.string_of_health health)
 
 let test_health_local_task_stalled () =
@@ -4310,7 +4310,7 @@ let test_health_local_task_stalled () =
       task
   in
   Alcotest.(check string)
-    "local task tracked but stalled after 200s" "stalled"
+    "local task with no log is startup-failed after 200s" "startup-failed"
     (Background_task.string_of_health health)
 
 let test_reap_local_task_message () =

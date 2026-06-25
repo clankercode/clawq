@@ -731,6 +731,10 @@ let expire_job ~db ~name =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
       ignore (Sqlite3.step stmt))
 
+(* Track in-flight non-ephemeral cron turns so overlapping ticks cannot spawn
+   duplicate LLM sessions for the same job. *)
+let in_flight_jobs : (string, unit) Hashtbl.t = Hashtbl.create 16
+
 let tick ~db ~session_mgr
     ?(deliver :
        (channel:string ->
@@ -800,7 +804,14 @@ let tick ~db ~session_mgr
                       prune_runs ~db ~job_name:job.name ~keep:20);
                   Lwt.return_unit
                 end
+                else if Hashtbl.mem in_flight_jobs job.name then begin
+                  Logs.info (fun m ->
+                      m "Cron job %s: skipping — previous turn still in flight"
+                        job.name);
+                  Lwt.return_unit
+                end
                 else begin
+                  Hashtbl.replace in_flight_jobs job.name ();
                   let run_id = record_run_start ~db ~job_name:job.name in
                   Logs.info (fun m ->
                       m "Cron job %s: starting turn for session %s" job.name
@@ -973,6 +984,7 @@ let tick ~db ~session_mgr
                           in
                           Session.mark_response_sent session_mgr
                             ~key:job.session_key;
+                          Hashtbl.remove in_flight_jobs job.name;
                           Lwt.return_unit)
                         (fun exn ->
                           Logs.err (fun m ->
@@ -982,6 +994,7 @@ let tick ~db ~session_mgr
                             ~result_preview:(Printexc.to_string exn);
                           Session.mark_response_sent session_mgr
                             ~key:job.session_key;
+                          Hashtbl.remove in_flight_jobs job.name;
                           Lwt.return_unit));
                   Lwt.return_unit
                 end
