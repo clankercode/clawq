@@ -36,7 +36,7 @@ clawq setup tunnel      # Tunnel provider configuration
 clawq setup summarizer  # Autosummarizer settings
 ```
 
-### CLI Set/Get/Show
+### CLI Set/Get/Show/Tree
 
 Manage individual values by dot-path:
 
@@ -55,9 +55,14 @@ clawq config show
 # Show a specific section
 clawq config show security
 clawq config show channels
+
+# View config as a tree hierarchy
+clawq config tree
+clawq config tree gateway
+clawq config tree keys         # structure only, no values
 ```
 
-In chat channels, use `/config menu` to interactively browse config sections, or `/config show <section>` directly.
+In chat channels, use `/config menu` to interactively browse config sections, `/config show <section>` to display a section, or `/config tree <section>` to view the tree hierarchy.
 
 ### Manual Editing
 

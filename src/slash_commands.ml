@@ -140,6 +140,28 @@ let handle ?(skill_names = []) text =
                     (fun connector ->
                       format_config_show ~connector
                         (Config_show.show (Some section)))
+              | [ "tree" ] ->
+                  let output = Config_tree.render_current () in
+                  if String.length output > 1500 then
+                    FormattedReply
+                      (fun connector ->
+                        "Config tree is too large to display in chat.\nUse: "
+                        ^ Format_adapter.code connector "/config tree <section>"
+                        ^ "\nExample: "
+                        ^ Format_adapter.code connector "/config tree gateway")
+                  else
+                    FormattedReply
+                      (fun connector -> format_config_tree ~connector output)
+              | [ "tree"; "keys" ] ->
+                  FormattedReply
+                    (fun connector ->
+                      format_config_tree ~connector
+                        (Config_tree.render_current ~show_values:false ()))
+              | [ "tree"; section ] ->
+                  FormattedReply
+                    (fun connector ->
+                      format_config_tree ~connector
+                        (Config_tree.render_current ~section ()))
               | [ "get" ] ->
                   FormattedReply
                     (fun connector ->

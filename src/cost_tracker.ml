@@ -64,6 +64,9 @@ let pricing_table =
       { input_per_m = 0.25; output_per_m = 1.25; cache_read_per_m = Some 0.025 }
     );
     (* OpenAI - GPT-5 family (cache_read = 50% of input) *)
+    ( "gpt-5.5",
+      { input_per_m = 5.0; output_per_m = 30.0; cache_read_per_m = Some 0.50 }
+    );
     ( "gpt-5.4-pro",
       { input_per_m = 30.0; output_per_m = 180.0; cache_read_per_m = Some 15.0 }
     );
@@ -210,6 +213,9 @@ let pricing_table =
     ( "moonshot-v1-8k",
       { input_per_m = 0.20; output_per_m = 2.0; cache_read_per_m = None } );
     (* MiniMax *)
+    ( "minimax-m3",
+      { input_per_m = 0.30; output_per_m = 1.20; cache_read_per_m = Some 0.06 }
+    );
     ( "minimax-m2.7",
       { input_per_m = 0.30; output_per_m = 1.20; cache_read_per_m = Some 0.06 }
     );
@@ -224,6 +230,8 @@ let pricing_table =
     ( "minimax-text-01",
       { input_per_m = 0.20; output_per_m = 1.10; cache_read_per_m = None } );
     (* Z.ai - Source: https://docs.z.ai/guides/overview/pricing *)
+    ( "glm-5.2",
+      { input_per_m = 1.4; output_per_m = 4.4; cache_read_per_m = Some 0.26 } );
     ( "glm-5.1",
       { input_per_m = 1.4; output_per_m = 4.4; cache_read_per_m = None } );
     ( "glm-5-turbo",

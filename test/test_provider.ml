@@ -263,6 +263,38 @@ let test_context_window_minimax () =
   check "minimax/MiniMax-M2.7 legacy prefix" "minimax/MiniMax-M2.7" 204800;
   check "lowercase variant" "minimax-m2.7" 204800
 
+(* B700: shipped operating ceilings (default_model_context_caps). For models not
+   in context_window_table the cap is authoritative; for capped models that are
+   in the table the result is min(advertised, cap). *)
+let test_context_window_default_caps () =
+  let check label name expected =
+    Alcotest.(check (option int))
+      label (Some expected)
+      (Runtime_config.context_window_for_model name)
+  in
+  check "codex gpt-5.5 capped at 272k" "openai-codex:gpt-5.5" 272000;
+  check "gpt-5.5 bare" "gpt-5.5" 272000;
+  check "Minimax-M3 capped at 512k" "minimax:MiniMax-M3" 512000;
+  check "MiniMax-M3 bare" "MiniMax-M3" 512000;
+  check "mimo-v2.5-pro capped at 512k" "xiaomi:mimo-v2.5-pro" 512000;
+  check "glm-5.2 capped at 272k" "zai:glm-5.2" 272000;
+  check "glm-5.2 with date suffix" "zai:glm-5.2-20260616" 272000
+
+let test_context_window_cap_user_override_wins () =
+  (* A user-configured limit overrides the shipped cap, even upward. *)
+  Alcotest.(check (option int))
+    "user override beats cap" (Some 1000000)
+    (Runtime_config.context_window_for_model
+       ~configured_limits:[ ("glm-5.2", 1000000) ]
+       "zai:glm-5.2")
+
+let test_context_window_cap_no_overcapture () =
+  (* glm-5 must not inherit glm-5.2's cap via prefix matching; with no table
+     entry and no cap it resolves to None. *)
+  Alcotest.(check (option int))
+    "glm-5 does not pick up glm-5.2 cap" None
+    (Runtime_config.context_window_for_model "zai:glm-5")
+
 let test_find_provider_first_wins () =
   let providers =
     [
@@ -986,6 +1018,12 @@ let suite =
       test_context_window_deepseek;
     Alcotest.test_case "context window minimax variants" `Quick
       test_context_window_minimax;
+    Alcotest.test_case "context window default caps" `Quick
+      test_context_window_default_caps;
+    Alcotest.test_case "context window cap user override wins" `Quick
+      test_context_window_cap_user_override_wins;
+    Alcotest.test_case "context window cap no overcapture" `Quick
+      test_context_window_cap_no_overcapture;
     Alcotest.test_case "find provider first wins" `Quick
       test_find_provider_first_wins;
     Alcotest.test_case "find provider with codex oauth auth" `Quick

@@ -781,6 +781,9 @@ let cmd_config args =
           | Error err -> err))
   | [ "get"; key ] -> Config_set.get_value_redacted key
   | "show" :: rest -> Config_show.show (List.nth_opt rest 0)
+  | [ "tree"; "keys" ] -> Config_tree.render_current ~show_values:false ()
+  | "tree" :: rest ->
+      Config_tree.render_current ?section:(List.nth_opt rest 0) ()
   | "search" :: rest -> (
       match rest with
       | [ query ] -> Config_search.search query
@@ -794,6 +797,8 @@ let cmd_config args =
       \  set KEY          Prompt for value (secret keys only, hidden input)\n\
       \  get KEY          Get a config value by dot-path (secrets redacted)\n\
       \  show [SECTION]   Display current config (secrets redacted)\n\
+      \  tree [SECTION]   Render config as a tree (secrets redacted)\n\
+      \  tree keys        Render config tree, structure only (no values)\n\
       \  search QUERY     Search config keys matching QUERY"
 
 let cmd_models args =

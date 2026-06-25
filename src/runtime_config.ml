@@ -749,7 +749,7 @@ let default =
         keyword_weight = 50;
         embedding_model = None;
         embedding_provider = None;
-        compaction_threshold_percent = 75;
+        compaction_threshold_percent = 80;
         max_messages_per_session = 500;
         max_message_age_days = 30;
         pre_compaction_flush = true;
@@ -1040,6 +1040,20 @@ let context_window_table =
     ("minimax-m2.7-highspeed", 204800);
   ]
 
+(* Operating ceilings for the runtime compaction budget. These cap the context
+   window we will fill before compacting, even when a model advertises more (the
+   API gets impractically slow past ~500k tokens). Keys are pre-normalized
+   (lowercase, no provider prefix, no date suffix) and must be fully qualified so
+   prefix matching does not over-capture (e.g. "gpt-5.5", never "gpt-5").
+   Override per-model via the `model_context_limits` config map. *)
+let default_model_context_caps =
+  [
+    ("gpt-5.5", 272000);
+    ("minimax-m3", 512000);
+    ("mimo-v2.5-pro", 512000);
+    ("glm-5.2", 272000);
+  ]
+
 let strip_date_suffix_cfg s =
   let len = String.length s in
   if len >= 9 && s.[len - 9] = '-' then
@@ -1065,32 +1079,32 @@ let context_window_for_model ?(configured_limits = []) model_name =
     String.length hay >= String.length needle
     && String.sub hay 0 (String.length needle) = needle
   in
+  (* exact match, then prefix match, over a name->value table *)
+  let lookup table =
+    match List.find_opt (fun (k, _) -> bare = k) table with
+    | Some (_, v) -> Some v
+    | None -> (
+        match List.find_opt (fun (k, _) -> find_prefix bare k) table with
+        | Some (_, v) -> Some v
+        | None -> None)
+  in
   let normalized_configured_limits =
     List.map
       (fun (name, limit) ->
         (normalize_model_name_for_context_lookup name, limit))
       configured_limits
   in
-  match List.find_opt (fun (k, _) -> bare = k) normalized_configured_limits with
-  | Some (_, v) -> Some v
+  match lookup normalized_configured_limits with
+  | Some v -> Some v (* user override wins outright; may exceed a shipped cap *)
   | None -> (
-      match List.find_opt (fun (k, _) -> bare = k) context_window_table with
-      | Some (_, v) -> Some v
-      | None -> (
-          match
-            List.find_opt
-              (fun (k, _) -> find_prefix bare k)
-              normalized_configured_limits
-          with
-          | Some (_, v) -> Some v
-          | None -> (
-              match
-                List.find_opt
-                  (fun (k, _) -> find_prefix bare k)
-                  context_window_table
-              with
-              | Some (_, v) -> Some v
-              | None -> None)))
+      let base = lookup context_window_table in
+      let cap = lookup default_model_context_caps in
+      (* ceiling semantics: cap the advertised window when both are known *)
+      match (base, cap) with
+      | Some b, Some c -> Some (min b c)
+      | None, Some c -> Some c
+      | Some b, None -> Some b
+      | None, None -> None)
 
 let effective_primary_model (ad : agent_defaults) =
   (effective_primary_target ad).model

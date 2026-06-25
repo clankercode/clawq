@@ -45,6 +45,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `config set KEY VALUE` | Set a config value by dot-path |
 | `config get KEY` | Read a config value by dot-path |
 | `config show [SECTION]` | Show config (secrets redacted) |
+| `config tree [SECTION]` | Render config as a tree (secrets redacted; `tree keys` shows structure only) |
 | `completions [print\|install] [--shell SHELL]` | Generate and install shell tab-completion scripts (bash, zsh, fish; auto-detected from $SHELL) |
 | `costs [session [KEY]\|model\|provider]` | Show cumulative LLM costs and token usage |
 | `cron` | Manage scheduled agent messages (default: list) |
@@ -233,7 +234,7 @@ Available in chat-integrated channels that support slash commands. Admin-only co
 - `/show_thinking` (alias `/show-thinking`, `/toggle-show-thinking`) — toggle display of model thinking blocks in responses; `/show_thinking status` to check current state
 - `/compact` — compact session history by summarizing older messages to free up context space
 - `/pair <6-digit-code>` — pair with TOTP code from the browser pairing flow
-- `/config [show|get|set|keys|wizard]` — (admin only) view or modify configuration from chat; secrets cannot be set via chat (use terminal instead)
+- `/config [show|get|set|keys|tree|wizard]` — (admin only) view or modify configuration from chat; secrets cannot be set via chat (use terminal instead)
 - `/config menu [page]` — (admin only) interactive config section browser (paginated, 9 per page)
 - `/skills [page]` — list available skills with interactive selection (paginated, 9 per page); each entry links to invoke the skill
 - `/tools` — list all available tools with parameters and risk levels, plus Skills and Agents sections (when any are available)
@@ -315,8 +316,8 @@ clawq config set gateway.require_pairing true
 clawq config set memory.search_enabled true
 clawq config set memory.max_messages_per_session 500
 clawq config set memory.max_message_age_days 30
-clawq config set memory.compaction_threshold_percent 75
-clawq config set model_context_limits '{"openai-codex/gpt-5.4":272000}'
+clawq config set memory.compaction_threshold_percent 80
+clawq config set model_context_limits.glm-5.2 272000
 clawq config set resilience.timeout_s 120.0
 clawq config set resilience.max_retries 2
 clawq config set resilience.base_delay_s 1.0
@@ -407,7 +408,7 @@ Use `/model set-force <name>` to bypass model name validation when setting custo
 
 **gateway** — `host` (default 127.0.0.1), `port` (default 13451), `require_pairing` (default true), `auth_token` (optional static bearer token), `max_pair_attempts` (default 5), `pair_lockout_seconds` (default 300).
 
-**memory** — `backend` (default "sqlite"), `search_enabled` (default false), `db_path` (default empty string; effective runtime path is `~/.clawq/memory.db` when unset), `vector_weight` (default 50), `keyword_weight` (default 50), `embedding_provider`, `embedding_model`, `compaction_threshold_percent` (default 75; valid range 1-99), `max_messages_per_session` (default 500), `max_message_age_days` (default 30).
+**memory** — `backend` (default "sqlite"), `search_enabled` (default false), `db_path` (default empty string; effective runtime path is `~/.clawq/memory.db` when unset), `vector_weight` (default 50), `keyword_weight` (default 50), `embedding_provider`, `embedding_model`, `compaction_threshold_percent` (default 80; valid range 1-99), `max_messages_per_session` (default 500), `max_message_age_days` (default 30).
 
 **resilience** — `timeout_s` (default 120.0), `max_retries` (default 2), `base_delay_s` (default 1.0), `fallback_provider` (optional).
 

@@ -261,6 +261,23 @@ let test_parse_invalid_memory_compaction_threshold_percent_uses_default () =
     Runtime_config.default.memory.compaction_threshold_percent
     cfg.memory.compaction_threshold_percent
 
+(* B700: the global compaction threshold default is 80% (was 75%). *)
+let test_default_compaction_threshold_is_80 () =
+  Alcotest.(check int)
+    "default compaction threshold" 80
+    Runtime_config.default.memory.compaction_threshold_percent;
+  Alcotest.(check int)
+    "effective default threshold" 80
+    (Runtime_config.effective_compaction_threshold_percent
+       Runtime_config.default.memory);
+  (* A capped 272k model compacts at 80% => 217600 tokens. *)
+  let budget =
+    match Runtime_config.context_window_for_model "openai-codex:gpt-5.5" with
+    | Some w -> w
+    | None -> 0
+  in
+  Alcotest.(check int) "272k * 80% budget" 217600 (budget * 80 / 100)
+
 let test_parse_model_context_limits () =
   let json =
     Yojson.Safe.from_string
@@ -973,6 +990,8 @@ let suite =
     Alcotest.test_case
       "parse invalid memory compaction threshold percent uses default" `Quick
       test_parse_invalid_memory_compaction_threshold_percent_uses_default;
+    Alcotest.test_case "default compaction threshold is 80" `Quick
+      test_default_compaction_threshold_is_80;
     Alcotest.test_case "parse model context limits" `Quick
       test_parse_model_context_limits;
     Alcotest.test_case "to_json omits empty providers" `Quick

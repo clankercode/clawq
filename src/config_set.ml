@@ -217,7 +217,10 @@ let config_schema =
       ("default_temperature", L);
       ("default_provider", L);
       ("providers", D provider_schema);
-      ("model_context_limits", O []);
+      (* Dynamic per-model context-window overrides (model name -> token cap).
+         Model names contain dots (e.g. glm-5.2), so split_path treats the whole
+         suffix after the first segment as one literal key. *)
+      ("model_context_limits", D L);
       ( "agent_defaults",
         O
           [
@@ -517,7 +520,20 @@ let load_json path =
     with exn -> Error (Printexc.to_string exn)
   else Ok (`Assoc [])
 
-let split_path key = String.split_on_char '.' key
+(* Config maps whose dynamic keys are model names containing dots (e.g.
+   "model_context_limits.glm-5.2"). For these, only the first "." separates the
+   map name from the model key; the remainder is a single literal key. *)
+let dotted_key_map_prefixes = [ "model_context_limits" ]
+
+let split_path key =
+  match String.index_opt key '.' with
+  | Some i
+    when List.mem (String.sub key 0 i) dotted_key_map_prefixes
+         && i + 1 < String.length key ->
+      let head = String.sub key 0 i in
+      let rest = String.sub key (i + 1) (String.length key - i - 1) in
+      [ head; rest ]
+  | _ -> String.split_on_char '.' key
 
 let infer_value s =
   match String.lowercase_ascii s with
@@ -594,7 +610,26 @@ let notify_daemon_config_change () =
   with _ -> ()
 
 let validate_set_value key json_val =
+  let has_prefix p =
+    String.length key > String.length p
+    && String.sub key 0 (String.length p) = p
+  in
   match key with
+  | _ when has_prefix "model_context_limits." -> (
+      match json_val with
+      | `Int n when n > 0 -> Ok ()
+      | `Int n ->
+          Error
+            (Printf.sprintf
+               "Error: %s must be a positive token count (got %d). Example: \
+                clawq config set model_context_limits.glm-5.2 272000"
+               key n)
+      | _ ->
+          Error
+            (Printf.sprintf
+               "Error: %s must be a positive integer token count. Example: \
+                clawq config set model_context_limits.glm-5.2 272000"
+               key))
   | "connector_history.max_messages" -> (
       match json_val with
       | `Int n when n >= 1 && n <= 128 -> Ok ()

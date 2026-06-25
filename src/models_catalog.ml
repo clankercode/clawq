@@ -213,6 +213,16 @@ let known_models : model_info list =
       deprecated = false;
     };
     {
+      provider = "openai-codex";
+      id = "gpt-5.5";
+      display_name = None;
+      context_window = Some 272000;
+      supports_vision = true;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
       provider = "openai";
       id = "gpt-5.1";
       display_name = None;
@@ -625,6 +635,18 @@ let known_models : model_info list =
     (* Z.ai *)
     {
       provider = "zai";
+      id = "glm-5.2";
+      display_name = None;
+      (* Advertised window; the runtime compaction budget caps glm-5.2 to 272k
+         (see default_model_context_caps) because the API slows past ~500k. *)
+      context_window = Some 1048576;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "zai";
       id = "glm-5.1";
       display_name = None;
       context_window = Some 200000;
@@ -674,6 +696,16 @@ let known_models : model_info list =
       deprecated = false;
     };
     (* Minimax *)
+    {
+      provider = "minimax";
+      id = "MiniMax-M3";
+      display_name = Some "MiniMax-M3";
+      context_window = Some 512000;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
     {
       provider = "minimax";
       id = "MiniMax-M2.7";

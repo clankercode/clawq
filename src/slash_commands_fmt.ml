@@ -265,7 +265,7 @@ let commands =
     };
     {
       name = "config";
-      description = "View or modify config: /config [show/get/set/keys]";
+      description = "View or modify config: /config [show/tree/get/set/keys]";
       priority = 25;
     };
     {
@@ -648,12 +648,18 @@ let format_config_help ~connector =
   ^ "         \xe2\x80\x94 Get a config value by dot-path\n  "
   ^ Format_adapter.code connector "set KEY VALUE"
   ^ "   \xe2\x80\x94 Set a config value\n  "
+  ^ Format_adapter.code connector "tree [SECTION]"
+  ^ "  \xe2\x80\x94 Render config as a tree ('tree keys' omits values)\n  "
   ^ Format_adapter.code connector "keys [PREFIX]"
   ^ "   \xe2\x80\x94 List valid config key paths\n  "
   ^ Format_adapter.code connector "wizard"
   ^ "          \xe2\x80\x94 Run the interactive setup wizard"
 
 let format_config_show ~connector output =
+  Format_adapter.code_block connector output
+
+(* The tree uses box-drawing glyphs that only align in a monospace block. *)
+let format_config_tree ~connector output =
   Format_adapter.code_block connector output
 
 let format_config_keys ~connector paths =

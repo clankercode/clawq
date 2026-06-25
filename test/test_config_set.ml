@@ -143,6 +143,39 @@ let test_validate_set_path () =
     "codex oauth section not settable" false
     (valid [ "providers"; "openai"; "codex_oauth" ] schema)
 
+(* B700: model names contain dots, so split_path keeps the suffix after
+   model_context_limits as one literal key. *)
+let test_split_path_dotted_model_key () =
+  Alcotest.(check (list string))
+    "glm-5.2 stays one key"
+    [ "model_context_limits"; "glm-5.2" ]
+    (Config_set.split_path "model_context_limits.glm-5.2");
+  Alcotest.(check (list string))
+    "mimo-v2.5-pro stays one key"
+    [ "model_context_limits"; "mimo-v2.5-pro" ]
+    (Config_set.split_path "model_context_limits.mimo-v2.5-pro");
+  (* Bare map name is not split into a literal key. *)
+  Alcotest.(check (list string))
+    "bare map name" [ "model_context_limits" ]
+    (Config_set.split_path "model_context_limits");
+  (* Other dotted keys still split normally. *)
+  Alcotest.(check (list string))
+    "ordinary dotted key unaffected" [ "gateway"; "host" ]
+    (Config_set.split_path "gateway.host")
+
+let test_validate_model_context_limits_path () =
+  let valid = Config_set.validate_set_path in
+  let schema = Config_set.config_schema in
+  Alcotest.(check bool)
+    "model_context_limits.glm-5.2 settable" true
+    (valid (Config_set.split_path "model_context_limits.glm-5.2") schema);
+  Alcotest.(check bool)
+    "model_context_limits.mimo-v2.5-pro settable" true
+    (valid (Config_set.split_path "model_context_limits.mimo-v2.5-pro") schema);
+  Alcotest.(check bool)
+    "bare model_context_limits not settable" false
+    (valid (Config_set.split_path "model_context_limits") schema)
+
 let test_set_rejects_invalid_key () =
   Test_helpers.with_temp_dir (fun dir ->
       let path = Filename.concat dir "config.json" in
@@ -186,6 +219,53 @@ let with_temp_home f =
          end
        with _ -> ());
       try Unix.rmdir dir with _ -> ())
+
+let test_model_context_limits_roundtrip () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      (match
+         Config_set.set_json_value "model_context_limits.glm-5.2" (`Int 272000)
+       with
+      | Error err -> Alcotest.fail err
+      | Ok () -> ());
+      (* get_value reads back through the same dotted-key split. *)
+      Alcotest.(check string)
+        "get_value reads dotted model key" "272000"
+        (Config_set.get_value "model_context_limits.glm-5.2");
+      (* And the file parses into the typed config list via Config_loader. *)
+      let cfg =
+        Config_loader.parse_config
+          (Yojson.Safe.from_file (Filename.concat clawq_dir "config.json"))
+      in
+      Alcotest.(check (option int))
+        "glm-5.2 limit parsed" (Some 272000)
+        (List.assoc_opt "glm-5.2" cfg.model_context_limits))
+
+let test_model_context_limits_validation () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let is_error = function Error _ -> true | Ok () -> false in
+      Alcotest.(check bool)
+        "zero rejected" true
+        (is_error
+           (Config_set.set_json_value "model_context_limits.glm-5.2" (`Int 0)));
+      Alcotest.(check bool)
+        "negative rejected" true
+        (is_error
+           (Config_set.set_json_value "model_context_limits.glm-5.2" (`Int (-5))));
+      Alcotest.(check bool)
+        "non-integer rejected" true
+        (is_error
+           (Config_set.set_json_value "model_context_limits.glm-5.2"
+              (`String "lots")));
+      Alcotest.(check bool)
+        "positive accepted" true
+        (not
+           (is_error
+              (Config_set.set_json_value "model_context_limits.glm-5.2"
+                 (`Int 272000)))))
 
 let test_set_reasoning_effort_string () =
   with_temp_home (fun home ->
@@ -483,6 +563,14 @@ let suite =
     Alcotest.test_case "split path" `Quick test_split_path;
     Alcotest.test_case "validate path" `Quick test_validate_path;
     Alcotest.test_case "validate set path" `Quick test_validate_set_path;
+    Alcotest.test_case "split path dotted model key" `Quick
+      test_split_path_dotted_model_key;
+    Alcotest.test_case "validate model_context_limits path" `Quick
+      test_validate_model_context_limits_path;
+    Alcotest.test_case "model_context_limits roundtrip" `Quick
+      test_model_context_limits_roundtrip;
+    Alcotest.test_case "model_context_limits validation" `Quick
+      test_model_context_limits_validation;
     Alcotest.test_case "set rejects invalid key" `Quick
       test_set_rejects_invalid_key;
     Alcotest.test_case "summarizer set roundtrip" `Quick

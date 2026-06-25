@@ -416,11 +416,17 @@ let config_cmd =
       `I ("set KEY VALUE", "Set a config value by dot-path.");
       `I ("get KEY", "Get a config value by dot-path.");
       `I ("show [SECTION]", "Display current config (secrets redacted).");
+      `I
+        ( "tree [SECTION]",
+          "Render config as a tree (secrets redacted; 'tree keys' omits \
+           values)." );
       `I ("search QUERY", "Search config keys matching QUERY.");
       `S "EXAMPLES";
       `P "clawq config set providers.openrouter.api_key \"sk-...\"";
       `P "clawq config set agent_defaults.primary_model \"openrouter:gpt-5.4\"";
       `P "clawq config set security.tools_enabled true";
+      `P "clawq config set model_context_limits.glm-5.2 272000";
+      `P "clawq config tree";
     ]
 
 let phase2_cmd = simple "phase2" "Show Phase 2 feature status."

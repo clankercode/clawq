@@ -187,6 +187,21 @@ clawq config show channels     # channels section only
 clawq config show security     # security section only
 ```
 
+### config tree
+
+```bash
+clawq config tree [SECTION]
+clawq config tree keys         # structure only, omits values
+```
+
+Render the configuration as a tree-style hierarchy with secrets redacted. Useful for exploring nested config structure:
+
+```bash
+clawq config tree              # full config tree
+clawq config tree gateway      # gateway section tree
+clawq config tree keys         # structure only (no values)
+```
+
 ## Setup Subcommands
 
 The `setup` command provides per-channel interactive wizards for configuring individual integrations. Each wizard loads any existing configuration, presents a TUI dashboard, and merges changes back into `~/.clawq/config.json`.
