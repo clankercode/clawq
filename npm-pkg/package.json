@@ -1,5 +1,5 @@
 {
-  "name": "clawq",
+  "name": "@clawq/clawq",
   "version": "0.0.0",
   "description": "Formally verified personal AI assistant runtime",
   "author": "Max Kaye <m@xk.io>",
@@ -27,6 +27,5 @@
     "bin/",
     "README.md",
     "LICENSE"
-  ],
-  "debug": "./bin/clawq.debug",
+  ]
 }
