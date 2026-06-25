@@ -979,8 +979,8 @@ let sanitize_history_for_resume (history : Provider.message list) =
   let dropped = List.length history - List.length filtered in
   (filtered, dropped)
 
-let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
-    agent interrupt =
+let default_resume_turn ?on_history_persisted ~(session_manager : Session.t)
+    ~notify ~session_key agent interrupt =
   let open Lwt.Syntax in
   (* B673: sanitize history before the resume turn so noise messages from
      the previous session epoch (stuck detections, watchdog pauses, B677
@@ -1013,11 +1013,23 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
         session_key
         (String.length resume_turn_prompt));
   let history_before_resume_prompt = List.length agent.Agent.history in
+  (* The resume prompt must be a `user` message, not `system`. With history
+     newest-first, build_messages reverses it so a prepended `system` message
+     becomes the *last* message in the request — and for a freshly-resumed
+     session (e.g. a github workflow_run with near-empty history) the payload
+     ends up all-system with no user turn. OpenAI-compatible providers reject
+     that: z.ai returns HTTP 400 code 1214 ("messages parameter is illegal").
+     Using `user` also lets inject_runtime_context attach the resume runtime
+     context (it only augments the last user message), which a `system` role
+     silently dropped. *)
   agent.Agent.history <-
-    Provider.make_message ~role:"system" ~content:resume_turn_prompt
+    Provider.make_message ~role:"user" ~content:resume_turn_prompt
     :: agent.Agent.history;
   Session.persist_new_messages session_manager ~key:session_key
     ~history_before:history_before_resume_prompt agent;
+  Option.iter
+    (fun f -> f (List.length agent.Agent.history))
+    on_history_persisted;
   let runtime_context =
     Prompt_builder.build_runtime_context ~config:session_manager.config
       ~details:
@@ -1064,11 +1076,6 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
     notify_resumed_session ~senders ~session_manager ~config ~session_key
       ~channel ~channel_id text
   in
-  let run_turn =
-    match run_turn with
-    | Some f -> f
-    | None -> default_resume_turn ~session_manager ~notify ~session_key
-  in
   let open Lwt.Syntax in
   Logs.info (fun m ->
       m "Automatic restart-resume: beginning resume sequence for %s"
@@ -1080,12 +1087,20 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
   Session.with_session_lock session_manager ~key:session_key
     (fun agent interrupt ->
       let history_before = List.length agent.Agent.history in
+      let persisted_up_to = ref history_before in
+      let run_turn =
+        match run_turn with
+        | Some f -> f
+        | None ->
+            default_resume_turn ~session_manager ~notify ~session_key
+              ~on_history_persisted:(fun len -> persisted_up_to := len)
+      in
       let* response =
         Session.with_in_flight session_manager (fun () ->
             run_turn agent interrupt)
       in
       Session.persist_new_messages session_manager ~key:session_key
-        ~history_before agent;
+        ~history_before:!persisted_up_to agent;
       let* dispatch_result =
         dispatch_resumed_message ~senders ~config ~channel ~channel_id
           ~text:response ()
