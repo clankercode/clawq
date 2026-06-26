@@ -162,6 +162,51 @@ let test_wait_for_rate_limit_no_bucket () =
   let elapsed = Unix.gettimeofday () -. t0 in
   Alcotest.(check bool) "no delay for unknown route" true (elapsed < 0.1)
 
+(* Each route gets its own mutex, so a rate-limited route does not block REST on
+   other routes. Same route shares a mutex (serializes its bucket). *)
+let test_route_mutex_per_route_identity () =
+  let m1 = Discord.route_mutex_for "route-identity-X" in
+  let m2 = Discord.route_mutex_for "route-identity-X" in
+  let m3 = Discord.route_mutex_for "route-identity-Y" in
+  Alcotest.(check bool) "same route -> same mutex" true (m1 == m2);
+  Alcotest.(check bool) "different route -> different mutex" true (m1 != m3)
+
+(* Regression for B-series route_mutex serialization: two calls on different
+   routes must run their bodies concurrently. With a single global mutex the
+   mutual-wait latch below would deadlock (A holds the lock awaiting B's entry,
+   B can never acquire it to enter). *)
+let test_route_mutex_concurrent_routes () =
+  Hashtbl.clear Discord.route_buckets;
+  Discord.global_rate_limit := 0.0;
+  let entered_a, wake_a = Lwt.wait () in
+  let entered_b, wake_b = Lwt.wait () in
+  let empty_resp () = (200, Cohttp.Header.init (), "") in
+  let f_a () =
+    let open Lwt.Syntax in
+    Lwt.wakeup_later wake_a ();
+    let* () = entered_b in
+    Lwt.return (empty_resp ())
+  in
+  let f_b () =
+    let open Lwt.Syntax in
+    Lwt.wakeup_later wake_b ();
+    let* () = entered_a in
+    Lwt.return (empty_resp ())
+  in
+  (* Short timeout so a regression to a shared mutex fails fast (deadlock)
+     rather than blocking on the multi-minute lock-timeout path. The timeout
+     only elapses under regression; the passing path resolves instantly. *)
+  Lwt_main.run
+    (Lwt_unix.with_timeout 5.0 (fun () ->
+         let open Lwt.Syntax in
+         let* _ =
+           Lwt.both
+             (Discord.discord_rest_call ~route:"conc-route-A" ~f:f_a)
+             (Discord.discord_rest_call ~route:"conc-route-B" ~f:f_b)
+         in
+         Lwt.return_unit));
+  Alcotest.(check bool) "both routes ran concurrently" true true
+
 let test_is_fatal_close_code () =
   Alcotest.(check bool) "4004 fatal" true (Discord.is_fatal_close_code 4004);
   Alcotest.(check bool) "4010 fatal" true (Discord.is_fatal_close_code 4010);
@@ -389,6 +434,10 @@ let suite : unit Alcotest.test_case list =
     Alcotest.test_case "rate limit global" `Quick test_update_rate_limit_global;
     Alcotest.test_case "wait no bucket" `Quick
       test_wait_for_rate_limit_no_bucket;
+    Alcotest.test_case "route mutex per-route identity" `Quick
+      test_route_mutex_per_route_identity;
+    Alcotest.test_case "route mutex concurrent routes" `Quick
+      test_route_mutex_concurrent_routes;
     Alcotest.test_case "fatal close codes" `Quick test_is_fatal_close_code;
     Alcotest.test_case "is_allowed DM non-wildcard guild" `Quick
       test_is_allowed_dm_non_wildcard_guild;

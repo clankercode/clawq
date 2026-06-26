@@ -91,7 +91,21 @@ let reactions : string Reaction_tracker.t = Reaction_tracker.create ()
 type route_bucket = { mutable remaining : int; mutable reset_at : float }
 
 let route_buckets : (string, route_bucket) Hashtbl.t = Hashtbl.create 32
-let route_mutex = Lwt_mutex.create ()
+
+(* Per-route mutexes so that rate-limit waits and 429 backoffs on one route
+   serialize that route's bucket consumption without blocking other routes.
+   A single global mutex would let a rate-limited channel stall all channels.
+   Lookup/insert is atomic under Lwt's cooperative scheduling (no yield). *)
+let route_mutexes : (string, Lwt_mutex.t) Hashtbl.t = Hashtbl.create 32
+
+let route_mutex_for route =
+  match Hashtbl.find_opt route_mutexes route with
+  | Some m -> m
+  | None ->
+      let m = Lwt_mutex.create () in
+      Hashtbl.replace route_mutexes route m;
+      m
+
 let global_rate_limit : float ref = ref 0.0
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 32
 
@@ -172,8 +186,8 @@ let discord_rest_call ~route ~f =
     end
     else Lwt.return (status, body)
   in
-  Lwt_util.with_lock_timeout ~label:"discord_rest" route_mutex (fun () ->
-      attempt 0)
+  Lwt_util.with_lock_timeout ~label:"discord_rest" (route_mutex_for route)
+    (fun () -> attempt 0)
 
 let send_message_with_id ?(suppress_notifications = false) ~bot_token
     ~channel_id ~text () =
