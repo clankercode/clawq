@@ -7,9 +7,8 @@ depends_on:
 estimate_hours: 4
 id: P11.M2.E1.T001
 priority: high
-reason: 'merge: merge conflict against integration: Auto-merging src/room_session.ml CONFLICT (content): Merge conflict in src/room_sess'
 started_at: null
-status: blocked
+status: done
 tags: []
 title: Resolve Slack profiled rooms to shared room sessions
 ---

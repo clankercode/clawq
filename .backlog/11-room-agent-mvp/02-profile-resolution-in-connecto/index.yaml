@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Slack Profile Resolution MVP
       path: 01-slack-profile-resolution-mvp
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Effective CWD policy, /repo interaction, model/template precedence, and OAuth/sandbox guardrails.
