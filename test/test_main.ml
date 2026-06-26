@@ -47,6 +47,7 @@ let () =
        ("service", Test_service.suite);
        ("restart", Test_restart.suite);
        ("room_session", Test_room_session.suite);
+       ("room_origin", Test_room_origin.suite);
        ("session", Test_session.suite);
        ("session_observer", Test_session_observer.suite);
        ("session_persistence", Test_session_persistence.suite);
