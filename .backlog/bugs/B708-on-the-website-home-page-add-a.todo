@@ -1,12 +1,14 @@
 ---
+claimed_at: "2026-06-26T10:29:45Z"
+claimed_by: cli-user
 completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B708
 priority: high
-started_at: "2026-06-26T10:05:17Z"
-status: pending
+started_at: "2026-06-26T10:29:45Z"
+status: in_progress
 tags: []
 title: On the docs website home page, add a button in top right of clawq image to change opacity of image and border to 0. should have a nice fade over 0.8s
 ---
