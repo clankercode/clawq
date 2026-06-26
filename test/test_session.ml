@@ -1219,6 +1219,7 @@ let test_drain_queued_messages_marks_live_activity () =
                    channel_id = Some "1";
                    message_id = None;
                    inbound_queue_id = None;
+                   bang = false;
                  }
              in
              Alcotest.(check bool) "message queued" true queued;
@@ -1259,6 +1260,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name
     channel_id;
     message_id;
     inbound_queue_id = None;
+    bang = false;
   }
 
 let stop_interrupt_token_for_test = Agent.stop_interrupt_token
@@ -1532,7 +1534,8 @@ let test_enqueue_admin_bang_stop_raw_message_queues_followup () =
   | None -> Alcotest.fail "expected queued raw bang stop follow-up"
   | Some queued ->
       Alcotest.(check string)
-        "queued raw bang stop content" "stop" queued.Session.message
+        "queued raw bang stop content" "stop" queued.Session.message;
+      Alcotest.(check bool) "queued raw bang marker preserved" true queued.bang
 
 let test_enqueue_guest_stop_if_busy_queues_normally () =
   let config = Runtime_config.default in
@@ -1559,6 +1562,87 @@ let test_enqueue_guest_stop_if_busy_queues_normally () =
   | Some queued ->
       Alcotest.(check string)
         "queued guest stop content" "stop" queued.Session.message
+
+let test_take_all_queued_messages_for_injection_handles_admin_stop () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  Hashtbl.replace mgr.queued_messages key
+    [
+      queued_message ~channel:"telegram" ~channel_id:"1" ~user_group:"admin"
+        "/stop";
+      queued_message ~channel:"telegram" ~channel_id:"1" "please continue";
+    ];
+  let msgs =
+    Session.take_all_queued_messages_for_injection ~interrupt mgr ~key
+  in
+  Alcotest.(check (option string))
+    "stop interrupt marked" (Some stop_interrupt_token_for_test) !interrupt;
+  Alcotest.(check (list string))
+    "admin stop not injected" [ "please continue" ]
+    (List.map (fun (msg : Session.queued_message) -> msg.message) msgs)
+
+let test_drain_queued_messages_handles_queued_admin_stop () =
+  with_fake_chat_provider (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:1:u" in
+      let sent = ref [] in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key
+           ~notify:(fun text ->
+             sent := text :: !sent;
+             Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key (fun agent interrupt ->
+                 Hashtbl.replace mgr.queued_messages key
+                   [
+                     queued_message ~channel:"telegram" ~channel_id:"1"
+                       ~user_group:"admin" "stop";
+                     queued_message ~channel:"telegram" ~channel_id:"1"
+                       "please continue";
+                   ];
+                 let open Lwt.Syntax in
+                 let* () =
+                   Session.drain_queued_messages mgr ~key agent interrupt ()
+                 in
+                 Alcotest.(check (option string))
+                   "stop interrupt marked" (Some stop_interrupt_token_for_test)
+                   !interrupt;
+                 Lwt.return_unit)));
+      Alcotest.(check int) "no response sent" 0 (List.length !sent);
+      match Session.take_next_queued_message mgr ~key with
+      | None -> Alcotest.fail "expected later message to remain queued"
+      | Some queued ->
+          Alcotest.(check string)
+            "later message remains queued" "please continue" queued.message)
+
+let test_drain_queued_messages_preserves_admin_bang_followup () =
+  with_fake_chat_provider (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:1:u" in
+      let sent = ref [] in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key
+           ~notify:(fun text ->
+             sent := text :: !sent;
+             Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key (fun agent interrupt ->
+                 Hashtbl.replace mgr.queued_messages key
+                   [
+                     {
+                       (queued_message ~channel:"telegram" ~channel_id:"1"
+                          ~user_group:"admin" "stop")
+                       with
+                       bang = true;
+                     };
+                   ];
+                 Session.drain_queued_messages mgr ~key agent interrupt ())));
+      Alcotest.(check int) "followup sent once" 1 (List.length !sent);
+      Alcotest.(check bool)
+        "followup produced provider reply" true
+        (String.starts_with ~prefix:"reply:" (List.hd !sent)))
 
 let test_drain_queued_messages_sends_followup_response () =
   with_fake_chat_provider (fun config ->
@@ -3710,6 +3794,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       channel_id = Some "1";
       message_id = None;
       inbound_queue_id = None;
+      bang = false;
     }
   in
   ignore
@@ -4607,6 +4692,12 @@ let suite =
       test_enqueue_admin_bang_stop_raw_message_queues_followup;
     Alcotest.test_case "enqueue guest stop if busy queues normally" `Quick
       test_enqueue_guest_stop_if_busy_queues_normally;
+    Alcotest.test_case "queued admin stop is filtered during mid-turn injection"
+      `Quick test_take_all_queued_messages_for_injection_handles_admin_stop;
+    Alcotest.test_case "queued admin stop halts drain without running turn"
+      `Quick test_drain_queued_messages_handles_queued_admin_stop;
+    Alcotest.test_case "queued admin bang stop still drains as followup" `Quick
+      test_drain_queued_messages_preserves_admin_bang_followup;
     Alcotest.test_case "drain queued messages sends followup response" `Quick
       test_drain_queued_messages_sends_followup_response;
     Alcotest.test_case "turn uses special command handler" `Quick

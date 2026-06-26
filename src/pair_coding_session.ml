@@ -271,6 +271,7 @@ let start_session ~db ~(session_mgr : Session_core.t)
           channel_id = Some id;
           message_id = None;
           inbound_queue_id = None;
+          bang = false;
         }
       in
       let open Lwt.Syntax in

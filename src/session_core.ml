@@ -19,6 +19,7 @@ type queued_message = {
   message_id : string option;
   inbound_queue_id : int option;
       (** SQLite inbound_queue row id if persisted for crash recovery. *)
+  bang : bool;
 }
 
 type continuation_state = {
@@ -113,6 +114,14 @@ let is_admin_stop_message ~user_group message =
       let normalized = String.lowercase_ascii (String.trim message) in
       normalized = "stop" || normalized = "/stop"
   | _ -> false
+
+let is_queued_admin_stop_message (msg : queued_message) =
+  (not msg.bang) && is_admin_stop_message ~user_group:msg.user_group msg.message
+
+let delete_queued_message_row mgr (msg : queued_message) =
+  match (msg.inbound_queue_id, mgr.db) with
+  | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
+  | _ -> ()
 
 (* STAY_IDLE remains a valid hidden control response for runtime logic, but do
    not mention or spell it out in visible autonomous check-in/keepalive prompt
@@ -471,6 +480,12 @@ let cancel_pending_question mgr ~key =
 
 let has_pending_question mgr ~key = Hashtbl.mem mgr.pending_questions key
 
+let handle_queued_admin_stop mgr ~key interrupt (msg : queued_message) =
+  Logs.info (fun m -> m "[%s] Handling queued admin stop command" key);
+  cancel_pending_question mgr ~key;
+  interrupt := Some Agent.stop_interrupt_token;
+  delete_queued_message_row mgr msg
+
 let stop_busy_session_if_admin_stop mgr ~key ~message ?user_group () =
   if not (is_admin_stop_message ~user_group message) then Lwt.return_false
   else
@@ -587,7 +602,9 @@ let enqueue_message_if_busy mgr ~key ?raw_message queued_message =
                     None)
               | None -> None
             in
-            let msg = { queued_message with inbound_queue_id } in
+            let msg =
+              { queued_message with inbound_queue_id; bang = is_bang }
+            in
             Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
             Logs.info (fun m ->
                 m
@@ -631,8 +648,21 @@ let take_all_queued_messages mgr ~key =
       msgs
   | None -> []
 
-let take_all_queued_messages_for_injection mgr ~key =
+let take_all_queued_messages_for_injection ?interrupt mgr ~key =
   let msgs = take_all_queued_messages mgr ~key in
+  let msgs =
+    match interrupt with
+    | None -> msgs
+    | Some interrupt ->
+        List.filter
+          (fun msg ->
+            if is_queued_admin_stop_message msg then begin
+              handle_queued_admin_stop mgr ~key interrupt msg;
+              false
+            end
+            else true)
+          msgs
+  in
   let count = List.length msgs in
   if count > 0 then
     Logs.info (fun m ->

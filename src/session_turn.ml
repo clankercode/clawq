@@ -391,7 +391,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       let inject_messages () =
         let msgs =
-          Session_core.take_all_queued_messages_for_injection mgr ~key
+          Session_core.take_all_queued_messages_for_injection ~interrupt mgr
+            ~key
         in
         List.map
           (fun (qm : Session_core.queued_message) ->
@@ -546,60 +547,65 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
     ~drained_any () =
-  match
-    ( Session_core.take_next_queued_message mgr ~key,
-      Session_core.find_registered_notifier mgr ~key )
-  with
-  | Some queued, Some notify ->
-      let open Lwt.Syntax in
-      Logs.info (fun m -> m "Sending queued message to LLM for session %s" key);
-      let* () =
-        match on_drain_progress with
-        | Some dp -> dp.Session_core.before_turn queued.message_id
-        | None -> Lwt.return_unit
-      in
-      let injected_message =
-        Session_core.queued_message_prompt
-          (Session_core.effective_message_for_turn ~message:queued.message
-             ?channel_name:queued.channel_name ?channel_type:queued.channel_type
-             ?sender_id:queued.sender_id ?sender_name:queued.sender_name
-             ?user_group:queued.user_group ())
-      in
-      let* response =
-        run_locked_turn mgr ~key agent interrupt ~message:injected_message
-          ~content_parts:queued.content_parts ?channel_name:queued.channel_name
-          ?channel_type:queued.channel_type ?sender_id:queued.sender_id
-          ?sender_name:queued.sender_name ?user_group:queued.user_group
-          ?channel:queued.channel ?channel_id:queued.channel_id ()
-      in
-      let* () = notify response in
-      (match (queued.inbound_queue_id, mgr.Session_core.db) with
-      | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
-      | _ -> ());
-      let* () =
-        match on_drain_progress with
-        | Some dp -> dp.after_turn queued.message_id
-        | None -> Lwt.return_unit
-      in
-      if not (Session_core.take_response_deferred mgr ~key) then
-        Session_core.mark_response_sent mgr ~key;
-      drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-        ~drained_any:true ()
-  | Some queued, None ->
-      Logs.info (fun m ->
-          m
-            "Pausing drain for session %s: no notifier registered; message \
-             preserved in queue"
-            key);
-      let existing =
-        match Hashtbl.find_opt mgr.Session_core.queued_messages key with
-        | Some msgs -> msgs
-        | None -> []
-      in
-      Hashtbl.replace mgr.Session_core.queued_messages key
-        (existing @ [ queued ]);
+  match Session_core.take_next_queued_message mgr ~key with
+  | Some queued when Session_core.is_queued_admin_stop_message queued ->
+      Session_core.handle_queued_admin_stop mgr ~key interrupt queued;
       Lwt.return_unit
-  | None, _ ->
+  | Some queued -> (
+      match Session_core.find_registered_notifier mgr ~key with
+      | Some notify ->
+          let open Lwt.Syntax in
+          Logs.info (fun m ->
+              m "Sending queued message to LLM for session %s" key);
+          let* () =
+            match on_drain_progress with
+            | Some dp -> dp.Session_core.before_turn queued.message_id
+            | None -> Lwt.return_unit
+          in
+          let injected_message =
+            Session_core.queued_message_prompt
+              (Session_core.effective_message_for_turn ~message:queued.message
+                 ?channel_name:queued.channel_name
+                 ?channel_type:queued.channel_type ?sender_id:queued.sender_id
+                 ?sender_name:queued.sender_name ?user_group:queued.user_group
+                 ())
+          in
+          let* response =
+            run_locked_turn mgr ~key agent interrupt ~message:injected_message
+              ~content_parts:queued.content_parts
+              ?channel_name:queued.channel_name
+              ?channel_type:queued.channel_type ?sender_id:queued.sender_id
+              ?sender_name:queued.sender_name ?user_group:queued.user_group
+              ?channel:queued.channel ?channel_id:queued.channel_id ()
+          in
+          let* () = notify response in
+          (match (queued.inbound_queue_id, mgr.Session_core.db) with
+          | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
+          | _ -> ());
+          let* () =
+            match on_drain_progress with
+            | Some dp -> dp.after_turn queued.message_id
+            | None -> Lwt.return_unit
+          in
+          if not (Session_core.take_response_deferred mgr ~key) then
+            Session_core.mark_response_sent mgr ~key;
+          drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
+            ~drained_any:true ()
+      | None ->
+          Logs.info (fun m ->
+              m
+                "Pausing drain for session %s: no notifier registered; message \
+                 preserved in queue"
+                key);
+          let existing =
+            match Hashtbl.find_opt mgr.Session_core.queued_messages key with
+            | Some msgs -> msgs
+            | None -> []
+          in
+          Hashtbl.replace mgr.Session_core.queued_messages key
+            (existing @ [ queued ]);
+          Lwt.return_unit)
+  | None ->
       if drained_any then
         let open Lwt.Syntax in
         let* () =
@@ -646,6 +652,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               channel_id;
               message_id;
               inbound_queue_id = None;
+              bang = false;
             }
           in
           let* queued =
@@ -1093,6 +1100,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               channel_id;
               message_id;
               inbound_queue_id = None;
+              bang = false;
             }
           in
           let* queued =
@@ -1285,7 +1293,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         let inject_messages () =
                           let msgs =
                             Session_core.take_all_queued_messages_for_injection
-                              mgr ~key
+                              ~interrupt mgr ~key
                           in
                           List.map
                             (fun (qm : Session_core.queued_message) ->

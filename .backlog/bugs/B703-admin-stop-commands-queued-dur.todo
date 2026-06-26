@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-26T03:14:51Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-26T03:28:44Z"
 complexity: medium
 depends_on: []
+duration_minutes: 13.89231820615
 estimate_hours: 1
 id: B703
 priority: high
 started_at: "2026-06-26T03:14:51Z"
-status: in_progress
+status: done
 tags: []
 title: Admin stop commands queued during active turns are not checked when drained/injected, causing them to be treated as normal user messages instead of halting the session
 ---

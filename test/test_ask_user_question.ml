@@ -52,6 +52,7 @@ let dummy_queued_message message : Session.queued_message =
     channel_id = None;
     message_id = None;
     inbound_queue_id = None;
+    bang = false;
   }
 
 let test_enqueue_intercepts_pending_question () =

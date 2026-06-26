@@ -32,6 +32,7 @@ let enqueue_to_role ctx ~(target_role : Pair_coding_types.role) ~message =
       channel_id = Some ctx.pair_id;
       message_id = None;
       inbound_queue_id = None;
+      bang = false;
     }
   in
   let open Lwt.Syntax in
