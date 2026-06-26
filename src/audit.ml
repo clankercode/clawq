@@ -189,11 +189,13 @@ let retention_cutoff ~db ~max_age_days =
 let compute_retention_boundary ~db ~max_age_days ~max_entries =
   let cutoff = retention_cutoff ~db ~max_age_days in
   let stmt =
-    Sqlite3.prepare db "SELECT id, timestamp FROM audit_log ORDER BY id DESC"
+    Sqlite3.prepare db
+      "SELECT id, timestamp FROM audit_log ORDER BY id DESC LIMIT ?"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int max_entries)));
       (* Retain only a contiguous newest suffix so signed-chain verification stays
          valid even if imported timestamps are not monotone with ids. *)
       let rec loop kept boundary =

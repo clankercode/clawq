@@ -817,78 +817,83 @@ let tick ~db ~session_mgr
                       m "Cron job %s: starting turn for session %s" job.name
                         job.session_key);
                   Lwt.async (fun () ->
-                      Lwt.catch
+                      Lwt.finalize
                         (fun () ->
-                          (* Post the cron prompt into chat before running the
-                         LLM turn, so users see what initiated the response. *)
-                          let prompt_text =
-                            Printf.sprintf "[cron:%s] %s" job.name job.message
-                          in
-                          let* () =
-                            match
-                              Session.find_registered_notifier session_mgr
-                                ~key:job.session_key
-                            with
-                            | Some notify ->
-                                Lwt.catch
-                                  (fun () -> notify prompt_text)
-                                  (fun exn ->
-                                    Logs.warn (fun m ->
-                                        m
-                                          "Cron job %s: prompt delivery via \
-                                           notifier failed: %s"
-                                          job.name (Printexc.to_string exn));
-                                    Lwt.return_unit)
-                            | None -> (
+                          Lwt.catch
+                            (fun () ->
+                              (* Post the cron prompt into chat before running
+                                 the LLM turn, so users see what initiated the
+                                 response. *)
+                              let prompt_text =
+                                Printf.sprintf "[cron:%s] %s" job.name
+                                  job.message
+                              in
+                              let* () =
                                 match
-                                  ( deliver,
-                                    Memory.get_session_channel ~db
-                                      ~session_key:job.session_key )
+                                  Session.find_registered_notifier session_mgr
+                                    ~key:job.session_key
                                 with
-                                | Some deliver_fn, Some (channel, channel_id) ->
-                                    let* _result =
-                                      Lwt.catch
-                                        (fun () ->
-                                          deliver_fn ~channel ~channel_id
-                                            ~text:prompt_text)
-                                        (fun exn ->
-                                          Lwt.return
-                                            (Error (Printexc.to_string exn)))
-                                    in
-                                    (match _result with
-                                    | Ok () ->
-                                        Logs.info (fun m ->
-                                            m
-                                              "Cron job %s: prompt posted to \
-                                               %s:%s"
-                                              job.name channel channel_id)
-                                    | Error err ->
+                                | Some notify ->
+                                    Lwt.catch
+                                      (fun () -> notify prompt_text)
+                                      (fun exn ->
                                         Logs.warn (fun m ->
                                             m
                                               "Cron job %s: prompt delivery \
-                                               failed: %s"
-                                              job.name err));
-                                    Lwt.return_unit
-                                | _ -> Lwt.return_unit)
-                          in
-                          let* result =
-                            Session.turn session_mgr ~key:job.session_key
-                              ~message:job.message ()
-                          in
-                          Logs.info (fun m ->
-                              m "Cron job %s: LLM turn complete (%d chars)"
-                                job.name (String.length result));
-                          (* Delivery phase: check if a persistent notifier already
+                                               via notifier failed: %s"
+                                              job.name (Printexc.to_string exn));
+                                        Lwt.return_unit)
+                                | None -> (
+                                    match
+                                      ( deliver,
+                                        Memory.get_session_channel ~db
+                                          ~session_key:job.session_key )
+                                    with
+                                    | Some deliver_fn, Some (channel, channel_id)
+                                      ->
+                                        let* _result =
+                                          Lwt.catch
+                                            (fun () ->
+                                              deliver_fn ~channel ~channel_id
+                                                ~text:prompt_text)
+                                            (fun exn ->
+                                              Lwt.return
+                                                (Error (Printexc.to_string exn)))
+                                        in
+                                        (match _result with
+                                        | Ok () ->
+                                            Logs.info (fun m ->
+                                                m
+                                                  "Cron job %s: prompt posted \
+                                                   to %s:%s"
+                                                  job.name channel channel_id)
+                                        | Error err ->
+                                            Logs.warn (fun m ->
+                                                m
+                                                  "Cron job %s: prompt \
+                                                   delivery failed: %s"
+                                                  job.name err));
+                                        Lwt.return_unit
+                                    | _ -> Lwt.return_unit)
+                              in
+                              let* result =
+                                Session.turn session_mgr ~key:job.session_key
+                                  ~message:job.message ()
+                              in
+                              Logs.info (fun m ->
+                                  m "Cron job %s: LLM turn complete (%d chars)"
+                                    job.name (String.length result));
+                              (* Delivery phase: check if a persistent notifier already
                          delivered during the turn, otherwise attempt explicit
                          delivery via the channel info stored in session_state. *)
-                          let has_notifier =
-                            Option.is_some
-                              (Session.find_registered_notifier session_mgr
-                                 ~key:job.session_key)
-                          in
-                          let* () =
-                            if has_notifier then begin
-                              (* B463/B467/B472: when a notifier is registered,
+                              let has_notifier =
+                                Option.is_some
+                                  (Session.find_registered_notifier session_mgr
+                                     ~key:job.session_key)
+                              in
+                              let* () =
+                                if has_notifier then begin
+                                  (* B463/B467/B472: when a notifier is registered,
                                  the LLM response is dispatched fire-and-forget
                                  through that notifier (Session.turn -> channel
                                  send). The notifier returns unit so the
@@ -898,45 +903,89 @@ let tick ~db ~session_mgr
                                  notifier called" from "delivery confirmed via
                                  deliver_fn" (the path below, which checks
                                  Ok/Error). *)
-                              Logs.info (fun m ->
-                                  m
-                                    "Cron job %s: notifier present, delivery \
-                                     handled during turn (unconfirmed by \
-                                     scheduler)"
-                                    job.name);
-                              record_run_finish ~db ~run_id
-                                ~status:"ok_notifier_unconfirmed"
-                                ~result_preview:result;
-                              mark_run_output_by_run_id ~db ~run_id
-                                ~job_name:job.name ~output:result;
-                              prune_runs ~db ~job_name:job.name ~keep:20;
-                              Lwt.return_unit
-                            end
-                            else
-                              match
-                                ( deliver,
-                                  Memory.get_session_channel ~db
-                                    ~session_key:job.session_key )
-                              with
-                              | Some deliver_fn, Some (channel, channel_id) -> (
                                   Logs.info (fun m ->
                                       m
-                                        "Cron job %s: attempting delivery via \
-                                         %s:%s"
-                                        job.name channel channel_id);
-                                  let* delivery_result =
-                                    Lwt.catch
-                                      (fun () ->
-                                        deliver_fn ~channel ~channel_id
-                                          ~text:result)
-                                      (fun exn ->
-                                        Lwt.return
-                                          (Error (Printexc.to_string exn)))
-                                  in
-                                  match delivery_result with
-                                  | Ok () ->
+                                        "Cron job %s: notifier present, \
+                                         delivery handled during turn \
+                                         (unconfirmed by scheduler)"
+                                        job.name);
+                                  record_run_finish ~db ~run_id
+                                    ~status:"ok_notifier_unconfirmed"
+                                    ~result_preview:result;
+                                  mark_run_output_by_run_id ~db ~run_id
+                                    ~job_name:job.name ~output:result;
+                                  prune_runs ~db ~job_name:job.name ~keep:20;
+                                  Lwt.return_unit
+                                end
+                                else
+                                  match
+                                    ( deliver,
+                                      Memory.get_session_channel ~db
+                                        ~session_key:job.session_key )
+                                  with
+                                  | Some deliver_fn, Some (channel, channel_id)
+                                    -> (
                                       Logs.info (fun m ->
-                                          m "Cron job %s: delivery succeeded"
+                                          m
+                                            "Cron job %s: attempting delivery \
+                                             via %s:%s"
+                                            job.name channel channel_id);
+                                      let* delivery_result =
+                                        Lwt.catch
+                                          (fun () ->
+                                            deliver_fn ~channel ~channel_id
+                                              ~text:result)
+                                          (fun exn ->
+                                            Lwt.return
+                                              (Error (Printexc.to_string exn)))
+                                      in
+                                      match delivery_result with
+                                      | Ok () ->
+                                          Logs.info (fun m ->
+                                              m
+                                                "Cron job %s: delivery \
+                                                 succeeded"
+                                                job.name);
+                                          record_run_finish ~db ~run_id
+                                            ~status:"ok" ~result_preview:result;
+                                          mark_run_output_by_run_id ~db ~run_id
+                                            ~job_name:job.name ~output:result;
+                                          prune_runs ~db ~job_name:job.name
+                                            ~keep:20;
+                                          Lwt.return_unit
+                                      | Error err ->
+                                          Logs.warn (fun m ->
+                                              m
+                                                "Cron job %s: delivery failed: \
+                                                 %s"
+                                                job.name err);
+                                          record_run_finish ~db ~run_id
+                                            ~status:"delivery_failed"
+                                            ~result_preview:
+                                              (Printf.sprintf
+                                                 "LLM ok, delivery failed: %s\n\
+                                                  Response: %s"
+                                                 err
+                                                 (if String.length result > 200
+                                                  then String.sub result 0 200
+                                                  else result));
+                                          (* B665: hash the LLM result even on
+                                         delivery failure — same degenerate
+                                         output across many runs is the loop
+                                         we want to catch, regardless of
+                                         whether delivery happened to work
+                                         that time. *)
+                                          mark_run_output_by_run_id ~db ~run_id
+                                            ~job_name:job.name ~output:result;
+                                          prune_runs ~db ~job_name:job.name
+                                            ~keep:20;
+                                          Lwt.return_unit)
+                                  | _ ->
+                                      (* CLI session or no deliver callback — mark ok *)
+                                      Logs.info (fun m ->
+                                          m
+                                            "Cron job %s: no channel info or \
+                                             deliver callback, marking ok"
                                             job.name);
                                       record_run_finish ~db ~run_id ~status:"ok"
                                         ~result_preview:result;
@@ -944,56 +993,20 @@ let tick ~db ~session_mgr
                                         ~job_name:job.name ~output:result;
                                       prune_runs ~db ~job_name:job.name ~keep:20;
                                       Lwt.return_unit
-                                  | Error err ->
-                                      Logs.warn (fun m ->
-                                          m "Cron job %s: delivery failed: %s"
-                                            job.name err);
-                                      record_run_finish ~db ~run_id
-                                        ~status:"delivery_failed"
-                                        ~result_preview:
-                                          (Printf.sprintf
-                                             "LLM ok, delivery failed: %s\n\
-                                              Response: %s"
-                                             err
-                                             (if String.length result > 200 then
-                                                String.sub result 0 200
-                                              else result));
-                                      (* B665: hash the LLM result even on
-                                         delivery failure — same degenerate
-                                         output across many runs is the loop
-                                         we want to catch, regardless of
-                                         whether delivery happened to work
-                                         that time. *)
-                                      mark_run_output_by_run_id ~db ~run_id
-                                        ~job_name:job.name ~output:result;
-                                      prune_runs ~db ~job_name:job.name ~keep:20;
-                                      Lwt.return_unit)
-                              | _ ->
-                                  (* CLI session or no deliver callback — mark ok *)
-                                  Logs.info (fun m ->
-                                      m
-                                        "Cron job %s: no channel info or \
-                                         deliver callback, marking ok"
-                                        job.name);
-                                  record_run_finish ~db ~run_id ~status:"ok"
-                                    ~result_preview:result;
-                                  mark_run_output_by_run_id ~db ~run_id
-                                    ~job_name:job.name ~output:result;
-                                  prune_runs ~db ~job_name:job.name ~keep:20;
-                                  Lwt.return_unit
-                          in
-                          Session.mark_response_sent session_mgr
-                            ~key:job.session_key;
-                          Hashtbl.remove in_flight_jobs job.name;
-                          Lwt.return_unit)
-                        (fun exn ->
-                          Logs.err (fun m ->
-                              m "Cron job %s: turn failed: %s" job.name
-                                (Printexc.to_string exn));
-                          record_run_finish ~db ~run_id ~status:"error"
-                            ~result_preview:(Printexc.to_string exn);
-                          Session.mark_response_sent session_mgr
-                            ~key:job.session_key;
+                              in
+                              Session.mark_response_sent session_mgr
+                                ~key:job.session_key;
+                              Lwt.return_unit)
+                            (fun exn ->
+                              Logs.err (fun m ->
+                                  m "Cron job %s: turn failed: %s" job.name
+                                    (Printexc.to_string exn));
+                              record_run_finish ~db ~run_id ~status:"error"
+                                ~result_preview:(Printexc.to_string exn);
+                              Session.mark_response_sent session_mgr
+                                ~key:job.session_key;
+                              Lwt.return_unit))
+                        (fun () ->
                           Hashtbl.remove in_flight_jobs job.name;
                           Lwt.return_unit));
                   Lwt.return_unit

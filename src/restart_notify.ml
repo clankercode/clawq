@@ -53,7 +53,7 @@ let parse_channel_from_key key =
   match String.split_on_char ':' key with
   | "teams" :: _ :: rest when rest <> [] ->
       Some ("teams", "|" ^ String.concat ":" rest)
-  | channel :: id :: _ -> Some (channel, id)
+  | channel :: rest when rest <> [] -> Some (channel, String.concat ":" rest)
   | _ -> None
 
 let env_key = "CLAWQ_RESTART_NOTIFY_JSON"

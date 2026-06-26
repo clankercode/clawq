@@ -48,7 +48,15 @@ let is_admin ~db ~channel ~sender_id =
 let user_group_string ~db ~channel ~sender_id =
   if is_admin ~db ~channel ~sender_id then "admin" else "guest"
 
+let sweep_expired () =
+  let now = Unix.gettimeofday () in
+  Hashtbl.filter_map_inplace
+    (fun _ (entry : otc_entry) ->
+      if entry.expires_at > now then Some entry else None)
+    otc_table
+
 let generate_otc ~channel ~sender_id =
+  sweep_expired ();
   Lazy.force ensure_rng_initialized;
   let raw = Mirage_crypto_rng.generate 8 in
   let chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789" in
@@ -69,6 +77,7 @@ let generate_otc ~channel ~sender_id =
   code
 
 let verify_otc ~db ~channel ~sender_id ~code =
+  sweep_expired ();
   let key = channel ^ ":" ^ sender_id in
   match Hashtbl.find_opt otc_table key with
   | None ->

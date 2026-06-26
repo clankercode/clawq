@@ -375,15 +375,10 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
             (fun () ->
               let open Lwt.Syntax in
               let path = resolve_path ~workspace:eff_ws path in
-              let* existing =
-                Lwt.catch
-                  (fun () ->
-                    Lwt_io.with_file ~mode:Lwt_io.Input path Lwt_io.read)
-                  (fun _ -> Lwt.return "")
-              in
               let* () =
-                Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
-                    Lwt_io.write oc (existing ^ content))
+                Lwt_io.with_file
+                  ~flags:[ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ]
+                  ~mode:Lwt_io.Output path (fun oc -> Lwt_io.write oc content)
               in
               Lwt.return
                 (Printf.sprintf "Appended %d bytes to %s"

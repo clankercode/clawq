@@ -3,7 +3,7 @@ include Tools_builtin_io
 include Tools_builtin_net
 
 let generate_callback_id ~index ~label =
-  let nonce = Printf.sprintf "%f_%d" (Unix.gettimeofday ()) (Random.bits ()) in
+  let nonce = Printf.sprintf "%d_%d" (Random.bits ()) (Random.bits ()) in
   let hash = Digest.to_hex (Digest.string (label ^ nonce)) in
   Printf.sprintf "cb_%d_%s" index (String.sub hash 0 8)
 

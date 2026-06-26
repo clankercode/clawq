@@ -495,15 +495,7 @@ let run_matching_hooks ~(session_manager : Session.t)
                           ~api_limiter ~context_json ~response
                       in
                       Lwt.return 1
-                  | Some _ ->
-                      if hook.post_back_to_github then
-                        Logs.warn (fun m ->
-                            m
-                              "GitHub hooks: post_back_to_github requested for \
-                               hook %s but no github_config available"
-                              hook.name);
-                      Lwt.return 1
-                  | None ->
+                  | _ ->
                       if hook.post_back_to_github then
                         Logs.warn (fun m ->
                             m

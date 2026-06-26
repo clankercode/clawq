@@ -111,7 +111,8 @@ let test_custom_substitute_port_none () =
 
 let test_custom_extract_url_match () =
   match
-    Tunnel_custom.extract_url_with_regex ~url_regex:{|https://[^ ]+|}
+    Tunnel_custom.extract_url_with_regex
+      ~compiled_regex:(Str.regexp {|https://[^ ]+|})
       "URL: https://example.com/tunnel"
   with
   | Some url -> Alcotest.(check string) "url" "https://example.com/tunnel" url
@@ -119,7 +120,8 @@ let test_custom_extract_url_match () =
 
 let test_custom_extract_url_no_match () =
   match
-    Tunnel_custom.extract_url_with_regex ~url_regex:{|https://[^ ]+|}
+    Tunnel_custom.extract_url_with_regex
+      ~compiled_regex:(Str.regexp {|https://[^ ]+|})
       "no url here"
   with
   | None -> ()

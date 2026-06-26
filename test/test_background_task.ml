@@ -759,7 +759,7 @@ let test_enqueue_tool_uses_context_session_key () =
           Alcotest.(check (option string))
             "channel captured" (Some "telegram") task.channel;
           Alcotest.(check (option string))
-            "channel id captured" (Some "42") task.channel_id)
+            "channel id captured" (Some "42:user") task.channel_id)
 
 let test_list_tool_returns_task_summary () =
   with_temp_git_repo (fun repo_path ->
@@ -1524,7 +1524,7 @@ let test_routing_from_context_reads_env () =
       Alcotest.(check (option string))
         "channel from env" (Some "telegram") channel;
       Alcotest.(check (option string))
-        "channel_id from env" (Some "99") channel_id)
+        "channel_id from env" (Some "99:testuser") channel_id)
     ~finally:(fun () ->
       match old_val with
       | Some v -> Unix.putenv "CLAWQ_SESSION_ID" v
@@ -1555,7 +1555,7 @@ let test_routing_from_context_prefers_context_over_env () =
       Alcotest.(check (option string))
         "channel from context" (Some "discord") channel;
       Alcotest.(check (option string))
-        "channel_id from context" (Some "77") channel_id)
+        "channel_id from context" (Some "77:guilduser") channel_id)
     ~finally:(fun () ->
       match old_val with
       | Some v -> Unix.putenv "CLAWQ_SESSION_ID" v

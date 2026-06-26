@@ -57,6 +57,12 @@ let start ?cwd ~env command =
   let stdout_r, stdout_w = Unix.pipe ~cloexec:true () in
   let stderr_r, stderr_w = Unix.pipe ~cloexec:true () in
   match Unix.fork () with
+  | -1 ->
+      close_noerr stdout_r;
+      close_noerr stdout_w;
+      close_noerr stderr_r;
+      close_noerr stderr_w;
+      failwith "fork failed"
   | 0 -> (
       let setup_child () =
         ignore (Unix.setsid ());
@@ -95,6 +101,9 @@ let start_to_file ?cwd ~env ~log_path command =
     Unix.openfile log_path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ] 0o644
   in
   match Unix.fork () with
+  | -1 ->
+      close_noerr log_fd;
+      failwith "fork failed"
   | 0 -> (
       let setup_child () =
         ignore (Unix.setsid ());

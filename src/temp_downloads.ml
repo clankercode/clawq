@@ -23,7 +23,21 @@ let generate_token () =
     bytes;
   Buffer.contents buf
 
+let max_store_size = 1000
+
+let cleanup () =
+  let now = Unix.gettimeofday () in
+  let expired =
+    Hashtbl.fold
+      (fun k v acc -> if now > v.expires_at then k :: acc else acc)
+      store []
+  in
+  List.iter (Hashtbl.remove store) expired
+
 let add ~content ~content_type ~filename ~ttl_s =
+  cleanup ();
+  if Hashtbl.length store >= max_store_size then
+    failwith "temp_downloads store full";
   let token = generate_token () in
   let entry =
     {
@@ -45,15 +59,6 @@ let get token =
         None
       end
       else Some entry
-
-let cleanup () =
-  let now = Unix.gettimeofday () in
-  let expired =
-    Hashtbl.fold
-      (fun k v acc -> if now > v.expires_at then k :: acc else acc)
-      store []
-  in
-  List.iter (Hashtbl.remove store) expired
 
 let download_url token =
   match !public_base_url with

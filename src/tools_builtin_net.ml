@@ -684,24 +684,14 @@ let zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments =
 
 let zai_default_http_post ~uri ~headers ~body =
   let open Lwt.Syntax in
-  let headers =
-    Cohttp.Header.of_list
-      (("Content-Type", "application/json")
-      :: ("Accept", "application/json, text/event-stream")
-      :: headers)
+  let* status, resp_headers, resp_body =
+    Http_client.post_json_with_headers ~uri ~headers ~body
   in
-  let* response, response_body =
-    Cohttp_lwt_unix.Client.post ~headers
-      ~body:(Cohttp_lwt.Body.of_string body)
-      (Uri.of_string uri)
-  in
-  let* response_body = Cohttp_lwt.Body.to_string response_body in
-  let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
   let content_type =
-    Cohttp.Header.get (Cohttp.Response.headers response) "content-type"
+    Cohttp.Header.get resp_headers "content-type"
     |> Option.value ~default:"application/json"
   in
-  Lwt.return (status, response_body, content_type)
+  Lwt.return (status, resp_body, content_type)
 
 let zai_mcp_api_key (config : Runtime_config.t) =
   match config.zai_mcp with

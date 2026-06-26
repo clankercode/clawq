@@ -369,9 +369,16 @@ let close t =
           (fun _ -> Lwt.return_unit));
     (* Clean up user data dir *)
     (try
-       ignore
-         (Sys.command
-            (Printf.sprintf "rm -rf %s" (Filename.quote t.user_data_dir)))
+       let rec remove_tree path =
+         if Sys.is_directory path then begin
+           Array.iter
+             (fun entry -> remove_tree (Filename.concat path entry))
+             (Sys.readdir path);
+           Unix.rmdir path
+         end
+         else Unix.unlink path
+       in
+       remove_tree t.user_data_dir
      with _ -> ());
     Lwt.return_unit
   end

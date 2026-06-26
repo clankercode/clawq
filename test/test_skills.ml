@@ -765,7 +765,7 @@ let test_use_skill_tool_found () =
           true
         with Not_found -> false)
     | _ -> false);
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_use_skill_tool_not_found () =
@@ -784,7 +784,7 @@ let test_use_skill_tool_not_found () =
        ignore (Str.search_forward (Str.regexp_string "not found") result 0);
        true
      with Not_found -> false);
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_skill_md_priority () =
@@ -924,7 +924,7 @@ let test_expand_skill_refs_skips_loaded_skill () =
   in
   Alcotest.(check int)
     "loaded skill ref is not expanded" 0 (List.length injections);
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_skill_list_tool_both_formats () =
@@ -1069,7 +1069,7 @@ let test_use_skill_with_injection () =
           true
         with Not_found -> false)
     | _ -> false);
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_expand_slash_skill_found () =
@@ -1125,7 +1125,7 @@ let test_expand_slash_skill_found () =
            true
          with Not_found -> false)
   | Error _ -> Alcotest.fail "expected Ok");
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_expand_slash_skill_not_found () =
@@ -1144,7 +1144,7 @@ let test_expand_slash_skill_not_found () =
            true
          with Not_found -> false)
   | Ok _ -> Alcotest.fail "expected Error");
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_use_skill_no_context () =
@@ -1169,7 +1169,7 @@ let test_use_skill_no_context () =
        ignore (Str.search_forward (Str.regexp_string "Loaded skill") result 0);
        true
      with Not_found -> false);
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_use_skill_loaded_noop_no_args () =
@@ -1274,7 +1274,7 @@ let test_use_skill_same_batch_duplicate_runs_injection_once () =
   in
   Alcotest.(check int) "command injection ran once" 1 counter_len;
   Alcotest.(check int) "skill injected once in history" 1 injected_count;
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_session_skill_loaded_in_context_uses_persisted_history () =
@@ -1406,7 +1406,7 @@ let test_compaction_skill_reload () =
        true
      with Not_found -> false);
   (Agent.find_skill_for_reload_fn := fun _ -> None);
-  Skills.global_cache := None;
+  Atomic.set Skills.global_cache None;
   rm_rf dir
 
 let test_compaction_no_reload_if_kept () =

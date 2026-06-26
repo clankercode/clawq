@@ -2625,7 +2625,8 @@ let test_inject_session_message_async_preserves_channel_context () =
       (option
          (pair (pair string string) (pair (option string) (option string)))))
     "inject uses channel routing from session key"
-    (Some (("telegram:42:testuser", "hello"), (Some "telegram", Some "42")))
+    (Some
+       (("telegram:42:testuser", "hello"), (Some "telegram", Some "42:testuser")))
     (Option.map
        (fun (key, message, channel, channel_id) ->
          ((key, message), (channel, channel_id)))

@@ -140,19 +140,29 @@ let store ~db ~session_key ~message_id ~content_preview ~embedding =
 (* --- Vector search --- *)
 
 let search ~db ~query_embedding ?session_key ~limit () =
+  let max_scan = 1000 in
   let sql, bind_session =
     match session_key with
     | Some _sk ->
         ( "SELECT content_preview, embedding FROM embeddings WHERE session_key \
-           = ?",
+           = ? ORDER BY id DESC LIMIT ?",
           true )
-    | None -> ("SELECT content_preview, embedding FROM embeddings", false)
+    | None ->
+        ( "SELECT content_preview, embedding FROM embeddings ORDER BY id DESC \
+           LIMIT ?",
+          false )
   in
   let stmt = Sqlite3.prepare db sql in
-  (if bind_session then
-     match session_key with
-     | Some sk -> ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT sk))
-     | None -> ());
+  let bind_idx =
+    if bind_session then begin
+      (match session_key with
+      | Some sk -> ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT sk))
+      | None -> ());
+      2
+    end
+    else 1
+  in
+  ignore (Sqlite3.bind stmt bind_idx (Sqlite3.Data.INT (Int64.of_int max_scan)));
   let results = ref [] in
   while Sqlite3.step stmt = Sqlite3.Rc.ROW do
     let content_preview =

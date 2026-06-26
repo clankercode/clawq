@@ -294,8 +294,14 @@ let cmd_reset_agent () =
     in
     let exec sql =
       let stmt = Sqlite3.prepare db sql in
-      ignore (Sqlite3.step stmt);
-      ignore (Sqlite3.finalize stmt)
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              Logs.warn (fun m ->
+                  m "reset_agent SQL error: %s" (Sqlite3.Rc.to_string rc)))
     in
     exec "DELETE FROM messages";
     exec "DELETE FROM embeddings";
@@ -383,8 +389,14 @@ let cmd_reset_workspace () =
     in
     let exec sql =
       let stmt = Sqlite3.prepare db sql in
-      ignore (Sqlite3.step stmt);
-      ignore (Sqlite3.finalize stmt)
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              Logs.warn (fun m ->
+                  m "reset_workspace SQL error: %s" (Sqlite3.Rc.to_string rc)))
     in
     exec "DELETE FROM messages";
     exec "DELETE FROM embeddings";
