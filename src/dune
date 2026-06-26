@@ -224,6 +224,7 @@
   telegram
   telegram_poll
   telegram_format
+  daemon_util_localturn
   daemon_util
   daemon
   command_bridge_models
