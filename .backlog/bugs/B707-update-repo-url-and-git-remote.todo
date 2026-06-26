@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B707
+priority: high
+status: pending
+tags: []
+title: Update repo url and git remote
+---
+
+Update repo url and git remote
