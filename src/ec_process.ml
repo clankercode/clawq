@@ -346,15 +346,7 @@ let run_daemon_mode () =
   Sys.set_signal Sys.sigusr2
     (Sys.Signal_handle (fun _ -> pause_requested := true));
   Sys.set_signal Sys.sigterm
-    (Sys.Signal_handle
-       (fun _ ->
-         shutdown_requested := true;
-         (* Also release lock and remove PID file before exiting so the
-            daemon doesn't have to wait for cleanup *)
-         (try release_lock lock_fd with _ -> ());
-         Error_watcher.remove_pid_file ();
-         (try ignore (Sqlite3.db_close db) with _ -> ());
-         exit 0));
+    (Sys.Signal_handle (fun _ -> shutdown_requested := true));
   Sys.set_signal Sys.sigint (Sys.Signal_handle (fun _ -> exit 0));
   (* Main scan loop *)
   let log_scan_state = create_log_scan_state () in

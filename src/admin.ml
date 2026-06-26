@@ -64,8 +64,8 @@ let generate_otc ~channel ~sender_id =
     "[ADMIN OTC] channel=%s sender_id=%s code=%s (expires in %ds)\n%!" channel
     sender_id code
     (int_of_float otc_ttl_seconds);
-  Logs.warn (fun m ->
-      m "[ADMIN OTC] channel=%s sender_id=%s code=%s" channel sender_id code);
+  Logs.info (fun m ->
+      m "[ADMIN OTC] generated for channel=%s sender_id=%s" channel sender_id);
   code
 
 let verify_otc ~db ~channel ~sender_id ~code =

@@ -73,7 +73,7 @@ let persist_record t ~direction ~msg_type ?update_type ?role ?content_text
 let send_request t ~method_ ~params =
   let open Lwt.Syntax in
   let id = fresh_id t in
-  let msg = Acp_transport.jsonrpc_request ~id ~method_ ~params in
+  let msg = Acp_transport.jsonrpc_request ~id:(`Int id) ~method_ ~params in
   let promise, resolver = Lwt.wait () in
   Hashtbl.replace t.pending_requests id resolver;
   persist_record t ~direction:"client_to_agent" ~msg_type:"request"
@@ -95,7 +95,7 @@ let send_notification t ~method_ ~params =
 
 let send_response t ~id ~result =
   let open Lwt.Syntax in
-  let msg = Acp_transport.jsonrpc_response ~id ~result in
+  let msg = Acp_transport.jsonrpc_response ~id:(`Int id) ~result in
   persist_record t ~direction:"client_to_agent" ~msg_type:"response"
     ~raw_json:msg ();
   Acp_transport.write_message t.process#stdin msg
@@ -109,7 +109,7 @@ let handle_fs_read t ~id ~params =
   let resolved = Path_util.normalize_path path in
   if not (path_within_cwd ~cwd:t.cwd resolved) then
     let msg =
-      Acp_transport.jsonrpc_error ~id ~code:(-32602)
+      Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32602)
         ~message:(Printf.sprintf "Path %s is outside workspace %s" path t.cwd)
     in
     Acp_transport.write_message t.process#stdin msg
@@ -143,7 +143,7 @@ let handle_fs_read t ~id ~params =
         send_response t ~id ~result:(`Assoc [ ("content", `String content) ]))
       (fun exn ->
         let msg =
-          Acp_transport.jsonrpc_error ~id ~code:(-32603)
+          Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32603)
             ~message:(Printexc.to_string exn)
         in
         Acp_transport.write_message t.process#stdin msg)
@@ -156,7 +156,7 @@ let handle_fs_write t ~id ~params =
   let resolved = Path_util.normalize_path path in
   if not (path_within_cwd ~cwd:t.cwd resolved) then
     let msg =
-      Acp_transport.jsonrpc_error ~id ~code:(-32602)
+      Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32602)
         ~message:(Printf.sprintf "Path %s is outside workspace %s" path t.cwd)
     in
     Acp_transport.write_message t.process#stdin msg
@@ -167,11 +167,20 @@ let handle_fs_write t ~id ~params =
         let* () =
           if Sys.file_exists dir then Lwt.return_unit
           else begin
-            let cmd = Printf.sprintf "mkdir -p %s" (Filename.quote dir) in
-            let* status = Lwt_process.exec (Lwt_process.shell cmd) in
-            match status with
-            | Unix.WEXITED 0 -> Lwt.return_unit
-            | _ -> Lwt.fail (Failure (Printf.sprintf "mkdir failed for %s" dir))
+            let rec mkdir_p path =
+              if Sys.file_exists path then ()
+              else begin
+                let parent = Filename.dirname path in
+                if parent <> path then mkdir_p parent;
+                Unix.mkdir path 0o755
+              end
+            in
+            try Lwt.return (mkdir_p dir)
+            with exn ->
+              Lwt.fail
+                (Failure
+                   (Printf.sprintf "mkdir failed for %s: %s" dir
+                      (Printexc.to_string exn)))
           end
         in
         let* () =
@@ -181,7 +190,7 @@ let handle_fs_write t ~id ~params =
         send_response t ~id ~result:`Null)
       (fun exn ->
         let msg =
-          Acp_transport.jsonrpc_error ~id ~code:(-32603)
+          Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32603)
             ~message:(Printexc.to_string exn)
         in
         Acp_transport.write_message t.process#stdin msg)
@@ -213,7 +222,7 @@ let handle_terminal_create t ~id ~params =
         ~result:(`Assoc [ ("terminalId", `String terminal_id) ]))
     (fun exn ->
       let msg =
-        Acp_transport.jsonrpc_error ~id ~code:(-32603)
+        Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32603)
           ~message:(Printexc.to_string exn)
       in
       Acp_transport.write_message t.process#stdin msg)
@@ -226,7 +235,7 @@ let handle_terminal_output t ~id ~params =
   match Hashtbl.find_opt t.terminals terminal_id with
   | None ->
       let msg =
-        Acp_transport.jsonrpc_error ~id ~code:(-32602)
+        Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32602)
           ~message:(Printf.sprintf "Unknown terminal: %s" terminal_id)
       in
       Acp_transport.write_message t.process#stdin msg
@@ -251,7 +260,7 @@ let handle_terminal_wait t ~id ~params =
   match Hashtbl.find_opt t.terminals terminal_id with
   | None ->
       let msg =
-        Acp_transport.jsonrpc_error ~id ~code:(-32602)
+        Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32602)
           ~message:(Printf.sprintf "Unknown terminal: %s" terminal_id)
       in
       Acp_transport.write_message t.process#stdin msg
@@ -268,7 +277,7 @@ let handle_terminal_kill t ~id ~params =
   match Hashtbl.find_opt t.terminals terminal_id with
   | None ->
       let msg =
-        Acp_transport.jsonrpc_error ~id ~code:(-32602)
+        Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32602)
           ~message:(Printf.sprintf "Unknown terminal: %s" terminal_id)
       in
       Acp_transport.write_message t.process#stdin msg
@@ -285,7 +294,7 @@ let handle_terminal_release t ~id ~params =
   match Hashtbl.find_opt t.terminals terminal_id with
   | None ->
       let msg =
-        Acp_transport.jsonrpc_error ~id ~code:(-32602)
+        Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32602)
           ~message:(Printf.sprintf "Unknown terminal: %s" terminal_id)
       in
       Acp_transport.write_message t.process#stdin msg
@@ -487,7 +496,7 @@ let handle_incoming_message t json =
     | "terminal/release" -> handle_terminal_release t ~id ~params
     | _ ->
         let msg =
-          Acp_transport.jsonrpc_error ~id ~code:(-32601)
+          Acp_transport.jsonrpc_error ~id:(`Int id) ~code:(-32601)
             ~message:(Printf.sprintf "Method not found: %s" method_)
         in
         Acp_transport.write_message t.process#stdin msg

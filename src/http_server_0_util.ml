@@ -146,14 +146,11 @@ let pairing_auth_ok ~auth_token ?pairing req =
         in
         bearer || api_key
 
-let client_ip req =
-  let headers = Cohttp.Request.headers req in
-  match Cohttp.Header.get headers "x-forwarded-for" with
-  | Some xff -> (
-      match String.split_on_char ',' xff with
-      | ip :: _ -> String.trim ip
-      | [] -> "unknown")
-  | None -> "unknown"
+let client_ip _req =
+  (* Do not trust X-Forwarded-For from untrusted clients.
+     Return "unknown" since peer address is not available from Cohttp request.
+     If a reverse proxy is deployed, add trusted-proxy configuration here. *)
+  "unknown"
 
 let rate_limit_response () =
   Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests

@@ -221,7 +221,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
+                    || String.starts_with ~prefix:"/" url
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -344,7 +344,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
+                    || String.starts_with ~prefix:"/" url
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -392,7 +392,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
+                    || String.starts_with ~prefix:"/" url
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -452,7 +452,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
+                    || String.starts_with ~prefix:"/" url
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -483,7 +483,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
+                    || String.starts_with ~prefix:"/" url
                   in
                   if not is_safe_scheme then
                     Lwt.return

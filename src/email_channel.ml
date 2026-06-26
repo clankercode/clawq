@@ -490,9 +490,12 @@ let send_email ~(cfg : Runtime_config.email_config) ~to_addr ~subject ~body
       let* () = read_ehlo ic in
       (* STARTTLS *)
       let* () = smtp_write oc "STARTTLS" in
-      let* _resp = smtp_read ic () in
-      (* Upgrade existing connection to TLS *)
-      upgrade_to_tls ~host:cfg.smtp_host fd
+      let* resp = smtp_read ic () in
+      if String.length resp < 3 || resp.[0] <> '2' then
+        Lwt.fail (Failure (Printf.sprintf "STARTTLS failed: %s" resp))
+      else
+        (* Upgrade existing connection to TLS *)
+        upgrade_to_tls ~host:cfg.smtp_host fd
     end
   in
   Lwt.finalize

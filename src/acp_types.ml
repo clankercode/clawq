@@ -339,7 +339,10 @@ let content_block_of_json json =
             (try Some (json |> member "mimeType" |> to_string) with _ -> None);
           size = (try Some (json |> member "size" |> to_int) with _ -> None);
         }
-  | _ -> Text ""
+  | unknown ->
+      Logs.warn (fun m ->
+          m "ACP: unknown content type '%s', discarding" unknown);
+      Text ""
 
 let text_of_content_block = function
   | Text s -> s

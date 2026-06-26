@@ -76,7 +76,7 @@ let test_read_eof () =
 
 let test_jsonrpc_request () =
   let msg =
-    Acp_transport.jsonrpc_request ~id:42 ~method_:"test" ~params:`Null
+    Acp_transport.jsonrpc_request ~id:(`Int 42) ~method_:"test" ~params:`Null
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "jsonrpc" "2.0" (msg |> member "jsonrpc" |> to_string);
@@ -97,14 +97,16 @@ let test_jsonrpc_notification () =
   | _ -> Alcotest.fail "notification should not have id"
 
 let test_jsonrpc_response () =
-  let msg = Acp_transport.jsonrpc_response ~id:7 ~result:(`String "ok") in
+  let msg =
+    Acp_transport.jsonrpc_response ~id:(`Int 7) ~result:(`String "ok")
+  in
   let open Yojson.Safe.Util in
   Alcotest.(check int) "id" 7 (msg |> member "id" |> to_int);
   Alcotest.(check string) "result" "ok" (msg |> member "result" |> to_string)
 
 let test_jsonrpc_error () =
   let msg =
-    Acp_transport.jsonrpc_error ~id:8 ~code:(-32601) ~message:"not found"
+    Acp_transport.jsonrpc_error ~id:(`Int 8) ~code:(-32601) ~message:"not found"
   in
   let open Yojson.Safe.Util in
   Alcotest.(check int) "id" 8 (msg |> member "id" |> to_int);
