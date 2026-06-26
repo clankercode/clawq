@@ -1,4 +1,4 @@
-let schema_version = 31
+let schema_version = 32
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -382,6 +382,25 @@ let add_thinking_content_columns db =
       "ALTER TABLE session_log_epoch_messages ADD COLUMN thinking_content TEXT"
   with _ -> ()
 
+let init_room_profiles_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS room_profiles (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     name TEXT NOT NULL UNIQUE,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )"
+
+let init_room_profile_bindings_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS room_profile_bindings (\n\
+    \     room_id TEXT NOT NULL PRIMARY KEY,\n\
+    \     profile_id INTEGER NOT NULL UNIQUE,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     FOREIGN KEY (profile_id) REFERENCES room_profiles(id) ON DELETE \
+     CASCADE\n\
+    \   )"
+
 let init_session_repos_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS session_repos (\n\
@@ -429,7 +448,9 @@ let ensure_all_tables db =
   Admin.init_schema db;
   Pair_coding_state.init_schema db;
   init_debate_rounds_schema db;
-  init_session_repos_schema db
+  init_session_repos_schema db;
+  init_room_profiles_schema db;
+  init_room_profile_bindings_schema db
 
 (* Each step migrates from version [v] to [v + 1].
    All ALTER TABLE operations use try/catch for idempotency.
@@ -578,6 +599,9 @@ let migrate_step db v =
         Logs.warn (fun m ->
             m "[memory_0_schema] migration step 30 (unavailable) failed: %s"
               (Printexc.to_string exn)))
+  | 31 ->
+      init_room_profiles_schema db;
+      init_room_profile_bindings_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema

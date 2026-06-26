@@ -1433,6 +1433,255 @@ let test_import_snapshot_upserts () =
       | Some (_, c, _) -> Alcotest.(check string) "k2 new" "new" c
       | None -> Alcotest.fail "k2 not found")
 
+(* --- room profile schema tests --- *)
+
+let test_init_creates_room_profile_tables () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check bool)
+    "room_profiles exists" true
+    (table_exists db "room_profiles");
+  Alcotest.(check bool)
+    "room_profile_bindings exists" true
+    (table_exists db "room_profile_bindings")
+
+let test_ensure_all_tables_creates_room_profiles () =
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Drop tables to simulate a pre-existing db without them *)
+  exec_exn db "DROP TABLE room_profile_bindings";
+  exec_exn db "DROP TABLE room_profiles";
+  Alcotest.(check bool)
+    "room_profiles gone" false
+    (table_exists db "room_profiles");
+  Memory.ensure_all_tables db;
+  Alcotest.(check bool)
+    "room_profiles restored by ensure_all_tables" true
+    (table_exists db "room_profiles");
+  Alcotest.(check bool)
+    "room_profile_bindings restored by ensure_all_tables" true
+    (table_exists db "room_profile_bindings")
+
+let test_migrate_v31_to_current_creates_room_profiles () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (31)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is current" Memory.schema_version
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "room_profiles exists after v31 migration" true
+        (table_exists migrated "room_profiles");
+      Alcotest.(check bool)
+        "room_profile_bindings exists after v31 migration" true
+        (table_exists migrated "room_profile_bindings"))
+
+(* --- room profile API tests --- *)
+
+let test_insert_and_get_room_profile () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let id = Memory.insert_room_profile ~db ~name:"default" in
+  Alcotest.(check bool) "id > 0" true (id > 0);
+  let p = Memory.get_room_profile ~db ~id in
+  match p with
+  | None -> Alcotest.fail "expected profile"
+  | Some p ->
+      Alcotest.(check int) "id matches" id p.id;
+      Alcotest.(check string) "name" "default" p.name
+
+let test_insert_room_profile_unique_constraint () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id = Memory.insert_room_profile ~db ~name:"dup" in
+  match
+    try `Ok (Memory.insert_room_profile ~db ~name:"dup")
+    with Failure _ -> `Fail
+  with
+  | `Fail -> ()
+  | `Ok _ -> Alcotest.fail "expected duplicate name to fail"
+
+let test_get_room_profile_by_name () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let id = Memory.insert_room_profile ~db ~name:"work" in
+  let p = Memory.get_room_profile_by_name ~db ~name:"work" in
+  match p with
+  | None -> Alcotest.fail "expected profile by name"
+  | Some p ->
+      Alcotest.(check int) "id matches" id p.id;
+      Alcotest.(check string) "name" "work" p.name
+
+let test_list_room_profiles () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _ = Memory.insert_room_profile ~db ~name:"a" in
+  let _ = Memory.insert_room_profile ~db ~name:"b" in
+  let _ = Memory.insert_room_profile ~db ~name:"c" in
+  let profiles = Memory.list_room_profiles ~db in
+  Alcotest.(check int) "three profiles" 3 (List.length profiles);
+  let names = List.map (fun (p : Memory.room_profile) -> p.name) profiles in
+  Alcotest.(check (list string)) "in order" [ "a"; "b"; "c" ] names
+
+let test_delete_room_profile_cascades_bindings () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"to-delete" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room1" ~profile_id:pid;
+  ignore (Memory.delete_room_profile ~db ~id:pid);
+  Alcotest.(check bool)
+    "profile gone" true
+    (Memory.get_room_profile ~db ~id:pid = None);
+  Alcotest.(check bool)
+    "binding cascade-deleted" true
+    (Memory.get_room_profile_binding ~db ~room_id:"room1" = None)
+
+let test_upsert_room_profile_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let p1 = Memory.insert_room_profile ~db ~name:"p1" in
+  let p2 = Memory.insert_room_profile ~db ~name:"p2" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:p1;
+  let b = Memory.get_room_profile_binding ~db ~room_id:"r1" in
+  match b with
+  | None -> Alcotest.fail "expected binding"
+  | Some b -> (
+      Alcotest.(check int) "bound to p1" p1 b.profile_id;
+      (* rebind to p2 *)
+      Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:p2;
+      let b2 = Memory.get_room_profile_binding ~db ~room_id:"r1" in
+      match b2 with
+      | None -> Alcotest.fail "expected binding after rebind"
+      | Some b2 -> Alcotest.(check int) "rebound to p2" p2 b2.profile_id)
+
+let test_room_profile_binding_unique_constraint () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let p1 = Memory.insert_room_profile ~db ~name:"p1" in
+  let p2 = Memory.insert_room_profile ~db ~name:"p2" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:p1;
+  (* Bind a different room to p1 -- should replace the r1 binding (1:1) *)
+  Memory.upsert_room_profile_binding ~db ~room_id:"r2" ~profile_id:p1;
+  Alcotest.(check bool)
+    "r1 unbound" true
+    (Memory.get_room_profile_binding ~db ~room_id:"r1" = None);
+  (match Memory.get_room_profile_binding ~db ~room_id:"r2" with
+  | None -> Alcotest.fail "expected r2 binding"
+  | Some b -> Alcotest.(check int) "r2 bound to p1" p1 b.profile_id);
+  (* Rebind r2 to p2 -- old binding replaced *)
+  Memory.upsert_room_profile_binding ~db ~room_id:"r2" ~profile_id:p2;
+  match Memory.get_room_profile_binding ~db ~room_id:"r2" with
+  | None -> Alcotest.fail "expected r2 binding after rebind"
+  | Some b -> Alcotest.(check int) "r2 rebound to p2" p2 b.profile_id
+
+let test_get_room_profile_for_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"my-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-x" ~profile_id:pid;
+  let p = Memory.get_room_profile_for_room ~db ~room_id:"room-x" in
+  match p with
+  | None -> Alcotest.fail "expected profile for room"
+  | Some p -> Alcotest.(check string) "name" "my-profile" p.name
+
+let test_get_room_profile_for_room_no_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let p = Memory.get_room_profile_for_room ~db ~room_id:"unbound" in
+  Alcotest.(check bool) "no profile" true (p = None)
+
+let test_list_rooms_for_profile_one_to_one () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"shared" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:pid;
+  (* With 1:1 cardinality, re-binding the same profile to r2 unbinds r1 *)
+  Memory.upsert_room_profile_binding ~db ~room_id:"r2" ~profile_id:pid;
+  Alcotest.(check bool)
+    "r1 unbound after rebind" true
+    (Memory.get_room_profile_binding ~db ~room_id:"r1" = None);
+  match Memory.get_room_profile_binding ~db ~room_id:"r2" with
+  | None -> Alcotest.fail "expected r2 binding"
+  | Some b -> Alcotest.(check int) "bound to pid" pid b.profile_id
+
+let test_remove_room_profile_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"removable" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:pid;
+  let ok = Memory.remove_room_profile_binding ~db ~room_id:"r1" in
+  Alcotest.(check bool) "removed" true ok;
+  let b = Memory.get_room_profile_binding ~db ~room_id:"r1" in
+  Alcotest.(check bool) "gone" true (b = None)
+
+let column_exists db table col =
+  let r = ref false in
+  let stmt =
+    Sqlite3.prepare db (Printf.sprintf "PRAGMA table_info(%s)" table)
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        match Sqlite3.column stmt 1 with
+        | Sqlite3.Data.TEXT s when s = col -> r := true
+        | _ -> ()
+      done);
+  !r
+
+let test_repair_missing_columns_restores_dropped_column () =
+  (* exercise repair_missing_columns directly -- the reviewer found the
+     previous test only called ensure_all_tables, which is a different code
+     path.  repair_missing_columns handles ALTER TABLE ADD COLUMN idempotent
+     repair; we verify it by dropping a known column and calling it. *)
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Verify the column exists after init *)
+  Alcotest.(check bool)
+    "debug_enabled present after init" true
+    (column_exists db "session_state" "debug_enabled");
+  (* Drop the column via table rebuild (SQLite has no DROP COLUMN < 3.35) *)
+  exec_exn db "CREATE TABLE session_state_backup AS SELECT * FROM session_state";
+  exec_exn db "DROP TABLE session_state";
+  exec_exn db
+    "CREATE TABLE session_state (session_key TEXT PRIMARY KEY, turn TEXT NOT \
+     NULL DEFAULT 'user', channel TEXT, channel_id TEXT, response_sent_at \
+     TEXT, last_active TEXT NOT NULL DEFAULT (datetime('now')), \
+     keepalive_enabled INTEGER NOT NULL DEFAULT 0, heartbeat_enabled INTEGER \
+     NOT NULL DEFAULT 0, model_override TEXT DEFAULT NULL, effective_cwd TEXT \
+     DEFAULT NULL, CHECK ((channel IS NULL) = (channel_id IS NULL)))";
+  exec_exn db
+    "INSERT INTO session_state (session_key, turn, channel, channel_id, \
+     response_sent_at, last_active, keepalive_enabled, heartbeat_enabled, \
+     model_override, effective_cwd) SELECT session_key, turn, channel, \
+     channel_id, response_sent_at, last_active, keepalive_enabled, \
+     heartbeat_enabled, model_override, effective_cwd FROM \
+     session_state_backup";
+  exec_exn db "DROP TABLE session_state_backup";
+  Alcotest.(check bool)
+    "debug_enabled gone after rebuild" false
+    (column_exists db "session_state" "debug_enabled");
+  (* Call repair_missing_columns directly *)
+  Memory.repair_missing_columns db;
+  Alcotest.(check bool)
+    "debug_enabled restored by repair_missing_columns" true
+    (column_exists db "session_state" "debug_enabled")
+
+let test_upsert_room_profile_binding_orphan_rejection () =
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Binding to a nonexistent profile_id must fail *)
+  match
+    try
+      Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:9999;
+      `Ok
+    with Failure _ -> `Fail
+  with
+  | `Fail -> ()
+  | `Ok -> Alcotest.fail "expected orphan binding to fail"
+
 let suite =
   [
     Alcotest.test_case "init sets busy_timeout" `Quick
@@ -1574,4 +1823,35 @@ let suite =
       test_import_snapshot_rejects_bad_version;
     Alcotest.test_case "import snapshot upserts" `Quick
       test_import_snapshot_upserts;
+    Alcotest.test_case "init creates room profile tables" `Quick
+      test_init_creates_room_profile_tables;
+    Alcotest.test_case "ensure_all_tables creates room profiles" `Quick
+      test_ensure_all_tables_creates_room_profiles;
+    Alcotest.test_case "migrate v31 to current creates room profiles" `Quick
+      test_migrate_v31_to_current_creates_room_profiles;
+    Alcotest.test_case "insert and get room profile" `Quick
+      test_insert_and_get_room_profile;
+    Alcotest.test_case "insert room profile unique constraint" `Quick
+      test_insert_room_profile_unique_constraint;
+    Alcotest.test_case "get room profile by name" `Quick
+      test_get_room_profile_by_name;
+    Alcotest.test_case "list room profiles" `Quick test_list_room_profiles;
+    Alcotest.test_case "delete room profile cascades bindings" `Quick
+      test_delete_room_profile_cascades_bindings;
+    Alcotest.test_case "upsert room profile binding" `Quick
+      test_upsert_room_profile_binding;
+    Alcotest.test_case "room profile binding unique constraint" `Quick
+      test_room_profile_binding_unique_constraint;
+    Alcotest.test_case "get room profile for room" `Quick
+      test_get_room_profile_for_room;
+    Alcotest.test_case "get room profile for room no binding" `Quick
+      test_get_room_profile_for_room_no_binding;
+    Alcotest.test_case "list rooms for profile 1:1" `Quick
+      test_list_rooms_for_profile_one_to_one;
+    Alcotest.test_case "remove room profile binding" `Quick
+      test_remove_room_profile_binding;
+    Alcotest.test_case "repair missing columns restores dropped column" `Quick
+      test_repair_missing_columns_restores_dropped_column;
+    Alcotest.test_case "upsert room profile binding orphan rejection" `Quick
+      test_upsert_room_profile_binding_orphan_rejection;
   ]

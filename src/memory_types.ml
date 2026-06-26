@@ -54,3 +54,16 @@ type session_archive_info = {
   first_message_at : string option;
   last_message_at : string option;
 }
+
+type room_profile = {
+  id : int;
+  name : string;
+  created_at : string;
+  updated_at : string;
+}
+
+type room_profile_binding = {
+  room_id : string;
+  profile_id : int;
+  created_at : string;
+}
