@@ -142,10 +142,12 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
                   { cfg with agent_defaults };
                 Logs.info (fun m ->
                     m
-                      "%s show_thinking toggled channel=%s user=%s from=%b to=%b"
+                      "%s show_thinking toggled channel=%s user=%s from=%b \
+                       to=%b"
                       env.connector_name env.channel_id env.user_id current
                       new_val);
-                Slash_commands_fmt.format_show_thinking_toggle ~connector new_val
+                Slash_commands_fmt.format_show_thinking_toggle ~connector
+                  new_val
             | Error err -> "Failed to update show_thinking: " ^ err)
       in
       env.send_formatted text
@@ -182,7 +184,8 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
   | ThinkingMenu ->
       env.send_formatted (Slash_commands_fmt.format_thinking_menu ~connector)
   | ConfigMenu page ->
-      env.send_formatted (Slash_commands_fmt.format_config_menu ~connector ~page)
+      env.send_formatted
+        (Slash_commands_fmt.format_config_menu ~connector ~page)
   | SkillsMenu page ->
       let show_test = env.is_admin in
       env.send_formatted
@@ -234,7 +237,8 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
   | Session action ->
       let text =
         match Session.get_db session_mgr with
-        | Some db -> Slash_commands_sessions.format_session ~connector ~db action
+        | Some db ->
+            Slash_commands_sessions.format_session ~connector ~db action
         | None -> "Sessions not available (no database)."
       in
       env.send_formatted text
@@ -258,8 +262,7 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       let* text =
         match Session.get_db session_mgr with
         | Some db -> Slash_commands.format_bg ~connector ~db action
-        | None ->
-            Lwt.return "Background tasks are not available (no database)."
+        | None -> Lwt.return "Background tasks are not available (no database)."
       in
       env.send_formatted text
   | Cron action ->
