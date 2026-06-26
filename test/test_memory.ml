@@ -8,18 +8,6 @@ let with_temp_db f =
     (fun () -> f path)
     ~finally:(fun () -> try Sys.remove path with _ -> ())
 
-let query_single_int db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.INT n -> Int64.to_int n
-          | _ -> 0)
-      | _ -> 0)
-
 let table_exists db table_name =
   let stmt =
     Sqlite3.prepare db
@@ -79,7 +67,7 @@ let test_init_schema_version_is_current () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
     "schema version is current" Memory.schema_version
-    (query_single_int db "SELECT version FROM schema_version")
+    (Test_helpers.query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -149,7 +137,8 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
         "schema version migrated" Memory.schema_version
-        (query_single_int migrated "SELECT version FROM schema_version");
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
         (table_exists migrated "session_state");
@@ -922,7 +911,8 @@ let test_queue_migrate_v4_to_v5 () =
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
         "schema version is current" Memory.schema_version
-        (query_single_int migrated "SELECT version FROM schema_version");
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "inbound_queue exists after v4->v5" true
         (table_exists migrated "inbound_queue");
@@ -984,7 +974,8 @@ let test_migrate_v16_adds_effective_cwd () =
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
         "schema version is current" Memory.schema_version
-        (query_single_int migrated "SELECT version FROM schema_version");
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "effective_cwd column exists after v16 migration" true
         (column_exists migrated "session_state" "effective_cwd"))
@@ -1025,7 +1016,8 @@ let test_migrate_v23_adds_effective_cwd () =
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
         "schema version is current" Memory.schema_version
-        (query_single_int migrated "SELECT version FROM schema_version");
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "effective_cwd column exists after v23 migration" true
         (column_exists migrated "session_state" "effective_cwd"))
@@ -1077,13 +1069,13 @@ let test_archive_session_captures_messages () =
   Memory.store_message ~db ~session_key:"s1" (mk_msg "assistant" "hi back");
   Memory.archive_session ~db ~session_key:"s1";
   let count =
-    query_single_int db
+    Test_helpers.query_single_int db
       "SELECT COUNT(*) FROM session_archive_messages WHERE archive_id = \
        (SELECT archive_id FROM session_archives WHERE session_key = 's1')"
   in
   Alcotest.(check int) "archived 2 messages" 2 count;
   let archive_msg_count =
-    query_single_int db
+    Test_helpers.query_single_int db
       "SELECT message_count FROM session_archives WHERE session_key = 's1'"
   in
   Alcotest.(check int) "archive header message_count" 2 archive_msg_count
@@ -1096,12 +1088,12 @@ let test_archive_session_captures_epochs () =
     [ mk_msg "assistant" "[compacted]" ];
   Memory.archive_session ~db ~session_key:"s1";
   let epoch_count =
-    query_single_int db
+    Test_helpers.query_single_int db
       "SELECT epoch_count FROM session_archives WHERE session_key = 's1'"
   in
   Alcotest.(check int) "archived 1 epoch" 1 epoch_count;
   let epoch_msg_count =
-    query_single_int db
+    Test_helpers.query_single_int db
       "SELECT COUNT(*) FROM session_archive_epoch_messages ae JOIN \
        session_archive_epochs e ON ae.archive_epoch_id = e.id JOIN \
        session_archives a ON e.archive_id = a.archive_id WHERE a.session_key = \
@@ -1136,7 +1128,7 @@ let test_archive_session_empty_is_noop () =
   let db = Memory.init ~db_path:":memory:" () in
   Memory.archive_session ~db ~session_key:"empty";
   let count =
-    query_single_int db
+    Test_helpers.query_single_int db
       "SELECT COUNT(*) FROM session_archives WHERE session_key = 'empty'"
   in
   Alcotest.(check int) "no archive for empty session" 0 count
@@ -1149,7 +1141,7 @@ let test_archive_session_multiple_accumulate () =
   Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "round2");
   Memory.archive_session ~db ~session_key:"s1";
   let count =
-    query_single_int db
+    Test_helpers.query_single_int db
       "SELECT COUNT(*) FROM session_archives WHERE session_key = 's1'"
   in
   Alcotest.(check int) "two archives accumulated" 2 count

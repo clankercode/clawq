@@ -9,18 +9,6 @@ let read_all ic =
 
 let rec last = function [] -> None | [ x ] -> Some x | _ :: xs -> last xs
 
-let query_single_int db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.INT n -> Int64.to_int n
-          | _ -> 0)
-      | _ -> 0)
-
 let repo_root () =
   let exe =
     if Filename.is_relative Sys.executable_name then
@@ -324,7 +312,7 @@ let test_service_signal_restart_preserves_history () =
         (fun () ->
           Alcotest.(check bool)
             "history persisted before restart" true
-            (query_single_int db
+            (Test_helpers.query_single_int db
                "SELECT COUNT(*) FROM messages WHERE session_key = \
                 'web:restart-s'"
             >= 2));
@@ -363,7 +351,7 @@ let test_service_signal_restart_preserves_history () =
         (fun () ->
           Alcotest.(check bool)
             "history retained after restart" true
-            (query_single_int db
+            (Test_helpers.query_single_int db
                "SELECT COUNT(*) FROM messages WHERE session_key = \
                 'web:restart-s'"
             >= 2));

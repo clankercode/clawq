@@ -105,6 +105,20 @@ let free_port () =
       | Unix.ADDR_INET (_, port) -> port
       | _ -> Alcotest.fail "expected inet socket")
 
+(** Execute a SQL query and return the first column of the first row as an int.
+    Returns 0 if there is no row or the column is not an INT. *)
+let query_single_int db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0)
+      | _ -> 0)
+
 (** Execute a SQL query and return the first column of the first row as a string
     option. *)
 let query_single_text_option db sql =
