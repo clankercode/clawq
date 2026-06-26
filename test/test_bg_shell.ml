@@ -43,7 +43,7 @@ let test_basic_detach () =
                    effective_cwd = None;
                    request_cwd_change = None;
                  }
-               (`Assoc [ ("command", `String "echo hello; sleep 0.05") ])
+               (`Assoc [ ("command", `String "echo hello; sleep 0.5") ])
            in
            let* result, () = Lwt.both invoke trigger in
            Lwt.return result)
