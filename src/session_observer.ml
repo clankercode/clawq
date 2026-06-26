@@ -283,8 +283,10 @@ let build_tool_histogram (history : Provider.message list) =
   if Hashtbl.length tbl = 0 then "(no tool calls in history)"
   else begin
     let buf = Buffer.create 256 in
-    Hashtbl.iter
-      (fun hist_key (total, errors, last_err) ->
+    let entries = Hashtbl.fold (fun k v acc -> (k, v) :: acc) tbl [] in
+    let sorted = List.sort (fun (a, _) (b, _) -> String.compare a b) entries in
+    List.iter
+      (fun (hist_key, (total, errors, last_err)) ->
         Buffer.add_string buf
           (Printf.sprintf "%s \xc3\x97 %d\n" hist_key !total);
         if !errors > 0 then begin
@@ -294,7 +296,7 @@ let build_tool_histogram (history : Provider.message list) =
           if successes > 0 then
             Buffer.add_string buf (Printf.sprintf "  success (%d)\n" successes)
         end)
-      tbl;
+      sorted;
     String.trim (Buffer.contents buf)
   end
 
@@ -330,20 +332,20 @@ let has_terminal_punctuation s =
   scan 0
 
 let last_complete_assistant_response (history : Provider.message list) =
-  (* Find the most recent assistant message (newest-first traversal). If it
-     has terminal-punctuation prose and no pending tool_calls, treat as
-     complete. If the model returned tool_calls alongside text, we still
-     consider it complete when the prose has terminal punctuation — the
-     remaining tool calls will produce their own messages on the next turn,
-     not indicate "stuck". *)
+  (* Walk history (newest-first). Find the most recent assistant message with
+     non-empty content and terminal punctuation. Skip empty (tool_calls-only)
+     assistant messages — the one before them may have the complete prose. *)
   let rec find = function
     | [] -> None
-    | (m : Provider.message) :: _ when m.role = "assistant" ->
-        let trimmed = String.trim m.content in
-        if trimmed = "" then None
-        else if has_terminal_punctuation trimmed then Some trimmed
-        else None
-    | _ :: rest -> find rest
+    | (m : Provider.message) :: rest ->
+        if m.role = "assistant" then
+          let trimmed = String.trim m.content in
+          if trimmed = "" then
+            (* Empty assistant message (tool_calls-only), keep searching *)
+            find rest
+          else if has_terminal_punctuation trimmed then Some trimmed
+          else find rest
+        else find rest
   in
   find history
 

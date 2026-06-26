@@ -38,17 +38,19 @@ let should_block_live_signal_restart () =
 let read_file path =
   try
     let ic = open_in_bin path in
-    let buf = Buffer.create 256 in
-    let chunk = Bytes.create 256 in
-    let rec loop () =
-      let n = input ic chunk 0 256 in
-      if n > 0 then (
-        Buffer.add_subbytes buf chunk 0 n;
-        loop ())
-    in
-    (try loop () with End_of_file -> ());
-    close_in ic;
-    Some (Buffer.contents buf)
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let buf = Buffer.create 256 in
+        let chunk = Bytes.create 256 in
+        let rec loop () =
+          let n = input ic chunk 0 256 in
+          if n > 0 then (
+            Buffer.add_subbytes buf chunk 0 n;
+            loop ())
+        in
+        (try loop () with End_of_file -> ());
+        Some (Buffer.contents buf))
   with _ -> None
 
 let proc_start_ticks pid =

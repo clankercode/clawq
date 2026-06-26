@@ -440,7 +440,12 @@ let migrate_step db v =
       try
         exec_exn db
           "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 1 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 2 | 5 | 6 | 11 | 14 | 17 | 18 | 21 | 23 | 25 -> ()
   | 3 ->
       init_models_cache_schema db;
@@ -450,14 +455,24 @@ let migrate_step db v =
         exec_exn db
           "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
            NULL DEFAULT 0"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 4 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 7 -> init_quota_cache_schema db
   | 8 -> (
       try
         exec_exn db
           "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT \
            NULL"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 8 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 9 -> init_postmortems_schema db
   | 10 ->
       init_model_discovery_state_schema db;
@@ -466,14 +481,24 @@ let migrate_step db v =
       try
         exec_exn db
           "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 12 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 13 -> (
       init_pending_questions_schema db;
       try
         exec_exn db
           "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT \
            NULL DEFAULT 0"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 13 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 15 ->
       (* Recreate session_state with CHECK constraint.
          SQLite does not support ADD CONSTRAINT, so use
@@ -501,7 +526,12 @@ let migrate_step db v =
   | 19 -> (
       try
         exec_exn db "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 19 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 20 ->
       init_session_archive_schema db;
       init_connector_history_schema db;
@@ -512,7 +542,12 @@ let migrate_step db v =
       try
         exec_exn db
           "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 26 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 27 -> init_debate_rounds_schema db
   | 28 -> init_session_repos_schema db
   | 29 -> (
@@ -520,18 +555,29 @@ let migrate_step db v =
         exec_exn db
           "ALTER TABLE session_state ADD COLUMN debug_enabled INTEGER NOT NULL \
            DEFAULT 0"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m
+              "[memory_0_schema] migration step 29 failed (may already exist): \
+               %s"
+              (Printexc.to_string exn)))
   | 30 -> (
       (try
          exec_exn db
            "ALTER TABLE models_cache ADD COLUMN deprecated INTEGER NOT NULL \
             DEFAULT 0"
-       with _ -> ());
+       with exn ->
+         Logs.warn (fun m ->
+             m "[memory_0_schema] migration step 30 (deprecated) failed: %s"
+               (Printexc.to_string exn)));
       try
         exec_exn db
           "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL \
            DEFAULT 0"
-      with _ -> ())
+      with exn ->
+        Logs.warn (fun m ->
+            m "[memory_0_schema] migration step 30 (unavailable) failed: %s"
+              (Printexc.to_string exn)))
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema

@@ -37,8 +37,17 @@ let load ~workspace ~agent_name ~default =
       Fun.protect
         ~finally:(fun () -> close_in_noerr ic)
         (fun () ->
-          let len = in_channel_length ic in
-          really_input_string ic len)
+          let buf = Buffer.create 256 in
+          let chunk = Bytes.create 4096 in
+          let rec loop () =
+            let n = input ic chunk 0 4096 in
+            if n > 0 then begin
+              Buffer.add_subbytes buf chunk 0 n;
+              loop ()
+            end
+          in
+          loop ();
+          Buffer.contents buf)
     in
     let lines = String.split_on_char '\n' content in
     let metadata, body_lines = parse_frontmatter lines in

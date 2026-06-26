@@ -9,11 +9,11 @@ type terminal_state = {
   output_drain : unit Lwt.t;
 }
 
-let next_id = ref 0
+let next_id = Atomic.make 0
 
 let generate_id () =
-  incr next_id;
-  Printf.sprintf "term_%d" !next_id
+  let id = Atomic.fetch_and_add next_id 1 in
+  Printf.sprintf "term_%d" (id + 1)
 
 let create ~cwd ~command ~args ?env:env_pairs () =
   let open Lwt.Syntax in
@@ -54,7 +54,17 @@ let create ~cwd ~command ~args ?env:env_pairs () =
   in
   let exit_waiter =
     let* status = proc#status in
-    let* () = Lwt.catch (fun () -> drain) (fun _ -> Lwt.return_unit) in
+    let* () =
+      Lwt.catch
+        (fun () ->
+          Lwt.pick
+            [
+              drain;
+              (let* () = Lwt_unix.sleep 5.0 in
+               Lwt.return_unit);
+            ])
+        (fun _ -> Lwt.return_unit)
+    in
     Lwt.return (pid, status)
   in
   let state =

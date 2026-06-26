@@ -3,7 +3,9 @@ type t = {
   mutable next_id : int;
   mutable session_id : string option;
   mutable agent_capabilities : Acp_types.agent_capabilities option;
+  mutable init_complete : bool;
   pending_requests : (int, Yojson.Safe.t Lwt.u) Hashtbl.t;
+  pending_init_notifications : Yojson.Safe.t list ref;
   mutable on_update : Acp_types.session_update -> unit Lwt.t;
   log_channel : Lwt_io.output_channel option;
   db : Sqlite3.db option;
@@ -457,15 +459,23 @@ let handle_incoming_message t json =
   end
   else if has_method && not has_id then begin
     (* Notification from agent *)
-    let method_ = json |> member "method" |> to_string in
-    match method_ with
-    | "session/update" ->
-        let params = json |> member "params" in
-        let update = params |> member "update" in
-        handle_session_update t ~update_json:update ~raw_json:json
-    | _ ->
-        Logs.debug (fun m -> m "ACP: ignoring unknown notification: %s" method_);
-        Lwt.return_unit
+    if not t.init_complete then begin
+      (* Buffer notification until initialize completes *)
+      t.pending_init_notifications := json :: !(t.pending_init_notifications);
+      Lwt.return_unit
+    end
+    else begin
+      let method_ = json |> member "method" |> to_string in
+      match method_ with
+      | "session/update" ->
+          let params = json |> member "params" in
+          let update = params |> member "update" in
+          handle_session_update t ~update_json:update ~raw_json:json
+      | _ ->
+          Logs.debug (fun m ->
+              m "ACP: ignoring unknown notification: %s" method_);
+          Lwt.return_unit
+    end
   end
   else if has_method && has_id then begin
     (* Request from agent to client *)
@@ -560,7 +570,9 @@ let connect ?log_path ?db ?task_id ~command ~cwd ~auto_approve () =
       next_id = 0;
       session_id = None;
       agent_capabilities = None;
+      init_complete = false;
       pending_requests = Hashtbl.create 16;
+      pending_init_notifications = ref [];
       on_update = (fun _ -> Lwt.return_unit);
       log_channel;
       db;
@@ -576,52 +588,71 @@ let connect ?log_path ?db ?task_id ~command ~cwd ~auto_approve () =
   let rl = start_read_loop t in
   let sd = drain_stderr proc in
   let t = { t with read_loop = rl; stderr_drain = sd } in
-  (* Initialize *)
-  let* () =
-    log_write t
-      (Printf.sprintf "== ACP Session Started ==\nAgent: %s\nCWD: %s"
-         (String.concat " " (Array.to_list command))
-         cwd)
-  in
-  let* resp =
-    send_request t ~method_:"initialize"
-      ~params:
-        (`Assoc
-           [
-             ("protocolVersion", `Int 1);
-             ( "clientCapabilities",
-               Acp_types.client_capabilities_to_json
-                 {
-                   fs = { read_text_file = true; write_text_file = true };
-                   terminal = true;
-                 } );
-             ( "clientInfo",
-               Acp_types.implementation_to_json
-                 {
-                   name = "clawq";
-                   title = Some "Clawq Agent Runtime";
-                   version = Some Build_info.version;
-                 } );
-           ])
-  in
-  let open Yojson.Safe.Util in
-  let resp_error =
-    try Some (resp |> member "error" |> member "message" |> to_string)
-    with _ -> None
-  in
-  (match resp_error with
-  | Some msg -> failwith (Printf.sprintf "ACP initialize failed: %s" msg)
-  | None -> ());
-  let result = resp |> member "result" in
-  let agent_caps =
-    try
-      Some
-        (Acp_types.agent_capabilities_of_json
-           (result |> member "agentCapabilities"))
-    with _ -> None
-  in
-  t.agent_capabilities <- agent_caps;
-  Lwt.return t
+  (* Initialize — close log_channel on failure to avoid fd leak *)
+  Lwt.finalize
+    (fun () ->
+      let* () =
+        log_write t
+          (Printf.sprintf "== ACP Session Started ==\nAgent: %s\nCWD: %s"
+             (String.concat " " (Array.to_list command))
+             cwd)
+      in
+      let* resp =
+        send_request t ~method_:"initialize"
+          ~params:
+            (`Assoc
+               [
+                 ("protocolVersion", `Int 1);
+                 ( "clientCapabilities",
+                   Acp_types.client_capabilities_to_json
+                     {
+                       fs = { read_text_file = true; write_text_file = true };
+                       terminal = true;
+                     } );
+                 ( "clientInfo",
+                   Acp_types.implementation_to_json
+                     {
+                       name = "clawq";
+                       title = Some "Clawq Agent Runtime";
+                       version = Some Build_info.version;
+                     } );
+               ])
+      in
+      let open Yojson.Safe.Util in
+      let resp_error =
+        try Some (resp |> member "error" |> member "message" |> to_string)
+        with _ -> None
+      in
+      (match resp_error with
+      | Some msg -> failwith (Printf.sprintf "ACP initialize failed: %s" msg)
+      | None -> ());
+      let result = resp |> member "result" in
+      let agent_caps =
+        try
+          Some
+            (Acp_types.agent_capabilities_of_json
+               (result |> member "agentCapabilities"))
+        with _ -> None
+      in
+      t.agent_capabilities <- agent_caps;
+      t.init_complete <- true;
+      (* Drain buffered notifications received during init *)
+      let pending = List.rev !(t.pending_init_notifications) in
+      t.pending_init_notifications := [];
+      let open Lwt.Syntax in
+      let* () =
+        Lwt_list.iter_s (fun json -> handle_incoming_message t json) pending
+      in
+      Lwt.return t)
+    (fun () ->
+      (* On failure, close log_channel to avoid fd leak. On success this is
+         a no-op since disconnect will close it. *)
+      if not t.init_complete then
+        match t.log_channel with
+        | Some oc ->
+            Lwt.catch (fun () -> Lwt_io.close oc) (fun _ -> Lwt.return_unit)
+        | None -> Lwt.return_unit
+      else Lwt.return_unit)
 
 let create_session t () =
   let open Lwt.Syntax in

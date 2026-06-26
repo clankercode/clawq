@@ -113,86 +113,106 @@ let split_comma_list s =
     String.split_on_char ',' s |> List.map String.trim
     |> List.filter (fun s -> s <> "")
 
+(* Name validation *)
+let is_valid_name name =
+  name <> ""
+  && String.length name <= 64
+  &&
+  let ok = ref true in
+  String.iter
+    (fun c ->
+      match c with
+      | 'a' .. 'z' | '0' .. '9' | '-' | '_' -> ()
+      | _ -> ok := false)
+    name;
+  !ok
+
 let parse_template ~source_path content =
   let pairs, body = parse_frontmatter content in
   let find key = List.assoc_opt key pairs in
   match find "name" with
   | None -> Error "Missing required field: name"
   | Some name -> (
-      match find "description" with
-      | None -> Error "Missing required field: description"
-      | Some description ->
-          let role =
-            match find "role" with
-            | Some r -> role_of_string (String.lowercase_ascii r)
-            | None -> Custom "unspecified"
-          in
-          let goal = Option.value ~default:"" (find "goal") in
-          let backstory = Option.value ~default:"" (find "backstory") in
-          let model = find "model" in
-          let max_tool_iterations =
-            match find "max-tool-iterations" with
-            | Some s -> int_of_string_opt s
-            | None -> None
-          in
-          let allowed_tools =
-            match find "allowed-tools" with
-            | Some s -> split_comma_list s
-            | None -> []
-          in
-          let disallowed_tools =
-            match find "disallowed-tools" with
-            | Some s -> split_comma_list s
-            | None -> []
-          in
-          let tool_search_enabled =
-            match find "tool-search-enabled" with
-            | Some "true" -> Some true
-            | Some "false" -> Some false
-            | _ -> None
-          in
-          let reasoning_effort = find "reasoning-effort" in
-          let cwd = find "cwd" in
-          let known_keys =
-            [
-              "name";
-              "description";
-              "role";
-              "goal";
-              "backstory";
-              "model";
-              "max-tool-iterations";
-              "allowed-tools";
-              "disallowed-tools";
-              "tool-search-enabled";
-              "reasoning-effort";
-              "cwd";
-            ]
-          in
-          let metadata =
-            List.filter (fun (k, _) -> not (List.mem k known_keys)) pairs
-          in
-          let source =
-            match source_path with "" -> Builtin | p -> User_file p
-          in
-          Ok
-            {
-              name;
-              description;
-              role;
-              goal;
-              backstory;
-              system_prompt = String.trim body;
-              model;
-              max_tool_iterations;
-              allowed_tools;
-              disallowed_tools;
-              tool_search_enabled;
-              reasoning_effort;
-              cwd;
-              source;
-              metadata;
-            })
+      if not (is_valid_name name) then
+        Error
+          (Printf.sprintf
+             "Invalid agent name %S: must be lowercase alphanumeric with - or _"
+             name)
+      else
+        match find "description" with
+        | None -> Error "Missing required field: description"
+        | Some description ->
+            let role =
+              match find "role" with
+              | Some r -> role_of_string (String.lowercase_ascii r)
+              | None -> Custom "unspecified"
+            in
+            let goal = Option.value ~default:"" (find "goal") in
+            let backstory = Option.value ~default:"" (find "backstory") in
+            let model = find "model" in
+            let max_tool_iterations =
+              match find "max-tool-iterations" with
+              | Some s -> int_of_string_opt s
+              | None -> None
+            in
+            let allowed_tools =
+              match find "allowed-tools" with
+              | Some s -> split_comma_list s
+              | None -> []
+            in
+            let disallowed_tools =
+              match find "disallowed-tools" with
+              | Some s -> split_comma_list s
+              | None -> []
+            in
+            let tool_search_enabled =
+              match find "tool-search-enabled" with
+              | Some "true" -> Some true
+              | Some "false" -> Some false
+              | _ -> None
+            in
+            let reasoning_effort = find "reasoning-effort" in
+            let cwd = find "cwd" in
+            let known_keys =
+              [
+                "name";
+                "description";
+                "role";
+                "goal";
+                "backstory";
+                "model";
+                "max-tool-iterations";
+                "allowed-tools";
+                "disallowed-tools";
+                "tool-search-enabled";
+                "reasoning-effort";
+                "cwd";
+              ]
+            in
+            let metadata =
+              List.filter (fun (k, _) -> not (List.mem k known_keys)) pairs
+            in
+            let source =
+              match source_path with "" -> Builtin | p -> User_file p
+            in
+            Ok
+              {
+                name;
+                description;
+                role;
+                goal;
+                backstory;
+                system_prompt = String.trim body;
+                model;
+                max_tool_iterations;
+                allowed_tools;
+                disallowed_tools;
+                tool_search_enabled;
+                reasoning_effort;
+                cwd;
+                source;
+                metadata;
+              })
 
 let to_frontmatter_string t =
   let lines = ref [] in
@@ -228,20 +248,6 @@ let to_frontmatter_string t =
   add "";
   add t.system_prompt;
   String.concat "\n" (List.rev !lines)
-
-(* Name validation *)
-let is_valid_name name =
-  name <> ""
-  && String.length name <= 64
-  &&
-  let ok = ref true in
-  String.iter
-    (fun c ->
-      match c with
-      | 'a' .. 'z' | '0' .. '9' | '-' | '_' -> ()
-      | _ -> ok := false)
-    name;
-  !ok
 
 (* Discovery *)
 
@@ -287,31 +293,33 @@ let scan_dirs dirs =
         let entries = try Sys.readdir dir |> Array.to_list with _ -> [] in
         List.iter
           (fun entry ->
-            let entry_path = Filename.concat dir entry in
-            (* Pattern 1: <name>/AGENT.md *)
-            if Sys.file_exists entry_path && Sys.is_directory entry_path then begin
-              let agent_md_path = Filename.concat entry_path "AGENT.md" in
-              if Sys.file_exists agent_md_path then
-                match load_template_file agent_md_path with
+            try
+              let entry_path = Filename.concat dir entry in
+              (* Pattern 1: <name>/AGENT.md *)
+              if Sys.file_exists entry_path && Sys.is_directory entry_path then begin
+                let agent_md_path = Filename.concat entry_path "AGENT.md" in
+                if Sys.file_exists agent_md_path then
+                  match load_template_file agent_md_path with
+                  | Some t ->
+                      if not (Hashtbl.mem seen t.name) then begin
+                        Hashtbl.add seen t.name true;
+                        results := t :: !results
+                      end
+                  | None -> ()
+              end (* Pattern 2: flat <name>.md *)
+              else if
+                Filename.check_suffix entry ".md"
+                && Sys.file_exists entry_path
+                && not (Sys.is_directory entry_path)
+              then
+                match load_template_file entry_path with
                 | Some t ->
                     if not (Hashtbl.mem seen t.name) then begin
                       Hashtbl.add seen t.name true;
                       results := t :: !results
                     end
                 | None -> ()
-            end (* Pattern 2: flat <name>.md *)
-            else if
-              Filename.check_suffix entry ".md"
-              && Sys.file_exists entry_path
-              && not (Sys.is_directory entry_path)
-            then
-              match load_template_file entry_path with
-              | Some t ->
-                  if not (Hashtbl.mem seen t.name) then begin
-                    Hashtbl.add seen t.name true;
-                    results := t :: !results
-                  end
-              | None -> ())
+            with _ -> ())
           entries
       end)
     dirs;

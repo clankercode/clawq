@@ -18,8 +18,18 @@ let set_enabled ~db ~session_key ~enabled =
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
-      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
-      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (bool_int enabled)));
+      (match Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key) with
+      | Sqlite3.Rc.OK -> ()
+      | rc ->
+          Logs.warn (fun m ->
+              m "Failed to bind session_key in set_enabled: %s"
+                (Sqlite3.Rc.to_string rc)));
+      (match Sqlite3.bind stmt 2 (Sqlite3.Data.INT (bool_int enabled)) with
+      | Sqlite3.Rc.OK -> ()
+      | rc ->
+          Logs.warn (fun m ->
+              m "Failed to bind debug_enabled in set_enabled: %s"
+                (Sqlite3.Rc.to_string rc)));
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
@@ -34,7 +44,12 @@ let enabled ~db ~session_key =
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
-      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      (match Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key) with
+      | Sqlite3.Rc.OK -> ()
+      | rc ->
+          Logs.warn (fun m ->
+              m "Failed to bind session_key in enabled: %s"
+                (Sqlite3.Rc.to_string rc)));
       match Sqlite3.step stmt with
       | Sqlite3.Rc.ROW -> (
           match Sqlite3.column stmt 0 with
@@ -50,7 +65,11 @@ let format_usage = function
       let total_tokens = prompt_tokens + completion_tokens in
       let cached_pct =
         if prompt_tokens <= 0 then 0.0
-        else 100.0 *. float_of_int cached_tokens /. float_of_int prompt_tokens
+        else
+          let pct =
+            100.0 *. float_of_int cached_tokens /. float_of_int prompt_tokens
+          in
+          min pct 100.0
       in
       Printf.sprintf
         "tokens=%d prompt=%d output+reasoning=%d cached=%d cached_pct=%.0f%%"

@@ -1,20 +1,30 @@
 let collect_tool_call_ids msgs =
+  let seen = Hashtbl.create 64 in
   List.fold_left
     (fun acc (m : Provider.message) ->
       if m.role = "assistant" && m.tool_calls <> [] then
         List.fold_left
           (fun acc (tc : Provider.tool_call) ->
-            if List.mem tc.id acc then acc else tc.id :: acc)
+            if Hashtbl.mem seen tc.id then acc
+            else begin
+              Hashtbl.add seen tc.id ();
+              tc.id :: acc
+            end)
           acc m.tool_calls
       else acc)
     [] msgs
 
 let collect_tool_result_ids msgs =
+  let seen = Hashtbl.create 64 in
   List.fold_left
     (fun acc (m : Provider.message) ->
       match m.tool_call_id with
       | Some id when m.role = "tool" ->
-          if List.mem id acc then acc else id :: acc
+          if Hashtbl.mem seen id then acc
+          else begin
+            Hashtbl.add seen id ();
+            id :: acc
+          end
       | _ -> acc)
     [] msgs
 
@@ -53,7 +63,16 @@ let ensure_tool_group_integrity msgs =
   |> List.filter (fun (m : Provider.message) ->
       if m.role = "tool" then
         match m.tool_call_id with
-        | Some id -> List.mem id call_ids
+        | Some id ->
+            if List.mem id call_ids then true
+            else begin
+              Logs.warn (fun m' ->
+                  m'
+                    "[message_history] dropping orphan tool result for \
+                     call_id=%s"
+                    id);
+              false
+            end
         | None -> true
       else true)
   |> List.map (fun (m : Provider.message) ->
