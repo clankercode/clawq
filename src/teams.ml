@@ -1728,6 +1728,15 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         | None -> "Held items are not available (no database)."
                       in
                       send_text text
+                  | Memories action ->
+                      let text =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Slash_commands.format_memories
+                              ~connector:Format_adapter.Teams ~db action
+                        | None -> "Memories are not available (no database)."
+                      in
+                      send_text text
                   | Rig action -> (
                       match action with
                       | RigList ->

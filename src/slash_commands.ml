@@ -254,6 +254,21 @@ let handle ?(skill_names = []) text =
                 else ForkAnd (Some name, prompt)
             | _ -> ForkAnd (None, String.concat " " args))
         | "tools" -> Tools
+        | "memories" | "memory" ->
+            let oldest = ref false and page = ref 1 and ok = ref true in
+            List.iter
+              (fun a ->
+                match String.lowercase_ascii a with
+                | "oldest" | "asc" -> oldest := true
+                | "newest" | "recent" | "desc" -> oldest := false
+                | other -> (
+                    match int_of_string_opt other with
+                    | Some n when n >= 1 -> page := n
+                    | _ -> ok := false))
+              args;
+            if !ok then Memories { oldest = !oldest; page = !page }
+            else
+              FormattedReply (fun connector -> format_memories_usage ~connector)
         | "tasks" -> (
             match args with
             | [ "full" ] -> TasksFull

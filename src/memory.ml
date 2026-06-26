@@ -1649,6 +1649,49 @@ let list_core ~db ?(category = "") () =
   ignore (Sqlite3.finalize stmt);
   List.rev !results
 
+(* Like [list_core] but also returns each memory's [updated_at] (Unix seconds)
+   and allows ascending order (oldest first) for the /memories command. *)
+let list_core_with_meta ~db ?(category = "") ?(oldest = false) () =
+  let order = if oldest then "ASC" else "DESC" in
+  let sql, has_category =
+    if category = "" then
+      ( Printf.sprintf
+          "SELECT key, content, category, updated_at FROM core_memories ORDER \
+           BY updated_at %s, key ASC"
+          order,
+        false )
+    else
+      ( Printf.sprintf
+          "SELECT key, content, category, updated_at FROM core_memories WHERE \
+           category = ? ORDER BY updated_at %s, key ASC"
+          order,
+        true )
+  in
+  let stmt = Sqlite3.prepare db sql in
+  if has_category then ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT category));
+  let results = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    let key =
+      match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let content =
+      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let cat =
+      match Sqlite3.column stmt 2 with
+      | Sqlite3.Data.TEXT s -> s
+      | _ -> "general"
+    in
+    let updated =
+      match Sqlite3.column stmt 3 with
+      | Sqlite3.Data.INT n -> Int64.to_int n
+      | _ -> 0
+    in
+    results := (key, content, cat, updated) :: !results
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !results
+
 let count_core ~db =
   let sql = "SELECT COUNT(*) FROM core_memories" in
   let stmt = Sqlite3.prepare db sql in

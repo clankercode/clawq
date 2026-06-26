@@ -84,6 +84,8 @@ type repo_action =
   | RepoForget
   | RepoUpdate
 
+type memories_action = { oldest : bool; page : int }
+
 type result =
   | Reply of string
   | FormattedReply of (Format_adapter.connector -> string)
@@ -114,6 +116,7 @@ type result =
   | Rig of rig_action
   | Repo of repo_action
   | HeldItems of held_items_action
+  | Memories of memories_action
   | DebugDumpChat
   | BashRun of string
   | AgentInvoke of string * string
@@ -177,6 +180,11 @@ let commands =
       priority = 6;
     };
     { name = "tools"; description = "List all available tools"; priority = 48 };
+    {
+      name = "memories";
+      description = "List stored memories: /memories [oldest/newest] [page]";
+      priority = 49;
+    };
     {
       name = "tasks";
       description = "Show task tree (compact): /tasks [full]";
@@ -1218,6 +1226,71 @@ let format_tools ~connector tools skills agents =
   | Format_adapter.Telegram_html -> format_tools_telegram tools skills agents
   | Format_adapter.Plain -> format_tools_plain tools skills agents
   | _ -> format_tools_table ~connector tools skills agents
+
+(* ── Memories ──────────────────────────────────────────────────────────── *)
+
+let format_memories_usage ~connector =
+  "Usage: "
+  ^ Format_adapter.code connector "/memories"
+  ^ " [oldest/newest] [page]\n  "
+  ^ Format_adapter.code connector "/memories"
+  ^ "          \xe2\x80\x94 List memories, most recently updated first\n  "
+  ^ Format_adapter.code connector "/memories oldest"
+  ^ "   \xe2\x80\x94 List memories, oldest first\n  "
+  ^ Format_adapter.code connector "/memories 2"
+  ^ "        \xe2\x80\x94 Show page 2"
+
+(* Collapse whitespace/newlines to a single line, then truncate for preview. *)
+let memory_preview content =
+  let buf = Buffer.create (String.length content) in
+  let prev_space = ref false in
+  String.iter
+    (fun c ->
+      let c = match c with '\n' | '\r' | '\t' -> ' ' | _ -> c in
+      if c = ' ' then begin
+        if not !prev_space then Buffer.add_char buf ' ';
+        prev_space := true
+      end
+      else begin
+        Buffer.add_char buf c;
+        prev_space := false
+      end)
+    content;
+  truncate_description (String.trim (Buffer.contents buf)) 60
+
+let format_unix_date seconds =
+  if seconds <= 0 then "-"
+  else
+    let tm = Unix.gmtime (float_of_int seconds) in
+    Printf.sprintf "%04d-%02d-%02d" (1900 + tm.tm_year) (1 + tm.tm_mon)
+      tm.tm_mday
+
+let format_memories ~connector ~db { oldest; page } =
+  let items = Memory.list_core_with_meta ~db ~oldest () in
+  if items = [] then "No memories stored yet."
+  else
+    let page_items, page, total_pages = paginate_items items page in
+    let lines =
+      List.map
+        (fun (key, content, cat, updated) ->
+          Format_adapter.bold connector (Format_adapter.escape connector key)
+          ^ " ["
+          ^ Format_adapter.escape connector cat
+          ^ "] " ^ format_unix_date updated ^ "\n"
+          ^ Format_adapter.escape connector (memory_preview content))
+        page_items
+    in
+    let header =
+      Format_adapter.bold connector
+        (Printf.sprintf "Memories (%d total)" (List.length items))
+    in
+    let order_label =
+      if oldest then " \xe2\x80\x94 oldest first"
+      else " \xe2\x80\x94 newest first"
+    in
+    let cmd = if oldest then "/memories oldest" else "/memories" in
+    header ^ order_label ^ "\n\n" ^ String.concat "\n\n" lines
+    ^ pagination_footer ~connector ~cmd page total_pages
 
 (* ── Existing format: cron ─────────────────────────────────────────────── *)
 

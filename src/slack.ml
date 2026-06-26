@@ -856,6 +856,18 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Memories action ->
+                let text =
+                  match Session.get_db session_manager with
+                  | Some db ->
+                      Slash_commands.format_memories
+                        ~connector:Format_adapter.Slack ~db action
+                  | None -> "Memories are not available (no database)."
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Rig action -> (
                 match action with
                 | RigList ->

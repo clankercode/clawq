@@ -1034,6 +1034,16 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             in
             send_message_fn ~bot_token:discord_config.bot_token
               ~channel_id:msg.channel_id ~text
+        | Memories action ->
+            let text =
+              match Session.get_db session_mgr with
+              | Some db ->
+                  Slash_commands.format_memories
+                    ~connector:Format_adapter.Discord ~db action
+              | None -> "Memories are not available (no database)."
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
         | Rig action -> (
             match action with
             | RigList ->

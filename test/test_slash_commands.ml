@@ -177,6 +177,8 @@ let rec result_to_string = function
       | Slash_commands.RepoForget -> "Repo(Forget)"
       | Slash_commands.RepoUpdate -> "Repo(Update)")
   | Slash_commands.Debate prompt -> "Debate(" ^ prompt ^ ")"
+  | Slash_commands.Memories { oldest; page } ->
+      Printf.sprintf "Memories(oldest=%b page=%d)" oldest page
   | Slash_commands.NotACommand -> "NotACommand"
 
 let rec result_eq a b =
@@ -239,6 +241,7 @@ let rec result_eq a b =
   | Slash_commands.Repo a, Slash_commands.Repo b -> a = b
   | Slash_commands.HeldItems a, Slash_commands.HeldItems b -> a = b
   | Slash_commands.Debate a, Slash_commands.Debate b -> a = b
+  | Slash_commands.Memories a, Slash_commands.Memories b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -1000,6 +1003,37 @@ let test_tools_command () =
   Alcotest.check result_testable "/tools returns Tools" Slash_commands.Tools
     (Slash_commands.handle "/tools")
 
+let test_memories_default () =
+  Alcotest.check result_testable "/memories defaults to newest, page 1"
+    (Slash_commands.Memories { oldest = false; page = 1 })
+    (Slash_commands.handle "/memories")
+
+let test_memories_oldest () =
+  Alcotest.check result_testable "/memories oldest"
+    (Slash_commands.Memories { oldest = true; page = 1 })
+    (Slash_commands.handle "/memories oldest")
+
+let test_memories_page () =
+  Alcotest.check result_testable "/memories 3 selects page 3"
+    (Slash_commands.Memories { oldest = false; page = 3 })
+    (Slash_commands.handle "/memories 3")
+
+let test_memories_oldest_page () =
+  Alcotest.check result_testable "/memories oldest 2 selects oldest page 2"
+    (Slash_commands.Memories { oldest = true; page = 2 })
+    (Slash_commands.handle "/memories oldest 2");
+  Alcotest.check result_testable "/memories 2 oldest order-independent"
+    (Slash_commands.Memories { oldest = true; page = 2 })
+    (Slash_commands.handle "/memories 2 oldest")
+
+let test_memories_invalid_args () =
+  match extract_text (Slash_commands.handle "/memories bogus") with
+  | Some s ->
+      Alcotest.(check bool)
+        "mentions /memories" true
+        (contains_str s "/memories")
+  | None -> Alcotest.fail "expected usage text for invalid /memories args"
+
 let test_tasks_command () =
   Alcotest.check result_testable "/tasks returns Tasks" Slash_commands.Tasks
     (Slash_commands.handle "/tasks")
@@ -1083,6 +1117,80 @@ let test_tasks_session_key_isolation () =
        ignore (Str.search_forward (Str.regexp_string "Session1 task") output2 0);
        false
      with Not_found -> true)
+
+let insert_core_memory ~db ~key ~content ~updated =
+  let sql =
+    "INSERT INTO core_memories (key, content, category, created_at, \
+     updated_at) VALUES (?, ?, 'general', ?, ?)"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT content));
+  ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int updated)));
+  ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.INT (Int64.of_int updated)));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt)
+
+let test_memories_format_empty () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let out =
+    Slash_commands.format_memories ~connector:Format_adapter.Plain ~db
+      { Slash_commands.oldest = false; page = 1 }
+  in
+  Alcotest.(check bool)
+    "empty mentions no memories" true
+    (contains_str out "No memories")
+
+let test_memories_format_ordering () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_core_memory ~db ~key:"oldkey" ~content:"old content" ~updated:1000;
+  insert_core_memory ~db ~key:"newkey" ~content:"new content" ~updated:2000;
+  let newest =
+    Slash_commands.format_memories ~connector:Format_adapter.Plain ~db
+      { Slash_commands.oldest = false; page = 1 }
+  in
+  let pos s hay = Str.search_forward (Str.regexp_string s) hay 0 in
+  Alcotest.(check bool)
+    "newest-first lists newkey before oldkey" true
+    (pos "newkey" newest < pos "oldkey" newest);
+  let oldest =
+    Slash_commands.format_memories ~connector:Format_adapter.Plain ~db
+      { Slash_commands.oldest = true; page = 1 }
+  in
+  Alcotest.(check bool)
+    "oldest-first lists oldkey before newkey" true
+    (pos "oldkey" oldest < pos "newkey" oldest)
+
+let test_memories_format_pagination () =
+  let db = Memory.init ~db_path:":memory:" () in
+  for i = 1 to 11 do
+    insert_core_memory ~db
+      ~key:(Printf.sprintf "key%02d" i)
+      ~content:"content" ~updated:(1000 + i)
+  done;
+  let out =
+    Slash_commands.format_memories ~connector:Format_adapter.Plain ~db
+      { Slash_commands.oldest = false; page = 1 }
+  in
+  Alcotest.(check bool) "shows total count" true (contains_str out "11 total");
+  Alcotest.(check bool) "shows page footer" true (contains_str out "Page 1/2");
+  Alcotest.(check bool)
+    "footer links to next page" true
+    (contains_str out "/memories 2")
+
+let test_memories_format_escapes_telegram_html () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_core_memory ~db ~key:"k" ~content:"if x < y && y > z then <b>hi</b>"
+    ~updated:1000;
+  let out =
+    Slash_commands.format_memories ~connector:Format_adapter.Telegram_html ~db
+      { Slash_commands.oldest = false; page = 1 }
+  in
+  Alcotest.(check bool) "escapes < as &lt;" true (contains_str out "&lt;");
+  Alcotest.(check bool) "escapes & as &amp;" true (contains_str out "&amp;");
+  Alcotest.(check bool)
+    "raw content tag is escaped, not literal" false
+    (contains_str out "<b>hi</b>")
 
 let test_format_tools_plain () =
   let tools =
@@ -2908,6 +3016,20 @@ let suite =
     Alcotest.test_case "/debug_dump_chat returns DebugDumpChat" `Quick
       test_debug_dump_chat_command;
     Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;
+    Alcotest.test_case "/memories default" `Quick test_memories_default;
+    Alcotest.test_case "/memories oldest" `Quick test_memories_oldest;
+    Alcotest.test_case "/memories page" `Quick test_memories_page;
+    Alcotest.test_case "/memories oldest page" `Quick test_memories_oldest_page;
+    Alcotest.test_case "/memories invalid args" `Quick
+      test_memories_invalid_args;
+    Alcotest.test_case "/memories format empty" `Quick
+      test_memories_format_empty;
+    Alcotest.test_case "/memories format ordering" `Quick
+      test_memories_format_ordering;
+    Alcotest.test_case "/memories format pagination" `Quick
+      test_memories_format_pagination;
+    Alcotest.test_case "/memories format escapes telegram html" `Quick
+      test_memories_format_escapes_telegram_html;
     Alcotest.test_case "/tasks returns Tasks" `Quick test_tasks_command;
     Alcotest.test_case "/tasks@bot returns Tasks" `Quick
       test_tasks_command_with_telegram_bot_suffix;
