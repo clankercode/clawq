@@ -22,6 +22,9 @@
   http_client
   http_debug
   model_utils
+  provider_types
+  provider_streaming
+  provider_routing
   provider
   message_history
   agent_loop_conformance
