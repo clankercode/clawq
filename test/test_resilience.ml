@@ -71,12 +71,12 @@ let test_circuit_breaker_opens () =
 
 let test_circuit_breaker_half_open () =
   let cb =
-    Resilience.create_circuit_breaker ~failure_threshold:1 ~cooldown_s:0.01 ()
+    Resilience.create_circuit_breaker ~failure_threshold:1 ~cooldown_s:0.1 ()
   in
   let now = Unix.gettimeofday () in
   Resilience.record_failure cb ~now;
   Alcotest.(check bool) "open" true (Resilience.is_circuit_open cb ~now);
-  let later = now +. 0.02 in
+  let later = now +. 0.2 in
   Alcotest.(check bool)
     "half-open after cooldown" false
     (Resilience.is_circuit_open cb ~now:later)

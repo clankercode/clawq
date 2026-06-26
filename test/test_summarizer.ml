@@ -18,19 +18,8 @@ let string_contains haystack needle =
   in
   needle_len = 0 || loop 0
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let with_fake_summarizer_provider f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* _body_text = Cohttp_lwt.Body.to_string body in

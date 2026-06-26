@@ -10,14 +10,7 @@ let contains hay needle =
 
 let with_temp_workspace f =
   let dir = Filename.temp_dir "clawq_tools_" "" in
-  let cwd = Sys.getcwd () in
-  Fun.protect
-    (fun () ->
-      Sys.chdir dir;
-      f dir)
-    ~finally:(fun () ->
-      Sys.chdir cwd;
-      try Unix.rmdir dir with _ -> ())
+  Fun.protect (fun () -> f dir) ~finally:(fun () -> Test_helpers.rm_tree dir)
 
 let mk_none_sandbox ?(workspace = Sys.getcwd ()) () =
   {
@@ -322,8 +315,8 @@ let test_shell_extra_allowed_paths_grants_access () =
 
 let test_file_edit_replaces_first_match () =
   with_temp_workspace (fun workspace ->
-      let path = "note.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "note.txt" in
+      let oc = open_out full_path in
       output_string oc "abc abc";
       close_out oc;
       let tool =
@@ -333,13 +326,13 @@ let test_file_edit_replaces_first_match () =
       let args =
         `Assoc
           [
-            ("path", `String path);
+            ("path", `String "note.txt");
             ("old_text", `String "abc");
             ("new_text", `String "xyz");
           ]
       in
       ignore (Lwt_main.run (tool.invoke args));
-      let ic = open_in path in
+      let ic = open_in full_path in
       let content = really_input_string ic (in_channel_length ic) in
       close_in ic;
       Alcotest.(check string) "only first replaced" "xyz abc" content)
@@ -376,8 +369,8 @@ let test_file_read_uses_configured_workspace_root () =
 
 let test_grep_supports_regex_and_include_alias () =
   with_temp_workspace (fun workspace ->
-      let path = "runtime_config.ml" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "runtime_config.ml" in
+      let oc = open_out full_path in
       output_string oc
         "type provider_config = unit\nlet search_provider = \"brave\"\n";
       close_out oc;
@@ -391,7 +384,7 @@ let test_grep_supports_regex_and_include_alias () =
              (`Assoc
                 [
                   ("pattern", `String "type provider_config|search_provider");
-                  ("path", `String path);
+                  ("path", `String "runtime_config.ml");
                   ("include", `String "*.ml");
                 ]))
       in
@@ -404,8 +397,8 @@ let test_grep_supports_regex_and_include_alias () =
 
 let test_grep_single_file_respects_include_filter () =
   with_temp_workspace (fun workspace ->
-      let path = "runtime_config.ml" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "runtime_config.ml" in
+      let oc = open_out full_path in
       output_string oc "let search_provider = \"brave\"\n";
       close_out oc;
       let tool =
@@ -418,7 +411,7 @@ let test_grep_single_file_respects_include_filter () =
              (`Assoc
                 [
                   ("pattern", `String "search_provider");
-                  ("path", `String path);
+                  ("path", `String "runtime_config.ml");
                   ("include", `String "*.txt");
                 ]))
       in
@@ -428,8 +421,8 @@ let test_grep_single_file_respects_include_filter () =
 
 let test_grep_honors_case_sensitive_flag () =
   with_temp_workspace (fun workspace ->
-      let path = "runtime_config.ml" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "runtime_config.ml" in
+      let oc = open_out full_path in
       output_string oc "let search_provider = \"brave\"\n";
       close_out oc;
       let tool =
@@ -442,7 +435,7 @@ let test_grep_honors_case_sensitive_flag () =
              (`Assoc
                 [
                   ("pattern", `String "SEARCH_PROVIDER");
-                  ("path", `String path);
+                  ("path", `String "runtime_config.ml");
                   ("case_sensitive", `Bool false);
                 ]))
       in
@@ -690,8 +683,8 @@ let test_is_localhost_url_rejects_host_spoofing () =
 
 let test_file_read_large_file_requires_paged_read () =
   with_temp_workspace (fun workspace ->
-      let path = "big.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "big.txt" in
+      let oc = open_out full_path in
       output_string oc (String.make 60000 'a');
       close_out oc;
       let tool =
@@ -699,7 +692,7 @@ let test_file_read_large_file_requires_paged_read () =
           ~extra_allowed_paths:[]
       in
       let out =
-        Lwt_main.run (tool.invoke (`Assoc [ ("path", `String path) ]))
+        Lwt_main.run (tool.invoke (`Assoc [ ("path", `String "big.txt") ]))
       in
       Alcotest.(check bool)
         "oversized read blocked with guidance" true
@@ -707,8 +700,8 @@ let test_file_read_large_file_requires_paged_read () =
 
 let test_file_read_paged_window_with_line_numbers () =
   with_temp_workspace (fun workspace ->
-      let path = "paged.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "paged.txt" in
+      let oc = open_out full_path in
       output_string oc "one\ntwo\nthree\nfour\nfive";
       close_out oc;
       let tool =
@@ -720,7 +713,9 @@ let test_file_read_paged_window_with_line_numbers () =
           (tool.invoke
              (`Assoc
                 [
-                  ("path", `String path); ("offset", `Int 2); ("limit", `Int 2);
+                  ("path", `String "paged.txt");
+                  ("offset", `Int 2);
+                  ("limit", `Int 2);
                 ]))
       in
       Alcotest.(check bool) "includes line 2" true (contains out "2: two");
@@ -729,8 +724,8 @@ let test_file_read_paged_window_with_line_numbers () =
 
 let test_file_read_paged_truncates_pathological_long_line () =
   with_temp_workspace (fun workspace ->
-      let path = "huge_line.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "huge_line.txt" in
+      let oc = open_out full_path in
       output_string oc (String.make 80000 'a');
       close_out oc;
       let tool =
@@ -742,7 +737,9 @@ let test_file_read_paged_truncates_pathological_long_line () =
           (tool.invoke
              (`Assoc
                 [
-                  ("path", `String path); ("offset", `Int 1); ("limit", `Int 1);
+                  ("path", `String "huge_line.txt");
+                  ("offset", `Int 1);
+                  ("limit", `Int 1);
                 ]))
       in
       Alcotest.(check bool)
@@ -757,8 +754,8 @@ let test_file_read_paged_truncates_pathological_long_line () =
 
 let test_file_read_rejects_invalid_offset_limit () =
   with_temp_workspace (fun workspace ->
-      let path = "window.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "window.txt" in
+      let oc = open_out full_path in
       output_string oc "one\ntwo\nthree";
       close_out oc;
       let tool =
@@ -770,7 +767,9 @@ let test_file_read_rejects_invalid_offset_limit () =
           (tool.invoke
              (`Assoc
                 [
-                  ("path", `String path); ("offset", `Int 0); ("limit", `Int 1);
+                  ("path", `String "window.txt");
+                  ("offset", `Int 0);
+                  ("limit", `Int 1);
                 ]))
       in
       Alcotest.(check bool)
@@ -781,7 +780,9 @@ let test_file_read_rejects_invalid_offset_limit () =
           (tool.invoke
              (`Assoc
                 [
-                  ("path", `String path); ("offset", `Int 1); ("limit", `Int 0);
+                  ("path", `String "window.txt");
+                  ("offset", `Int 1);
+                  ("limit", `Int 0);
                 ]))
       in
       Alcotest.(check bool)
@@ -792,7 +793,7 @@ let test_file_read_rejects_invalid_offset_limit () =
           (tool.invoke
              (`Assoc
                 [
-                  ("path", `String path);
+                  ("path", `String "window.txt");
                   ("offset", `Int 1);
                   ("limit", `Int 2001);
                 ]))
@@ -921,7 +922,6 @@ let test_file_write_allows_nonbacklog_path () =
 
 let test_file_append_creates_and_appends () =
   with_temp_workspace (fun workspace ->
-      let path = "append.txt" in
       let tool =
         Tools_builtin.file_append ~workspace ~workspace_only:true
           ~extra_allowed_paths:[]
@@ -929,20 +929,27 @@ let test_file_append_creates_and_appends () =
       ignore
         (Lwt_main.run
            (tool.invoke
-              (`Assoc [ ("path", `String path); ("content", `String "hello") ])));
+              (`Assoc
+                 [
+                   ("path", `String "append.txt"); ("content", `String "hello");
+                 ])));
       ignore
         (Lwt_main.run
            (tool.invoke
-              (`Assoc [ ("path", `String path); ("content", `String " world") ])));
-      let ic = open_in path in
+              (`Assoc
+                 [
+                   ("path", `String "append.txt"); ("content", `String " world");
+                 ])));
+      let full_path = Filename.concat workspace "append.txt" in
+      let ic = open_in full_path in
       let content = really_input_string ic (in_channel_length ic) in
       close_in ic;
       Alcotest.(check string) "append content" "hello world" content)
 
 let test_file_edit_replace_all () =
   with_temp_workspace (fun workspace ->
-      let path = "replace_all.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "replace_all.txt" in
+      let oc = open_out full_path in
       output_string oc "a b a b";
       close_out oc;
       let tool =
@@ -954,20 +961,20 @@ let test_file_edit_replace_all () =
            (tool.invoke
               (`Assoc
                  [
-                   ("path", `String path);
+                   ("path", `String "replace_all.txt");
                    ("old_text", `String "a");
                    ("new_text", `String "z");
                    ("replace_all", `Bool true);
                  ])));
-      let ic = open_in path in
+      let ic = open_in full_path in
       let content = really_input_string ic (in_channel_length ic) in
       close_in ic;
       Alcotest.(check string) "all replaced" "z b z b" content)
 
 let test_file_edit_lines_replaces_range () =
   with_temp_workspace (fun workspace ->
-      let path = "lines.txt" in
-      let oc = open_out path in
+      let full_path = Filename.concat workspace "lines.txt" in
+      let oc = open_out full_path in
       output_string oc "one\ntwo\nthree\nfour";
       close_out oc;
       let tool =
@@ -979,12 +986,12 @@ let test_file_edit_lines_replaces_range () =
            (tool.invoke
               (`Assoc
                  [
-                   ("path", `String path);
+                   ("path", `String "lines.txt");
                    ("start_line", `Int 2);
                    ("end_line", `Int 3);
                    ("content", `String "TWO\nTHREE");
                  ])));
-      let ic = open_in path in
+      let ic = open_in full_path in
       let content = really_input_string ic (in_channel_length ic) in
       close_in ic;
       Alcotest.(check string)

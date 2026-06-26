@@ -1,16 +1,5 @@
 let default_config = Runtime_config.default
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let make_fake_provider_config base_url : Runtime_config.provider_config =
   {
     Runtime_config.default_provider_config with
@@ -20,7 +9,7 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
   }
 
 let with_fake_tool_loop_provider f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let requests = ref 0 in
   let callback _conn req _body =
     incr requests;

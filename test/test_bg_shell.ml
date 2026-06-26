@@ -34,7 +34,7 @@ let test_basic_detach () =
         Lwt_main.run
           (let open Lwt.Syntax in
            let trigger =
-             let* () = Lwt_unix.sleep 0.03 in
+             let* () = Lwt_unix.sleep 0.1 in
              interrupted := Some "stop";
              Lwt.return_unit
            in
@@ -84,7 +84,7 @@ let test_status_running () =
         Lwt_main.run
           (let open Lwt.Syntax in
            let trigger =
-             let* () = Lwt_unix.sleep 0.03 in
+             let* () = Lwt_unix.sleep 0.1 in
              interrupted := Some "stop";
              Lwt.return_unit
            in
@@ -143,7 +143,7 @@ let test_result_windowed () =
         Lwt_main.run
           (let open Lwt.Syntax in
            let trigger =
-             let* () = Lwt_unix.sleep 0.03 in
+             let* () = Lwt_unix.sleep 0.1 in
              interrupted := Some "stop";
              Lwt.return_unit
            in
@@ -204,7 +204,7 @@ let test_exit_code_captured () =
         Lwt_main.run
           (let open Lwt.Syntax in
            let trigger =
-             let* () = Lwt_unix.sleep 0.03 in
+             let* () = Lwt_unix.sleep 0.1 in
              interrupted := Some "stop";
              Lwt.return_unit
            in
@@ -261,7 +261,7 @@ let test_result_while_running () =
         Lwt_main.run
           (let open Lwt.Syntax in
            let trigger =
-             let* () = Lwt_unix.sleep 0.03 in
+             let* () = Lwt_unix.sleep 0.1 in
              interrupted := Some "stop";
              Lwt.return_unit
            in

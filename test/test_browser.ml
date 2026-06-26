@@ -1,7 +1,8 @@
 (* test_browser.ml — Tests for browser automation tool *)
 
 let test_find_chromium_with_configured_path () =
-  (* When configured_path points to an existing file, use it *)
+  (* When configured_path points to an existing file, use it. The path may not
+     exist in CI, so we accept None as well. *)
   let result =
     Cdp_client.find_chromium ~configured_path:"/usr/bin/chromium" ()
   in
@@ -14,13 +15,13 @@ let test_find_chromium_with_configured_path () =
       ()
 
 let test_find_chromium_nonexistent_configured () =
+  (* When the configured path doesn't exist, the function should either find a
+     fallback candidate or return None. Both are acceptable depending on the
+     system. This test verifies no crash occurs. *)
   let result =
     Cdp_client.find_chromium ~configured_path:"/nonexistent/chromium" ()
   in
-  (* Should fall back to candidates or PATH *)
-  match result with
-  | Some _p -> () (* found one of the fallback candidates *)
-  | None -> () (* no chromium on this system, that's fine *)
+  ignore result
 
 let test_tool_workspace_only_blocked () =
   Lwt_main.run

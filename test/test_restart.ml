@@ -27,17 +27,6 @@ let query_single_int db sql =
           | _ -> 0)
       | _ -> 0)
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let repo_root () =
   let exe =
     if Filename.is_relative Sys.executable_name then
@@ -253,8 +242,8 @@ let write_file path contents =
     (fun () -> output_string oc contents)
 
 let test_service_signal_restart_preserves_history () =
-  let provider_port = free_port () in
-  let gateway_port = free_port () in
+  let provider_port = Test_helpers.free_port () in
+  let gateway_port = Test_helpers.free_port () in
   let auth_token = "restart-test-token" in
   let temp_root = Filename.temp_file "clawq_restart" "" in
   Sys.remove temp_root;

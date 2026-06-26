@@ -1,16 +1,5 @@
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | _ -> Alcotest.fail "expected inet socket")
-
 let with_http_server callback f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let stop, stopper = Lwt.wait () in
   let server =
     Cohttp_lwt_unix.Server.create

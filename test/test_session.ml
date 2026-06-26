@@ -1,15 +1,3 @@
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
 let string_contains haystack needle =
   let hay_len = String.length haystack and needle_len = String.length needle in
   let rec loop i =
@@ -70,17 +58,6 @@ let mock_status_notifier () =
   in
   (notifier, sent, edited)
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let rec remove_path path =
   try
     if Sys.is_directory path then begin
@@ -91,11 +68,6 @@ let rec remove_path path =
     end
     else Sys.remove path
   with Sys_error _ | Unix.Unix_error _ -> ()
-
-let run_command_or_fail ~label cmd =
-  match Sys.command cmd with
-  | 0 -> ()
-  | code -> Alcotest.failf "%s failed (exit %d): %s" label code cmd
 
 let with_temp_workspace f =
   let base = Filename.get_temp_dir_name () in
@@ -113,7 +85,7 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
   }
 
 let with_fake_chat_provider ?response_for_user f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -236,7 +208,7 @@ let with_fake_chat_provider ?response_for_user f =
       f config)
 
 let with_delayed_chat_provider ?(delay_s = 0.05) ?response_for_user f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -364,7 +336,7 @@ type fake_provider_reply =
   | Fake_tool_calls of (string * string * string) list
 
 let with_fake_openai_provider ~handle_request f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -786,16 +758,16 @@ let test_record_agent_turn_persists_channel_metadata () =
     ~channel_id:"chan" ();
   Alcotest.(check (option string))
     "turn stored as agent" (Some "agent")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'discord:chan:user'");
   Alcotest.(check (option string))
     "channel stored" (Some "discord")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT channel FROM session_state WHERE session_key = \
         'discord:chan:user'");
   Alcotest.(check (option string))
     "channel id stored" (Some "chan")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT channel_id FROM session_state WHERE session_key = \
         'discord:chan:user'")
 
@@ -808,11 +780,11 @@ let test_mark_response_sent_updates_session_state () =
   Session.mark_response_sent mgr ~key:"telegram:42:user";
   Alcotest.(check (option string))
     "turn reset to user" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'telegram:42:user'");
   Alcotest.(check bool)
     "response timestamp set" true
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT response_sent_at FROM session_state WHERE session_key = \
         'telegram:42:user'"
     <> None)
@@ -2719,21 +2691,21 @@ let test_shell_exec_persists_workspace_refresh_event_for_active_file_update () =
 
 let test_git_operations_checkout_persists_workspace_refresh_event () =
   with_temp_workspace (fun workspace ->
-      run_command_or_fail ~label:"git init"
+      Test_helpers.run_command_or_fail ~label:"git init"
         (Printf.sprintf "git -C %s init -q" (Filename.quote workspace));
-      run_command_or_fail ~label:"git config email"
+      Test_helpers.run_command_or_fail ~label:"git config email"
         (Printf.sprintf "git -C %s config user.email test@example.com"
            (Filename.quote workspace));
-      run_command_or_fail ~label:"git config name"
+      Test_helpers.run_command_or_fail ~label:"git config name"
         (Printf.sprintf "git -C %s config user.name Test"
            (Filename.quote workspace));
       let agents_path = Filename.concat workspace "AGENTS.md" in
       let oc = open_out agents_path in
       output_string oc "base guidance\n";
       close_out oc;
-      run_command_or_fail ~label:"git add"
+      Test_helpers.run_command_or_fail ~label:"git add"
         (Printf.sprintf "git -C %s add AGENTS.md" (Filename.quote workspace));
-      run_command_or_fail ~label:"git commit"
+      Test_helpers.run_command_or_fail ~label:"git commit"
         (Printf.sprintf "git -C %s commit -q -m init" (Filename.quote workspace));
       let oc = open_out agents_path in
       output_string oc "changed guidance\n";

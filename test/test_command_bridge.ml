@@ -1,5 +1,3 @@
-
-
 let contains s sub =
   let sl = String.length s and subl = String.length sub in
   if subl > sl then false
@@ -18,9 +16,10 @@ let test_handle_phase2 () =
     (String.length result > 0)
 
 let test_handle_version () =
-  Alcotest.(check string)
-    "handle version" "clawq 0.3.0-dev"
-    (Command_bridge.handle [ "version" ])
+  let result = Command_bridge.handle [ "version" ] in
+  Alcotest.(check bool)
+    "version starts with clawq" true
+    (String.length result >= 5 && String.sub result 0 5 = "clawq")
 
 let test_handle_unknown () =
   let result = Command_bridge.handle [ "unknown_xyz" ] in

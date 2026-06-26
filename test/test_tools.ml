@@ -10,12 +10,6 @@ let with_temp_workspace f =
     (fun () -> f dir)
     ~finally:(fun () -> try Unix.rmdir dir with _ -> ())
 
-let process_exists pid =
-  try
-    Unix.kill pid 0;
-    true
-  with Unix.Unix_error _ -> false
-
 let contains hay needle =
   try
     ignore (Str.search_forward (Str.regexp_string needle) hay 0);
@@ -2428,7 +2422,7 @@ let test_shell_exec_timeout_kills_descendants () =
           ~finally:(fun () -> close_in ic)
       in
       let rec wait_until_gone attempts =
-        if attempts <= 0 || not (process_exists child_pid) then ()
+        if attempts <= 0 || not (Test_helpers.process_exists child_pid) then ()
         else begin
           Unix.sleepf 0.05;
           wait_until_gone (attempts - 1)
@@ -2439,7 +2433,7 @@ let test_shell_exec_timeout_kills_descendants () =
         "timeout result" "Error: command timed out after 0 seconds" result;
       Alcotest.(check bool)
         "child process terminated after timeout" false
-        (process_exists child_pid);
+        (Test_helpers.process_exists child_pid);
       Sys.remove pid_file)
 
 let test_extract_cd_prefix () =

@@ -16,12 +16,6 @@ let test_substitute_no_match () =
   let result = Skills.substitute_template "no params here" (`Assoc []) in
   Alcotest.(check string) "no substitution" "no params here" result
 
-let process_exists pid =
-  try
-    Unix.kill pid 0;
-    true
-  with Unix.Unix_error _ -> false
-
 let with_temp_skill_file json f =
   let tmp = Filename.temp_file "skill_test" ".json" in
   let oc = open_out tmp in

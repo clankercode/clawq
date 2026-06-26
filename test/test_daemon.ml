@@ -1,15 +1,3 @@
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
 let string_contains haystack needle =
   let hay_len = String.length haystack and needle_len = String.length needle in
   let rec loop i =
@@ -18,17 +6,6 @@ let string_contains haystack needle =
     else loop (i + 1)
   in
   needle_len = 0 || loop 0
-
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
 
 let make_fake_provider_config base_url : Runtime_config.provider_config =
   {
@@ -39,7 +16,7 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
   }
 
 let with_fake_chat_provider ?on_request f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -762,7 +739,7 @@ let test_resume_pending_agent_sessions_marks_missing_channel_info () =
   Alcotest.(check int) "summary failed count" 0 summary.failed_count;
   Alcotest.(check (option string))
     "pending state cleared" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'resume:missing'")
 
 let test_resume_pending_agent_sessions_summary_counts () =
@@ -879,7 +856,7 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
    receives during a resume turn and asserts it is OpenAI-compat valid:
    at least one `user` message, and no trailing `system`/`developer` message. *)
 let test_resume_turn_payload_is_openai_compat_valid () =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let captured : (string * string) list option ref = ref None in
   let callback _conn _req body =
     let open Lwt.Syntax in
@@ -2810,13 +2787,15 @@ let insert_test_task db =
   let dir = Filename.temp_file "clawq-notify-test" "" in
   Sys.remove dir;
   Unix.mkdir dir 0o755;
-  ignore
-    (Sys.command
-       (Printf.sprintf
-          "git -C %s init -q && git -C %s config user.name Test && git -C %s \
-           config user.email t@t && git -C %s commit --allow-empty -m init -q"
-          (Filename.quote dir) (Filename.quote dir) (Filename.quote dir)
-          (Filename.quote dir)));
+  let code =
+    Sys.command
+      (Printf.sprintf
+         "git -C %s init -q && git -C %s config user.name Test && git -C %s \
+          config user.email t@t && git -C %s commit --allow-empty -m init -q"
+         (Filename.quote dir) (Filename.quote dir) (Filename.quote dir)
+         (Filename.quote dir))
+  in
+  if code <> 0 then Alcotest.failf "git setup failed (exit %d)" code;
   let id =
     match
       Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path:dir

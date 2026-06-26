@@ -202,9 +202,7 @@ let test_normalize_first_line () =
 
 let with_temp_dir f =
   let dir = Filename.temp_dir "ec_test" "" in
-  Fun.protect
-    ~finally:(fun () -> Test_helpers.rm_tree dir)
-    (fun () -> f dir)
+  Fun.protect ~finally:(fun () -> Test_helpers.rm_tree dir) (fun () -> f dir)
 
 let test_scan_daemon_log () =
   with_temp_dir (fun dir ->

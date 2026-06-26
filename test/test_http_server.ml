@@ -222,17 +222,6 @@ let with_temp_clawq_home f =
           ignore (Sys.command (Printf.sprintf "rm -rf %S" base)))
         (fun () -> f base))
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let make_fake_provider_config base_url : Runtime_config.provider_config =
   {
     Runtime_config.default_provider_config with
@@ -626,18 +615,6 @@ let test_daemon_update_uses_run_update_command () =
     [ "Starting update..."; "Running: git pull" ]
     (payload |> member "progress" |> to_list |> List.map to_string)
 
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
 let fast_fail_config =
   {
     Runtime_config.default with
@@ -679,11 +656,11 @@ let test_chat_error_marks_response_sent () =
     (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
   Alcotest.(check (option string))
     "pending turn cleared" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'web:s'");
   Alcotest.(check bool)
     "response timestamp set" true
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT response_sent_at FROM session_state WHERE session_key = 'web:s'"
     <> None)
 
@@ -710,11 +687,11 @@ let test_chat_stream_error_marks_response_sent () =
     (contains_str payload {|"type":"error"|});
   Alcotest.(check (option string))
     "pending stream turn cleared" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'web:s'");
   Alcotest.(check bool)
     "stream response timestamp set" true
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT response_sent_at FROM session_state WHERE session_key = 'web:s'"
     <> None)
 

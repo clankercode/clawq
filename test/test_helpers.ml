@@ -105,8 +105,8 @@ let free_port () =
       | Unix.ADDR_INET (_, port) -> port
       | _ -> Alcotest.fail "expected inet socket")
 
-(** Execute a SQL query and return the first column of the first row as a
-    string option. *)
+(** Execute a SQL query and return the first column of the first row as a string
+    option. *)
 let query_single_text_option db sql =
   let stmt = Sqlite3.prepare db sql in
   Fun.protect

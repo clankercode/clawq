@@ -149,19 +149,8 @@ let test_is_allowed_no_match () =
     "no match denied" false
     (Signal.is_allowed ~cfg ~from:"+999")
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let with_signal_sse_server ~delay_s ~payload f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn _req _body =
     let body_stream, push = Lwt_stream.create () in
     Lwt.async (fun () ->

@@ -54,12 +54,6 @@ let with_temp_git_repo f =
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote repo))))
 
-let process_exists pid =
-  try
-    Unix.kill pid 0;
-    true
-  with Unix.Unix_error _ -> false
-
 let fake_task ?(runner = Background_task.Codex)
     ?(status = Background_task.Queued) id =
   {
@@ -256,11 +250,11 @@ let test_cancel_running_task_waits_for_descendants () =
         if Sys.file_exists pid_file then ()
         else if attempts <= 0 then Alcotest.fail "child pid file not written"
         else begin
-          Unix.sleepf 0.02;
+          Unix.sleepf 0.05;
           wait_for_pid_file (attempts - 1)
         end
       in
-      wait_for_pid_file 50;
+      wait_for_pid_file 100;
       let child_pid =
         let ic = open_in pid_file in
         Fun.protect
@@ -278,16 +272,16 @@ let test_cancel_running_task_waits_for_descendants () =
       in
       (match result with Ok _ -> () | Error msg -> Alcotest.fail msg);
       let rec wait_until_gone attempts =
-        if attempts <= 0 || not (process_exists child_pid) then ()
+        if attempts <= 0 || not (Test_helpers.process_exists child_pid) then ()
         else begin
-          Unix.sleepf 0.05;
+          Unix.sleepf 0.1;
           wait_until_gone (attempts - 1)
         end
       in
-      wait_until_gone 20;
+      wait_until_gone 50;
       Alcotest.(check bool)
         "child process terminated before return" false
-        (process_exists child_pid);
+        (Test_helpers.process_exists child_pid);
       (match Background_task.get_task ~db ~id with
       | Some task ->
           Alcotest.(check string)

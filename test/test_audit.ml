@@ -1,3 +1,5 @@
+(* Global override: use minimal iteration count for faster tests. This affects
+   the entire audit test suite and is intentional. *)
 let () = Audit.test_iterations_override := Some 1
 
 let test_audit_schema_init () =
