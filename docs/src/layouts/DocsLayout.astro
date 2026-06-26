@@ -4,6 +4,7 @@ import Sidebar from "../components/Sidebar.astro";
 import TOCRail from "../components/TOCRail.astro";
 import Footer from "../components/Footer.astro";
 import GearBackground from "../components/GearBackground.astro";
+import SeoMeta from "../components/SeoMeta.astro";
 
 import "../styles/global.css";
 import "../styles/typography.css";
@@ -25,12 +26,7 @@ const currentPath = Astro.url.pathname;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
-    <title>{title} | Clawq</title>
-    <meta name="description" content={description} />
-    <meta property="og:title" content={`${title} | Clawq`} />
-    <meta property="og:description" content={description} />
-    <meta property="og:type" content="website" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <SeoMeta title={title} description={description} />
     <!-- Cross-document view transitions: candlelight fade between pages (Chrome/Safari) -->
     <style>
       @view-transition { navigation: auto; }

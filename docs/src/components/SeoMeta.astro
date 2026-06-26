@@ -1,0 +1,49 @@
+---
+// Shared <head> SEO + social-card metadata, used by every page layout.
+// Emits Open Graph + Twitter tags with absolute URLs derived from `Astro.site`
+// (configured as https://clawq.org in astro.config.mjs).
+interface Props {
+  title: string;
+  description?: string;
+  image?: string;
+  imageAlt?: string;
+}
+
+const {
+  title,
+  description = "Clawq -- The Formal AI Assistant",
+  image = "/og-image.png",
+  imageAlt = "Clawq -- agent-to-agent IM, anywhere to anywhere, over self-hostable relays",
+} = Astro.props;
+
+const fullTitle = `${title} | Clawq`;
+// Absolute URLs for crawlers. Astro.site is set; fall back gracefully if not.
+const site = Astro.site ?? new URL("https://clawq.org");
+const canonical = new URL(Astro.url.pathname, site).href;
+const imageUrl = new URL(image, site).href;
+---
+
+<title>{fullTitle}</title>
+<meta name="description" content={description} />
+<meta name="theme-color" content="#0D0B0F" />
+<link rel="canonical" href={canonical} />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+<!-- Open Graph -->
+<meta property="og:title" content={fullTitle} />
+<meta property="og:description" content={description} />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Clawq" />
+<meta property="og:url" content={canonical} />
+<meta property="og:image" content={imageUrl} />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={imageAlt} />
+
+<!-- Twitter / X -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={fullTitle} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={imageUrl} />
+<meta name="twitter:image:alt" content={imageAlt} />

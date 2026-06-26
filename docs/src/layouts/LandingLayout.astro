@@ -2,6 +2,7 @@
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
 import GearBackground from "../components/GearBackground.astro";
+import SeoMeta from "../components/SeoMeta.astro";
 
 import "../styles/global.css";
 import "../styles/typography.css";
@@ -21,12 +22,7 @@ const { title, description = "Clawq -- The Formal AI Assistant" } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
-    <title>{title} | Clawq</title>
-    <meta name="description" content={description} />
-    <meta property="og:title" content={`${title} | Clawq`} />
-    <meta property="og:description" content={description} />
-    <meta property="og:type" content="website" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <SeoMeta title={title} description={description} />
     <script is:inline>
       (function () {
         const stored = localStorage.getItem("clawq-theme");

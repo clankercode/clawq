@@ -9,8 +9,12 @@
     "preview": "astro preview",
     "regen:backdrops": "node --experimental-strip-types scripts/regenerate-backdrop-defaults.mjs",
     "render:spec-backdrops": "node --experimental-strip-types scripts/render-spec-backdrops.mjs",
+    "render:og": "node scripts/render-og-image.mjs",
     "test:gears": "node --test --experimental-strip-types scripts/gear-geometry.test.mjs",
     "astro": "astro"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.6",
