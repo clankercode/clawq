@@ -112,6 +112,7 @@ let () =
        ("tunnel_manager", Test_tunnel_manager.suite);
        ("pairing", Test_pairing.suite);
        ("memory", Test_memory.suite);
+       ("room_profile_reconcile", Test_room_profile_reconcile.suite);
        ("chat_ui", Test_chat_ui.suite);
        ("ui_server", Test_ui_server.suite);
        ("channel_formats", Test_channel_formats.suite);

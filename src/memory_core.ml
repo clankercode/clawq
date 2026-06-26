@@ -758,6 +758,37 @@ let delete_room_profile ~db ~id =
 
 (* --- room_profile_bindings --- *)
 
+let upsert_room_profile_binding_txn_impl ~db ~room_id ~profile_id =
+  (* Remove any existing binding for this profile (1:1 cardinality) *)
+  let del_stmt =
+    Sqlite3.prepare db
+      "DELETE FROM room_profile_bindings WHERE profile_id = ? AND room_id <> ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize del_stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind del_stmt 1 (Sqlite3.Data.INT (Int64.of_int profile_id)));
+      ignore (Sqlite3.bind del_stmt 2 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.step del_stmt));
+  let sql =
+    "INSERT INTO room_profile_bindings (room_id, profile_id) VALUES (?, ?) ON \
+     CONFLICT(room_id) DO UPDATE SET profile_id = excluded.profile_id, \
+     created_at = room_profile_bindings.created_at"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int profile_id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "upsert_room_profile_binding failed: %s"
+               (Sqlite3.Rc.to_string rc)))
+
 let upsert_room_profile_binding ~db ~room_id ~profile_id =
   (* Validate profile_id exists before binding *)
   (match get_room_profile ~db ~id:profile_id with
@@ -771,41 +802,23 @@ let upsert_room_profile_binding ~db ~room_id ~profile_id =
      INSERT must not leave the room unbound, so wrap both in a transaction. *)
   exec_exn db "BEGIN IMMEDIATE";
   try
-    (* Remove any existing binding for this profile (1:1 cardinality) *)
-    let del_stmt =
-      Sqlite3.prepare db
-        "DELETE FROM room_profile_bindings WHERE profile_id = ? AND room_id <> \
-         ?"
-    in
-    Fun.protect
-      ~finally:(fun () -> ignore (Sqlite3.finalize del_stmt))
-      (fun () ->
-        ignore
-          (Sqlite3.bind del_stmt 1 (Sqlite3.Data.INT (Int64.of_int profile_id)));
-        ignore (Sqlite3.bind del_stmt 2 (Sqlite3.Data.TEXT room_id));
-        ignore (Sqlite3.step del_stmt));
-    let sql =
-      "INSERT INTO room_profile_bindings (room_id, profile_id) VALUES (?, ?) \
-       ON CONFLICT(room_id) DO UPDATE SET profile_id = excluded.profile_id, \
-       created_at = room_profile_bindings.created_at"
-    in
-    let stmt = Sqlite3.prepare db sql in
-    Fun.protect
-      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-      (fun () ->
-        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
-        ignore
-          (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int profile_id)));
-        match Sqlite3.step stmt with
-        | Sqlite3.Rc.DONE -> ()
-        | rc ->
-            failwith
-              (Printf.sprintf "upsert_room_profile_binding failed: %s"
-                 (Sqlite3.Rc.to_string rc)));
+    upsert_room_profile_binding_txn_impl ~db ~room_id ~profile_id;
     exec_exn db "COMMIT"
   with e ->
     (try exec_exn db "ROLLBACK" with _ -> ());
     raise e
+
+(** Like {!upsert_room_profile_binding} but does NOT open its own transaction.
+    Caller must provide transactional context (e.g. a SAVEPOINT). *)
+let upsert_room_profile_binding_no_txn ~db ~room_id ~profile_id =
+  (match get_room_profile ~db ~id:profile_id with
+  | None ->
+      failwith
+        (Printf.sprintf
+           "upsert_room_profile_binding_no_txn: profile_id %d does not exist"
+           profile_id)
+  | Some _ -> ());
+  upsert_room_profile_binding_txn_impl ~db ~room_id ~profile_id
 
 let get_room_profile_binding ~db ~room_id =
   let sql =
@@ -849,3 +862,33 @@ let remove_room_profile_binding ~db ~room_id =
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
       match Sqlite3.step stmt with Sqlite3.Rc.DONE -> true | _ -> false)
+
+let list_room_profile_bindings_all ~db =
+  let sql =
+    "SELECT room_id, profile_id, created_at FROM room_profile_bindings ORDER \
+     BY room_id"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let bindings = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        bindings :=
+          {
+            room_id =
+              (match Sqlite3.column stmt 0 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+            profile_id =
+              (match Sqlite3.column stmt 1 with
+              | Sqlite3.Data.INT n -> Int64.to_int n
+              | _ -> 0);
+            created_at =
+              (match Sqlite3.column stmt 2 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+          }
+          :: !bindings
+      done);
+  List.rev !bindings

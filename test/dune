@@ -49,6 +49,7 @@
   test_mattermost
   test_mcp
   test_memory
+  test_room_profile_reconcile
   test_memory_retention
   test_memory_search
   test_migrate
