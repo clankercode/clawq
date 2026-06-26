@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-06-26T04:57:21Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B704
 priority: high
-status: pending
+started_at: "2026-06-26T04:57:21Z"
+status: in_progress
 tags: []
 title: Add og/social media tags to website template + make a nice preview image using browser tech + save png. The 'pitch' angle as such is agent<->agent IM, anywhere-to-anywhere (which is why we have the relay). Relays can be self-hosted, too.
 ---
