@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Origin Metadata Model
       path: 01-origin-metadata-model
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Parse Slack thread_ts and send thread-bound replies without changing normal channel sends.
