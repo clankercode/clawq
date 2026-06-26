@@ -42,17 +42,23 @@ let validate_tenant_id s =
          consumers."
 
 let build_teams_json ~app_id ~app_secret ~tenant_id ~webhook_path ~service_url
-    ~allow_teams ~allow_users =
+    ~allow_teams ~allow_users ~default_model ~mention_mode ~file_consent_cards =
   Setup_common.build_channel_json ~channel_name:"teams"
-    [
-      ("app_id", `String app_id);
-      ("app_secret", `String app_secret);
-      ("tenant_id", `String tenant_id);
-      ("webhook_path", `String webhook_path);
-      ("service_url", `String service_url);
-      ("allow_teams", Setup_common.json_string_list allow_teams);
-      ("allow_users", Setup_common.json_string_list allow_users);
-    ]
+    ([
+       ("app_id", `String app_id);
+       ("app_secret", `String app_secret);
+       ("tenant_id", `String tenant_id);
+       ("webhook_path", `String webhook_path);
+       ("service_url", `String service_url);
+       ("allow_teams", Setup_common.json_string_list allow_teams);
+       ("allow_users", Setup_common.json_string_list allow_users);
+       ("mention_mode", `String mention_mode);
+       ("file_consent_cards", `Bool file_consent_cards);
+     ]
+    @
+    match default_model with
+    | Some m -> [ ("default_model", `String m) ]
+    | None -> [])
 
 let post_setup_instructions ~webhook_path ~gateway_port ~tunnel_url =
   let base_url =
@@ -155,6 +161,39 @@ let run () =
       ~default:(match existing with Some t -> t.allow_users | None -> [ "*" ])
       ()
   in
+  let default_model_field =
+    Setup_tui.make_field ~key:"dm" ~label:"Default model"
+      ~menu_label:"Set default model"
+      ~description:
+        "Per-channel model override (e.g. openai:gpt-4). Leave blank to use \
+         the global default."
+      ~default:
+        (match existing with
+        | Some t -> Option.value ~default:"" t.default_model
+        | None -> "")
+      ()
+  in
+  let mention_mode_field =
+    Setup_tui.make_choice_field ~key:"mm" ~label:"Mention mode"
+      ~menu_label:"Set mention mode"
+      ~choices:[ "entity"; "text"; "none" ]
+      ~description:
+        "entity (default): proper Teams <at>Name</at> with entity markup. \
+         text: plain @Name prefix. none: no @mention prepended."
+      ~default:
+        (match existing with Some t -> t.mention_mode | None -> "entity")
+      ()
+  in
+  let file_consent_cards_field =
+    Setup_tui.make_bool_field ~key:"fc" ~label:"File consent cards"
+      ~menu_label:"Toggle file consent cards"
+      ~description:
+        "true (default): use FileConsentCard flow for file uploads (OneDrive). \
+         false: skip consent cards, serve files via temp download URL."
+      ~default:
+        (match existing with Some t -> t.file_consent_cards | None -> true)
+      ()
+  in
   let live_instructions () =
     let gateway_port, tunnel_url = Setup_common.get_gateway_and_tunnel_url () in
     post_setup_instructions
@@ -174,17 +213,24 @@ let run () =
           service_url;
           allow_teams;
           allow_users;
+          default_model_field;
+          mention_mode_field;
+          file_consent_cards_field;
         ];
       extra_actions = [];
       build_json =
         (fun () ->
+          let dm = Setup_tui.get_str default_model_field in
           build_teams_json ~app_id:(Setup_tui.get_str app_id)
             ~app_secret:(Setup_tui.get_str app_secret)
             ~tenant_id:(Setup_tui.get_str tenant_id)
             ~webhook_path:(Setup_tui.get_str webhook_path)
             ~service_url:(Setup_tui.get_str service_url)
             ~allow_teams:(Setup_tui.get_str_list allow_teams)
-            ~allow_users:(Setup_tui.get_str_list allow_users));
+            ~allow_users:(Setup_tui.get_str_list allow_users)
+            ~default_model:(if dm = "" then None else Some dm)
+            ~mention_mode:(Setup_tui.get_str mention_mode_field)
+            ~file_consent_cards:(Setup_tui.get_bool file_consent_cards_field));
       pre_save_check =
         (fun () ->
           Setup_tui.check_required_str_fields

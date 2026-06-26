@@ -154,7 +154,7 @@ let all_categories : category list =
   ]
 
 (* Flat list with sequential numbers for menu display *)
-let numbered_entries () =
+let numbered_entries_cache : (int * string * wizard_entry) list =
   let result = ref [] in
   let n = ref 1 in
   List.iter
@@ -166,6 +166,8 @@ let numbered_entries () =
         cat.entries)
     all_categories;
   List.rev !result
+
+let numbered_entries () = numbered_entries_cache
 
 let find_entry_by_name name =
   let entries = numbered_entries () in

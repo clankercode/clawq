@@ -207,11 +207,17 @@ let action_edit ~db jobs =
         in
         if s = job.message then None
         else
-          match validate_message s with
-          | Ok m -> Some m
-          | Error e ->
-              print_warning e;
-              None
+          let rec get_valid_message input =
+            match validate_message input with
+            | Ok m -> Some m
+            | Error e ->
+                print_warning e;
+                let retry =
+                  prompt_string ~prompt:"New message" ~default:input ()
+                in
+                get_valid_message retry
+          in
+          get_valid_message s
       in
       Printf.printf "  %s\n"
         (dim
@@ -227,11 +233,19 @@ let action_edit ~db jobs =
         if trimmed = "" then None
         else if String.lowercase_ascii trimmed = "none" then Some "none"
         else
-          match Scheduler.parse_duration_seconds trimmed with
-          | Ok _ -> Some trimmed
-          | Error e ->
-              print_warning (Printf.sprintf "Invalid TTL: %s (skipping)" e);
-              None
+          let rec get_valid_ttl input =
+            match Scheduler.parse_duration_seconds input with
+            | Ok _ -> Some input
+            | Error e ->
+                print_warning (Printf.sprintf "Invalid TTL: %s" e);
+                let retry = prompt_string ~prompt:"New TTL" ~default:input () in
+                let retry_trimmed = String.trim retry in
+                if retry_trimmed = "" then None
+                else if String.lowercase_ascii retry_trimmed = "none" then
+                  Some "none"
+                else get_valid_ttl retry_trimmed
+          in
+          get_valid_ttl trimmed
       in
       if new_schedule = None && new_message = None && new_ttl = None then
         print_warning "Nothing changed."

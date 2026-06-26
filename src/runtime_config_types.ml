@@ -408,6 +408,7 @@ type voice_config = {
   tts_provider : string;
   tts_model : string;
   tts_voice : string;
+  tts_speed : float;
   audio_dir : string;
 }
 

@@ -67,41 +67,45 @@ let validate_speed_zero () =
 let build_json_tts_only () =
   let json =
     Setup_voice.build_voice_json ~stt_enabled:false ~tts_enabled:true
-      ~tts_provider:"openai" ~tts_model:"tts-1" ~tts_voice:"nova" ~tts_speed:1.0
-      ~audio_dir:"/tmp/audio"
+      ~stt_provider:"openai" ~tts_provider:"openai" ~tts_model:"tts-1"
+      ~tts_voice:"nova" ~tts_speed:1.0 ~audio_dir:"/tmp/audio"
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.voice with
   | Some v ->
       Alcotest.(check bool) "stt_enabled" false v.stt_enabled;
       Alcotest.(check bool) "tts_enabled" true v.tts_enabled;
+      Alcotest.(check string) "stt_provider" "openai" v.stt_provider;
       Alcotest.(check string) "tts_provider" "openai" v.tts_provider;
       Alcotest.(check string) "tts_model" "tts-1" v.tts_model;
       Alcotest.(check string) "tts_voice" "nova" v.tts_voice;
+      Alcotest.(check (float 0.001)) "tts_speed" 1.0 v.tts_speed;
       Alcotest.(check string) "audio_dir" "/tmp/audio" v.audio_dir
   | None -> Alcotest.fail "expected voice config"
 
 let build_json_both_enabled () =
   let json =
     Setup_voice.build_voice_json ~stt_enabled:true ~tts_enabled:true
-      ~tts_provider:"openai" ~tts_model:"tts-1-hd" ~tts_voice:"alloy"
-      ~tts_speed:1.5 ~audio_dir:"/tmp/voice"
+      ~stt_provider:"whisper-local" ~tts_provider:"openai" ~tts_model:"tts-1-hd"
+      ~tts_voice:"alloy" ~tts_speed:1.5 ~audio_dir:"/tmp/voice"
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.voice with
   | Some v ->
       Alcotest.(check bool) "stt_enabled" true v.stt_enabled;
       Alcotest.(check bool) "tts_enabled" true v.tts_enabled;
+      Alcotest.(check string) "stt_provider" "whisper-local" v.stt_provider;
       Alcotest.(check string) "tts_model" "tts-1-hd" v.tts_model;
-      Alcotest.(check string) "tts_voice" "alloy" v.tts_voice
+      Alcotest.(check string) "tts_voice" "alloy" v.tts_voice;
+      Alcotest.(check (float 0.001)) "tts_speed" 1.5 v.tts_speed
   | None -> Alcotest.fail "expected voice config"
 
 let build_json_both_disabled_returns_none () =
   (* config_loader returns None if neither stt_enabled nor tts_enabled *)
   let json =
     Setup_voice.build_voice_json ~stt_enabled:false ~tts_enabled:false
-      ~tts_provider:"openai" ~tts_model:"tts-1" ~tts_voice:"nova" ~tts_speed:1.0
-      ~audio_dir:"/tmp/audio"
+      ~stt_provider:"openai" ~tts_provider:"openai" ~tts_model:"tts-1"
+      ~tts_voice:"nova" ~tts_speed:1.0 ~audio_dir:"/tmp/audio"
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   Alcotest.(

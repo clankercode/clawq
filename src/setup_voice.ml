@@ -16,13 +16,13 @@ let validate_speed s =
 
 (* ── JSON builder ────────────────────────────────────────────────── *)
 
-let build_voice_json ~stt_enabled ~tts_enabled ~tts_provider ~tts_model
-    ~tts_voice ~tts_speed ~audio_dir =
+let build_voice_json ~stt_enabled ~tts_enabled ~stt_provider ~tts_provider
+    ~tts_model ~tts_voice ~tts_speed ~audio_dir =
   Setup_common.build_section_json ~section_name:"voice"
     [
       ("stt_enabled", `Bool stt_enabled);
       ("tts_enabled", `Bool tts_enabled);
-      ("stt_provider", `String "openai");
+      ("stt_provider", `String stt_provider);
       ("tts_provider", `String tts_provider);
       ("tts_model", `String tts_model);
       ("tts_voice", `String tts_voice);
@@ -52,6 +52,14 @@ let run () =
         "Enable text-to-speech synthesis. Converts agent responses to audio \
          files saved in the configured audio directory."
       ()
+  in
+  let stt_provider_field =
+    Setup_tui.make_field ~key:"S" ~label:"STT Provider"
+      ~menu_label:"Set STT provider"
+      ~description:
+        "STT provider name (must match a configured provider). Default: \
+         'openai' (uses openai-codex provider's Whisper endpoint)."
+      ~default:"openai" ()
   in
   let tts_provider_field =
     Setup_tui.make_field ~key:"P" ~label:"TTS Provider"
@@ -101,9 +109,11 @@ let run () =
   | Some v ->
       Setup_tui.set_bool stt_enabled_field v.stt_enabled;
       Setup_tui.set_bool tts_enabled_field v.tts_enabled;
+      Setup_tui.set_str stt_provider_field v.stt_provider;
       Setup_tui.set_str tts_provider_field v.tts_provider;
       Setup_tui.set_str tts_model_field v.tts_model;
       Setup_tui.set_str tts_voice_field v.tts_voice;
+      Setup_tui.set_float tts_speed_field v.tts_speed;
       Setup_tui.set_str audio_dir_field v.audio_dir
   | None -> ());
   let spec : Setup_tui.wizard_spec =
@@ -114,6 +124,7 @@ let run () =
         [
           stt_enabled_field;
           tts_enabled_field;
+          stt_provider_field;
           tts_provider_field;
           tts_model_field;
           tts_voice_field;
@@ -125,13 +136,14 @@ let run () =
         (fun () ->
           let stt_enabled = Setup_tui.get_bool stt_enabled_field in
           let tts_enabled = Setup_tui.get_bool tts_enabled_field in
+          let stt_provider = Setup_tui.get_str stt_provider_field in
           let tts_provider = Setup_tui.get_str tts_provider_field in
           let tts_model = Setup_tui.get_str tts_model_field in
           let tts_voice = Setup_tui.get_str tts_voice_field in
           let tts_speed = Setup_tui.get_float tts_speed_field in
           let audio_dir = Setup_tui.get_str audio_dir_field in
-          build_voice_json ~stt_enabled ~tts_enabled ~tts_provider ~tts_model
-            ~tts_voice ~tts_speed ~audio_dir);
+          build_voice_json ~stt_enabled ~tts_enabled ~stt_provider ~tts_provider
+            ~tts_model ~tts_voice ~tts_speed ~audio_dir);
       pre_save_check =
         (fun () ->
           let tts_enabled = Setup_tui.get_bool tts_enabled_field in

@@ -41,19 +41,23 @@ let validate_poll_interval s =
   | Some _ -> Ok trimmed
 
 let build_email_json ~imap_host ~imap_port ~smtp_host ~smtp_port ~username
-    ~password ~from_address ~allow_from ~poll_interval_s =
+    ~password ~from_address ~allow_from ~poll_interval_s ~default_model =
   Setup_common.build_channel_json ~channel_name:"email"
-    [
-      ("imap_host", `String imap_host);
-      ("imap_port", `Int imap_port);
-      ("smtp_host", `String smtp_host);
-      ("smtp_port", `Int smtp_port);
-      ("username", `String username);
-      ("password", `String password);
-      ("from_address", `String from_address);
-      ("allow_from", Setup_common.json_string_list allow_from);
-      ("poll_interval_s", `Float poll_interval_s);
-    ]
+    ([
+       ("imap_host", `String imap_host);
+       ("imap_port", `Int imap_port);
+       ("smtp_host", `String smtp_host);
+       ("smtp_port", `Int smtp_port);
+       ("username", `String username);
+       ("password", `String password);
+       ("from_address", `String from_address);
+       ("allow_from", Setup_common.json_string_list allow_from);
+       ("poll_interval_s", `Float poll_interval_s);
+     ]
+    @
+    match default_model with
+    | Some m -> [ ("default_model", `String m) ]
+    | None -> [])
 
 let post_setup_instructions =
   {|
@@ -216,6 +220,18 @@ let run () =
         | None -> 60.0)
       ()
   in
+  let default_model_field =
+    Setup_tui.make_field ~key:"dm" ~label:"Default model"
+      ~menu_label:"Set default model"
+      ~description:
+        "Per-channel model override (e.g. openai:gpt-4). Leave blank to use \
+         the global default."
+      ~default:
+        (match existing with
+        | Some e -> Option.value ~default:"" e.Runtime_config.default_model
+        | None -> "")
+      ()
+  in
   let fields =
     [
       imap_host_field;
@@ -227,9 +243,11 @@ let run () =
       from_address_field;
       allow_from_field;
       poll_interval_field;
+      default_model_field;
     ]
   in
   let build_json () =
+    let dm = Setup_tui.get_str default_model_field in
     build_email_json
       ~imap_host:(Setup_tui.get_str imap_host_field)
       ~imap_port:(Setup_tui.get_int imap_port_field)
@@ -240,6 +258,7 @@ let run () =
       ~from_address:(Setup_tui.get_str from_address_field)
       ~allow_from:(Setup_tui.get_str_list allow_from_field)
       ~poll_interval_s:(Setup_tui.get_float poll_interval_field)
+      ~default_model:(if dm = "" then None else Some dm)
   in
   let pre_save_check () =
     Setup_tui.check_required_str_fields

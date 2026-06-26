@@ -52,8 +52,7 @@ let draw_box ~width lines =
   let w = width in
   let top =
     Printf.sprintf "\xe2\x95\xad%s\xe2\x95\xae"
-      (String.make (w - 2) '\xe2' |> ignore;
-       let buf = Buffer.create ((w - 2) * 3) in
+      (let buf = Buffer.create ((w - 2) * 3) in
        for _ = 1 to w - 2 do
          Buffer.add_string buf "\xe2\x94\x80"
        done;
@@ -187,7 +186,7 @@ let config_path () = Dot_dir.config_path ()
 let ensure_config_dir () =
   let config_dir = Filename.dirname (config_path ()) in
   try if not (Sys.file_exists config_dir) then Unix.mkdir config_dir 0o755
-  with _ -> ()
+  with Sys_error _ -> ()
 
 let write_json_file path json =
   let s = Yojson.Safe.pretty_to_string ~std:true json in

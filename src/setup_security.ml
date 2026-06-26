@@ -251,7 +251,21 @@ let run () =
             ~audit_export_before_purge:
               (Setup_tui.get_bool audit_export_before_purge)
             ~extra_allowed_paths:(Setup_tui.get_str_list extra_allowed_paths));
-      pre_save_check = (fun () -> Ok ());
+      pre_save_check =
+        (fun () ->
+          let burst = Setup_tui.get_float burst_multiplier in
+          let rpm1 = Setup_tui.get_int gateway_per_ip_rpm in
+          let rpm2 = Setup_tui.get_int gateway_per_session_rpm in
+          let rpm3 = Setup_tui.get_int telegram_per_chat_rpm in
+          let max_entries = Setup_tui.get_int audit_max_entries in
+          if burst < 1.0 then Error "Burst multiplier must be >= 1.0."
+          else if rpm1 <= 0 then Error "Gateway per-IP RPM must be positive."
+          else if rpm2 <= 0 then
+            Error "Gateway per-session RPM must be positive."
+          else if rpm3 <= 0 then Error "Telegram per-chat RPM must be positive."
+          else if max_entries <= 0 then
+            Error "Audit max entries must be positive."
+          else Ok ());
       post_instructions = (fun () -> post_setup_instructions);
     }
   in

@@ -356,7 +356,28 @@ let run () =
                   "Invalid number. Must be a non-negative integer.");
             Setup_common.press_enter_to_continue ()
         | "i" when n_accounts > 0 ->
-            let name, _ = List.hd !accounts in
+            let name =
+              if n_accounts = 1 then fst (List.hd !accounts)
+              else begin
+                Printf.printf "\n  Accounts:\n";
+                List.iteri
+                  (fun i (n, _) ->
+                    Printf.printf "    %s. %s\n"
+                      (Setup_common.cyan (string_of_int (i + 1)))
+                      n)
+                  !accounts;
+                Printf.printf "\n";
+                let idx_str =
+                  Setup_common.prompt_string
+                    ~prompt:(Printf.sprintf "Account number (1-%d)" n_accounts)
+                    ~default:"1" ()
+                in
+                match int_of_string_opt idx_str with
+                | Some idx when idx >= 1 && idx <= n_accounts ->
+                    fst (List.nth !accounts (idx - 1))
+                | _ -> fst (List.hd !accounts)
+              end
+            in
             let instructions = post_setup_instructions ~account_name:name in
             Printf.printf "%s" instructions;
             Setup_common.press_enter_to_continue ()

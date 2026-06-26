@@ -37,14 +37,18 @@ let validate_verify_token s =
   else Ok trimmed
 
 let build_whatsapp_json ~phone_number_id ~access_token ~verify_token ~allow_from
-    =
+    ~default_model =
   Setup_common.build_channel_json ~channel_name:"whatsapp"
-    [
-      ("phone_number_id", `String phone_number_id);
-      ("access_token", `String access_token);
-      ("verify_token", `String verify_token);
-      ("allow_from", Setup_common.json_string_list allow_from);
-    ]
+    ([
+       ("phone_number_id", `String phone_number_id);
+       ("access_token", `String access_token);
+       ("verify_token", `String verify_token);
+       ("allow_from", Setup_common.json_string_list allow_from);
+     ]
+    @
+    match default_model with
+    | Some m -> [ ("default_model", `String m) ]
+    | None -> [])
 
 let post_setup_instructions =
   {|
@@ -150,19 +154,40 @@ let run () =
         | None -> [ "*" ])
       ()
   in
+  let default_model_field =
+    Setup_tui.make_field ~key:"dm" ~label:"Default model"
+      ~menu_label:"Set default model"
+      ~description:
+        "Per-channel model override (e.g. openai:gpt-4). Leave blank to use \
+         the global default."
+      ~default:
+        (match existing with
+        | Some c -> Option.value ~default:"" c.Runtime_config.default_model
+        | None -> "")
+      ()
+  in
   let spec : Setup_tui.wizard_spec =
     {
       title = " WhatsApp Channel Configuration ";
       docs_url = "https://clawq.org/channels/#whatsapp";
-      fields = [ phone_number_id; access_token; verify_token; allow_from ];
+      fields =
+        [
+          phone_number_id;
+          access_token;
+          verify_token;
+          allow_from;
+          default_model_field;
+        ];
       extra_actions = [];
       build_json =
         (fun () ->
+          let dm = Setup_tui.get_str default_model_field in
           build_whatsapp_json
             ~phone_number_id:(Setup_tui.get_str phone_number_id)
             ~access_token:(Setup_tui.get_str access_token)
             ~verify_token:(Setup_tui.get_str verify_token)
-            ~allow_from:(Setup_tui.get_str_list allow_from));
+            ~allow_from:(Setup_tui.get_str_list allow_from)
+            ~default_model:(if dm = "" then None else Some dm));
       pre_save_check =
         (fun () ->
           Setup_tui.check_required_str_fields

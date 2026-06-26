@@ -44,6 +44,7 @@ let build_json_roundtrip () =
   let json =
     Setup_whatsapp.build_whatsapp_json ~phone_number_id:"123456789"
       ~access_token:"test_token" ~verify_token:"test_verify" ~allow_from:[ "*" ]
+      ~default_model:None
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.whatsapp with
@@ -51,7 +52,8 @@ let build_json_roundtrip () =
       Alcotest.(check string) "phone_number_id" "123456789" wa.phone_number_id;
       Alcotest.(check string) "access_token" "test_token" wa.access_token;
       Alcotest.(check string) "verify_token" "test_verify" wa.verify_token;
-      Alcotest.(check (list string)) "allow_from" [ "*" ] wa.allow_from
+      Alcotest.(check (list string)) "allow_from" [ "*" ] wa.allow_from;
+      Alcotest.(check (option string)) "default_model" None wa.default_model
   | None -> Alcotest.fail "expected whatsapp config"
 
 let build_json_restricted_numbers () =
@@ -59,6 +61,7 @@ let build_json_restricted_numbers () =
     Setup_whatsapp.build_whatsapp_json ~phone_number_id:"111"
       ~access_token:"tok" ~verify_token:"ver"
       ~allow_from:[ "+15551234567"; "+15559876543" ]
+      ~default_model:(Some "openai:gpt-4")
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.whatsapp with
@@ -66,7 +69,9 @@ let build_json_restricted_numbers () =
       Alcotest.(check (list string))
         "allow_from"
         [ "+15551234567"; "+15559876543" ]
-        wa.allow_from
+        wa.allow_from;
+      Alcotest.(check (option string))
+        "default_model" (Some "openai:gpt-4") wa.default_model
   | None -> Alcotest.fail "expected whatsapp config"
 
 let post_instructions_content () =

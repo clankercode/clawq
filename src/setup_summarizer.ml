@@ -280,7 +280,7 @@ let run () =
       | None -> ""
       | Some t -> String_util.escape_newlines t
     in
-    let rec get_template default =
+    let rec get_template_loop default =
       let s =
         Setup_common.prompt_string ~prompt:"Envelope template (empty to clear)"
           ~default ()
@@ -289,11 +289,11 @@ let run () =
       if trimmed = "" then None
       else if not (String_util.contains trimmed "{summary}") then begin
         Setup_common.print_error "Template must contain {summary} placeholder.";
-        get_template trimmed
+        get_template_loop trimmed
       end
       else Some (String_util.unescape_newlines trimmed)
     in
-    envelope_template_ref := get_template current_default
+    envelope_template_ref := get_template_loop current_default
   in
   let build_sc () : Runtime_config.summarizer_config =
     let model_str = Setup_tui.get_str model in

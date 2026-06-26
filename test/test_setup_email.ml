@@ -75,7 +75,7 @@ let build_json_roundtrip () =
     Setup_email.build_email_json ~imap_host:"imap.gmail.com" ~imap_port:993
       ~smtp_host:"smtp.gmail.com" ~smtp_port:587 ~username:"user@gmail.com"
       ~password:"app_password" ~from_address:"user@gmail.com"
-      ~allow_from:[ "*" ] ~poll_interval_s:60.0
+      ~allow_from:[ "*" ] ~poll_interval_s:60.0 ~default_model:None
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.email with
@@ -88,7 +88,8 @@ let build_json_roundtrip () =
       Alcotest.(check string) "password" "app_password" e.password;
       Alcotest.(check string) "from_address" "user@gmail.com" e.from_address;
       Alcotest.(check (list string)) "allow_from" [ "*" ] e.allow_from;
-      Alcotest.(check (float 0.001)) "poll_interval_s" 60.0 e.poll_interval_s
+      Alcotest.(check (float 0.001)) "poll_interval_s" 60.0 e.poll_interval_s;
+      Alcotest.(check (option string)) "default_model" None e.default_model
   | None -> Alcotest.fail "expected email config"
 
 let build_json_specific_senders () =
@@ -97,7 +98,7 @@ let build_json_specific_senders () =
       ~smtp_host:"smtp.example.com" ~smtp_port:587 ~username:"bot@example.com"
       ~password:"pass" ~from_address:"bot@example.com"
       ~allow_from:[ "alice@example.com"; "bob@example.com" ]
-      ~poll_interval_s:30.0
+      ~poll_interval_s:30.0 ~default_model:(Some "openai:gpt-4")
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.email with
@@ -106,7 +107,9 @@ let build_json_specific_senders () =
         "allow_from"
         [ "alice@example.com"; "bob@example.com" ]
         e.allow_from;
-      Alcotest.(check (float 0.001)) "poll_interval_s" 30.0 e.poll_interval_s
+      Alcotest.(check (float 0.001)) "poll_interval_s" 30.0 e.poll_interval_s;
+      Alcotest.(check (option string))
+        "default_model" (Some "openai:gpt-4") e.default_model
   | None -> Alcotest.fail "expected email config"
 
 let instructions_content () =

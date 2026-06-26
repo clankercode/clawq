@@ -56,7 +56,8 @@ let build_json_basic () =
       ~app_secret:"my-secret" ~tenant_id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
       ~webhook_path:"/teams/webhook"
       ~service_url:"https://smba.trafficmanager.net/amer" ~allow_teams:[ "*" ]
-      ~allow_users:[ "*" ]
+      ~allow_users:[ "*" ] ~default_model:None ~mention_mode:"entity"
+      ~file_consent_cards:true
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.teams with
@@ -70,7 +71,10 @@ let build_json_basic () =
       Alcotest.(check string)
         "service_url" "https://smba.trafficmanager.net/amer" t.service_url;
       Alcotest.(check (list string)) "allow_teams" [ "*" ] t.allow_teams;
-      Alcotest.(check (list string)) "allow_users" [ "*" ] t.allow_users
+      Alcotest.(check (list string)) "allow_users" [ "*" ] t.allow_users;
+      Alcotest.(check (option string)) "default_model" None t.default_model;
+      Alcotest.(check string) "mention_mode" "entity" t.mention_mode;
+      Alcotest.(check bool) "file_consent_cards" true t.file_consent_cards
   | None -> Alcotest.fail "expected teams config"
 
 let build_json_custom_allows () =
@@ -80,6 +84,8 @@ let build_json_custom_allows () =
       ~webhook_path:"/my/teams/hook"
       ~service_url:"https://custom.service.url/v3"
       ~allow_teams:[ "team-a"; "team-b" ] ~allow_users:[ "alice"; "bob" ]
+      ~default_model:(Some "openai:gpt-4") ~mention_mode:"text"
+      ~file_consent_cards:false
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.teams with
@@ -90,7 +96,11 @@ let build_json_custom_allows () =
       Alcotest.(check (list string))
         "allow_teams" [ "team-a"; "team-b" ] t.allow_teams;
       Alcotest.(check (list string))
-        "allow_users" [ "alice"; "bob" ] t.allow_users
+        "allow_users" [ "alice"; "bob" ] t.allow_users;
+      Alcotest.(check (option string))
+        "default_model" (Some "openai:gpt-4") t.default_model;
+      Alcotest.(check string) "mention_mode" "text" t.mention_mode;
+      Alcotest.(check bool) "file_consent_cards" false t.file_consent_cards
   | None -> Alcotest.fail "expected teams config"
 
 let deep_merge_preserves_existing () =
@@ -103,7 +113,8 @@ let deep_merge_preserves_existing () =
       ~app_secret:"secret" ~tenant_id:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
       ~webhook_path:"/teams/webhook"
       ~service_url:"https://smba.trafficmanager.net/amer" ~allow_teams:[ "*" ]
-      ~allow_users:[ "*" ]
+      ~allow_users:[ "*" ] ~default_model:None ~mention_mode:"entity"
+      ~file_consent_cards:true
   in
   let result = Setup_common.deep_merge_json existing overlay in
   let config = Config_loader.parse_config ~resolve_secrets:false result in

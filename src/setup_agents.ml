@@ -5,134 +5,12 @@ let validate_name s =
   else
     Error "Name must be lowercase alphanumeric, hyphens, underscores (max 64)"
 
-let name_field =
-  Setup_tui.make_field ~key:"1" ~label:"Name" ~menu_label:"Agent name"
-    ~description:"Lowercase identifier (e.g., my-agent)" ~validate:validate_name
-    ()
-
-let description_field =
-  Setup_tui.make_field ~key:"2" ~label:"Description" ~menu_label:"Description"
-    ~description:"Short description of what this agent does" ()
-
-let role_field =
-  Setup_tui.make_choice_field ~key:"3" ~label:"Role" ~menu_label:"Role"
-    ~choices:(Agent_template.all_builtin_roles @ [ "custom" ])
-    ~description:"Agent archetype role" ~default:"coder" ()
-
-let model_field =
-  Setup_tui.make_field ~key:"4" ~label:"Model" ~menu_label:"Model override"
-    ~description:"Leave blank for default model" ()
-
-let max_iters_field =
-  Setup_tui.make_int_field ~key:"5" ~label:"Max tool iterations"
-    ~menu_label:"Max tool iterations"
-    ~description:"Maximum tool call iterations per turn" ~default:20 ()
-
-let allowed_tools_field =
-  Setup_tui.make_list_field ~key:"6" ~label:"Allowed tools"
-    ~menu_label:"Allowed tools (comma-sep)"
-    ~description:"Tool allowlist (empty = all tools allowed)" ()
-
-let disallowed_tools_field =
-  Setup_tui.make_list_field ~key:"7" ~label:"Disallowed tools"
-    ~menu_label:"Disallowed tools (comma-sep)"
-    ~description:"Tool denylist (applied after allowlist)" ()
-
-let tool_search_field =
-  Setup_tui.make_bool_field ~key:"8" ~label:"Tool search enabled"
-    ~menu_label:"Tool search enabled"
-    ~description:"Allow agent to discover deferred tools" ~default:true ()
-
-let reasoning_field =
-  Setup_tui.make_choice_field ~key:"9" ~label:"Reasoning effort"
-    ~menu_label:"Reasoning effort"
-    ~choices:[ "low"; "medium"; "high"; "" ]
-    ~description:"Reasoning effort level (blank for default)" ~default:"" ()
-
-let all_fields =
-  [
-    name_field;
-    description_field;
-    role_field;
-    model_field;
-    max_iters_field;
-    allowed_tools_field;
-    disallowed_tools_field;
-    tool_search_field;
-    reasoning_field;
-  ]
-
 let write_template_file path (t : Agent_template.t) =
   let content = Agent_template.to_frontmatter_string t in
   let oc = open_out path in
   Fun.protect
     (fun () -> output_string oc content)
     ~finally:(fun () -> close_out oc)
-
-let build_template_from_fields () =
-  let name = Setup_tui.get_str name_field in
-  let description = Setup_tui.get_str description_field in
-  let role = Agent_template.role_of_string (Setup_tui.get_str role_field) in
-  let model =
-    match Setup_tui.get_str model_field with "" -> None | s -> Some s
-  in
-  let max_tool_iterations =
-    let v = Setup_tui.get_int max_iters_field in
-    if v > 0 then Some v else None
-  in
-  let allowed_tools = Setup_tui.get_str_list allowed_tools_field in
-  let disallowed_tools = Setup_tui.get_str_list disallowed_tools_field in
-  let tool_search_enabled = Some (Setup_tui.get_bool tool_search_field) in
-  let reasoning_effort =
-    match Setup_tui.get_str reasoning_field with "" -> None | s -> Some s
-  in
-  {
-    Agent_template.name;
-    description;
-    role;
-    goal = "";
-    backstory = "";
-    system_prompt =
-      "# " ^ name ^ "\n\nDescribe this agent's behavior and instructions here.";
-    model;
-    max_tool_iterations;
-    allowed_tools;
-    disallowed_tools;
-    tool_search_enabled;
-    reasoning_effort;
-    cwd = None;
-    source = User_file "";
-    metadata = [];
-  }
-
-let copy_from_builtin () =
-  let builtins = Agent_template_builtins.all in
-  Printf.printf "\n  Available built-in templates:\n";
-  List.iteri
-    (fun i (t : Agent_template.t) ->
-      Printf.printf "    %d. %s — %s\n" (i + 1) t.name t.description)
-    builtins;
-  Printf.printf "\n";
-  let input =
-    Setup_common.prompt_string ~prompt:"Select template number" ~default:"" ()
-  in
-  match int_of_string_opt input with
-  | Some n when n >= 1 && n <= List.length builtins ->
-      let tmpl = List.nth builtins (n - 1) in
-      name_field.value := tmpl.name ^ "-custom";
-      description_field.value := tmpl.description;
-      role_field.value := Agent_template.role_to_string tmpl.role;
-      (match tmpl.model with Some m -> model_field.value := m | None -> ());
-      (match tmpl.max_tool_iterations with
-      | Some n -> max_iters_field.value := string_of_int n
-      | None -> ());
-      if tmpl.allowed_tools <> [] then
-        Setup_tui.set_str_list allowed_tools_field tmpl.allowed_tools;
-      if tmpl.disallowed_tools <> [] then
-        Setup_tui.set_str_list disallowed_tools_field tmpl.disallowed_tools;
-      Setup_common.print_success
-        (Printf.sprintf "Copied settings from '%s'" tmpl.name)
-  | _ -> Setup_common.print_warning "Invalid selection."
 
 let offer_editor path =
   let open_it =
@@ -144,6 +22,129 @@ let offer_editor path =
     ignore (Sys.command (Printf.sprintf "%s %s" editor (Filename.quote path)))
 
 let run () =
+  let name_field =
+    Setup_tui.make_field ~key:"1" ~label:"Name" ~menu_label:"Agent name"
+      ~description:"Lowercase identifier (e.g., my-agent)"
+      ~validate:validate_name ()
+  in
+  let description_field =
+    Setup_tui.make_field ~key:"2" ~label:"Description" ~menu_label:"Description"
+      ~description:"Short description of what this agent does" ()
+  in
+  let role_field =
+    Setup_tui.make_choice_field ~key:"3" ~label:"Role" ~menu_label:"Role"
+      ~choices:(Agent_template.all_builtin_roles @ [ "custom" ])
+      ~description:"Agent archetype role" ~default:"coder" ()
+  in
+  let model_field =
+    Setup_tui.make_field ~key:"4" ~label:"Model" ~menu_label:"Model override"
+      ~description:"Leave blank for default model" ()
+  in
+  let max_iters_field =
+    Setup_tui.make_int_field ~key:"5" ~label:"Max tool iterations"
+      ~menu_label:"Max tool iterations"
+      ~description:"Maximum tool call iterations per turn" ~default:20 ()
+  in
+  let allowed_tools_field =
+    Setup_tui.make_list_field ~key:"6" ~label:"Allowed tools"
+      ~menu_label:"Allowed tools (comma-sep)"
+      ~description:"Tool allowlist (empty = all tools allowed)" ()
+  in
+  let disallowed_tools_field =
+    Setup_tui.make_list_field ~key:"7" ~label:"Disallowed tools"
+      ~menu_label:"Disallowed tools (comma-sep)"
+      ~description:"Tool denylist (applied after allowlist)" ()
+  in
+  let tool_search_field =
+    Setup_tui.make_bool_field ~key:"8" ~label:"Tool search enabled"
+      ~menu_label:"Tool search enabled"
+      ~description:"Allow agent to discover deferred tools" ~default:true ()
+  in
+  let reasoning_field =
+    Setup_tui.make_choice_field ~key:"9" ~label:"Reasoning effort"
+      ~menu_label:"Reasoning effort"
+      ~choices:[ "low"; "medium"; "high"; "" ]
+      ~description:"Reasoning effort level (blank for default)" ~default:"" ()
+  in
+  let all_fields =
+    [
+      name_field;
+      description_field;
+      role_field;
+      model_field;
+      max_iters_field;
+      allowed_tools_field;
+      disallowed_tools_field;
+      tool_search_field;
+      reasoning_field;
+    ]
+  in
+  let build_template_from_fields () =
+    let name = Setup_tui.get_str name_field in
+    let description = Setup_tui.get_str description_field in
+    let role = Agent_template.role_of_string (Setup_tui.get_str role_field) in
+    let model =
+      match Setup_tui.get_str model_field with "" -> None | s -> Some s
+    in
+    let max_tool_iterations =
+      let v = Setup_tui.get_int max_iters_field in
+      if v > 0 then Some v else None
+    in
+    let allowed_tools = Setup_tui.get_str_list allowed_tools_field in
+    let disallowed_tools = Setup_tui.get_str_list disallowed_tools_field in
+    let tool_search_enabled = Some (Setup_tui.get_bool tool_search_field) in
+    let reasoning_effort =
+      match Setup_tui.get_str reasoning_field with "" -> None | s -> Some s
+    in
+    {
+      Agent_template.name;
+      description;
+      role;
+      goal = "";
+      backstory = "";
+      system_prompt =
+        "# " ^ name
+        ^ "\n\nDescribe this agent's behavior and instructions here.";
+      model;
+      max_tool_iterations;
+      allowed_tools;
+      disallowed_tools;
+      tool_search_enabled;
+      reasoning_effort;
+      cwd = None;
+      source = User_file "";
+      metadata = [];
+    }
+  in
+  let copy_from_builtin () =
+    let builtins = Agent_template_builtins.all in
+    Printf.printf "\n  Available built-in templates:\n";
+    List.iteri
+      (fun i (t : Agent_template.t) ->
+        Printf.printf "    %d. %s — %s\n" (i + 1) t.name t.description)
+      builtins;
+    Printf.printf "\n";
+    let input =
+      Setup_common.prompt_string ~prompt:"Select template number" ~default:"" ()
+    in
+    match int_of_string_opt input with
+    | Some n when n >= 1 && n <= List.length builtins ->
+        let tmpl = List.nth builtins (n - 1) in
+        name_field.value := tmpl.name ^ "-custom";
+        description_field.value := tmpl.description;
+        role_field.value := Agent_template.role_to_string tmpl.role;
+        (match tmpl.model with Some m -> model_field.value := m | None -> ());
+        (match tmpl.max_tool_iterations with
+        | Some n -> max_iters_field.value := string_of_int n
+        | None -> ());
+        if tmpl.allowed_tools <> [] then
+          Setup_tui.set_str_list allowed_tools_field tmpl.allowed_tools;
+        if tmpl.disallowed_tools <> [] then
+          Setup_tui.set_str_list disallowed_tools_field tmpl.disallowed_tools;
+        Setup_common.print_success
+          (Printf.sprintf "Copied settings from '%s'" tmpl.name)
+    | _ -> Setup_common.print_warning "Invalid selection."
+  in
   let spec : Setup_tui.wizard_spec =
     {
       title = "Agent Template";

@@ -140,18 +140,41 @@ let prompt_add_provider () =
 (* ── Save helper ─────────────────────────────────────────────────── *)
 
 let save_providers providers =
-  let json =
-    List.fold_left
-      (fun acc (name, (pc : Runtime_config.provider_config)) ->
-        let j =
-          build_provider_json ~name ~api_key:pc.api_key
-            ~base_url:(Option.value ~default:"" pc.base_url)
-            ~default_model:(Option.value ~default:"" pc.default_model)
+  let provider_assoc =
+    List.map
+      (fun (name, (pc : Runtime_config.provider_config)) ->
+        let fields =
+          [ ("api_key", `String pc.api_key) ]
+          @ (match pc.base_url with
+            | Some u -> [ ("base_url", `String u) ]
+            | None -> [])
+          @
+          match pc.default_model with
+          | Some m -> [ ("default_model", `String m) ]
+          | None -> []
         in
-        Setup_common.deep_merge_json acc j)
-      (`Assoc []) providers
+        (name, `Assoc fields))
+      providers
   in
-  match Setup_common.merge_and_write_config json with
+  let new_providers = `Assoc [ ("providers", `Assoc provider_assoc) ] in
+  let cp = Setup_common.config_path () in
+  Setup_common.ensure_config_dir ();
+  let final =
+    if Sys.file_exists cp then
+      try
+        let existing = Yojson.Safe.from_file cp in
+        (* Replace providers entirely, keep everything else *)
+        let without_providers =
+          match existing with
+          | `Assoc fields ->
+              `Assoc (List.filter (fun (k, _) -> k <> "providers") fields)
+          | other -> other
+        in
+        Setup_common.deep_merge_json without_providers new_providers
+      with _ -> new_providers
+    else new_providers
+  in
+  match Setup_common.write_json_file cp final with
   | Ok path ->
       Setup_common.print_success (Printf.sprintf "Saved to %s" path);
       true
