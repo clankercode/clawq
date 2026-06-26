@@ -54,6 +54,8 @@
   stt
   tool
   tool_registry
+  tools_builtin_proc
+  tools_builtin_session
   tools_builtin_util
   bg_shell
   tools_bg_shell
