@@ -5,9 +5,7 @@ let check_session =
       (Room_session.kind_to_string s.kind)
       s.channel_id s.sender_id
   in
-  let equal (a : Room_session.session) (b : Room_session.session) =
-    a = b
-  in
+  let equal (a : Room_session.session) (b : Room_session.session) = a = b in
   Alcotest.testable pp equal
 
 let check_opt_session = Alcotest.option check_session
@@ -219,27 +217,22 @@ let test_to_key_teams () =
       sender_id = "conv-abc";
     }
   in
-  Alcotest.(check string) "to_key teams" "teams:personal:conv-abc"
-    (Room_session.to_key s)
+  Alcotest.(check string)
+    "to_key teams" "teams:personal:conv-abc" (Room_session.to_key s)
 
 let test_to_key_discord () =
   let s : Room_session.session =
     { channel = Discord; kind = Room; channel_id = "chan"; sender_id = "user" }
   in
-  Alcotest.(check string) "to_key discord" "discord:chan:user"
-    (Room_session.to_key s)
+  Alcotest.(check string)
+    "to_key discord" "discord:chan:user" (Room_session.to_key s)
 
 let test_to_key_telegram () =
   let s : Room_session.session =
-    {
-      channel = Telegram;
-      kind = Room;
-      channel_id = "123";
-      sender_id = "456";
-    }
+    { channel = Telegram; kind = Room; channel_id = "123"; sender_id = "456" }
   in
-  Alcotest.(check string) "to_key telegram" "telegram:123:456"
-    (Room_session.to_key s)
+  Alcotest.(check string)
+    "to_key telegram" "telegram:123:456" (Room_session.to_key s)
 
 let test_to_key_web () =
   let s : Room_session.session =
