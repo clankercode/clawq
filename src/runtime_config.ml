@@ -277,6 +277,8 @@ let default =
     test = { show_skills = false };
     debate = default_debate_config;
     postmortem = default_postmortem_config;
+    room_profiles = [];
+    room_profile_bindings = [];
   }
 
 let is_key_set key =
@@ -1637,6 +1639,43 @@ let to_json (cfg : t) : Yojson.Safe.t =
               ("delay_s", `Float pm.delay_s);
             ] );
       ]
+  in
+  let fields =
+    if cfg.room_profiles = [] then fields
+    else
+      fields
+      @ [
+          ( "room_profiles",
+            `List
+              (List.map
+                 (fun (p : room_profile) ->
+                   `Assoc
+                     [
+                       ("id", `String p.id);
+                       ("model", `String p.model);
+                       ("system_prompt", `String p.system_prompt);
+                       ("max_tool_iterations", `Int p.max_tool_iterations);
+                     ])
+                 cfg.room_profiles) );
+        ]
+  in
+  let fields =
+    if cfg.room_profile_bindings = [] then fields
+    else
+      fields
+      @ [
+          ( "room_profile_bindings",
+            `List
+              (List.map
+                 (fun (b : room_profile_binding) ->
+                   `Assoc
+                     [
+                       ("profile_id", `String b.profile_id);
+                       ("room", `String b.room);
+                       ("active", `Bool b.active);
+                     ])
+                 cfg.room_profile_bindings) );
+        ]
   in
   `Assoc fields
 

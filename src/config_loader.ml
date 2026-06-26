@@ -1231,7 +1231,96 @@ let parse_config ?(resolve_secrets = true) json =
          in
          ({ enabled; model; delay_s } : Runtime_config.postmortem_config)
        with _ -> Runtime_config.default_postmortem_config);
+    room_profiles =
+      (try
+         json |> member "room_profiles" |> to_list
+         |> List.map (fun p ->
+             let id = p |> member "id" |> to_string in
+             let model = p |> member "model" |> to_string in
+             let system_prompt =
+               try p |> member "system_prompt" |> to_string with _ -> ""
+             in
+             let max_tool_iterations =
+               try p |> member "max_tool_iterations" |> to_int with _ -> 10
+             in
+             ({ id; model; system_prompt; max_tool_iterations }
+               : Runtime_config.room_profile))
+       with _ -> []);
+    room_profile_bindings =
+      (try
+         json
+         |> member "room_profile_bindings"
+         |> to_list
+         |> List.map (fun b ->
+             let profile_id = b |> member "profile_id" |> to_string in
+             let room = b |> member "room" |> to_string in
+             let active =
+               try b |> member "active" |> to_bool with _ -> true
+             in
+             ({ profile_id; room; active }
+               : Runtime_config.room_profile_binding))
+       with _ -> []);
   }
+
+(** Validate room_profiles and room_profile_bindings. Returns a list of issue
+    strings (empty if valid). Checks: (1) no duplicate profile ids, (2) no
+    duplicate active room bindings for the same room, (3) no multi-room bindings
+    (each profile_id bound to at most one room). *)
+let validate_room_profiles (cfg : Runtime_config.t) : string list =
+  let issues = ref [] in
+  (* Check duplicate profile ids *)
+  let ids =
+    List.map (fun (p : Runtime_config.room_profile) -> p.id) cfg.room_profiles
+  in
+  let seen = Hashtbl.create (List.length ids) in
+  List.iter
+    (fun id ->
+      if Hashtbl.mem seen id then
+        issues :=
+          Printf.sprintf "room_profiles: duplicate profile id '%s'" id
+          :: !issues
+      else Hashtbl.add seen id ())
+    ids;
+  (* Check duplicate active room bindings for the same room *)
+  let active_rooms = Hashtbl.create 16 in
+  List.iter
+    (fun (b : Runtime_config.room_profile_binding) ->
+      if b.active then
+        if Hashtbl.mem active_rooms b.room then
+          issues :=
+            Printf.sprintf
+              "room_profile_bindings: duplicate active binding for room '%s'"
+              b.room
+            :: !issues
+        else Hashtbl.add active_rooms b.room ())
+    cfg.room_profile_bindings;
+  (* Check multi-room bindings: each profile_id should be bound to at most one room *)
+  let profile_rooms = Hashtbl.create 16 in
+  List.iter
+    (fun (b : Runtime_config.room_profile_binding) ->
+      match Hashtbl.find_opt profile_rooms b.profile_id with
+      | Some existing_room when existing_room <> b.room ->
+          issues :=
+            Printf.sprintf
+              "room_profile_bindings: profile '%s' bound to multiple rooms \
+               ('%s' and '%s')"
+              b.profile_id existing_room b.room
+            :: !issues
+      | None -> Hashtbl.add profile_rooms b.profile_id b.room
+      | _ -> ())
+    cfg.room_profile_bindings;
+  (* Check bindings reference existing profiles *)
+  List.iter
+    (fun (b : Runtime_config.room_profile_binding) ->
+      if not (Hashtbl.mem seen b.profile_id) then
+        issues :=
+          Printf.sprintf
+            "room_profile_bindings: binding references non-existent profile \
+             '%s'"
+            b.profile_id
+          :: !issues)
+    cfg.room_profile_bindings;
+  List.rev !issues
 
 (* B697: even with no (or unreadable) config.json, surface zero-config xiaomi
    providers synthesized from discoverable keys (env vars / ~/.mimo) so the
@@ -1296,6 +1385,24 @@ let load ?(path = "") () : Runtime_config.t =
         | Some warn -> Printf.eprintf "%s\n%!" warn
         | None -> ());
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
+        let room_profile_issues = validate_room_profiles config in
+        let config =
+          if room_profile_issues <> [] then (
+            Printf.eprintf
+              "WARNING: room_profiles validation failed for %s: %s\n%%!"
+              config_path
+              (String.concat "; " room_profile_issues);
+            Printf.eprintf
+              "WARNING: rejecting room_profiles and room_profile_bindings \
+               (using empty lists)\n\
+               %%!";
+            {
+              config with
+              Runtime_config.room_profiles = [];
+              room_profile_bindings = [];
+            })
+          else config
+        in
         backfill_config ~path:config_path ~original_json:json
           ~disk_json:raw_json ~config:backfill_cfg;
         Http_debug.sync_config config.log;

@@ -524,6 +524,19 @@ type postmortem_config = {
          immediately. *)
 }
 
+type room_profile = {
+  id : string;
+  model : string;
+  system_prompt : string;
+  max_tool_iterations : int;
+}
+
+type room_profile_binding = {
+  profile_id : string;
+  room : string;
+  active : bool;
+}
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -560,4 +573,6 @@ type t = {
   test : test_config;
   debate : debate_config;
   postmortem : postmortem_config;
+  room_profiles : room_profile list;
+  room_profile_bindings : room_profile_binding list;
 }
