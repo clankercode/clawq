@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P11.M1.E1
 locked: false
 name: Profile Schema and Binding Model
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -32,5 +32,6 @@ tasks:
       file: T003-reconcile-room-profile-config.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Reconcile room profile config and DB bindings

@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Profile Schema and Binding Model
       path: 01-profile-schema-and-binding-mod
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Stable room workspace path generation, containment validation, and adversarial path tests.
