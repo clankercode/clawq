@@ -63,13 +63,50 @@ let test_parse_posted_valid () =
            ("message", `String "hello");
          ])
   in
-  let data = `Assoc [ ("post", `String post_json) ] in
+  let data =
+    `Assoc [ ("post", `String post_json); ("channel_type", `String "D") ]
+  in
   match Mattermost.parse_posted_event data with
-  | Some (ch, uid, msg) ->
+  | Some (ch, uid, msg, ctype) ->
       Alcotest.(check string) "channel" "ch1" ch;
       Alcotest.(check string) "user" "u1" uid;
-      Alcotest.(check string) "message" "hello" msg
+      Alcotest.(check string) "message" "hello" msg;
+      Alcotest.(check string) "channel_type" "D" ctype
   | None -> Alcotest.fail "expected Some"
+
+let test_parse_posted_missing_channel_type () =
+  let post_json =
+    Yojson.Safe.to_string
+      (`Assoc
+         [
+           ("channel_id", `String "ch1");
+           ("user_id", `String "u1");
+           ("message", `String "hi");
+         ])
+  in
+  let data = `Assoc [ ("post", `String post_json) ] in
+  match Mattermost.parse_posted_event data with
+  | Some (_, _, _, ctype) ->
+      (* Absent channel_type defaults to "" -> group conduct *)
+      Alcotest.(check string) "channel_type default" "" ctype;
+      Alcotest.(check string)
+        "maps to group" "group"
+        (Mattermost.clawq_channel_type_of_mm ctype)
+  | None -> Alcotest.fail "expected Some"
+
+let test_clawq_channel_type_mapping () =
+  Alcotest.(check string)
+    "direct -> dm" "dm"
+    (Mattermost.clawq_channel_type_of_mm "D");
+  Alcotest.(check string)
+    "group DM -> group" "group"
+    (Mattermost.clawq_channel_type_of_mm "G");
+  Alcotest.(check string)
+    "open -> group" "group"
+    (Mattermost.clawq_channel_type_of_mm "O");
+  Alcotest.(check string)
+    "private -> group" "group"
+    (Mattermost.clawq_channel_type_of_mm "P")
 
 let test_parse_posted_invalid () =
   let data = `Assoc [ ("post", `String "not json") ] in
@@ -101,4 +138,8 @@ let suite =
     Alcotest.test_case "parse posted missing" `Quick
       test_parse_posted_missing_post;
     Alcotest.test_case "parse posted null" `Quick test_parse_posted_null;
+    Alcotest.test_case "parse posted missing channel_type" `Quick
+      test_parse_posted_missing_channel_type;
+    Alcotest.test_case "clawq channel_type mapping" `Quick
+      test_clawq_channel_type_mapping;
   ]

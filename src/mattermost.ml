@@ -46,6 +46,12 @@ let fetch_self_user_id ~(config : Runtime_config.mattermost_config) =
     Lwt.return None
   end
 
+(* Map a Mattermost channel type code to clawq's channel_type convention.
+   Mattermost uses "D"=direct, "G"=group DM, "O"=open, "P"=private. Only direct
+   messages are 1:1 conversations; everything else is treated as group chat so
+   the agent applies group-chat conduct (respond only when addressed). *)
+let clawq_channel_type_of_mm = function "D" -> "dm" | _ -> "group"
+
 let parse_posted_event data =
   try
     let open Yojson.Safe.Util in
@@ -54,7 +60,12 @@ let parse_posted_event data =
     let channel_id = post |> member "channel_id" |> to_string in
     let user_id = post |> member "user_id" |> to_string in
     let message = post |> member "message" |> to_string in
-    Some (channel_id, user_id, message)
+    (* channel_type lives on the broadcast data, sibling of "post". Default to
+       group ("") when absent so unknown payloads keep group-chat conduct. *)
+    let channel_type =
+      try data |> member "channel_type" |> to_string with _ -> ""
+    in
+    Some (channel_id, user_id, message, channel_type)
   with _ -> None
 
 let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
@@ -126,7 +137,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           let data = json |> member "data" in
                           match parse_posted_event data with
                           | None -> Lwt.return_unit
-                          | Some (channel_id, user_id, message) -> (
+                          | Some (channel_id, user_id, message, mm_channel_type)
+                            -> (
                               if self_user_id = Some user_id then
                                 Lwt.return_unit
                               else if
@@ -164,7 +176,10 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                             Session.turn session_manager ~key
                                               ~message
                                               ~channel_name:"mattermost"
-                                              ~channel_type:"group" ()
+                                              ~channel_type:
+                                                (clawq_channel_type_of_mm
+                                                   mm_channel_type)
+                                              ()
                                           in
                                           Lwt.return (Ok response))
                                         (fun exn ->
