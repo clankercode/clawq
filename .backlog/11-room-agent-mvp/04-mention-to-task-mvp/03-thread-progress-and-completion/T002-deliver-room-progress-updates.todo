@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M4.E3.T001
+estimate_hours: 3
+id: P11.M4.E3.T002
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Deliver Slack/current room progress updates
+---
+Acceptance: progress updates post to the origin Slack thread/room and current connector delivery paths; edit-in-place is used only where existing connector capabilities support it; unsupported connectors use sparse fallback delivery. Generic thread/card/history capability matrix work is deferred to P13.M3.E1. Files: src/slack.ml, connector handlers, status_message modules, test/test_slack.ml, test/test_status_message.ml.

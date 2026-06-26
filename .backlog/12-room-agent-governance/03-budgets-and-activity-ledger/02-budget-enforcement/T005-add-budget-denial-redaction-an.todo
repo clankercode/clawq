@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P12.M3.E2.T004
+estimate_hours: 2
+id: P12.M3.E2.T005
+priority: high
+status: pending
+tags:
+    - room-agent
+    - budget
+    - privacy
+title: Add budget denial redaction and negative tests
+---
+Acceptance: budget-denied errors and logs never include prompt content or unauthorized room history; tests prove prompt text is absent from user reply, ledger, and logs. Files: provider/agent tests, ledger/log tests.

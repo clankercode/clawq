@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M1.E1.T003
+estimate_hours: 4
+id: P11.M1.E3.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add typed room session key construction and parsing
+---
+Acceptance: new room_session.ml constructs and parses Personal/Room/Thread/Routine variants; Restart_notify.parse_channel_from_key and other multi-segment key consumers use typed parser or are proven safe; tests cover Slack, Teams, Discord, Telegram, generic keys and prevent positional truncation. Files: new src/room_session.ml, src/restart_notify.ml, src/dune, test/test_room_session.ml.

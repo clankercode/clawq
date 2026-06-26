@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P13.M2.E1.T001
+    - P13.M2.E1.T002
+estimate_hours: 3
+id: P13.M2.E1.T003
+priority: medium
+started_at: null
+status: pending
+tags: []
+title: Add Teams and Discord scoped-history behavior
+---
+Acceptance: Teams and Discord history behavior is implemented where capability matrix permits and otherwise records explicit unsupported/fallback behavior; capture requires profile-level opt-in, obeys retention and grants, and has negative tests for restricted/private content. Files: src/teams.ml, Discord connector files if present, tests.

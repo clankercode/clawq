@@ -1,0 +1,19 @@
+complexity: medium
+depends_on: []
+estimate_hours: 6
+id: P11.M3.E1
+locked: false
+name: Origin Metadata Model
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P11.M1.E1.T003
+        - P11.M1.E3.T001
+      estimate_hours: 3
+      file: T001-add-room-origin-metadata-type.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add room origin metadata type and serialization

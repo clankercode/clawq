@@ -1,0 +1,17 @@
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P11.M2.E3
+locked: false
+name: P11 Privacy Guard
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M2.E1.T001
+      estimate_hours: 4
+      file: T001-disable-unscoped-global-memory.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Disable unscoped global memory/search in profiled rooms

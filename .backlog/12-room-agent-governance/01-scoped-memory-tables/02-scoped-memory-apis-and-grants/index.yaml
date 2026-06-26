@@ -1,0 +1,36 @@
+complexity: high
+depends_on: []
+estimate_hours: 12
+id: P12.M1.E2
+locked: false
+name: Scoped Memory APIs and Grants
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P12.M1.E1.T001
+      estimate_hours: 3
+      file: T001-add-scoped-memory-apis-and-gra.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add scoped memory CRUD APIs
+    - complexity: high
+      depends_on:
+        - P12.M1.E2.T001
+      estimate_hours: 3
+      file: T002-implement-scoped-memory-grant.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Implement scoped memory grant resolution
+    - complexity: high
+      depends_on:
+        - P12.M1.E2.T002
+      estimate_hours: 3
+      file: T003-gate-memory-grant-mutations-th.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Gate memory grant mutations through admin tooling

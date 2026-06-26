@@ -1,0 +1,13 @@
+---
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P11.M1.E1.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add room profile config types and validation
+---
+Acceptance: runtime config types represent room_profiles and room_profile_bindings; V1 rejects duplicate profile ids, duplicate active room bindings, and multi-room profile bindings; empty profile list preserves current behavior. Files: src/runtime_config_types.ml, src/runtime_config.ml, src/config_loader.ml, test/test_config_loader.ml.

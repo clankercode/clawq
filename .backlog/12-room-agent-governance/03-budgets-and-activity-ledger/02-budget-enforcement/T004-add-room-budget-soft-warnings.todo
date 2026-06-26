@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P12.M3.E2.T003
+estimate_hours: 2
+id: P12.M3.E2.T004
+priority: medium
+status: pending
+tags:
+    - room-agent
+    - budget
+    - admin
+title: Add room budget soft warnings and admin notification
+---
+Acceptance: soft budget threshold emits admin-visible warnings without interrupting allowed work; warnings are rate-limited and attributed to the room profile. Files: command/admin/status paths, notification/status tests.

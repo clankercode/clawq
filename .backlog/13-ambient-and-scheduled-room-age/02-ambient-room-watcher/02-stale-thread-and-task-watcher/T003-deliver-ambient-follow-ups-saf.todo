@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P13.M2.E2.T002
+    - P13.M2.E3.T001
+estimate_hours: 3
+id: P13.M2.E2.T003
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Deliver ambient follow-ups safely
+---
+Acceptance: watcher posts concise follow-up or asks for input only when explicit opt-in policy, budget, rate limits, quiet hours, and connector capability permit; delivery failures are ledger/task-visible. Files: connector/status delivery tests.

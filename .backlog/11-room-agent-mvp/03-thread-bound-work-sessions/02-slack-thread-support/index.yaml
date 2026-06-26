@@ -1,0 +1,18 @@
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P11.M3.E2
+locked: false
+name: Slack Thread Support
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M2.E1.T001
+        - P11.M3.E1.T001
+      estimate_hours: 4
+      file: T001-add-slack-thread-metadata-and.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add Slack thread metadata and reply support

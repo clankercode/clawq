@@ -1,0 +1,19 @@
+complexity: high
+depends_on: []
+estimate_hours: 8
+id: P11.M2.E1
+locked: false
+name: Slack Profile Resolution MVP
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T003
+        - P11.M1.E3.T001
+      estimate_hours: 4
+      file: T001-resolve-slack-profiled-rooms-t.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Resolve Slack profiled rooms to shared room sessions

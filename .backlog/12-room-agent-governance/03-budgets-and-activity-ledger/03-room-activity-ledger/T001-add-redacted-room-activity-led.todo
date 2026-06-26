@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M4.E1.T001
+    - P12.M3.E1.T001
+estimate_hours: 3
+id: P12.M3.E3.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add room activity ledger schema and append API
+---
+Acceptance: ledger schema and append API record requester, profile, room, thread, task/background id, model/provider, tool, cost, artifact reference, and status with redacted/reference content defaults. Files: src/memory_0_schema.ml, src/memory.ml, tests.

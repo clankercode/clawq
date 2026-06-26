@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M3.E1.T001
+    - P11.M2.E1.T001
+estimate_hours: 4
+id: P11.M4.E1.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add room origin columns to task tree and background tasks
+---
+Acceptance: task tree and background task rows store profile_id, origin_json, thread_id, and requester summary; migrations are safe; CLI/UI render concise origin context without leaking unauthorized content. Files: src/task_tree_core.ml, src/background_task.ml, src/memory_0_schema.ml, tests.

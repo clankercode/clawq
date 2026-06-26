@@ -1,0 +1,45 @@
+complexity: medium
+depends_on: []
+estimate_hours: 96
+id: P11
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Define profile schema, profile bindings, room workspaces, typed room session parsing, admin surfaces, and lifecycle semantics.
+      estimate_hours: 28
+      id: M1
+      locked: false
+      name: Room Profile Foundation
+      path: 01-room-profile-foundation
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Apply room profiles during connector turns, propagate effective CWD, establish model/template precedence, and add the P11 privacy guard.
+      estimate_hours: 22
+      id: M2
+      locked: false
+      name: Profile Resolution in Connectors
+      path: 02-profile-resolution-in-connecto
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Preserve thread/source metadata, add Slack thread support, audit Teams reply-chain support, and create child work sessions under room profiles.
+      estimate_hours: 18
+      id: M3
+      locked: false
+      name: Thread-Bound Work Sessions
+      path: 03-thread-bound-work-sessions
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Classify profiled room mentions, create durable origin-bound tasks/background tasks, post concise progress, and verify restart/concurrency behavior.
+      estimate_hours: 28
+      id: M4
+      locked: false
+      name: Mention-to-Task MVP
+      path: 04-mention-to-task-mvp
+      status: pending
+name: Room Agent MVP
+status: pending
+weeks: 4

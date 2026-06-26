@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P13.M1.E3.T001
+estimate_hours: 2
+id: P13.M1.E3.T002
+priority: medium
+status: pending
+tags:
+    - room-agent
+    - scheduler
+    - admin
+title: Add room routine edit and remove commands
+---
+Acceptance: admins can edit/remove room routines without orphaning active runs; removal/disable semantics are clear and auditable. Files: scheduler command/slash paths, tests.

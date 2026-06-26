@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P12.M3.E1.T001
+estimate_hours: 3
+id: P12.M3.E2.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add room budget state and query API
+---
+Acceptance: budget state/query API resolves UTC calendar-month soft/hard limits per room profile, reports current spend/reservations, and handles missing budget as unlimited without changing existing stats. Files: request_stats/budget modules, src/memory_0_schema.ml if needed, tests.

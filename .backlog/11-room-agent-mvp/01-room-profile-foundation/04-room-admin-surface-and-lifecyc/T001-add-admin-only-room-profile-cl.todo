@@ -1,0 +1,16 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P11.M1.E1.T003
+    - P11.M1.E2.T001
+    - P11.M1.E3.T001
+estimate_hours: 3
+id: P11.M1.E4.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add admin rooms list show bind and unbind CLI
+---
+Acceptance: rooms list/show/bind/unbind commands exist; mutation paths are admin-gated; unbind preserves state by default; errors are actionable. Files: src/command_bridge.ml, src/main.ml, room profile API, tests.

@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P12.M2.E1.T001
+    - P12.M2.E2.T001
+estimate_hours: 3
+id: P12.M2.E3.T001
+priority: medium
+started_at: null
+status: pending
+tags: []
+title: Add profile policy authorization and denial tests
+---
+Acceptance: room_profile_authz or equivalent shared helper gates every privileged surface through existing channel admin identity (Admin.is_admin/channel_admins) for CLI/slash/admin paths; authz matrix covers grant mutation, policy mutation, CWD/workspace changes, budgets, codebase bindings, routine create/edit/delete/trigger, ledger read/export/retention, and profile bind/rebind/delete; guests cannot mutate these surfaces; denied access is audited and errors tell operators which admin action is required. Files: src/admin.ml, command/slash/admin handlers, tests.

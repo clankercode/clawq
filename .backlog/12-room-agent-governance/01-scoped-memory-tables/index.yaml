@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: First-class memory scope tables, forward-only migration mechanics, and legacy read-in-place strategy.
+      estimate_hours: 12
+      id: E1
+      locked: false
+      name: Scoped Memory Schema and Migration
+      path: 01-scoped-memory-schema-and-migra
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Actor-context scoped memory APIs and default-deny non-transitive grant resolution.
+      estimate_hours: 12
+      id: E2
+      locked: false
+      name: Scoped Memory APIs and Grants
+      path: 02-scoped-memory-apis-and-grants
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Profiled room prompt/search paths respect scoped memory and cannot read other channels.
+      estimate_hours: 12
+      id: E3
+      locked: false
+      name: Scoped Search and Prompt Injection
+      path: 03-scoped-search-and-prompt-injec
+      status: pending
+estimate_hours: 36
+id: P12.M1
+locked: false
+name: Scoped Memory Tables
+status: pending

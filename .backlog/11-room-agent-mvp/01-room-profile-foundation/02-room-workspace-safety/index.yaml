@@ -1,0 +1,18 @@
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P11.M1.E2
+locked: false
+name: Room Workspace Safety
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T003
+      estimate_hours: 3
+      file: T001-implement-safe-persistent-room.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Implement safe persistent room workspace paths

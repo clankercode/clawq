@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M2.E2.T001
+estimate_hours: 3
+id: P11.M2.E2.T002
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Apply room profile model template and OAuth precedence
+---
+Acceptance: model/template tier is session override > room profile > channel default > global; Anthropic OAuth opt-in and other security gates remain stronger than profile choices; tests cover precedence and denial messages. Files: src/agent_router.ml, src/agent_template.ml, test/test_session_model_override.ml, session routing tests.

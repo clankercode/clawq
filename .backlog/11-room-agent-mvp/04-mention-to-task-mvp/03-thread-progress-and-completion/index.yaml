@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+estimate_hours: 8
+id: P11.M4.E3
+locked: false
+name: Thread Progress and Completion Delivery
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P11.M4.E1.T001
+        - P11.M3.E2.T001
+        - P11.M2.E1.T001
+        - P7.M2.E1.T003
+        - P7.M2.E2.T003
+      estimate_hours: 2
+      file: T001-add-sparse-thread-progress-and.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Persist sparse room progress states
+    - complexity: high
+      depends_on:
+        - P11.M4.E3.T001
+      estimate_hours: 3
+      file: T002-deliver-room-progress-updates.todo
+      id: T002
+      priority: high
+      status: pending
+      tags: []
+      title: Deliver Slack/current room progress updates
+    - complexity: high
+      depends_on:
+        - P11.M4.E3.T002
+      estimate_hours: 3
+      file: T003-deliver-final-room-completion.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Deliver final room completion and failure messages

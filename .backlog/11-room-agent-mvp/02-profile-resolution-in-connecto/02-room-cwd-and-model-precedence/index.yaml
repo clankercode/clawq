@@ -1,0 +1,29 @@
+complexity: high
+depends_on: []
+estimate_hours: 8
+id: P11.M2.E2
+locked: false
+name: Room CWD and Model Precedence
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E2.T001
+        - P11.M2.E1.T001
+      estimate_hours: 3
+      file: T001-apply-room-cwd-and-profile-mod.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Apply room CWD precedence and repo policy
+    - complexity: high
+      depends_on:
+        - P11.M2.E2.T001
+      estimate_hours: 3
+      file: T002-apply-room-profile-model-templ.todo
+      id: T002
+      priority: high
+      status: pending
+      tags: []
+      title: Apply room profile model template and OAuth precedence

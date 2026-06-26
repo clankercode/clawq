@@ -1,0 +1,36 @@
+complexity: medium
+depends_on: []
+estimate_hours: 72
+id: P13
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Extend existing scheduler/cron paths with room profile targeting, routine workspaces, and routine delivery.
+      estimate_hours: 24
+      id: M1
+      locked: false
+      name: Cron-Integrated Room Routines
+      path: 01-cron-integrated-room-routines
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Opt-in ambient room watcher over scoped connector history and open room tasks, with quiet-hours and rate limits. Depends at leaf level on the connector capability matrix task in M3.
+      estimate_hours: 24
+      id: M2
+      locked: false
+      name: Ambient Room Watcher
+      path: 02-ambient-room-watcher
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Connector capability matrix, Teams fast-follow hardening, and operator documentation for room agents. P13.M3.E1 should be completed before M2 ambient history work.
+      estimate_hours: 24
+      id: M3
+      locked: false
+      name: Multi-Connector Polish
+      path: 03-multi-connector-polish
+      status: pending
+name: Ambient and Scheduled Room Agents
+status: pending
+weeks: 4

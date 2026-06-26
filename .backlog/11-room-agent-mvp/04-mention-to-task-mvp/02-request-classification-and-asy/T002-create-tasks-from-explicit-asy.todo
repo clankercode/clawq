@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - P11.M4.E2.T001
+estimate_hours: 3
+id: P11.M4.E2.T002
+priority: high
+status: pending
+tags:
+    - room-agent
+    - profiled-room
+    - async
+title: Create tasks from explicit async room commands
+---
+Acceptance: explicit async commands create task-tree/background records with room origin and thread metadata; short questions can remain quick replies; unprofiled connector behavior remains unchanged. Files: connector handlers, slash command routing, task_tree, tests.

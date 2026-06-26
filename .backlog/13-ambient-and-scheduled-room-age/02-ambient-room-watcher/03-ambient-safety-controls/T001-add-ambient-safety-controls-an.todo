@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P12.M3.E2.T005
+estimate_hours: 3
+id: P13.M2.E3.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Enforce ambient policy config and rate limits
+---
+Acceptance: ambient mode defaults off; explicit profile-level opt-in is required; quiet hours, per-profile rate limits, budget gate hooks, and connector capability checks are enforced before any ambient delivery. Files: ambient policy/config modules, tests.

@@ -107,6 +107,36 @@ phases:
       priority: high
       status: done
       weeks: 2
+    - depends_on: []
+      description: 'Claude Tag-style room-agent MVP: shared profiled room sessions, persistent room workspaces, typed room/thread/routine session keys, Slack-first connector routing, P11 privacy guard, thread-bound work sessions, and mention-to-task async delivery. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
+      estimate_hours: 96
+      id: P11
+      locked: false
+      name: Room Agent MVP
+      path: 11-room-agent-mvp
+      priority: high
+      status: pending
+      weeks: 4
+    - depends_on: []
+      description: 'Governance layer for room agents: scoped memory tables, grant policy, profile tool/codebase policy, budgets, and activity ledger. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
+      estimate_hours: 96
+      id: P12
+      locked: false
+      name: Room Agent Governance
+      path: 12-room-agent-governance
+      priority: high
+      status: pending
+      weeks: 4
+    - depends_on: []
+      description: 'Cron-integrated room routines, opt-in ambient room watcher, connector capability matrix, and multi-connector polish for room agents. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
+      estimate_hours: 72
+      id: P13
+      locked: false
+      name: Ambient and Scheduled Room Agents
+      path: 13-ambient-and-scheduled-room-age
+      priority: medium
+      status: pending
+      weeks: 4
 project: Clawq
 stats:
     blocked: 1

@@ -1,0 +1,18 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M1.E2.T001
+    - P11.M1.E3.T001
+    - P11.M3.E1.T001
+    - P11.M2.E2.T002
+    - P11.M2.E3.T001
+estimate_hours: 3
+id: P11.M3.E4.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Create deterministic child thread sessions
+---
+Acceptance: profiled rooms can create deterministic child thread session keys from room profile, connector room, and thread/source metadata; child sessions inherit the P11 policy subset only: room CWD, model/template precedence, admin/guest async guard context, and privacy guard. Full tool/codebase/budget/scoped-memory policy waits for P12. Tests cover supported thread connectors. Files: src/session_core.ml, src/session_turn.ml, test/test_room_session.ml, test/test_session_model_override.ml.

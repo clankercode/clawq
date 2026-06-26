@@ -1,0 +1,16 @@
+---
+complexity: high
+depends_on:
+    - P11.M2.E1.T001
+    - P11.M3.E1.T001
+estimate_hours: 4
+id: P11.M3.E2.T001
+priority: high
+status: pending
+tags:
+    - room-agent
+    - slack
+    - threading
+title: Add Slack thread metadata and reply support
+---
+Acceptance: Slack event parser preserves thread_ts; send helpers can include thread_ts; ordinary channel sends remain unchanged; tests cover thread and non-thread replies. Files: src/slack.ml, test/test_slack.ml.

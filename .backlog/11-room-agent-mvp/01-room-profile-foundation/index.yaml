@@ -1,0 +1,44 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Config and DB model for one-room-one-profile bindings, source-of-truth reconciliation, and profile validation.
+      estimate_hours: 8
+      id: E1
+      locked: false
+      name: Profile Schema and Binding Model
+      path: 01-profile-schema-and-binding-mod
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Stable room workspace path generation, containment validation, and adversarial path tests.
+      estimate_hours: 6
+      id: E2
+      locked: false
+      name: Room Workspace Safety
+      path: 02-room-workspace-safety
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Single construct+parse authority for room/thread/routine keys and migration of positional parsers.
+      estimate_hours: 6
+      id: E3
+      locked: false
+      name: Typed Room Session Keys
+      path: 03-typed-room-session-keys
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Admin-only list/show/bind/unbind/rebind/delete/rename surfaces and safe lifecycle semantics.
+      estimate_hours: 8
+      id: E4
+      locked: false
+      name: Room Admin Surface and Lifecycle
+      path: 04-room-admin-surface-and-lifecyc
+      status: pending
+estimate_hours: 28
+id: P11.M1
+locked: false
+name: Room Profile Foundation
+status: pending

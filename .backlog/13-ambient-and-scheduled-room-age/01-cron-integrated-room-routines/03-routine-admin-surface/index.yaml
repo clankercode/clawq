@@ -1,0 +1,46 @@
+complexity: medium
+depends_on: []
+estimate_hours: 6
+id: P13.M1.E3
+locked: false
+name: Routine Admin Surface
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P13.M1.E2.T001
+      estimate_hours: 2
+      file: T001-add-admin-only-room-routine-su.todo
+      id: T001
+      priority: medium
+      status: pending
+      tags: []
+      title: Add room routine create list and show commands
+    - complexity: medium
+      depends_on:
+        - P13.M1.E3.T001
+      estimate_hours: 2
+      file: T002-add-room-routine-edit-and-remo.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Add room routine edit and remove commands
+    - complexity: medium
+      depends_on:
+        - P13.M1.E3.T002
+      estimate_hours: 2
+      file: T003-add-manual-room-routine-trigge.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Add manual room routine trigger path
+    - complexity: medium
+      depends_on:
+        - P13.M1.E3.T003
+        - P12.M2.E3.T001
+      estimate_hours: 2
+      file: T004-add-room-routine-admin-and-neg.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Add room routine admin and negative tests

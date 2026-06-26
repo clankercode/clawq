@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P13.M1.E2.T001
+estimate_hours: 2
+id: P13.M1.E3.T001
+priority: medium
+started_at: null
+status: pending
+tags: []
+title: Add room routine create list and show commands
+---
+Acceptance: admins can create/list/show room routines with profile/thread target validation; invalid profile or unbound room errors are actionable. Files: scheduler command/slash paths, tests.

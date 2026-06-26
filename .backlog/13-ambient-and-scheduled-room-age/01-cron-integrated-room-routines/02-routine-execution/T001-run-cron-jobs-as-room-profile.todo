@@ -1,0 +1,20 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P13.M1.E1.T001
+    - P11.M3.E4.T003
+    - P12.M1.E2.T003
+    - P12.M2.E1.T001
+    - P12.M3.E2.T005
+    - P7.M2.E1.T003
+    - P7.M2.E2.T003
+estimate_hours: 5
+id: P13.M1.E2.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Run cron jobs as room profile sessions
+---
+Acceptance: cron ticks resolve the current profile through room_session instead of stale stored keys; routines inherit profile model/template/tools/memory/budget and CWD; existing cron history, loop prevention, and auto-disable behavior are preserved.

@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P12.M1.E1.T001
+estimate_hours: 3
+id: P12.M1.E1.T002
+priority: high
+status: pending
+tags:
+    - room-agent
+    - memory
+    - migration
+title: Add legacy memory read-in-place scope
+---
+Acceptance: existing core_memories are exposed through an explicit legacy scope; there are not two divergent memory backends; copying only happens if version-gated, transactional, and protected by a sentinel; CLI and admin memory paths make legacy access deliberate.

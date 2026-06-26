@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P12.M1.E1.T001
+estimate_hours: 3
+id: P12.M1.E2.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add scoped memory CRUD APIs
+---
+Acceptance: store_scoped, recall_scoped, list_scoped, and forget_scoped accept actor/profile/session context and operate on scoped tables without changing legacy APIs unexpectedly. Files: src/memory.ml, test/test_memory.ml.

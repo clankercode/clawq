@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P11.M1.E4.T001
+    - P11.M1.E4.T003
+estimate_hours: 2
+id: P11.M1.E4.T004
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add minimal build stubs and admin authz tests for rooms CLI
+---
+Acceptance: minimal build stubs mutation paths with disabled-in-minimal style errors; Admin.is_admin/channel admin checks deny non-admin mutations; admin surfaces do not become agent/tool-exposed. Files: src/command_bridge_min.ml, src/admin.ml, command bridge/admin tests.

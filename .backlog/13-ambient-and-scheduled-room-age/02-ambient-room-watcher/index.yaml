@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Profiled room connector history capture obeys grants, retention, and connector capability constraints.
+      estimate_hours: 8
+      id: E1
+      locked: false
+      name: Scoped Connector History
+      path: 01-scoped-connector-history
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Opt-in watcher detects stale room tasks/threads and posts sparse follow-ups.
+      estimate_hours: 10
+      id: E2
+      locked: false
+      name: Stale Thread and Task Watcher
+      path: 02-stale-thread-and-task-watcher
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Quiet hours, rate limits, inspection, and default-off ambient policy.
+      estimate_hours: 6
+      id: E3
+      locked: false
+      name: Ambient Safety Controls
+      path: 03-ambient-safety-controls
+      status: pending
+estimate_hours: 24
+id: P13.M2
+locked: false
+name: Ambient Room Watcher
+status: pending

@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - P12.M3.E2.T001
+estimate_hours: 4
+id: P12.M3.E2.T002
+priority: high
+status: pending
+tags:
+    - room-agent
+    - budget
+    - provider
+title: Add provider pre-call budget guards to agent loops
+---
+Acceptance: both relevant agent/provider-call loops check room profile budget before each provider call; hard-limit failures stop before prompt submission and return actionable errors without prompt content. Files: src/agent.ml, provider call paths, tests.

@@ -1,0 +1,36 @@
+complexity: medium
+depends_on: []
+estimate_hours: 96
+id: P12
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Add first-class scoped memory tables, scoped APIs, legacy migration strategy, and scoped prompt/search injection.
+      estimate_hours: 36
+      id: M1
+      locked: false
+      name: Scoped Memory Tables
+      path: 01-scoped-memory-tables
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Enforce room profile tool grants and codebase grants without bypassing global security policy.
+      estimate_hours: 24
+      id: M2
+      locked: false
+      name: Profile Policy and Grants
+      path: 02-profile-policy-and-grants
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Add room/profile budget attribution and enforcement plus redacted room activity ledger.
+      estimate_hours: 36
+      id: M3
+      locked: false
+      name: Budgets and Activity Ledger
+      path: 03-budgets-and-activity-ledger
+      status: pending
+name: Room Agent Governance
+status: pending
+weeks: 4

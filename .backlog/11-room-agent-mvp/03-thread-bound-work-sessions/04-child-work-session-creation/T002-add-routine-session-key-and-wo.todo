@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M3.E4.T001
+estimate_hours: 3
+id: P11.M3.E4.T002
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add routine session key and workspace plumbing
+---
+Acceptance: routine child sessions have deterministic keys and CWD beneath the room workspace; routine sessions inherit P11 room CWD/model/template/privacy-guard context without stale stored profile state. Full tool/codebase/budget/scoped-memory policy waits for P12/P13 routine execution. Files: src/session_core.ml, src/session_turn.ml, test/test_room_session.ml, scheduler-facing tests.
