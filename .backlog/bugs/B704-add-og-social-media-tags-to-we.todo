@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B704
+priority: high
+status: pending
+tags: []
+title: Add og/social media tags to website template + make a nice preview image using browser tech + save png. The 'pitch' angle as such is agent<->agent IM, anywhere-to-anywhere (which is why we have the relay). Relays can be self-hosted, too.
+---
+
+Add og/social media tags to website template + make a nice preview image using browser tech + save png. The 'pitch' angle as such is agent<->agent IM, anywhere-to-anywhere (which is why we have the relay). Relays can be self-hosted, too.

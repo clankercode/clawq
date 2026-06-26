@@ -698,3 +698,4 @@ bugs:
     - file: B701-default-model-in-config-keeps.todo
     - file: B702-add-memories-slash-command-to.todo
     - file: B703-admin-stop-commands-queued-dur.todo
+    - file: B704-add-og-social-media-tags-to-we.todo
