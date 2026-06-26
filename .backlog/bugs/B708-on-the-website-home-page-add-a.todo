@@ -10,7 +10,7 @@ priority: high
 started_at: "2026-06-26T10:05:17Z"
 status: in_progress
 tags: []
-title: On the website home page, add a button in top right of clawq image to change opacity of image and border to 0. should have a nice fade over 0.8s
+title: On the docs website home page, add a button in top right of clawq image to change opacity of image and border to 0. should have a nice fade over 0.8s
 ---
 
-On the website home page, add a button in top right of clawq image to change opacity of image and border to 0. should have a nice fade over 0.8s
+On the docs website home page, add a button in top right of clawq image (/clawq-cover.webp) to change opacity of image and border to 0. should have a nice fade over 0.8s
