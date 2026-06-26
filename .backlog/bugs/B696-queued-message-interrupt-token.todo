@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-26T10:23:23Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-26T10:25:23Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.0144405636
 estimate_hours: 1
 id: B696
 priority: high
 started_at: "2026-06-26T10:23:23Z"
-status: in_progress
+status: done
 tags: []
 title: queued_message_interrupt_token ignores explicit "stop" commands
 ---
