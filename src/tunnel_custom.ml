@@ -14,6 +14,7 @@ type t = {
   config : Runtime_config.tunnel_config;
   custom_command : string;
   url_regex : string;
+  compiled_regex : Str.regexp;
 }
 
 let name = "custom"
@@ -27,12 +28,12 @@ let create ~config ~port ~custom_command ~url_regex =
     config;
     custom_command;
     url_regex;
+    compiled_regex = Str.regexp url_regex;
   }
 
-let extract_url_with_regex ~url_regex line =
+let extract_url_with_regex ~compiled_regex line =
   try
-    let re = Str.regexp url_regex in
-    let _ = Str.search_forward re line 0 in
+    let _ = Str.search_forward compiled_regex line 0 in
     Some (Str.matched_string line)
   with Not_found | Failure _ -> None
 
@@ -84,7 +85,10 @@ let start t =
                let lines = String.split_on_char '\n' content in
                List.iter
                  (fun line ->
-                   match extract_url_with_regex ~url_regex:t.url_regex line with
+                   match
+                     extract_url_with_regex ~compiled_regex:t.compiled_regex
+                       line
+                   with
                    | Some url -> if !found_url = None then found_url := Some url
                    | None -> ())
                  lines)

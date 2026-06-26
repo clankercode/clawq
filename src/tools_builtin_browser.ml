@@ -1,5 +1,12 @@
 (* tools_builtin_browser.ml — Browser automation tool *)
 
+let validate_url url =
+  let lower = String.lowercase_ascii url in
+  String.starts_with ~prefix:"http://" lower
+  || String.starts_with ~prefix:"https://" lower
+  || String.starts_with ~prefix:"data:" lower
+  || not (String.contains url ':')
+
 let action_enum =
   `List
     [
@@ -215,15 +222,7 @@ let execute_single_action ~config ~session_key args =
                     "Error: 'url' parameter is required for navigate. Example: \
                      browser(action=\"navigate\", url=\"https://example.com\")"
               | Some url ->
-                  (* Reject non-http/https schemes *)
-                  let is_safe_scheme =
-                    let lower = String.lowercase_ascii url in
-                    String.starts_with ~prefix:"http://" lower
-                    || String.starts_with ~prefix:"https://" lower
-                    || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
-                  in
-                  if not is_safe_scheme then
+                  if not (validate_url url) then
                     Lwt.return
                       (Printf.sprintf
                          "Error: rejected URL scheme in %S. Only http://, \
@@ -339,14 +338,7 @@ let execute_single_action ~config ~session_key args =
               | None ->
                   Lwt.return "Error: 'url' parameter is required for new_tab."
               | Some url ->
-                  let is_safe_scheme =
-                    let lower = String.lowercase_ascii url in
-                    String.starts_with ~prefix:"http://" lower
-                    || String.starts_with ~prefix:"https://" lower
-                    || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
-                  in
-                  if not is_safe_scheme then
+                  if not (validate_url url) then
                     Lwt.return
                       (Printf.sprintf
                          "Error: rejected URL scheme in %S. Only http://, \
@@ -387,14 +379,7 @@ let execute_single_action ~config ~session_key args =
                     "Error: 'url' parameter is required for \
                      navigate_and_extract."
               | Some url ->
-                  let is_safe_scheme =
-                    let lower = String.lowercase_ascii url in
-                    String.starts_with ~prefix:"http://" lower
-                    || String.starts_with ~prefix:"https://" lower
-                    || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
-                  in
-                  if not is_safe_scheme then
+                  if not (validate_url url) then
                     Lwt.return
                       (Printf.sprintf
                          "Error: rejected URL scheme in %S. Only http://, \
@@ -447,14 +432,7 @@ let execute_single_action ~config ~session_key args =
                   Lwt.return
                     "Error: 'url' parameter is required for snapshot_all."
               | Some url ->
-                  let is_safe_scheme =
-                    let lower = String.lowercase_ascii url in
-                    String.starts_with ~prefix:"http://" lower
-                    || String.starts_with ~prefix:"https://" lower
-                    || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
-                  in
-                  if not is_safe_scheme then
+                  if not (validate_url url) then
                     Lwt.return
                       (Printf.sprintf
                          "Error: rejected URL scheme in %S. Only http://, \
@@ -478,14 +456,7 @@ let execute_single_action ~config ~session_key args =
                   Lwt.return
                     "Error: 'javascript' parameter is required for run_script."
               | Some url, Some js -> (
-                  let is_safe_scheme =
-                    let lower = String.lowercase_ascii url in
-                    String.starts_with ~prefix:"http://" lower
-                    || String.starts_with ~prefix:"https://" lower
-                    || String.starts_with ~prefix:"data:" lower
-                    || not (String.contains url ':')
-                  in
-                  if not is_safe_scheme then
+                  if not (validate_url url) then
                     Lwt.return
                       (Printf.sprintf
                          "Error: rejected URL scheme in %S. Only http://, \

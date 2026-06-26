@@ -283,7 +283,7 @@ let test_update_tool_writes_restart_marker_from_session_context () =
     "update result" "Build complete. Sending restart signal..." result;
   Alcotest.(check (option (pair string string)))
     "restart marker"
-    (Some ("telegram", "123"))
+    (Some ("telegram", "123:456"))
     (Restart_notify.read ());
   Restart_notify.remove ();
   ignore sent_signal

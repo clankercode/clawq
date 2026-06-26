@@ -30,6 +30,10 @@ let maybe_rotate ~log_path ~(config : Runtime_config.log_config) =
           [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ]
           0o644
       in
+      flush Stdlib.stdout;
+      flush Stdlib.stderr;
+      Format.pp_print_flush Format.std_formatter ();
+      Format.pp_print_flush Format.err_formatter ();
       Unix.dup2 new_fd Unix.stdout;
       Unix.dup2 new_fd Unix.stderr;
       Unix.close new_fd;

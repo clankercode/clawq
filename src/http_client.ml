@@ -194,7 +194,9 @@ let post_multipart ~uri ~headers ~parts =
       let body_str = Buffer.contents buf in
       let uri_parsed = Uri.of_string uri in
       let all_headers =
-        ("Content-Type", "multipart/form-data; boundary=" ^ boundary) :: headers
+        ensure_user_agent
+          (("Content-Type", "multipart/form-data; boundary=" ^ boundary)
+          :: headers)
       in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
       let req_body = Cohttp_lwt.Body.of_string body_str in

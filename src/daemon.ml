@@ -14,18 +14,12 @@ let task_tree_notify_for_session session_manager session_key =
   match Session.find_registered_notifier session_manager ~key:session_key with
   | Some notifier ->
       let connector =
-        if
-          String.length session_key >= 9
-          && String.sub session_key 0 9 = "telegram:"
-        then Format_adapter.Telegram_markdown
-        else if
-          String.length session_key >= 8
-          && String.sub session_key 0 8 = "discord:"
-        then Format_adapter.Discord
-        else if
-          String.length session_key >= 6
-          && String.sub session_key 0 6 = "slack:"
-        then Format_adapter.Slack
+        if String.starts_with ~prefix:"telegram:" session_key then
+          Format_adapter.Telegram_markdown
+        else if String.starts_with ~prefix:"discord:" session_key then
+          Format_adapter.Discord
+        else if String.starts_with ~prefix:"slack:" session_key then
+          Format_adapter.Slack
         else Format_adapter.Plain
       in
       Some (connector, notifier)
@@ -1042,8 +1036,12 @@ let run ~(config : Runtime_config.t) =
                   in
                   refresh_task_tree_tools_with_current_workspace ~current_config
                     ~db ?notify registry
-              | None -> ())
-          | None -> ());
+              | None ->
+                  (* No DB available; skip DB-dependent reload steps *)
+                  ())
+          | None ->
+              (* No tool registry available; skip all registry-dependent reload *)
+              ());
           Lwt.async (fun () ->
               Lwt.catch
                 (fun () ->

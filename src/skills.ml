@@ -557,15 +557,10 @@ type skill_cache = {
 }
 
 (* Lwt safety: global_cache is accessed from request handling and the background
-   skill_watcher_loop. Under cooperative Lwt (single-domain OCaml 5.1), only
-   one green thread runs at a time, so no mutex is needed. If the runtime ever
-   moves to multi-domain parallelism, wrap access with Lwt_mutex. *)
-let global_cache : skill_cache option ref = ref None
-
-(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
-   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
-   protect with a mutex. *)
-let global_cache_get () = !global_cache
+   skill_watcher_loop. Using Atomic.t for forward-compatibility with
+   multi-domain OCaml parallelism. *)
+let global_cache : skill_cache option Atomic.t = Atomic.make None
+let global_cache_get () = Atomic.get global_cache
 
 let get_dir_mtime dir =
   try (Unix.stat dir).Unix.st_mtime with Unix.Unix_error _ -> 0.0
@@ -596,7 +591,7 @@ let init_cache ?workspace_dir () =
       search_dirs = dirs;
     }
   in
-  global_cache := Some cache;
+  Atomic.set global_cache (Some cache);
   cache
 
 let builtin_skill_metas () : skill_md_meta list =
@@ -614,7 +609,7 @@ let builtin_skill_metas () : skill_md_meta list =
 
 let available_skills () =
   let user_skills =
-    match !global_cache with
+    match Atomic.get global_cache with
     | Some cache ->
         refresh_cache_if_stale cache;
         cache.md_skills
@@ -1053,7 +1048,7 @@ let skill_create_tool () =
                 Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
                     Lwt_io.write oc content)
               in
-              (match !global_cache with
+              (match Atomic.get global_cache with
               | Some cache ->
                   cache.md_skills <- scan_skill_dirs cache.search_dirs;
                   cache.dir_mtimes <-

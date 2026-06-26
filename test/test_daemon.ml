@@ -1319,15 +1319,15 @@ let test_restart_notify_missing_marker () =
 let test_parse_channel_from_key () =
   Alcotest.(check (option (pair string string)))
     "telegram key"
-    (Some ("telegram", "123"))
+    (Some ("telegram", "123:456"))
     (Restart_notify.parse_channel_from_key "telegram:123:456");
   Alcotest.(check (option (pair string string)))
     "discord key"
-    (Some ("discord", "chan"))
+    (Some ("discord", "chan:user"))
     (Restart_notify.parse_channel_from_key "discord:chan:user");
   Alcotest.(check (option (pair string string)))
     "slack key"
-    (Some ("slack", "C01"))
+    (Some ("slack", "C01:U01"))
     (Restart_notify.parse_channel_from_key "slack:C01:U01");
   Alcotest.(check (option (pair string string)))
     "teams key"
@@ -2450,7 +2450,7 @@ let test_rich_send_fn_direct_dispatch_fallback () =
   match !called with
   | Some (bot_token, chat_id, text) ->
       Alcotest.(check string) "bot_token" "tg-token" bot_token;
-      Alcotest.(check string) "chat_id" "42" chat_id;
+      Alcotest.(check string) "chat_id" "42:42" chat_id;
       Alcotest.(check string) "text" "hello from fallback" text
   | None -> Alcotest.fail "telegram sender was not called"
 

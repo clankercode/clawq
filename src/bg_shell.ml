@@ -20,6 +20,21 @@ let bg_shells_dir () =
   (try if not (Sys.file_exists dir) then Sys.mkdir dir 0o755 with _ -> ());
   dir
 
+let cleanup_ttl_seconds = 300.0
+
+let cleanup () =
+  let now = Unix.gettimeofday () in
+  let to_remove = ref [] in
+  Hashtbl.iter
+    (fun id (job : job) ->
+      match job.status with
+      | Running -> ()
+      | Finished _ | Failed _ ->
+          if now -. job.start_time >= cleanup_ttl_seconds then
+            to_remove := id :: !to_remove)
+    jobs;
+  List.iter (Hashtbl.remove jobs) !to_remove
+
 let create ~pid ~command ~cwd =
   let id = !next_id in
   incr next_id;
@@ -41,6 +56,7 @@ let create ~pid ~command ~cwd =
     }
   in
   Hashtbl.replace jobs id job;
+  cleanup ();
   job
 
 let complete job ~exit_code ~stdout ~stderr =

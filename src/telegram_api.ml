@@ -343,9 +343,26 @@ let cleanup_recently_seen_updates ~now =
     recently_seen_updates;
   List.iter (Hashtbl.remove recently_seen_updates) !expired
 
+let pending_text_update_ttl_seconds = 300.0
+
+let cleanup_pending_text_updates ~now =
+  let expired = ref [] in
+  Hashtbl.iter
+    (fun key (entry : pending_text_update) ->
+      if now -. entry.last_seen_at >= pending_text_update_ttl_seconds then
+        expired := key :: !expired)
+    pending_text_updates;
+  List.iter (Hashtbl.remove pending_text_updates) !expired
+
+let should_process_update_counter = ref 0
+
 let should_process_update (u : update) =
   let now = Unix.gettimeofday () in
-  cleanup_recently_seen_updates ~now;
+  incr should_process_update_counter;
+  if !should_process_update_counter mod 50 = 0 then begin
+    cleanup_recently_seen_updates ~now;
+    cleanup_pending_text_updates ~now
+  end;
   let key = update_dedupe_key u in
   if Hashtbl.mem recently_seen_updates key then false
   else begin

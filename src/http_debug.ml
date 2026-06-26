@@ -4,7 +4,7 @@
 
 let enabled_ref = ref false
 let enabled () = !enabled_ref
-let seq_counter = ref 0
+let seq_counter = Atomic.make 0
 let context_key : string Lwt.key = Lwt.new_key ()
 
 let init () =
@@ -109,12 +109,7 @@ let ensure_dir_p path =
   mkdir_p path
 
 let ensure_today_dir () = ensure_dir_p (today_dir ())
-
-let next_seq () =
-  let s = !seq_counter in
-  seq_counter := s + 1;
-  s
-
+let next_seq () = Atomic.fetch_and_add seq_counter 1
 let make_filename ~ts ~seq ~dest = Printf.sprintf "%.3f_%04d_%s" ts seq dest
 
 (* --- HAR writing --- *)
