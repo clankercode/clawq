@@ -337,3 +337,63 @@ let suite =
       test_parse_event_with_files;
     Alcotest.test_case "parse event no files" `Quick test_parse_event_no_files;
   ]
+
+let test_resolve_session_key_unprofiled () =
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  (* No room profile binding exists — should get per-user key *)
+  let key =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "unprofiled channel uses per-user key" "slack:C123:U456" key
+
+let test_resolve_session_key_profiled () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_room_profiles_schema db;
+  Memory.init_room_profile_bindings_schema db;
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  (* Create a profile and bind it to channel C123 *)
+  let profile_id = Memory.insert_room_profile ~db ~name:"test_profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"C123" ~profile_id;
+  (* Profiled channel should use shared room key *)
+  let key =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "profiled channel uses shared room key" "slack:C123" key;
+  (* Different user in same profiled channel gets same key *)
+  let key2 =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U789"
+  in
+  Alcotest.(check string)
+    "different user same profiled channel" "slack:C123" key2;
+  (* Unprofiled channel still uses per-user key *)
+  let key3 =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C999"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "unprofiled channel still per-user" "slack:C999:U456" key3
+
+let test_resolve_session_key_no_db () =
+  (* Session manager without DB — should fall back to per-user key *)
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  let key =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "no db falls back to per-user key" "slack:C123:U456" key
+
+let test_suite_with_profiles =
+  [
+    Alcotest.test_case "resolve_session_key unprofiled" `Quick
+      test_resolve_session_key_unprofiled;
+    Alcotest.test_case "resolve_session_key profiled" `Quick
+      test_resolve_session_key_profiled;
+    Alcotest.test_case "resolve_session_key no db" `Quick
+      test_resolve_session_key_no_db;
+  ]
