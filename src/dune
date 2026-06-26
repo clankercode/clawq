@@ -76,6 +76,7 @@
   memory_core
   memory_session
   memory_search
+  room_profile_reconcile
   memory
   rate_limiter
   scheduler

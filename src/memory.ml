@@ -5,3 +5,4 @@ include Memory_types
 include Memory_core
 include Memory_session
 include Memory_search
+include Room_profile_reconcile
