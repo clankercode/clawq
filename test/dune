@@ -105,6 +105,7 @@
   test_tunnels
   test_ui_server
   test_update_tool
+  test_update_pkg_manager
   test_vector
   test_wasm
   test_whatsapp

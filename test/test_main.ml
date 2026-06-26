@@ -50,6 +50,7 @@ let () =
        ("session_observer", Test_session_observer.suite);
        ("session_persistence", Test_session_persistence.suite);
        ("update_tool", Test_update_tool.suite);
+       ("update_pkg_manager", Test_update_pkg_manager.suite);
        ("skills", Test_skills.suite);
        ("skills_cmd_inject", Test_skills_cmd_inject.suite);
        ("memory_search", Test_memory_search.suite);

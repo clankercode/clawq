@@ -188,7 +188,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `usage [--refresh]` | Show provider quota/usage status |
 | `usage history [--provider NAME] [--since PERIOD] [--limit N] [--json]` | Show historical quota snapshots |
 | `usage purge [PERIOD]` | Delete old quota history (default: 90d; accepts 7d, 30d, 90d, all) |
-| `update [--mode auto|git|binary|pkg]` | Ask the live daemon to update itself and gracefully restart; `auto` mode detects package manager (npm/pnpm/yarn/bun/Homebrew) or falls through to binary; `pkg` mode forces package-manager upgrade; currently warns if no live daemon is available because the offline fallback is still stubbed |
+| `update [--mode auto|git|binary|pkg]` | Ask the live daemon to update itself and gracefully restart. `auto` prefers a git rebuild, then the package manager that installed clawq (npm/pnpm/yarn/bun/Homebrew), then a binary download. `pkg` forces the package-manager path. Falls back to an offline update when no live daemon is available |
 | `version` | Print version and build info |
 | `watcher` | Manage the error correction watcher (default: status) |
 | `watcher status` | Show watcher config and EC process status |

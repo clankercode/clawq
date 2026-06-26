@@ -1003,7 +1003,8 @@ let handler ~session_manager ~require_pairing ~auth_token
             | None ->
                 bad_request
                   (Printf.sprintf
-                     "invalid update mode '%s'; expected auto, git, or binary"
+                     "invalid update mode '%s'; expected auto, git, binary, or \
+                      pkg"
                      mode_raw)
             | Some mode -> (
                 match daemon_run_update_command with

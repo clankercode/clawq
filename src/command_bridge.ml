@@ -1016,9 +1016,9 @@ let parse_update_args args =
           Error
             (Printf.sprintf
                "Invalid update mode '%s'. Use: clawq update [--mode \
-                auto|git|binary]"
+                auto|git|binary|pkg]"
                value))
-  | _ -> Error "Usage: clawq update [--mode auto|git|binary]"
+  | _ -> Error "Usage: clawq update [--mode auto|git|binary|pkg]"
 
 let render_update_output ~progress ~result =
   let progress = List.filter (fun line -> String.trim line <> "") progress in

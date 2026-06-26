@@ -1,18 +1,20 @@
 let is_update_command text =
   String.lowercase_ascii (String.trim text) = "/update"
 
-type update_mode = Auto | Git | Binary
+type update_mode = Auto | Git | Binary | Pkg
 
 let update_mode_of_string = function
   | "auto" -> Some Auto
   | "git" -> Some Git
   | "binary" -> Some Binary
+  | "pkg" -> Some Pkg
   | _ -> None
 
 let string_of_update_mode = function
   | Auto -> "auto"
   | Git -> "git"
   | Binary -> "binary"
+  | Pkg -> "pkg"
 
 let normalize_executable_path ?start_path () =
   let path = Option.value start_path ~default:Sys.executable_name in
@@ -298,11 +300,67 @@ let run_binary_update ~binary_url ~target_path ~run_command ~send_signal
     end
   end
 
+let run_pkg_manager_update ~manager ~target_path ~run_command ~send_signal
+    ~send_progress ~prepare_restart =
+  let open Lwt.Syntax in
+  let cwd = Filename.dirname target_path in
+  let argv = Update_pkg_manager.update_argv manager in
+  let* () = send_progress "Starting update..." in
+  let* () = send_progress "Mode: pkg" in
+  let* () =
+    send_progress
+      (Printf.sprintf "Running: pkg update (%s)"
+         (Update_pkg_manager.describe_command manager))
+  in
+  let* update_exit = run_command ~cwd ~argv ~send_progress in
+  if update_exit <> 0 then begin
+    let message =
+      Printf.sprintf
+        "Package manager update via %s failed (exit %d). Restart aborted."
+        (Update_pkg_manager.name manager)
+        update_exit
+    in
+    let* () = send_progress message in
+    Lwt.return message
+  end
+  else begin
+    (* Pick the re-exec target. Managers with versioned stores (pnpm, Homebrew)
+       remove the old resolved binary path on upgrade but keep the on-PATH bin
+       symlink pointing at the new version, so prefer that stable symlink over
+       the (now possibly stale) resolved [target_path]. *)
+    let reexec_target =
+      match
+        Update_pkg_manager.stable_bin_path (Filename.basename target_path)
+      with
+      | Some path -> path
+      | None -> target_path
+    in
+    if Sys.file_exists reexec_target then
+      Unix.putenv Restart_exec.reexec_path_env reexec_target;
+    let message = "Package update complete. Sending restart signal..." in
+    let* prepared = prepare_restart ~send_progress in
+    match prepared with
+    | Some err -> Lwt.return err
+    | None ->
+        Logs.info (fun m ->
+            m
+              "Sending SIGUSR1 to self (pid %d) for graceful restart (source: \
+               update_clawq tool, %s package update)"
+              (Unix.getpid ())
+              (Update_pkg_manager.name manager));
+        send_signal (Unix.getpid ()) Sys.sigusr1;
+        Lwt.return message
+  end
+
+let default_detect_pkg_manager ~executable =
+  Update_pkg_manager.detect ~executable ()
+
 let run_update ?(find_repo_root = find_repo_root)
     ?(run_command = stream_process) ?(send_signal = Unix.kill) ?claim_update
     ?(finish_update = fun () -> Lwt.return_unit) ?prepare_restart
-    ?(binary_url = binary_url_of_env ()) ?start_path ?(mode = Auto) ~is_draining
-    ~send_progress ?(interrupt_check = None) () =
+    ?(binary_url = binary_url_of_env ())
+    ?(detect_pkg_manager = default_detect_pkg_manager) ?start_path
+    ?(mode = Auto) ~is_draining ~send_progress ?(interrupt_check = None) () =
   let open Lwt.Syntax in
   let claim_update =
     match claim_update with
@@ -322,36 +380,64 @@ let run_update ?(find_repo_root = find_repo_root)
           (fun () ->
             let repo_root = find_repo_root ?start_path () in
             let target_path = normalize_executable_path ?start_path () in
-            match (mode, repo_root, binary_url) with
-            | Git, None, _ ->
+            (* Only probe the package manager when it could be used: in [Pkg]
+               mode always, and in [Auto] mode as the fallback once a git
+               checkout is ruled out (git wins in Auto, so skip the realpath +
+               PATH scan when a repo root is present). *)
+            let pkg_manager =
+              match mode with
+              | Pkg -> detect_pkg_manager ~executable:target_path
+              | Auto when repo_root = None ->
+                  detect_pkg_manager ~executable:target_path
+              | Auto | Git | Binary -> None
+            in
+            match (mode, repo_root, pkg_manager, binary_url) with
+            | Git, None, _, _ ->
                 let message =
                   "Cannot find repository root, git update mode is unavailable."
                 in
                 let* () = send_progress message in
                 Lwt.return message
-            | (Auto | Git), Some repo_root, _ ->
+            | (Auto | Git), Some repo_root, _, _ ->
                 run_git_update ~repo_root
                   ~run_command:(fun ~cwd ~argv ~send_progress ->
                     run_command ~cwd ~argv ~send_progress ~interrupt_check)
                   ~send_signal ~send_progress
                   ~prepare_restart:(run_prepare_restart prepare_restart)
-            | Binary, _, Some binary_url | Auto, None, Some binary_url ->
+            | Pkg, _, None, _ ->
+                let message =
+                  "Cannot detect a package manager \
+                   (npm/pnpm/yarn/bun/Homebrew) that installed clawq, so pkg \
+                   update mode is unavailable. Use `--mode git` from a \
+                   checkout, or `--mode binary` with CLAWQ_UPDATE_BINARY_URL \
+                   set."
+                in
+                let* () = send_progress message in
+                Lwt.return message
+            | (Pkg | Auto), _, Some manager, _ ->
+                run_pkg_manager_update ~manager ~target_path
+                  ~run_command:(fun ~cwd ~argv ~send_progress ->
+                    run_command ~cwd ~argv ~send_progress ~interrupt_check)
+                  ~send_signal ~send_progress
+                  ~prepare_restart:(run_prepare_restart prepare_restart)
+            | Binary, _, _, Some binary_url | Auto, None, None, Some binary_url
+              ->
                 run_binary_update ~binary_url ~target_path
                   ~run_command:(fun ~cwd ~argv ~send_progress ->
                     run_command ~cwd ~argv ~send_progress ~interrupt_check)
                   ~send_signal ~send_progress
                   ~prepare_restart:(run_prepare_restart prepare_restart)
-            | Binary, _, None ->
+            | Binary, _, _, None ->
                 let message =
                   "Binary update mode requires CLAWQ_UPDATE_BINARY_URL to be \
                    set."
                 in
                 let* () = send_progress message in
                 Lwt.return message
-            | Auto, None, None ->
+            | Auto, None, None, None ->
                 let message =
-                  "Cannot find repository root, and binary update mode is not \
-                   configured."
+                  "Cannot find repository root, a package manager install, or \
+                   a configured binary URL. Nothing to update from."
                 in
                 let* () = send_progress message in
                 Lwt.return message)
@@ -365,6 +451,9 @@ let adjust_offline_result result =
     "Build complete. Next `clawq` invocation will use the updated version."
   else if result = "Binary update complete. Sending restart signal..." then
     "Binary replaced. Next `clawq` invocation will use the updated version."
+  else if result = "Package update complete. Sending restart signal..." then
+    "Package manager update complete. Next `clawq` invocation will use the \
+     updated version."
   else result
 
 let run_offline_update ?(find_repo_root = find_repo_root)
@@ -390,9 +479,7 @@ type step = { label : string; mutable state : step_state }
 (** Render the progress checklist as a tree-like ASCII display. *)
 let render_progress ~mode steps output_tail =
   let buf = Buffer.create 256 in
-  let mode_str =
-    match mode with Auto -> "auto" | Git -> "git" | Binary -> "binary"
-  in
+  let mode_str = string_of_update_mode mode in
   Buffer.add_string buf
     (Printf.sprintf "Updating clawq (mode: %s)...\n" mode_str);
   let n = List.length steps in
@@ -521,6 +608,9 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
       else if starts_with "Running: curl" trimmed then
         let* () = add_step "download binary" Running in
         Lwt.return_unit
+      else if starts_with "Running: pkg update" trimmed then
+        let* () = add_step "package manager update" Running in
+        Lwt.return_unit
       else if starts_with "Running: chmod" trimmed then
         let* () = update_current Done in
         let* () = add_step "set permissions" Running in
@@ -532,6 +622,7 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
       else if
         starts_with "Build complete" trimmed
         || starts_with "Binary update complete" trimmed
+        || starts_with "Package update complete" trimmed
       then
         let* () = update_current Done in
         let* () = add_step "restart" Running in
@@ -543,6 +634,7 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
         starts_with "Binary download failed" trimmed
         || starts_with "Downloaded binary setup failed" trimmed
         || starts_with "Replacing executable failed" trimmed
+        || starts_with "Package manager update via" trimmed
       then
         let* () = update_current (Failed trimmed) in
         Lwt.return_unit
@@ -553,6 +645,7 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
       else if
         starts_with "Restart already" trimmed
         || starts_with "Cannot find" trimmed
+        || starts_with "Cannot detect" trimmed
         || starts_with "Binary update mode requires" trimmed
       then
         let* () = add_step trimmed (Failed "") in
@@ -606,8 +699,10 @@ let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
   {
     Tool.name = "update_clawq";
     description =
-      "Update clawq by rebuilding from git when available, or by downloading a \
-       replacement binary when configured, then trigger a graceful restart.";
+      "Update clawq by rebuilding from git when available, by upgrading \
+       through the package manager that installed it \
+       (npm/pnpm/yarn/bun/Homebrew), or by downloading a replacement binary \
+       when configured, then trigger a graceful restart.";
     parameters_schema =
       `Assoc
         [
@@ -621,12 +716,19 @@ let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
                       ("type", `String "string");
                       ( "enum",
                         `List
-                          [ `String "auto"; `String "git"; `String "binary" ] );
+                          [
+                            `String "auto";
+                            `String "git";
+                            `String "binary";
+                            `String "pkg";
+                          ] );
                       ( "description",
                         `String
                           "Update mode. 'auto' prefers git rebuild when a repo \
-                           is present, otherwise binary download if \
-                           configured." );
+                           is present, then the installing package manager \
+                           (npm/pnpm/yarn/bun/Homebrew), then binary download \
+                           if configured. 'pkg' forces the package-manager \
+                           path." );
                     ] );
               ] );
           ("required", `List []);

@@ -1388,10 +1388,12 @@ let update_cmd =
     Arg.(
       value
       & opt (some string) None
-      & info [ "mode" ] ~docv:"auto|git|binary"
+      & info [ "mode" ] ~docv:"auto|git|binary|pkg"
           ~doc:
             "Update mode. 'auto' prefers git rebuild when a repo is present, \
-             otherwise binary download if configured.")
+             then the package manager that installed clawq \
+             (npm/pnpm/yarn/bun/Homebrew), then binary download if configured. \
+             'pkg' forces the package-manager path.")
   in
   Cmd.v
     (Cmd.info "update"

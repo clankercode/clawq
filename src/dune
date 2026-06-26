@@ -228,6 +228,7 @@
   tunnel_tailscale
   tunnel_ngrok
   tunnel_custom
+  update_pkg_manager
   update_tool
   command_bridge
   slack
