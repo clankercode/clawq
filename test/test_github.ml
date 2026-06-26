@@ -267,18 +267,12 @@ let extract_clawq_with_files () =
   in
   match Github_webhook.extract_clawq ~event ~pr_files:files with
   | Some (_msg, preamble) ->
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "contains files section" true
-        (contains preamble "Changed files (2)");
+        (Test_helpers.string_contains preamble "Changed files (2)");
       Alcotest.(check bool)
         "contains main.ml" true
-        (contains preamble "src/main.ml")
+        (Test_helpers.string_contains preamble "src/main.ml")
   | None -> Alcotest.fail "expected Some"
 
 let extract_from_comment () =

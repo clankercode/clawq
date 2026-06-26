@@ -1,12 +1,3 @@
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-
 let read_file path =
   let ic = open_in_bin path in
   Fun.protect
@@ -152,13 +143,14 @@ let test_check_stuck_writes_durable_log () =
           let log_text = read_file log_path in
           Alcotest.(check bool)
             "writes stuck event" true
-            (string_contains log_text "\"event\":\"stuck_check\"");
+            (Test_helpers.string_contains log_text "\"event\":\"stuck_check\"");
           Alcotest.(check bool)
             "writes session key" true
-            (string_contains log_text "\"session_key\":\"session-log-1\"");
+            (Test_helpers.string_contains log_text
+               "\"session_key\":\"session-log-1\"");
           Alcotest.(check bool)
             "writes reason" true
-            (string_contains log_text
+            (Test_helpers.string_contains log_text
                "\"reason\":\"repeating failed tool call\"")))
 
 let test_check_stuck_logs_failures () =
@@ -197,10 +189,11 @@ let test_check_stuck_logs_failures () =
       let log_text = read_file (Dot_dir.sub "observer.log") in
       Alcotest.(check bool)
         "writes error event" true
-        (string_contains log_text "\"event\":\"stuck_check_error\"");
+        (Test_helpers.string_contains log_text "\"event\":\"stuck_check_error\"");
       Alcotest.(check bool)
         "writes failed session key" true
-        (string_contains log_text "\"session_key\":\"session-log-failure\""))
+        (Test_helpers.string_contains log_text
+           "\"session_key\":\"session-log-failure\""))
 
 let test_check_thinking_excerpt_logs_looping_verdict () =
   Test_helpers.with_temp_home (fun _home ->
@@ -220,13 +213,15 @@ let test_check_thinking_excerpt_logs_looping_verdict () =
           let log_text = read_file (Dot_dir.sub "observer.log") in
           Alcotest.(check bool)
             "writes thinking event" true
-            (string_contains log_text "\"event\":\"thinking_check\"");
+            (Test_helpers.string_contains log_text
+               "\"event\":\"thinking_check\"");
           Alcotest.(check bool)
             "writes looping verdict" true
-            (string_contains log_text "\"verdict\":\"looping\"");
+            (Test_helpers.string_contains log_text "\"verdict\":\"looping\"");
           Alcotest.(check bool)
             "writes loop reason" true
-            (string_contains log_text "\"reason\":\"repeating the same plan\"")))
+            (Test_helpers.string_contains log_text
+               "\"reason\":\"repeating the same plan\"")))
 
 let test_observer_log_path () =
   Test_helpers.with_temp_home (fun home ->

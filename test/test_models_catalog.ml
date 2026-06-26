@@ -1,9 +1,3 @@
-let contains hay needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) hay 0);
-    true
-  with Not_found -> false
-
 let test_find_by_id () =
   let m = Models_catalog.find_by_id "claude-3-5-sonnet" in
   Alcotest.(check bool) "found claude-3-5-sonnet" true (Option.is_some m);
@@ -292,10 +286,10 @@ let test_availability_filters_db_extras () =
   in
   Alcotest.(check bool)
     "default plain list excludes unavailable db extra" true
-    (not (contains default_text "openrouter:disabled-live"));
+    (not (Test_helpers.string_contains default_text "openrouter:disabled-live"));
   Alcotest.(check bool)
     "all plain list includes unavailable db extra" true
-    (contains all_text "openrouter:disabled-live");
+    (Test_helpers.string_contains all_text "openrouter:disabled-live");
   Alcotest.(check bool)
     "unavailable json includes unavailable db extra" true found_unavailable
 

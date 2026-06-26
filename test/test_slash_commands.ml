@@ -250,12 +250,6 @@ let result_testable =
     (fun fmt r -> Format.fprintf fmt "%s" (result_to_string r))
     result_eq
 
-let contains_str haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
-
 let test_start () =
   match Slash_commands.handle "/start" with
   | Slash_commands.FormattedReply fn ->
@@ -273,13 +267,9 @@ let test_help () =
         Slash_commands.format_help ~connector:Format_adapter.Plain
           ~is_admin:true ()
       in
-      let contains =
-        try
-          ignore (Str.search_forward (Str.regexp_string "/help") s 0);
-          true
-        with Not_found -> false
-      in
-      Alcotest.(check bool) "contains /help" true contains;
+      Alcotest.(check bool)
+        "contains /help" true
+        (Test_helpers.string_contains s "/help");
       let contains_markdown_table =
         try
           ignore
@@ -362,16 +352,9 @@ let test_thinking_case_insensitive () =
 let test_thinking_invalid_level () =
   match extract_text (Slash_commands.handle "/thinking turbo") with
   | Some text ->
-      let contains =
-        try
-          ignore
-            (Str.search_forward
-               (Str.regexp_string "Invalid thinking level")
-               text 0);
-          true
-        with Not_found -> false
-      in
-      Alcotest.(check bool) "mentions invalid thinking level" true contains
+      Alcotest.(check bool)
+        "mentions invalid thinking level" true
+        (Test_helpers.string_contains text "Invalid thinking level")
   | None -> Alcotest.fail "expected text reply for invalid thinking level"
 
 let test_thinking_too_many_args () =
@@ -379,7 +362,7 @@ let test_thinking_too_many_args () =
   | Some text ->
       Alcotest.(check bool)
         "mentions /thinking" true
-        (contains_str text "/thinking")
+        (Test_helpers.string_contains text "/thinking")
   | None -> Alcotest.fail "expected text reply for thinking usage"
 
 let test_heartbeat_status () =
@@ -400,7 +383,7 @@ let test_heartbeat_invalid_args () =
   | Some text ->
       Alcotest.(check bool)
         "mentions /heartbeat" true
-        (contains_str text "/heartbeat")
+        (Test_helpers.string_contains text "/heartbeat")
   | None -> Alcotest.fail "expected text reply for heartbeat usage"
 
 let test_debug_status () =
@@ -422,7 +405,9 @@ let test_debug_toggle () =
 let test_debug_invalid_args () =
   match extract_text (Slash_commands.handle "/debug maybe") with
   | Some text ->
-      Alcotest.(check bool) "mentions /debug" true (contains_str text "/debug")
+      Alcotest.(check bool)
+        "mentions /debug" true
+        (Test_helpers.string_contains text "/debug")
   | None -> Alcotest.fail "expected text reply for debug usage"
 
 let test_regular_message () =
@@ -488,18 +473,12 @@ let test_format_help_telegram () =
     Slash_commands.format_help ~connector:Format_adapter.Telegram_html
       ~is_admin:true ()
   in
-  let contains needle =
-    try
-      ignore (Str.search_forward (Str.regexp_string needle) output 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "telegram uses bold heading" true
-    (contains "<b>Available commands:</b>");
+    (Test_helpers.string_contains output "<b>Available commands:</b>");
   Alcotest.(check bool)
     "telegram uses code formatting" true
-    (contains "<code>/start</code>")
+    (Test_helpers.string_contains output "<code>/start</code>")
 
 let test_whitespace_only () =
   Alcotest.check result_testable "whitespace only" Slash_commands.NotACommand
@@ -515,7 +494,7 @@ let test_delegate_no_args () =
   | Some text ->
       Alcotest.(check bool)
         "mentions /delegate" true
-        (contains_str text "/delegate")
+        (Test_helpers.string_contains text "/delegate")
   | None -> Alcotest.fail "expected text reply for delegate usage"
 
 let test_delegate_multi_word () =
@@ -533,7 +512,7 @@ let test_fork_and_no_args () =
   | Some text ->
       Alcotest.(check bool)
         "mentions /fork_and" true
-        (contains_str text "/fork_and")
+        (Test_helpers.string_contains text "/fork_and")
   | None -> Alcotest.fail "expected text reply for fork_and usage"
 
 let test_fork_and_multi_word () =
@@ -570,7 +549,9 @@ let test_costs_model_and_provider () =
 let test_costs_usage_on_invalid_args () =
   match extract_text (Slash_commands.handle "/costs nope") with
   | Some text ->
-      Alcotest.(check bool) "mentions /costs" true (contains_str text "/costs")
+      Alcotest.(check bool)
+        "mentions /costs" true
+        (Test_helpers.string_contains text "/costs")
   | None -> Alcotest.fail "expected text reply for costs usage"
 
 let test_usage_default () =
@@ -597,7 +578,9 @@ let test_usage_model_and_provider () =
 let test_usage_usage_on_invalid_args () =
   match extract_text (Slash_commands.handle "/usage nope") with
   | Some text ->
-      Alcotest.(check bool) "mentions /usage" true (contains_str text "/usage")
+      Alcotest.(check bool)
+        "mentions /usage" true
+        (Test_helpers.string_contains text "/usage")
   | None -> Alcotest.fail "expected text reply for usage usage"
 
 let test_active () =
@@ -643,11 +626,13 @@ let test_bg_cancel_bare () =
   | Some s ->
       Alcotest.(check bool)
         "mentions missing id" true
-        (contains_str s "Missing task id");
+        (Test_helpers.string_contains s "Missing task id");
       Alcotest.(check bool)
         "mentions /bg cancel <id>" true
-        (contains_str s "/bg cancel <id>");
-      Alcotest.(check bool) "mentions /bg list" true (contains_str s "/bg list")
+        (Test_helpers.string_contains s "/bg cancel <id>");
+      Alcotest.(check bool)
+        "mentions /bg list" true
+        (Test_helpers.string_contains s "/bg list")
   | None -> Alcotest.fail "expected text reply for bare /bg cancel"
 
 let test_bg_stop_bare () =
@@ -655,7 +640,7 @@ let test_bg_stop_bare () =
   | Some s ->
       Alcotest.(check bool)
         "mentions missing id" true
-        (contains_str s "Missing task id")
+        (Test_helpers.string_contains s "Missing task id")
   | None -> Alcotest.fail "expected text reply for bare /bg stop"
 
 let test_bg_retry () =
@@ -745,12 +730,15 @@ let test_show_thinking_bad_args () =
   | Some s ->
       Alcotest.(check bool)
         "mentions /show_thinking" true
-        (contains_str s "/show_thinking")
+        (Test_helpers.string_contains s "/show_thinking")
   | None -> Alcotest.fail "expected text reply for show_thinking usage"
 
 let test_config_usage () =
   match extract_text (Slash_commands.handle "/config") with
-  | Some s -> Alcotest.(check bool) "mentions show" true (contains_str s "show")
+  | Some s ->
+      Alcotest.(check bool)
+        "mentions show" true
+        (Test_helpers.string_contains s "show")
   | None -> Alcotest.fail "expected text reply for config usage"
 
 let test_config_show () =
@@ -786,11 +774,14 @@ let test_config_show_provider_section () =
       with
       | Some s ->
           Alcotest.(check bool)
-            "mentions api_key" true (contains_str s "api_key");
-          Alcotest.(check bool) "redacts api_key" true (contains_str s "***");
+            "mentions api_key" true
+            (Test_helpers.string_contains s "api_key");
+          Alcotest.(check bool)
+            "redacts api_key" true
+            (Test_helpers.string_contains s "***");
           Alcotest.(check bool)
             "mentions base_url" true
-            (contains_str s "base_url")
+            (Test_helpers.string_contains s "base_url")
       | None -> Alcotest.fail "expected text reply for config show section")
 
 let test_config_get_missing () =
@@ -798,7 +789,8 @@ let test_config_get_missing () =
   | Slash_commands.Reply s ->
       Alcotest.(check bool)
         "contains not found" true
-        (contains_str s "not found" || contains_str s "unknown")
+        (Test_helpers.string_contains s "not found"
+        || Test_helpers.string_contains s "unknown")
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
@@ -808,7 +800,7 @@ let test_config_keys () =
   | Some s ->
       Alcotest.(check bool)
         "contains workspace" true
-        (contains_str s "workspace")
+        (Test_helpers.string_contains s "workspace")
   | None -> Alcotest.fail "expected text reply for config keys"
 
 let test_config_keys_prefix () =
@@ -816,7 +808,7 @@ let test_config_keys_prefix () =
   | Some s ->
       Alcotest.(check bool)
         "contains gateway.host" true
-        (contains_str s "gateway.host")
+        (Test_helpers.string_contains s "gateway.host")
   | None -> Alcotest.fail "expected text reply for config keys prefix"
 
 let test_config_set_secret_blocked () =
@@ -827,13 +819,16 @@ let test_config_set_secret_blocked () =
   | Some s ->
       Alcotest.(check bool)
         "contains cannot" true
-        (contains_str s "Cannot" || contains_str s "cannot")
+        (Test_helpers.string_contains s "Cannot"
+        || Test_helpers.string_contains s "cannot")
   | None -> Alcotest.fail "expected text reply for secret blocked"
 
 let test_config_wizard () =
   match extract_text (Slash_commands.handle "/config wizard") with
   | Some s ->
-      Alcotest.(check bool) "mentions terminal" true (contains_str s "terminal")
+      Alcotest.(check bool)
+        "mentions terminal" true
+        (Test_helpers.string_contains s "terminal")
   | None -> Alcotest.fail "expected text reply for config wizard"
 
 let test_config_unknown_sub () =
@@ -841,7 +836,8 @@ let test_config_unknown_sub () =
   | Some s ->
       Alcotest.(check bool)
         "mentions unknown" true
-        (contains_str s "Unknown" || contains_str s "unknown")
+        (Test_helpers.string_contains s "Unknown"
+        || Test_helpers.string_contains s "unknown")
   | None -> Alcotest.fail "expected text reply for config unknown sub"
 
 let test_config_leaf_paths () =
@@ -851,15 +847,16 @@ let test_config_leaf_paths () =
   Alcotest.(check bool) "has gateway.host" true (List.mem "gateway.host" paths);
   Alcotest.(check bool)
     "has dynamic placeholder" true
-    (List.exists (fun p -> contains_str p "<NAME>") paths)
+    (List.exists (fun p -> Test_helpers.string_contains p "<NAME>") paths)
 
 let test_config_get_no_key () =
   match extract_text (Slash_commands.handle "/config get") with
   | Some s ->
       Alcotest.(check bool)
         "contains usage" true
-        (contains_str s "Usage" || contains_str s "KEY"
-        || contains_str s "/config get")
+        (Test_helpers.string_contains s "Usage"
+        || Test_helpers.string_contains s "KEY"
+        || Test_helpers.string_contains s "/config get")
   | None -> Alcotest.fail "expected text reply for config get no key"
 
 let test_config_set_invalid_path () =
@@ -869,7 +866,8 @@ let test_config_set_invalid_path () =
   | Slash_commands.Reply s ->
       Alcotest.(check bool)
         "mentions unknown key" true
-        (contains_str s "unknown" || contains_str s "Error")
+        (Test_helpers.string_contains s "unknown"
+        || Test_helpers.string_contains s "Error")
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
@@ -943,10 +941,11 @@ let test_model_list_malformed_provider_flags_show_usage () =
           Alcotest.(check bool)
             (command ^ " mentions /model")
             true
-            (contains_str text "/model");
+            (Test_helpers.string_contains text "/model");
           Alcotest.(check bool)
             (command ^ " mentions list")
-            true (contains_str text "list")
+            true
+            (Test_helpers.string_contains text "list")
       | None ->
           Alcotest.failf "expected usage text for malformed command %s" command)
     cases
@@ -1031,7 +1030,7 @@ let test_memories_invalid_args () =
   | Some s ->
       Alcotest.(check bool)
         "mentions /memories" true
-        (contains_str s "/memories")
+        (Test_helpers.string_contains s "/memories")
   | None -> Alcotest.fail "expected usage text for invalid /memories args"
 
 let test_tasks_command () =
@@ -1050,7 +1049,9 @@ let test_tasks_full_command () =
 let test_tasks_invalid_args () =
   match extract_text (Slash_commands.handle "/tasks bogus") with
   | Some s ->
-      Alcotest.(check bool) "mentions /tasks" true (contains_str s "/tasks")
+      Alcotest.(check bool)
+        "mentions /tasks" true
+        (Test_helpers.string_contains s "/tasks")
   | None -> Alcotest.fail "expected text reply for tasks usage"
 
 let test_tasks_render_empty_tree () =
@@ -1139,7 +1140,7 @@ let test_memories_format_empty () =
   in
   Alcotest.(check bool)
     "empty mentions no memories" true
-    (contains_str out "No memories")
+    (Test_helpers.string_contains out "No memories")
 
 let test_memories_format_ordering () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1172,11 +1173,15 @@ let test_memories_format_pagination () =
     Slash_commands.format_memories ~connector:Format_adapter.Plain ~db
       { Slash_commands.oldest = false; page = 1 }
   in
-  Alcotest.(check bool) "shows total count" true (contains_str out "11 total");
-  Alcotest.(check bool) "shows page footer" true (contains_str out "Page 1/2");
+  Alcotest.(check bool)
+    "shows total count" true
+    (Test_helpers.string_contains out "11 total");
+  Alcotest.(check bool)
+    "shows page footer" true
+    (Test_helpers.string_contains out "Page 1/2");
   Alcotest.(check bool)
     "footer links to next page" true
-    (contains_str out "/memories 2")
+    (Test_helpers.string_contains out "/memories 2")
 
 let test_memories_format_escapes_telegram_html () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1186,11 +1191,15 @@ let test_memories_format_escapes_telegram_html () =
     Slash_commands.format_memories ~connector:Format_adapter.Telegram_html ~db
       { Slash_commands.oldest = false; page = 1 }
   in
-  Alcotest.(check bool) "escapes < as &lt;" true (contains_str out "&lt;");
-  Alcotest.(check bool) "escapes & as &amp;" true (contains_str out "&amp;");
+  Alcotest.(check bool)
+    "escapes < as &lt;" true
+    (Test_helpers.string_contains out "&lt;");
+  Alcotest.(check bool)
+    "escapes & as &amp;" true
+    (Test_helpers.string_contains out "&amp;");
   Alcotest.(check bool)
     "raw content tag is escaped, not literal" false
-    (contains_str out "<b>hi</b>")
+    (Test_helpers.string_contains out "<b>hi</b>")
 
 let test_format_tools_plain () =
   let tools =
@@ -1238,18 +1247,24 @@ let test_format_tools_plain () =
   let output =
     Slash_commands.format_tools ~connector:Format_adapter.Plain tools [] []
   in
-  Alcotest.(check bool) "contains count" true (contains_str output "(2)");
+  Alcotest.(check bool)
+    "contains count" true
+    (Test_helpers.string_contains output "(2)");
   Alcotest.(check bool)
     "contains file_read" true
-    (contains_str output "file_read");
+    (Test_helpers.string_contains output "file_read");
   Alcotest.(check bool)
     "contains shell_exec" true
-    (contains_str output "shell_exec");
-  Alcotest.(check bool) "contains [High]" true (contains_str output "[High]");
-  Alcotest.(check bool) "contains [Low]" true (contains_str output "[Low]");
+    (Test_helpers.string_contains output "shell_exec");
+  Alcotest.(check bool)
+    "contains [High]" true
+    (Test_helpers.string_contains output "[High]");
+  Alcotest.(check bool)
+    "contains [Low]" true
+    (Test_helpers.string_contains output "[Low]");
   Alcotest.(check bool)
     "contains required marker" true
-    (contains_str output "path*");
+    (Test_helpers.string_contains output "path*");
   Alcotest.(check bool)
     "file_read before shell_exec (sorted)" true
     (let pos_file =
@@ -1263,7 +1278,7 @@ let test_format_tools_plain () =
      pos_file < pos_shell);
   Alcotest.(check bool)
     "no Skills section when skills empty" true
-    (not (contains_str output "Skills"))
+    (not (Test_helpers.string_contains output "Skills"))
 
 let test_format_tools_telegram () =
   let tools =
@@ -1293,20 +1308,24 @@ let test_format_tools_telegram () =
     Slash_commands.format_tools ~connector:Format_adapter.Telegram_html tools []
       []
   in
-  Alcotest.(check bool) "contains <b>" true (contains_str output "<b>");
+  Alcotest.(check bool)
+    "contains <b>" true
+    (Test_helpers.string_contains output "<b>");
   Alcotest.(check bool)
     "contains blockquote" true
-    (contains_str output "<blockquote expandable>");
+    (Test_helpers.string_contains output "<blockquote expandable>");
   Alcotest.(check bool)
     "contains tool name" true
-    (contains_str output "memory_store");
-  Alcotest.(check bool) "contains <code>" true (contains_str output "<code>");
+    (Test_helpers.string_contains output "memory_store");
+  Alcotest.(check bool)
+    "contains <code>" true
+    (Test_helpers.string_contains output "<code>");
   Alcotest.(check bool)
     "contains required markers" true
-    (contains_str output "key* value*");
+    (Test_helpers.string_contains output "key* value*");
   Alcotest.(check bool)
     "no Skills section when skills empty" true
-    (not (contains_str output "Skills"))
+    (not (Test_helpers.string_contains output "Skills"))
 
 let make_dummy_tool name description =
   {
@@ -1325,10 +1344,10 @@ let test_format_tools_telegram_empty () =
   in
   Alcotest.(check bool)
     "contains Tools (0)" true
-    (contains_str output "Tools (0)");
+    (Test_helpers.string_contains output "Tools (0)");
   Alcotest.(check bool)
     "no blockquote when empty" true
-    (not (contains_str output "<blockquote"))
+    (not (Test_helpers.string_contains output "<blockquote"))
 
 let test_format_tools_telegram_with_skills () =
   let tools = [ make_dummy_tool "file_read" "Read a file" ] in
@@ -1339,10 +1358,10 @@ let test_format_tools_telegram_with_skills () =
   in
   Alcotest.(check bool)
     "has Tools section" true
-    (contains_str output "Tools (1)");
+    (Test_helpers.string_contains output "Tools (1)");
   Alcotest.(check bool)
     "has Skills section" true
-    (contains_str output "Skills (1)");
+    (Test_helpers.string_contains output "Skills (1)");
   Alcotest.(check bool)
     "tools before skills" true
     (let pos_tools =
@@ -1379,12 +1398,16 @@ let test_format_tools_plain_with_skills () =
   in
   Alcotest.(check bool)
     "has Tools section" true
-    (contains_str output "Tools (1)");
+    (Test_helpers.string_contains output "Tools (1)");
   Alcotest.(check bool)
     "has Skills section" true
-    (contains_str output "Skills (1)");
-  Alcotest.(check bool) "has file_read" true (contains_str output "file_read");
-  Alcotest.(check bool) "has my_script" true (contains_str output "my_script");
+    (Test_helpers.string_contains output "Skills (1)");
+  Alcotest.(check bool)
+    "has file_read" true
+    (Test_helpers.string_contains output "file_read");
+  Alcotest.(check bool)
+    "has my_script" true
+    (Test_helpers.string_contains output "my_script");
   Alcotest.(check bool)
     "tools before skills" true
     (let pos_tools =
@@ -1421,39 +1444,39 @@ let test_format_costs_plain_and_telegram () =
       in
       Alcotest.(check bool)
         "plain summary heading" true
-        (contains_str summary "Cost Summary");
+        (Test_helpers.string_contains summary "Cost Summary");
       Alcotest.(check bool)
         "plain summary includes all time" true
-        (contains_str summary "All time");
+        (Test_helpers.string_contains summary "All time");
       Alcotest.(check bool)
         "plain summary has PERIOD header" true
-        (contains_str summary "PERIOD");
+        (Test_helpers.string_contains summary "PERIOD");
       Alcotest.(check bool)
         "plain summary has COST header" true
-        (contains_str summary "COST");
+        (Test_helpers.string_contains summary "COST");
       let sessions =
         Slash_commands.format_costs ~connector:Format_adapter.Plain ~db
           Slash_commands.CostsSessions
       in
       Alcotest.(check bool)
         "plain sessions heading" true
-        (contains_str sessions "Session Costs");
+        (Test_helpers.string_contains sessions "Session Costs");
       Alcotest.(check bool)
         "plain sessions include telegram key" true
-        (contains_str sessions "telegram:1:user");
+        (Test_helpers.string_contains sessions "telegram:1:user");
       let telegram =
         Slash_commands.format_costs ~connector:Format_adapter.Telegram_html ~db
           Slash_commands.CostsSessions
       in
       Alcotest.(check bool)
         "telegram heading" true
-        (contains_str telegram "<b>Session Costs</b>");
+        (Test_helpers.string_contains telegram "<b>Session Costs</b>");
       Alcotest.(check bool)
         "telegram uses pre code block" true
-        (contains_str telegram "<pre>");
+        (Test_helpers.string_contains telegram "<pre>");
       Alcotest.(check bool)
         "telegram contains session key" true
-        (contains_str telegram "telegram:1:user"))
+        (Test_helpers.string_contains telegram "telegram:1:user"))
 
 let test_format_usage_plain_and_telegram () =
   with_request_stats_db (fun db ->
@@ -1469,39 +1492,39 @@ let test_format_usage_plain_and_telegram () =
       in
       Alcotest.(check bool)
         "plain usage heading" true
-        (contains_str summary "Usage Summary");
+        (Test_helpers.string_contains summary "Usage Summary");
       Alcotest.(check bool)
         "plain usage includes all time" true
-        (contains_str summary "All time");
+        (Test_helpers.string_contains summary "All time");
       Alcotest.(check bool)
         "plain usage has TURNS header" true
-        (contains_str summary "TURNS");
+        (Test_helpers.string_contains summary "TURNS");
       let sessions =
         Slash_commands.format_usage ~connector:Format_adapter.Plain ~db
           Slash_commands.UsageSessions
       in
       Alcotest.(check bool)
         "plain usage sessions heading" true
-        (contains_str sessions "Session Usage");
+        (Test_helpers.string_contains sessions "Session Usage");
       Alcotest.(check bool)
         "plain usage sessions include telegram key" true
-        (contains_str sessions "telegram:1:user");
+        (Test_helpers.string_contains sessions "telegram:1:user");
       Alcotest.(check bool)
         "plain usage shows added prompt tokens" true
-        (contains_str sessions "900");
+        (Test_helpers.string_contains sessions "900");
       let telegram =
         Slash_commands.format_usage ~connector:Format_adapter.Telegram_html ~db
           Slash_commands.UsageSessions
       in
       Alcotest.(check bool)
         "telegram usage heading" true
-        (contains_str telegram "<b>Session Usage</b>");
+        (Test_helpers.string_contains telegram "<b>Session Usage</b>");
       Alcotest.(check bool)
         "telegram usage uses pre code block" true
-        (contains_str telegram "<pre>");
+        (Test_helpers.string_contains telegram "<pre>");
       Alcotest.(check bool)
         "telegram usage contains session key" true
-        (contains_str telegram "telegram:1:user"))
+        (Test_helpers.string_contains telegram "telegram:1:user"))
 
 let test_format_help_discord_code_block () =
   let output =
@@ -1512,10 +1535,10 @@ let test_format_help_discord_code_block () =
     "discord help wrapped in code block" true
     (String.length output > 6
     && String.sub output 0 3 = "```"
-    && contains_str output "```\n");
+    && Test_helpers.string_contains output "```\n");
   Alcotest.(check bool)
     "discord help contains /help" true
-    (contains_str output "/help")
+    (Test_helpers.string_contains output "/help")
 
 let test_format_help_slack_code_block () =
   let output =
@@ -1526,7 +1549,7 @@ let test_format_help_slack_code_block () =
     (String.length output > 6 && String.sub output 0 3 = "```");
   Alcotest.(check bool)
     "slack help contains /help" true
-    (contains_str output "/help")
+    (Test_helpers.string_contains output "/help")
 
 let test_format_model_usage_empty () =
   let config = Runtime_config.default in
@@ -1559,14 +1582,18 @@ let test_format_model_usage_table () =
     Slash_commands.format_model_usage ~connector:Format_adapter.Discord ~config
       [ pq ]
   in
-  Alcotest.(check bool) "contains code block" true (contains_str result "```");
+  Alcotest.(check bool)
+    "contains code block" true
+    (Test_helpers.string_contains result "```");
   Alcotest.(check bool)
     "contains PROVIDER header" true
-    (contains_str result "PROVIDER");
-  Alcotest.(check bool) "contains openai" true (contains_str result "openai");
+    (Test_helpers.string_contains result "PROVIDER");
+  Alcotest.(check bool)
+    "contains openai" true
+    (Test_helpers.string_contains result "openai");
   Alcotest.(check bool)
     "contains bold heading" true
-    (contains_str result "**Provider Quota/Usage**")
+    (Test_helpers.string_contains result "**Provider Quota/Usage**")
 
 let test_format_model_usage_plain () =
   let config = Runtime_config.default in
@@ -1583,10 +1610,10 @@ let test_format_model_usage_plain () =
   in
   Alcotest.(check bool)
     "plain has no code block" false
-    (contains_str result "```");
+    (Test_helpers.string_contains result "```");
   Alcotest.(check bool)
     "plain contains provider name" true
-    (contains_str result "test-prov")
+    (Test_helpers.string_contains result "test-prov")
 
 let test_model_bare_name () =
   match Slash_commands.handle "/model glm-5" with
@@ -1616,16 +1643,20 @@ let test_model_bare_set_keyword_still_error () =
   (* "/model set" with no name: first token is "set" (known), so falls to usage *)
   match extract_text (Slash_commands.handle "/model set") with
   | Some s ->
-      Alcotest.(check bool) "mentions /model" true (contains_str s "/model")
+      Alcotest.(check bool)
+        "mentions /model" true
+        (Test_helpers.string_contains s "/model")
   | None -> Alcotest.fail "expected text reply for /model set usage"
 
 let test_model_help () =
   match extract_text (Slash_commands.handle "/model help") with
   | Some s ->
-      Alcotest.(check bool) "mentions /model" true (contains_str s "/model");
+      Alcotest.(check bool)
+        "mentions /model" true
+        (Test_helpers.string_contains s "/model");
       Alcotest.(check bool)
         "mentions set-force" true
-        (contains_str s "set-force")
+        (Test_helpers.string_contains s "set-force")
   | None -> Alcotest.fail "expected text reply for /model help"
 
 let test_model_set_force () =
@@ -1715,12 +1746,16 @@ let test_render_markdown_basic () =
   let output = Table_format.render_markdown columns rows in
   Alcotest.(check bool)
     "header row" true
-    (contains_str output "| Name | Value |");
+    (Test_helpers.string_contains output "| Name | Value |");
   Alcotest.(check bool)
     "separator row" true
-    (contains_str output "| :--- | ---: |");
-  Alcotest.(check bool) "data row 1" true (contains_str output "| foo | 42 |");
-  Alcotest.(check bool) "data row 2" true (contains_str output "| bar | 99 |")
+    (Test_helpers.string_contains output "| :--- | ---: |");
+  Alcotest.(check bool)
+    "data row 1" true
+    (Test_helpers.string_contains output "| foo | 42 |");
+  Alcotest.(check bool)
+    "data row 2" true
+    (Test_helpers.string_contains output "| bar | 99 |")
 
 let test_render_markdown_escape () =
   let columns =
@@ -1733,7 +1768,9 @@ let test_render_markdown_escape () =
       ~escape_cell:(Format_adapter.escape_table_cell Format_adapter.Teams)
       columns rows
   in
-  Alcotest.(check bool) "pipe escaped" true (contains_str output "a\\|b")
+  Alcotest.(check bool)
+    "pipe escaped" true
+    (Test_helpers.string_contains output "a\\|b")
 
 let test_format_help_teams_markdown_table () =
   let output =
@@ -1741,13 +1778,13 @@ let test_format_help_teams_markdown_table () =
   in
   Alcotest.(check bool)
     "teams help has markdown table header" true
-    (contains_str output "| Command | Description |");
+    (Test_helpers.string_contains output "| Command | Description |");
   Alcotest.(check bool)
     "teams help has separator" true
-    (contains_str output "| :---");
+    (Test_helpers.string_contains output "| :---");
   Alcotest.(check bool)
     "teams help contains /help" true
-    (contains_str output "| /help |");
+    (Test_helpers.string_contains output "| /help |");
   Alcotest.(check bool)
     "teams help not wrapped in code block" false
     (String.length output >= 3 && String.sub output 0 3 = "```")
@@ -1763,10 +1800,10 @@ let test_format_costs_teams_markdown_table () =
       in
       Alcotest.(check bool)
         "teams costs has markdown table" true
-        (contains_str output "| PERIOD |");
+        (Test_helpers.string_contains output "| PERIOD |");
       Alcotest.(check bool)
         "teams costs not wrapped in code block" false
-        (contains_str output "```"))
+        (Test_helpers.string_contains output "```"))
 
 let test_format_tools_teams_table () =
   let tools =
@@ -1796,16 +1833,16 @@ let test_format_tools_teams_table () =
   in
   Alcotest.(check bool)
     "teams tools has markdown table header" true
-    (contains_str output "| Tool |");
+    (Test_helpers.string_contains output "| Tool |");
   Alcotest.(check bool)
     "teams tools has separator" true
-    (contains_str output "| :---");
+    (Test_helpers.string_contains output "| :---");
   Alcotest.(check bool)
     "teams tools contains file_read" true
-    (contains_str output "| file_read |");
+    (Test_helpers.string_contains output "| file_read |");
   Alcotest.(check bool)
     "teams tools not wrapped in code block" false
-    (contains_str output "```")
+    (Test_helpers.string_contains output "```")
 
 let test_format_tools_discord_code_block () =
   let tools =
@@ -1826,10 +1863,10 @@ let test_format_tools_discord_code_block () =
   in
   Alcotest.(check bool)
     "discord tools wrapped in code block" true
-    (contains_str output "```");
+    (Test_helpers.string_contains output "```");
   Alcotest.(check bool)
     "discord tools no markdown table pipes" false
-    (contains_str output "| Tool |")
+    (Test_helpers.string_contains output "| Tool |")
 
 let make_dummy_agent name description : Agent_template.t =
   {
@@ -1869,11 +1906,13 @@ let test_format_help_with_skills () =
   in
   Alcotest.(check bool)
     "has Skills section" true
-    (contains_str output "Skills (1):");
-  Alcotest.(check bool) "has skill name" true (contains_str output "/deploy");
+    (Test_helpers.string_contains output "Skills (1):");
+  Alcotest.(check bool)
+    "has skill name" true
+    (Test_helpers.string_contains output "/deploy");
   Alcotest.(check bool)
     "has skill description" true
-    (contains_str output "Deploy to production")
+    (Test_helpers.string_contains output "Deploy to production")
 
 let test_format_help_with_agents () =
   let agents = [ make_dummy_agent "reviewer" "Code review specialist" ] in
@@ -1883,14 +1922,16 @@ let test_format_help_with_agents () =
   in
   Alcotest.(check bool)
     "has Agents section" true
-    (contains_str output "Agents (1):");
-  Alcotest.(check bool) "has agent name" true (contains_str output "@reviewer");
+    (Test_helpers.string_contains output "Agents (1):");
+  Alcotest.(check bool)
+    "has agent name" true
+    (Test_helpers.string_contains output "@reviewer");
   Alcotest.(check bool)
     "has agent description" true
-    (contains_str output "Code review specialist");
+    (Test_helpers.string_contains output "Code review specialist");
   Alcotest.(check bool)
     "no Skills section when empty" true
-    (not (contains_str output "Skills"))
+    (not (Test_helpers.string_contains output "Skills"))
 
 let test_format_help_teams_skills_bulleted () =
   let skills : Skills.skill_md_meta list =
@@ -1919,10 +1960,10 @@ let test_format_help_teams_skills_bulleted () =
   in
   Alcotest.(check bool)
     "deploy is bulleted" true
-    (contains_str output "- `/deploy`");
+    (Test_helpers.string_contains output "- `/deploy`");
   Alcotest.(check bool)
     "lint is bulleted" true
-    (contains_str output "- `/lint`")
+    (Test_helpers.string_contains output "- `/lint`")
 
 let test_format_help_teams_agents_bulleted () =
   let agents =
@@ -1937,10 +1978,10 @@ let test_format_help_teams_agents_bulleted () =
   in
   Alcotest.(check bool)
     "reviewer is bulleted" true
-    (contains_str output "- `@reviewer`");
+    (Test_helpers.string_contains output "- `@reviewer`");
   Alcotest.(check bool)
     "planner is bulleted" true
-    (contains_str output "- `@planner`")
+    (Test_helpers.string_contains output "- `@planner`")
 
 let test_format_help_plain_skills_no_bullets () =
   let skills : Skills.skill_md_meta list =
@@ -1961,7 +2002,7 @@ let test_format_help_plain_skills_no_bullets () =
   in
   Alcotest.(check bool)
     "no bullet prefix" true
-    (not (contains_str output "- /deploy"))
+    (not (Test_helpers.string_contains output "- /deploy"))
 
 let test_format_tools_with_agents () =
   let tools = [ make_dummy_tool "file_read" "Read a file" ] in
@@ -1971,14 +2012,16 @@ let test_format_tools_with_agents () =
   in
   Alcotest.(check bool)
     "has Tools section" true
-    (contains_str output "Tools (1)");
+    (Test_helpers.string_contains output "Tools (1)");
   Alcotest.(check bool)
     "has Agents section" true
-    (contains_str output "Agents (1)");
-  Alcotest.(check bool) "has agent name" true (contains_str output "@planner");
+    (Test_helpers.string_contains output "Agents (1)");
+  Alcotest.(check bool)
+    "has agent name" true
+    (Test_helpers.string_contains output "@planner");
   Alcotest.(check bool)
     "has agent description" true
-    (contains_str output "Plan implementation tasks");
+    (Test_helpers.string_contains output "Plan implementation tasks");
   Alcotest.(check bool)
     "tools before agents" true
     (let pos_tools =
@@ -1998,15 +2041,16 @@ let test_format_status_teams_markdown_table () =
   in
   Alcotest.(check bool)
     "teams status has markdown table" true
-    (contains_str text "| FIELD |");
+    (Test_helpers.string_contains text "| FIELD |");
   Alcotest.(check bool)
     "teams status has separator" true
-    (contains_str text "| :---");
+    (Test_helpers.string_contains text "| :---");
   Alcotest.(check bool)
-    "teams status not wrapped in code block" false (contains_str text "```");
+    "teams status not wrapped in code block" false
+    (Test_helpers.string_contains text "```");
   Alcotest.(check bool)
     "teams status has blank line before table" true
-    (contains_str text "\n\n|")
+    (Test_helpers.string_contains text "\n\n|")
 
 let test_format_costs_teams_has_blank_line () =
   with_request_stats_db (fun db ->
@@ -2019,7 +2063,7 @@ let test_format_costs_teams_has_blank_line () =
       in
       Alcotest.(check bool)
         "teams costs has blank line before table" true
-        (contains_str output "\n\n|"))
+        (Test_helpers.string_contains output "\n\n|"))
 
 let test_format_costs_discord_code_block () =
   with_request_stats_db (fun db ->
@@ -2032,10 +2076,10 @@ let test_format_costs_discord_code_block () =
       in
       Alcotest.(check bool)
         "discord costs wrapped in code block" true
-        (contains_str output "```");
+        (Test_helpers.string_contains output "```");
       Alcotest.(check bool)
         "discord costs no markdown table pipes" false
-        (contains_str output "| PERIOD |"))
+        (Test_helpers.string_contains output "| PERIOD |"))
 
 let test_menu_default () =
   Alcotest.check result_testable "/menu returns Menu 1" (Slash_commands.Menu 1)
@@ -2052,13 +2096,17 @@ let test_menu_page () =
 let test_menu_invalid () =
   match extract_text (Slash_commands.handle "/menu abc") with
   | Some s ->
-      Alcotest.(check bool) "mentions /menu" true (contains_str s "/menu")
+      Alcotest.(check bool)
+        "mentions /menu" true
+        (Test_helpers.string_contains s "/menu")
   | None -> Alcotest.fail "expected text reply for menu invalid"
 
 let test_menu_zero_page () =
   match extract_text (Slash_commands.handle "/menu 0") with
   | Some s ->
-      Alcotest.(check bool) "mentions /menu" true (contains_str s "/menu")
+      Alcotest.(check bool)
+        "mentions /menu" true
+        (Test_helpers.string_contains s "/menu")
   | None -> Alcotest.fail "expected text reply for menu 0"
 
 let test_priority_positive () =
@@ -2125,13 +2173,13 @@ let test_format_help_hides_admin_commands_for_guest () =
   in
   Alcotest.(check bool)
     "config hidden in guest help" false
-    (contains_str output "/config");
+    (Test_helpers.string_contains output "/config");
   Alcotest.(check bool)
     "debug_dump_chat hidden in guest help" false
-    (contains_str output "/debug_dump_chat");
+    (Test_helpers.string_contains output "/debug_dump_chat");
   Alcotest.(check bool)
     "help visible in guest help" true
-    (contains_str output "/help")
+    (Test_helpers.string_contains output "/help")
 
 let test_format_help_shows_admin_commands_for_admin () =
   let output =
@@ -2139,11 +2187,13 @@ let test_format_help_shows_admin_commands_for_admin () =
   in
   Alcotest.(check bool)
     "config in admin help" true
-    (contains_str output "/config");
+    (Test_helpers.string_contains output "/config");
   Alcotest.(check bool)
     "debug_dump_chat in admin help" true
-    (contains_str output "/debug_dump_chat");
-  Alcotest.(check bool) "help in admin help" true (contains_str output "/help")
+    (Test_helpers.string_contains output "/debug_dump_chat");
+  Alcotest.(check bool)
+    "help in admin help" true
+    (Test_helpers.string_contains output "/help")
 
 let test_commands_has_menu () =
   let names =
@@ -2195,10 +2245,12 @@ let test_manifest_telegram_json () =
 
 let test_manifest_teams_uses_title_key () =
   let output = Slash_commands_manifest.teams_json ~n:1 () in
-  Alcotest.(check bool) "uses title key" true (contains_str output "\"title\"");
+  Alcotest.(check bool)
+    "uses title key" true
+    (Test_helpers.string_contains output "\"title\"");
   Alcotest.(check bool)
     "uses description key" true
-    (contains_str output "\"description\"")
+    (Test_helpers.string_contains output "\"description\"")
 
 let test_manifest_teams_top10_composition () =
   let output = Slash_commands_manifest.teams_json () in
@@ -2220,10 +2272,10 @@ let test_manifest_telegram_uses_command_key () =
   let output = Slash_commands_manifest.telegram_json () in
   Alcotest.(check bool)
     "uses command key" true
-    (contains_str output "\"command\"");
+    (Test_helpers.string_contains output "\"command\"");
   Alcotest.(check bool)
     "uses description key" true
-    (contains_str output "\"description\"")
+    (Test_helpers.string_contains output "\"description\"")
 
 let test_menu_adaptive_card_json () =
   let card = Slash_commands_manifest.menu_adaptive_card_json () in
@@ -2257,7 +2309,7 @@ let test_menu_adaptive_card_pagination () =
     let next_title = List.hd actions1 |> member "title" |> to_string in
     Alcotest.(check bool)
       "next button has Page 2" true
-      (contains_str next_title "Page 2")
+      (Test_helpers.string_contains next_title "Page 2")
   end
 
 let test_cron_list () =
@@ -2465,13 +2517,17 @@ let test_agent_list () =
 let test_agent_usage () =
   match extract_text (Slash_commands.handle "/agent") with
   | Some s ->
-      Alcotest.(check bool) "mentions /agent" true (contains_str s "/agent")
+      Alcotest.(check bool)
+        "mentions /agent" true
+        (Test_helpers.string_contains s "/agent")
   | None -> Alcotest.fail "expected text reply for /agent usage"
 
 let test_agent_name_no_prompt () =
   match extract_text (Slash_commands.handle "/agent reviewer") with
   | Some s ->
-      Alcotest.(check bool) "mentions /agent" true (contains_str s "/agent")
+      Alcotest.(check bool)
+        "mentions /agent" true
+        (Test_helpers.string_contains s "/agent")
   | None -> Alcotest.fail "expected text reply for /agent name-only"
 
 let test_delegate_with_agent () =
@@ -2660,10 +2716,10 @@ let test_format_thinking_menu () =
   in
   Alcotest.(check bool)
     "contains /thinking off" true
-    (contains_str text "/thinking off");
+    (Test_helpers.string_contains text "/thinking off");
   Alcotest.(check bool)
     "contains /thinking high" true
-    (contains_str text "/thinking high")
+    (Test_helpers.string_contains text "/thinking high")
 
 let test_format_costs_menu () =
   let text =
@@ -2671,19 +2727,21 @@ let test_format_costs_menu () =
   in
   Alcotest.(check bool)
     "contains /costs session" true
-    (contains_str text "/costs session");
+    (Test_helpers.string_contains text "/costs session");
   Alcotest.(check bool)
     "contains /costs model" true
-    (contains_str text "/costs model")
+    (Test_helpers.string_contains text "/costs model")
 
 let test_format_bg_menu () =
   let text =
     Slash_commands_fmt.format_bg_menu ~connector:Format_adapter.Plain
   in
-  Alcotest.(check bool) "contains /bg list" true (contains_str text "/bg list");
+  Alcotest.(check bool)
+    "contains /bg list" true
+    (Test_helpers.string_contains text "/bg list");
   Alcotest.(check bool)
     "contains /bg create" true
-    (contains_str text "/bg create")
+    (Test_helpers.string_contains text "/bg create")
 
 let test_bg_menu_card_with_cancellable () =
   let cancellable = [ (1, "codex"); (3, "claude") ] in
@@ -2693,26 +2751,32 @@ let test_bg_menu_card_with_cancellable () =
   let s = Yojson.Safe.to_string card_json in
   Alcotest.(check bool)
     "contains cancel #1" true
-    (contains_str s "Cancel #1 (codex)");
+    (Test_helpers.string_contains s "Cancel #1 (codex)");
   Alcotest.(check bool)
     "contains /bg cancel 1" true
-    (contains_str s "/bg cancel 1");
+    (Test_helpers.string_contains s "/bg cancel 1");
   Alcotest.(check bool)
     "contains cancel #3" true
-    (contains_str s "Cancel #3 (claude)");
+    (Test_helpers.string_contains s "Cancel #3 (claude)");
   Alcotest.(check bool)
     "contains /bg cancel 3" true
-    (contains_str s "/bg cancel 3");
+    (Test_helpers.string_contains s "/bg cancel 3");
   Alcotest.(check bool)
     "still has list button" true
-    (contains_str s "List Tasks")
+    (Test_helpers.string_contains s "List Tasks")
 
 let test_bg_menu_card_no_cancellable () =
   let card_json = Slash_commands_manifest.bg_menu_adaptive_card_json () in
   let s = Yojson.Safe.to_string card_json in
-  Alcotest.(check bool) "has list button" true (contains_str s "List Tasks");
-  Alcotest.(check bool) "has create button" true (contains_str s "Create Task");
-  Alcotest.(check bool) "no cancel button" false (contains_str s "Cancel #")
+  Alcotest.(check bool)
+    "has list button" true
+    (Test_helpers.string_contains s "List Tasks");
+  Alcotest.(check bool)
+    "has create button" true
+    (Test_helpers.string_contains s "Create Task");
+  Alcotest.(check bool)
+    "no cancel button" false
+    (Test_helpers.string_contains s "Cancel #")
 
 let test_format_config_menu () =
   let text =
@@ -2721,14 +2785,14 @@ let test_format_config_menu () =
   in
   Alcotest.(check bool)
     "contains /config show" true
-    (contains_str text "/config show")
+    (Test_helpers.string_contains text "/config show")
 
 let test_format_model_menu () =
   let text =
     Slash_commands_fmt.format_model_menu ~connector:Format_adapter.Plain ~page:1
   in
-  let has_fav_hint = contains_str text "/model fav" in
-  let has_model_set = contains_str text "/model set" in
+  let has_fav_hint = Test_helpers.string_contains text "/model fav" in
+  let has_model_set = Test_helpers.string_contains text "/model set" in
   Alcotest.(check bool)
     "contains /model fav (no favorites) or /model set (has favorites)" true
     (has_fav_hint || has_model_set)
@@ -2739,7 +2803,7 @@ let test_format_skills_menu () =
       ~page:1 ()
   in
   let has_no_skills = text = "No skills available." in
-  let has_skills_heading = contains_str text "Skills" in
+  let has_skills_heading = Test_helpers.string_contains text "Skills" in
   Alcotest.(check bool)
     "returns no-skills message or skills listing" true
     (has_no_skills || has_skills_heading)

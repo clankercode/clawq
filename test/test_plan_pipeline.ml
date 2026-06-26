@@ -54,27 +54,21 @@ let test_build_stage_prompt_planning () =
       let prompt =
         Plan_pipeline.build_stage_prompt ~stage:Plan_pipeline.Planning ~pipeline
       in
-      let contains sub =
-        let hlen = String.length prompt in
-        let nlen = String.length sub in
-        let rec loop i =
-          if i + nlen > hlen then false
-          else if String.sub prompt i nlen = sub then true
-          else loop (i + 1)
-        in
-        nlen > 0 && loop 0
-      in
       Alcotest.(check bool)
-        "contains '## Overview'" true (contains "## Overview");
+        "contains '## Overview'" true
+        (Test_helpers.string_contains prompt "## Overview");
       Alcotest.(check bool)
         "contains '## Relevant Files'" true
-        (contains "## Relevant Files");
+        (Test_helpers.string_contains prompt "## Relevant Files");
       Alcotest.(check bool)
         "contains '## Implementation Steps'" true
-        (contains "## Implementation Steps");
+        (Test_helpers.string_contains prompt "## Implementation Steps");
       Alcotest.(check bool)
-        "contains PLAN_WRITTEN" true (contains "PLAN_WRITTEN");
-      Alcotest.(check bool) "contains repo path" true (contains repo))
+        "contains PLAN_WRITTEN" true
+        (Test_helpers.string_contains prompt "PLAN_WRITTEN");
+      Alcotest.(check bool)
+        "contains repo path" true
+        (Test_helpers.string_contains prompt repo))
 
 (* 4. build_stage_prompt PlanReview contains PLAN_STABLE instruction *)
 let test_build_stage_prompt_plan_review () =
@@ -89,17 +83,9 @@ let test_build_stage_prompt_plan_review () =
         Plan_pipeline.build_stage_prompt ~stage:(Plan_pipeline.PlanReview 0)
           ~pipeline
       in
-      let contains sub =
-        let hlen = String.length prompt in
-        let nlen = String.length sub in
-        let rec loop i =
-          if i + nlen > hlen then false
-          else if String.sub prompt i nlen = sub then true
-          else loop (i + 1)
-        in
-        nlen > 0 && loop 0
-      in
-      Alcotest.(check bool) "contains PLAN_STABLE" true (contains "PLAN_STABLE"))
+      Alcotest.(check bool)
+        "contains PLAN_STABLE" true
+        (Test_helpers.string_contains prompt "PLAN_STABLE"))
 
 (* 5. check_plan_stable returns true when hash unchanged *)
 let test_check_plan_stable_hash_unchanged () =

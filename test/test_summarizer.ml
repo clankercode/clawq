@@ -9,15 +9,6 @@ let cleanup_db (db, path) =
   ignore (Sqlite3.db_close db);
   try Unix.unlink path with _ -> ()
 
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-
 let with_fake_summarizer_provider f =
   let port = Test_helpers.free_port () in
   let callback _conn req body =
@@ -478,7 +469,7 @@ let test_summarizer_debug_callback_after_llm_call () =
           | Summarizer.Summarized { content; _ } ->
               Alcotest.(check bool)
                 "summary content present" true
-                (string_contains content "short summary");
+                (Test_helpers.string_contains content "short summary");
               let calls = List.rev !calls in
               Alcotest.(check int) "one debug callback" 1 (List.length calls);
               let call = List.hd calls in

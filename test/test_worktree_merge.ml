@@ -1,13 +1,3 @@
-let contains_substring ~needle haystack =
-  let nl = String.length needle in
-  let hl = String.length haystack in
-  let rec loop i =
-    if i + nl > hl then false
-    else if String.sub haystack i nl = needle then true
-    else loop (i + 1)
-  in
-  nl > 0 && hl >= nl && loop 0
-
 let configure_git_identity repo =
   let cmd =
     Printf.sprintf
@@ -191,11 +181,11 @@ let test_delegate_prompt_automerge () =
   in
   Alcotest.(check bool)
     "contains MUST commit" true
-    (contains_substring ~needle:"MUST" prompt
-    && contains_substring ~needle:"git commit" prompt);
+    (Test_helpers.string_contains prompt "MUST"
+    && Test_helpers.string_contains prompt "git commit");
   Alcotest.(check bool)
     "no 'Do not commit'" false
-    (contains_substring ~needle:"Do not commit" prompt)
+    (Test_helpers.string_contains prompt "Do not commit")
 
 let test_delegate_prompt_no_automerge () =
   let prompt =
@@ -203,11 +193,11 @@ let test_delegate_prompt_no_automerge () =
   in
   Alcotest.(check bool)
     "contains MUST commit" true
-    (contains_substring ~needle:"MUST" prompt
-    && contains_substring ~needle:"git commit" prompt);
+    (Test_helpers.string_contains prompt "MUST"
+    && Test_helpers.string_contains prompt "git commit");
   Alcotest.(check bool)
     "no 'Do not commit'" false
-    (contains_substring ~needle:"Do not commit" prompt)
+    (Test_helpers.string_contains prompt "Do not commit")
 
 let test_finalize_tool_missing_id () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -216,7 +206,7 @@ let test_finalize_tool_missing_id () =
   let result = Lwt_main.run (tool.Tool.invoke (`Assoc [ ("id", `Int 999) ])) in
   Alcotest.(check bool)
     "error for missing task" true
-    (contains_substring ~needle:"Error" result)
+    (Test_helpers.string_contains result "Error")
 
 let test_finalize_tool_no_worktree () =
   with_temp_git_repo (fun repo_path ->
@@ -238,7 +228,7 @@ let test_finalize_tool_no_worktree () =
       in
       Alcotest.(check bool)
         "error about no worktree" true
-        (contains_substring ~needle:"no worktree" result))
+        (Test_helpers.string_contains result "no worktree"))
 
 let test_use_worktree_false_skips_worktree () =
   with_temp_git_repo (fun repo_path ->
@@ -314,11 +304,11 @@ let test_merge_status_in_messages () =
   let msg = Background_task.terse_finished_message task in
   Alcotest.(check bool)
     "contains automerged" true
-    (contains_substring ~needle:"automerged" msg);
+    (Test_helpers.string_contains msg "automerged");
   let status = Background_task.status_message task in
   Alcotest.(check bool)
     "status contains automerged" true
-    (contains_substring ~needle:"automerged" status)
+    (Test_helpers.string_contains status "automerged")
 
 let test_merge_status_conflict_message () =
   let task =
@@ -332,10 +322,10 @@ let test_merge_status_conflict_message () =
   let msg = Background_task.terse_finished_message task in
   Alcotest.(check bool)
     "contains rebase conflict" true
-    (contains_substring ~needle:"rebase conflict" msg);
+    (Test_helpers.string_contains msg "rebase conflict");
   Alcotest.(check bool)
     "contains finalize" true
-    (contains_substring ~needle:"background finalize" msg)
+    (Test_helpers.string_contains msg "background finalize")
 
 let test_set_merge_status () =
   with_temp_git_repo (fun repo_path ->
@@ -378,7 +368,7 @@ let test_dirty_worktree_blocks_merge () =
           Alcotest.(check string) "dirty branch" branch b;
           Alcotest.(check bool)
             "details mention staged file" true
-            (contains_substring ~needle:"staged.txt" details)
+            (Test_helpers.string_contains details "staged.txt")
       | other ->
           Alcotest.failf "expected Dirty_worktree, got: %s"
             (Worktree_merge.format_result other));
@@ -416,7 +406,7 @@ let test_dirty_worktree_unstaged_blocks_merge () =
       | Worktree_merge.Dirty_worktree { details; _ } ->
           Alcotest.(check bool)
             "details mention modified file" true
-            (contains_substring ~needle:"modified.txt" details)
+            (Test_helpers.string_contains details "modified.txt")
       | other ->
           Alcotest.failf "expected Dirty_worktree, got: %s"
             (Worktree_merge.format_result other));
@@ -432,25 +422,25 @@ let test_format_result () =
   let s = Worktree_merge.format_result merged in
   Alcotest.(check bool)
     "contains branch" true
-    (contains_substring ~needle:"b1" s);
+    (Test_helpers.string_contains s "b1");
   Alcotest.(check bool)
     "contains commits" true
-    (contains_substring ~needle:"3 commits" s);
+    (Test_helpers.string_contains s "3 commits");
   let conflict =
     Worktree_merge.Conflict { branch = "b2"; message = "rebase failed" }
   in
   let s = Worktree_merge.format_result conflict in
   Alcotest.(check bool)
     "contains conflict" true
-    (contains_substring ~needle:"conflict" s);
+    (Test_helpers.string_contains s "conflict");
   let s = Worktree_merge.format_result Worktree_merge.No_worktree in
   Alcotest.(check bool)
     "no worktree" true
-    (contains_substring ~needle:"No worktree" s);
+    (Test_helpers.string_contains s "No worktree");
   let s = Worktree_merge.format_result Worktree_merge.Already_merged in
   Alcotest.(check bool)
     "already merged" true
-    (contains_substring ~needle:"already up to date" s);
+    (Test_helpers.string_contains s "already up to date");
   let s =
     Worktree_merge.format_result
       (Worktree_merge.Dirty_worktree
@@ -458,10 +448,10 @@ let test_format_result () =
   in
   Alcotest.(check bool)
     "dirty worktree mentions uncommitted" true
-    (contains_substring ~needle:"uncommitted" s);
+    (Test_helpers.string_contains s "uncommitted");
   Alcotest.(check bool)
     "dirty worktree mentions branch" true
-    (contains_substring ~needle:"b3" s)
+    (Test_helpers.string_contains s "b3")
 
 let test_merge_updates_working_tree () =
   with_temp_git_repo (fun repo_path ->
@@ -659,13 +649,13 @@ let test_completion_pass_message_content () =
   let msg = Background_task.completion_pass_message () in
   Alcotest.(check bool)
     "contains sentinel" true
-    (contains_substring ~needle:Background_task.completion_sentinel msg);
+    (Test_helpers.string_contains msg Background_task.completion_sentinel);
   Alcotest.(check bool)
     "contains git rebase master" true
-    (contains_substring ~needle:"git rebase master" msg);
+    (Test_helpers.string_contains msg "git rebase master");
   Alcotest.(check bool)
     "contains git add" true
-    (contains_substring ~needle:"git add" msg)
+    (Test_helpers.string_contains msg "git add")
 
 let test_completion_pass_skips_no_worktree () =
   let task =

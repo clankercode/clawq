@@ -329,17 +329,6 @@ let test_flush_receives_to_compact_messages () =
         (Agent.flush_memories_before_compaction ~config
            ~system_prompt:"You are a helpful assistant." ~db ~to_compact ());
       (* Check that the LLM request included our marker message *)
-      let string_contains haystack needle =
-        let hl = String.length haystack and nl = String.length needle in
-        if nl > hl then false
-        else
-          let rec loop i =
-            if i > hl - nl then false
-            else if String.sub haystack i nl = needle then true
-            else loop (i + 1)
-          in
-          loop 0
-      in
       let request_contains_content substr =
         List.exists
           (fun body ->
@@ -351,7 +340,7 @@ let test_flush_receives_to_compact_messages () =
                 (fun msg ->
                   try
                     let c = msg |> member "content" |> to_string in
-                    string_contains c substr
+                    Test_helpers.string_contains c substr
                   with _ -> false)
                 msgs
             with _ -> false)

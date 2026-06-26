@@ -1,11 +1,5 @@
 let body_string body = Lwt_main.run (Cohttp_lwt.Body.to_string body)
 
-let contains_str haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
-
 let insert_cached_model ?(deprecated = false) ?(unavailable = false) db
     ~provider ~model_id =
   ignore
@@ -108,19 +102,19 @@ let test_models_route_includes_db_only_models_and_filters_availability () =
   Alcotest.(check int) "unavailable status" 200 status_unavailable;
   Alcotest.(check bool)
     "default includes available DB-only model" true
-    (contains_str body_default "\"id\":\"fresh-model\"");
+    (Test_helpers.string_contains body_default "\"id\":\"fresh-model\"");
   Alcotest.(check bool)
     "default excludes unavailable DB-only model" true
-    (not (contains_str body_default "disabled-model"));
+    (not (Test_helpers.string_contains body_default "disabled-model"));
   Alcotest.(check bool)
     "all includes unavailable DB-only model" true
-    (contains_str body_all "disabled-model");
+    (Test_helpers.string_contains body_all "disabled-model");
   Alcotest.(check bool)
     "unavailable includes unavailable DB-only model" true
-    (contains_str body_unavailable "disabled-model");
+    (Test_helpers.string_contains body_unavailable "disabled-model");
   Alcotest.(check bool)
     "unavailable excludes available DB-only model" true
-    (not (contains_str body_unavailable "fresh-model"))
+    (not (Test_helpers.string_contains body_unavailable "fresh-model"))
 
 let chat_stream_response ~session_manager message =
   let req =
@@ -153,7 +147,7 @@ let test_chat_model_set_force_rejects_unavailable_cached_model () =
   in
   Alcotest.(check bool)
     "rejects unavailable cached model" true
-    (contains_str response "marked unavailable");
+    (Test_helpers.string_contains response "marked unavailable");
   Alcotest.(check (option string))
     "does not persist session override" None
     (Memory.get_session_model_override ~db ~session_key:"web:s")
@@ -186,10 +180,10 @@ let test_chat_model_set_default_rejects_deprecated_cached_model () =
       in
       Alcotest.(check bool)
         "rejects deprecated cached model" true
-        (contains_str response "marked deprecated");
+        (Test_helpers.string_contains response "marked deprecated");
       Alcotest.(check bool)
         "does not report default update" false
-        (contains_str response "Default model set to:"))
+        (Test_helpers.string_contains response "Default model set to:"))
 
 let debug_lines payload =
   match Yojson.Safe.Util.member "debug" payload with
@@ -201,7 +195,8 @@ let check_debug_summary label payload =
   Alcotest.(check bool)
     label true
     (List.exists
-       (fun line -> contains_str line "debug: llm provider=fake")
+       (fun line ->
+         Test_helpers.string_contains line "debug: llm provider=fake")
        (debug_lines payload))
 
 let with_env key value f =
@@ -342,10 +337,11 @@ let test_chat_runtime_ctx_returns_runtime_context () =
   let response = payload |> member "response" |> to_string in
   Alcotest.(check bool)
     "runtime header present" true
-    (contains_str response "[Runtime context for this turn only]");
+    (Test_helpers.string_contains response
+       "[Runtime context for this turn only]");
   Alcotest.(check bool)
     "session id present" true
-    (contains_str response "Session id: web:s")
+    (Test_helpers.string_contains response "Session id: web:s")
 
 let test_chat_costs_returns_cost_summary () =
   Test_helpers.with_memory_db (fun db ->
@@ -375,10 +371,10 @@ let test_chat_costs_returns_cost_summary () =
       let response = payload |> member "response" |> to_string in
       Alcotest.(check bool)
         "has summary heading" true
-        (contains_str response "Cost Summary");
+        (Test_helpers.string_contains response "Cost Summary");
       Alcotest.(check bool)
         "has all time row" true
-        (contains_str response "All time"))
+        (Test_helpers.string_contains response "All time"))
 
 let make_dummy_tool name description =
   {
@@ -412,10 +408,10 @@ let test_chat_help_returns_plain_help () =
   let response = payload |> member "response" |> to_string in
   Alcotest.(check bool)
     "help header present" true
-    (contains_str response "Available commands:");
+    (Test_helpers.string_contains response "Available commands:");
   Alcotest.(check bool)
     "no markdown table" false
-    (contains_str response "| Command | Description |")
+    (Test_helpers.string_contains response "| Command | Description |")
 
 let test_chat_tools_returns_plain_tool_list () =
   let registry = Tool_registry.create () in
@@ -442,10 +438,10 @@ let test_chat_tools_returns_plain_tool_list () =
   let response = payload |> member "response" |> to_string in
   Alcotest.(check bool)
     "tools header present" true
-    (contains_str response "Tools (1)");
+    (Test_helpers.string_contains response "Tools (1)");
   Alcotest.(check bool)
     "tool entry present" true
-    (contains_str response "file_read")
+    (Test_helpers.string_contains response "file_read")
 
 let test_chat_model_show_returns_formatted_model_summary () =
   let session_manager = Session.create ~config:Runtime_config.default () in
@@ -468,7 +464,7 @@ let test_chat_model_show_returns_formatted_model_summary () =
   let response = payload |> member "response" |> to_string in
   Alcotest.(check bool)
     "model heading present" true
-    (contains_str response "Current:")
+    (Test_helpers.string_contains response "Current:")
 
 let test_chat_usage_returns_usage_summary () =
   Test_helpers.with_memory_db (fun db ->
@@ -498,10 +494,10 @@ let test_chat_usage_returns_usage_summary () =
       let response = payload |> member "response" |> to_string in
       Alcotest.(check bool)
         "has summary heading" true
-        (contains_str response "Usage Summary");
+        (Test_helpers.string_contains response "Usage Summary");
       Alcotest.(check bool)
         "has all time row" true
-        (contains_str response "All time"))
+        (Test_helpers.string_contains response "All time"))
 
 let test_session_inject_rejects_missing_auth_token () =
   let config = Runtime_config.default in
@@ -684,7 +680,7 @@ let test_chat_stream_error_marks_response_sent () =
   let payload = body_string body in
   Alcotest.(check bool)
     "sse contains error" true
-    (contains_str payload {|"type":"error"|});
+    (Test_helpers.string_contains payload {|"type":"error"|});
   Alcotest.(check (option string))
     "pending stream turn cleared" (Some "user")
     (Test_helpers.query_single_text_option db
@@ -726,10 +722,10 @@ let test_chat_stream_compact_sends_debug_summary () =
       let payload = body_string body in
       Alcotest.(check bool)
         "sse contains compact result" true
-        (contains_str payload "Session history compacted");
+        (Test_helpers.string_contains payload "Session history compacted");
       Alcotest.(check bool)
         "sse contains debug summary" true
-        (contains_str payload "debug: llm provider=fake"))
+        (Test_helpers.string_contains payload "debug: llm provider=fake"))
 
 let test_chat_stream_debate_sends_debug_summary () =
   with_text_provider (fun config ->
@@ -770,10 +766,10 @@ let test_chat_stream_debate_sends_debug_summary () =
       let payload = body_string body in
       Alcotest.(check bool)
         "sse contains debate result" true
-        (contains_str payload "Debate Results");
+        (Test_helpers.string_contains payload "Debate Results");
       Alcotest.(check bool)
         "sse contains debate debug summary" true
-        (contains_str payload "debug: llm provider=fake"))
+        (Test_helpers.string_contains payload "debug: llm provider=fake"))
 
 let test_chat_json_sends_debug_summary () =
   with_text_provider (fun config ->
@@ -844,7 +840,7 @@ let test_chat_json_debate_sends_debug_summary () =
       let response = payload |> member "response" |> to_string in
       Alcotest.(check bool)
         "debate response" true
-        (contains_str response "Debate Results");
+        (Test_helpers.string_contains response "Debate Results");
       check_debug_summary "json debate contains debug summary" payload)
 
 let test_session_compact_json_sends_debug_summary () =
@@ -1031,12 +1027,14 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
           Alcotest.(check bool)
             "message includes github context" true
             (match !seen_message with
-            | Some message -> contains_str message "## GitHub Context"
+            | Some message ->
+                Test_helpers.string_contains message "## GitHub Context"
             | None -> false);
           Alcotest.(check bool)
             "message includes command" true
             (match !seen_message with
-            | Some message -> contains_str message "review routing"
+            | Some message ->
+                Test_helpers.string_contains message "review routing"
             | None -> false);
           Alcotest.(check (option string))
             "comment endpoint" (Some "/repos/acme/backend/issues/42/comments")
@@ -1045,8 +1043,8 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
             "reply body formatted for github" true
             (match !seen_post_body with
             | Some body ->
-                contains_str body "> /clawq review routing"
-                && contains_str body "stubbed GitHub reply"
+                Test_helpers.string_contains body "> /clawq review routing"
+                && Test_helpers.string_contains body "stubbed GitHub reply"
             | None -> false)))
 
 let test_github_pr_synchronize_reuses_pr_session () =
@@ -1133,8 +1131,8 @@ let test_github_pr_synchronize_reuses_pr_session () =
             "message includes github context" true
             (match !seen_message with
             | Some message ->
-                contains_str message "## GitHub Context"
-                && contains_str message "review latest push"
+                Test_helpers.string_contains message "## GitHub Context"
+                && Test_helpers.string_contains message "review latest push"
             | None -> false);
           Alcotest.(check (option string))
             "comment endpoint" (Some "/repos/acme/backend/issues/42/comments")
@@ -1143,8 +1141,8 @@ let test_github_pr_synchronize_reuses_pr_session () =
             "reply body formatted for github" true
             (match !seen_post_body with
             | Some body ->
-                contains_str body "> /clawq review latest push"
-                && contains_str body "sync reply"
+                Test_helpers.string_contains body "> /clawq review latest push"
+                && Test_helpers.string_contains body "sync reply"
             | None -> false)))
 
 let test_github_workflow_job_hook_routes_to_session () =
@@ -1238,8 +1236,9 @@ Payload: {{payload_path}}
         "message mentions failure" true
         (match !seen_message with
         | Some message ->
-            contains_str message "Investigate this failed CI job"
-            && contains_str message "Raw Webhook Payload"
+            Test_helpers.string_contains message
+              "Investigate this failed CI job"
+            && Test_helpers.string_contains message "Raw Webhook Payload"
         | None -> false))
 
 let test_github_webhook_accepts_repo_case_mismatch () =
@@ -1410,8 +1409,8 @@ let test_github_webhook_reaction_and_placeholder_edit () =
     (* Return {"id": 12345} for POST to comments so placeholder path works *)
     if
       Cohttp.Request.meth req = `POST
-      && contains_str path "/comments"
-      && not (contains_str path "/reactions")
+      && Test_helpers.string_contains path "/comments"
+      && not (Test_helpers.string_contains path "/reactions")
     then
       Cohttp_lwt_unix.Server.respond_string ~status:`Created
         ~body:{|{"id":12345}|} ()
@@ -1483,8 +1482,8 @@ let test_github_webhook_reaction_and_placeholder_edit () =
             List.filter
               (fun (meth, path, body) ->
                 meth = "POST"
-                && contains_str path "/reactions"
-                && contains_str body {|"content":"eyes"|})
+                && Test_helpers.string_contains path "/reactions"
+                && Test_helpers.string_contains body {|"content":"eyes"|})
               calls
           in
           Alcotest.(check bool)
@@ -1493,16 +1492,17 @@ let test_github_webhook_reaction_and_placeholder_edit () =
           Alcotest.(check bool)
             "reaction on correct comment" true
             (List.exists
-               (fun (_, path, _) -> contains_str path "/issues/comments/9001/")
+               (fun (_, path, _) ->
+                 Test_helpers.string_contains path "/issues/comments/9001/")
                reaction_calls);
           (* AC #5: Verify placeholder comment was posted *)
           let placeholder_calls =
             List.filter
               (fun (meth, path, body) ->
                 meth = "POST"
-                && contains_str path "/issues/42/comments"
-                && (not (contains_str path "/reactions"))
-                && contains_str body "Working on it")
+                && Test_helpers.string_contains path "/issues/42/comments"
+                && (not (Test_helpers.string_contains path "/reactions"))
+                && Test_helpers.string_contains body "Working on it")
               calls
           in
           Alcotest.(check bool)
@@ -1513,8 +1513,8 @@ let test_github_webhook_reaction_and_placeholder_edit () =
             List.filter
               (fun (meth, path, body) ->
                 meth = "PATCH"
-                && contains_str path "/issues/comments/12345"
-                && contains_str body "final agent response")
+                && Test_helpers.string_contains path "/issues/comments/12345"
+                && Test_helpers.string_contains body "final agent response")
               calls
           in
           Alcotest.(check bool)
@@ -1585,7 +1585,7 @@ let test_github_webhook_rejects_ambiguous_path () =
     (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
   Alcotest.(check bool)
     "body mentions ambiguity" true
-    (contains_str (body_string body) "ambiguous")
+    (Test_helpers.string_contains (body_string body) "ambiguous")
 
 let suite =
   [

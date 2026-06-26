@@ -344,28 +344,33 @@ let test_systemd_unit_output () =
   Alcotest.(check bool) "contains Unit section" true (String.length output > 0);
   let has_substr s = String.length output >= String.length s in
   Alcotest.(check bool) "non-empty output" true (has_substr "clawq");
-  let contains needle =
-    let nlen = String.length needle in
-    let rec loop i =
-      if i + nlen > String.length output then false
-      else if String.sub output i nlen = needle then true
-      else loop (i + 1)
-    in
-    loop 0
-  in
-  Alcotest.(check bool) "has Unit section" true (contains "[Unit]");
-  Alcotest.(check bool) "has Service section" true (contains "[Service]");
-  Alcotest.(check bool) "has Install section" true (contains "[Install]");
-  Alcotest.(check bool) "has Type=forking" true (contains "Type=forking");
-  Alcotest.(check bool) "has PIDFile" true (contains "PIDFile=");
-  Alcotest.(check bool) "has ExecStart" true (contains "ExecStart=");
-  Alcotest.(check bool) "has ExecStop" true (contains "ExecStop=");
+  Alcotest.(check bool)
+    "has Unit section" true
+    (Test_helpers.string_contains output "[Unit]");
+  Alcotest.(check bool)
+    "has Service section" true
+    (Test_helpers.string_contains output "[Service]");
+  Alcotest.(check bool)
+    "has Install section" true
+    (Test_helpers.string_contains output "[Install]");
+  Alcotest.(check bool)
+    "has Type=forking" true
+    (Test_helpers.string_contains output "Type=forking");
+  Alcotest.(check bool)
+    "has PIDFile" true
+    (Test_helpers.string_contains output "PIDFile=");
+  Alcotest.(check bool)
+    "has ExecStart" true
+    (Test_helpers.string_contains output "ExecStart=");
+  Alcotest.(check bool)
+    "has ExecStop" true
+    (Test_helpers.string_contains output "ExecStop=");
   Alcotest.(check bool)
     "has Restart=on-failure" true
-    (contains "Restart=on-failure");
+    (Test_helpers.string_contains output "Restart=on-failure");
   Alcotest.(check bool)
     "has install instructions" true
-    (contains "systemctl --user enable")
+    (Test_helpers.string_contains output "systemctl --user enable")
 
 let read_daemon_state_json home =
   let path = Filename.concat home ".clawq/daemon_state.json" in
@@ -553,49 +558,42 @@ let test_component_status_running_with_valid_credentials () =
         "slack_enabled true" true
         (get_bool_field json "slack_enabled"))
 
-let contains haystack needle =
-  let nlen = String.length needle in
-  let hlen = String.length haystack in
-  let rec loop i =
-    if i + nlen > hlen then false
-    else if String.sub haystack i nlen = needle then true
-    else loop (i + 1)
-  in
-  nlen > 0 && loop 0
-
 let test_launchd_plist_output () =
   let output = Service.cmd_launchd_plist () in
-  Alcotest.(check bool) "contains plist tag" true (contains output "<plist");
+  Alcotest.(check bool)
+    "contains plist tag" true
+    (Test_helpers.string_contains output "<plist");
   Alcotest.(check bool)
     "contains Label" true
-    (contains output "<key>Label</key>");
+    (Test_helpers.string_contains output "<key>Label</key>");
   Alcotest.(check bool)
     "contains org.clawq.daemon" true
-    (contains output "org.clawq.daemon");
+    (Test_helpers.string_contains output "org.clawq.daemon");
   Alcotest.(check bool)
     "contains RunAtLoad" true
-    (contains output "<key>RunAtLoad</key>");
+    (Test_helpers.string_contains output "<key>RunAtLoad</key>");
   Alcotest.(check bool)
     "contains CLAWQ_DAEMON_NOFORK" true
-    (contains output "CLAWQ_DAEMON_NOFORK");
+    (Test_helpers.string_contains output "CLAWQ_DAEMON_NOFORK");
   Alcotest.(check bool)
     "contains ProgramArguments" true
-    (contains output "<key>ProgramArguments</key>");
+    (Test_helpers.string_contains output "<key>ProgramArguments</key>");
   Alcotest.(check bool)
     "contains service start" true
-    (contains output "<string>service</string>")
+    (Test_helpers.string_contains output "<string>service</string>")
 
 let test_systemd_unit_path_under_home () =
   let path = Service.systemd_unit_path () in
   Alcotest.(check bool)
     "ends with expected suffix" true
-    (contains path ".config/systemd/user/clawq.service")
+    (Test_helpers.string_contains path ".config/systemd/user/clawq.service")
 
 let test_launchd_plist_path_under_home () =
   let path = Service.launchd_plist_path () in
   Alcotest.(check bool)
     "ends with expected suffix" true
-    (contains path "Library/LaunchAgents/org.clawq.daemon.plist")
+    (Test_helpers.string_contains path
+       "Library/LaunchAgents/org.clawq.daemon.plist")
 
 let test_cmd_install_unsupported_platform () =
   let result =
@@ -606,8 +604,10 @@ let test_cmd_install_unsupported_platform () =
   in
   Alcotest.(check bool)
     "mentions not supported" true
-    (contains result "not supported");
-  Alcotest.(check bool) "mentions FreeBSD" true (contains result "FreeBSD")
+    (Test_helpers.string_contains result "not supported");
+  Alcotest.(check bool)
+    "mentions FreeBSD" true
+    (Test_helpers.string_contains result "FreeBSD")
 
 let test_cmd_install_linux () =
   Test_helpers.with_temp_home (fun home ->
@@ -623,20 +623,24 @@ let test_cmd_install_linux () =
       in
       Alcotest.(check bool)
         "mentions installed" true
-        (contains result "installed");
+        (Test_helpers.string_contains result "installed");
       Alcotest.(check bool)
         "mentions loginctl" true
-        (contains result "loginctl enable-linger");
+        (Test_helpers.string_contains result "loginctl enable-linger");
       let unit_path =
         Filename.concat home ".config/systemd/user/clawq.service"
       in
       Alcotest.(check bool) "unit file created" true (Sys.file_exists unit_path);
       Alcotest.(check bool)
         "ran daemon-reload" true
-        (List.exists (fun c -> contains c "daemon-reload") !commands);
+        (List.exists
+           (fun c -> Test_helpers.string_contains c "daemon-reload")
+           !commands);
       Alcotest.(check bool)
         "ran enable" true
-        (List.exists (fun c -> contains c "enable clawq") !commands))
+        (List.exists
+           (fun c -> Test_helpers.string_contains c "enable clawq")
+           !commands))
 
 let test_cmd_install_darwin () =
   Test_helpers.with_temp_home (fun home ->
@@ -652,10 +656,10 @@ let test_cmd_install_darwin () =
       in
       Alcotest.(check bool)
         "mentions installed" true
-        (contains result "installed");
+        (Test_helpers.string_contains result "installed");
       Alcotest.(check bool)
         "mentions RunAtLoad" true
-        (contains result "RunAtLoad");
+        (Test_helpers.string_contains result "RunAtLoad");
       let plist_path =
         Filename.concat home "Library/LaunchAgents/org.clawq.daemon.plist"
       in
@@ -664,7 +668,9 @@ let test_cmd_install_darwin () =
         (Sys.file_exists plist_path);
       Alcotest.(check bool)
         "ran launchctl load" true
-        (List.exists (fun c -> contains c "launchctl load") !commands))
+        (List.exists
+           (fun c -> Test_helpers.string_contains c "launchctl load")
+           !commands))
 
 let test_cmd_uninstall_unsupported_platform () =
   let result =
@@ -675,7 +681,7 @@ let test_cmd_uninstall_unsupported_platform () =
   in
   Alcotest.(check bool)
     "mentions not supported" true
-    (contains result "not supported")
+    (Test_helpers.string_contains result "not supported")
 
 let test_cmd_uninstall_handles_missing_files () =
   Test_helpers.with_temp_home (fun _home ->
@@ -697,7 +703,7 @@ let test_cmd_status_includes_autostart_line () =
       in
       Alcotest.(check bool)
         "contains autostart" true
-        (contains result "autostart:"))
+        (Test_helpers.string_contains result "autostart:"))
 
 let test_detect_platform_returns_value () =
   let platform = Service.detect_platform () in
@@ -722,10 +728,12 @@ let test_cmd_install_darwin_already_running () =
       in
       Alcotest.(check bool)
         "mentions already running" true
-        (contains result "already running");
+        (Test_helpers.string_contains result "already running");
       Alcotest.(check bool)
         "launchctl load not called" false
-        (List.exists (fun c -> contains c "launchctl load") !commands);
+        (List.exists
+           (fun c -> Test_helpers.string_contains c "launchctl load")
+           !commands);
       let plist_path =
         Filename.concat home "Library/LaunchAgents/org.clawq.daemon.plist"
       in
@@ -748,10 +756,10 @@ let test_cmd_install_linux_already_running () =
       in
       Alcotest.(check bool)
         "mentions already running" true
-        (contains result "already running");
+        (Test_helpers.string_contains result "already running");
       Alcotest.(check bool)
         "does not suggest systemctl start" false
-        (contains result "systemctl --user start clawq");
+        (Test_helpers.string_contains result "systemctl --user start clawq");
       let unit_path =
         Filename.concat home ".config/systemd/user/clawq.service"
       in

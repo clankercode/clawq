@@ -10,12 +10,6 @@ let with_temp_workspace f =
     (fun () -> f dir)
     ~finally:(fun () -> try Unix.rmdir dir with _ -> ())
 
-let contains hay needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) hay 0);
-    true
-  with Not_found -> false
-
 let insert_cached_model ?(deprecated = false) ?(unavailable = false) db
     ~provider ~model_id =
   ignore
@@ -572,10 +566,10 @@ let test_send_message_with_buttons_rich_notifier () =
   in
   Alcotest.(check bool)
     "result mentions buttons" true
-    (contains result "2 button(s)");
+    (Test_helpers.string_contains result "2 button(s)");
   Alcotest.(check bool)
     "result has message_id" true
-    (contains result "message_id=42");
+    (Test_helpers.string_contains result "message_id=42");
   match !received with
   | Some (Rich_message.TextWithButtons { text; button_rows }) ->
       Alcotest.(check string) "text" "Pick one:" text;
@@ -611,12 +605,15 @@ let test_send_message_with_buttons_text_fallback () =
   in
   Alcotest.(check bool)
     "result mentions text fallback" true
-    (contains result "buttons rendered as text");
+    (Test_helpers.string_contains result "buttons rendered as text");
   Alcotest.(check bool) "sent something" true (List.length !sent = 1);
   let text = List.hd !sent in
   Alcotest.(check bool)
-    "contains numbered buttons" true (contains text "1. Yes");
-  Alcotest.(check bool) "contains second button" true (contains text "2. No")
+    "contains numbered buttons" true
+    (Test_helpers.string_contains text "1. Yes");
+  Alcotest.(check bool)
+    "contains second button" true
+    (Test_helpers.string_contains text "2. No")
 
 let test_send_message_plain_text_via_rich_notifier () =
   let rich_received = ref None in
@@ -716,10 +713,10 @@ let test_send_poll_rich_notifier () =
   in
   Alcotest.(check bool)
     "result mentions poll sent" true
-    (contains result "Poll sent");
+    (Test_helpers.string_contains result "Poll sent");
   Alcotest.(check bool)
     "result has message_id" true
-    (contains result "message_id=99");
+    (Test_helpers.string_contains result "message_id=99");
   match !received with
   | Some (Rich_message.Poll { question; options; allows_multiple }) ->
       Alcotest.(check string) "question" "Best color?" question;
@@ -748,12 +745,18 @@ let test_send_poll_text_fallback () =
   in
   Alcotest.(check bool)
     "result mentions text" true
-    (contains result "rendered as text");
+    (Test_helpers.string_contains result "rendered as text");
   Alcotest.(check bool) "sent something" true (List.length !sent = 1);
   let text = List.hd !sent in
-  Alcotest.(check bool) "contains question" true (contains text "Favorite?");
-  Alcotest.(check bool) "contains option 1" true (contains text "1. A");
-  Alcotest.(check bool) "contains option 2" true (contains text "2. B")
+  Alcotest.(check bool)
+    "contains question" true
+    (Test_helpers.string_contains text "Favorite?");
+  Alcotest.(check bool)
+    "contains option 1" true
+    (Test_helpers.string_contains text "1. A");
+  Alcotest.(check bool)
+    "contains option 2" true
+    (Test_helpers.string_contains text "2. B")
 
 let test_send_poll_validation () =
   let tool = Tools_builtin.send_poll ~rich_send_fn:None ~send_fn:None in
@@ -768,7 +771,8 @@ let test_send_poll_validation () =
   in
   Alcotest.(check bool)
     "empty question error" true
-    (contains result_empty_q "'question'" && contains result_empty_q "send_poll");
+    (Test_helpers.string_contains result_empty_q "'question'"
+    && Test_helpers.string_contains result_empty_q "send_poll");
   let result_too_few =
     Lwt_main.run
       (tool.invoke
@@ -780,7 +784,7 @@ let test_send_poll_validation () =
   in
   Alcotest.(check bool)
     "too few options error" true
-    (contains result_too_few "at least 2");
+    (Test_helpers.string_contains result_too_few "at least 2");
   let result_too_many =
     Lwt_main.run
       (tool.invoke
@@ -793,7 +797,7 @@ let test_send_poll_validation () =
   in
   Alcotest.(check bool)
     "too many options error" true
-    (contains result_too_many "at most 10")
+    (Test_helpers.string_contains result_too_many "at most 10")
 
 let test_rich_message_to_fallback_text () =
   let text_msg = Rich_message.Text "hello" in
@@ -816,11 +820,13 @@ let test_rich_message_to_fallback_text () =
   let btn_text = Rich_message.to_fallback_text btn_msg in
   Alcotest.(check bool)
     "buttons fallback has text" true
-    (contains btn_text "Choose:");
+    (Test_helpers.string_contains btn_text "Choose:");
   Alcotest.(check bool)
-    "buttons fallback has 1. A" true (contains btn_text "1. A");
+    "buttons fallback has 1. A" true
+    (Test_helpers.string_contains btn_text "1. A");
   Alcotest.(check bool)
-    "buttons fallback has 2. B" true (contains btn_text "2. B");
+    "buttons fallback has 2. B" true
+    (Test_helpers.string_contains btn_text "2. B");
   let poll_msg =
     Rich_message.Poll
       {
@@ -832,13 +838,13 @@ let test_rich_message_to_fallback_text () =
   let poll_text = Rich_message.to_fallback_text poll_msg in
   Alcotest.(check bool)
     "poll fallback has question" true
-    (contains poll_text "Best?");
+    (Test_helpers.string_contains poll_text "Best?");
   Alcotest.(check bool)
     "poll fallback has 1. X" true
-    (contains poll_text "1. X");
+    (Test_helpers.string_contains poll_text "1. X");
   Alcotest.(check bool)
     "poll fallback has 3. Z" true
-    (contains poll_text "3. Z")
+    (Test_helpers.string_contains poll_text "3. Z")
 
 let test_file_attachment_fallback_text_with_url () =
   let msg =
@@ -854,11 +860,13 @@ let test_file_attachment_fallback_text_with_url () =
   let text = Rich_message.to_fallback_text msg in
   Alcotest.(check bool)
     "has description and filename" true
-    (contains text "Monthly report (report.csv)");
-  Alcotest.(check bool) "has download URL" true (contains text "Download: ");
+    (Test_helpers.string_contains text "Monthly report (report.csv)");
+  Alcotest.(check bool)
+    "has download URL" true
+    (Test_helpers.string_contains text "Download: ");
   Alcotest.(check bool)
     "has actual URL" true
-    (contains text "https://example.com/downloads/abc123")
+    (Test_helpers.string_contains text "https://example.com/downloads/abc123")
 
 let test_file_attachment_fallback_text_no_url () =
   let msg =
@@ -872,10 +880,12 @@ let test_file_attachment_fallback_text_no_url () =
       }
   in
   let text = Rich_message.to_fallback_text msg in
-  Alcotest.(check bool) "uses filename as desc" true (contains text "data.json");
+  Alcotest.(check bool)
+    "uses filename as desc" true
+    (Test_helpers.string_contains text "data.json");
   Alcotest.(check bool)
     "says file attached" true
-    (contains text "(file attached)")
+    (Test_helpers.string_contains text "(file attached)")
 
 let test_file_attachment_fallback_text_empty_desc () =
   let msg =
@@ -891,10 +901,10 @@ let test_file_attachment_fallback_text_empty_desc () =
   let text = Rich_message.to_fallback_text msg in
   Alcotest.(check bool)
     "uses filename when no description" true
-    (contains text "output.txt");
+    (Test_helpers.string_contains text "output.txt");
   Alcotest.(check bool)
     "has download URL" true
-    (contains text "https://example.com/dl/xyz")
+    (Test_helpers.string_contains text "https://example.com/dl/xyz")
 
 let test_send_file_with_content () =
   let sent_text = ref [] in
@@ -941,14 +951,18 @@ let test_send_file_with_content () =
   in
   Alcotest.(check bool)
     "result mentions file sent" true
-    (contains result "File sent: test.txt");
+    (Test_helpers.string_contains result "File sent: test.txt");
   Alcotest.(check bool)
     "result has download URL" true
-    (contains result "https://example.com/downloads/test123");
-  Alcotest.(check bool) "result has size" true (contains result "11 bytes");
+    (Test_helpers.string_contains result "https://example.com/downloads/test123");
+  Alcotest.(check bool)
+    "result has size" true
+    (Test_helpers.string_contains result "11 bytes");
   Alcotest.(check bool)
     "send_fn called with download link" true
-    (List.exists (fun t -> contains t "Download:") !sent_text);
+    (List.exists
+       (fun t -> Test_helpers.string_contains t "Download:")
+       !sent_text);
   Alcotest.(check bool) "rich_send_fn called" true (List.length !rich_sent = 1)
 
 let test_send_file_with_workspace_path () =
@@ -977,11 +991,13 @@ let test_send_file_with_workspace_path () =
   in
   Alcotest.(check bool)
     "result mentions file sent" true
-    (contains result "File sent: hello.txt");
+    (Test_helpers.string_contains result "File sent: hello.txt");
   Alcotest.(check bool)
     "result has download URL" true
-    (contains result "https://example.com/downloads/abc");
-  Alcotest.(check bool) "result has size" true (contains result "17 bytes");
+    (Test_helpers.string_contains result "https://example.com/downloads/abc");
+  Alcotest.(check bool)
+    "result has size" true
+    (Test_helpers.string_contains result "17 bytes");
   Alcotest.(check bool) "send_fn called" true (List.length !sent_text = 1);
   Sys.remove file_path;
   try Unix.rmdir dir with _ -> ()
@@ -994,7 +1010,7 @@ let test_send_file_validation_neither () =
   let result = Lwt_main.run (tool.invoke (`Assoc [])) in
   Alcotest.(check bool)
     "error mentions path or content" true
-    (contains result "'path' or 'content' is required")
+    (Test_helpers.string_contains result "'path' or 'content' is required")
 
 let test_send_file_validation_both () =
   let tool =
@@ -1008,7 +1024,7 @@ let test_send_file_validation_both () =
   in
   Alcotest.(check bool)
     "error mentions mutually exclusive" true
-    (contains result "mutually exclusive")
+    (Test_helpers.string_contains result "mutually exclusive")
 
 let test_send_file_content_requires_filename () =
   let tool =
@@ -1022,7 +1038,7 @@ let test_send_file_content_requires_filename () =
   in
   Alcotest.(check bool)
     "error mentions filename required" true
-    (contains result "'filename' is required")
+    (Test_helpers.string_contains result "'filename' is required")
 
 let test_send_file_no_store () =
   let tool =
@@ -1039,7 +1055,7 @@ let test_send_file_no_store () =
   in
   Alcotest.(check bool)
     "error mentions no public base URL" true
-    (contains result "no public base URL")
+    (Test_helpers.string_contains result "no public base URL")
 
 let test_guess_content_type () =
   Alcotest.(check string)
@@ -1868,18 +1884,26 @@ let test_shell_exec_head_and_tail_window_output () =
                 ]))
       in
       Alcotest.(check bool)
-        "stdout head visible" true (contains result "o1\no2");
+        "stdout head visible" true
+        (Test_helpers.string_contains result "o1\no2");
       Alcotest.(check bool)
-        "stdout tail visible" true (contains result "o4\no5");
-      Alcotest.(check bool) "stdout middle omitted" false (contains result "o3");
+        "stdout tail visible" true
+        (Test_helpers.string_contains result "o4\no5");
       Alcotest.(check bool)
-        "stderr head visible" true (contains result "e1\ne2");
+        "stdout middle omitted" false
+        (Test_helpers.string_contains result "o3");
       Alcotest.(check bool)
-        "stderr tail visible" true (contains result "e4\ne5");
-      Alcotest.(check bool) "stderr middle omitted" false (contains result "e3");
+        "stderr head visible" true
+        (Test_helpers.string_contains result "e1\ne2");
+      Alcotest.(check bool)
+        "stderr tail visible" true
+        (Test_helpers.string_contains result "e4\ne5");
+      Alcotest.(check bool)
+        "stderr middle omitted" false
+        (Test_helpers.string_contains result "e3");
       Alcotest.(check bool)
         "window marker visible" true
-        (contains result "showing first 2 and last 2 of 5"))
+        (Test_helpers.string_contains result "showing first 2 and last 2 of 5"))
 
 let test_shell_exec_head_tail_window_handles_trailing_newline () =
   with_temp_workspace (fun workspace ->
@@ -1905,16 +1929,18 @@ let test_shell_exec_head_tail_window_handles_trailing_newline () =
                 ]))
       in
       Alcotest.(check bool)
-        "stdout trailing newline tail visible" true (contains result "o4\no5");
+        "stdout trailing newline tail visible" true
+        (Test_helpers.string_contains result "o4\no5");
       Alcotest.(check bool)
-        "stderr trailing newline tail visible" true (contains result "e4\ne5");
+        "stderr trailing newline tail visible" true
+        (Test_helpers.string_contains result "e4\ne5");
       Alcotest.(check bool)
         "no blank tail line" false
-        (contains result "o5\n\n[full stdout saved"
-        || contains result "e5\n\n[full stderr saved");
+        (Test_helpers.string_contains result "o5\n\n[full stdout saved"
+        || Test_helpers.string_contains result "e5\n\n[full stderr saved");
       Alcotest.(check bool)
         "window marker counts logical lines" true
-        (contains result "showing first 2 and last 2 of 5"))
+        (Test_helpers.string_contains result "showing first 2 and last 2 of 5"))
 
 let test_shell_exec_head_or_tail_only_window_output () =
   with_temp_workspace (fun workspace ->
@@ -1946,22 +1972,24 @@ let test_shell_exec_head_or_tail_only_window_output () =
       in
       Alcotest.(check bool)
         "head-only keeps first line" true
-        (contains head_result "a1\na2");
+        (Test_helpers.string_contains head_result "a1\na2");
       Alcotest.(check bool)
         "head-only omits trailing line" false
-        (contains head_result "a4");
+        (Test_helpers.string_contains head_result "a4");
       Alcotest.(check bool)
         "head-only marker visible" true
-        (contains head_result "omitted 2 trailing lines; showing first 2 of 4");
+        (Test_helpers.string_contains head_result
+           "omitted 2 trailing lines; showing first 2 of 4");
       Alcotest.(check bool)
         "tail-only keeps last line" true
-        (contains tail_result "b3\nb4");
+        (Test_helpers.string_contains tail_result "b3\nb4");
       Alcotest.(check bool)
         "tail-only omits leading line" false
-        (contains tail_result "b1");
+        (Test_helpers.string_contains tail_result "b1");
       Alcotest.(check bool)
         "tail-only marker visible" true
-        (contains tail_result "omitted 2 leading lines; showing last 2 of 4"))
+        (Test_helpers.string_contains tail_result
+           "omitted 2 leading lines; showing last 2 of 4"))
 
 let test_shell_exec_total_lines_shown_with_head_or_tail () =
   with_temp_workspace (fun workspace ->
@@ -1986,10 +2014,10 @@ let test_shell_exec_total_lines_shown_with_head_or_tail () =
       in
       Alcotest.(check bool)
         "truncated: stdout total lines note" true
-        (contains truncated_result "[stdout: 5 total lines]");
+        (Test_helpers.string_contains truncated_result "[stdout: 5 total lines]");
       Alcotest.(check bool)
         "truncated: stderr total lines note" true
-        (contains truncated_result "[stderr: 0 total lines]");
+        (Test_helpers.string_contains truncated_result "[stderr: 0 total lines]");
       (* head+tail without truncation (output fits): total lines note present *)
       let fits_result =
         Lwt_main.run
@@ -2003,7 +2031,7 @@ let test_shell_exec_total_lines_shown_with_head_or_tail () =
       in
       Alcotest.(check bool)
         "fits: stdout total lines note" true
-        (contains fits_result "[stdout: 3 total lines]");
+        (Test_helpers.string_contains fits_result "[stdout: 3 total lines]");
       (* no head/tail: no total lines note *)
       let no_window_result =
         Lwt_main.run
@@ -2012,7 +2040,7 @@ let test_shell_exec_total_lines_shown_with_head_or_tail () =
       in
       Alcotest.(check bool)
         "no window: no total lines note" false
-        (contains no_window_result "total lines"))
+        (Test_helpers.string_contains no_window_result "total lines"))
 
 let test_background_task_logs_truncates_large_output () =
   with_temp_workspace (fun workspace ->
@@ -2062,16 +2090,16 @@ let test_background_task_logs_truncates_large_output () =
       in
       Alcotest.(check bool)
         "truncated marker visible" true
-        (contains result "Output truncated by size budget");
+        (Test_helpers.string_contains result "Output truncated by size budget");
       Alcotest.(check bool)
         "continuation hint visible" true
-        (contains result "Use offset=");
+        (Test_helpers.string_contains result "Use offset=");
       Alcotest.(check bool)
         "keeps early lines" true
-        (contains result "1: line-001");
+        (Test_helpers.string_contains result "1: line-001");
       Alcotest.(check bool)
         "drops later lines once truncated" false
-        (contains result "200: line-200");
+        (Test_helpers.string_contains result "200: line-200");
       Alcotest.(check bool)
         "stays under tightened budget" true
         (String.length result < 3800);
@@ -2131,19 +2159,19 @@ let test_background_task_logs_truncates_pathological_long_line () =
           Alcotest.(check bool)
             (label ^ " keeps a visible numbered line")
             true
-            (contains result "1: xxxxx");
+            (Test_helpers.string_contains result "1: xxxxx");
           Alcotest.(check bool)
             (label ^ " marks truncated line")
             true
-            (contains result "(truncated");
+            (Test_helpers.string_contains result "(truncated");
           Alcotest.(check bool)
             (label ^ " mentions long-line clipping")
             true
-            (contains result "long log lines are truncated");
+            (Test_helpers.string_contains result "long log lines are truncated");
           Alcotest.(check bool)
             (label ^ " avoids invalid empty range")
             false
-            (contains result "lines 1-0");
+            (Test_helpers.string_contains result "lines 1-0");
           Alcotest.(check bool)
             (label ^ " stays bounded") true
             (String.length result < 2500))
@@ -2200,8 +2228,8 @@ let test_background_task_logs_clamps_excessive_lines () =
         (String.length result < 3800);
       Alcotest.(check bool)
         "truncation hint present" true
-        (contains result "Output truncated by size budget"
-        || contains result "Use offset=");
+        (Test_helpers.string_contains result "Output truncated by size budget"
+        || Test_helpers.string_contains result "Use offset=");
       ())
 
 let test_shell_exec_saves_full_output_when_windowed () =
@@ -2300,7 +2328,7 @@ let test_shell_exec_interrupts_running_process () =
       let elapsed = Unix.gettimeofday () -. started_at in
       Alcotest.(check bool)
         "result contains bg job info" true
-        (contains result "Background shell job");
+        (Test_helpers.string_contains result "Background shell job");
       Alcotest.(check bool) "returns promptly" true (elapsed < 2.0);
       (* Clean up: kill the background sleep process *)
       let job_id =
@@ -2364,10 +2392,10 @@ let test_shell_exec_interrupt_moves_to_background () =
       in
       Alcotest.(check bool)
         "result contains bg job info" true
-        (contains result "Background shell job");
+        (Test_helpers.string_contains result "Background shell job");
       Alcotest.(check bool)
         "result contains bg_shell_status hint" true
-        (contains result "bg_shell_status");
+        (Test_helpers.string_contains result "bg_shell_status");
       (* Extract job ID and wait for finish, then verify log *)
       let job_id =
         try
@@ -2385,7 +2413,9 @@ let test_shell_exec_interrupt_moves_to_background () =
       (match job with
       | Some j ->
           let log = Bg_shell.read_log j () in
-          Alcotest.(check bool) "log contains hello" true (contains log "hello")
+          Alcotest.(check bool)
+            "log contains hello" true
+            (Test_helpers.string_contains log "hello")
       | None -> Alcotest.fail "bg_shell job not found");
       try Sys.remove pid_file with _ -> ())
 
@@ -2487,19 +2517,12 @@ let test_shell_exec_injects_session_id_env () =
           (tool.Tool.invoke ~context
              (`Assoc [ ("command", `String "printenv CLAWQ_SESSION_ID") ]))
       in
-      let contains s sub =
-        let slen = String.length s and nlen = String.length sub in
-        let rec loop i =
-          if i + nlen > slen then false
-          else if String.sub s i nlen = sub then true
-          else loop (i + 1)
-        in
-        nlen = 0 || loop 0
-      in
       Alcotest.(check bool)
         "output contains session id" true
-        (contains result "telegram:42:testuser");
-      Alcotest.(check bool) "exit code 0" true (contains result "exit_code: 0"))
+        (Test_helpers.string_contains result "telegram:42:testuser");
+      Alcotest.(check bool)
+        "exit code 0" true
+        (Test_helpers.string_contains result "exit_code: 0"))
 
 let test_shell_exec_workspace_only_path_includes_user_bins () =
   Test_helpers.with_temp_home (fun home ->
@@ -2526,10 +2549,11 @@ let test_shell_exec_workspace_only_path_includes_user_bins () =
                  (`Assoc [ ("command", `String "which clawq-test-helper") ]))
           in
           Alcotest.(check bool)
-            "helper is found via augmented PATH" true (contains result helper);
+            "helper is found via augmented PATH" true
+            (Test_helpers.string_contains result helper);
           Alcotest.(check bool)
             "exit code 0" true
-            (contains result "exit_code: 0")))
+            (Test_helpers.string_contains result "exit_code: 0")))
 
 let test_watch_ci_after_push_injects_failure_follow_up () =
   let mgr = Session.create ~config:Runtime_config.default () in
@@ -2578,13 +2602,13 @@ let test_watch_ci_after_push_injects_failure_follow_up () =
   Alcotest.(check string) "session key preserved" "telegram:42:testuser" key;
   Alcotest.(check bool)
     "message references async CI watch" true
-    (contains message "[async CI watch]");
+    (Test_helpers.string_contains message "[async CI watch]");
   Alcotest.(check bool)
     "message includes head sha" true
-    (contains message "abc123");
+    (Test_helpers.string_contains message "abc123");
   Alcotest.(check bool)
     "message includes run URL" true
-    (contains message "https://example.test/run/17")
+    (Test_helpers.string_contains message "https://example.test/run/17")
 
 let test_inject_session_message_async_preserves_channel_context () =
   let mgr = Session.create ~config:Runtime_config.default () in
@@ -2710,7 +2734,7 @@ let test_shell_exec_starts_ci_watch_asynchronously_after_push () =
           in
           Alcotest.(check bool)
             "push command succeeded" true
-            (contains result "exit_code: 0");
+            (Test_helpers.string_contains result "exit_code: 0");
           Alcotest.(check bool)
             "watch not awaited inline" false !watcher_started;
           Alcotest.(check bool) "watch scheduled" true (Option.is_some !spawned);
@@ -2803,7 +2827,7 @@ let test_shell_exec_cd_prefix_push_uses_cd_repo_path () =
           in
           Alcotest.(check bool)
             "push command succeeded" true
-            (contains result "exit_code: 0");
+            (Test_helpers.string_contains result "exit_code: 0");
           (match !spawned with
           | Some promise -> Lwt_main.run (promise ())
           | None -> Alcotest.fail "expected CI watch promise to be scheduled");
@@ -2859,7 +2883,8 @@ let test_git_operations_repo_path_relative_rejected () =
                 ]))
       in
       Alcotest.(check bool)
-        "relative repo_path returns error" true (contains result "Error:"))
+        "relative repo_path returns error" true
+        (Test_helpers.string_contains result "Error:"))
 
 let test_git_operations_repo_path_absolute_used_as_cwd () =
   with_temp_workspace (fun workspace ->
@@ -2885,7 +2910,7 @@ let test_git_operations_repo_path_absolute_used_as_cwd () =
       in
       Alcotest.(check bool)
         "status in explicit repo succeeds (no fatal error)" true
-        (not (contains result "fatal:")))
+        (not (Test_helpers.string_contains result "fatal:")))
 
 let make_test_config ~workspace ~allowed_cwd_patterns =
   {
@@ -2946,7 +2971,9 @@ let test_change_working_dir_basic () =
         Lwt_main.run
           (tool.Tool.invoke ~context (`Assoc [ ("path", `String "subdir") ]))
       in
-      Alcotest.(check bool) "result contains new CWD" true (contains result sub);
+      Alcotest.(check bool)
+        "result contains new CWD" true
+        (Test_helpers.string_contains result sub);
       Alcotest.(check (option string))
         "callback received new CWD" (Some sub) !cwd_changed_to)
 
@@ -2976,7 +3003,7 @@ let test_change_working_dir_rejects_unmatched_pattern () =
       in
       Alcotest.(check bool)
         "error mentions allowed_cwd_patterns" true
-        (contains result "allowed_cwd_patterns"))
+        (Test_helpers.string_contains result "allowed_cwd_patterns"))
 
 let test_change_working_dir_allows_matching_pattern () =
   with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
@@ -3033,7 +3060,7 @@ let test_change_working_dir_rejects_nonexistent () =
       in
       Alcotest.(check bool)
         "error for non-existent" true
-        (contains result "does not exist"))
+        (Test_helpers.string_contains result "does not exist"))
 
 let test_change_working_dir_rejects_file () =
   with_temp_dir_tree (fun ~root ~sub:_ ~file ~sub_file:_ ->
@@ -3060,7 +3087,7 @@ let test_change_working_dir_rejects_file () =
       in
       Alcotest.(check bool)
         "error for file target" true
-        (contains result "not a directory"))
+        (Test_helpers.string_contains result "not a directory"))
 
 let test_change_working_dir_wipe_history () =
   with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
@@ -3108,7 +3135,7 @@ let test_file_read_uses_effective_cwd () =
       in
       Alcotest.(check bool)
         "reads from effective CWD" true
-        (contains result "nested content"))
+        (Test_helpers.string_contains result "nested content"))
 
 let test_file_read_on_directory () =
   with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
@@ -3121,11 +3148,13 @@ let test_file_read_on_directory () =
       in
       Alcotest.(check bool)
         "mentions directory" true
-        (contains result "is a directory");
+        (Test_helpers.string_contains result "is a directory");
       Alcotest.(check bool)
         "suggests list_dir with path" true
-        (contains result "list_dir(path=");
-      Alcotest.(check bool) "includes listing" true (contains result "subdir"))
+        (Test_helpers.string_contains result "list_dir(path=");
+      Alcotest.(check bool)
+        "includes listing" true
+        (Test_helpers.string_contains result "subdir"))
 
 let test_shell_exec_uses_effective_cwd () =
   with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
@@ -3152,7 +3181,8 @@ let test_shell_exec_uses_effective_cwd () =
           (tool.Tool.invoke ~context (`Assoc [ ("command", `String "pwd") ]))
       in
       Alcotest.(check bool)
-        "pwd matches effective CWD" true (contains result sub))
+        "pwd matches effective CWD" true
+        (Test_helpers.string_contains result sub))
 
 let test_list_dir_uses_effective_cwd () =
   with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
@@ -3173,7 +3203,7 @@ let test_list_dir_uses_effective_cwd () =
       let result = Lwt_main.run (tool.Tool.invoke ~context (`Assoc [])) in
       Alcotest.(check bool)
         "lists effective CWD contents" true
-        (contains result "nested.txt"))
+        (Test_helpers.string_contains result "nested.txt"))
 
 let test_models_tool_list_includes_db_only_rows () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3187,7 +3217,7 @@ let test_models_tool_list_includes_db_only_rows () =
   in
   Alcotest.(check bool)
     "models tool list includes db-only row" true
-    (contains result "dbprov:fresh-model")
+    (Test_helpers.string_contains result "dbprov:fresh-model")
 
 let test_models_tool_list_availability_filters_db_only_rows () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3215,13 +3245,13 @@ let test_models_tool_list_availability_filters_db_only_rows () =
   in
   Alcotest.(check bool)
     "default excludes unavailable db-only row" true
-    (not (contains default_result "disabled-model"));
+    (not (Test_helpers.string_contains default_result "disabled-model"));
   Alcotest.(check bool)
     "unavailable includes unavailable db-only row" true
-    (contains unavailable_result "dbprov:disabled-model");
+    (Test_helpers.string_contains unavailable_result "dbprov:disabled-model");
   Alcotest.(check bool)
     "unavailable excludes available db-only row" true
-    (not (contains unavailable_result "fresh-model"))
+    (not (Test_helpers.string_contains unavailable_result "fresh-model"))
 
 let test_models_tool_set_accepts_db_only_provider_qualified_model () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3252,7 +3282,7 @@ let test_models_tool_set_accepts_db_only_provider_qualified_model () =
   in
   Alcotest.(check bool)
     "set accepts db-only provider-qualified model" true
-    (contains result "Model set to: fresh-model")
+    (Test_helpers.string_contains result "Model set to: fresh-model")
 
 let test_models_tool_set_rejects_unavailable_cached_model () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3284,7 +3314,7 @@ let test_models_tool_set_rejects_unavailable_cached_model () =
   in
   Alcotest.(check bool)
     "set rejects unavailable cached model" true
-    (contains result "marked unavailable")
+    (Test_helpers.string_contains result "marked unavailable")
 
 let test_models_tool_set_rejects_plain_catalog_deprecated_cached_model () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3315,7 +3345,7 @@ let test_models_tool_set_rejects_plain_catalog_deprecated_cached_model () =
   in
   Alcotest.(check bool)
     "set rejects deprecated bare catalog model" true
-    (contains result "marked deprecated")
+    (Test_helpers.string_contains result "marked deprecated")
 
 (* B604: every tool must declare a "required" array in its JSON schema (even
    if empty) so the Anthropic Messages API (and other strict format providers)
@@ -3610,19 +3640,12 @@ let test_every_required_param_is_enforced_at_runtime () =
               (fun req_name ->
                 let needle = "'" ^ req_name ^ "'" in
                 let hay = msg in
-                let contains =
-                  try
-                    let _ =
-                      Str.search_forward (Str.regexp_string needle) hay 0
-                    in
-                    true
-                  with Not_found -> false
-                in
                 Alcotest.(check bool)
                   (Printf.sprintf
                      "tool %s validate error mentions required param '%s'"
                      t.name req_name)
-                  true contains)
+                  true
+                  (Test_helpers.string_contains hay needle))
               required
       end)
     tools

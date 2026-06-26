@@ -1,13 +1,3 @@
-let contains hay needle =
-  let hlen = String.length hay in
-  let nlen = String.length needle in
-  let rec loop i =
-    if i + nlen > hlen then false
-    else if String.sub hay i nlen = needle then true
-    else loop (i + 1)
-  in
-  nlen = 0 || loop 0
-
 let with_temp_workspace f =
   let dir = Filename.temp_dir "clawq_tools_" "" in
   Fun.protect (fun () -> f dir) ~finally:(fun () -> Test_helpers.rm_tree dir)
@@ -52,7 +42,9 @@ let test_shell_allowlist_rejects_disallowed () =
       in
       let args = `Assoc [ ("command", `String "echo hi") ] in
       let out = Lwt_main.run (tool.invoke args) in
-      Alcotest.(check bool) "blocked" true (contains out "not in the allowlist"))
+      Alcotest.(check bool)
+        "blocked" true
+        (Test_helpers.string_contains out "not in the allowlist"))
 
 let test_shell_allowlist_allows_command () =
   with_drift_check "shell allowlist allows command" (fun () ->
@@ -63,7 +55,9 @@ let test_shell_allowlist_allows_command () =
       in
       let args = `Assoc [ ("command", `String "ls .") ] in
       let out = Lwt_main.run (tool.invoke args) in
-      Alcotest.(check bool) "success" true (contains out "exit_code: 0"))
+      Alcotest.(check bool)
+        "success" true
+        (Test_helpers.string_contains out "exit_code: 0"))
 
 let test_shell_rejects_command_chaining () =
   with_drift_check "shell chaining rejected" (fun () ->
@@ -76,7 +70,7 @@ let test_shell_rejects_command_chaining () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "unsafe syntax blocked" true
-        (contains out "unsafe shell syntax"))
+        (Test_helpers.string_contains out "unsafe shell syntax"))
 
 let test_shell_rejects_dollar_expansion () =
   with_drift_check "shell dollar expansion rejected" (fun () ->
@@ -89,7 +83,7 @@ let test_shell_rejects_dollar_expansion () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "dollar expansion blocked" true
-        (contains out "unsafe shell syntax"))
+        (Test_helpers.string_contains out "unsafe shell syntax"))
 
 let test_shell_handles_quoted_args () =
   with_drift_check "shell quoted args" (fun () ->
@@ -102,7 +96,7 @@ let test_shell_handles_quoted_args () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "quoted arg success" true
-        (contains out "exit_code: 0"))
+        (Test_helpers.string_contains out "exit_code: 0"))
 
 let test_shell_streams_stdout_chunks () =
   with_drift_check "shell streams stdout chunks" (fun () ->
@@ -127,7 +121,8 @@ let test_shell_streams_stdout_chunks () =
           Alcotest.(check string)
             "streamed stdout" "hello\n" (Buffer.contents chunks);
           Alcotest.(check bool)
-            "result still includes stdout" true (contains out "hello"))
+            "result still includes stdout" true
+            (Test_helpers.string_contains out "hello"))
 
 let test_shell_streams_stderr_chunks () =
   with_drift_check "shell streams stderr chunks" (fun () ->
@@ -151,10 +146,11 @@ let test_shell_streams_stderr_chunks () =
           in
           Alcotest.(check bool)
             "streamed stderr" true
-            (contains (Buffer.contents chunks) "definitely-missing-file");
+            (Test_helpers.string_contains (Buffer.contents chunks)
+               "definitely-missing-file");
           Alcotest.(check bool)
             "result still includes stderr" true
-            (contains out "definitely-missing-file"))
+            (Test_helpers.string_contains out "definitely-missing-file"))
 
 let test_shell_rejects_absolute_path_arg () =
   with_drift_check "shell absolute path arg blocked" (fun () ->
@@ -167,7 +163,7 @@ let test_shell_rejects_absolute_path_arg () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "absolute path blocked" true
-        (contains out "disallowed in workspace_only mode"))
+        (Test_helpers.string_contains out "disallowed in workspace_only mode"))
 
 let test_shell_rejects_url_arg () =
   with_drift_check "shell url arg blocked" (fun () ->
@@ -182,7 +178,7 @@ let test_shell_rejects_url_arg () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "url blocked" true
-        (contains out "disallowed in workspace_only mode"))
+        (Test_helpers.string_contains out "disallowed in workspace_only mode"))
 
 let test_shell_rejects_binary_path_bypass () =
   with_drift_check "shell binary path bypass blocked" (fun () ->
@@ -195,7 +191,7 @@ let test_shell_rejects_binary_path_bypass () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "binary path blocked" true
-        (contains out "binary path is disallowed"))
+        (Test_helpers.string_contains out "binary path is disallowed"))
 
 let test_shell_rejects_option_assigned_absolute_path () =
   with_drift_check "shell option assigned absolute path blocked" (fun () ->
@@ -210,7 +206,7 @@ let test_shell_rejects_option_assigned_absolute_path () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "assigned path blocked" true
-        (contains out "disallowed in workspace_only mode"))
+        (Test_helpers.string_contains out "disallowed in workspace_only mode"))
 
 let test_shell_rejects_git_network_subcommand () =
   with_drift_check "shell git network subcommand blocked" (fun () ->
@@ -223,7 +219,7 @@ let test_shell_rejects_git_network_subcommand () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "git clone blocked" true
-        (contains out "disallowed in workspace_only mode"))
+        (Test_helpers.string_contains out "disallowed in workspace_only mode"))
 
 let test_shell_honors_explicit_cwd () =
   with_temp_workspace (fun workspace ->
@@ -245,9 +241,12 @@ let test_shell_honors_explicit_cwd () =
                           ("command", `String "pwd"); ("cwd", `String "nested");
                         ]))
               in
-              Alcotest.(check bool) "success" true (contains out "exit_code: 0");
               Alcotest.(check bool)
-                "pwd uses nested cwd" true (contains out subdir))
+                "success" true
+                (Test_helpers.string_contains out "exit_code: 0");
+              Alcotest.(check bool)
+                "pwd uses nested cwd" true
+                (Test_helpers.string_contains out subdir))
             ~finally:(fun () -> Unix.rmdir subdir)))
 
 let test_shell_rejects_disallowed_cwd () =
@@ -265,7 +264,8 @@ let test_shell_rejects_disallowed_cwd () =
           in
           Alcotest.(check bool)
             "disallowed cwd blocked" true
-            (contains out "cwd is disallowed in workspace_only mode")))
+            (Test_helpers.string_contains out
+               "cwd is disallowed in workspace_only mode")))
 
 let test_shell_extra_allowed_paths_grants_access () =
   let base = Filename.get_temp_dir_name () in
@@ -295,7 +295,7 @@ let test_shell_extra_allowed_paths_grants_access () =
           in
           Alcotest.(check bool)
             "extra allowed path usable in shell" true
-            (contains out "exit_code: 0");
+            (Test_helpers.string_contains out "exit_code: 0");
           let tool_no_extra =
             Tools_builtin.shell_exec ~workspace ~workspace_only:true
               ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
@@ -308,7 +308,8 @@ let test_shell_extra_allowed_paths_grants_access () =
           in
           Alcotest.(check bool)
             "without extra_allowed_paths blocked in shell" true
-            (contains out2 "disallowed in workspace_only mode")))
+            (Test_helpers.string_contains out2
+               "disallowed in workspace_only mode")))
     ~finally:(fun () ->
       (try Unix.rmdir extra_dir with _ -> ());
       try Unix.rmdir workspace with _ -> ())
@@ -390,10 +391,10 @@ let test_grep_supports_regex_and_include_alias () =
       in
       Alcotest.(check bool)
         "regex matches first line" true
-        (contains out "type provider_config = unit");
+        (Test_helpers.string_contains out "type provider_config = unit");
       Alcotest.(check bool)
         "regex matches second line" true
-        (contains out "let search_provider = \"brave\""))
+        (Test_helpers.string_contains out "let search_provider = \"brave\""))
 
 let test_grep_single_file_respects_include_filter () =
   with_temp_workspace (fun workspace ->
@@ -417,7 +418,7 @@ let test_grep_single_file_respects_include_filter () =
       in
       Alcotest.(check bool)
         "non-matching include skips single file" true
-        (contains out "No matches found"))
+        (Test_helpers.string_contains out "No matches found"))
 
 let test_grep_honors_case_sensitive_flag () =
   with_temp_workspace (fun workspace ->
@@ -441,7 +442,7 @@ let test_grep_honors_case_sensitive_flag () =
       in
       Alcotest.(check bool)
         "case-insensitive regex matches" true
-        (contains out "search_provider"))
+        (Test_helpers.string_contains out "search_provider"))
 
 let test_glob_with_root_subdirectory () =
   with_temp_workspace (fun workspace ->
@@ -468,9 +469,12 @@ let test_glob_with_root_subdirectory () =
                   ("root", `String (Filename.concat workspace "subdir"));
                 ]))
       in
-      Alcotest.(check bool) "finds file in subdir" true (contains out "foo.ml");
       Alcotest.(check bool)
-        "does not include file outside subdir" false (contains out "other.ml"))
+        "finds file in subdir" true
+        (Test_helpers.string_contains out "foo.ml");
+      Alcotest.(check bool)
+        "does not include file outside subdir" false
+        (Test_helpers.string_contains out "other.ml"))
 
 let test_glob_invalid_root_returns_error () =
   with_temp_workspace (fun workspace ->
@@ -488,7 +492,8 @@ let test_glob_invalid_root_returns_error () =
                 ]))
       in
       Alcotest.(check bool)
-        "error for nonexistent root" true (contains out "Error"))
+        "error for nonexistent root" true
+        (Test_helpers.string_contains out "Error"))
 
 let test_glob_root_is_file_returns_error () =
   with_temp_workspace (fun workspace ->
@@ -506,7 +511,8 @@ let test_glob_root_is_file_returns_error () =
              (`Assoc [ ("pattern", `String "*.ml"); ("root", `String file) ]))
       in
       Alcotest.(check bool)
-        "error for file used as root" true (contains out "Error"))
+        "error for file used as root" true
+        (Test_helpers.string_contains out "Error"))
 
 let test_list_dir_with_custom_path () =
   with_temp_workspace (fun workspace ->
@@ -528,10 +534,11 @@ let test_list_dir_with_custom_path () =
         Lwt_main.run (tool.Tool.invoke (`Assoc [ ("path", `String subdir) ]))
       in
       Alcotest.(check bool)
-        "finds file inside subdir" true (contains out "inside.ml");
+        "finds file inside subdir" true
+        (Test_helpers.string_contains out "inside.ml");
       Alcotest.(check bool)
         "does not include file outside subdir" false
-        (contains out "outside.ml"))
+        (Test_helpers.string_contains out "outside.ml"))
 
 let test_list_dir_nonexistent_path_returns_error () =
   with_temp_workspace (fun workspace ->
@@ -544,7 +551,8 @@ let test_list_dir_nonexistent_path_returns_error () =
           (tool.Tool.invoke (`Assoc [ ("path", `String "/nonexistent/xyz") ]))
       in
       Alcotest.(check bool)
-        "error for nonexistent path" true (contains out "Error"))
+        "error for nonexistent path" true
+        (Test_helpers.string_contains out "Error"))
 
 let test_list_dir_file_path_returns_error () =
   with_temp_workspace (fun workspace ->
@@ -560,7 +568,8 @@ let test_list_dir_file_path_returns_error () =
         Lwt_main.run (tool.Tool.invoke (`Assoc [ ("path", `String file) ]))
       in
       Alcotest.(check bool)
-        "error for file used as path" true (contains out "Error"))
+        "error for file used as path" true
+        (Test_helpers.string_contains out "Error"))
 
 let test_grep_with_directory_arg () =
   with_temp_workspace (fun workspace ->
@@ -588,9 +597,11 @@ let test_grep_with_directory_arg () =
                 ]))
       in
       Alcotest.(check bool)
-        "finds match in subdir" true (contains out "main.ml");
+        "finds match in subdir" true
+        (Test_helpers.string_contains out "main.ml");
       Alcotest.(check bool)
-        "does not search outside subdir" false (contains out "README.md"))
+        "does not search outside subdir" false
+        (Test_helpers.string_contains out "README.md"))
 
 let test_grep_invalid_path_returns_error () =
   with_temp_workspace (fun workspace ->
@@ -608,7 +619,8 @@ let test_grep_invalid_path_returns_error () =
                 ]))
       in
       Alcotest.(check bool)
-        "error for nonexistent path" true (contains out "Error"))
+        "error for nonexistent path" true
+        (Test_helpers.string_contains out "Error"))
 
 let test_transcribe_rejects_outside_workspace () =
   with_temp_workspace (fun _workspace ->
@@ -618,7 +630,7 @@ let test_transcribe_rejects_outside_workspace () =
       let out = Lwt_main.run (tool.invoke args) in
       Alcotest.(check bool)
         "outside workspace blocked" true
-        (contains out "outside workspace"))
+        (Test_helpers.string_contains out "outside workspace"))
 
 let test_extra_allowed_paths_grants_access () =
   let base = Filename.get_temp_dir_name () in
@@ -656,7 +668,7 @@ let test_extra_allowed_paths_grants_access () =
       in
       Alcotest.(check bool)
         "without extra_allowed_paths blocked" true
-        (contains out2 "outside workspace"))
+        (Test_helpers.string_contains out2 "outside workspace"))
     ~finally:(fun () ->
       (try Unix.unlink extra_file with _ -> ());
       (try Unix.rmdir extra_dir with _ -> ());
@@ -696,7 +708,7 @@ let test_file_read_large_file_requires_paged_read () =
       in
       Alcotest.(check bool)
         "oversized read blocked with guidance" true
-        (contains out "offset/limit"))
+        (Test_helpers.string_contains out "offset/limit"))
 
 let test_file_read_paged_window_with_line_numbers () =
   with_temp_workspace (fun workspace ->
@@ -718,9 +730,15 @@ let test_file_read_paged_window_with_line_numbers () =
                   ("limit", `Int 2);
                 ]))
       in
-      Alcotest.(check bool) "includes line 2" true (contains out "2: two");
-      Alcotest.(check bool) "includes line 3" true (contains out "3: three");
-      Alcotest.(check bool) "omits line 1" false (contains out "1: one"))
+      Alcotest.(check bool)
+        "includes line 2" true
+        (Test_helpers.string_contains out "2: two");
+      Alcotest.(check bool)
+        "includes line 3" true
+        (Test_helpers.string_contains out "3: three");
+      Alcotest.(check bool)
+        "omits line 1" false
+        (Test_helpers.string_contains out "1: one"))
 
 let test_file_read_paged_truncates_pathological_long_line () =
   with_temp_workspace (fun workspace ->
@@ -744,10 +762,10 @@ let test_file_read_paged_truncates_pathological_long_line () =
       in
       Alcotest.(check bool)
         "long line is truncated" true
-        (contains out "(truncated");
+        (Test_helpers.string_contains out "(truncated");
       Alcotest.(check bool)
         "truncation note included" true
-        (contains out "long lines are truncated");
+        (Test_helpers.string_contains out "long lines are truncated");
       Alcotest.(check bool)
         "paged output stays bounded" true
         (String.length out < 10000))
@@ -774,7 +792,7 @@ let test_file_read_rejects_invalid_offset_limit () =
       in
       Alcotest.(check bool)
         "offset validation error" true
-        (contains offset_err "offset must be >= 1");
+        (Test_helpers.string_contains offset_err "offset must be >= 1");
       let limit_low_err =
         Lwt_main.run
           (tool.invoke
@@ -787,7 +805,7 @@ let test_file_read_rejects_invalid_offset_limit () =
       in
       Alcotest.(check bool)
         "limit lower bound validation error" true
-        (contains limit_low_err "limit must be >= 1");
+        (Test_helpers.string_contains limit_low_err "limit must be >= 1");
       let limit_high_err =
         Lwt_main.run
           (tool.invoke
@@ -800,7 +818,7 @@ let test_file_read_rejects_invalid_offset_limit () =
       in
       Alcotest.(check bool)
         "limit upper bound validation error" true
-        (contains limit_high_err "limit must be <= 2000"))
+        (Test_helpers.string_contains limit_high_err "limit must be <= 2000"))
 
 let test_file_read_rejects_symlink_escape () =
   let base = Filename.get_temp_dir_name () in
@@ -832,7 +850,7 @@ let test_file_read_rejects_symlink_escape () =
       in
       Alcotest.(check bool)
         "symlink escape blocked" true
-        (contains out "outside workspace"))
+        (Test_helpers.string_contains out "outside workspace"))
     ~finally:(fun () ->
       (try Unix.unlink link_path with _ -> ());
       (try Unix.unlink outside_file with _ -> ());
@@ -860,18 +878,12 @@ let test_file_write_rejects_backlog_path () =
                   ("content", `String "hallucinated bug content");
                 ]))
       in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "refuses backlog path" true
-        (contains out "refusing to file_write");
+        (Test_helpers.string_contains out "refusing to file_write");
       Alcotest.(check bool)
         "points to bl bug --simple" true
-        (contains out "bl bug --simple");
+        (Test_helpers.string_contains out "bl bug --simple");
       Alcotest.(check bool)
         "file was NOT created" false
         (Sys.file_exists backlog_path))
@@ -888,15 +900,9 @@ let test_file_append_rejects_nested_backlog_path () =
           (tool.invoke
              (`Assoc [ ("path", `String nested); ("content", `String "x") ]))
       in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "refuses nested .backlog" true
-        (contains out ".backlog/ directory is managed");
+        (Test_helpers.string_contains out ".backlog/ directory is managed");
       Alcotest.(check bool) "did not create file" false (Sys.file_exists nested))
 
 let test_file_write_allows_nonbacklog_path () =
@@ -911,14 +917,9 @@ let test_file_write_allows_nonbacklog_path () =
           (tool.invoke
              (`Assoc [ ("path", `String safe_path); ("content", `String "ok") ]))
       in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
-        "non-backlog write succeeds" true (contains out "Written"))
+        "non-backlog write succeeds" true
+        (Test_helpers.string_contains out "Written"))
 
 let test_file_append_creates_and_appends () =
   with_temp_workspace (fun workspace ->
@@ -1048,7 +1049,7 @@ let test_register_all_file_read_path_policy_tracks_security_config () =
       in
       Alcotest.(check bool)
         "workspace_only blocks outside file" true
-        (contains blocked_out "outside workspace");
+        (Test_helpers.string_contains blocked_out "outside workspace");
 
       let cfg_extra_allowed =
         mk_cfg ~dynamic_enabled:true ~workspace_only:true
@@ -1131,7 +1132,8 @@ let test_register_all_shell_path_policy_tracks_security_config () =
       in
       Alcotest.(check bool)
         "workspace_only blocks outside path arg" true
-        (contains blocked_out "disallowed in workspace_only mode");
+        (Test_helpers.string_contains blocked_out
+           "disallowed in workspace_only mode");
 
       let cfg_extra_allowed =
         mk_cfg ~dynamic_enabled:true ~workspace_only:true
@@ -1149,7 +1151,7 @@ let test_register_all_shell_path_policy_tracks_security_config () =
       in
       Alcotest.(check bool)
         "extra_allowed_paths permits shell path arg" true
-        (contains extra_out "exit_code: 0"))
+        (Test_helpers.string_contains extra_out "exit_code: 0"))
     ~finally:(fun () ->
       (try Unix.rmdir extra_dir with _ -> ());
       try Unix.rmdir workspace with _ -> ())
@@ -1174,9 +1176,11 @@ let test_shell_exec_rejects_missing_command () =
       let tool = find_tool_exn registry "shell_exec" in
       let out = Lwt_main.run (tool.Tool.invoke (`Assoc [])) in
       Alcotest.(check bool)
-        "error mentions command" true (contains out "command");
+        "error mentions command" true
+        (Test_helpers.string_contains out "command");
       Alcotest.(check bool)
-        "error includes Example" true (contains out "Example"))
+        "error includes Example" true
+        (Test_helpers.string_contains out "Example"))
 
 let test_shell_exec_rejects_null_command () =
   with_temp_workspace (fun workspace ->
@@ -1200,9 +1204,11 @@ let test_shell_exec_rejects_null_command () =
         Lwt_main.run (tool.Tool.invoke (`Assoc [ ("command", `Null) ]))
       in
       Alcotest.(check bool)
-        "error mentions command" true (contains out "command");
+        "error mentions command" true
+        (Test_helpers.string_contains out "command");
       Alcotest.(check bool)
-        "error includes Example" true (contains out "Example"))
+        "error includes Example" true
+        (Test_helpers.string_contains out "Example"))
 
 let test_validate_required_params_catches_missing () =
   let mock_tool : Tool.t =
@@ -1228,14 +1234,21 @@ let test_validate_required_params_catches_missing () =
   in
   (match Tool.validate_required_params mock_tool (`Assoc []) with
   | Error msg ->
-      Alcotest.(check bool) "mentions foo" true (contains msg "'foo'");
-      Alcotest.(check bool) "mentions bar" true (contains msg "'bar'");
-      Alcotest.(check bool) "mentions tool name" true (contains msg "test_tool")
+      Alcotest.(check bool)
+        "mentions foo" true
+        (Test_helpers.string_contains msg "'foo'");
+      Alcotest.(check bool)
+        "mentions bar" true
+        (Test_helpers.string_contains msg "'bar'");
+      Alcotest.(check bool)
+        "mentions tool name" true
+        (Test_helpers.string_contains msg "test_tool")
   | Ok () -> Alcotest.fail "expected Error for missing required params");
   match Tool.validate_required_params mock_tool (`Assoc [ ("foo", `Null) ]) with
   | Error msg ->
       Alcotest.(check bool)
-        "null treated as missing" true (contains msg "'foo'")
+        "null treated as missing" true
+        (Test_helpers.string_contains msg "'foo'")
   | Ok () -> Alcotest.fail "expected Error for null required param"
 
 (* B622: when the model emits the same missing-param failure repeatedly,
@@ -1265,25 +1278,29 @@ let test_missing_required_error_escalates_on_repeats () =
   | Error msg ->
       Alcotest.(check bool)
         "level 0: no SECOND/STOP escalation prefix" true
-        ((not (contains msg "SECOND")) && not (contains msg "STOP"));
+        ((not (Test_helpers.string_contains msg "SECOND"))
+        && not (Test_helpers.string_contains msg "STOP"));
       Alcotest.(check bool)
         "level 0: warns that repeating will abort" true
-        (contains msg "abort this turn")
+        (Test_helpers.string_contains msg "abort this turn")
   | Ok () -> Alcotest.fail "expected Error on first repeat");
   (match go (`Assoc []) with
   | Error msg ->
       Alcotest.(check bool)
-        "level 1: SECOND notice present" true (contains msg "SECOND");
+        "level 1: SECOND notice present" true
+        (Test_helpers.string_contains msg "SECOND");
       Alcotest.(check bool)
         "level 1: FINAL WARNING present" true
-        (contains msg "FINAL WARNING")
+        (Test_helpers.string_contains msg "FINAL WARNING")
   | Ok () -> Alcotest.fail "expected Error on second repeat");
   (match go (`Assoc []) with
   | Error msg ->
       Alcotest.(check bool)
-        "level 2+: STOP notice present" true (contains msg "STOP");
+        "level 2+: STOP notice present" true
+        (Test_helpers.string_contains msg "STOP");
       Alcotest.(check bool)
-        "level 2+: ABORT notice present" true (contains msg "ABORT")
+        "level 2+: ABORT notice present" true
+        (Test_helpers.string_contains msg "ABORT")
   | Ok () -> Alcotest.fail "expected Error on third repeat");
   (* B677: after the threshold (default 3), the agent's hard_abort_reason
      should be set so the turn loop can terminate. *)
@@ -1298,7 +1315,8 @@ let test_missing_required_error_escalates_on_repeats () =
   | Error msg ->
       Alcotest.(check bool)
         "back to level 0 after successful intervening call" true
-        ((not (contains msg "SECOND")) && not (contains msg "STOP"))
+        ((not (Test_helpers.string_contains msg "SECOND"))
+        && not (Test_helpers.string_contains msg "STOP"))
   | Ok () -> Alcotest.fail "expected Error after reset"
 
 (* B677: dedicated test — circuit breaker arms hard_abort_reason at the

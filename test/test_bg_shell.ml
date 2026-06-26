@@ -1,9 +1,3 @@
-let contains hay needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) hay 0);
-    true
-  with Not_found -> false
-
 let with_temp_workspace f =
   let dir = Filename.temp_file "clawq_bg_shell_test" "" in
   Sys.remove dir;
@@ -56,7 +50,7 @@ let test_basic_detach () =
       in
       Alcotest.(check bool)
         "contains job info" true
-        (contains result "Background shell job");
+        (Test_helpers.string_contains result "Background shell job");
       let job_id = extract_job_id result in
       let wait_tool = Tools_bg_shell.bg_shell_wait () in
       ignore
@@ -67,7 +61,9 @@ let test_basic_detach () =
       Alcotest.(check bool) "job found" true (job <> None);
       let job = Option.get job in
       let log = Bg_shell.read_log job () in
-      Alcotest.(check bool) "log contains hello" true (contains log "hello"))
+      Alcotest.(check bool)
+        "log contains hello" true
+        (Test_helpers.string_contains log "hello"))
 
 let test_status_running () =
   with_temp_workspace (fun workspace ->
@@ -106,7 +102,7 @@ let test_status_running () =
       in
       Alcotest.(check bool)
         "contains job info" true
-        (contains result "Background shell job");
+        (Test_helpers.string_contains result "Background shell job");
       let job_id = extract_job_id result in
       let status_tool = Tools_bg_shell.bg_shell_status () in
       let status_result =
@@ -114,7 +110,7 @@ let test_status_running () =
       in
       Alcotest.(check bool)
         "status says running" true
-        (contains status_result "Running");
+        (Test_helpers.string_contains status_result "Running");
       (* Wait for the job to finish *)
       let wait_tool = Tools_bg_shell.bg_shell_wait () in
       ignore
@@ -126,7 +122,7 @@ let test_status_running () =
       in
       Alcotest.(check bool)
         "status says finished" true
-        (contains status_result2 "Finished"))
+        (Test_helpers.string_contains status_result2 "Finished"))
 
 let test_result_windowed () =
   with_temp_workspace (fun workspace ->
@@ -184,10 +180,11 @@ let test_result_windowed () =
              (`Assoc [ ("id", `Int job_id); ("head", `Int 5) ]))
       in
       Alcotest.(check bool)
-        "result contains line 1" true (contains result "line 1");
+        "result contains line 1" true
+        (Test_helpers.string_contains result "line 1");
       Alcotest.(check bool)
         "result contains Finished" true
-        (contains result "Finished"))
+        (Test_helpers.string_contains result "Finished"))
 
 let test_exit_code_captured () =
   with_temp_workspace (fun workspace ->
@@ -244,7 +241,7 @@ let test_not_found () =
   in
   Alcotest.(check bool)
     "error message" true
-    (contains result "Error: no background shell job")
+    (Test_helpers.string_contains result "Error: no background shell job")
 
 let test_result_while_running () =
   with_temp_workspace (fun workspace ->
@@ -288,7 +285,7 @@ let test_result_while_running () =
       in
       Alcotest.(check bool)
         "error for running job" true
-        (contains result "still running");
+        (Test_helpers.string_contains result "still running");
       (* Clean up: kill the long-running process *)
       let job = Option.get (Bg_shell.find job_id) in
       Process_group.signal_group job.pid Sys.sigkill;

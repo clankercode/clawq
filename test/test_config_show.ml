@@ -124,12 +124,6 @@ let test_smart_render_small_passthrough () =
   let expected = Yojson.Safe.pretty_to_string ~std:true json in
   Alcotest.(check string) "small json passes through" expected result
 
-let contains s sub =
-  try
-    ignore (Str.search_forward (Str.regexp_string sub) s 0);
-    true
-  with Not_found -> false
-
 let test_smart_render_preserves_scalars () =
   let json =
     `Assoc
@@ -142,17 +136,21 @@ let test_smart_render_preserves_scalars () =
       @ [ make_large_section "security" 80 ])
   in
   let result = Config_show.smart_render json in
-  Alcotest.(check bool) "contains workspace" true (contains result "workspace");
+  Alcotest.(check bool)
+    "contains workspace" true
+    (Test_helpers.string_contains result "workspace");
   Alcotest.(check bool)
     "contains workspace value" true
-    (contains result "/home/user/project");
-  Alcotest.(check bool) "contains temperature" true (contains result "0.7");
+    (Test_helpers.string_contains result "/home/user/project");
+  Alcotest.(check bool)
+    "contains temperature" true
+    (Test_helpers.string_contains result "0.7");
   Alcotest.(check bool)
     "channels summarized" true
-    (contains result "channels: {80 fields}");
+    (Test_helpers.string_contains result "channels: {80 fields}");
   Alcotest.(check bool)
     "security summarized" true
-    (contains result "security: {80 fields}")
+    (Test_helpers.string_contains result "security: {80 fields}")
 
 let test_smart_render_section_summary_format () =
   let json =
@@ -161,10 +159,11 @@ let test_smart_render_section_summary_format () =
   let result = Config_show.smart_render json in
   Alcotest.(check bool)
     "has section hint" true
-    (contains result "Sections (use 'config show <name>' for details):");
+    (Test_helpers.string_contains result
+       "Sections (use 'config show <name>' for details):");
   Alcotest.(check bool)
     "has section summary" true
-    (contains result "big_section: {100 fields}")
+    (Test_helpers.string_contains result "big_section: {100 fields}")
 
 let test_smart_render_with_prefix () =
   let json =
@@ -178,13 +177,13 @@ let test_smart_render_with_prefix () =
   let result = Config_show.smart_render ~prefix:"channels" json in
   Alcotest.(check bool)
     "telegram with prefix" true
-    (contains result "channels.telegram: {50 fields}");
+    (Test_helpers.string_contains result "channels.telegram: {50 fields}");
   Alcotest.(check bool)
     "discord with prefix" true
-    (contains result "channels.discord: {40 fields}");
+    (Test_helpers.string_contains result "channels.discord: {40 fields}");
   Alcotest.(check bool)
     "scalar preserved" true
-    (contains result "\"cli\": true")
+    (Test_helpers.string_contains result "\"cli\": true")
 
 let test_smart_render_all_scalars () =
   (* Even if over threshold, if no sections, just render everything *)
@@ -211,7 +210,7 @@ let test_smart_render_list_sections () =
   let result = Config_show.smart_render json in
   Alcotest.(check bool)
     "list summarized" true
-    (contains result "items: [20 items]")
+    (Test_helpers.string_contains result "items: [20 items]")
 
 (* --- resolve_dot_path tests --- *)
 

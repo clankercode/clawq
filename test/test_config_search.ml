@@ -6,21 +6,6 @@ let search_lines query =
   let out = Config_search.search query in
   String.split_on_char '\n' out
 
-let contains_line ~substr lines =
-  List.exists
-    (fun line ->
-      let h = String.length line and n = String.length substr in
-      if n > h then false
-      else
-        let found = ref false in
-        let i = ref 0 in
-        while !i <= h - n && not !found do
-          if String.sub line !i n = substr then found := true;
-          incr i
-        done;
-        !found)
-    lines
-
 let test_search_empty_query () =
   let out = Config_search.search "" in
   Alcotest.(check bool)
@@ -41,47 +26,67 @@ let test_search_workspace_exact () =
   let lines = search_lines "workspace" in
   Alcotest.(check bool)
     "workspace leaf in results" true
-    (contains_line ~substr:"workspace" lines)
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "workspace")
+       lines)
 
 let test_search_api_key_segment () =
   (* "api_key" is the last segment of several paths; exact segment score *)
   let lines = search_lines "api_key" in
   Alcotest.(check bool)
     "providers.<NAME>.api_key in results" true
-    (contains_line ~substr:"providers.<NAME>.api_key" lines);
+    (List.exists
+       (fun line ->
+         Test_helpers.string_contains line "providers.<NAME>.api_key")
+       lines);
   Alcotest.(check bool)
     "web_search.api_key in results" true
-    (contains_line ~substr:"web_search.api_key" lines)
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "web_search.api_key")
+       lines)
 
 let test_search_security_prefix () =
   (* "security" is a section; exact segment match returns all sub-keys *)
   let lines = search_lines "security" in
   Alcotest.(check bool)
     "security section in results" true
-    (contains_line ~substr:"security" lines);
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "security")
+       lines);
   Alcotest.(check bool)
     "security.workspace_only in results" true
-    (contains_line ~substr:"security.workspace_only" lines);
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "security.workspace_only")
+       lines);
   Alcotest.(check bool)
     "security.audit_enabled in results" true
-    (contains_line ~substr:"security.audit_enabled" lines)
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "security.audit_enabled")
+       lines)
 
 let test_search_telegram_section () =
   (* "telegram" appears as a segment under channels *)
   let lines = search_lines "telegram" in
   Alcotest.(check bool)
     "channels.telegram sub-paths present" true
-    (contains_line ~substr:"channels.telegram" lines)
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "channels.telegram")
+       lines)
 
 let test_search_token_substring () =
   (* "token" is a substring of multiple key names *)
   let lines = search_lines "token" in
   Alcotest.(check bool)
     "channels.discord.bot_token in results" true
-    (contains_line ~substr:"channels.discord.bot_token" lines);
+    (List.exists
+       (fun line ->
+         Test_helpers.string_contains line "channels.discord.bot_token")
+       lines);
   Alcotest.(check bool)
     "gateway.auth_token in results" true
-    (contains_line ~substr:"gateway.auth_token" lines)
+    (List.exists
+       (fun line -> Test_helpers.string_contains line "gateway.auth_token")
+       lines)
 
 let test_search_ordering_exact_first () =
   (* Exact full-path match must appear before substring matches.

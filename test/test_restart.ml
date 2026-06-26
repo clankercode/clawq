@@ -9,12 +9,6 @@ let read_all ic =
 
 let rec last = function [] -> None | [ x ] -> Some x | _ :: xs -> last xs
 
-let contains_str haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
-
 let query_single_int db sql =
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -318,8 +312,8 @@ let test_service_signal_restart_preserves_history () =
       in
       Alcotest.(check bool)
         "first response includes initial message" true
-        (contains_str first_response "users=1"
-        && contains_str first_response "hello restart");
+        (Test_helpers.string_contains first_response "users=1"
+        && Test_helpers.string_contains first_response "hello restart");
       let db = Sqlite3.db_open db_path in
       Fun.protect
         ~finally:(fun () -> ignore (Sqlite3.db_close db))
@@ -376,8 +370,8 @@ let test_service_signal_restart_preserves_history () =
       in
       Alcotest.(check bool)
         "post-restart response sees earlier history" true
-        (contains_str second_response "users=2"
-        && contains_str second_response "hello restart"))
+        (Test_helpers.string_contains second_response "users=2"
+        && Test_helpers.string_contains second_response "hello restart"))
 
 let suite =
   [

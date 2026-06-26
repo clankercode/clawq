@@ -3,12 +3,6 @@ let fresh_db () =
   Task_tree.init_schema db;
   db
 
-let contains_substring ~needle haystack =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
-
 let utf8_column_count s =
   let len = String.length s in
   let rec loop i columns =
@@ -113,10 +107,10 @@ let test_agent_metadata_round_trips () =
   let rendered = Task_tree.render_tree ~db ~session_key:"s1" in
   Alcotest.(check bool)
     "render shows autostart" true
-    (contains_substring ~needle:"autostart" rendered);
+    (Test_helpers.string_contains rendered "autostart");
   Alcotest.(check bool)
     "render shows agent type" true
-    (contains_substring ~needle:"agent=coder" rendered)
+    (Test_helpers.string_contains rendered "agent=coder")
 
 let test_autostart_ready_tasks_wait_for_dependencies () =
   let db = fresh_db () in
@@ -246,10 +240,10 @@ let test_add_legacy_hash_parent_confirmation_uses_display_id () =
   | Ok output ->
       Alcotest.(check bool)
         "confirmation uses resolved parent display id" true
-        (contains_substring ~needle:"child of T1" output);
+        (Test_helpers.string_contains output "child of T1");
       Alcotest.(check bool)
         "confirmation omits raw legacy parent id" false
-        (contains_substring ~needle:"child of #1" output)
+        (Test_helpers.string_contains output "child of #1")
   | Error e -> Alcotest.fail e);
   let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let child = List.find (fun t -> t.Task_tree.title = "Child") tasks in
@@ -828,13 +822,13 @@ let test_tool_invoke_round_trip () =
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
   Alcotest.(check bool)
     "contains displayed task id" true
-    (contains_substring ~needle:"Added T1" result);
+    (Test_helpers.string_contains result "Added T1");
   Alcotest.(check bool)
     "omits automatic compact summary" false
-    (contains_substring ~needle:"Tasks: 1 total" result);
+    (Test_helpers.string_contains result "Tasks: 1 total");
   Alcotest.(check bool)
     "does not emit github-style issue reference" false
-    (contains_substring ~needle:"#1" result)
+    (Test_helpers.string_contains result "#1")
 
 let test_tool_risk_level_medium_for_autostart () =
   let db = fresh_db () in
@@ -858,13 +852,13 @@ let test_process_operations_mutation_response_is_concise () =
   | Ok output ->
       Alcotest.(check bool)
         "contains assigned displayed id" true
-        (contains_substring ~needle:"Added T1" output);
+        (Test_helpers.string_contains output "Added T1");
       Alcotest.(check bool)
         "omits long title" false
-        (contains_substring ~needle:long_title output);
+        (Test_helpers.string_contains output long_title);
       Alcotest.(check bool)
         "omits automatic compact summary" false
-        (contains_substring ~needle:"Tasks: 1 total" output)
+        (Test_helpers.string_contains output "Tasks: 1 total")
 
 let test_process_operations_accepts_displayed_t_id () =
   let db = fresh_db () in
@@ -907,22 +901,22 @@ let test_process_operations_default_and_list_use_display_ids () =
   let check_output label output =
     Alcotest.(check bool)
       (label ^ " contains T1") true
-      (contains_substring ~needle:"T1" output);
+      (Test_helpers.string_contains output "T1");
     Alcotest.(check bool)
       (label ^ " contains T2") true
-      (contains_substring ~needle:"T2" output);
+      (Test_helpers.string_contains output "T2");
     Alcotest.(check bool)
       (label ^ " uses unicode tree")
       true
-      (contains_substring ~needle:"└──" output);
+      (Test_helpers.string_contains output "└──");
     Alcotest.(check bool)
       (label ^ " omits old numbered tree")
       false
-      (contains_substring ~needle:"1. [ ] Root" output);
+      (Test_helpers.string_contains output "1. [ ] Root");
     Alcotest.(check bool)
       (label ^ " omits github-style id")
       false
-      (contains_substring ~needle:"#1" output)
+      (Test_helpers.string_contains output "#1")
   in
   (match Task_tree.process_operations ~db ~session_key:"s1" [] with
   | Ok output -> check_output "default list" output
@@ -940,11 +934,11 @@ let test_legacy_hash_id_mutation_confirmations_use_display_id () =
     Alcotest.(check bool)
       (label ^ " shows resolved display id")
       true
-      (contains_substring ~needle:expected output);
+      (Test_helpers.string_contains output expected);
     Alcotest.(check bool)
       (label ^ " omits raw hash id")
       false
-      (contains_substring ~needle:"#1" output)
+      (Test_helpers.string_contains output "#1")
   in
   let _ =
     Task_tree.process_operations ~db ~session_key:"s1"
@@ -999,13 +993,13 @@ let test_add_rejects_hash_prefixed_custom_id () =
   | Error msg ->
       Alcotest.(check bool)
         "mentions hash-prefixed IDs" true
-        (contains_substring ~needle:"must not start with '#'" msg);
+        (Test_helpers.string_contains msg "must not start with '#'");
       Alcotest.(check bool)
         "mentions auto-assignment" true
-        (contains_substring ~needle:"omit 'id' for auto-assignment" msg);
+        (Test_helpers.string_contains msg "omit 'id' for auto-assignment");
       Alcotest.(check bool)
         "mentions custom ID alternative" true
-        (contains_substring ~needle:"non-# custom ID" msg)
+        (Test_helpers.string_contains msg "non-# custom ID")
   | Ok _ -> Alcotest.fail "Expected error for hash-prefixed custom ID");
   let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "no task created" 0 (List.length tasks)
@@ -1031,7 +1025,7 @@ let test_display_id_collision_rejected () =
   | Error msg ->
       Alcotest.(check bool)
         "mentions display ID collision" true
-        (contains_substring ~needle:"display ID 'T1'" msg)
+        (Test_helpers.string_contains msg "display ID 'T1'")
   | Ok _ -> Alcotest.fail "Expected error for colliding display ID"
 
 let test_auto_id_skips_custom_display_id () =
@@ -1386,16 +1380,16 @@ let test_render_tree_uses_unicode_connectors_and_wraps () =
   let output = Task_tree.render_tree ~db ~session_key:"s1" in
   Alcotest.(check bool)
     "contains branch connector" true
-    (contains_substring ~needle:"├──" output);
+    (Test_helpers.string_contains output "├──");
   Alcotest.(check bool)
     "contains end connector" true
-    (contains_substring ~needle:"└──" output);
+    (Test_helpers.string_contains output "└──");
   Alcotest.(check bool)
     "contains continuation vertical" true
-    (contains_substring ~needle:"│" output);
+    (Test_helpers.string_contains output "│");
   Alcotest.(check bool)
     "does not use numbered ASCII tree" false
-    (contains_substring ~needle:"1. [ ]" output);
+    (Test_helpers.string_contains output "1. [ ]");
   check_wrapped_to_80 "full tree" output
 
 let test_render_emoji_tree_empty () =
@@ -1508,10 +1502,11 @@ let test_render_emoji_tree_wraps_long_titles () =
   let output = Task_tree.render_emoji_tree ~db ~session_key:"s1" () in
   Alcotest.(check bool)
     "does not truncate with ellipsis" false
-    (contains_substring ~needle:"..." output);
+    (Test_helpers.string_contains output "...");
   Alcotest.(check bool)
     "retains trailing title context" true
-    (contains_substring ~needle:"useful after wrapping at eighty columns" output);
+    (Test_helpers.string_contains output
+       "useful after wrapping at eighty columns");
   check_wrapped_to_80 "compact tree" output
 
 let test_render_emoji_tree_summary () =
@@ -1771,10 +1766,10 @@ let test_reorder_hash_ids_confirm_with_display_ids () =
   | Ok output ->
       Alcotest.(check bool)
         "confirmation uses display ids" true
-        (contains_substring ~needle:"Reordered T3 to before:T1" output);
+        (Test_helpers.string_contains output "Reordered T3 to before:T1");
       Alcotest.(check bool)
         "confirmation omits raw hash id" false
-        (contains_substring ~needle:"#1" output)
+        (Test_helpers.string_contains output "#1")
   | Error e -> Alcotest.fail e);
   let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
@@ -2157,12 +2152,6 @@ let test_error_msg_unknown_op_lists_valid () =
            true
          with Not_found -> false)
 
-let contains s sub =
-  try
-    ignore (Str.search_forward (Str.regexp_string sub) s 0);
-    true
-  with Not_found -> false
-
 let test_format_notification_add () =
   let db = fresh_db () in
   let _ =
@@ -2181,13 +2170,13 @@ let test_format_notification_add () =
   | Some text ->
       Alcotest.(check bool)
         "contains add count" true
-        (contains text "Added 1 task");
+        (Test_helpers.string_contains text "Added 1 task");
       Alcotest.(check bool)
         "omits per-add status echo" false
-        (contains text "[pending]");
+        (Test_helpers.string_contains text "[pending]");
       Alcotest.(check bool)
         "contains header" true
-        (contains text "Task tree updated")
+        (Test_helpers.string_contains text "Task tree updated")
 
 let test_format_notification_update () =
   let db = fresh_db () in
@@ -2212,10 +2201,15 @@ let test_format_notification_update () =
   match result with
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
-      Alcotest.(check bool) "contains T1" true (contains text "`T1`");
       Alcotest.(check bool)
-        "does not contain github-style id" false (contains text "`#1`");
-      Alcotest.(check bool) "contains done" true (contains text "`done`")
+        "contains T1" true
+        (Test_helpers.string_contains text "`T1`");
+      Alcotest.(check bool)
+        "does not contain github-style id" false
+        (Test_helpers.string_contains text "`#1`");
+      Alcotest.(check bool)
+        "contains done" true
+        (Test_helpers.string_contains text "`done`")
 
 let test_format_notification_hash_id_resolves_to_display_id () =
   let db = fresh_db () in
@@ -2240,9 +2234,12 @@ let test_format_notification_hash_id_resolves_to_display_id () =
   match result with
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
-      Alcotest.(check bool) "contains T1" true (contains text "`T1`");
       Alcotest.(check bool)
-        "does not contain raw hash id" false (contains text "`#1`")
+        "contains T1" true
+        (Test_helpers.string_contains text "`T1`");
+      Alcotest.(check bool)
+        "does not contain raw hash id" false
+        (Test_helpers.string_contains text "`#1`")
 
 let test_format_notification_focus () =
   let db = fresh_db () in
@@ -2275,10 +2272,12 @@ let test_format_notification_focus () =
   match result with
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
-      Alcotest.(check bool) "contains Focus" true (contains text "Focus:");
+      Alcotest.(check bool)
+        "contains Focus" true
+        (Test_helpers.string_contains text "Focus:");
       Alcotest.(check bool)
         "contains task title" true
-        (contains text "Single task")
+        (Test_helpers.string_contains text "Single task")
 
 let test_format_notification_multiple_active () =
   let db = fresh_db () in
@@ -2318,10 +2317,15 @@ let test_format_notification_multiple_active () =
   match result with
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
-      Alcotest.(check bool) "contains Focus" true (contains text "Focus:");
-      Alcotest.(check bool) "contains a" true (contains text "a");
       Alcotest.(check bool)
-        "does not list every active task" false (contains text "Task B")
+        "contains Focus" true
+        (Test_helpers.string_contains text "Focus:");
+      Alcotest.(check bool)
+        "contains a" true
+        (Test_helpers.string_contains text "a");
+      Alcotest.(check bool)
+        "does not list every active task" false
+        (Test_helpers.string_contains text "Task B")
 
 let test_format_notification_reorder_only () =
   let db = fresh_db () in
@@ -2350,13 +2354,13 @@ let test_format_notification_discord_formatting () =
   | Some text ->
       Alcotest.(check bool)
         "Discord bold header" true
-        (contains text "**Task tree updated**");
+        (Test_helpers.string_contains text "**Task tree updated**");
       Alcotest.(check bool)
         "Discord add count" true
-        (contains text "Added 1 task");
+        (Test_helpers.string_contains text "Added 1 task");
       Alcotest.(check bool)
         "does not echo add title" false
-        (contains text "**My task**")
+        (Test_helpers.string_contains text "**My task**")
 
 let test_tool_notify_called_on_success () =
   let db = fresh_db () in
@@ -2389,14 +2393,16 @@ let test_tool_notify_called_on_success () =
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
-  Alcotest.(check bool) "tool succeeded" true (contains result "Added");
+  Alcotest.(check bool)
+    "tool succeeded" true
+    (Test_helpers.string_contains result "Added");
   match !notified with
   | None -> Alcotest.fail "Expected notification to be sent"
   | Some (sk, text) ->
       Alcotest.(check string) "session key" "test:1" sk;
       Alcotest.(check bool)
         "notification contains title" true
-        (contains text "Notify me")
+        (Test_helpers.string_contains text "Notify me")
 
 let test_tool_notify_not_called_on_error () =
   let db = fresh_db () in
@@ -2428,7 +2434,9 @@ let test_tool_notify_not_called_on_error () =
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
-  Alcotest.(check bool) "tool errored" true (contains result "Error");
+  Alcotest.(check bool)
+    "tool errored" true
+    (Test_helpers.string_contains result "Error");
   Alcotest.(check bool) "notify not called" false !notified
 
 let test_tool_no_notify_when_none () =
@@ -2455,7 +2463,8 @@ let test_tool_no_notify_when_none () =
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
   Alcotest.(check bool)
-    "tool works without notify" true (contains result "Added")
+    "tool works without notify" true
+    (Test_helpers.string_contains result "Added")
 
 let fresh_templates_dir () =
   let dir =
@@ -2582,7 +2591,7 @@ let test_seed_exceeds_batch_limit () =
   | Error msg ->
       Alcotest.(check bool)
         "mentions max" true
-        (contains msg "Too many operations")
+        (Test_helpers.string_contains msg "Too many operations")
   | Ok _ -> Alcotest.fail "Expected error for exceeding batch limit"
 
 let test_seed_mixed_with_other_ops () =
@@ -2624,7 +2633,7 @@ let test_seed_empty_tasks () =
   | Error msg ->
       Alcotest.(check bool)
         "mentions at least one" true
-        (contains msg "at least one")
+        (Test_helpers.string_contains msg "at least one")
   | Ok _ -> Alcotest.fail "Expected error for empty tasks"
 
 let test_seed_neither_template_nor_tasks () =
@@ -2637,7 +2646,7 @@ let test_seed_neither_template_nor_tasks () =
   | Error msg ->
       Alcotest.(check bool)
         "mentions provide" true
-        (contains msg "Provide exactly one")
+        (Test_helpers.string_contains msg "Provide exactly one")
   | Ok _ -> Alcotest.fail "Expected error for missing template/tasks"
 
 let test_seed_both_template_and_tasks () =
@@ -2656,7 +2665,9 @@ let test_seed_both_template_and_tasks () =
   in
   match result with
   | Error msg ->
-      Alcotest.(check bool) "mentions not both" true (contains msg "not both")
+      Alcotest.(check bool)
+        "mentions not both" true
+        (Test_helpers.string_contains msg "not both")
   | Ok _ -> Alcotest.fail "Expected error for both template and tasks"
 
 let test_save_template_and_seed_round_trip () =
@@ -2690,7 +2701,7 @@ let test_save_template_and_seed_round_trip () =
   | Ok output ->
       Alcotest.(check bool)
         "contains Saved" true
-        (contains output "Saved template")
+        (Test_helpers.string_contains output "Saved template")
   | Error e -> Alcotest.fail ("save_template failed: " ^ e));
   let seed_result =
     Task_tree.process_operations ~db ~session_key:"s1"
@@ -2734,7 +2745,7 @@ let test_save_template_invalid_name () =
   | Error msg ->
       Alcotest.(check bool)
         "mentions alphanumeric" true
-        (contains msg "alphanumeric")
+        (Test_helpers.string_contains msg "alphanumeric")
   | Ok _ -> Alcotest.fail "Expected error for invalid template name");
   cleanup_templates_dir _tdir
 
@@ -2770,11 +2781,15 @@ let test_list_templates () =
   in
   (match result with
   | Ok output ->
-      Alcotest.(check bool) "contains alpha" true (contains output "alpha");
-      Alcotest.(check bool) "contains beta" true (contains output "beta");
+      Alcotest.(check bool)
+        "contains alpha" true
+        (Test_helpers.string_contains output "alpha");
+      Alcotest.(check bool)
+        "contains beta" true
+        (Test_helpers.string_contains output "beta");
       Alcotest.(check bool)
         "contains description" true
-        (contains output "Alpha template")
+        (Test_helpers.string_contains output "Alpha template")
   | Error e -> Alcotest.fail ("list_templates failed: " ^ e));
   cleanup_templates_dir tdir
 
@@ -2803,7 +2818,7 @@ let test_delete_template () =
   | Ok output ->
       Alcotest.(check bool)
         "contains Deleted" true
-        (contains output "Deleted template")
+        (Test_helpers.string_contains output "Deleted template")
   | Error e -> Alcotest.fail ("delete_template failed: " ^ e));
   let list_result =
     Task_tree.process_operations ~db ~session_key:"s1"
@@ -2813,7 +2828,7 @@ let test_delete_template () =
   | Ok output ->
       Alcotest.(check bool)
         "template gone" true
-        (contains output "No saved templates")
+        (Test_helpers.string_contains output "No saved templates")
   | Error e -> Alcotest.fail ("list_templates after delete failed: " ^ e));
   cleanup_templates_dir tdir
 
@@ -2826,10 +2841,12 @@ let test_seed_missing_template () =
   in
   (match result with
   | Error msg ->
-      Alcotest.(check bool) "mentions not found" true (contains msg "not found");
+      Alcotest.(check bool)
+        "mentions not found" true
+        (Test_helpers.string_contains msg "not found");
       Alcotest.(check bool)
         "mentions list_templates" true
-        (contains msg "list_templates")
+        (Test_helpers.string_contains msg "list_templates")
   | Ok _ -> Alcotest.fail "Expected error for missing template");
   cleanup_templates_dir _tdir
 
@@ -3290,10 +3307,10 @@ let test_process_operations_compact_output () =
             with Not_found -> false));
       Alcotest.(check bool)
         "omits automatic compact summary" false
-        (contains_substring ~needle:"Tasks: 1 total" output);
+        (Test_helpers.string_contains output "Tasks: 1 total");
       Alcotest.(check bool)
         "still returns assigned id" true
-        (contains_substring ~needle:"Added T1" output)
+        (Test_helpers.string_contains output "Added T1")
   | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
 
 (* ── B293: bulk ops, soft delete, restore ── *)

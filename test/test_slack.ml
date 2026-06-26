@@ -13,12 +13,6 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     default_model = None;
   }
 
-let contains_str haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
-
 let make_fake_provider_config base_url : Runtime_config.provider_config =
   {
     Runtime_config.default_provider_config with
@@ -278,11 +272,14 @@ let test_handle_event_debate_sends_debug_summary () =
       Alcotest.(check string) "returns ok" "ok" result;
       Alcotest.(check bool)
         "sent debate result" true
-        (List.exists (fun text -> contains_str text "Debate Results") sent);
+        (List.exists
+           (fun text -> Test_helpers.string_contains text "Debate Results")
+           sent);
       Alcotest.(check bool)
         "sent debate debug summary" true
         (List.exists
-           (fun text -> contains_str text "debug: llm provider=fake")
+           (fun text ->
+             Test_helpers.string_contains text "debug: llm provider=fake")
            sent))
 
 let test_parse_event_with_files () =

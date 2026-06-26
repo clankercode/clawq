@@ -1,13 +1,3 @@
-let contains hay needle =
-  let hlen = String.length hay in
-  let nlen = String.length needle in
-  let rec loop i =
-    if i + nlen > hlen then false
-    else if String.sub hay i nlen = needle then true
-    else loop (i + 1)
-  in
-  nlen = 0 || loop 0
-
 let test_with_timeout_success () =
   let out =
     Lwt_main.run
@@ -28,7 +18,9 @@ let test_with_timeout_expired () =
   match out with
   | Ok _ -> Alcotest.fail "expected timeout"
   | Error msg ->
-      Alcotest.(check bool) "timeout msg" true (contains msg "timed out")
+      Alcotest.(check bool)
+        "timeout msg" true
+        (Test_helpers.string_contains msg "timed out")
 
 let test_with_retry_eventual_success () =
   let attempts = ref 0 in

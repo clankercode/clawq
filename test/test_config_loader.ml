@@ -28,12 +28,6 @@ let capture_stderr f =
       Unix.close saved_stderr;
       if Sys.file_exists path then Sys.remove path)
 
-let contains hay needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) hay 0);
-    true
-  with Not_found -> false
-
 let count_occurrences hay needle =
   let rex = Str.regexp_string needle in
   let rec loop count start =
@@ -54,7 +48,7 @@ let test_load_warns_on_invalid_port () =
       in
       Alcotest.(check bool)
         "mentions gateway.port" true
-        (contains stderr_output "gateway.port"))
+        (Test_helpers.string_contains stderr_output "gateway.port"))
 
 let test_load_warns_on_invalid_temperature () =
   let json = {|{
@@ -66,7 +60,7 @@ let test_load_warns_on_invalid_temperature () =
       in
       Alcotest.(check bool)
         "mentions default_temperature" true
-        (contains stderr_output "default_temperature"))
+        (Test_helpers.string_contains stderr_output "default_temperature"))
 
 let test_load_warns_on_negative_temperature () =
   let json = {|{
@@ -78,7 +72,7 @@ let test_load_warns_on_negative_temperature () =
       in
       Alcotest.(check bool)
         "mentions default_temperature" true
-        (contains stderr_output "default_temperature"))
+        (Test_helpers.string_contains stderr_output "default_temperature"))
 
 let test_load_warns_on_invalid_memory_weights () =
   let json =
@@ -92,7 +86,7 @@ let test_load_warns_on_invalid_memory_weights () =
       in
       Alcotest.(check bool)
         "mentions memory weights" true
-        (contains stderr_output "memory weights"))
+        (Test_helpers.string_contains stderr_output "memory weights"))
 
 let test_load_warns_on_out_of_range_memory_weights () =
   let json =
@@ -106,7 +100,7 @@ let test_load_warns_on_out_of_range_memory_weights () =
       in
       Alcotest.(check bool)
         "mentions memory weights" true
-        (contains stderr_output "memory weights"))
+        (Test_helpers.string_contains stderr_output "memory weights"))
 
 let test_load_warns_once_per_invalid_field () =
   let json = {|{

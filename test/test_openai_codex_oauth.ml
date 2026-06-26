@@ -26,17 +26,6 @@ let with_temp_home ?master_key f =
       (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
-let contains s sub =
-  let sl = String.length s and subl = String.length sub in
-  if subl > sl then false
-  else if subl = 0 then true
-  else
-    let found = ref false in
-    for i = 0 to sl - subl do
-      if String.sub s i subl = sub then found := true
-    done;
-    !found
-
 let test_parse_callback_input_url () =
   match
     Openai_codex_oauth.parse_callback_input ~expected_state:"abc"
@@ -114,10 +103,11 @@ let test_status_reports_refresh_window_without_expired_label () =
       let status = Openai_codex_oauth.status ~provider_name:"openai-codex" () in
       Alcotest.(check bool)
         "mentions refresh window" true
-        (contains status "inside refresh window, will refresh on use");
+        (Test_helpers.string_contains status
+           "inside refresh window, will refresh on use");
       Alcotest.(check bool)
         "does not say token expired" false
-        (contains status "token expired"))
+        (Test_helpers.string_contains status "token expired"))
 
 let test_validate_provider_name_rejects_non_codex_provider () =
   with_temp_home (fun home ->

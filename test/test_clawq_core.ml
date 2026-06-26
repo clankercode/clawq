@@ -32,16 +32,10 @@ let test_dispatch_help () =
 
 let test_dispatch_cron_mentions_runtime_bridge () =
   let result = Clawq_core.dispatch [ "cron" ] in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "dispatch cron mentions scheduler-backed command" true
-    (contains result "scheduler-backed command"
-    && contains result "list/add/remove/history/runs")
+    (Test_helpers.string_contains result "scheduler-backed command"
+    && Test_helpers.string_contains result "list/add/remove/history/runs")
 
 let test_audit_make_entry_with_metadata () =
   let entry =

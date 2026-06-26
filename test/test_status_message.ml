@@ -325,12 +325,6 @@ let test_failed_tool_collapses_with_many_done () =
   Alcotest.(check bool) "bad_tool collapsed" false (has "bad_tool");
   Alcotest.(check bool) "collapse line present" true (has "tools completed")
 
-let contains s sub =
-  try
-    ignore (Str.search_forward (Str.regexp_string sub) s 0);
-    true
-  with Not_found -> false
-
 let test_finalize_compacts () =
   let notifier, _, edited, _ = mock_notifier () in
   let t =
@@ -355,15 +349,19 @@ let test_finalize_compacts () =
     | [] -> Alcotest.fail "expected at least one edit after finalize"
   in
   (* Finalized form preserves per-tool detail + aggregate footer *)
-  Alcotest.(check bool) "contains tool_0" true (contains last_edit "tool_0");
-  Alcotest.(check bool) "contains tool_4" true (contains last_edit "tool_4");
+  Alcotest.(check bool)
+    "contains tool_0" true
+    (Test_helpers.string_contains last_edit "tool_0");
+  Alcotest.(check bool)
+    "contains tool_4" true
+    (Test_helpers.string_contains last_edit "tool_4");
   Alcotest.(check bool)
     "contains aggregate footer" true
-    (contains last_edit "5 tools");
+    (Test_helpers.string_contains last_edit "5 tools");
   (* ━ = E2 94 81 *)
   Alcotest.(check bool)
     "contains separator" true
-    (contains last_edit "\xe2\x94\x81")
+    (Test_helpers.string_contains last_edit "\xe2\x94\x81")
 
 let test_running_tool_elapsed_time () =
   let notifier, _, _, _ = mock_notifier () in
@@ -384,7 +382,8 @@ let test_running_tool_elapsed_time () =
   let output = Status_message.render t in
   Alcotest.(check bool)
     "running tool shows elapsed time" true
-    (contains output "..." && contains output "s")
+    (Test_helpers.string_contains output "..."
+    && Test_helpers.string_contains output "s")
 
 let test_thinking_preamble_no_tools () =
   let notifier, _, _, _ = mock_notifier () in
@@ -396,14 +395,14 @@ let test_thinking_preamble_no_tools () =
   let output = Status_message.render t in
   Alcotest.(check bool)
     "thinking shown when no tools" true
-    (contains output "Analyzing the codebase");
+    (Test_helpers.string_contains output "Analyzing the codebase");
   (* Now start a tool - thinking should disappear *)
   Lwt_main.run
     (Status_message.tool_start t ~id:"t1" ~name:"file_read" ~summary:None);
   let output2 = Status_message.render t in
   Alcotest.(check bool)
     "thinking hidden when tools present" false
-    (contains output2 "Analyzing the codebase")
+    (Test_helpers.string_contains output2 "Analyzing the codebase")
 
 let test_progress_counter () =
   let notifier, _, _, _ = mock_notifier () in
@@ -423,7 +422,9 @@ let test_progress_counter () =
      Status_message.tool_start t ~id:"t2" ~name:"shell_exec" ~summary:None);
   let output = Status_message.render t in
   (* 1 done out of 2 total, with 1 running *)
-  Alcotest.(check bool) "progress counter present" true (contains output "1/2")
+  Alcotest.(check bool)
+    "progress counter present" true
+    (Test_helpers.string_contains output "1/2")
 
 let test_progress_counter_hidden_when_all_done () =
   let notifier, _, _, _ = mock_notifier () in
@@ -443,7 +444,7 @@ let test_progress_counter_hidden_when_all_done () =
   Alcotest.(check bool)
     "no progress counter when all done" false
     (* ⏳ = E2 8F B3 *)
-    (contains output "\xe2\x8f\xb3")
+    (Test_helpers.string_contains output "\xe2\x8f\xb3")
 
 let test_progress_bar () =
   let notifier, _, _, _ = mock_notifier () in
@@ -465,10 +466,10 @@ let test_progress_bar () =
   (* ▓ = E2 96 93, ░ = E2 96 91 *)
   Alcotest.(check bool)
     "progress bar has filled block" true
-    (contains output "\xe2\x96\x93");
+    (Test_helpers.string_contains output "\xe2\x96\x93");
   Alcotest.(check bool)
     "progress bar has empty block" true
-    (contains output "\xe2\x96\x91")
+    (Test_helpers.string_contains output "\xe2\x96\x91")
 
 let test_box_drawing () =
   let notifier, _, _, _ = mock_notifier () in
@@ -486,10 +487,10 @@ let test_box_drawing () =
   (* ┣ = E2 94 A3, ┗ = E2 94 97 *)
   Alcotest.(check bool)
     "has box connector ┣" true
-    (contains output "\xe2\x94\xa3");
+    (Test_helpers.string_contains output "\xe2\x94\xa3");
   Alcotest.(check bool)
     "has box connector ┗" true
-    (contains output "\xe2\x94\x97")
+    (Test_helpers.string_contains output "\xe2\x94\x97")
 
 let test_finalize_preserves_per_tool_detail () =
   let notifier, _, edited, _ = mock_notifier () in
@@ -536,22 +537,27 @@ let test_finalize_preserves_per_tool_detail () =
     (fun name ->
       Alcotest.(check bool)
         (Printf.sprintf "%s present" name)
-        true (contains last_edit name))
+        true
+        (Test_helpers.string_contains last_edit name))
     [ "good_0"; "good_1"; "good_2"; "bad_1"; "bad_2" ];
   (* Failures show error detail *)
   Alcotest.(check bool)
     "error one visible" true
-    (contains last_edit "error one");
+    (Test_helpers.string_contains last_edit "error one");
   Alcotest.(check bool)
     "error two visible" true
-    (contains last_edit "error two");
+    (Test_helpers.string_contains last_edit "error two");
   (* Checkmark and failure mark present *)
-  Alcotest.(check bool) "has checkmark" true (contains last_edit "\xe2\x9c\x93");
+  Alcotest.(check bool)
+    "has checkmark" true
+    (Test_helpers.string_contains last_edit "\xe2\x9c\x93");
   Alcotest.(check bool)
     "has failure mark" true
-    (contains last_edit "\xe2\x9c\x97");
+    (Test_helpers.string_contains last_edit "\xe2\x9c\x97");
   (* Aggregate footer *)
-  Alcotest.(check bool) "footer present" true (contains last_edit "5 tools")
+  Alcotest.(check bool)
+    "footer present" true
+    (Test_helpers.string_contains last_edit "5 tools")
 
 let test_finalize_no_collapsing () =
   let notifier, _, edited, _ = mock_notifier () in
@@ -581,14 +587,17 @@ let test_finalize_no_collapsing () =
       let name = Printf.sprintf "tool_%d" i in
       Alcotest.(check bool)
         (Printf.sprintf "%s visible" name)
-        true (contains last_edit name))
+        true
+        (Test_helpers.string_contains last_edit name))
     (List.init 10 Fun.id);
   (* Should NOT contain collapse line *)
   Alcotest.(check bool)
     "no collapse line" false
-    (contains last_edit "tools completed");
+    (Test_helpers.string_contains last_edit "tools completed");
   (* Aggregate footer *)
-  Alcotest.(check bool) "footer present" true (contains last_edit "10 tools")
+  Alcotest.(check bool)
+    "footer present" true
+    (Test_helpers.string_contains last_edit "10 tools")
 
 let test_no_output_tail_in_render () =
   let notifier, _, _, _ = mock_notifier () in
@@ -610,11 +619,13 @@ let test_no_output_tail_in_render () =
   (* No raw stdout code block should appear *)
   let before = Status_message.render t in
   Alcotest.(check bool)
-    "no output tail before finalize" false (contains before "```");
+    "no output tail before finalize" false
+    (Test_helpers.string_contains before "```");
   t.finalized <- true;
   let after = Status_message.render t in
   Alcotest.(check bool)
-    "no output tail after finalize" false (contains after "```")
+    "no output tail after finalize" false
+    (Test_helpers.string_contains after "```")
 
 let test_finalize_mixed_success_failure () =
   let notifier, _, edited, _ = mock_notifier () in
@@ -651,21 +662,23 @@ let test_finalize_mixed_success_failure () =
     | [] -> Alcotest.fail "expected edit after finalize"
   in
   (* Both markers present *)
-  Alcotest.(check bool) "has checkmark" true (contains last_edit "\xe2\x9c\x93");
+  Alcotest.(check bool)
+    "has checkmark" true
+    (Test_helpers.string_contains last_edit "\xe2\x9c\x93");
   Alcotest.(check bool)
     "has failure mark" true
-    (contains last_edit "\xe2\x9c\x97");
+    (Test_helpers.string_contains last_edit "\xe2\x9c\x97");
   (* Error details visible *)
   Alcotest.(check bool)
     "exit code visible" true
-    (contains last_edit "Exit code 1");
+    (Test_helpers.string_contains last_edit "Exit code 1");
   Alcotest.(check bool)
     "lint failed visible" true
-    (contains last_edit "Lint failed");
+    (Test_helpers.string_contains last_edit "Lint failed");
   (* Aggregate footer says 4 tools *)
   Alcotest.(check bool)
     "footer says 4 tools" true
-    (contains last_edit "4 tools")
+    (Test_helpers.string_contains last_edit "4 tools")
 
 let test_concurrent_tool_starts_single_message () =
   (* Regression test for B125: rapid concurrent tool_start calls should
@@ -724,18 +737,24 @@ let test_html_mode_render () =
        ~is_error:false);
   let output = Status_message.render t in
   (* HTML mode should produce <b> and <code> tags, not markdown *)
-  Alcotest.(check bool) "contains <b> tag" true (contains output "<b>");
-  Alcotest.(check bool) "contains <code> tag" true (contains output "<code>");
+  Alcotest.(check bool)
+    "contains <b> tag" true
+    (Test_helpers.string_contains output "<b>");
+  Alcotest.(check bool)
+    "contains <code> tag" true
+    (Test_helpers.string_contains output "<code>");
   Alcotest.(check bool)
     "no markdown bold markers" false
-    (contains output "*file_read*");
+    (Test_helpers.string_contains output "*file_read*");
   (* Verify the sent/edited text also contains HTML tags (not mangled) *)
   let all_texts = List.map snd !edited @ !sent in
   List.iter
     (fun text ->
       Alcotest.(check bool)
         "notifier text has HTML tags" true
-        (contains text "<b>" || contains text "<code>" || text = ""))
+        (Test_helpers.string_contains text "<b>"
+        || Test_helpers.string_contains text "<code>"
+        || text = ""))
     all_texts
 
 let test_reanchor_updates_msg_id () =
@@ -902,7 +921,8 @@ let test_completed_tool_shows_timing () =
   let output = Status_message.render t in
   (* Instant tool should not show "0 ms" *)
   Alcotest.(check bool)
-    "instant tool hides 0ms timing" false (contains output "0 ms")
+    "instant tool hides 0ms timing" false
+    (Test_helpers.string_contains output "0 ms")
 
 let test_completed_tool_nonzero_timing () =
   (* B543: tools with non-zero duration still show timing *)
@@ -924,7 +944,9 @@ let test_completed_tool_nonzero_timing () =
     (Status_message.tool_result t ~id:"t1" ~name:"shell_exec" ~result:"ok"
        ~is_error:false);
   let output = Status_message.render t in
-  Alcotest.(check bool) "non-zero timing shown" true (contains output "ms")
+  Alcotest.(check bool)
+    "non-zero timing shown" true
+    (Test_helpers.string_contains output "ms")
 
 let test_completed_tool_timing_with_duration () =
   (* B514: verify timing value reflects actual duration *)
@@ -946,7 +968,9 @@ let test_completed_tool_timing_with_duration () =
     (Status_message.tool_result t ~id:"t1" ~name:"file_read" ~result:"ok"
        ~is_error:false);
   let output = Status_message.render t in
-  Alcotest.(check bool) "shows 3.500 s timing" true (contains output "3.500 s")
+  Alcotest.(check bool)
+    "shows 3.500 s timing" true
+    (Test_helpers.string_contains output "3.500 s")
 
 let test_failed_tool_shows_timing () =
   (* B514: failed tools should also show execution time *)
@@ -970,10 +994,10 @@ let test_failed_tool_shows_timing () =
   let output = Status_message.render t in
   Alcotest.(check bool)
     "failed tool shows timing" true
-    (contains output "2.300 s");
+    (Test_helpers.string_contains output "2.300 s");
   Alcotest.(check bool)
     "failed tool still shows error" true
-    (contains output "command not found")
+    (Test_helpers.string_contains output "command not found")
 
 let test_running_tool_elapsed_at_lower_threshold () =
   (* B514: running tools show elapsed time after 2s instead of 5s *)
@@ -994,7 +1018,8 @@ let test_running_tool_elapsed_at_lower_threshold () =
   let output = Status_message.render t in
   Alcotest.(check bool)
     "running tool shows elapsed after 2s" true
-    (contains output "..." && contains output "s")
+    (Test_helpers.string_contains output "..."
+    && Test_helpers.string_contains output "s")
 
 let test_finalize_cancels_heartbeat () =
   (* B493: finalize must cancel any remaining heartbeat *)

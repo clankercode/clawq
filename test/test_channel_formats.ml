@@ -1,17 +1,6 @@
 (* Tests for channel format parsing and formatting *)
 
 (* Helper to check string contains substring *)
-let contains_str haystack needle =
-  let hlen = String.length haystack and nlen = String.length needle in
-  if nlen = 0 then true
-  else if nlen > hlen then false
-  else
-    let found = ref false in
-    for i = 0 to hlen - nlen do
-      if String.sub haystack i nlen = needle then found := true
-    done;
-    !found
-
 (* ===== Slack tests ===== *)
 
 let test_slack_parse_url_verification () =
@@ -291,9 +280,15 @@ let test_discord_is_allowed_user_filter () =
 
 let test_discord_session_key_format () =
   let key = Discord.session_key ~channel_id:"C1" ~author_id:"A2" in
-  Alcotest.(check bool) "has discord prefix" true (contains_str key "discord:");
-  Alcotest.(check bool) "contains channel_id" true (contains_str key "C1");
-  Alcotest.(check bool) "contains author_id" true (contains_str key "A2")
+  Alcotest.(check bool)
+    "has discord prefix" true
+    (Test_helpers.string_contains key "discord:");
+  Alcotest.(check bool)
+    "contains channel_id" true
+    (Test_helpers.string_contains key "C1");
+  Alcotest.(check bool)
+    "contains author_id" true
+    (Test_helpers.string_contains key "A2")
 
 let test_discord_chunk_preserves_content () =
   let original = "Hello from Discord! " ^ String.make 1980 'x' ^ " end" in
@@ -333,7 +328,8 @@ let test_telegram_redact_short_token () =
 let test_telegram_redact_long_token () =
   let r = Telegram.redact_token "1234567890abcdef" in
   Alcotest.(check bool)
-    "long token partially redacted" true (contains_str r "...")
+    "long token partially redacted" true
+    (Test_helpers.string_contains r "...")
 
 let test_telegram_redact_preserves_first_four () =
   let r = Telegram.redact_token "1234567890abcdef" in
@@ -347,7 +343,7 @@ let test_telegram_chunk_text_short () =
   (* Instead, test that the api_base is set correctly *)
   Alcotest.(check bool)
     "api_base contains telegram.org" true
-    (contains_str !Telegram.api_base "telegram.org")
+    (Test_helpers.string_contains !Telegram.api_base "telegram.org")
 
 let test_telegram_parse_update_structure () =
   (* Test the JSON structure Telegram expects *)
@@ -631,7 +627,9 @@ let test_slack_parse_complex_event () =
   in
   match Slack.parse_event body with
   | Some (Slack.Message { text; _ }) ->
-      Alcotest.(check bool) "text contains PR" true (contains_str text "PR")
+      Alcotest.(check bool)
+        "text contains PR" true
+        (Test_helpers.string_contains text "PR")
   | _ -> Alcotest.fail "expected Message"
 
 let test_discord_name_constant () =

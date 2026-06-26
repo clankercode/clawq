@@ -1,9 +1,3 @@
-let string_contains s sub =
-  try
-    ignore (Str.search_forward (Str.regexp_string sub) s 0);
-    true
-  with Not_found -> false
-
 (* Strategy selection tests *)
 
 let test_strategy_telegram_single_select () =
@@ -144,7 +138,7 @@ let test_render_rich_buttons_single_select () =
       (Rich_message.TextWithButtons { text; button_rows }) ->
       Alcotest.(check bool)
         "text contains question" true
-        (string_contains text "Pick one");
+        (Test_helpers.string_contains text "Pick one");
       let all_buttons = List.concat button_rows in
       Alcotest.(check int) "3 buttons" 3 (List.length all_buttons);
       let labels =
@@ -218,7 +212,7 @@ let test_render_rich_poll_multi_select () =
       (Rich_message.Poll { question; options; allows_multiple }) ->
       Alcotest.(check bool)
         "question contains text" true
-        (string_contains question "Pick many");
+        (Test_helpers.string_contains question "Pick many");
       Alcotest.(check (list string)) "options" [ "X"; "Y"; "Z" ] options;
       Alcotest.(check bool) "allows multiple" true allows_multiple
   | _ -> Alcotest.fail "expected RichMessage Poll"
@@ -240,12 +234,16 @@ let test_render_formatted_text_telegram () =
   | Question_presenter.TextMessage text ->
       Alcotest.(check bool)
         "has bold question" true
-        (string_contains text "<b>");
-      Alcotest.(check bool) "has option A" true (string_contains text "A");
-      Alcotest.(check bool) "has option B" true (string_contains text "B");
+        (Test_helpers.string_contains text "<b>");
+      Alcotest.(check bool)
+        "has option A" true
+        (Test_helpers.string_contains text "A");
+      Alcotest.(check bool)
+        "has option B" true
+        (Test_helpers.string_contains text "B");
       Alcotest.(check bool)
         "has instruction" true
-        (string_contains text "Reply with number or text")
+        (Test_helpers.string_contains text "Reply with number or text")
   | _ -> Alcotest.fail "expected TextMessage"
 
 let test_render_formatted_text_discord () =
@@ -259,10 +257,12 @@ let test_render_formatted_text_discord () =
   in
   match rendered with
   | Question_presenter.TextMessage text ->
-      Alcotest.(check bool) "has markdown bold" true (string_contains text "**");
+      Alcotest.(check bool)
+        "has markdown bold" true
+        (Test_helpers.string_contains text "**");
       Alcotest.(check bool)
         "has reply yes/no" true
-        (string_contains text "Reply yes/no")
+        (Test_helpers.string_contains text "Reply yes/no")
   | _ -> Alcotest.fail "expected TextMessage"
 
 let test_render_formatted_text_multi_question () =
@@ -278,7 +278,7 @@ let test_render_formatted_text_multi_question () =
   | Question_presenter.TextMessage text ->
       Alcotest.(check bool)
         "has question numbering" true
-        (string_contains text "[Question 1/3]")
+        (Test_helpers.string_contains text "[Question 1/3]")
   | _ -> Alcotest.fail "expected TextMessage"
 
 let test_render_plain_text () =
@@ -298,12 +298,16 @@ let test_render_plain_text () =
   | Question_presenter.TextMessage text ->
       Alcotest.(check bool)
         "has question" true
-        (string_contains text "Pick one");
-      Alcotest.(check bool) "has option 1" true (string_contains text "1. A");
-      Alcotest.(check bool) "has option 2" true (string_contains text "2. B");
+        (Test_helpers.string_contains text "Pick one");
+      Alcotest.(check bool)
+        "has option 1" true
+        (Test_helpers.string_contains text "1. A");
+      Alcotest.(check bool)
+        "has option 2" true
+        (Test_helpers.string_contains text "2. B");
       Alcotest.(check bool)
         "has instruction" true
-        (string_contains text "(Reply with number or text)")
+        (Test_helpers.string_contains text "(Reply with number or text)")
   | _ -> Alcotest.fail "expected TextMessage"
 
 (* Callback ID tests *)
@@ -376,18 +380,22 @@ let test_teams_adaptive_card () =
   let json_str = Yojson.Safe.to_string card in
   Alcotest.(check bool)
     "has AdaptiveCard" true
-    (string_contains json_str "AdaptiveCard");
+    (Test_helpers.string_contains json_str "AdaptiveCard");
   Alcotest.(check bool)
     "has Action.Submit" true
-    (string_contains json_str "Action.Submit");
+    (Test_helpers.string_contains json_str "Action.Submit");
   Alcotest.(check bool)
     "has clawq_question_answer" true
-    (string_contains json_str "clawq_question_answer");
-  Alcotest.(check bool) "has Alpha" true (string_contains json_str "Alpha");
-  Alcotest.(check bool) "has Beta" true (string_contains json_str "Beta");
+    (Test_helpers.string_contains json_str "clawq_question_answer");
+  Alcotest.(check bool)
+    "has Alpha" true
+    (Test_helpers.string_contains json_str "Alpha");
+  Alcotest.(check bool)
+    "has Beta" true
+    (Test_helpers.string_contains json_str "Beta");
   Alcotest.(check bool)
     "has instruction hint" true
-    (string_contains json_str "Select one option")
+    (Test_helpers.string_contains json_str "Select one option")
 
 let test_teams_poll_card () =
   let card =
@@ -397,17 +405,19 @@ let test_teams_poll_card () =
   let json_str = Yojson.Safe.to_string card in
   Alcotest.(check bool)
     "has AdaptiveCard" true
-    (string_contains json_str "AdaptiveCard");
+    (Test_helpers.string_contains json_str "AdaptiveCard");
   Alcotest.(check bool)
     "has Input.ChoiceSet" true
-    (string_contains json_str "Input.ChoiceSet");
+    (Test_helpers.string_contains json_str "Input.ChoiceSet");
   Alcotest.(check bool)
     "has isMultiSelect" true
-    (string_contains json_str "isMultiSelect");
-  Alcotest.(check bool) "has Submit" true (string_contains json_str "Submit");
+    (Test_helpers.string_contains json_str "isMultiSelect");
+  Alcotest.(check bool)
+    "has Submit" true
+    (Test_helpers.string_contains json_str "Submit");
   Alcotest.(check bool)
     "has instruction hint" true
-    (string_contains json_str "Select one or more")
+    (Test_helpers.string_contains json_str "Select one or more")
 
 let test_teams_card_from_buttons () =
   let card =
@@ -423,12 +433,16 @@ let test_teams_card_from_buttons () =
   let json_str = Yojson.Safe.to_string card in
   Alcotest.(check bool)
     "has AdaptiveCard" true
-    (string_contains json_str "AdaptiveCard");
-  Alcotest.(check bool) "has Yes" true (string_contains json_str "Yes");
-  Alcotest.(check bool) "has No" true (string_contains json_str "No");
+    (Test_helpers.string_contains json_str "AdaptiveCard");
+  Alcotest.(check bool)
+    "has Yes" true
+    (Test_helpers.string_contains json_str "Yes");
+  Alcotest.(check bool)
+    "has No" true
+    (Test_helpers.string_contains json_str "No");
   Alcotest.(check bool)
     "has instruction hint" true
-    (string_contains json_str "Select one option")
+    (Test_helpers.string_contains json_str "Select one option")
 
 (* Button row chunking test *)
 
