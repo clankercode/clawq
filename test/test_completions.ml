@@ -90,45 +90,37 @@ let test_bad_usage () =
      done;
      !found)
 
-let contains needle haystack =
-  let n = String.length needle and h = String.length haystack in
-  let found = ref false in
-  for i = 0 to h - n do
-    if String.sub haystack i n = needle then found := true
-  done;
-  !found
-
 let test_scripts_include_subagents_and_background_aliases () =
   let bash = Completions.cmd_completions [ "print"; "--shell"; "bash" ] in
   Alcotest.(check bool)
     "bash top-level subagents" true
-    (contains "status subagents transcribe" bash);
+    (Test_helpers.string_contains bash "status subagents transcribe");
   Alcotest.(check bool)
     "bash background transcript alias" true
-    (contains
+    (Test_helpers.string_contains bash
        "list show add start wait logs transcript resume message send cancel \
-        stop"
-       bash);
+        stop");
   Alcotest.(check bool)
     "bash subagents subcommands" true
-    (contains "list start stop send transcript" bash);
+    (Test_helpers.string_contains bash "list start stop send transcript");
   Alcotest.(check bool)
     "bash session send" true
-    (contains "show inject send events" bash);
+    (Test_helpers.string_contains bash "show inject send events");
   let zsh = Completions.cmd_completions [ "print"; "--shell"; "zsh" ] in
   Alcotest.(check bool)
     "zsh top-level subagents" true
-    (contains "subagents:Manage native/local subagents" zsh);
+    (Test_helpers.string_contains zsh "subagents:Manage native/local subagents");
   Alcotest.(check bool)
     "zsh background transcript alias" true
-    (contains "'transcript' 'resume' 'message' 'send' 'cancel' 'stop'" zsh);
+    (Test_helpers.string_contains zsh
+       "'transcript' 'resume' 'message' 'send' 'cancel' 'stop'");
   let fish = Completions.cmd_completions [ "print"; "--shell"; "fish" ] in
   Alcotest.(check bool)
     "fish top-level subagents" true
-    (contains "status subagents transcribe" fish);
+    (Test_helpers.string_contains fish "status subagents transcribe");
   Alcotest.(check bool)
     "fish subagents subcommands" true
-    (contains "__fish_seen_subcommand_from subagents" fish)
+    (Test_helpers.string_contains fish "__fish_seen_subcommand_from subagents")
 
 let suite =
   [

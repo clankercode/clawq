@@ -3,24 +3,24 @@ let make_db () =
   Admin.init_schema db;
   db
 
-let test_init_schema () =
-  let db = make_db () in
+let with_temp_db f =
+  let db = Sqlite3.db_open ":memory:" in
   Admin.init_schema db;
-  ignore (Sqlite3.db_close db)
+  Fun.protect (fun () -> f db) ~finally:(fun () -> ignore (Sqlite3.db_close db))
+
+let test_init_schema () = with_temp_db (fun db -> Admin.init_schema db)
 
 let test_is_admin_default_guest () =
-  let db = make_db () in
-  Alcotest.(check bool)
-    "unregistered user is not admin" false
-    (Admin.is_admin ~db ~channel:"telegram" ~sender_id:"user1");
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      Alcotest.(check bool)
+        "unregistered user is not admin" false
+        (Admin.is_admin ~db ~channel:"telegram" ~sender_id:"user1"))
 
 let test_user_group_string_default () =
-  let db = make_db () in
-  Alcotest.(check string)
-    "unregistered is guest" "guest"
-    (Admin.user_group_string ~db ~channel:"telegram" ~sender_id:"user1");
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      Alcotest.(check string)
+        "unregistered is guest" "guest"
+        (Admin.user_group_string ~db ~channel:"telegram" ~sender_id:"user1"))
 
 let test_generate_otc_format () =
   let code = Admin.generate_otc ~channel:"test" ~sender_id:"user1" in
@@ -35,53 +35,56 @@ let test_generate_otc_format () =
     code
 
 let test_generate_otc_unique () =
-  let code1 = Admin.generate_otc ~channel:"test" ~sender_id:"u1" in
-  let code2 = Admin.generate_otc ~channel:"test" ~sender_id:"u2" in
-  Alcotest.(check bool) "consecutive codes differ" true (code1 <> code2)
+  let codes =
+    List.init 100 (fun _ -> Admin.generate_otc ~channel:"test" ~sender_id:"u1")
+  in
+  let unique = List.sort_uniq String.compare codes in
+  Alcotest.(check int) "100 unique codes" 100 (List.length unique)
 
 let test_verify_correct_code () =
-  let db = make_db () in
-  let code = Admin.generate_otc ~channel:"test" ~sender_id:"user1" in
-  let result = Admin.verify_otc ~db ~channel:"test" ~sender_id:"user1" ~code in
-  Alcotest.(check bool) "verify succeeds" true (Result.is_ok result);
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      let code = Admin.generate_otc ~channel:"test" ~sender_id:"user1" in
+      let result =
+        Admin.verify_otc ~db ~channel:"test" ~sender_id:"user1" ~code
+      in
+      Alcotest.(check bool) "verify succeeds" true (Result.is_ok result))
 
 let test_verify_wrong_code () =
-  let db = make_db () in
-  let _code = Admin.generate_otc ~channel:"test" ~sender_id:"user1" in
-  let result =
-    Admin.verify_otc ~db ~channel:"test" ~sender_id:"user1" ~code:"WRONGCODE"
-  in
-  Alcotest.(check bool) "verify fails" true (Result.is_error result);
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      let _code = Admin.generate_otc ~channel:"test" ~sender_id:"user1" in
+      let result =
+        Admin.verify_otc ~db ~channel:"test" ~sender_id:"user1"
+          ~code:"WRONGCODE"
+      in
+      Alcotest.(check bool) "verify fails" true (Result.is_error result))
 
 let test_verify_no_pending () =
-  let db = make_db () in
-  let result =
-    Admin.verify_otc ~db ~channel:"test" ~sender_id:"user1" ~code:"ANYTHING"
-  in
-  Alcotest.(check bool) "no pending code" true (Result.is_error result);
-  (match result with
-  | Error msg ->
-      Alcotest.(check bool)
-        "error mentions no pending" true
-        (String.length msg > 0)
-  | Ok () -> Alcotest.fail "should have failed");
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      let result =
+        Admin.verify_otc ~db ~channel:"test" ~sender_id:"user1" ~code:"ANYTHING"
+      in
+      Alcotest.(check bool) "no pending code" true (Result.is_error result);
+      match result with
+      | Error msg ->
+          Alcotest.(check bool)
+            "error mentions no pending" true
+            (String.length msg > 0)
+      | Ok () -> Alcotest.fail "should have failed")
 
 let test_is_admin_after_registration () =
-  let db = make_db () in
-  let code = Admin.generate_otc ~channel:"telegram" ~sender_id:"user1" in
-  (match Admin.verify_otc ~db ~channel:"telegram" ~sender_id:"user1" ~code with
-  | Ok () -> ()
-  | Error msg -> Alcotest.fail msg);
-  Alcotest.(check bool)
-    "registered user is admin" true
-    (Admin.is_admin ~db ~channel:"telegram" ~sender_id:"user1");
-  Alcotest.(check string)
-    "user_group is admin" "admin"
-    (Admin.user_group_string ~db ~channel:"telegram" ~sender_id:"user1");
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      let code = Admin.generate_otc ~channel:"telegram" ~sender_id:"user1" in
+      (match
+         Admin.verify_otc ~db ~channel:"telegram" ~sender_id:"user1" ~code
+       with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      Alcotest.(check bool)
+        "registered user is admin" true
+        (Admin.is_admin ~db ~channel:"telegram" ~sender_id:"user1");
+      Alcotest.(check string)
+        "user_group is admin" "admin"
+        (Admin.user_group_string ~db ~channel:"telegram" ~sender_id:"user1"))
 
 let test_gate_admin_allows_admin () =
   let inner = Slash_commands.Reply "secret config" in
@@ -172,40 +175,39 @@ let test_trust_descriptions () =
      with Not_found -> false)
 
 let test_list_admins () =
-  let db = make_db () in
-  let code1 = Admin.generate_otc ~channel:"ch" ~sender_id:"u1" in
-  (match Admin.verify_otc ~db ~channel:"ch" ~sender_id:"u1" ~code:code1 with
-  | Ok () -> ()
-  | Error msg -> Alcotest.fail msg);
-  let code2 = Admin.generate_otc ~channel:"ch" ~sender_id:"u2" in
-  (match Admin.verify_otc ~db ~channel:"ch" ~sender_id:"u2" ~code:code2 with
-  | Ok () -> ()
-  | Error msg -> Alcotest.fail msg);
-  let admins = Admin.list_admins ~db ~channel:"ch" in
-  Alcotest.(check int) "two admins" 2 (List.length admins);
-  Alcotest.(check bool) "u1 in list" true (List.mem "u1" admins);
-  Alcotest.(check bool) "u2 in list" true (List.mem "u2" admins);
-  let other_admins = Admin.list_admins ~db ~channel:"other" in
-  Alcotest.(check int) "no admins on other channel" 0 (List.length other_admins);
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      let code1 = Admin.generate_otc ~channel:"ch" ~sender_id:"u1" in
+      (match Admin.verify_otc ~db ~channel:"ch" ~sender_id:"u1" ~code:code1 with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      let code2 = Admin.generate_otc ~channel:"ch" ~sender_id:"u2" in
+      (match Admin.verify_otc ~db ~channel:"ch" ~sender_id:"u2" ~code:code2 with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      let admins = Admin.list_admins ~db ~channel:"ch" in
+      Alcotest.(check int) "two admins" 2 (List.length admins);
+      Alcotest.(check bool) "u1 in list" true (List.mem "u1" admins);
+      Alcotest.(check bool) "u2 in list" true (List.mem "u2" admins);
+      let other_admins = Admin.list_admins ~db ~channel:"other" in
+      Alcotest.(check int)
+        "no admins on other channel" 0 (List.length other_admins))
 
 let test_remove_admin () =
-  let db = make_db () in
-  let code = Admin.generate_otc ~channel:"ch" ~sender_id:"u1" in
-  (match Admin.verify_otc ~db ~channel:"ch" ~sender_id:"u1" ~code with
-  | Ok () -> ()
-  | Error msg -> Alcotest.fail msg);
-  Alcotest.(check bool)
-    "is admin before removal" true
-    (Admin.is_admin ~db ~channel:"ch" ~sender_id:"u1");
-  let removed = Admin.remove_admin ~db ~channel:"ch" ~sender_id:"u1" in
-  Alcotest.(check bool) "removal returns true" true removed;
-  Alcotest.(check bool)
-    "not admin after removal" false
-    (Admin.is_admin ~db ~channel:"ch" ~sender_id:"u1");
-  let removed2 = Admin.remove_admin ~db ~channel:"ch" ~sender_id:"u1" in
-  Alcotest.(check bool) "second removal returns false" false removed2;
-  ignore (Sqlite3.db_close db)
+  with_temp_db (fun db ->
+      let code = Admin.generate_otc ~channel:"ch" ~sender_id:"u1" in
+      (match Admin.verify_otc ~db ~channel:"ch" ~sender_id:"u1" ~code with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      Alcotest.(check bool)
+        "is admin before removal" true
+        (Admin.is_admin ~db ~channel:"ch" ~sender_id:"u1");
+      let removed = Admin.remove_admin ~db ~channel:"ch" ~sender_id:"u1" in
+      Alcotest.(check bool) "removal returns true" true removed;
+      Alcotest.(check bool)
+        "not admin after removal" false
+        (Admin.is_admin ~db ~channel:"ch" ~sender_id:"u1");
+      let removed2 = Admin.remove_admin ~db ~channel:"ch" ~sender_id:"u1" in
+      Alcotest.(check bool) "second removal returns false" false removed2)
 
 let suite =
   [

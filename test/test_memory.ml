@@ -20,18 +20,6 @@ let query_single_int db sql =
           | _ -> 0)
       | _ -> 0)
 
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
 let table_exists db table_name =
   let stmt =
     Sqlite3.prepare db
@@ -233,16 +221,16 @@ let test_upsert_session_state_roundtrip () =
     ~channel:"telegram" ~channel_id:"42" ();
   Alcotest.(check (option string))
     "turn stored" (Some "agent")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'telegram:42:user1'");
   Alcotest.(check (option string))
     "channel stored" (Some "telegram")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT channel FROM session_state WHERE session_key = \
         'telegram:42:user1'");
   Alcotest.(check (option string))
     "channel id stored" (Some "42")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT channel_id FROM session_state WHERE session_key = \
         'telegram:42:user1'")
 
@@ -253,11 +241,11 @@ let test_mark_response_sent_updates_state () =
   Memory.mark_response_sent ~db ~session_key:"discord:chan:user";
   Alcotest.(check (option string))
     "turn reset to user" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'discord:chan:user'");
   Alcotest.(check bool)
     "response_sent_at set" true
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT response_sent_at FROM session_state WHERE session_key = \
         'discord:chan:user'"
     <> None)
@@ -1106,14 +1094,14 @@ let test_archive_session_captures_metadata () =
     ~observed_active_workspace_files:[ ("foo.ml", Some "abc123") ];
   Memory.archive_session ~db ~session_key:"s1";
   let state_json =
-    query_single_text_option db
+    Test_helpers.query_single_text_option db
       "SELECT session_state_json FROM session_archive_metadata WHERE \
        archive_id = (SELECT archive_id FROM session_archives WHERE session_key \
        = 's1')"
   in
   Alcotest.(check bool) "session state archived" true (state_json <> None);
   let ws_json =
-    query_single_text_option db
+    Test_helpers.query_single_text_option db
       "SELECT workspace_state_json FROM session_archive_metadata WHERE \
        archive_id = (SELECT archive_id FROM session_archives WHERE session_key \
        = 's1')"

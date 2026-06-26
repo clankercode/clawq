@@ -6,15 +6,6 @@ let check_json msg expected actual =
     (Yojson.Safe.to_string expected)
     (Yojson.Safe.to_string actual)
 
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-
 let test_infer_value () =
   check_json "true" (`Bool true) (Config_set.infer_value "true");
   check_json "false" (`Bool false) (Config_set.infer_value "false");
@@ -404,7 +395,7 @@ let test_set_max_concurrent_native_agents_roundtrip () =
       | Error err ->
           Alcotest.(check bool)
             "zero cap rejected" true
-            (string_contains err "must be >= 1 or null"))
+            (Test_helpers.string_contains err "must be >= 1 or null"))
 
 let test_set_json_value_rejects_section_path () =
   with_temp_home (fun home ->

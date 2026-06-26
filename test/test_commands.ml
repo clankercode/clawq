@@ -4,17 +4,6 @@
 (* ===== Command bridge (minimal) tests ===== *)
 (* Command_bridge_min is available in clawq_runtime_core *)
 
-let contains s sub =
-  let sl = String.length s and subl = String.length sub in
-  if subl > sl then false
-  else if subl = 0 then true
-  else
-    let found = ref false in
-    for i = 0 to sl - subl do
-      if String.sub s i subl = sub then found := true
-    done;
-    !found
-
 let read_all ic =
   let buf = Buffer.create 1024 in
   (try
@@ -103,7 +92,9 @@ let test_version_contains_clawq () =
   let lower = String.lowercase_ascii out in
   Alcotest.(check bool)
     "status contains clawq info" true
-    (contains lower "clawq" || contains lower "model" || contains lower "status"
+    (Test_helpers.string_contains lower "clawq"
+    || Test_helpers.string_contains lower "model"
+    || Test_helpers.string_contains lower "status"
     || String.length out > 0)
 
 let test_min_auth_codex_disabled_message () =
@@ -112,7 +103,7 @@ let test_min_auth_codex_disabled_message () =
   in
   Alcotest.(check bool)
     "minimal build explains codex auth disabled" true
-    (contains out "not available in the minimal build")
+    (Test_helpers.string_contains out "not available in the minimal build")
 
 let test_min_auth_status_shows_codex_oauth () =
   let json =
@@ -145,7 +136,7 @@ let test_min_background_disabled_message () =
   let out = Command_bridge_min.handle [ "background"; "wait"; "1" ] in
   Alcotest.(check bool)
     "minimal background explains disabled surface" true
-    (contains out "not available in the minimal build")
+    (Test_helpers.string_contains out "not available in the minimal build")
 
 let test_min_delegate_disabled_message () =
   let out =
@@ -153,7 +144,7 @@ let test_min_delegate_disabled_message () =
   in
   Alcotest.(check bool)
     "minimal delegate explains disabled surface" true
-    (contains out "not available in the minimal build")
+    (Test_helpers.string_contains out "not available in the minimal build")
 
 let test_min_models_list_accepts_availability_flags () =
   let unavailable =
@@ -168,16 +159,16 @@ let test_min_models_list_accepts_availability_flags () =
   in
   Alcotest.(check bool)
     "unavailable flag accepted" false
-    (contains unavailable "Usage: clawq-min models");
+    (Test_helpers.string_contains unavailable "Usage: clawq-min models");
   Alcotest.(check bool)
     "unavailable output shows deprecated badge" true
-    (contains unavailable "deprecated");
+    (Test_helpers.string_contains unavailable "deprecated");
   Alcotest.(check bool)
     "all availability accepted with provider" false
-    (contains all "Usage: clawq-min models");
+    (Test_helpers.string_contains all "Usage: clawq-min models");
   Alcotest.(check bool)
     "available flag accepted" false
-    (contains available "Usage: clawq-min models")
+    (Test_helpers.string_contains available "Usage: clawq-min models")
 
 let test_real_models_list_accepts_availability_flags () =
   if not (main_exe_available_and_fresh ()) then Alcotest.skip ();
@@ -199,8 +190,8 @@ let test_real_models_list_accepts_availability_flags () =
           Alcotest.(check bool)
             ("no unknown option for " ^ String.concat " " args)
             false
-            (contains stderr_text "unknown option"
-            || contains stdout_text "unknown option"))
+            (Test_helpers.string_contains stderr_text "unknown option"
+            || Test_helpers.string_contains stdout_text "unknown option"))
         cases)
 
 (* ===== Config parsing without file I/O ===== *)

@@ -273,14 +273,12 @@ let test_extract_system_multiple () =
   in
   let result = Provider_minimax.extract_system_prompt msgs in
   Alcotest.(check bool) "contains part1" true (String.length result > 0);
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "has part1" true (contains result "part1");
-  Alcotest.(check bool) "has part2" true (contains result "part2")
+  Alcotest.(check bool)
+    "has part1" true
+    (Test_helpers.string_contains result "part1");
+  Alcotest.(check bool)
+    "has part2" true
+    (Test_helpers.string_contains result "part2")
 
 let test_tools_none () =
   Alcotest.(check bool)

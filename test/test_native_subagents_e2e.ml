@@ -6,22 +6,12 @@ let require_enabled () =
   | Some _ -> ()
   | None -> Alcotest.skip ()
 
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if needle_len = 0 then true
-    else if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  loop 0
-
 let excerpt s =
   let n = min 800 (String.length s) in
   String.sub s 0 n
 
 let check_contains name haystack needle =
-  if not (string_contains haystack needle) then
+  if not (Test_helpers.string_contains haystack needle) then
     Alcotest.failf "%s: expected %S in:\n%s" name needle (excerpt haystack)
 
 let run_ok cmd =

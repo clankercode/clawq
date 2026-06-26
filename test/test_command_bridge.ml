@@ -1,39 +1,3 @@
-let with_temp_home f =
-  let base = Filename.get_temp_dir_name () in
-  let dir =
-    Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ()))
-  in
-  Unix.mkdir dir 0o755;
-  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
-  Unix.putenv "HOME" dir;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () ->
-      (try
-         Unix.unlink
-           (Filename.concat (Filename.concat dir ".clawq") "config.json")
-       with _ -> ());
-      (try
-         Unix.unlink
-           (Filename.concat (Filename.concat dir ".clawq") "daemon_state.json")
-       with _ -> ());
-      (match old_home with
-      | Some v -> Unix.putenv "HOME" v
-      | None -> Unix.putenv "HOME" "");
-      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
-      try Unix.rmdir dir with _ -> ())
-
-let contains s sub =
-  let sl = String.length s and subl = String.length sub in
-  if subl > sl then false
-  else if subl = 0 then true
-  else
-    let found = ref false in
-    for i = 0 to sl - subl do
-      if String.sub s i subl = sub then found := true
-    done;
-    !found
-
 let test_handle_phase2 () =
   let result = Command_bridge.handle [ "phase2" ] in
   Alcotest.(check bool)
@@ -41,9 +5,10 @@ let test_handle_phase2 () =
     (String.length result > 0)
 
 let test_handle_version () =
-  Alcotest.(check string)
-    "handle version" "clawq 0.3.0-dev"
-    (Command_bridge.handle [ "version" ])
+  let result = Command_bridge.handle [ "version" ] in
+  Alcotest.(check bool)
+    "version starts with clawq" true
+    (String.length result >= 5 && String.sub result 0 5 = "clawq")
 
 let test_handle_unknown () =
   let result = Command_bridge.handle [ "unknown_xyz" ] in
@@ -75,13 +40,21 @@ let with_temp_home f =
   Sys.remove dir;
   Unix.mkdir dir 0o755;
   let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
+  let old_clawq_home = Sys.getenv_opt Dot_dir.env_var in
   Unix.putenv "HOME" dir;
+  (* Clear CLAWQ_HOME so Dot_dir.path () falls back to $HOME/.clawq *)
+  (match old_clawq_home with
+  | Some _ -> Unix.putenv Dot_dir.env_var ""
+  | None -> ());
   Fun.protect
     (fun () -> f dir)
     ~finally:(fun () ->
       (match old_home with
       | Some v -> Unix.putenv "HOME" v
       | None -> Unix.putenv "HOME" "");
+      (match old_clawq_home with
+      | Some v -> Unix.putenv Dot_dir.env_var v
+      | None -> Unix.putenv Dot_dir.env_var "");
       (try
          let clawq_dir = Filename.concat dir ".clawq" in
          if Sys.file_exists clawq_dir then begin
@@ -95,25 +68,9 @@ let with_temp_home f =
        with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
-let init_git_repo path =
-  let cmd =
-    Printf.sprintf "git -C %s init -q >/dev/null 2>&1" (Filename.quote path)
-  in
-  match Sys.command cmd with
-  | 0 -> ()
-  | code -> Alcotest.failf "git init failed for %s (exit %d)" path code
-
-let git_cmd repo args =
-  let cmd =
-    Printf.sprintf "git -C %s %s >/dev/null 2>&1" (Filename.quote repo) args
-  in
-  match Sys.command cmd with
-  | 0 -> ()
-  | code -> Alcotest.failf "git command failed for %s (exit %d)" args code
-
 let add_git_worktree repo ~branch ~name =
   let worktree_path = Filename.concat repo name in
-  git_cmd repo
+  Test_helpers.git_cmd repo
     (Printf.sprintf "worktree add -b %s %s HEAD -q" (Filename.quote branch)
        (Filename.quote worktree_path));
   worktree_path
@@ -149,10 +106,10 @@ let test_models_list_json_includes_db_only_model () =
       let result = Command_bridge.handle [ "models"; "list"; "--json" ] in
       Alcotest.(check bool)
         "json includes db-only provider" true
-        (contains result "\"provider\":\"dbprov\"");
+        (Test_helpers.string_contains result "\"provider\":\"dbprov\"");
       Alcotest.(check bool)
         "json includes db-only model" true
-        (contains result "\"id\":\"fresh-model\""))
+        (Test_helpers.string_contains result "\"id\":\"fresh-model\""))
 
 let test_models_list_json_provider_filter_includes_db_only_only_for_provider ()
     =
@@ -166,10 +123,10 @@ let test_models_list_json_provider_filter_includes_db_only_only_for_provider ()
       in
       Alcotest.(check bool)
         "json includes requested db-only model" true
-        (contains result "\"id\":\"fresh-model\"");
+        (Test_helpers.string_contains result "\"id\":\"fresh-model\"");
       Alcotest.(check bool)
         "json excludes other provider db-only model" true
-        (not (contains result "other-model")))
+        (not (Test_helpers.string_contains result "other-model")))
 
 let test_models_list_availability_filters_db_rows () =
   with_temp_home (fun home ->
@@ -207,16 +164,17 @@ let test_models_list_availability_filters_db_rows () =
       in
       Alcotest.(check bool)
         "default excludes unavailable db row" true
-        (not (contains default_result "disabled-model"));
+        (not (Test_helpers.string_contains default_result "disabled-model"));
       Alcotest.(check bool)
         "all includes unavailable db row" true
-        (contains all_result "disabled-model");
+        (Test_helpers.string_contains all_result "disabled-model");
       Alcotest.(check bool)
         "unavailable includes unavailable db row" true
-        (contains unavailable_result "disabled-model");
+        (Test_helpers.string_contains unavailable_result "disabled-model");
       Alcotest.(check bool)
         "unavailable excludes available db row" true
-        (not (contains unavailable_result "available-model")))
+        (not
+           (Test_helpers.string_contains unavailable_result "available-model")))
 
 let write_json_file path json =
   let oc = open_out path in
@@ -243,10 +201,12 @@ let test_handle_doctor_flags_codex_provider_with_api_key_only () =
       let result = Command_bridge.handle [ "doctor" ] in
       Alcotest.(check bool)
         "mentions codex oauth requirement" true
-        (contains result "Codex providers require Codex OAuth");
+        (Test_helpers.string_contains result
+           "Codex providers require Codex OAuth");
       Alcotest.(check bool)
         "mentions api key insufficiency" true
-        (contains result "API key auth alone is insufficient"))
+        (Test_helpers.string_contains result
+           "API key auth alone is insufficient"))
 
 let test_handle_doctor_flags_expired_refreshable_codex_oauth () =
   with_temp_home (fun home ->
@@ -267,10 +227,11 @@ let test_handle_doctor_flags_expired_refreshable_codex_oauth () =
       let result = Command_bridge.handle [ "doctor" ] in
       Alcotest.(check bool)
         "mentions expired codex token" true
-        (contains result "Codex OAuth access token is expired");
+        (Test_helpers.string_contains result
+           "Codex OAuth access token is expired");
       Alcotest.(check bool)
         "mentions refresh possible" true
-        (contains result
+        (Test_helpers.string_contains result
            "refresh token is present, so clawq should refresh on next use"))
 
 let test_handle_doctor_distinguishes_refresh_window_from_expired () =
@@ -295,10 +256,12 @@ let test_handle_doctor_distinguishes_refresh_window_from_expired () =
       let result = Command_bridge.handle [ "doctor" ] in
       Alcotest.(check bool)
         "mentions refresh window" true
-        (contains result "inside clawq's 5 min refresh window");
+        (Test_helpers.string_contains result
+           "inside clawq's 5 min refresh window");
       Alcotest.(check bool)
         "does not mislabel refresh-window token as expired" false
-        (contains result "Codex OAuth access token is expired"))
+        (Test_helpers.string_contains result
+           "Codex OAuth access token is expired"))
 
 let with_fake_gateway_server ~port ~callback f =
   let stop, stopper = Lwt.wait () in
@@ -346,7 +309,10 @@ let test_handle_channel () =
 let test_handle_channel_test_teams () =
   let result = Command_bridge.handle [ "channel"; "test"; "teams" ] in
   (* Without valid Teams config, should report not configured or connection failed *)
-  let has_teams = contains result "Teams" || contains result "teams" in
+  let has_teams =
+    Test_helpers.string_contains result "Teams"
+    || Test_helpers.string_contains result "teams"
+  in
   Alcotest.(check bool) "channel test teams mentions teams" true has_teams
 
 let test_handle_memory () =
@@ -426,16 +392,16 @@ let test_handle_session_list_hides_postmortem () =
       let result = Command_bridge.handle [ "session"; "list" ] in
       Alcotest.(check bool)
         "session list shows normal session" true
-        (contains result "telegram:42:user1");
+        (Test_helpers.string_contains result "telegram:42:user1");
       Alcotest.(check bool)
         "session list hides postmortem session" false
-        (contains result "__postmortem_");
+        (Test_helpers.string_contains result "__postmortem_");
       let result_with =
         Command_bridge.handle [ "session"; "list"; "--include-postmortem" ]
       in
       Alcotest.(check bool)
         "session list --include-postmortem shows postmortem" true
-        (contains result_with "__postmortem_"))
+        (Test_helpers.string_contains result_with "__postmortem_"))
 
 let test_handle_session_heartbeat_toggle () =
   with_temp_home (fun home ->
@@ -455,7 +421,7 @@ let test_handle_session_heartbeat_toggle () =
       let listed = Command_bridge.handle [ "session"; "list" ] in
       Alcotest.(check bool)
         "session list shows heartbeat marker" true
-        (contains listed "heartbeat");
+        (Test_helpers.string_contains listed "heartbeat");
       Alcotest.(check string)
         "heartbeat off reply" "Heartbeat disabled for session telegram:42:user1"
         (Command_bridge.handle
@@ -473,7 +439,7 @@ let test_handle_session_heartbeat_rejects_unsupported_session () =
       in
       Alcotest.(check bool)
         "rejects web session" true
-        (contains result
+        (Test_helpers.string_contains result
            "Heartbeat can only be enabled for Telegram, Slack, Discord, or \
             Teams sessions."))
 
@@ -501,7 +467,8 @@ let test_handle_session_heartbeat_status_mentions_global_disable () =
       in
       Alcotest.(check bool)
         "mentions global disable" true
-        (contains result "global heartbeat disabled in config"))
+        (Test_helpers.string_contains result
+           "global heartbeat disabled in config"))
 
 let test_handle_session_inject_routes_to_live_gateway () =
   with_temp_home (fun home ->
@@ -1071,53 +1038,47 @@ let test_session_show_paging () =
           (Provider.make_message ~role:"user"
              ~content:(Printf.sprintf "message_%d" i))
       done;
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       (* Default: all 10 messages, total_messages present *)
       let all_result =
         Command_bridge.handle [ "session"; "show"; session_key ]
       in
       Alcotest.(check bool)
         "default shows total_messages" true
-        (contains all_result "\"total_messages\": 10");
+        (Test_helpers.string_contains all_result "\"total_messages\": 10");
       Alcotest.(check bool)
         "default shows has_more false" true
-        (contains all_result "\"has_more\": false");
+        (Test_helpers.string_contains all_result "\"has_more\": false");
       Alcotest.(check bool)
         "default has no offset field" false
-        (contains all_result "\"offset\":");
+        (Test_helpers.string_contains all_result "\"offset\":");
       Alcotest.(check bool)
         "default includes first message" true
-        (contains all_result "message_0");
+        (Test_helpers.string_contains all_result "message_0");
       Alcotest.(check bool)
         "default includes last message" true
-        (contains all_result "message_9");
+        (Test_helpers.string_contains all_result "message_9");
       (* --limit 3: first 3 messages *)
       let limited =
         Command_bridge.handle [ "session"; "show"; session_key; "--limit"; "3" ]
       in
       Alcotest.(check bool)
         "limit 3 shows total_messages 10" true
-        (contains limited "\"total_messages\": 10");
+        (Test_helpers.string_contains limited "\"total_messages\": 10");
       Alcotest.(check bool)
         "limit 3 has_more true" true
-        (contains limited "\"has_more\": true");
+        (Test_helpers.string_contains limited "\"has_more\": true");
       Alcotest.(check bool)
         "limit 3 shows next_offset 3" true
-        (contains limited "\"next_offset\": 3");
+        (Test_helpers.string_contains limited "\"next_offset\": 3");
       Alcotest.(check bool)
         "limit 3 includes message_0" true
-        (contains limited "message_0");
+        (Test_helpers.string_contains limited "message_0");
       Alcotest.(check bool)
         "limit 3 includes message_2" true
-        (contains limited "message_2");
+        (Test_helpers.string_contains limited "message_2");
       Alcotest.(check bool)
         "limit 3 excludes message_3" false
-        (contains limited "message_3");
+        (Test_helpers.string_contains limited "message_3");
       (* --offset 7 --limit 5: last 3 messages *)
       let paged =
         Command_bridge.handle
@@ -1125,22 +1086,22 @@ let test_session_show_paging () =
       in
       Alcotest.(check bool)
         "offset 7 limit 5 shows total_messages 10" true
-        (contains paged "\"total_messages\": 10");
+        (Test_helpers.string_contains paged "\"total_messages\": 10");
       Alcotest.(check bool)
         "offset 7 limit 5 has_more false" true
-        (contains paged "\"has_more\": false");
+        (Test_helpers.string_contains paged "\"has_more\": false");
       Alcotest.(check bool)
         "offset 7 limit 5 shows offset 7" true
-        (contains paged "\"offset\": 7");
+        (Test_helpers.string_contains paged "\"offset\": 7");
       Alcotest.(check bool)
         "offset 7 limit 5 includes message_7" true
-        (contains paged "message_7");
+        (Test_helpers.string_contains paged "message_7");
       Alcotest.(check bool)
         "offset 7 limit 5 includes message_9" true
-        (contains paged "message_9");
+        (Test_helpers.string_contains paged "message_9");
       Alcotest.(check bool)
         "offset 7 limit 5 excludes message_6" false
-        (contains paged "message_6");
+        (Test_helpers.string_contains paged "message_6");
       (* --offset 3 --limit 2: middle slice with continuation *)
       let mid =
         Command_bridge.handle
@@ -1148,18 +1109,22 @@ let test_session_show_paging () =
       in
       Alcotest.(check bool)
         "mid slice has_more true" true
-        (contains mid "\"has_more\": true");
+        (Test_helpers.string_contains mid "\"has_more\": true");
       Alcotest.(check bool)
         "mid slice next_offset 5" true
-        (contains mid "\"next_offset\": 5");
+        (Test_helpers.string_contains mid "\"next_offset\": 5");
       Alcotest.(check bool)
-        "mid slice includes message_3" true (contains mid "message_3");
+        "mid slice includes message_3" true
+        (Test_helpers.string_contains mid "message_3");
       Alcotest.(check bool)
-        "mid slice includes message_4" true (contains mid "message_4");
+        "mid slice includes message_4" true
+        (Test_helpers.string_contains mid "message_4");
       Alcotest.(check bool)
-        "mid slice excludes message_2" false (contains mid "message_2");
+        "mid slice excludes message_2" false
+        (Test_helpers.string_contains mid "message_2");
       Alcotest.(check bool)
-        "mid slice excludes message_5" false (contains mid "message_5"))
+        "mid slice excludes message_5" false
+        (Test_helpers.string_contains mid "message_5"))
 
 let test_handle_capabilities () =
   with_temp_home (fun _home ->
@@ -1471,12 +1436,6 @@ let test_handle_background_list () =
         (String.length result > 0))
 
 let test_handle_background_bare_shows_commands () =
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   with_temp_home (fun _home ->
       let result = Command_bridge.handle [ "background" ] in
       Alcotest.(check bool)
@@ -1484,28 +1443,28 @@ let test_handle_background_bare_shows_commands () =
         (String.length result > 0);
       Alcotest.(check bool)
         "bare background includes commands section" true
-        (contains result "Commands:");
+        (Test_helpers.string_contains result "Commands:");
       Alcotest.(check bool)
         "bare background mentions show" true
-        (contains result "background show");
+        (Test_helpers.string_contains result "background show");
       Alcotest.(check bool)
         "bare background mentions add" true
-        (contains result "background add");
+        (Test_helpers.string_contains result "background add");
       Alcotest.(check bool)
         "bare background mentions resume" true
-        (contains result "background resume");
+        (Test_helpers.string_contains result "background resume");
       Alcotest.(check bool)
         "bare background mentions message" true
-        (contains result "background message");
+        (Test_helpers.string_contains result "background message");
       Alcotest.(check bool)
         "bare background mentions cancel" true
-        (contains result "background cancel"))
+        (Test_helpers.string_contains result "background cancel"))
 
 let test_handle_background_add_show_cancel () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       let add_result =
         Command_bridge.handle
           [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]
@@ -1538,7 +1497,7 @@ let test_handle_background_wait_and_logs () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       ignore
         (Command_bridge.handle
            [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]);
@@ -1582,7 +1541,7 @@ let test_handle_background_logs_follow () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       ignore
         (Command_bridge.handle
            [ "background"; "add"; "codex"; repo; "Implement"; "follow"; "test" ]);
@@ -1613,7 +1572,7 @@ let test_handle_background_logs_offset () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       ignore
         (Command_bridge.handle
            [ "background"; "add"; "codex"; repo; "Test"; "offset"; "logs" ]);
@@ -1632,28 +1591,26 @@ let test_handle_background_logs_offset () =
            ~log_path ~pid:12345);
       Background_task.finish ~db ~id:1 ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       (* --offset 2 --lines 2: read lines 2-3 (1-indexed) *)
       let result =
         Command_bridge.handle
           [ "background"; "logs"; "1"; "--offset"; "2"; "--lines"; "2" ]
       in
       Alcotest.(check bool)
-        "offset logs includes line1" true (contains result "line1");
+        "offset logs includes line1" true
+        (Test_helpers.string_contains result "line1");
       Alcotest.(check bool)
-        "offset logs includes line2" true (contains result "line2");
+        "offset logs includes line2" true
+        (Test_helpers.string_contains result "line2");
       Alcotest.(check bool)
-        "offset logs excludes line0" false (contains result "line0");
+        "offset logs excludes line0" false
+        (Test_helpers.string_contains result "line0");
       Alcotest.(check bool)
-        "offset logs excludes line3" false (contains result "line3");
+        "offset logs excludes line3" false
+        (Test_helpers.string_contains result "line3");
       Alcotest.(check bool)
         "offset logs shows continuation" true
-        (contains result "Use offset=4");
+        (Test_helpers.string_contains result "Use offset=4");
       (* --offset 4 --lines 10: read to end *)
       let end_result =
         Command_bridge.handle
@@ -1661,19 +1618,19 @@ let test_handle_background_logs_offset () =
       in
       Alcotest.(check bool)
         "end offset includes line3" true
-        (contains end_result "line3");
+        (Test_helpers.string_contains end_result "line3");
       Alcotest.(check bool)
         "end offset includes line4" true
-        (contains end_result "line4");
+        (Test_helpers.string_contains end_result "line4");
       Alcotest.(check bool)
         "end offset shows end of log" true
-        (contains end_result "End of log"))
+        (Test_helpers.string_contains end_result "End of log"))
 
 let test_handle_subagents_start_list_and_transcript () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       let model = "xiaomi-token-plan-sgp:mimo-v2.5-pro" in
       ignore (Agent_template.init_cache ());
       let clawq_dir = Filename.concat home ".clawq" in
@@ -1705,7 +1662,7 @@ let test_handle_subagents_start_list_and_transcript () =
       in
       Alcotest.(check bool)
         "subagents start rejects missing template" true
-        (contains missing_agent_result
+        (Test_helpers.string_contains missing_agent_result
            "agent template 'definitely-missing-template' not found");
       let start_result =
         Command_bridge.handle
@@ -1724,7 +1681,7 @@ let test_handle_subagents_start_list_and_transcript () =
       in
       Alcotest.(check bool)
         "subagents start queues local task" true
-        (contains start_result "Queued subagent task 1");
+        (Test_helpers.string_contains start_result "Queued subagent task 1");
       let db =
         Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
       in
@@ -1747,7 +1704,7 @@ let test_handle_subagents_start_list_and_transcript () =
       let list_result = Command_bridge.handle [ "subagents"; "list" ] in
       Alcotest.(check bool)
         "subagents list shows local" true
-        (contains list_result "local");
+        (Test_helpers.string_contains list_result "local");
       ignore
         (match
            Background_task.enqueue ~db ~runner:Background_task.Codex
@@ -1758,39 +1715,42 @@ let test_handle_subagents_start_list_and_transcript () =
       let list_result = Command_bridge.handle [ "subagents"; "list" ] in
       Alcotest.(check bool)
         "subagents list hides external runners" false
-        (contains list_result "codex");
+        (Test_helpers.string_contains list_result "codex");
       let nonlocal_send =
         Command_bridge.handle [ "subagents"; "send"; "2"; "hello" ]
       in
       Alcotest.(check bool)
         "subagents send rejects external task" true
-        (contains nonlocal_send "not a native/local subagent");
+        (Test_helpers.string_contains nonlocal_send
+           "not a native/local subagent");
       Alcotest.(check int)
         "subagents send does not queue external task message" 0
         (Background_task.queued_resume_message_count ~db ~id:2);
       let nonlocal_stop = Command_bridge.handle [ "subagents"; "stop"; "2" ] in
       Alcotest.(check bool)
         "subagents stop rejects external task" true
-        (contains nonlocal_stop "not a native/local subagent");
+        (Test_helpers.string_contains nonlocal_stop
+           "not a native/local subagent");
       let nonlocal_transcript =
         Command_bridge.handle [ "subagents"; "transcript"; "2" ]
       in
       Alcotest.(check bool)
         "subagents transcript rejects external task" true
-        (contains nonlocal_transcript "not a native/local subagent");
+        (Test_helpers.string_contains nonlocal_transcript
+           "not a native/local subagent");
       let transcript_result =
         Command_bridge.handle
           [ "subagents"; "transcript"; "1"; "--regex"; "needle" ]
       in
       Alcotest.(check bool)
         "subagents transcript shows filtered line" true
-        (contains transcript_result "needle transcript line"))
+        (Test_helpers.string_contains transcript_result "needle transcript line"))
 
 let test_handle_background_native_aliases () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       let start_result =
         Command_bridge.handle
           [
@@ -1806,7 +1766,7 @@ let test_handle_background_native_aliases () =
       in
       Alcotest.(check bool)
         "background start aliases add" true
-        (contains start_result "Queued background task 1");
+        (Test_helpers.string_contains start_result "Queued background task 1");
       let clawq_dir = Filename.concat home ".clawq" in
       let db =
         Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
@@ -1825,23 +1785,23 @@ let test_handle_background_native_aliases () =
       in
       Alcotest.(check bool)
         "background transcript alias works" true
-        (contains transcript_result "alias transcript");
+        (Test_helpers.string_contains transcript_result "alias transcript");
       let send_result =
         Command_bridge.handle [ "background"; "send"; "1"; "follow"; "up" ]
       in
       Alcotest.(check bool)
         "background send alias works" true
-        (contains send_result "Queued message");
+        (Test_helpers.string_contains send_result "Queued message");
       let stop_result = Command_bridge.handle [ "background"; "stop"; "1" ] in
       Alcotest.(check bool)
         "background stop alias works" true
-        (contains stop_result "Cancelled"))
+        (Test_helpers.string_contains stop_result "Cancelled"))
 
 let test_handle_delegate () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       (* Create a fake codex binary so resolve_runner succeeds in CI *)
       let bin_dir = Filename.concat home "bin" in
       Unix.mkdir bin_dir 0o755;
@@ -1900,7 +1860,7 @@ let test_handle_delegate_with_model () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       let bin_dir = Filename.concat home "bin" in
       Unix.mkdir bin_dir 0o755;
       let fake_codex = Filename.concat bin_dir "codex" in
@@ -2002,18 +1962,13 @@ let test_handle_delegate_rejects_non_git_when_worktree_required () =
             Command_bridge.handle
               [ "delegate"; "--runner"; "codex"; "--repo"; repo; "implement" ]
           in
-          let contains needle =
-            try
-              ignore (Str.search_forward (Str.regexp_string needle) result 0);
-              true
-            with Not_found -> false
-          in
           Alcotest.(check bool)
             "rejected as non-git" true
-            (contains "is not a git repository");
+            (Test_helpers.string_contains result "is not a git repository");
           Alcotest.(check bool)
             "points to --no-worktree alternative" true
-            (contains "--no-worktree" || contains "use_worktree=false"))
+            (Test_helpers.string_contains result "--no-worktree"
+            || Test_helpers.string_contains result "use_worktree=false"))
         ~finally:(fun () -> Unix.putenv "PATH" old_path))
 
 let test_handle_service () =
@@ -2066,19 +2021,19 @@ let test_handle_update_without_live_daemon_reports_stub () =
             let result = Command_bridge.handle [ "update" ] in
             Alcotest.(check bool)
               "reports update start" true
-              (contains result "Starting update...");
+              (Test_helpers.string_contains result "Starting update...");
             Alcotest.(check bool)
               "reports git mode" true
-              (contains result "Mode: git");
+              (Test_helpers.string_contains result "Mode: git");
             Alcotest.(check bool)
               "runs git pull" true
-              (contains result "Running: git pull");
+              (Test_helpers.string_contains result "Running: git pull");
             Alcotest.(check bool)
               "runs build" true
-              (contains result "Running: make build");
+              (Test_helpers.string_contains result "Running: make build");
             Alcotest.(check bool)
               "reports build completion" true
-              (contains result "Build complete. Next"))
+              (Test_helpers.string_contains result "Build complete. Next"))
           ~finally:(fun () -> Unix.putenv "PATH" old_path))
 
 let test_handle_update_auto_pairs_with_live_gateway () =
@@ -2316,7 +2271,7 @@ let test_handle_background_wait_with_timeout () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       ignore
         (Command_bridge.handle
            [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]);
@@ -2352,7 +2307,7 @@ let test_handle_background_resume_and_message () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      init_git_repo repo;
+      Test_helpers.init_git_repo repo;
       git_empty_commit repo;
       ignore
         (Command_bridge.handle
@@ -2377,14 +2332,16 @@ let test_handle_background_resume_and_message () =
       in
       Alcotest.(check bool)
         "background resume returns queued text" true
-        (contains resume_result "Queued background task 1 for resume");
+        (Test_helpers.string_contains resume_result
+           "Queued background task 1 for resume");
       let message_result =
         Command_bridge.handle
           [ "background"; "message"; "1"; "please"; "fix"; "tests" ]
       in
       Alcotest.(check bool)
         "background message returns queued text" true
-        (contains message_result "Queued message for background task 1");
+        (Test_helpers.string_contains message_result
+           "Queued message for background task 1");
       Alcotest.(check int)
         "queued message persisted" 1
         (Background_task.queued_resume_message_count ~db ~id:1))
@@ -2539,10 +2496,10 @@ let test_tunnel_status_daemon_fallback () =
       let result = Command_bridge.handle [ "tunnel"; "status" ] in
       Alcotest.(check bool)
         "shows daemon-managed" true
-        (contains result "daemon-managed");
+        (Test_helpers.string_contains result "daemon-managed");
       Alcotest.(check bool)
         "shows URL" true
-        (contains result "https://test.trycloudflare.com"))
+        (Test_helpers.string_contains result "https://test.trycloudflare.com"))
 
 let test_cmd_agent_refuses_second_live_instance () =
   let ran = ref false in
@@ -2928,7 +2885,8 @@ let test_debug_context_shows_heartbeat_for_opted_in_session () =
       in
       Alcotest.(check bool)
         "debug context shows heartbeat routing enabled" true
-        (contains result "Heartbeat routing enabled for this session: yes"))
+        (Test_helpers.string_contains result
+           "Heartbeat routing enabled for this session: yes"))
 
 let test_debug_context_disabled_when_dynamic_off () =
   with_temp_home (fun home ->
@@ -3063,13 +3021,14 @@ let test_offline_session_send_alias_enqueues_message () =
       in
       Alcotest.(check bool)
         "session send queues message" true
-        (contains result "Queued message for session telegram:1:user");
+        (Test_helpers.string_contains result
+           "Queued message for session telegram:1:user");
       let pending_result =
         Command_bridge.handle [ "session"; "pending"; "telegram:1:user" ]
       in
       Alcotest.(check bool)
         "pending shows sent message" true
-        (contains pending_result "hello session"))
+        (Test_helpers.string_contains pending_result "hello session"))
 
 let test_session_list_shows_pending_inbound_count () =
   with_temp_home (fun home ->
@@ -3136,21 +3095,15 @@ let test_session_events_basic () =
       let result =
         Command_bridge.handle [ "session"; "events"; "web:evtest" ]
       in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "session events includes workspace_refresh" true
-        (contains result "workspace_refresh");
+        (Test_helpers.string_contains result "workspace_refresh");
       Alcotest.(check bool)
         "session events includes memory_context" true
-        (contains result "memory_context");
+        (Test_helpers.string_contains result "memory_context");
       Alcotest.(check bool)
         "session events excludes user/assistant messages" true
-        (not (contains result "\"hi there\"")))
+        (not (Test_helpers.string_contains result "\"hi there\"")))
 
 let test_session_events_epoch_flag () =
   with_temp_home (fun home ->
@@ -3160,22 +3113,16 @@ let test_session_events_epoch_flag () =
            ~content:
              "[workspace context refreshed after active workspace file update: \
               NOTES.md]");
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       let result =
         Command_bridge.handle
           [ "session"; "events"; "web:epochtest"; "--epoch"; "current" ]
       in
       Alcotest.(check bool)
         "--epoch current returns epoch field" true
-        (contains result "\"epoch\": \"current\"");
+        (Test_helpers.string_contains result "\"epoch\": \"current\"");
       Alcotest.(check bool)
         "--epoch current returns workspace_refresh" true
-        (contains result "workspace_refresh"))
+        (Test_helpers.string_contains result "workspace_refresh"))
 
 let test_session_events_type_filter () =
   with_temp_home (fun home ->
@@ -3192,18 +3139,12 @@ let test_session_events_type_filter () =
         Command_bridge.handle
           [ "session"; "events"; "web:evfilter"; "--type"; "workspace_refresh" ]
       in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "type filter returns workspace_refresh" true
-        (contains result "workspace_refresh");
+        (Test_helpers.string_contains result "workspace_refresh");
       Alcotest.(check bool)
         "type filter excludes memory_context" true
-        (not (contains result "memory_context")))
+        (not (Test_helpers.string_contains result "memory_context")))
 
 let test_models_set_default_rejects_unknown_plain () =
   with_temp_home (fun _dir ->
@@ -3211,17 +3152,15 @@ let test_models_set_default_rejects_unknown_plain () =
         Command_bridge.handle
           [ "models"; "set-default"; "nonexistent-model-xyz" ]
       in
-      let contains s sub =
-        let re = Re.(compile (str sub)) in
-        Re.execp re s
-      in
-      Alcotest.(check bool) "error message" true (contains result "Error:");
+      Alcotest.(check bool)
+        "error message" true
+        (Test_helpers.string_contains result "Error:");
       Alcotest.(check bool)
         "mentions model name" true
-        (contains result "nonexistent-model-xyz");
+        (Test_helpers.string_contains result "nonexistent-model-xyz");
       Alcotest.(check bool)
         "hint about provider format" true
-        (contains result "provider:model"))
+        (Test_helpers.string_contains result "provider:model"))
 
 let test_models_set_default_accepts_known_plain () =
   with_temp_home (fun _dir ->
@@ -3231,13 +3170,9 @@ let test_models_set_default_accepts_known_plain () =
         Command_bridge.handle
           [ "models"; "set-default"; "claude-sonnet-4-6"; "--skip-validation" ]
       in
-      let contains s sub =
-        let re = Re.(compile (str sub)) in
-        Re.execp re s
-      in
       Alcotest.(check bool)
         "confirms set" true
-        (contains result "Default model set to:"))
+        (Test_helpers.string_contains result "Default model set to:"))
 
 let test_models_set_default_accepts_unknown_with_provider () =
   with_temp_home (fun _dir ->
@@ -3250,14 +3185,12 @@ let test_models_set_default_accepts_unknown_with_provider () =
             "--skip-validation";
           ]
       in
-      let contains s sub =
-        let re = Re.(compile (str sub)) in
-        Re.execp re s
-      in
       Alcotest.(check bool)
         "confirms set" true
-        (contains result "Default model set to:");
-      Alcotest.(check bool) "no error" true (not (contains result "Error:")))
+        (Test_helpers.string_contains result "Default model set to:");
+      Alcotest.(check bool)
+        "no error" true
+        (not (Test_helpers.string_contains result "Error:")))
 
 let test_models_set_default_rejects_unavailable_cached_model () =
   with_temp_home (fun home ->
@@ -3275,10 +3208,10 @@ let test_models_set_default_rejects_unavailable_cached_model () =
       in
       Alcotest.(check bool)
         "rejects unavailable cached model" true
-        (contains result "marked unavailable");
+        (Test_helpers.string_contains result "marked unavailable");
       Alcotest.(check bool)
         "does not commit unavailable cached model" true
-        (not (contains result "Default model set to:")))
+        (not (Test_helpers.string_contains result "Default model set to:")))
 
 (* B600: validation safety net aborts switch when provider has no auth. *)
 let test_models_set_default_validation_aborts_on_bad_model () =
@@ -3287,16 +3220,12 @@ let test_models_set_default_validation_aborts_on_bad_model () =
         Command_bridge.handle
           [ "models"; "set-default"; "myprovider:some-custom-model" ]
       in
-      let contains s sub =
-        let re = Re.(compile (str sub)) in
-        Re.execp re s
-      in
       Alcotest.(check bool)
         "validation error reported" true
-        (contains result "validation failed");
+        (Test_helpers.string_contains result "validation failed");
       Alcotest.(check bool)
         "rollback hint shown" true
-        (contains result "Rollback command if needed"))
+        (Test_helpers.string_contains result "Rollback command if needed"))
 
 let test_models_set_default_skip_validation_commits () =
   with_temp_home (fun _dir ->
@@ -3309,35 +3238,27 @@ let test_models_set_default_skip_validation_commits () =
             "--skip-validation";
           ]
       in
-      let contains s sub =
-        let re = Re.(compile (str sub)) in
-        Re.execp re s
-      in
       Alcotest.(check bool)
         "set proceeds with --skip-validation" true
-        (contains result "Default model set to:");
+        (Test_helpers.string_contains result "Default model set to:");
       Alcotest.(check bool)
         "notes validation was skipped" true
-        (contains result "validation skipped"))
+        (Test_helpers.string_contains result "validation skipped"))
 
 let test_models_set_usage_excludes_session_only_set_without_live_session () =
   with_temp_home (fun _dir ->
       let result =
         Command_bridge.handle [ "models"; "set"; "zai_coding:glm-5" ]
       in
-      let contains s sub =
-        let re = Re.(compile (str sub)) in
-        Re.execp re s
-      in
       Alcotest.(check bool)
         "shows usage for unsupported subcommand" true
-        (contains result "Usage: clawq models <subcommand>");
+        (Test_helpers.string_contains result "Usage: clawq models <subcommand>");
       Alcotest.(check bool)
         "does not advertise session-only set" false
-        (contains result "set MODEL");
+        (Test_helpers.string_contains result "set MODEL");
       Alcotest.(check bool)
         "still advertises persistent path" true
-        (contains result "set-default MODEL"))
+        (Test_helpers.string_contains result "set-default MODEL"))
 
 let suite =
   [

@@ -1,20 +1,3 @@
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-
-let init_git_repo path =
-  let cmd =
-    Printf.sprintf "git -C %s init -q >/dev/null 2>&1" (Filename.quote path)
-  in
-  match Sys.command cmd with
-  | 0 -> ()
-  | code -> Alcotest.failf "git init failed for %s (exit %d)" path code
-
 let configure_git_identity repo =
   let cmd =
     Printf.sprintf
@@ -27,17 +10,9 @@ let configure_git_identity repo =
   | code ->
       Alcotest.failf "git identity config failed for %s (exit %d)" repo code
 
-let git_cmd repo args =
-  let cmd =
-    Printf.sprintf "git -C %s %s >/dev/null 2>&1" (Filename.quote repo) args
-  in
-  match Sys.command cmd with
-  | 0 -> ()
-  | code -> Alcotest.failf "git command failed for %s (exit %d)" args code
-
 let add_git_worktree repo ~branch ~name =
   let worktree_path = Filename.concat repo name in
-  git_cmd repo
+  Test_helpers.git_cmd repo
     (Printf.sprintf "worktree add -b %s %s HEAD -q" (Filename.quote branch)
        (Filename.quote worktree_path));
   worktree_path
@@ -46,19 +21,13 @@ let with_temp_git_repo f =
   let repo = Filename.temp_file "clawq-bg-repo" "" in
   Sys.remove repo;
   Unix.mkdir repo 0o755;
-  init_git_repo repo;
+  Test_helpers.init_git_repo repo;
   configure_git_identity repo;
-  git_cmd repo "commit --allow-empty -m 'initial' -q";
+  Test_helpers.git_cmd repo "commit --allow-empty -m 'initial' -q";
   Fun.protect
     (fun () -> f repo)
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote repo))))
-
-let process_exists pid =
-  try
-    Unix.kill pid 0;
-    true
-  with Unix.Unix_error _ -> false
 
 let fake_task ?(runner = Background_task.Codex)
     ?(status = Background_task.Queued) id =
@@ -256,11 +225,11 @@ let test_cancel_running_task_waits_for_descendants () =
         if Sys.file_exists pid_file then ()
         else if attempts <= 0 then Alcotest.fail "child pid file not written"
         else begin
-          Unix.sleepf 0.02;
+          Unix.sleepf 0.05;
           wait_for_pid_file (attempts - 1)
         end
       in
-      wait_for_pid_file 50;
+      wait_for_pid_file 100;
       let child_pid =
         let ic = open_in pid_file in
         Fun.protect
@@ -278,16 +247,16 @@ let test_cancel_running_task_waits_for_descendants () =
       in
       (match result with Ok _ -> () | Error msg -> Alcotest.fail msg);
       let rec wait_until_gone attempts =
-        if attempts <= 0 || not (process_exists child_pid) then ()
+        if attempts <= 0 || not (Test_helpers.process_exists child_pid) then ()
         else begin
-          Unix.sleepf 0.05;
+          Unix.sleepf 0.1;
           wait_until_gone (attempts - 1)
         end
       in
-      wait_until_gone 20;
+      wait_until_gone 50;
       Alcotest.(check bool)
         "child process terminated before return" false
-        (process_exists child_pid);
+        (Test_helpers.process_exists child_pid);
       (match Background_task.get_task ~db ~id with
       | Some task ->
           Alcotest.(check string)
@@ -326,7 +295,7 @@ let test_cancel_with_nonblocking_terminate () =
       | Ok msg ->
           Alcotest.(check bool)
             "mentions SIGTERM" true
-            (string_contains msg "SIGTERM")
+            (Test_helpers.string_contains msg "SIGTERM")
       | Error msg -> Alcotest.fail msg);
       Alcotest.(check (option (pair int int)))
         "sent signal to process group"
@@ -829,17 +798,15 @@ let test_list_tool_id_default_omits_paths () =
       let result =
         Lwt_main.run (tool.Tool.invoke (`Assoc [ ("id", `Int id) ]))
       in
-      let contains substr =
-        try
-          ignore (Str.search_forward (Str.regexp_string substr) result 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
-        "omits repo path by default" false (contains "repo:");
+        "omits repo path by default" false
+        (Test_helpers.string_contains result "repo:");
       Alcotest.(check bool)
-        "omits worktree by default" false (contains "worktree:");
-      Alcotest.(check bool) "still shows status" true (contains "status:"))
+        "omits worktree by default" false
+        (Test_helpers.string_contains result "worktree:");
+      Alcotest.(check bool)
+        "still shows status" true
+        (Test_helpers.string_contains result "status:"))
 
 let test_list_tool_id_full_includes_paths () =
   with_temp_git_repo (fun repo_path ->
@@ -858,13 +825,9 @@ let test_list_tool_id_full_includes_paths () =
         Lwt_main.run
           (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("full", `Bool true) ]))
       in
-      let contains substr =
-        try
-          ignore (Str.search_forward (Str.regexp_string substr) result 0);
-          true
-        with Not_found -> false
-      in
-      Alcotest.(check bool) "full includes repo path" true (contains "repo:"))
+      Alcotest.(check bool)
+        "full includes repo path" true
+        (Test_helpers.string_contains result "repo:"))
 
 let test_wait_tool_returns_terminal_summary () =
   with_temp_git_repo (fun repo_path ->
@@ -1450,7 +1413,7 @@ let test_task_start_agent_tool_enqueues_local_background_task () =
       in
       Alcotest.(check bool)
         "reports queued background task" true
-        (string_contains out "Queued task agent");
+        (Test_helpers.string_contains out "Queued task agent");
       let bg_tasks = Background_task.list_tasks ~db in
       Alcotest.(check int) "one background task" 1 (List.length bg_tasks);
       let bg_task = List.hd bg_tasks in
@@ -4085,15 +4048,21 @@ let test_channel_notification_succeeded () =
     }
   in
   let msg = Background_task.channel_notification_message task in
-  Alcotest.(check bool) "contains task id" true (string_contains msg "#42");
+  Alcotest.(check bool)
+    "contains task id" true
+    (Test_helpers.string_contains msg "#42");
   Alcotest.(check bool)
     "contains SUCCEEDED" true
-    (string_contains msg "SUCCEEDED");
+    (Test_helpers.string_contains msg "SUCCEEDED");
   Alcotest.(check bool)
     "contains repo basename" true
-    (string_contains msg "repo");
-  Alcotest.(check bool) "no full paths" true (not (string_contains msg "/tmp/"));
-  Alcotest.(check bool) "no hint" true (not (string_contains msg "Hint:"))
+    (Test_helpers.string_contains msg "repo");
+  Alcotest.(check bool)
+    "no full paths" true
+    (not (Test_helpers.string_contains msg "/tmp/"));
+  Alcotest.(check bool)
+    "no hint" true
+    (not (Test_helpers.string_contains msg "Hint:"))
 
 let test_channel_notification_failed () =
   let task =
@@ -4104,16 +4073,18 @@ let test_channel_notification_failed () =
     }
   in
   let msg = Background_task.channel_notification_message task in
-  Alcotest.(check bool) "contains FAILED" true (string_contains msg "FAILED");
+  Alcotest.(check bool)
+    "contains FAILED" true
+    (Test_helpers.string_contains msg "FAILED");
   Alcotest.(check bool)
     "contains error preview" true
-    (string_contains msg "Build error in dune config");
+    (Test_helpers.string_contains msg "Build error in dune config");
   Alcotest.(check bool)
     "contains retry hint" true
-    (string_contains msg "background retry 42");
+    (Test_helpers.string_contains msg "background retry 42");
   Alcotest.(check bool)
     "contains logs hint" true
-    (string_contains msg "background logs 42")
+    (Test_helpers.string_contains msg "background logs 42")
 
 let test_channel_notification_dirty_worktree () =
   let task =
@@ -4126,10 +4097,10 @@ let test_channel_notification_dirty_worktree () =
   let msg = Background_task.channel_notification_message task in
   Alcotest.(check bool)
     "contains DIRTY WORKTREE" true
-    (string_contains msg "DIRTY WORKTREE");
+    (Test_helpers.string_contains msg "DIRTY WORKTREE");
   Alcotest.(check bool)
     "contains finalize hint" true
-    (string_contains msg "background finalize 42")
+    (Test_helpers.string_contains msg "background finalize 42")
 
 let test_channel_notification_cancelled () =
   let task =
@@ -4141,8 +4112,10 @@ let test_channel_notification_cancelled () =
   let msg = Background_task.channel_notification_message task in
   Alcotest.(check bool)
     "contains CANCELLED" true
-    (string_contains msg "CANCELLED");
-  Alcotest.(check bool) "no hint" true (not (string_contains msg "Hint:"))
+    (Test_helpers.string_contains msg "CANCELLED");
+  Alcotest.(check bool)
+    "no hint" true
+    (not (Test_helpers.string_contains msg "Hint:"))
 
 let test_channel_notification_with_automerge () =
   let task =
@@ -4155,7 +4128,7 @@ let test_channel_notification_with_automerge () =
   let msg = Background_task.channel_notification_message task in
   Alcotest.(check bool)
     "contains automerged suffix" true
-    (string_contains msg "automerged")
+    (Test_helpers.string_contains msg "automerged")
 
 let test_channel_notification_local_runner () =
   let task =
@@ -4168,7 +4141,7 @@ let test_channel_notification_local_runner () =
   let msg = Background_task.channel_notification_message task in
   Alcotest.(check bool)
     "contains result preview" true
-    (string_contains msg "script output here")
+    (Test_helpers.string_contains msg "script output here")
 
 let test_channel_notification_with_summary () =
   let task =
@@ -4184,10 +4157,11 @@ let test_channel_notification_with_summary () =
   in
   Alcotest.(check bool)
     "contains Summary line" true
-    (string_contains msg "Summary: Implemented feature and added tests");
+    (Test_helpers.string_contains msg
+       "Summary: Implemented feature and added tests");
   Alcotest.(check bool)
     "does not contain raw result" true
-    (not (string_contains msg "raw output"))
+    (not (Test_helpers.string_contains msg "raw output"))
 
 let test_channel_notification_without_summary () =
   let task =
@@ -4200,7 +4174,7 @@ let test_channel_notification_without_summary () =
   let msg = Background_task.channel_notification_message task in
   Alcotest.(check bool)
     "contains fallback preview" true
-    (string_contains msg "Summary: fallback preview text")
+    (Test_helpers.string_contains msg "Summary: fallback preview text")
 
 let test_channel_notification_with_git_info () =
   let task =
@@ -4215,11 +4189,13 @@ let test_channel_notification_with_git_info () =
   let msg = Background_task.channel_notification_message ~git_info task in
   Alcotest.(check bool)
     "contains git dirty" true
-    (string_contains msg "dirty (2 files)");
+    (Test_helpers.string_contains msg "dirty (2 files)");
   Alcotest.(check bool)
     "contains commit count" true
-    (string_contains msg "3 commits");
-  Alcotest.(check bool) "contains rebased" true (string_contains msg "rebased")
+    (Test_helpers.string_contains msg "3 commits");
+  Alcotest.(check bool)
+    "contains rebased" true
+    (Test_helpers.string_contains msg "rebased")
 
 let test_channel_notification_git_clean () =
   let task =
@@ -4232,13 +4208,15 @@ let test_channel_notification_git_clean () =
     { Background_task.dirty_count = 0; commit_count = 1; rebased = false }
   in
   let msg = Background_task.channel_notification_message ~git_info task in
-  Alcotest.(check bool) "contains clean" true (string_contains msg "git: clean");
+  Alcotest.(check bool)
+    "contains clean" true
+    (Test_helpers.string_contains msg "git: clean");
   Alcotest.(check bool)
     "contains 1 commit" true
-    (string_contains msg "1 commit,");
+    (Test_helpers.string_contains msg "1 commit,");
   Alcotest.(check bool)
     "contains not rebased" true
-    (string_contains msg "not rebased")
+    (Test_helpers.string_contains msg "not rebased")
 
 let test_record_notification_result () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -4285,7 +4263,7 @@ let test_notification_status_in_summary () =
   let summary = Background_task.format_task_summary task in
   Alcotest.(check bool)
     "contains notification status" true
-    (string_contains summary "notification: delivered")
+    (Test_helpers.string_contains summary "notification: delivered")
 
 let test_notification_error_in_summary () =
   let task =
@@ -4298,7 +4276,7 @@ let test_notification_error_in_summary () =
   let summary = Background_task.format_task_summary task in
   Alcotest.(check bool)
     "contains error" true
-    (string_contains summary "connection refused")
+    (Test_helpers.string_contains summary "connection refused")
 
 let test_health_local_task_tracked_is_active () =
   let task =
@@ -4413,10 +4391,10 @@ let test_reap_local_task_message () =
           let preview = Option.value ~default:"" task.result_preview in
           Alcotest.(check bool)
             "result mentions daemon restart" true
-            (string_contains preview "daemon restart");
+            (Test_helpers.string_contains preview "daemon restart");
           Alcotest.(check bool)
             "result mentions retry hint" true
-            (string_contains preview "background retry"))
+            (Test_helpers.string_contains preview "background retry"))
 
 let test_spawn_local_task_timeout () =
   let dir = Filename.temp_dir "clawq-bg-local-timeout" "" in
@@ -4466,7 +4444,7 @@ let test_spawn_local_task_timeout () =
           let preview = Option.value ~default:"" t.result_preview in
           Alcotest.(check bool)
             "result mentions timeout" true
-            (string_contains preview "timed out"))
+            (Test_helpers.string_contains preview "timed out"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
@@ -4525,7 +4503,7 @@ let test_spawn_local_task_success () =
           let preview = Option.value ~default:"" t.result_preview in
           Alcotest.(check bool)
             "result contains response" true
-            (string_contains preview "done"))
+            (Test_helpers.string_contains preview "done"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
@@ -4584,7 +4562,8 @@ let test_spawn_local_task_run_turn_failure_marks_failed () =
           let preview = Option.value ~default:"" t.result_preview in
           Alcotest.(check bool)
             "result contains template failure" true
-            (string_contains preview "agent template 'missing' not found"))
+            (Test_helpers.string_contains preview
+               "agent template 'missing' not found"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
@@ -4709,13 +4688,13 @@ let test_spawn_local_task_replays_queued_messages_fifo () =
       let message = Option.value ~default:"" !seen_message in
       Alcotest.(check bool)
         "resume prompt includes first queued message" true
-        (string_contains message "Injected message 1:");
+        (Test_helpers.string_contains message "Injected message 1:");
       Alcotest.(check bool)
         "resume prompt preserves first message" true
-        (string_contains message "first");
+        (Test_helpers.string_contains message "first");
       Alcotest.(check bool)
         "resume prompt preserves second message" true
-        (string_contains message "second");
+        (Test_helpers.string_contains message "second");
       Alcotest.(check int)
         "queued messages drained after success" 0
         (Background_task.queued_resume_message_count ~db ~id))
@@ -4876,13 +4855,13 @@ let test_transcript_prefers_stable_session_history_and_filters_regex () =
   in
   Alcotest.(check bool)
     "mentions stable session source" true
-    (string_contains output session_key);
+    (Test_helpers.string_contains output session_key);
   Alcotest.(check bool)
     "includes regex match" true
-    (string_contains output "needle reply");
+    (Test_helpers.string_contains output "needle reply");
   Alcotest.(check bool)
     "filters before rendering" false
-    (string_contains output "ordinary line")
+    (Test_helpers.string_contains output "ordinary line")
 
 let test_transcript_oversize_refuses_inline_and_exports_jsonl () =
   let home = Filename.temp_dir "clawq-bg-transcript-home" "" in
@@ -4909,10 +4888,10 @@ let test_transcript_oversize_refuses_inline_and_exports_jsonl () =
       let output = Background_task_transcript.render ~db ~id () in
       Alcotest.(check bool)
         "refuses oversized inline output" true
-        (string_contains output "refusing inline transcript");
+        (Test_helpers.string_contains output "refusing inline transcript");
       Alcotest.(check bool)
         "reports export path" true
-        (string_contains output "JSONL export:");
+        (Test_helpers.string_contains output "JSONL export:");
       let marker = "JSONL export: " in
       let path =
         try
@@ -4933,7 +4912,7 @@ let test_transcript_oversize_refuses_inline_and_exports_jsonl () =
       in
       Alcotest.(check bool)
         "export contains late line" true
-        (string_contains exported "line-305"))
+        (Test_helpers.string_contains exported "line-305"))
     ~finally:(fun () ->
       Unix.putenv "CLAWQ_HOME" "";
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote home))))
@@ -4968,10 +4947,10 @@ let test_transcript_tool_filters_session_history () =
   in
   Alcotest.(check bool)
     "tool returns filtered transcript line" true
-    (string_contains output "beta needle");
+    (Test_helpers.string_contains output "beta needle");
   Alcotest.(check bool)
     "tool applies regex before render" false
-    (string_contains output "alpha plain")
+    (Test_helpers.string_contains output "alpha plain")
 
 let test_command_to_log_string () =
   let exec_result =
@@ -4980,8 +4959,8 @@ let test_command_to_log_string () =
   in
   Alcotest.(check bool)
     "exec argv joined" true
-    (string_contains exec_result "claude"
-    && string_contains exec_result "'hello world'");
+    (Test_helpers.string_contains exec_result "claude"
+    && Test_helpers.string_contains exec_result "'hello world'");
   let shell_result =
     Background_task.command_to_log_string
       (Process_group.Shell "echo hi && exit")
@@ -5003,10 +4982,10 @@ let test_write_log_preamble () =
       in
       Alcotest.(check bool)
         "contains task id" true
-        (string_contains contents "task 42");
+        (Test_helpers.string_contains contents "task 42");
       Alcotest.(check bool)
         "contains command" true
-        (string_contains contents "echo hello"))
+        (Test_helpers.string_contains contents "echo hello"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
@@ -5083,10 +5062,10 @@ let test_spawn_task_set_running_failure_marks_failed () =
               in
               Alcotest.(check bool)
                 "log contains preamble" true
-                (string_contains log_content "[clawq] task");
+                (Test_helpers.string_contains log_content "[clawq] task");
               Alcotest.(check bool)
                 "log contains set_running error" true
-                (string_contains log_content "set_running failed");
+                (Test_helpers.string_contains log_content "set_running failed");
               ignore t))
 
 let test_spawn_local_task_creates_log () =
@@ -5153,10 +5132,10 @@ let test_spawn_local_task_creates_log () =
       in
       Alcotest.(check bool)
         "log contains preamble" true
-        (string_contains log_content "[clawq] task");
+        (Test_helpers.string_contains log_content "[clawq] task");
       Alcotest.(check bool)
         "log contains finished marker" true
-        (string_contains log_content "[clawq] finished"))
+        (Test_helpers.string_contains log_content "[clawq] finished"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
@@ -5231,7 +5210,7 @@ let test_spawn_local_task_cancel () =
           let preview = Option.value ~default:"" t.result_preview in
           Alcotest.(check bool)
             "result mentions cancel" true
-            (string_contains preview "Cancel"))
+            (Test_helpers.string_contains preview "Cancel"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 

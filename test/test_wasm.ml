@@ -16,13 +16,9 @@ let test_dispatch_version () =
   let code, result = Main_wasm.dispatch [ "version" ] in
   Alcotest.(check int) "version exits 0" 0 code;
   Alcotest.(check bool) "version non-empty" true (String.length result > 0);
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "contains wasm" true (contains result "wasm")
+  Alcotest.(check bool)
+    "contains wasm" true
+    (Test_helpers.string_contains result "wasm")
 
 let test_dispatch_status () =
   let code, result = Main_wasm.dispatch [ "status" ] in
@@ -33,15 +29,10 @@ let test_dispatch_unknown () =
   let code, result = Main_wasm.dispatch [ "nonexistent_command" ] in
   Alcotest.(check int) "unknown exits 1" 1 code;
   Alcotest.(check bool) "unknown returns message" true (String.length result > 0);
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "contains Unknown" true
-    (contains result "Unknown" || contains result "unknown")
+    (Test_helpers.string_contains result "Unknown"
+    || Test_helpers.string_contains result "unknown")
 
 let test_dispatch_dash_h () =
   let code, result = Main_wasm.dispatch [ "-h" ] in
@@ -62,42 +53,28 @@ let test_dispatch_dash_version () =
 
 let test_cmd_help () =
   let result = Main_wasm.cmd_help () in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "contains version" true
-    (contains result Main_wasm.version);
-  Alcotest.(check bool) "contains commands" true (contains result "Commands")
+    (Test_helpers.string_contains result Main_wasm.version);
+  Alcotest.(check bool)
+    "contains commands" true
+    (Test_helpers.string_contains result "Commands")
 
 (* --- cmd_version tests --- *)
 
 let test_cmd_version () =
   let result = Main_wasm.cmd_version () in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "contains version" true
-    (contains result Main_wasm.version)
+    (Test_helpers.string_contains result Main_wasm.version)
 
 (* --- cmd_status tests --- *)
 
 let test_cmd_status () =
   let result = Main_wasm.cmd_status () in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "contains workspace" true (contains result "workspace")
+  Alcotest.(check bool)
+    "contains workspace" true
+    (Test_helpers.string_contains result "workspace")
 
 (* --- cmd_memory tests --- *)
 
@@ -121,28 +98,19 @@ let test_cmd_memory_unknown () =
 
 let test_cmd_agent_no_key () =
   let result = Main_wasm.cmd_agent [] in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "mentions API key" true
-    (contains result "CLAWQ_API_KEY"
-    || contains result "api" || contains result "Agent")
+    (Test_helpers.string_contains result "CLAWQ_API_KEY"
+    || Test_helpers.string_contains result "api"
+    || Test_helpers.string_contains result "Agent")
 
 (* --- file-based memory tests --- *)
 
 let test_memory_path () =
   let path = Main_wasm.memory_path ~workspace:"/tmp/test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "contains MEMORY.md" true (contains path "MEMORY.md")
+  Alcotest.(check bool)
+    "contains MEMORY.md" true
+    (Test_helpers.string_contains path "MEMORY.md")
 
 let test_read_memory_nonexistent () =
   let content =
@@ -160,13 +128,9 @@ let test_read_identity_nonexistent () =
   let result =
     Main_wasm.read_identity ~workspace:"/tmp/nonexistent_wasm_test_789"
   in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "no identity" true (contains result "no IDENTITY.md")
+  Alcotest.(check bool)
+    "no identity" true
+    (Test_helpers.string_contains result "no IDENTITY.md")
 
 let suite =
   [

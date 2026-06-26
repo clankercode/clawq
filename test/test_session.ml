@@ -1,24 +1,3 @@
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-
 let with_captured_logs f =
   let messages = ref [] in
   let reporter =
@@ -70,17 +49,6 @@ let mock_status_notifier () =
   in
   (notifier, sent, edited)
 
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let rec remove_path path =
   try
     if Sys.is_directory path then begin
@@ -91,11 +59,6 @@ let rec remove_path path =
     end
     else Sys.remove path
   with Sys_error _ | Unix.Unix_error _ -> ()
-
-let run_command_or_fail ~label cmd =
-  match Sys.command cmd with
-  | 0 -> ()
-  | code -> Alcotest.failf "%s failed (exit %d): %s" label code cmd
 
 let with_temp_workspace f =
   let base = Filename.get_temp_dir_name () in
@@ -113,7 +76,7 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
   }
 
 let with_fake_chat_provider ?response_for_user f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -236,7 +199,7 @@ let with_fake_chat_provider ?response_for_user f =
       f config)
 
 let with_delayed_chat_provider ?(delay_s = 0.05) ?response_for_user f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -364,7 +327,7 @@ type fake_provider_reply =
   | Fake_tool_calls of (string * string * string) list
 
 let with_fake_openai_provider ~handle_request f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -786,16 +749,16 @@ let test_record_agent_turn_persists_channel_metadata () =
     ~channel_id:"chan" ();
   Alcotest.(check (option string))
     "turn stored as agent" (Some "agent")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'discord:chan:user'");
   Alcotest.(check (option string))
     "channel stored" (Some "discord")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT channel FROM session_state WHERE session_key = \
         'discord:chan:user'");
   Alcotest.(check (option string))
     "channel id stored" (Some "chan")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT channel_id FROM session_state WHERE session_key = \
         'discord:chan:user'")
 
@@ -808,11 +771,11 @@ let test_mark_response_sent_updates_session_state () =
   Session.mark_response_sent mgr ~key:"telegram:42:user";
   Alcotest.(check (option string))
     "turn reset to user" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'telegram:42:user'");
   Alcotest.(check bool)
     "response timestamp set" true
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT response_sent_at FROM session_state WHERE session_key = \
         'telegram:42:user'"
     <> None)
@@ -1786,7 +1749,8 @@ let test_turn_stream_skill_load_notifies_registered_notifier_once () =
       Alcotest.(check bool)
         "registered notifier suppresses stream delta notification" false
         (List.exists
-           (fun text -> string_contains text "Loaded skill: stream-skill")
+           (fun text ->
+             Test_helpers.string_contains text "Loaded skill: stream-skill")
            deltas))
 
 let test_turn_stream_emits_compaction_notice () =
@@ -1826,7 +1790,7 @@ let test_turn_stream_emits_compaction_notice () =
       let output = String.concat "" deltas in
       Alcotest.(check bool)
         "compaction notice text present" true
-        (string_contains output "Compacting conversation history"))
+        (Test_helpers.string_contains output "Compacting conversation history"))
 
 let test_session_debug_toggle_persists () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1864,26 +1828,27 @@ let test_session_debug_formats_llm_call_summary () =
   in
   Alcotest.(check bool)
     "mentions provider/model" true
-    (string_contains line "provider=fake"
-    && string_contains line "model=fake-model");
+    (Test_helpers.string_contains line "provider=fake"
+    && Test_helpers.string_contains line "model=fake-model");
   Alcotest.(check bool)
     "mentions duration" true
-    (string_contains line "duration=1.23s");
+    (Test_helpers.string_contains line "duration=1.23s");
   Alcotest.(check bool)
     "mentions total tokens" true
-    (string_contains line "tokens=120");
+    (Test_helpers.string_contains line "tokens=120");
   Alcotest.(check bool)
     "mentions prompt tokens" true
-    (string_contains line "prompt=100");
+    (Test_helpers.string_contains line "prompt=100");
   Alcotest.(check bool)
     "mentions reasoning-inclusive output tokens" true
-    (string_contains line "output+reasoning=20");
+    (Test_helpers.string_contains line "output+reasoning=20");
   Alcotest.(check bool)
     "mentions cached tokens and percent" true
-    (string_contains line "cached=25" && string_contains line "cached_pct=25%");
+    (Test_helpers.string_contains line "cached=25"
+    && Test_helpers.string_contains line "cached_pct=25%");
   Alcotest.(check bool)
     "mentions tool calls" true
-    (string_contains line "tool_calls=2")
+    (Test_helpers.string_contains line "tool_calls=2")
 
 let test_turn_sends_debug_summary_after_llm_call () =
   with_fake_chat_provider (fun config ->
@@ -1901,25 +1866,27 @@ let test_turn_sends_debug_summary_after_llm_call () =
       Alcotest.(check string) "response" "reply:hello" response;
       let messages = List.rev !sent in
       let debug_lines =
-        List.filter (fun text -> string_contains text "debug: llm") messages
+        List.filter
+          (fun text -> Test_helpers.string_contains text "debug: llm")
+          messages
       in
       Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
       let line = List.hd debug_lines in
       Alcotest.(check bool)
         "summary includes provider/model" true
-        (string_contains line "provider=fake"
-        && string_contains line "model=fake-model");
+        (Test_helpers.string_contains line "provider=fake"
+        && Test_helpers.string_contains line "model=fake-model");
       Alcotest.(check bool)
         "summary includes duration" true
-        (string_contains line "duration=");
+        (Test_helpers.string_contains line "duration=");
       Alcotest.(check bool)
         "summary includes usage" true
-        (string_contains line "tokens=2"
-        && string_contains line "prompt=1"
-        && string_contains line "output+reasoning=1");
+        (Test_helpers.string_contains line "tokens=2"
+        && Test_helpers.string_contains line "prompt=1"
+        && Test_helpers.string_contains line "output+reasoning=1");
       Alcotest.(check bool)
         "summary includes tool calls" true
-        (string_contains line "tool_calls=0"))
+        (Test_helpers.string_contains line "tool_calls=0"))
 
 let test_agent_mention_sends_debug_summary_for_parent_session () =
   with_fake_chat_provider (fun config ->
@@ -1940,13 +1907,16 @@ let test_agent_mention_sends_debug_summary_for_parent_session () =
       Alcotest.(check string) "response" "reply:investigate this" response;
       let messages = List.rev !sent in
       let debug_lines =
-        List.filter (fun text -> string_contains text "debug: llm") messages
+        List.filter
+          (fun text -> Test_helpers.string_contains text "debug: llm")
+          messages
       in
       Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
       Alcotest.(check bool)
         "summary includes provider/model" true
-        (string_contains (List.hd debug_lines) "provider=fake"
-        && string_contains (List.hd debug_lines) "model=fake-model"))
+        (Test_helpers.string_contains (List.hd debug_lines) "provider=fake"
+        && Test_helpers.string_contains (List.hd debug_lines) "model=fake-model"
+        ))
 
 let test_agent_invoke_sends_debug_summary_for_parent_session () =
   with_fake_chat_provider (fun config ->
@@ -1972,13 +1942,16 @@ let test_agent_invoke_sends_debug_summary_for_parent_session () =
       Alcotest.(check string) "response" "reply:investigate this" response;
       let messages = List.rev !sent in
       let debug_lines =
-        List.filter (fun text -> string_contains text "debug: llm") messages
+        List.filter
+          (fun text -> Test_helpers.string_contains text "debug: llm")
+          messages
       in
       Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
       Alcotest.(check bool)
         "summary includes provider/model" true
-        (string_contains (List.hd debug_lines) "provider=fake"
-        && string_contains (List.hd debug_lines) "model=fake-model"))
+        (Test_helpers.string_contains (List.hd debug_lines) "provider=fake"
+        && Test_helpers.string_contains (List.hd debug_lines) "model=fake-model"
+        ))
 
 let test_delegate_sends_debug_summary_for_parent_session () =
   with_fake_chat_provider (fun config ->
@@ -2003,13 +1976,16 @@ let test_delegate_sends_debug_summary_for_parent_session () =
       Alcotest.(check string) "response" "reply:investigate this" response;
       let messages = List.rev !sent in
       let debug_lines =
-        List.filter (fun text -> string_contains text "debug: llm") messages
+        List.filter
+          (fun text -> Test_helpers.string_contains text "debug: llm")
+          messages
       in
       Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
       Alcotest.(check bool)
         "summary includes provider/model" true
-        (string_contains (List.hd debug_lines) "provider=fake"
-        && string_contains (List.hd debug_lines) "model=fake-model"))
+        (Test_helpers.string_contains (List.hd debug_lines) "provider=fake"
+        && Test_helpers.string_contains (List.hd debug_lines) "model=fake-model"
+        ))
 
 let test_fork_and_sends_debug_summary_for_parent_session () =
   with_fake_chat_provider (fun config ->
@@ -2033,16 +2009,19 @@ let test_fork_and_sends_debug_summary_for_parent_session () =
       let response = Lwt_main.run waiter in
       Alcotest.(check bool)
         "response comes from fake provider" true
-        (string_contains response "reply:");
+        (Test_helpers.string_contains response "reply:");
       let messages = List.rev !sent in
       let debug_lines =
-        List.filter (fun text -> string_contains text "debug: llm") messages
+        List.filter
+          (fun text -> Test_helpers.string_contains text "debug: llm")
+          messages
       in
       Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
       Alcotest.(check bool)
         "summary includes provider/model" true
-        (string_contains (List.hd debug_lines) "provider=fake"
-        && string_contains (List.hd debug_lines) "model=fake-model"))
+        (Test_helpers.string_contains (List.hd debug_lines) "provider=fake"
+        && Test_helpers.string_contains (List.hd debug_lines) "model=fake-model"
+        ))
 
 let test_bang_message_interrupts_before_lock_and_turns_normally () =
   with_fake_chat_provider (fun config ->
@@ -2416,7 +2395,7 @@ let test_consolidated_status_on_chunk_shows_thinking_when_enabled () =
     "thinking buffer captures text" thinking (handler.get_thinking ());
   Alcotest.(check bool)
     "status render includes thinking" true
-    (string_contains (Status_message.render sm) thinking);
+    (Test_helpers.string_contains (Status_message.render sm) thinking);
   Alcotest.(check bool) "status message emitted" true (List.length !sent >= 1)
 
 let test_drain_works_after_concurrent_notifier_registration () =
@@ -2479,7 +2458,7 @@ let test_queued_interrupt_does_not_skip_tools () =
     (fun (msg : Provider.message) ->
       Alcotest.(check bool)
         "not skipped" true
-        (not (string_contains msg.content "[skipped")))
+        (not (Test_helpers.string_contains msg.content "[skipped")))
     agent.history
 
 let test_mid_turn_injection_adds_to_history () =
@@ -2526,7 +2505,7 @@ let test_mid_turn_injection_adds_to_history () =
   let has_injected =
     List.exists
       (fun (m : Provider.message) ->
-        m.role = "user" && string_contains m.content "hey there")
+        m.role = "user" && Test_helpers.string_contains m.content "hey there")
       agent.history
   in
   Alcotest.(check bool) "injected message in history" true has_injected
@@ -2591,7 +2570,8 @@ let test_active_doc_write_persists_workspace_refresh_event () =
         "refresh role second" "event" (List.nth persisted 1).Provider.role;
       Alcotest.(check bool)
         "refresh mentions file" true
-        (string_contains (List.nth persisted 1).Provider.content "AGENTS.md"))
+        (Test_helpers.string_contains (List.nth persisted 1).Provider.content
+           "AGENTS.md"))
 
 let test_active_file_write_persists_workspace_refresh_event () =
   with_temp_workspace (fun workspace ->
@@ -2632,7 +2612,8 @@ let test_active_file_write_persists_workspace_refresh_event () =
         "refresh role second" "event" (List.nth persisted 1).Provider.role;
       Alcotest.(check bool)
         "refresh mentions file" true
-        (string_contains (List.nth persisted 1).Provider.content "AGENTS.md"))
+        (Test_helpers.string_contains (List.nth persisted 1).Provider.content
+           "AGENTS.md"))
 
 let test_active_file_write_with_equivalent_path_persists_workspace_refresh_event
     () =
@@ -2674,7 +2655,8 @@ let test_active_file_write_with_equivalent_path_persists_workspace_refresh_event
         "refresh role second" "event" (List.nth persisted 1).Provider.role;
       Alcotest.(check bool)
         "refresh mentions normalized file" true
-        (string_contains (List.nth persisted 1).Provider.content "AGENTS.md"))
+        (Test_helpers.string_contains (List.nth persisted 1).Provider.content
+           "AGENTS.md"))
 
 let test_shell_exec_persists_workspace_refresh_event_for_active_file_update () =
   with_temp_workspace (fun workspace ->
@@ -2715,25 +2697,26 @@ let test_shell_exec_persists_workspace_refresh_event_for_active_file_update () =
         "refresh role second" "event" (List.nth persisted 1).Provider.role;
       Alcotest.(check bool)
         "refresh mentions shell-updated file" true
-        (string_contains (List.nth persisted 1).Provider.content "AGENTS.md"))
+        (Test_helpers.string_contains (List.nth persisted 1).Provider.content
+           "AGENTS.md"))
 
 let test_git_operations_checkout_persists_workspace_refresh_event () =
   with_temp_workspace (fun workspace ->
-      run_command_or_fail ~label:"git init"
+      Test_helpers.run_command_or_fail ~label:"git init"
         (Printf.sprintf "git -C %s init -q" (Filename.quote workspace));
-      run_command_or_fail ~label:"git config email"
+      Test_helpers.run_command_or_fail ~label:"git config email"
         (Printf.sprintf "git -C %s config user.email test@example.com"
            (Filename.quote workspace));
-      run_command_or_fail ~label:"git config name"
+      Test_helpers.run_command_or_fail ~label:"git config name"
         (Printf.sprintf "git -C %s config user.name Test"
            (Filename.quote workspace));
       let agents_path = Filename.concat workspace "AGENTS.md" in
       let oc = open_out agents_path in
       output_string oc "base guidance\n";
       close_out oc;
-      run_command_or_fail ~label:"git add"
+      Test_helpers.run_command_or_fail ~label:"git add"
         (Printf.sprintf "git -C %s add AGENTS.md" (Filename.quote workspace));
-      run_command_or_fail ~label:"git commit"
+      Test_helpers.run_command_or_fail ~label:"git commit"
         (Printf.sprintf "git -C %s commit -q -m init" (Filename.quote workspace));
       let oc = open_out agents_path in
       output_string oc "changed guidance\n";
@@ -2773,7 +2756,8 @@ let test_git_operations_checkout_persists_workspace_refresh_event () =
         "refresh role second" "event" (List.nth persisted 1).Provider.role;
       Alcotest.(check bool)
         "refresh mentions git-updated file" true
-        (string_contains (List.nth persisted 1).Provider.content "AGENTS.md"))
+        (Test_helpers.string_contains (List.nth persisted 1).Provider.content
+           "AGENTS.md"))
 
 let test_batched_active_workspace_updates_attribute_refresh_per_tool_call () =
   with_temp_workspace (fun workspace ->
@@ -2836,10 +2820,12 @@ let test_batched_active_workspace_updates_attribute_refresh_per_tool_call () =
       let refresh1 = (List.nth persisted 1).Provider.content in
       let refresh2 = (List.nth persisted 3).Provider.content in
       let mentions_both s =
-        string_contains s "AGENTS.md" && string_contains s "CLAUDE.md"
+        Test_helpers.string_contains s "AGENTS.md"
+        && Test_helpers.string_contains s "CLAUDE.md"
       in
       let mentions_one s =
-        string_contains s "AGENTS.md" || string_contains s "CLAUDE.md"
+        Test_helpers.string_contains s "AGENTS.md"
+        || Test_helpers.string_contains s "CLAUDE.md"
       in
       Alcotest.(check bool)
         "first refresh mentions at least one active file" true
@@ -2850,8 +2836,8 @@ let test_batched_active_workspace_updates_attribute_refresh_per_tool_call () =
       let combined_mentions_both =
         mentions_both refresh1 || mentions_both refresh2
         || mentions_one refresh1 && mentions_one refresh2
-           && string_contains (refresh1 ^ refresh2) "AGENTS.md"
-           && string_contains (refresh1 ^ refresh2) "CLAUDE.md"
+           && Test_helpers.string_contains (refresh1 ^ refresh2) "AGENTS.md"
+           && Test_helpers.string_contains (refresh1 ^ refresh2) "CLAUDE.md"
       in
       Alcotest.(check bool)
         "both AGENTS.md and CLAUDE.md surfaced across the two refresh events"
@@ -2889,7 +2875,7 @@ let test_workspace_refresh_event_does_not_enter_live_prompt () =
       in
       Alcotest.(check bool)
         "refresh marker not injected into live prompt" false
-        (string_contains system_msg.content
+        (Test_helpers.string_contains system_msg.content
            "workspace context refreshed after active workspace file update");
       Alcotest.(check bool)
         "event role omitted from live messages" false
@@ -2999,14 +2985,15 @@ let test_turn_notifier_surfaces_workspace_refresh_event_for_tool_update () =
           Alcotest.(check bool)
             "refresh notice does not leak prompt contents" false
             (List.exists
-               (fun text -> string_contains text secret)
+               (fun text -> Test_helpers.string_contains text secret)
                !notifications);
           let persisted = Memory.load_history ~db ~session_key:"telegram:1:u" in
           Alcotest.(check bool)
             "event persisted in session history" true
             (List.exists
                (fun (msg : Provider.message) ->
-                 msg.role = "event" && string_contains msg.content "AGENTS.md")
+                 msg.role = "event"
+                 && Test_helpers.string_contains msg.content "AGENTS.md")
                persisted)))
 
 let test_turn_stream_detects_external_workspace_edit_on_next_turn () =
@@ -3088,7 +3075,7 @@ let test_turn_stream_detects_external_workspace_edit_on_next_turn () =
             (List.exists
                (function
                  | Provider.Delta text ->
-                     string_contains text
+                     Test_helpers.string_contains text
                        "workspace context refreshed after active workspace \
                         file update: AGENTS.md"
                  | _ -> false)
@@ -3102,15 +3089,16 @@ let test_turn_stream_detects_external_workspace_edit_on_next_turn () =
           Alcotest.(check int) "two prompts observed" 2 (List.length prompts);
           Alcotest.(check bool)
             "first prompt used original workspace content" true
-            (string_contains (List.nth prompts 0) original);
+            (Test_helpers.string_contains (List.nth prompts 0) original);
           Alcotest.(check bool)
             "second prompt used updated workspace content" true
-            (string_contains (List.nth prompts 1) updated);
+            (Test_helpers.string_contains (List.nth prompts 1) updated);
           Alcotest.(check bool)
             "visible refresh notice does not leak updated contents" false
             (List.exists
                (function
-                 | Provider.Delta text -> string_contains text updated
+                 | Provider.Delta text ->
+                     Test_helpers.string_contains text updated
                  | _ -> false)
                second_chunks);
           let persisted =
@@ -3121,7 +3109,7 @@ let test_turn_stream_detects_external_workspace_edit_on_next_turn () =
             (List.exists
                (fun (msg : Provider.message) ->
                  msg.role = "event"
-                 && string_contains msg.content
+                 && Test_helpers.string_contains msg.content
                       "workspace context refreshed after active workspace file \
                        update: AGENTS.md")
                persisted)))
@@ -3206,7 +3194,7 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
             (List.exists
                (function
                  | Provider.Delta text ->
-                     string_contains text
+                     Test_helpers.string_contains text
                        "workspace context refreshed after active workspace \
                         file update: AGENTS.md"
                  | _ -> false)
@@ -3221,15 +3209,16 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
             "two prompts observed across restore" 2 (List.length prompts);
           Alcotest.(check bool)
             "first prompt used original workspace content" true
-            (string_contains (List.nth prompts 0) original);
+            (Test_helpers.string_contains (List.nth prompts 0) original);
           Alcotest.(check bool)
             "restored prompt used updated workspace content" true
-            (string_contains (List.nth prompts 1) updated);
+            (Test_helpers.string_contains (List.nth prompts 1) updated);
           Alcotest.(check bool)
             "restored refresh notice does not leak updated contents" false
             (List.exists
                (function
-                 | Provider.Delta text -> string_contains text updated
+                 | Provider.Delta text ->
+                     Test_helpers.string_contains text updated
                  | _ -> false)
                second_chunks);
           let persisted =
@@ -3239,7 +3228,7 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
             List.filter
               (fun (msg : Provider.message) ->
                 msg.role = "event"
-                && string_contains msg.content
+                && Test_helpers.string_contains msg.content
                      "workspace context refreshed after active workspace file \
                       update: AGENTS.md")
               persisted
@@ -3275,12 +3264,13 @@ let test_external_edit_detected_via_note_function () =
       Alcotest.(check string) "event role" "event" event_msg.Provider.role;
       Alcotest.(check bool)
         "event mentions AGENTS.md" true
-        (string_contains event_msg.content "AGENTS.md");
+        (Test_helpers.string_contains event_msg.content "AGENTS.md");
       Alcotest.(check bool)
         "event in agent history" true
         (List.exists
            (fun (msg : Provider.message) ->
-             msg.role = "event" && string_contains msg.content "AGENTS.md")
+             msg.role = "event"
+             && Test_helpers.string_contains msg.content "AGENTS.md")
            agent.history))
 
 let test_external_edit_event_filtered_from_build_messages () =
@@ -3355,7 +3345,7 @@ let test_external_file_deletion_detected () =
       let event_msg = Option.get second in
       Alcotest.(check bool)
         "deletion event mentions AGENTS.md" true
-        (string_contains event_msg.content "AGENTS.md"))
+        (Test_helpers.string_contains event_msg.content "AGENTS.md"))
 
 let test_tool_write_then_external_edit_no_double_report () =
   with_temp_workspace (fun workspace ->
@@ -3995,7 +3985,8 @@ let test_session_restore_detects_external_edit_on_next_turn () =
              let has_event =
                List.exists
                  (fun (msg : Provider.message) ->
-                   msg.role = "event" && string_contains msg.content "AGENTS.md")
+                   msg.role = "event"
+                   && Test_helpers.string_contains msg.content "AGENTS.md")
                  agent.Agent.history
              in
              Alcotest.(check bool)
@@ -4346,39 +4337,39 @@ let test_runtime_context_block_ignores_prompt_toggles () =
   in
   Alcotest.(check bool)
     "includes runtime header" true
-    (string_contains output "[Runtime context for this turn only]");
+    (Test_helpers.string_contains output "[Runtime context for this turn only]");
   Alcotest.(check bool)
     "includes session id" true
-    (string_contains output "Session id: __main__");
+    (Test_helpers.string_contains output "Session id: __main__");
   Alcotest.(check bool)
     "includes main session flag" true
-    (string_contains output "Main session: yes");
+    (Test_helpers.string_contains output "Main session: yes");
   Alcotest.(check bool)
     "includes workspace" true
-    (string_contains output "Effective workspace:");
+    (Test_helpers.string_contains output "Effective workspace:");
   (* Git fields only appear when running inside a git repo *)
   (match Prompt_builder.find_git_root_and_dir (Sys.getcwd ()) with
   | Some _ ->
       Alcotest.(check bool)
         "includes git field" true
-        (string_contains output "Git branch:"
-        || string_contains output "Git repo root:")
+        (Test_helpers.string_contains output "Git branch:"
+        || Test_helpers.string_contains output "Git repo root:")
   | None -> ());
   Alcotest.(check bool)
     "includes timezone" true
-    (string_contains output "Local timezone:");
+    (Test_helpers.string_contains output "Local timezone:");
   Alcotest.(check bool)
     "includes shell policy" true
-    (string_contains output "Shell policy:");
+    (Test_helpers.string_contains output "Shell policy:");
   Alcotest.(check bool)
     "includes daemon uptime" true
-    (string_contains output "Daemon uptime:");
+    (Test_helpers.string_contains output "Daemon uptime:");
   Alcotest.(check bool)
     "includes context usage" true
-    (string_contains output "Context usage:");
+    (Test_helpers.string_contains output "Context usage:");
   Alcotest.(check bool)
     "includes background tasks" true
-    (string_contains output "Background tasks:")
+    (Test_helpers.string_contains output "Background tasks:")
 
 let test_enqueue_message_if_busy_persists_to_sqlite () =
   let db = Memory.init ~db_path:":memory:" () in

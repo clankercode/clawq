@@ -1,35 +1,3 @@
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
-let string_contains haystack needle =
-  let hay_len = String.length haystack and needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-
-let free_port () =
-  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close sock)
-    (fun () ->
-      Unix.setsockopt sock Unix.SO_REUSEADDR true;
-      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-      match Unix.getsockname sock with
-      | Unix.ADDR_INET (_, port) -> port
-      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
-
 let make_fake_provider_config base_url : Runtime_config.provider_config =
   {
     Runtime_config.default_provider_config with
@@ -39,7 +7,7 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
   }
 
 let with_fake_chat_provider ?on_request f =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
@@ -762,7 +730,7 @@ let test_resume_pending_agent_sessions_marks_missing_channel_info () =
   Alcotest.(check int) "summary failed count" 0 summary.failed_count;
   Alcotest.(check (option string))
     "pending state cleared" (Some "user")
-    (query_single_text_option db
+    (Test_helpers.query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'resume:missing'")
 
 let test_resume_pending_agent_sessions_summary_counts () =
@@ -799,19 +767,19 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
         (Daemon.resume_turn_prompt <> Session.autonomous_continuation_prompt);
       Alcotest.(check bool)
         "resume prompt commands immediate resumption" true
-        (string_contains Daemon.resume_turn_prompt
+        (Test_helpers.string_contains Daemon.resume_turn_prompt
            "Resume the interrupted work now");
       Alcotest.(check bool)
         "resume prompt names highest-priority unfinished task" true
-        (string_contains Daemon.resume_turn_prompt
+        (Test_helpers.string_contains Daemon.resume_turn_prompt
            "highest-priority unfinished task");
       Alcotest.(check bool)
         "resume prompt says not to wait for a user" true
-        (string_contains Daemon.resume_turn_prompt
+        (Test_helpers.string_contains Daemon.resume_turn_prompt
            "do not wait for a follow-up message");
       Alcotest.(check bool)
         "stay-idle not mentioned in resume prompt" false
-        (string_contains Daemon.resume_turn_prompt "STAY_IDLE");
+        (Test_helpers.string_contains Daemon.resume_turn_prompt "STAY_IDLE");
       let db = Memory.init ~db_path:":memory:" () in
       let telegram_account =
         { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
@@ -879,7 +847,7 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
    receives during a resume turn and asserts it is OpenAI-compat valid:
    at least one `user` message, and no trailing `system`/`developer` message. *)
 let test_resume_turn_payload_is_openai_compat_valid () =
-  let port = free_port () in
+  let port = Test_helpers.free_port () in
   let captured : (string * string) list option ref = ref None in
   let callback _conn _req body =
     let open Lwt.Syntax in
@@ -1000,7 +968,8 @@ let test_resume_turn_payload_is_openai_compat_valid () =
         "resume prompt delivered as a user message" true
         (List.exists
            (fun (role, content) ->
-             role = "user" && string_contains content Daemon.resume_turn_prompt)
+             role = "user"
+             && Test_helpers.string_contains content Daemon.resume_turn_prompt)
            payload);
       let history = Memory.load_history ~db ~session_key:"telegram:42:user" in
       let durable_resume_prompts =
@@ -1063,10 +1032,11 @@ let test_resume_agent_session_sends_debug_summary () =
            (List.nth sent 0));
       Alcotest.(check bool)
         "second message is debug summary" true
-        (string_contains (List.nth sent 1) "debug: llm provider=fake");
+        (Test_helpers.string_contains (List.nth sent 1)
+           "debug: llm provider=fake");
       Alcotest.(check bool)
         "debug summary includes model" true
-        (string_contains (List.nth sent 1) "model=fake-model");
+        (Test_helpers.string_contains (List.nth sent 1) "model=fake-model");
       Alcotest.(check bool)
         "third message is response" true
         (String.starts_with ~prefix:"reply:" (List.nth sent 2)))
@@ -1748,7 +1718,7 @@ let test_local_background_turn_template_persists_history_and_model () =
          in
          Alcotest.(check bool)
            "first fake response" true
-           (string_contains first "first local template turn");
+           (Test_helpers.string_contains first "first local template turn");
          let* second =
            Daemon.run_local_background_turn ~session_manager ~key
              ~message:"second local template turn" ~model ~agent_name:"coder"
@@ -1756,7 +1726,7 @@ let test_local_background_turn_template_persists_history_and_model () =
          in
          Alcotest.(check bool)
            "second fake response" true
-           (string_contains second "second local template turn");
+           (Test_helpers.string_contains second "second local template turn");
          Lwt.return_unit);
       Alcotest.(check (list string))
         "explicit model sent for both turns" [ model; model ]
@@ -1768,7 +1738,7 @@ let test_local_background_turn_template_persists_history_and_model () =
       Alcotest.(check int) "four messages persisted" 4 (List.length history);
       Alcotest.(check bool)
         "stable transcript sees second reply" true
-        (string_contains
+        (Test_helpers.string_contains
            (Background_task_transcript.render ~db ~id:77 ~regex:"second" ())
            "second local template turn"))
 
@@ -1797,7 +1767,7 @@ let test_local_background_turn_missing_template_fails () =
       in
       Alcotest.(check bool)
         "missing template fails local turn" true
-        (string_contains result
+        (Test_helpers.string_contains result
            "agent template 'definitely-missing-template' not found"))
 
 let test_local_background_turn_template_model_precedence () =
@@ -2011,7 +1981,8 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
       Alcotest.(check string) "first chat_id" "42" ci1;
       Alcotest.(check bool)
         "first dispatch is channel notification" true
-        (string_contains t1 "Background task #9 finished: SUCCEEDED");
+        (Test_helpers.string_contains t1
+           "Background task #9 finished: SUCCEEDED");
       Alcotest.(check string) "second bot_token" "tg-token" bt2;
       Alcotest.(check string) "second chat_id" "42" ci2;
       Alcotest.(check string) "second dispatch is agent response" "woke up" t2
@@ -2032,10 +2003,10 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
          with Not_found -> false);
       Alcotest.(check bool)
         "includes bounded result preview" true
-        (string_contains message "Result preview: ok");
+        (Test_helpers.string_contains message "Result preview: ok");
       Alcotest.(check bool)
         "points to subagent transcript command" true
-        (string_contains message "subagents transcript 9")
+        (Test_helpers.string_contains message "subagents transcript 9")
   | msgs ->
       Alcotest.failf "expected exactly one injected wake-up message, got %d"
         (List.length msgs)
@@ -2088,7 +2059,7 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
         (String.starts_with ~prefix:"[bg #" message);
       Alcotest.(check bool)
         "queued wake has transcript pointer" true
-        (string_contains message "subagents transcript 12")
+        (Test_helpers.string_contains message "subagents transcript 12")
   | msgs ->
       Alcotest.failf "expected one queued wake-up message, got %d"
         (List.length msgs)
@@ -2685,7 +2656,7 @@ let test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload () =
   Alcotest.(check bool) "shell_exec replaced on reload" true (shell1 != shell2);
   Alcotest.(check bool)
     "shell_exec description reflects reloaded workspace policy" true
-    (string_contains shell2.Tool.description "Workspace policy")
+    (Test_helpers.string_contains shell2.Tool.description "Workspace policy")
 
 let test_task_tree_tool_with_current_workspace_autostarts_without_cwd () =
   with_temp_git_repo (fun repo_path ->
@@ -2733,7 +2704,7 @@ let test_task_tree_tool_with_current_workspace_autostarts_without_cwd () =
       in
       Alcotest.(check bool)
         "autostart reported queued task" true
-        (string_contains result "Queued task agent");
+        (Test_helpers.string_contains result "Queued task agent");
       match Background_task.list_tasks ~db with
       | [ task ] ->
           Alcotest.(check string)
@@ -2777,7 +2748,7 @@ let test_refresh_task_tree_tools_replaces_start_agent_workspace_on_reload () =
           in
           Alcotest.(check bool)
             "start_agent reported queued task" true
-            (string_contains result "Queued task agent");
+            (Test_helpers.string_contains result "Queued task agent");
           match Background_task.list_tasks ~db with
           | [ task ] ->
               Alcotest.(check string)
@@ -2810,13 +2781,15 @@ let insert_test_task db =
   let dir = Filename.temp_file "clawq-notify-test" "" in
   Sys.remove dir;
   Unix.mkdir dir 0o755;
-  ignore
-    (Sys.command
-       (Printf.sprintf
-          "git -C %s init -q && git -C %s config user.name Test && git -C %s \
-           config user.email t@t && git -C %s commit --allow-empty -m init -q"
-          (Filename.quote dir) (Filename.quote dir) (Filename.quote dir)
-          (Filename.quote dir)));
+  let code =
+    Sys.command
+      (Printf.sprintf
+         "git -C %s init -q && git -C %s config user.name Test && git -C %s \
+          config user.email t@t && git -C %s commit --allow-empty -m init -q"
+         (Filename.quote dir) (Filename.quote dir) (Filename.quote dir)
+         (Filename.quote dir))
+  in
+  if code <> 0 then Alcotest.failf "git setup failed (exit %d)" code;
   let id =
     match
       Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path:dir
@@ -2879,7 +2852,7 @@ let test_notify_records_failed_on_sender_error () =
   Alcotest.(check bool)
     "error contains reason" true
     (match t.notification_error with
-    | Some e -> string_contains e "send failed"
+    | Some e -> Test_helpers.string_contains e "send failed"
     | None -> false)
 
 let test_notify_records_skipped_when_no_channel () =
@@ -2958,7 +2931,7 @@ let test_notify_discord_dispatches_channel_notification () =
   | t :: _ ->
       Alcotest.(check bool)
         "discord dispatch has channel notification format" true
-        (string_contains t "Background task #9 finished: SUCCEEDED")
+        (Test_helpers.string_contains t "Background task #9 finished: SUCCEEDED")
   | [] -> Alcotest.fail "expected at least one dispatch"
 
 (* B673: restart-resume history sanitization. Stuck/watchdog/circuit-breaker

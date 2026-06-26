@@ -6,12 +6,6 @@ let test_find_repo_root_returns_none_when_missing () =
   in
   Alcotest.(check (option string)) "no repo root" None result
 
-let process_exists pid =
-  try
-    Unix.kill pid 0;
-    true
-  with Unix.Unix_error _ -> false
-
 let test_run_update_continues_after_git_failure () =
   let commands = ref [] in
   let progress = ref [] in
@@ -504,7 +498,7 @@ let test_stream_process_interrupt_kills_descendants () =
       ~finally:(fun () -> close_in ic)
   in
   let rec wait_until_gone attempts =
-    if attempts <= 0 || not (process_exists child_pid) then ()
+    if attempts <= 0 || not (Test_helpers.process_exists child_pid) then ()
     else begin
       Unix.sleepf 0.05;
       wait_until_gone (attempts - 1)
@@ -513,7 +507,8 @@ let test_stream_process_interrupt_kills_descendants () =
   wait_until_gone 20;
   Alcotest.(check string) "interrupt result" "interrupted" result;
   Alcotest.(check bool)
-    "child process terminated" false (process_exists child_pid);
+    "child process terminated" false
+    (Test_helpers.process_exists child_pid);
   Sys.remove pid_file
 
 let test_progress_sender_renders_checklist () =

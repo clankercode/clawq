@@ -116,12 +116,6 @@ let test_format_sensitive_result_none () =
   in
   Alcotest.(check bool) "normal returns None" true (result = None)
 
-let contains s sub =
-  try
-    ignore (Str.search_forward (Str.regexp_string sub) s 0);
-    true
-  with Not_found -> false
-
 let test_format_thinking_single_line () =
   let result = Telegram_format.format_thinking "hello world" in
   Alcotest.(check string)
@@ -135,10 +129,10 @@ let test_format_thinking_short_multiline () =
 let test_format_thinking_long_expandable () =
   let text = "a\nb\nc\nd\ne" in
   let result = Telegram_format.format_thinking text in
-  assert (contains result ">_a_");
-  assert (contains result ">_b_");
-  assert (contains result ">_c_");
-  assert (contains result "**>");
+  assert (Test_helpers.string_contains result ">_a_");
+  assert (Test_helpers.string_contains result ">_b_");
+  assert (Test_helpers.string_contains result ">_c_");
+  assert (Test_helpers.string_contains result "**>");
   assert (String.sub result (String.length result - 2) 2 = "||")
 
 let test_format_thinking_escapes_specials () =
@@ -155,17 +149,18 @@ let test_format_error_standalone () =
   (* MarkdownV2 escapes _ in tool name *)
   Alcotest.(check bool)
     "contains escaped name" true
-    (contains result "shell\\_exec");
+    (Test_helpers.string_contains result "shell\\_exec");
   (* MarkdownV2 escapes . in duration *)
   Alcotest.(check bool)
-    "contains escaped duration" true (contains result "2\\.9s");
+    "contains escaped duration" true
+    (Test_helpers.string_contains result "2\\.9s");
   (* └ = E2 94 94 *)
   Alcotest.(check bool)
     "contains tree corner" true
-    (contains result "\xe2\x94\x94");
+    (Test_helpers.string_contains result "\xe2\x94\x94");
   Alcotest.(check bool)
     "contains error text" true
-    (contains result "Error: command is required")
+    (Test_helpers.string_contains result "Error: command is required")
 
 let suite =
   [

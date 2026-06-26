@@ -200,14 +200,8 @@ let test_normalize_first_line () =
   let b = Error_watcher.normalize_first_line "Error on port 9090: conn 99" in
   Alcotest.(check string) "numbers normalized" a b
 
-let with_temp_dir f =
-  let dir = Filename.temp_dir "ec_test" "" in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sys.command ("rm -rf " ^ dir)))
-    (fun () -> f dir)
-
 let test_scan_daemon_log () =
-  with_temp_dir (fun dir ->
+  Test_helpers.with_temp_dir (fun dir ->
       let log_path = Filename.concat dir "daemon.log" in
       let oc = open_out log_path in
       Printf.fprintf oc "[10:00:00.000] INFO [s1] Normal message\n";
@@ -265,7 +259,7 @@ let test_scan_daemon_log () =
       Alcotest.(check string) "second is WARN" "WARN" (List.nth entries 1).level)
 
 let test_scan_session_errors () =
-  with_temp_dir (fun dir ->
+  Test_helpers.with_temp_dir (fun dir ->
       let db_path = Filename.concat dir "test.db" in
       let db = Memory.init ~db_path () in
       (* Insert some test messages *)
@@ -370,7 +364,7 @@ let test_correlated_context () =
      log_pos < db_pos)
 
 let test_full_scan_cycle () =
-  with_temp_dir (fun dir ->
+  Test_helpers.with_temp_dir (fun dir ->
       let old_home = Sys.getenv_opt Dot_dir.env_var in
       Unix.putenv Dot_dir.env_var dir;
       Fun.protect
@@ -602,7 +596,7 @@ let test_synthesize_plans () =
     (String_util.contains plan3 "Plan 1" && String_util.contains plan3 "Plan 2")
 
 let test_ec_reports_db () =
-  with_temp_dir (fun dir ->
+  Test_helpers.with_temp_dir (fun dir ->
       let db_path = Filename.concat dir "test.db" in
       let db = Memory.init ~db_path () in
       Ec_diagnosis.init_ec_reports_schema db;
@@ -630,7 +624,7 @@ let test_ec_reports_db () =
       ignore (Sqlite3.db_close db))
 
 let test_ec_reports_with_fix_task () =
-  with_temp_dir (fun dir ->
+  Test_helpers.with_temp_dir (fun dir ->
       let db_path = Filename.concat dir "test.db" in
       let db = Memory.init ~db_path () in
       Ec_diagnosis.init_ec_reports_schema db;
@@ -721,7 +715,7 @@ let test_watcher_default_is_status () =
     (String_util.contains result "Error Correction Watcher")
 
 let test_watcher_reports_empty () =
-  with_temp_dir (fun dir ->
+  Test_helpers.with_temp_dir (fun dir ->
       let old_home = Sys.getenv_opt Dot_dir.env_var in
       Unix.putenv Dot_dir.env_var dir;
       Fun.protect

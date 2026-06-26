@@ -15,32 +15,28 @@ let test_none_backend () =
 let test_firejail_wrap () =
   let sb = mk_sandbox ~backend:Sandbox.Firejail ~workspace:"/workspace" () in
   let wrapped = Sandbox.wrap_command sb "echo hello" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "contains firejail" true (contains wrapped "firejail");
+  Alcotest.(check bool)
+    "contains firejail" true
+    (Test_helpers.string_contains wrapped "firejail");
   Alcotest.(check bool)
     "contains workspace" true
-    (contains wrapped "/workspace");
-  Alcotest.(check bool) "contains command" true (contains wrapped "echo hello")
+    (Test_helpers.string_contains wrapped "/workspace");
+  Alcotest.(check bool)
+    "contains command" true
+    (Test_helpers.string_contains wrapped "echo hello")
 
 let test_bubblewrap_wrap () =
   let sb = mk_sandbox ~backend:Sandbox.Bubblewrap ~workspace:"/workspace" () in
   let wrapped = Sandbox.wrap_command sb "echo hello" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "contains bwrap" true (contains wrapped "bwrap");
+  Alcotest.(check bool)
+    "contains bwrap" true
+    (Test_helpers.string_contains wrapped "bwrap");
   Alcotest.(check bool)
     "contains workspace" true
-    (contains wrapped "/workspace");
-  Alcotest.(check bool) "contains command" true (contains wrapped "echo hello")
+    (Test_helpers.string_contains wrapped "/workspace");
+  Alcotest.(check bool)
+    "contains command" true
+    (Test_helpers.string_contains wrapped "echo hello")
 
 (* --- is_available tests --- *)
 
@@ -97,15 +93,9 @@ let test_create_tracks_extra_allowed_paths () =
 
 let test_bind_if_exists_existing () =
   let result = Sandbox.bind_if_exists "/tmp" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "contains /tmp" true
-    (contains result "/tmp" || result = "")
+    (Test_helpers.string_contains result "/tmp" || result = "")
 
 let test_bind_if_exists_nonexistent () =
   let result = Sandbox.bind_if_exists "/nonexistent_path_abc_xyz_123" in
@@ -120,61 +110,37 @@ let test_wrap_empty_command () =
 let test_wrap_firejail_net_none () =
   let sb = mk_sandbox ~backend:Sandbox.Firejail ~workspace:"/tmp" () in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "net=none" true (contains wrapped "--net=none")
+  Alcotest.(check bool)
+    "net=none" true
+    (Test_helpers.string_contains wrapped "--net=none")
 
 let test_wrap_firejail_quiet () =
   let sb = mk_sandbox ~backend:Sandbox.Firejail ~workspace:"/tmp" () in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "quiet" true (contains wrapped "--quiet")
+  Alcotest.(check bool)
+    "quiet" true
+    (Test_helpers.string_contains wrapped "--quiet")
 
 let test_wrap_bubblewrap_ro_bind () =
   let sb = mk_sandbox ~backend:Sandbox.Bubblewrap ~workspace:"/tmp" () in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "ro-bind /usr" true
-    (contains wrapped "--ro-bind /usr /usr")
+    (Test_helpers.string_contains wrapped "--ro-bind /usr /usr")
 
 let test_wrap_bubblewrap_unshare () =
   let sb = mk_sandbox ~backend:Sandbox.Bubblewrap ~workspace:"/tmp" () in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
-  Alcotest.(check bool) "unshare-all" true (contains wrapped "--unshare-all")
+  Alcotest.(check bool)
+    "unshare-all" true
+    (Test_helpers.string_contains wrapped "--unshare-all")
 
 let test_wrap_bubblewrap_die_with_parent () =
   let sb = mk_sandbox ~backend:Sandbox.Bubblewrap ~workspace:"/tmp" () in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "die-with-parent" true
-    (contains wrapped "--die-with-parent")
+    (Test_helpers.string_contains wrapped "--die-with-parent")
 
 let test_wrap_firejail_whitelists_extra_paths () =
   let sb =
@@ -182,15 +148,9 @@ let test_wrap_firejail_whitelists_extra_paths () =
       ~extra_allowed_paths:[ "/etc/hosts" ] ()
   in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "contains whitelist" true
-    (contains wrapped "--whitelist='/etc/hosts'")
+    (Test_helpers.string_contains wrapped "--whitelist='/etc/hosts'")
 
 let test_wrap_bubblewrap_binds_extra_paths () =
   let sb =
@@ -198,15 +158,9 @@ let test_wrap_bubblewrap_binds_extra_paths () =
       ~extra_allowed_paths:[ "/etc/hosts" ] ()
   in
   let wrapped = Sandbox.wrap_command sb "test" in
-  let contains s sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "contains extra bind" true
-    (contains wrapped "--bind '/etc/hosts' '/etc/hosts'")
+    (Test_helpers.string_contains wrapped "--bind '/etc/hosts' '/etc/hosts'")
 
 let test_wrap_bubblewrap_ro_binds_user_bin_dirs () =
   Test_helpers.with_temp_home (fun home ->
@@ -221,20 +175,14 @@ let test_wrap_bubblewrap_ro_binds_user_bin_dirs () =
       Unix.mkdir opam_bin 0o755;
       let sb = mk_sandbox ~backend:Sandbox.Bubblewrap ~workspace:"/tmp" () in
       let wrapped = Sandbox.wrap_command sb "test" in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "ro-binds ~/.local/bin" true
-        (contains wrapped
+        (Test_helpers.string_contains wrapped
            (Printf.sprintf "--ro-bind %s %s" (Filename.quote local_bin)
               (Filename.quote local_bin)));
       Alcotest.(check bool)
         "ro-binds ~/.opam/*/bin" true
-        (contains wrapped
+        (Test_helpers.string_contains wrapped
            (Printf.sprintf "--ro-bind %s %s" (Filename.quote opam_bin)
               (Filename.quote opam_bin))))
 
@@ -249,18 +197,14 @@ let test_wrap_firejail_whitelists_user_bin_dirs () =
       Unix.mkdir pnpm_bin 0o755;
       let sb = mk_sandbox ~backend:Sandbox.Firejail ~workspace:"/tmp" () in
       let wrapped = Sandbox.wrap_command sb "test" in
-      let contains s sub =
-        try
-          ignore (Str.search_forward (Str.regexp_string sub) s 0);
-          true
-        with Not_found -> false
-      in
       Alcotest.(check bool)
         "whitelists pnpm home" true
-        (contains wrapped ("--whitelist=" ^ Filename.quote pnpm_home));
+        (Test_helpers.string_contains wrapped
+           ("--whitelist=" ^ Filename.quote pnpm_home));
       Alcotest.(check bool)
         "whitelists pnpm bin" true
-        (contains wrapped ("--whitelist=" ^ Filename.quote pnpm_bin)))
+        (Test_helpers.string_contains wrapped
+           ("--whitelist=" ^ Filename.quote pnpm_bin)))
 
 let test_wrap_command_skips_fs_isolation_when_disabled () =
   let sb =

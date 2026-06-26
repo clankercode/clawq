@@ -60,12 +60,6 @@ let is_auth_error output =
       "no api key";
     ]
 
-let string_contains haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
-
 let all_external_runners =
   [
     Background_task.Codex;
@@ -363,7 +357,7 @@ let test_local_runner_lifecycle () =
           let preview = Option.value ~default:"" t.result_preview in
           Alcotest.(check bool)
             "result contains response" true
-            (string_contains preview "integration test done"))
+            (Test_helpers.string_contains preview "integration test done"))
     ~finally:(fun () -> Test_helpers.rm_tree dir)
 
 (* --- Tier 3: Local runner on_task_finished fires --- *)
@@ -475,7 +469,7 @@ let test_local_runner_timeout () =
           let preview = Option.value ~default:"" t.result_preview in
           Alcotest.(check bool)
             "result mentions timeout" true
-            (string_contains preview "timed out"))
+            (Test_helpers.string_contains preview "timed out"))
     ~finally:(fun () -> Test_helpers.rm_tree dir)
 
 (* --- Tier 4: Production spawn path (default_spawn_task) --- *)

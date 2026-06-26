@@ -588,18 +588,6 @@ let test_update_job_ttl () =
   | Some j ->
       Alcotest.(check bool) "no ttl after clear" true (j.expires_at = None)
 
-let query_single_text_option db sql =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None)
-      | _ -> None)
-
 (* ── B630/B632: consecutive-identical-output detection ──────────────────── *)
 
 let job_enabled ~db ~name =
@@ -775,12 +763,12 @@ let test_tick_marks_response_sent_after_turn () =
      (* Verify turn is reset to 'user', not stuck at 'agent' *)
      Alcotest.(check (option string))
        "turn reset to user" (Some "user")
-       (query_single_text_option db
+       (Test_helpers.query_single_text_option db
           "SELECT turn FROM session_state WHERE session_key = 'cron:briefing'");
      (* Verify response_sent_at is set *)
      Alcotest.(check bool)
        "response_sent_at set" true
-       (query_single_text_option db
+       (Test_helpers.query_single_text_option db
           "SELECT response_sent_at FROM session_state WHERE session_key = \
            'cron:briefing'"
        <> None);

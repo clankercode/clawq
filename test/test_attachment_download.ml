@@ -167,15 +167,8 @@ let test_is_binary_content () =
     (Attachment_download.is_binary_content "hello\x00world");
   Alcotest.(check bool) "empty" false (Attachment_download.is_binary_content "")
 
-let with_temp_dir f =
-  let dir = Filename.temp_dir "clawq_test_att" "" in
-  Fun.protect
-    ~finally:(fun () ->
-      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
-    (fun () -> f dir)
-
 let test_save_to_downloads () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let path =
         Attachment_download.save_to_downloads ~workspace ~filename:"test.txt"
           ~data:"hello world"
@@ -189,7 +182,7 @@ let test_save_to_downloads () =
       Alcotest.(check bool) "downloads dir exists" true (Sys.file_exists dir))
 
 let test_save_to_downloads_dedup () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let path1 =
         Attachment_download.save_to_downloads ~workspace ~filename:"test.txt"
           ~data:"first"
@@ -204,7 +197,7 @@ let test_save_to_downloads_dedup () =
         (Sys.file_exists path1 && Sys.file_exists path2))
 
 let test_classify_downloaded_image () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let data =
         String.init 100 (fun i ->
             match i with 0 -> '\xFF' | 1 -> '\xD8' | 2 -> '\xFF' | _ -> '\x00')
@@ -220,7 +213,7 @@ let test_classify_downloaded_image () =
       | _ -> Alcotest.fail "expected ImagePart")
 
 let test_classify_downloaded_small_text () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let data = "small text content" in
       match
         Attachment_download.classify_downloaded ~data ~filename:"notes.txt"
@@ -233,7 +226,7 @@ let test_classify_downloaded_small_text () =
       | _ -> Alcotest.fail "expected InlineText")
 
 let test_classify_downloaded_large_text () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let data = String.make 5000 'a' in
       match
         Attachment_download.classify_downloaded ~data ~filename:"big.txt"
@@ -245,7 +238,7 @@ let test_classify_downloaded_large_text () =
       | _ -> Alcotest.fail "expected SavedFile")
 
 let test_classify_downloaded_binary () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let data = "%PDF-1.4" ^ String.make 100 '\x00' in
       match
         Attachment_download.classify_downloaded ~data ~filename:"doc.pdf"
@@ -257,7 +250,7 @@ let test_classify_downloaded_binary () =
       | _ -> Alcotest.fail "expected SavedFile")
 
 let test_classify_uses_extension_fallback () =
-  with_temp_dir (fun workspace ->
+  Test_helpers.with_temp_dir (fun workspace ->
       let data = "SELECT * FROM foo;" in
       match
         Attachment_download.classify_downloaded ~data ~filename:"query.sql"

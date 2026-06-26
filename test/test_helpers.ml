@@ -81,3 +81,71 @@ let with_temp_home f =
       | Some v -> Unix.putenv Dot_dir.env_var v
       | None -> Unix.putenv Dot_dir.env_var "");
       rm_tree dir)
+
+(** Check if [haystack] contains [needle] as a substring. *)
+let string_contains haystack needle =
+  let hay_len = String.length haystack and needle_len = String.length needle in
+  let rec loop i =
+    if needle_len = 0 then true
+    else if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  loop 0
+
+(** Find a free TCP port on localhost. *)
+let free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.setsockopt sock Unix.SO_REUSEADDR true;
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | _ -> Alcotest.fail "expected inet socket")
+
+(** Execute a SQL query and return the first column of the first row as a string
+    option. *)
+let query_single_text_option db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None)
+      | _ -> None)
+
+(** Check if a process with the given PID exists. *)
+let process_exists pid =
+  try
+    Unix.kill pid 0;
+    true
+  with Unix.Unix_error _ -> false
+
+(** Run a shell command and fail the test if it exits non-zero. *)
+let run_command_or_fail ~label cmd =
+  match Sys.command cmd with
+  | 0 -> ()
+  | code -> Alcotest.failf "%s failed (exit %d)" label code
+
+(** Initialize a git repository at the given path. *)
+let init_git_repo path =
+  let cmd =
+    Printf.sprintf "git -C %s init -q >/dev/null 2>&1" (Filename.quote path)
+  in
+  match Sys.command cmd with
+  | 0 -> ()
+  | code -> Alcotest.failf "git init failed for %s (exit %d)" path code
+
+(** Run a git subcommand in the given repo directory. *)
+let git_cmd repo args =
+  let cmd =
+    Printf.sprintf "git -C %s %s >/dev/null 2>&1" (Filename.quote repo) args
+  in
+  match Sys.command cmd with
+  | 0 -> ()
+  | code -> Alcotest.failf "git command failed for %s (exit %d)" args code

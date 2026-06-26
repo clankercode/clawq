@@ -16,12 +16,6 @@ let test_substitute_no_match () =
   let result = Skills.substitute_template "no params here" (`Assoc []) in
   Alcotest.(check string) "no substitution" "no params here" result
 
-let process_exists pid =
-  try
-    Unix.kill pid 0;
-    true
-  with Unix.Unix_error _ -> false
-
 let with_temp_skill_file json f =
   let tmp = Filename.temp_file "skill_test" ".json" in
   let oc = open_out tmp in
@@ -281,7 +275,8 @@ let test_skill_interrupt_kills_descendants () =
               ~finally:(fun () -> close_in ic)
           in
           let rec wait_until_gone attempts =
-            if attempts <= 0 || not (process_exists child_pid) then ()
+            if attempts <= 0 || not (Test_helpers.process_exists child_pid) then
+              ()
             else begin
               Unix.sleepf 0.05;
               wait_until_gone (attempts - 1)
@@ -291,7 +286,8 @@ let test_skill_interrupt_kills_descendants () =
           Alcotest.(check string)
             "interrupt result" "Skill command interrupted by user." result;
           Alcotest.(check bool)
-            "child process terminated" false (process_exists child_pid);
+            "child process terminated" false
+            (Test_helpers.process_exists child_pid);
           Sys.remove pid_file)
 
 let test_skill_timeout_kills_descendants () =
@@ -320,7 +316,8 @@ let test_skill_timeout_kills_descendants () =
               ~finally:(fun () -> close_in ic)
           in
           let rec wait_until_gone attempts =
-            if attempts <= 0 || not (process_exists child_pid) then ()
+            if attempts <= 0 || not (Test_helpers.process_exists child_pid) then
+              ()
             else begin
               Unix.sleepf 0.05;
               wait_until_gone (attempts - 1)
@@ -331,7 +328,8 @@ let test_skill_timeout_kills_descendants () =
             "timeout result" "Error: skill command timed out after 0 seconds"
             result;
           Alcotest.(check bool)
-            "child process terminated" false (process_exists child_pid);
+            "child process terminated" false
+            (Test_helpers.process_exists child_pid);
           Sys.remove pid_file)
 
 let test_is_valid_skill_name () =
@@ -1550,12 +1548,6 @@ let test_builtin_idea_skill () =
    call send_to_session at the end so the cron worker session never
    silently absorbs the briefing output. *)
 let test_builtin_briefing_skills_present () =
-  let contains haystack needle =
-    try
-      ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-      true
-    with Not_found -> false
-  in
   let check_skill name =
     let found = Builtin_skills.find_builtin name in
     Alcotest.(check bool) (name ^ " skill found") true (Option.is_some found);
@@ -1563,11 +1555,11 @@ let test_builtin_briefing_skills_present () =
     Alcotest.(check bool)
       (name ^ " mentions memory_recall")
       true
-      (contains instructions "memory_recall");
+      (Test_helpers.string_contains instructions "memory_recall");
     Alcotest.(check bool)
       (name ^ " enforces non-empty query")
       true
-      (contains instructions "non-empty");
+      (Test_helpers.string_contains instructions "non-empty");
     Alcotest.(check bool)
       (name ^ " mentions pre-flight")
       true
@@ -1581,15 +1573,15 @@ let test_builtin_briefing_skills_present () =
     Alcotest.(check bool)
       (name ^ " requires delivery_session")
       true
-      (contains instructions "delivery_session");
+      (Test_helpers.string_contains instructions "delivery_session");
     Alcotest.(check bool)
       (name ^ " calls send_to_session")
       true
-      (contains instructions "send_to_session");
+      (Test_helpers.string_contains instructions "send_to_session");
     Alcotest.(check bool)
       (name ^ " references wake_agent")
       true
-      (contains instructions "wake_agent")
+      (Test_helpers.string_contains instructions "wake_agent")
   in
   check_skill "briefing-hourly";
   check_skill "briefing-daily"
