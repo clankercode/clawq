@@ -81,17 +81,11 @@ let build_json_disabled () =
 
 let post_instructions_content () =
   let s = Setup_heartbeat.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs url" true
-    (contains "https://clawq.org/heartbeat/");
-  Alcotest.(check bool) "mentions interval" true (contains "interval");
-  Alcotest.(check bool) "mentions quiet" true (contains "quiet")
+    (Test_helpers.string_contains s "https://clawq.org/heartbeat/");
+  Alcotest.(check bool) "mentions interval" true (Test_helpers.string_contains s "interval");
+  Alcotest.(check bool) "mentions quiet" true (Test_helpers.string_contains s "quiet")
 
 let suite =
   [

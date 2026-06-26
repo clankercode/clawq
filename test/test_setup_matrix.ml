@@ -102,17 +102,11 @@ let build_json_specific_rooms () =
 
 let instructions_content () =
   let s = Setup_matrix.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
-    "has access token mention" true (contains "access token");
+    "has access token mention" true (Test_helpers.string_contains s "access token");
   Alcotest.(check bool)
     "has docs URL" true
-    (contains "https://clawq.org/channels/#matrix")
+    (Test_helpers.string_contains s "https://clawq.org/channels/#matrix")
 
 let suite =
   [

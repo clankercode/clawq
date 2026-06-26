@@ -114,17 +114,11 @@ let build_json_specific_senders () =
 
 let instructions_content () =
   let s = Setup_email.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs URL" true
-    (contains "https://clawq.org/channels/#email");
-  Alcotest.(check bool) "has gmail mention" true (contains "gmail");
-  Alcotest.(check bool) "has daemon start" true (contains "clawq daemon start")
+    (Test_helpers.string_contains s "https://clawq.org/channels/#email");
+  Alcotest.(check bool) "has gmail mention" true (Test_helpers.string_contains s "gmail");
+  Alcotest.(check bool) "has daemon start" true (Test_helpers.string_contains s "clawq daemon start")
 
 let suite =
   [

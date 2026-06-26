@@ -3,15 +3,6 @@
    message as just [role]: content, losing assistant tool_call names/args and
    tool result tool names. *)
 
-let contains hay needle =
-  let hlen = String.length hay in
-  let nlen = String.length needle in
-  let rec loop i =
-    if i + nlen > hlen then false
-    else if String.sub hay i nlen = needle then true
-    else loop (i + 1)
-  in
-  nlen = 0 || loop 0
 
 let assistant_with_tool_calls ~calls =
   {
@@ -45,16 +36,16 @@ let test_format_history_text_includes_tool_call_names_and_args () =
   let rendered = Postmortem.format_history_text [ assistant; tool_result ] in
   Alcotest.(check bool)
     "rendered text mentions tool name shell_exec" true
-    (contains rendered "shell_exec");
+    (Test_helpers.string_contains rendered "shell_exec");
   Alcotest.(check bool)
     "rendered text includes the tool call arguments" true
-    (contains rendered "ls /tmp");
+    (Test_helpers.string_contains rendered "ls /tmp");
   Alcotest.(check bool)
     "rendered text includes the tool call id (so dups are visible)" true
-    (contains rendered "tc1");
+    (Test_helpers.string_contains rendered "tc1");
   Alcotest.(check bool)
     "rendered text includes the error content from tool result" true
-    (contains rendered "permission denied")
+    (Test_helpers.string_contains rendered "permission denied")
 
 let test_format_history_text_repeated_tool_calls_show_each_invocation () =
   let mk_call id args =
@@ -81,14 +72,14 @@ let test_format_history_text_repeated_tool_calls_show_each_invocation () =
   in
   Alcotest.(check bool)
     "rendered shows tool call id 'a'" true
-    (contains rendered "tc=" || contains rendered "id=a");
+    (Test_helpers.string_contains rendered "tc=" || Test_helpers.string_contains rendered "id=a");
   Alcotest.(check bool)
-    "rendered shows tool call id 'b'" true (contains rendered "id=b");
+    "rendered shows tool call id 'b'" true (Test_helpers.string_contains rendered "id=b");
   Alcotest.(check bool)
-    "rendered shows tool call id 'c'" true (contains rendered "id=c");
+    "rendered shows tool call id 'c'" true (Test_helpers.string_contains rendered "id=c");
   Alcotest.(check bool)
     "rendered mentions missing required parameter" true
-    (contains rendered "missing required parameter")
+    (Test_helpers.string_contains rendered "missing required parameter")
 
 let test_format_history_text_truncates_long_content () =
   let long_args = String.make 2000 'x' in
@@ -109,7 +100,7 @@ let test_format_history_text_truncates_long_content () =
     (String.length rendered < 1200);
   Alcotest.(check bool)
     "truncation marker present" true
-    (contains rendered "truncated")
+    (Test_helpers.string_contains rendered "truncated")
 
 (* B610: Postmortem_followup.extract_file_bug parses FILE_BUG / BODY / ENDBUG
    markers out of the agent's response or postmortem doc so a backlog bug

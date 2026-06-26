@@ -60,18 +60,12 @@ let build_json_restricted_users () =
 
 let post_instructions_content () =
   let s = Setup_line.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs url" true
-    (contains "https://clawq.org/channels/#line");
+    (Test_helpers.string_contains s "https://clawq.org/channels/#line");
   Alcotest.(check bool)
     "has developer portal" true
-    (contains "developers.line.biz")
+    (Test_helpers.string_contains s "developers.line.biz")
 
 let suite =
   [

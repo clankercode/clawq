@@ -99,17 +99,11 @@ let build_json_auth_token_empty_is_none () =
 
 let post_instructions_content () =
   let s = Setup_gateway.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs url" true
-    (contains "https://clawq.org/gateway/");
-  Alcotest.(check bool) "mentions pairing" true (contains "pairing");
-  Alcotest.(check bool) "mentions port" true (contains "port")
+    (Test_helpers.string_contains s "https://clawq.org/gateway/");
+  Alcotest.(check bool) "mentions pairing" true (Test_helpers.string_contains s "pairing");
+  Alcotest.(check bool) "mentions port" true (Test_helpers.string_contains s "port")
 
 let suite =
   [

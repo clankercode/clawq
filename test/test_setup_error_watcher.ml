@@ -111,16 +111,10 @@ let build_json_with_ignore_patterns () =
 
 let post_instructions_content () =
   let s = Setup_error_watcher.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs url" true
-    (contains "https://clawq.org/error-watcher/");
-  Alcotest.(check bool) "mentions scan" true (contains "scan")
+    (Test_helpers.string_contains s "https://clawq.org/error-watcher/");
+  Alcotest.(check bool) "mentions scan" true (Test_helpers.string_contains s "scan")
 
 let suite =
   [

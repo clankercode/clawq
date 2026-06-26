@@ -1137,16 +1137,6 @@ let test_handle_auth () =
   let result = Command_bridge.handle [ "auth" ] in
   Alcotest.(check bool) "auth returns output" true (String.length result > 0)
 
-let str_contains haystack needle =
-  let nlen = String.length needle in
-  let hlen = String.length haystack in
-  if nlen > hlen then false
-  else
-    let found = ref false in
-    for i = 0 to hlen - nlen do
-      if (not !found) && String.sub haystack i nlen = needle then found := true
-    done;
-    !found
 
 let test_auth_set_key_redacts_output () =
   with_temp_home (fun home ->
@@ -1158,13 +1148,13 @@ let test_auth_set_key_redacts_output () =
       in
       Alcotest.(check bool)
         "mentions provider" true
-        (str_contains result "anthropic");
+        (Test_helpers.string_contains result "anthropic");
       Alcotest.(check bool)
         "output redacted" true
-        (str_contains result "sk-a...0xyz");
+        (Test_helpers.string_contains result "sk-a...0xyz");
       Alcotest.(check bool)
         "full key not in output" false
-        (str_contains result "sk-abcdef1234567890xyz"))
+        (Test_helpers.string_contains result "sk-abcdef1234567890xyz"))
 
 let test_auth_set_key_unknown_provider_errors () =
   with_temp_home (fun home ->
@@ -1174,26 +1164,26 @@ let test_auth_set_key_unknown_provider_errors () =
         Command_bridge.handle
           [ "auth"; "set-key"; "notarealprovider"; "sk-abcdef" ]
       in
-      Alcotest.(check bool) "returns error" true (str_contains result "Error:");
+      Alcotest.(check bool) "returns error" true (Test_helpers.string_contains result "Error:");
       Alcotest.(check bool)
         "mentions unknown provider" true
-        (str_contains result "notarealprovider");
+        (Test_helpers.string_contains result "notarealprovider");
       Alcotest.(check bool)
         "lists valid providers as CSV" true
-        (str_contains result "anthropic");
+        (Test_helpers.string_contains result "anthropic");
       let result2 =
         Command_bridge.handle [ "auth"; "set-key"; "notarealprovider" ]
       in
       Alcotest.(check bool)
         "interactive form also errors" true
-        (str_contains result2 "Error:"))
+        (Test_helpers.string_contains result2 "Error:"))
 
 let test_auth_set_key_no_args_shows_usage () =
   let result = Command_bridge.handle [ "auth"; "set-key" ] in
-  Alcotest.(check bool) "shows usage" true (str_contains result "Usage:");
+  Alcotest.(check bool) "shows usage" true (Test_helpers.string_contains result "Usage:");
   Alcotest.(check bool)
     "mentions interactive" true
-    (str_contains result "interactively")
+    (Test_helpers.string_contains result "interactively")
 
 let test_config_set_secret_redacts_output () =
   with_temp_home (fun home ->
@@ -1207,10 +1197,10 @@ let test_config_set_secret_redacts_output () =
       in
       Alcotest.(check bool)
         "output redacted" true
-        (str_contains result "secr...1234");
+        (Test_helpers.string_contains result "secr...1234");
       Alcotest.(check bool)
         "full key not in output" false
-        (str_contains result "secret-key-value-1234"))
+        (Test_helpers.string_contains result "secret-key-value-1234"))
 
 let test_config_get_secret_redacted () =
   with_temp_home (fun home ->

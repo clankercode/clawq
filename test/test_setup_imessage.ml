@@ -53,16 +53,10 @@ let build_json_custom_values () =
 
 let post_instructions_content () =
   let s = Setup_imessage.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs url" true
-    (contains "https://clawq.org/channels/#imessage");
-  Alcotest.(check bool) "has poll mention" true (contains "poll")
+    (Test_helpers.string_contains s "https://clawq.org/channels/#imessage");
+  Alcotest.(check bool) "has poll mention" true (Test_helpers.string_contains s "poll")
 
 let suite =
   [

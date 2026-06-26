@@ -142,20 +142,14 @@ let instructions_without_tunnel () =
       ~webhook_path:"/github/webhook/app" ~webhook_secret:"abc123"
       ~gateway_port:13451 ~tunnel_url:None
   in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has localhost url" true
-    (contains "http://localhost:13451/github/webhook/app");
-  Alcotest.(check bool) "has secret" true (contains "abc123");
-  Alcotest.(check bool) "has tunnel note" true (contains "set up a tunnel");
+    (Test_helpers.string_contains s "http://localhost:13451/github/webhook/app");
+  Alcotest.(check bool) "has secret" true (Test_helpers.string_contains s "abc123");
+  Alcotest.(check bool) "has tunnel note" true (Test_helpers.string_contains s "set up a tunnel");
   Alcotest.(check bool)
     "has direct link" true
-    (contains "https://github.com/acme/app/settings/hooks/new")
+    (Test_helpers.string_contains s "https://github.com/acme/app/settings/hooks/new")
 
 let instructions_with_tunnel () =
   let s =
@@ -163,16 +157,10 @@ let instructions_with_tunnel () =
       ~webhook_path:"/github/webhook/app" ~webhook_secret:"abc123"
       ~gateway_port:13451 ~tunnel_url:(Some "https://my.tunnel.example.com")
   in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has tunnel url" true
-    (contains "https://my.tunnel.example.com/github/webhook/app");
-  Alcotest.(check bool) "no tunnel note" false (contains "set up a tunnel")
+    (Test_helpers.string_contains s "https://my.tunnel.example.com/github/webhook/app");
+  Alcotest.(check bool) "no tunnel note" false (Test_helpers.string_contains s "set up a tunnel")
 
 let instructions_include_verification_and_hook_notes () =
   let s =
@@ -180,37 +168,31 @@ let instructions_include_verification_and_hook_notes () =
       ~webhook_path:"/github/webhook/app" ~webhook_secret:"abc123"
       ~gateway_port:13451 ~tunnel_url:None
   in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "mentions gateway enabled" true
-    (contains "HTTP gateway enabled");
+    (Test_helpers.string_contains s "HTTP gateway enabled");
   Alcotest.(check bool)
     "mentions service status" true
-    (contains "clawq service status");
+    (Test_helpers.string_contains s "clawq service status");
   Alcotest.(check bool)
     "mentions daemon log" true
-    (contains "tail -f ~/.clawq/daemon.log");
+    (Test_helpers.string_contains s "tail -f ~/.clawq/daemon.log");
   Alcotest.(check bool)
-    "mentions github hooks log lines" true (contains "GitHub hooks:");
+    "mentions github hooks log lines" true (Test_helpers.string_contains s "GitHub hooks:");
   Alcotest.(check bool)
     "mentions gh-hooks dir" true
-    (contains "~/.clawq/workspace/gh-hooks/");
+    (Test_helpers.string_contains s "~/.clawq/workspace/gh-hooks/");
   Alcotest.(check bool)
-    "mentions workflow event name" true (contains "workflow_run");
+    "mentions workflow event name" true (Test_helpers.string_contains s "workflow_run");
   Alcotest.(check bool)
     "mentions workflow failure status" true
-    (contains "status: completed");
+    (Test_helpers.string_contains s "status: completed");
   Alcotest.(check bool)
     "mentions workflow failure conclusion" true
-    (contains "conclusion: failure");
+    (Test_helpers.string_contains s "conclusion: failure");
   Alcotest.(check bool)
     "mentions review event" true
-    (contains "Pull request reviews")
+    (Test_helpers.string_contains s "Pull request reviews")
 
 let deep_merge_empty () =
   let overlay =
@@ -289,15 +271,9 @@ let instructions_has_settings_link () =
       ~webhook_path:"/gh" ~webhook_secret:"s" ~gateway_port:8080
       ~tunnel_url:None
   in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "settings link" true
-    (contains "https://github.com/org/my-repo/settings/hooks/new")
+    (Test_helpers.string_contains s "https://github.com/org/my-repo/settings/hooks/new")
 
 let suite =
   [

@@ -1,12 +1,3 @@
-let contains hay needle =
-  let hlen = String.length hay in
-  let nlen = String.length needle in
-  let rec loop i =
-    if i + nlen > hlen then false
-    else if String.sub hay i nlen = needle then true
-    else loop (i + 1)
-  in
-  nlen = 0 || loop 0
 
 let with_temp_workspace f =
   let base = Filename.get_temp_dir_name () in
@@ -64,13 +55,13 @@ let test_dynamic_prompt_includes_workspace_files () =
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool)
         "has workspace section" true
-        (contains prompt "## Workspace Context");
+        (Test_helpers.string_contains prompt "## Workspace Context");
       Alcotest.(check bool)
         "includes EGO contents" true
-        (contains prompt "EGO SENTINEL");
+        (Test_helpers.string_contains prompt "EGO SENTINEL");
       Alcotest.(check bool)
         "includes AGENTS contents" true
-        (contains prompt "AGENTS SENTINEL"))
+        (Test_helpers.string_contains prompt "AGENTS SENTINEL"))
 
 let test_dynamic_prompt_includes_self_reference () =
   with_temp_workspace (fun workspace ->
@@ -78,10 +69,10 @@ let test_dynamic_prompt_includes_self_reference () =
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool)
         "has self-reference section" true
-        (contains prompt "## Self-Reference");
+        (Test_helpers.string_contains prompt "## Self-Reference");
       Alcotest.(check bool)
         "has llms-full.txt URL" true
-        (contains prompt "https://clawq.org/llms-full.txt"))
+        (Test_helpers.string_contains prompt "https://clawq.org/llms-full.txt"))
 
 let test_runtime_context_includes_git_details () =
   with_temp_workspace (fun workspace ->
@@ -111,13 +102,13 @@ let test_runtime_context_includes_git_details () =
             Prompt_builder.build_runtime_context ~config:cfg ()
             |> Option.value ~default:""
           in
-          Alcotest.(check bool) "includes os" true (contains runtime "- OS: ");
+          Alcotest.(check bool) "includes os" true (Test_helpers.string_contains runtime "- OS: ");
           Alcotest.(check bool)
             "includes repo root" true
-            (contains runtime ("- Git repo root: " ^ workspace));
+            (Test_helpers.string_contains runtime ("- Git repo root: " ^ workspace));
           Alcotest.(check bool)
             "includes git branch" true
-            (contains runtime "- Git branch: main"))
+            (Test_helpers.string_contains runtime "- Git branch: main"))
         ~finally:(fun () -> Sys.chdir cwd_before))
 
 let test_runtime_context_includes_session_details () =
@@ -170,31 +161,31 @@ let test_runtime_context_includes_session_details () =
       in
       Alcotest.(check bool)
         "includes session id" true
-        (contains runtime "- Session id: telegram:123:456");
+        (Test_helpers.string_contains runtime "- Session id: telegram:123:456");
       Alcotest.(check bool)
         "includes heartbeat applicability" true
-        (contains runtime "- Heartbeat routing enabled for this session: yes");
+        (Test_helpers.string_contains runtime "- Heartbeat routing enabled for this session: yes");
       Alcotest.(check bool)
         "includes sandbox summary" true
-        (contains runtime
+        (Test_helpers.string_contains runtime
            "- Shell sandboxed: yes (requested=auto effective=bubblewrap)");
       Alcotest.(check bool)
         "includes daemon uptime" true
-        (contains runtime "- Daemon uptime: 1h 23m");
+        (Test_helpers.string_contains runtime "- Daemon uptime: 1h 23m");
       Alcotest.(check bool)
         "includes context usage" true
-        (contains runtime "- Context usage: 12 messages, ~3456/128000 tokens");
+        (Test_helpers.string_contains runtime "- Context usage: 12 messages, ~3456/128000 tokens");
       Alcotest.(check bool)
         "includes compaction trigger" true
-        (contains runtime
+        (Test_helpers.string_contains runtime
            "- Compaction: before a turn when history > 500 messages or est \
             tokens > 96000; compacted before this turn: yes");
       Alcotest.(check bool)
         "includes no background tasks line" true
-        (contains runtime "- Background tasks: none running");
+        (Test_helpers.string_contains runtime "- Background tasks: none running");
       Alcotest.(check bool)
         "includes tunnel status" true
-        (contains runtime "- Tunnel: https://my-tunnel.trycloudflare.com"))
+        (Test_helpers.string_contains runtime "- Tunnel: https://my-tunnel.trycloudflare.com"))
 
 let remove_file path = try Sys.remove path with _ -> ()
 
@@ -225,10 +216,10 @@ let test_build_messages_picks_up_workspace_file_changes () =
       in
       Alcotest.(check bool)
         "first build has original content" true
-        (contains sys1.content "ORIGINAL AGENTS CONTENT");
+        (Test_helpers.string_contains sys1.content "ORIGINAL AGENTS CONTENT");
       Alcotest.(check bool)
         "first build lacks updated content" false
-        (contains sys1.content "UPDATED AGENTS CONTENT");
+        (Test_helpers.string_contains sys1.content "UPDATED AGENTS CONTENT");
       (* Mutate the workspace file on disk *)
       write_file agents_path "UPDATED AGENTS CONTENT";
       (* Second build_messages: should pick up the change *)
@@ -238,10 +229,10 @@ let test_build_messages_picks_up_workspace_file_changes () =
       in
       Alcotest.(check bool)
         "second build has updated content" true
-        (contains sys2.content "UPDATED AGENTS CONTENT");
+        (Test_helpers.string_contains sys2.content "UPDATED AGENTS CONTENT");
       Alcotest.(check bool)
         "second build lacks original content" false
-        (contains sys2.content "ORIGINAL AGENTS CONTENT");
+        (Test_helpers.string_contains sys2.content "ORIGINAL AGENTS CONTENT");
       remove_file agents_path)
 
 let test_build_messages_picks_up_new_workspace_file () =
@@ -270,7 +261,7 @@ let test_build_messages_picks_up_new_workspace_file () =
       in
       Alcotest.(check bool)
         "no agents content before creation" false
-        (contains sys1.content "NEW AGENTS FILE");
+        (Test_helpers.string_contains sys1.content "NEW AGENTS FILE");
       (* Create the file *)
       write_file agents_path "NEW AGENTS FILE";
       (* Second build: should pick it up *)
@@ -280,7 +271,7 @@ let test_build_messages_picks_up_new_workspace_file () =
       in
       Alcotest.(check bool)
         "picks up newly created file" true
-        (contains sys2.content "NEW AGENTS FILE");
+        (Test_helpers.string_contains sys2.content "NEW AGENTS FILE");
       remove_file agents_path)
 
 let test_build_messages_picks_up_deleted_workspace_file () =
@@ -310,7 +301,7 @@ let test_build_messages_picks_up_deleted_workspace_file () =
       in
       Alcotest.(check bool)
         "has content before deletion" true
-        (contains sys1.content "DOOMED CONTENT");
+        (Test_helpers.string_contains sys1.content "DOOMED CONTENT");
       (* Delete the file *)
       Sys.remove agents_path;
       (* Second build: content should be gone *)
@@ -320,7 +311,7 @@ let test_build_messages_picks_up_deleted_workspace_file () =
       in
       Alcotest.(check bool)
         "content gone after deletion" false
-        (contains sys2.content "DOOMED CONTENT"))
+        (Test_helpers.string_contains sys2.content "DOOMED CONTENT"))
 
 let test_dynamic_prompt_includes_autonomy_section () =
   with_temp_workspace (fun workspace ->
@@ -342,16 +333,16 @@ let test_dynamic_prompt_includes_autonomy_section () =
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool)
         "has autonomy header" true
-        (contains prompt "## Autonomous Operation");
+        (Test_helpers.string_contains prompt "## Autonomous Operation");
       Alcotest.(check bool)
         "has steering information" true
-        (contains prompt "steering information");
+        (Test_helpers.string_contains prompt "steering information");
       Alcotest.(check bool)
         "has continuous execution" true
-        (contains prompt "continuous execution");
+        (Test_helpers.string_contains prompt "continuous execution");
       Alcotest.(check bool)
         "has explicitly ask you to stop" true
-        (contains prompt "explicitly ask you to stop"))
+        (Test_helpers.string_contains prompt "explicitly ask you to stop"))
 
 let test_dynamic_prompt_excludes_autonomy_section_when_disabled () =
   with_temp_workspace (fun workspace ->
@@ -373,7 +364,7 @@ let test_dynamic_prompt_excludes_autonomy_section_when_disabled () =
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool)
         "no autonomy header" false
-        (contains prompt "## Autonomous Operation"))
+        (Test_helpers.string_contains prompt "## Autonomous Operation"))
 
 let test_autonomy_section_appears_before_workspace () =
   with_temp_workspace (fun workspace ->
@@ -444,7 +435,7 @@ let test_workspace_injection_note_present () =
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool)
         "has no-reread note" true
-        (contains prompt "already injected into this prompt"))
+        (Test_helpers.string_contains prompt "already injected into this prompt"))
 
 let test_workspace_injection_note_absent_when_no_files () =
   with_temp_workspace (fun workspace ->
@@ -466,7 +457,7 @@ let test_workspace_injection_note_absent_when_no_files () =
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool)
         "no note when no files found" false
-        (contains prompt "already injected into this prompt"))
+        (Test_helpers.string_contains prompt "already injected into this prompt"))
 
 let test_tools_block_sorted_alphabetically () =
   let registry = Tool_registry.create () in
@@ -569,7 +560,7 @@ let test_background_tasks_appear_after_context_usage () =
       in
       Alcotest.(check bool)
         "includes background task" true
-        (contains runtime
+        (Test_helpers.string_contains runtime
            "#7 codex running 3m health=active repo=myrepo branch=feat-x");
       let ctx_pos =
         index_of runtime "- Context usage:" |> Option.value ~default:(-1)
@@ -621,10 +612,10 @@ let test_tools_section_includes_shell_exec_example () =
       in
       Alcotest.(check bool)
         "has example tool call header" true
-        (contains prompt "Example tool call:");
+        (Test_helpers.string_contains prompt "Example tool call:");
       Alcotest.(check bool)
         "has shell_exec example" true
-        (contains prompt "shell_exec(command="))
+        (Test_helpers.string_contains prompt "shell_exec(command="))
 
 let test_runtime_context_includes_directory_contents () =
   with_temp_workspace (fun workspace ->
@@ -651,13 +642,13 @@ let test_runtime_context_includes_directory_contents () =
           in
           Alcotest.(check bool)
             "includes directory contents label" true
-            (contains runtime "- Directory contents:");
+            (Test_helpers.string_contains runtime "- Directory contents:");
           Alcotest.(check bool)
             "includes README.md file" true
-            (contains runtime "README.md");
+            (Test_helpers.string_contains runtime "README.md");
           Alcotest.(check bool)
             "includes src/ directory with trailing slash" true
-            (contains runtime "src/"))
+            (Test_helpers.string_contains runtime "src/"))
         ~finally:(fun () -> Sys.chdir cwd_before))
 
 let rec rm_rf path =
@@ -720,10 +711,10 @@ let test_project_docs_loaded_from_git_root () =
       | Some content ->
           Alcotest.(check bool)
             "has CLAUDE.md" true
-            (contains content "PROJECT CLAUDE SENTINEL");
+            (Test_helpers.string_contains content "PROJECT CLAUDE SENTINEL");
           Alcotest.(check bool)
             "has AGENTS.md" true
-            (contains content "PROJECT AGENTS SENTINEL"));
+            (Test_helpers.string_contains content "PROJECT AGENTS SENTINEL"));
       Alcotest.(check int) "two digests" 2 (List.length pd.digests))
 
 let test_project_docs_dedup_vs_workspace () =
@@ -747,7 +738,7 @@ let test_project_docs_dedup_vs_workspace () =
       | Some c ->
           Alcotest.(check bool)
             "deduped AGENTS.md not in project docs" false
-            (contains c "SHARED CONTENT BETWEEN WORKSPACE AND PROJECT"))
+            (Test_helpers.string_contains c "SHARED CONTENT BETWEEN WORKSPACE AND PROJECT"))
 
 let test_project_docs_dedup_self () =
   with_temp_git_repo (fun dir ->
@@ -818,7 +809,7 @@ let test_project_docs_budget_truncation () =
       | Some c ->
           Alcotest.(check bool)
             "content is truncated" true
-            (contains c "[...truncated...]"))
+            (Test_helpers.string_contains c "[...truncated...]"))
 
 (* B706: room/thread sessions autoload project docs from their per-room
    effective_cwd (workspace subfolder), not the daemon process cwd. *)
@@ -855,13 +846,13 @@ let test_project_docs_from_effective_cwd_git_repo () =
       | Some c ->
           Alcotest.(check bool)
             "room CLAUDE.md loaded" true
-            (contains c "ROOM CLAUDE SENTINEL");
+            (Test_helpers.string_contains c "ROOM CLAUDE SENTINEL");
           Alcotest.(check bool)
             "room AGENTS.md loaded" true
-            (contains c "ROOM AGENTS SENTINEL");
+            (Test_helpers.string_contains c "ROOM AGENTS SENTINEL");
           Alcotest.(check bool)
             "process cwd docs not loaded" false
-            (contains c "PROCESS CWD SHOULD NOT APPEAR"))
+            (Test_helpers.string_contains c "PROCESS CWD SHOULD NOT APPEAR"))
 
 let test_project_docs_from_non_git_effective_cwd () =
   (* A plain (non-git) room folder with an AGENTS.md should still autoload. *)
@@ -885,7 +876,7 @@ let test_project_docs_from_non_git_effective_cwd () =
       | Some c ->
           Alcotest.(check bool)
             "plain room AGENTS.md loaded" true
-            (contains c "PLAIN ROOM AGENTS SENTINEL");
+            (Test_helpers.string_contains c "PLAIN ROOM AGENTS SENTINEL");
           Alcotest.(check (option string))
             "git_root reports the room dir" (Some room) pd.git_root)
 
@@ -907,7 +898,7 @@ let test_project_docs_refresh_on_effective_cwd_change () =
       | Some c ->
           Alcotest.(check bool)
             "rebound room docs loaded" true
-            (contains c "REBOUND ROOM SENTINEL");
+            (Test_helpers.string_contains c "REBOUND ROOM SENTINEL");
           Alcotest.(check (option string))
             "git_root updated to room" (Some room)
             agent.Agent.project_docs_git_root)
@@ -1021,24 +1012,24 @@ let test_workspace_docs_suppressed_for_named_agent () =
         (fun (name, sentinel) ->
           Alcotest.(check bool)
             (Printf.sprintf "%s content excluded for named agent" name)
-            false (contains prompt sentinel))
+            false (Test_helpers.string_contains prompt sentinel))
         all_ws_files;
       (* BOOTSTRAP.md also excluded *)
       Alcotest.(check bool)
         "BOOTSTRAP.md content excluded for named agent" false
-        (contains prompt "BOOTSTRAP_SENTINEL_CONTENT");
+        (Test_helpers.string_contains prompt "BOOTSTRAP_SENTINEL_CONTENT");
       (* Suppression note present *)
       Alcotest.(check bool)
         "has suppression note" true
-        (contains prompt "suppressed for named agents");
+        (Test_helpers.string_contains prompt "suppressed for named agents");
       (* Workspace root still shown *)
       Alcotest.(check bool)
         "workspace root still shown" true
-        (contains prompt workspace);
+        (Test_helpers.string_contains prompt workspace);
       (* Agent template system prompt IS present *)
       Alcotest.(check bool)
         "agent system prompt present" true
-        (contains prompt "You are a coder."))
+        (Test_helpers.string_contains prompt "You are a coder."))
 
 let test_agent_goal_backstory_in_prompt () =
   with_temp_workspace (fun workspace ->
@@ -1059,16 +1050,16 @@ let test_agent_goal_backstory_in_prompt () =
       in
       Alcotest.(check bool)
         "goal present" true
-        (contains prompt "GOAL_SENTINEL_XYZ");
+        (Test_helpers.string_contains prompt "GOAL_SENTINEL_XYZ");
       Alcotest.(check bool)
         "backstory present" true
-        (contains prompt "BACKSTORY_SENTINEL_XYZ");
+        (Test_helpers.string_contains prompt "BACKSTORY_SENTINEL_XYZ");
       Alcotest.(check bool)
         "goal section header" true
-        (contains prompt "## Agent Goal");
+        (Test_helpers.string_contains prompt "## Agent Goal");
       Alcotest.(check bool)
         "backstory section header" true
-        (contains prompt "## Agent Backstory"))
+        (Test_helpers.string_contains prompt "## Agent Backstory"))
 
 let test_agent_template_dynamic_disabled () =
   with_temp_workspace (fun workspace ->
@@ -1105,12 +1096,12 @@ let test_workspace_docs_present_for_default_agent () =
           Alcotest.(check bool)
             (Printf.sprintf "%s content %s for default agent" name
                (if expect then "present" else "excluded (EGO.md exists)"))
-            expect (contains prompt sentinel))
+            expect (Test_helpers.string_contains prompt sentinel))
         all_ws_files;
       (* No suppression note *)
       Alcotest.(check bool)
         "no suppression note" false
-        (contains prompt "suppressed for named agents"))
+        (Test_helpers.string_contains prompt "suppressed for named agents"))
 
 let test_developer_message_in_build_messages () =
   with_temp_git_repo (fun dir ->
@@ -1131,7 +1122,7 @@ let test_developer_message_in_build_messages () =
       let dev_content = (List.hd dev_msgs).content in
       Alcotest.(check bool)
         "developer msg has project docs" true
-        (contains dev_content "DEV MSG SENTINEL"))
+        (Test_helpers.string_contains dev_content "DEV MSG SENTINEL"))
 
 let test_no_developer_message_when_no_project_docs () =
   with_temp_git_repo (fun _dir ->
@@ -1177,10 +1168,10 @@ let test_subdir_docs_injected_on_first_file_access () =
       Alcotest.(check string) "subdir doc role is user" "user" msg.role;
       Alcotest.(check bool)
         "event has subdir content" true
-        (contains msg.content "SUBDIR CLAUDE CONTENT");
+        (Test_helpers.string_contains msg.content "SUBDIR CLAUDE CONTENT");
       Alcotest.(check bool)
         "event has metadata" true
-        (contains msg.content "project instructions loaded"))
+        (Test_helpers.string_contains msg.content "project instructions loaded"))
 
 let test_subdir_docs_not_injected_twice () =
   with_temp_git_repo (fun dir ->
@@ -1255,7 +1246,7 @@ let test_root_docs_refresh_on_change () =
       | None -> Alcotest.fail "expected content after refresh"
       | Some c ->
           Alcotest.(check bool)
-            "content updated to MODIFIED" true (contains c "MODIFIED"))
+            "content updated to MODIFIED" true (Test_helpers.string_contains c "MODIFIED"))
 
 let test_root_docs_no_refresh_when_unchanged () =
   with_temp_git_repo (fun dir ->
@@ -1309,13 +1300,13 @@ let test_provider_extract_system_prompt_includes_developer () =
   let extracted = Provider.extract_system_prompt msgs in
   Alcotest.(check bool)
     "system prompt includes system" true
-    (contains extracted "SYS CONTENT");
+    (Test_helpers.string_contains extracted "SYS CONTENT");
   Alcotest.(check bool)
     "system prompt includes developer" true
-    (contains extracted "DEV CONTENT");
+    (Test_helpers.string_contains extracted "DEV CONTENT");
   Alcotest.(check bool)
     "system prompt excludes user" false
-    (contains extracted "USER CONTENT")
+    (Test_helpers.string_contains extracted "USER CONTENT")
 
 let test_developer_role_mapped_to_system_in_json () =
   let msg = Provider.make_message ~role:"developer" ~content:"dev content" in

@@ -1,11 +1,3 @@
-let contains s sub =
-  let ls = String.length s and lsub = String.length sub in
-  let rec loop i =
-    if i + lsub > ls then false
-    else if String.sub s i lsub = sub then true
-    else loop (i + 1)
-  in
-  lsub = 0 || loop 0
 
 let always_exists _ = true
 
@@ -232,7 +224,7 @@ let test_run_update_pkg_mode_undetected () =
   in
   Alcotest.(check bool)
     "mentions package manager" true
-    (contains result "Cannot detect a package manager");
+    (Test_helpers.string_contains result "Cannot detect a package manager");
   Alcotest.(check bool) "no restart signalled" true (!signaled = None)
 
 let test_run_update_pkg_failure_aborts () =
@@ -251,7 +243,7 @@ let test_run_update_pkg_failure_aborts () =
   in
   Alcotest.(check bool)
     "reports npm failure" true
-    (contains result "update via npm failed");
+    (Test_helpers.string_contains result "update via npm failed");
   Alcotest.(check bool) "no restart on failure" true (!signaled = None)
 
 let test_run_update_pkg_reexec_prefers_stable_path () =

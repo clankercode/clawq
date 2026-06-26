@@ -104,22 +104,16 @@ let deep_merge_preserves_existing () =
 
 let instructions_content () =
   let s = Setup_discord.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has developer portal" true
-    (contains "https://discord.com/developers/applications");
+    (Test_helpers.string_contains s "https://discord.com/developers/applications");
   Alcotest.(check bool)
     "has invite URL pattern" true
-    (contains "discord.com/oauth2/authorize");
+    (Test_helpers.string_contains s "discord.com/oauth2/authorize");
   Alcotest.(check bool)
     "has MESSAGE CONTENT INTENT" true
-    (contains "MESSAGE CONTENT INTENT");
-  Alcotest.(check bool) "has bot scope" true (contains "bot")
+    (Test_helpers.string_contains s "MESSAGE CONTENT INTENT");
+  Alcotest.(check bool) "has bot scope" true (Test_helpers.string_contains s "bot")
 
 let intent_names_default () =
   let names = Setup_discord.intent_names 33281 in

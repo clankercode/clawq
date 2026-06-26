@@ -81,18 +81,12 @@ let build_json_restricted_users () =
 
 let post_instructions_content () =
   let s = Setup_dingtalk.post_setup_instructions in
-  let contains sub =
-    try
-      ignore (Str.search_forward (Str.regexp_string sub) s 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "has docs url" true
-    (contains "https://clawq.org/channels/#dingtalk");
+    (Test_helpers.string_contains s "https://clawq.org/channels/#dingtalk");
   Alcotest.(check bool)
     "has open platform mention" true
-    (contains "open.dingtalk.com")
+    (Test_helpers.string_contains s "open.dingtalk.com")
 
 let suite =
   [
