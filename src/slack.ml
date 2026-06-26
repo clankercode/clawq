@@ -57,6 +57,25 @@ let set_thinking_level ~(session_manager : Session.t) ~channel_id ~user_id level
             channel_id user_id err);
       "Failed to update thinking level: " ^ err
 
+(** Resolve the session key for a Slack channel+user pair. If the channel has an
+    active room profile binding (shared room session), returns "slack:CHANNEL".
+    Otherwise returns the per-user key "slack:CHANNEL:USER". *)
+let resolve_session_key ~(session_manager : Session.t) ~channel_id ~user_id =
+  let has_profile =
+    match Session.get_db session_manager with
+    | Some db -> (
+        match Memory.get_room_profile_binding ~db ~room_id:channel_id with
+        | Some _ -> true
+        | None -> false)
+    | None -> false
+  in
+  if has_profile then "slack:" ^ Session.sanitize_session_key channel_id
+  else
+    "slack:"
+    ^ Session.sanitize_session_key channel_id
+    ^ ":"
+    ^ Session.sanitize_session_key user_id
+
 let is_allowed ~(config : Runtime_config.slack_config) ~channel_id ~user_id =
   let ch_ok =
     is_allowed_allowlist ~kind:"channel" ~id:channel_id config.allow_channels
@@ -283,12 +302,7 @@ let handle_event ~(config : Runtime_config.slack_config)
           else Lwt.return "ok"
         end
         else
-          let key =
-            "slack:"
-            ^ Session.sanitize_session_key channel_id
-            ^ ":"
-            ^ Session.sanitize_session_key user_id
-          in
+          let key = resolve_session_key ~session_manager ~channel_id ~user_id in
           (* Register a persistent channel notifier so autonomous continuation
              responses can reach the Slack channel *)
           let send_to_channel_persistent text =
