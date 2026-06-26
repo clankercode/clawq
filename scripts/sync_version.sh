@@ -25,8 +25,7 @@ declare -a TARGETS=(
   "docs/package.json|\"version\": \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"|\"version\": \"${VER}\"|docs/package.json version"
   "docs/src/components/Sidebar.astro|v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*|v${VER}|Sidebar.astro version"
   "scripts/wasm_templates/IDENTITY.md|Version: [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*|Version: ${VER}|IDENTITY.md version"
-  "test/test_command_bridge.ml|clawq [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-dev|clawq ${VER}-dev|test_command_bridge.ml version"
-  "test/test_clawq_core.ml|clawq [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-dev|clawq ${VER}-dev|test_clawq_core.ml version"
+
 )
 
 ERRORS=0
