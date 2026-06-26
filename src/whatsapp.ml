@@ -76,23 +76,15 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
       let key, channel_type, allowed =
         match group_jid with
         | Some gjid ->
-            (* Group message: session keyed by group_jid.
-               allow_from filters by phone number and does not apply to group
-               JIDs. When allow_from is non-empty, group messages bypass the
-               allowlist — this is an accepted trade-off since group membership
-               itself serves as an access control. *)
-            let group_allowed =
-              match config.allow_from with
-              | [] -> true
-              | _ ->
-                  Logs.info (fun m ->
-                      m
-                        "WhatsApp: group %s accepted (allow_from is set but \
-                         does not apply to groups)"
-                        gjid);
-                  true
-            in
-            ("whatsapp:group:" ^ gjid, "group", group_allowed)
+            (* Group message: session keyed by group_jid, but the sender's
+               phone number (from) is still subject to allow_from, mirroring how
+               the Discord and Slack connectors apply their per-user allowlists
+               inside guilds and channels. Group membership alone is not treated
+               as sufficient access control. *)
+            let from_normalized = strip_leading_plus from in
+            ( "whatsapp:group:" ^ gjid,
+              "group",
+              is_allowed ~config ~from:from_normalized )
         | None ->
             (* Direct message: apply allow_from filter *)
             let from_normalized = strip_leading_plus from in

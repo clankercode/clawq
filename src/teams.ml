@@ -144,9 +144,18 @@ let split_message text =
         while !cut > !pos && text.[!cut] <> ' ' && text.[!cut] <> '\n' do
           decr cut
         done;
-        if !cut = !pos then cut := limit;
-        result := String.sub text !pos (!cut - !pos) :: !result;
-        pos := !cut + 1
+        if !cut = !pos then begin
+          (* No whitespace before the limit: forced mid-word break. The char
+             at [limit] is not whitespace, so do not skip past it or it would
+             be dropped from the output. *)
+          result := String.sub text !pos max_message_chars :: !result;
+          pos := limit
+        end
+        else begin
+          (* Break at whitespace, consuming the whitespace char as separator. *)
+          result := String.sub text !pos (!cut - !pos) :: !result;
+          pos := !cut + 1
+        end
       end
     done;
     List.rev !result

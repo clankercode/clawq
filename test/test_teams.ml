@@ -255,6 +255,27 @@ let test_split_message_multi () =
   let chunks = Teams.split_message long in
   Alcotest.(check bool) "multiple chunks" true (List.length chunks > 1)
 
+(* A long run with no whitespace forces a mid-word break. No character may be
+   dropped: rejoining the chunks must reproduce the original exactly. *)
+let test_split_message_no_whitespace_lossless () =
+  let long = String.make (Teams.max_message_chars + 100) 'x' in
+  let chunks = Teams.split_message long in
+  Alcotest.(check bool) "multiple chunks" true (List.length chunks > 1);
+  Alcotest.(check string)
+    "no characters lost on forced break" long (String.concat "" chunks)
+
+(* Mixed content: a long unbroken run followed by whitespace then a tail. The
+   forced mid-word break in the run must not drop a character; the trailing
+   whitespace lands inside the final chunk and is not consumed as a separator,
+   so rejoining the chunks reproduces the original exactly. *)
+let test_split_message_mixed_lossless () =
+  let run = String.make (Teams.max_message_chars + 50) 'a' in
+  let text = run ^ " tail" in
+  let chunks = Teams.split_message text in
+  Alcotest.(check bool) "multiple chunks" true (List.length chunks > 1);
+  Alcotest.(check string)
+    "forced break loses no characters" text (String.concat "" chunks)
+
 let test_select_file_upload_delivery_personal_chat () =
   Alcotest.(check bool)
     "personal 1:1 uses consent card" true
@@ -1009,6 +1030,10 @@ let suite =
       test_build_reply_body_none_mode;
     Alcotest.test_case "split_message single" `Quick test_split_message_single;
     Alcotest.test_case "split_message multi" `Quick test_split_message_multi;
+    Alcotest.test_case "split_message no-whitespace lossless" `Quick
+      test_split_message_no_whitespace_lossless;
+    Alcotest.test_case "split_message mixed lossless" `Quick
+      test_split_message_mixed_lossless;
     Alcotest.test_case "select file upload delivery personal chat" `Quick
       test_select_file_upload_delivery_personal_chat;
     Alcotest.test_case "select file upload delivery group chat" `Quick

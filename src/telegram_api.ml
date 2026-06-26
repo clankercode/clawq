@@ -1164,68 +1164,15 @@ let clear_message_reaction ~bot_token ~chat_id ~message_id () =
 
 let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
+  (* Delegates to send_message_with_id, discarding the returned id. The two
+     share identical request construction, 429 handling, HTML->plain fallback,
+     and latest_chat_msg_id tracking. *)
   let open Lwt.Syntax in
-  if is_outbound_rate_limited chat_id then Lwt.return_unit
-  else
-    let mutex = get_outbound_mutex chat_id in
-    Lwt_util.with_lock_timeout
-      ~label:(Printf.sprintf "tg_outbound/sendMessage[%s]" chat_id) mutex
-      (fun () ->
-        let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
-        let base_fields =
-          [
-            ("chat_id", `String chat_id);
-            ("text", `String text);
-            ("disable_notification", `Bool disable_notification);
-          ]
-        in
-        let fields =
-          match parse_mode with
-          | Some mode -> ("parse_mode", `String mode) :: base_fields
-          | None -> base_fields
-        in
-        let body = `Assoc fields |> Yojson.Safe.to_string in
-        let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-        if status = 429 then (
-          record_outbound_rate_limit ~chat_id ~body:resp_body;
-          Lwt.return_unit)
-        else if
-          parse_mode <> None && status = 400
-          && not (is_not_modified_error resp_body)
-        then (
-          let plain_text =
-            match parse_mode with
-            | Some "HTML" -> html_fallback_to_plain_text text
-            | _ -> text
-          in
-          let plain_fields =
-            [
-              ("chat_id", `String chat_id);
-              ("text", `String plain_text);
-              ("disable_notification", `Bool disable_notification);
-            ]
-          in
-          let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
-          let* _status, body =
-            Http_client.post_json ~uri ~headers:[] ~body:plain_body
-          in
-          (* Extract message_id from fallback response and track it *)
-          (try
-             let json = Yojson.Safe.from_string body in
-             let result = json |> Yojson.Safe.Util.member "result" in
-             let id =
-               result
-               |> Yojson.Safe.Util.member "message_id"
-               |> Yojson.Safe.Util.to_int
-             in
-             let cur =
-               Option.value ~default:0
-                 (Hashtbl.find_opt latest_chat_msg_id chat_id)
-             in
-             if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
-           with _ -> ());
-          Lwt.return_unit)
-        else Lwt.return_unit)
+  let* (_ : string) =
+    send_message_with_id ~disable_notification ?parse_mode ~bot_token ~chat_id
+      ~text ()
+  in
+  Lwt.return_unit
 
 let send_chunked ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
