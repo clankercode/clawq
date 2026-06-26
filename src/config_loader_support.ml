@@ -18,10 +18,17 @@ let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :
       `Assoc (merged @ new_fields)
   | _ -> complete
 
-let backfill_config ~path ~original_json ~config =
+(* [original_json] is the migrated, in-memory form used to seed the merge (so
+   user keys survive backfill); [disk_json] is the raw, pre-migration content
+   actually on disk. The write decision compares against [disk_json] so that
+   migrations which only remove/rename keys (e.g. dropping the deprecated
+   default_provider) are persisted even when they leave the merge output equal
+   to the migrated form — otherwise the on-disk key would never be rewritten
+   away (B701). *)
+let backfill_config ~path ~original_json ~disk_json ~config =
   let complete_json = Runtime_config.to_json config in
   let merged = merge_json original_json complete_json in
-  if merged <> original_json then begin
+  if merged <> disk_json then begin
     try
       let s = Yojson.Safe.pretty_to_string ~std:true merged in
       let oc = open_out path in
@@ -135,6 +142,51 @@ let warn_invalid_config ~config_path issues =
 
 let default_path () = Dot_dir.config_path ()
 
+(* Migrate the deprecated top-level "default_provider" key into the canonical
+   "agent_defaults.primary_model" provider prefix, then drop it. (B701)
+
+   default_provider is a routing fallback: in Provider.select_provider it is only
+   consulted when primary_model carries no provider prefix. So:
+   - If primary_model is bare ("model"), fold the provider in -> "provider:model",
+     preserving the user's explicit provider choice in canonical form.
+   - Otherwise primary_model already names a provider (and outranks
+     default_provider), so the key is purely redundant and is simply removed.
+
+   Doing this in migrate (before parse and backfill) means the deprecated key
+   disappears from the parsed config and from disk on the next load, so its
+   load-time deprecation warning stops firing — the self-heal that B588 intended
+   but never achieved (merge_json had preserved the original-only key forever). *)
+let migrate_default_provider (top : (string * Yojson.Safe.t) list) :
+    (string * Yojson.Safe.t) list =
+  match List.assoc_opt "default_provider" top with
+  | Some (`String provider) when provider <> "" ->
+      let drop_dp = List.filter (fun (k, _) -> k <> "default_provider") top in
+      let model_is_bare m =
+        m <> "" && (not (String.contains m ':')) && not (String.contains m '/')
+      in
+      let fold_into_agent_defaults = function
+        | `Assoc ad_fields as ad -> (
+            match List.assoc_opt "primary_model" ad_fields with
+            | Some (`String m) when model_is_bare (String.trim m) ->
+                let canonical = provider ^ ":" ^ String.trim m in
+                `Assoc
+                  (List.map
+                     (fun (k, v) ->
+                       if k = "primary_model" then (k, `String canonical)
+                       else (k, v))
+                     ad_fields)
+            | _ -> ad)
+        | other -> other
+      in
+      if List.mem_assoc "agent_defaults" drop_dp then
+        List.map
+          (fun (k, v) ->
+            if k = "agent_defaults" then (k, fold_into_agent_defaults v)
+            else (k, v))
+          drop_dp
+      else drop_dp
+  | _ -> top
+
 (* Rename legacy prefixed keys to canonical short names within sub-objects.
    Applied in-memory before parse and backfill so the canonical short names
    take effect immediately and the backfill pass will persist the clean form. *)
@@ -175,6 +227,7 @@ let migrate_config_json (json : Yojson.Safe.t) : Yojson.Safe.t =
   in
   match json with
   | `Assoc top ->
+      let top = migrate_default_provider top in
       `Assoc
         (List.map
            (fun (k, v) ->

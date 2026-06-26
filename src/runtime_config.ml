@@ -1397,11 +1397,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
       ("default_temperature", `Float cfg.default_temperature);
     ]
   in
-  (* Omit default_provider from serialization — it is deprecated.
-     Users who still have it set in config.json will see a deprecation
-     warning at load time, and it will be read but never written back
-     on the next backfill, so it naturally disappears from their config. *)
-  let fields = fields in
+  (* default_provider is deprecated and never serialized. Any copy still on disk
+     is migrated into agent_defaults.primary_model and dropped by
+     Config_loader_support.migrate_default_provider before parse/backfill, so it
+     disappears from config.json on the next load (B701). *)
   let fields =
     if cfg.providers = [] then fields
     else

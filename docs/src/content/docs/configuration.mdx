@@ -156,9 +156,13 @@ Models: public `xiaomi` offers `mimo-v2-flash`, `mimo-v2-omni`, `mimo-v2-pro`, `
 `default_provider` is deprecated as of B425. The provider is already embedded in
 `agent_defaults.primary_model` using the `provider:model` format (e.g. `"openrouter:gpt-5.4"`).
 
-**Migration:** remove `default_provider` from your `config.json` and ensure
-`agent_defaults.primary_model` is set to a canonical `provider:model` string.
-clawq will warn at startup if this field is still present.
+**Migration:** clawq migrates this field automatically on the next load — no
+manual edit required. If `agent_defaults.primary_model` has no provider prefix,
+the `default_provider` value is folded into it (e.g. `default_provider:
+"openrouter"` + `primary_model: "gpt-5.4"` becomes `primary_model:
+"openrouter:gpt-5.4"`); otherwise the redundant key is simply dropped. Either
+way `default_provider` disappears from `config.json` and the deprecation warning
+stops firing.
 :::
 
 ```json

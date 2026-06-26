@@ -2038,8 +2038,8 @@ let load ?(path = "") () : Runtime_config.t =
     in
     match json with
     | None -> default_with_discovered_providers ()
-    | Some json ->
-        let json = migrate_config_json json in
+    | Some raw_json ->
+        let json = migrate_config_json raw_json in
         let config = parse_config ~resolve_secrets:true json in
         let backfill_cfg = parse_config ~resolve_secrets:false json in
         let raw_validation_cfg =
@@ -2058,6 +2058,6 @@ let load ?(path = "") () : Runtime_config.t =
         | None -> ());
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
         backfill_config ~path:config_path ~original_json:json
-          ~config:backfill_cfg;
+          ~disk_json:raw_json ~config:backfill_cfg;
         Http_debug.sync_config config.log;
         config

@@ -401,6 +401,104 @@ let test_backfill_does_not_infer_default_provider () =
       in
       Alcotest.(check bool) "default_provider not backfilled" false has_dp)
 
+let json_has_default_provider path =
+  match Yojson.Safe.from_file path with
+  | `Assoc fields -> List.mem_assoc "default_provider" fields
+  | _ -> false
+
+let test_backfill_strips_redundant_default_provider () =
+  (* B701: when primary_model already names a provider, default_provider is pure
+     redundant cruft — it must be dropped from disk so the deprecation warning
+     stops firing. Previously merge_json preserved original-only keys, so the
+     field (and its warning) persisted forever. *)
+  let json =
+    {|{
+      "default_provider": "zai_coding",
+      "providers": {
+        "zai_coding": {"api_key": "sk-zai"}
+      },
+      "agent_defaults": {
+        "primary_model": "zai_coding:glm-5"
+      }
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let cfg = Config_loader.load ~path () in
+      Alcotest.(check bool)
+        "default_provider dropped from disk" false
+        (json_has_default_provider path);
+      Alcotest.(check (option string))
+        "default_provider absent in parsed config" None cfg.default_provider;
+      Alcotest.(check string)
+        "primary_model unchanged" "zai_coding:glm-5"
+        cfg.agent_defaults.primary_model)
+
+let test_backfill_folds_default_provider_into_bare_model () =
+  (* B701: when primary_model is bare, default_provider is the only routing
+     signal. It must be folded into the canonical provider:model prefix (not
+     silently lost) before the deprecated key is dropped. *)
+  let json =
+    {|{
+      "default_provider": "zai_coding",
+      "providers": {
+        "zai_coding": {"api_key": "sk-zai"}
+      },
+      "agent_defaults": {
+        "primary_model": "glm-5"
+      }
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let cfg = Config_loader.load ~path () in
+      Alcotest.(check string)
+        "provider folded into primary_model" "zai_coding:glm-5"
+        cfg.agent_defaults.primary_model;
+      Alcotest.(check (option string))
+        "default_provider absent in parsed config" None cfg.default_provider;
+      Alcotest.(check bool)
+        "default_provider dropped from disk" false
+        (json_has_default_provider path);
+      let out = Yojson.Safe.from_file path in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "canonical primary_model persisted" "zai_coding:glm-5"
+        (out |> member "agent_defaults" |> member "primary_model" |> to_string))
+
+let test_backfill_removes_default_provider_from_complete_config () =
+  (* B701 regression: even when the rest of config.json is already in complete
+     backfilled form (so dropping default_provider is the ONLY change), the key
+     must still be written away. The write decision compares the merged result
+     against the raw on-disk json, not the migrated form — otherwise a deprecated
+     key sitting in an already-complete config would persist forever. *)
+  let json =
+    {|{
+      "providers": { "zai_coding": {"api_key": "sk-zai"} },
+      "agent_defaults": { "primary_model": "zai_coding:glm-5" }
+    }|}
+  in
+  with_temp_file json (fun path ->
+      (* Load twice so the on-disk file reaches its complete, stable form. *)
+      let _ = Config_loader.load ~path () in
+      let _ = Config_loader.load ~path () in
+      (* Inject default_provider at the END of the now-complete on-disk config. *)
+      let with_dp =
+        match Yojson.Safe.from_file path with
+        | `Assoc fields ->
+            `Assoc (fields @ [ ("default_provider", `String "zai_coding") ])
+        | other -> other
+      in
+      let oc = open_out path in
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true with_dp);
+      close_out oc;
+      Alcotest.(check bool)
+        "precondition: default_provider present on disk" true
+        (json_has_default_provider path);
+      (* Reload: default_provider is the only diff, yet must be removed. *)
+      let _ = Config_loader.load ~path () in
+      Alcotest.(check bool)
+        "default_provider removed from disk" false
+        (json_has_default_provider path))
+
 let test_parse_codex_oauth_provider () =
   let json =
     Yojson.Safe.from_string
@@ -1008,6 +1106,12 @@ let suite =
       test_backfill_does_not_persist_resolved_secrets;
     Alcotest.test_case "backfill does not infer default provider" `Quick
       test_backfill_does_not_infer_default_provider;
+    Alcotest.test_case "backfill strips redundant default provider" `Quick
+      test_backfill_strips_redundant_default_provider;
+    Alcotest.test_case "backfill folds default provider into bare model" `Quick
+      test_backfill_folds_default_provider_into_bare_model;
+    Alcotest.test_case "backfill removes default provider from complete config"
+      `Quick test_backfill_removes_default_provider_from_complete_config;
     Alcotest.test_case "parse codex oauth provider" `Quick
       test_parse_codex_oauth_provider;
     Alcotest.test_case "to_json preserves codex oauth provider" `Quick
