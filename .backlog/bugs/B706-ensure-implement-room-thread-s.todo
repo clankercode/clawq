@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B706
+priority: high
+status: pending
+tags: []
+title: 'Ensure/implement: room/thread sessions should autoload AGENTS.md etc from their workspace subfolder so we have per-room AGENTS/CLAUDE.md, skills, etc.'
+---
+
+Ensure/implement: room/thread sessions should autoload AGENTS.md etc from their workspace subfolder so we have per-room AGENTS/CLAUDE.md, skills, etc.

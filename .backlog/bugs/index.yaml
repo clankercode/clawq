@@ -700,3 +700,4 @@ bugs:
     - file: B703-admin-stop-commands-queued-dur.todo
     - file: B704-add-og-social-media-tags-to-we.todo
     - file: B705-file-edit-tool-should-return-d.todo
+    - file: B706-ensure-implement-room-thread-s.todo
