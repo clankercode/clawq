@@ -196,3 +196,20 @@ let sse_reply text =
   in
   Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:sse_headers ~body
     ()
+
+let has_prefix ~prefix text =
+  let prefix_len = String.length prefix in
+  String.length text >= prefix_len && String.sub text 0 prefix_len = prefix
+
+let make_json_debug_capture () =
+  let lines = ref [] in
+  let notify text =
+    if has_prefix ~prefix:"debug:" text then lines := text :: !lines;
+    Lwt.return_unit
+  in
+  let fields () =
+    match List.rev !lines with
+    | [] -> []
+    | lines -> [ ("debug", `List (List.map (fun line -> `String line) lines)) ]
+  in
+  (notify, fields)
