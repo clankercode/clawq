@@ -180,9 +180,29 @@ let test_clear_with_db () =
   Alcotest.(check int) "empty after clear" 0 (List.length entries);
   ignore (Sqlite3.db_close db)
 
+let test_parse_utc_datetime_roundtrip () =
+  (* Format a known epoch as the UTC string sqlite's datetime('now') would emit,
+     parse it back, and require an exact round-trip.  This is independent of the
+     host timezone/DST because we compare against the originating epoch. Exercise
+     both a northern-summer and a northern-winter instant so a host on DST sees
+     a differing offset across the two cases. *)
+  let check_roundtrip epoch =
+    let tm = Unix.gmtime epoch in
+    let s =
+      Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+        (tm.tm_mon + 1) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
+    in
+    let parsed = Connector_history.parse_utc_datetime s in
+    Alcotest.(check (float 0.5)) (Printf.sprintf "roundtrip %s" s) epoch parsed
+  in
+  check_roundtrip 1751000000.0 (* 2025-06-27 (northern summer) *);
+  check_roundtrip 1735000000.0 (* 2024-12-23 (northern winter) *)
+
 let tests =
   [
     Alcotest.test_case "record and get round-trip" `Quick test_record_and_get;
+    Alcotest.test_case "parse_utc_datetime UTC round-trip" `Quick
+      test_parse_utc_datetime_roundtrip;
     Alcotest.test_case "buffer respects max" `Quick test_buffer_max;
     Alcotest.test_case "get with count < buffer" `Quick test_get_partial;
     Alcotest.test_case "format_for_context output" `Quick

@@ -28,15 +28,18 @@ let parse_utc_datetime s =
             tm_isdst = false;
           }
         in
-        (* Unix.mktime interprets tm as local time. To get the UTC epoch,
-           compute the local-timezone offset and add it back. *)
-        let local_epoch, _ = Unix.mktime tm in
-        (* Compute timezone offset using timestamp diff to handle day boundaries *)
-        let tz_offset =
-          let local_back_ts, _ = Unix.mktime (Unix.localtime 0.0) in
-          local_back_ts
+        (* [tm] holds a UTC wall-clock time, but [Unix.mktime] interprets its
+           argument as local time, yielding [utc_epoch - offset].  Recover the
+           UTC epoch by emulating timegm: re-applying [mktime] to the [gmtime]
+           of that result yields [local_interp - offset], so their difference
+           is the local-UTC offset in force on that date.  Deriving the offset
+           at the parsed instant (rather than from a fixed reference such as
+           epoch 0) keeps it correct across DST changes and year boundaries. *)
+        let local_interp, _ = Unix.mktime tm in
+        let offset =
+          local_interp -. fst (Unix.mktime (Unix.gmtime local_interp))
         in
-        local_epoch -. tz_offset)
+        local_interp +. offset)
   with _ -> Unix.gettimeofday ()
 
 (* Per-session in-memory buffers.  Key = session_key, value = entry list
@@ -102,7 +105,12 @@ let record ?db ~persist ~key ~channel_type ~max ~sender_name ~sender_id ~text
         let trim_stmt = Sqlite3.prepare db trim_sql in
         ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT key));
         ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT key));
-        ignore (Sqlite3.step trim_stmt);
+        (match Sqlite3.step trim_stmt with
+        | Sqlite3.Rc.DONE -> ()
+        | rc ->
+            Logs.warn (fun m ->
+                m "connector_history: trim DELETE failed: %s"
+                  (Sqlite3.Rc.to_string rc)));
         ignore (Sqlite3.finalize trim_stmt)
     | None -> ()
 
