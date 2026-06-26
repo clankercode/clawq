@@ -2,8 +2,8 @@
 
     Captures where a request originated: the connector (Slack, Teams, etc.),
     workspace/team and room identifiers, who requested it, and any enclosing
-    thread or service context.  All fields are optional so the type works for
-    CLI and API origins that may lack connector context. *)
+    thread or service context. All fields are optional so the type works for CLI
+    and API origins that may lack connector context. *)
 
 type t = {
   connector : string option;
@@ -47,13 +47,10 @@ let empty =
 let is_empty (t : t) =
   t.connector = None && t.workspace_id = None && t.room_id = None
   && t.requester_id = None && t.requester_name = None
-  && t.source_message_id = None && t.thread_id = None
-  && t.service_url = None && t.profile_id = None
+  && t.source_message_id = None && t.thread_id = None && t.service_url = None
+  && t.profile_id = None
 
-let json_of_opt_string = function
-  | None -> `Null
-  | Some s -> `String s
-
+let json_of_opt_string = function None -> `Null | Some s -> `String s
 let json_of_opt_int = function None -> `Null | Some n -> `Int n
 
 let to_json (t : t) : Yojson.Safe.t =
@@ -80,8 +77,7 @@ let to_compact_json (t : t) : Yojson.Safe.t =
       ("room_id", Option.map (fun s -> `String s) t.room_id);
       ("requester_id", Option.map (fun s -> `String s) t.requester_id);
       ("requester_name", Option.map (fun s -> `String s) t.requester_name);
-      ( "source_message_id",
-        Option.map (fun s -> `String s) t.source_message_id );
+      ("source_message_id", Option.map (fun s -> `String s) t.source_message_id);
       ("thread_id", Option.map (fun s -> `String s) t.thread_id);
       ("service_url", Option.map (fun s -> `String s) t.service_url);
       ("profile_id", Option.map (fun n -> `Int n) t.profile_id);
@@ -128,9 +124,9 @@ let of_json_string_opt s =
   match of_json_string s with Ok t -> Some t | Error _ -> None
 
 (** [from_room_session session] builds a [t] from a typed room-session,
-    populating connector and the channel/sender fields.  Optional
-    [?workspace_id], [?thread_id], [?service_url], and [?profile_id] are
-    lifted from the caller context when available. *)
+    populating connector and the channel/sender fields. Optional
+    [?workspace_id], [?thread_id], [?service_url], and [?profile_id] are lifted
+    from the caller context when available. *)
 let from_room_session ?workspace_id ?thread_id ?service_url ?profile_id
     (session : Room_session.session) =
   {
@@ -160,7 +156,6 @@ let display_summary (t : t) =
   let requester =
     match t.requester_name with
     | Some name -> name
-    | None -> (
-        match t.requester_id with Some id -> id | None -> "-")
+    | None -> ( match t.requester_id with Some id -> id | None -> "-")
   in
   Printf.sprintf "%s room=%s requester=%s" connector room requester

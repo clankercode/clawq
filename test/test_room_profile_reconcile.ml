@@ -291,7 +291,8 @@ let test_reconcile_reports_duplicate_room_bindings () =
   Alcotest.(check int) "duplicate room reported" 1 dup_room_count;
   (* Fail closed: no binding exists for the conflicted room *)
   let bindings = Memory.list_room_profile_bindings_all ~db in
-  Alcotest.(check int) "no bindings for conflicted room" 0 (List.length bindings)
+  Alcotest.(check int)
+    "no bindings for conflicted room" 0 (List.length bindings)
 
 let test_reconcile_reports_duplicate_profile_bindings () =
   (* Two active bindings for the same profile to different rooms: should be
@@ -326,8 +327,8 @@ let test_reconcile_reports_duplicate_profile_bindings () =
   Alcotest.(check int) "duplicate profile reported" 1 dup_profile_count;
   (* Fail closed: no binding exists for the conflicted profile *)
   let bindings = Memory.list_room_profile_bindings_all ~db in
-  Alcotest.(check int) "no bindings for conflicted profile" 0
-    (List.length bindings)
+  Alcotest.(check int)
+    "no bindings for conflicted profile" 0 (List.length bindings)
 
 (* Production-path test: uses reconcile_room_profiles (the same helper
    called from daemon.ml) to verify config-reload reconciliation. *)

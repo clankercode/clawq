@@ -220,6 +220,20 @@ let build_reply_body ~alert ~text ~mention ~mention_mode =
   in
   `Assoc fields |> Yojson.Safe.to_string
 
+(* Build the Bot Framework REST API URI for sending an activity.
+   When ~reply_to_id is empty, targets the activities collection (new message).
+   When non-empty, targets a specific activity (threaded reply).
+   Works identically across personal DMs, group chats, and team channels. *)
+let build_reply_uri ~service_url ~conversation_id ~reply_to_id =
+  if reply_to_id = "" then
+    Printf.sprintf "%s/v3/conversations/%s/activities" (String.trim service_url)
+      (Uri.pct_encode conversation_id)
+  else
+    Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+      (String.trim service_url)
+      (Uri.pct_encode conversation_id)
+      (Uri.pct_encode reply_to_id)
+
 (* Send a reply via Bot Framework REST API.
    ~alert controls channelData.notification.alert: true triggers a
    desktop/mobile notification toast, false suppresses it. *)
@@ -266,15 +280,7 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
           Lwt_list.iter_s
             (fun chunk ->
               let uri =
-                if reply_to_id = "" then
-                  Printf.sprintf "%s/v3/conversations/%s/activities"
-                    (String.trim service_url)
-                    (Uri.pct_encode conversation_id)
-                else
-                  Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-                    (String.trim service_url)
-                    (Uri.pct_encode conversation_id)
-                    (Uri.pct_encode reply_to_id)
+                build_reply_uri ~service_url ~conversation_id ~reply_to_id
               in
               let headers = [ ("Authorization", "Bearer " ^ token) ] in
               let body =
@@ -384,17 +390,7 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
       Logs.err (fun m -> m "Teams: cannot send adaptive card, no OAuth token");
       Lwt.return_unit
   | Some token ->
-      let uri =
-        if reply_to_id = "" then
-          Printf.sprintf "%s/v3/conversations/%s/activities"
-            (String.trim service_url)
-            (Uri.pct_encode conversation_id)
-        else
-          Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-            (String.trim service_url)
-            (Uri.pct_encode conversation_id)
-            (Uri.pct_encode reply_to_id)
-      in
+      let uri = build_reply_uri ~service_url ~conversation_id ~reply_to_id in
       let headers = [ ("Authorization", "Bearer " ^ token) ] in
       let body = Yojson.Safe.to_string card in
       let* status, resp =
@@ -497,15 +493,7 @@ let send_file ~(config : Runtime_config.teams_config) ~service_url
       | None -> Lwt.return (Error "No OAuth token available for send")
       | Some token ->
           let uri =
-            if reply_to_id = "" then
-              Printf.sprintf "%s/v3/conversations/%s/activities"
-                (String.trim service_url)
-                (Uri.pct_encode conversation_id)
-            else
-              Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-                (String.trim service_url)
-                (Uri.pct_encode conversation_id)
-                (Uri.pct_encode reply_to_id)
+            build_reply_uri ~service_url ~conversation_id ~reply_to_id
           in
           let headers = [ ("Authorization", "Bearer " ^ token) ] in
           let body =

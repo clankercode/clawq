@@ -991,6 +991,217 @@ let test_edit_activity_empty_text_short_circuits () =
        ~service_url:"https://smba.trafficmanager.net/au/test/"
        ~conversation_id:"19:test@thread.v2" ~activity_id:"act-1" ~text:"" ())
 
+(* --- P11.M3.E3.T001: Reply targeting tests --- *)
+
+(* build_reply_uri with non-empty reply_to_id targets the specific activity
+   (threaded reply via Bot Framework). *)
+let test_build_reply_uri_with_reply_to_id () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:abc@thread.v2" ~reply_to_id:"act-42"
+  in
+  Alcotest.(check string)
+    "targets specific activity"
+    "https://smba.trafficmanager.net/amer/v3/conversations/19:abc@thread.v2/activities/act-42"
+    uri
+
+(* build_reply_uri with empty reply_to_id posts a new activity to the
+   conversation (no threading). *)
+let test_build_reply_uri_empty_reply_to_id () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:abc@thread.v2" ~reply_to_id:""
+  in
+  Alcotest.(check string)
+    "targets conversation"
+    "https://smba.trafficmanager.net/amer/v3/conversations/19:abc@thread.v2/activities"
+    uri
+
+(* Personal 1:1 chat: conversation_id is a simple opaque string,
+   reply_to_id targets the specific activity. *)
+let test_build_reply_uri_personal_chat () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"a:1personal-conversation-id"
+      ~reply_to_id:"act-personal-1"
+  in
+  (* conversation_id contains colon which gets percent-encoded *)
+  Alcotest.(check bool)
+    "personal chat reply contains activities path" true
+    (String.length uri > 0
+    && String.sub uri 0
+         (String.length "https://smba.trafficmanager.net/amer/v3/conversations/")
+       = "https://smba.trafficmanager.net/amer/v3/conversations/");
+  Alcotest.(check bool)
+    "personal chat reply ends with activity id" true
+    (let suffix = "/activities/act-personal-1" in
+     let ulen = String.length uri in
+     let slen = String.length suffix in
+     ulen >= slen && String.sub uri (ulen - slen) slen = suffix)
+
+(* Group chat: conversation_id is a group opaque string,
+   reply_to_id targets the specific activity. *)
+let test_build_reply_uri_group_chat () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:meeting-id@thread.v2" ~reply_to_id:"act-group-1"
+  in
+  Alcotest.(check bool)
+    "group chat reply contains activities path" true
+    (String.length uri > 0
+    && String.sub uri 0
+         (String.length "https://smba.trafficmanager.net/amer/v3/conversations/")
+       = "https://smba.trafficmanager.net/amer/v3/conversations/");
+  Alcotest.(check bool)
+    "group chat reply ends with activity id" true
+    (let suffix = "/activities/act-group-1" in
+     let ulen = String.length uri in
+     let slen = String.length suffix in
+     ulen >= slen && String.sub uri (ulen - slen) slen = suffix)
+
+(* Channel thread conversation: @thread.v2 suffix means Thread kind.
+   reply_to_id still targets the specific activity via the same URL scheme. *)
+let test_build_reply_uri_channel_thread () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:channel-thread-id@thread.v2"
+      ~reply_to_id:"act-thread-1"
+  in
+  Alcotest.(check bool)
+    "channel thread reply contains activities path" true
+    (String.length uri > 0
+    && String.sub uri 0
+         (String.length "https://smba.trafficmanager.net/amer/v3/conversations/")
+       = "https://smba.trafficmanager.net/amer/v3/conversations/");
+  Alcotest.(check bool)
+    "channel thread reply ends with activity id" true
+    (let suffix = "/activities/act-thread-1" in
+     let ulen = String.length uri in
+     let slen = String.length suffix in
+     ulen >= slen && String.sub uri (ulen - slen) slen = suffix)
+
+(* parse_activity extracts activity_id correctly so callers can use it
+   as reply_to_id for threaded replies. *)
+let test_parse_activity_extracts_activity_id_for_reply () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"please reply"
+      ~activity_id:"msg-target-99" ~service_url:"https://svc" ~user_id:"u1"
+      ~user_name:"Alice" ~conversation_id:"conv-r" ~team_id:"t1" ()
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check string)
+        "activity_id usable as reply_to_id" "msg-target-99" a.activity_id
+
+(* parse_activity with @thread.v2 conversation_id — the extracted
+   conversation_id preserves the thread suffix for key construction. *)
+let test_parse_activity_thread_conversation_id () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"threaded" ~activity_id:"act-t"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Bob"
+      ~conversation_id:"19:abc@thread.v2" ~team_id:"t1" ()
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check bool)
+        "@thread.v2 suffix preserved" true
+        (Room_session.is_thread_conversation_id a.conversation_id);
+      Alcotest.(check string)
+        "session key reflects thread" "teams:t1:19:abc@thread.v2"
+        (Teams.session_key ~team_id:a.team_id ~conversation_id:a.conversation_id)
+
+(* Room_session.detect_teams_kind correctly classifies room types:
+   - Thread: conversation_id ends with @thread.v2
+   - Personal: team_id = "personal"
+   - Room: everything else *)
+let test_detect_teams_kind_thread () =
+  Alcotest.(check string)
+    "@thread.v2 -> Thread" "thread"
+    (Room_session.kind_to_string
+       (Room_session.detect_teams_kind "t1" "19:abc@thread.v2"))
+
+let test_detect_teams_kind_personal () =
+  Alcotest.(check string)
+    "personal team_id -> Personal" "personal"
+    (Room_session.kind_to_string
+       (Room_session.detect_teams_kind "personal" "a:1conv-id"))
+
+let test_detect_teams_kind_room () =
+  Alcotest.(check string)
+    "other -> Room" "room"
+    (Room_session.kind_to_string
+       (Room_session.detect_teams_kind "t1" "19:channel-msg"))
+
+(* Reply URL scheme is consistent across all room types — the Bot Framework
+   uses the same /activities/{id} path regardless of room kind. *)
+let test_reply_url_scheme_consistent_across_room_types () =
+  let svc = "https://smba.trafficmanager.net/amer" in
+  let test_cases =
+    [
+      ("personal", "a:1personal-conv", "act-p");
+      ("group", "19:meeting@thread.v2", "act-g");
+      ("channel", "19:channel-msg@thread.v2", "act-c");
+      ("thread", "19:abc@thread.v2", "act-t");
+    ]
+  in
+  List.iter
+    (fun (label, conv_id, reply_id) ->
+      let uri =
+        Teams.build_reply_uri ~service_url:svc ~conversation_id:conv_id
+          ~reply_to_id:reply_id
+      in
+      (* All room types use the same /activities/{id} path scheme *)
+      Alcotest.(check bool)
+        (label ^ " reply URI has activities path")
+        true
+        (let prefix = svc ^ "/v3/conversations/" in
+         let plen = String.length prefix in
+         String.length uri > plen && String.sub uri 0 plen = prefix);
+      Alcotest.(check bool)
+        (label ^ " reply URI ends with reply_id")
+        true
+        (let suffix = "/activities/" ^ reply_id in
+         let ulen = String.length uri in
+         let slen = String.length suffix in
+         ulen >= slen && String.sub uri (ulen - slen) slen = suffix))
+    test_cases
+
+(* B464: empty text guard — both send_reply and edit_activity must short-circuit
+   without calling fetch_token / hitting HTTP. We assert this by using an
+   intentionally invalid service_url; if the guard didn't fire, the next branch
+   would log an error about service_url scheme. With the guard, we get only the
+   "refusing to send empty reply" warning and an empty activity_id back. *)
+let test_send_reply_empty_text_short_circuits () =
+  let cfg = test_teams_config () in
+  let result =
+    Lwt_main.run
+      (Teams.send_reply ~config:cfg
+         ~service_url:"https://smba.trafficmanager.net/au/test/"
+         ~conversation_id:"19:test@thread.v2" ~reply_to_id:"" ~text:"" ())
+  in
+  Alcotest.(check string) "empty text returns empty activity_id" "" result
+
+let test_send_reply_whitespace_only_short_circuits () =
+  let cfg = test_teams_config () in
+  let result =
+    Lwt_main.run
+      (Teams.send_reply ~config:cfg
+         ~service_url:"https://smba.trafficmanager.net/au/test/"
+         ~conversation_id:"19:test@thread.v2" ~reply_to_id:"" ~text:"   \n\t  "
+         ())
+  in
+  Alcotest.(check string) "whitespace-only returns empty activity_id" "" result
+
+let test_edit_activity_empty_text_short_circuits () =
+  let cfg = test_teams_config () in
+  (* Should return unit immediately without HTTP. *)
+  Lwt_main.run
+    (Teams.edit_activity ~config:cfg
+       ~service_url:"https://smba.trafficmanager.net/au/test/"
+       ~conversation_id:"19:test@thread.v2" ~activity_id:"act-1" ~text:"" ())
+
 let suite =
   [
     Alcotest.test_case "B464: send_reply empty text short-circuits" `Quick
@@ -1112,4 +1323,27 @@ let suite =
       test_parse_activity_card_filtered;
     Alcotest.test_case "parse_activity attachment only" `Quick
       test_parse_activity_attachment_only;
+    (* P11.M3.E3.T001: Reply targeting tests *)
+    Alcotest.test_case "reply_uri with reply_to_id" `Quick
+      test_build_reply_uri_with_reply_to_id;
+    Alcotest.test_case "reply_uri empty reply_to_id" `Quick
+      test_build_reply_uri_empty_reply_to_id;
+    Alcotest.test_case "reply_uri personal chat" `Quick
+      test_build_reply_uri_personal_chat;
+    Alcotest.test_case "reply_uri group chat" `Quick
+      test_build_reply_uri_group_chat;
+    Alcotest.test_case "reply_uri channel thread" `Quick
+      test_build_reply_uri_channel_thread;
+    Alcotest.test_case "parse_activity extracts activity_id for reply" `Quick
+      test_parse_activity_extracts_activity_id_for_reply;
+    Alcotest.test_case "parse_activity thread conversation_id" `Quick
+      test_parse_activity_thread_conversation_id;
+    Alcotest.test_case "detect_teams_kind thread" `Quick
+      test_detect_teams_kind_thread;
+    Alcotest.test_case "detect_teams_kind personal" `Quick
+      test_detect_teams_kind_personal;
+    Alcotest.test_case "detect_teams_kind room" `Quick
+      test_detect_teams_kind_room;
+    Alcotest.test_case "reply URI scheme consistent across room types" `Quick
+      test_reply_url_scheme_consistent_across_room_types;
   ]

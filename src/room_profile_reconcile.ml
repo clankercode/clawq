@@ -56,21 +56,24 @@ let sync_config_to_db ~(db : Sqlite3.db) ~(config : Runtime_config.t) :
               (* Detect duplicate room: two active bindings for the same room *)
               if Hashtbl.mem config_room_set b.room then begin
                 report
-                  "duplicate config binding for room '%s' (all conflicting bindings skipped)"
+                  "duplicate config binding for room '%s' (all conflicting \
+                   bindings skipped)"
                   b.room;
                 Hashtbl.replace conflicted_rooms b.room ()
-              end else begin
+              end
+              else begin
                 Hashtbl.replace config_room_set b.room ();
                 Hashtbl.replace config_room_to_profile b.room db_pid
               end;
               (* Detect duplicate profile: two active bindings for same profile *)
               if Hashtbl.mem config_profile_set b.profile_id then begin
                 report
-                  "duplicate config binding for profile '%s' (all conflicting bindings skipped)"
+                  "duplicate config binding for profile '%s' (all conflicting \
+                   bindings skipped)"
                   b.profile_id;
                 Hashtbl.replace conflicted_profiles b.profile_id ()
-              end else
-                Hashtbl.replace config_profile_set b.profile_id ()
+              end
+              else Hashtbl.replace config_profile_set b.profile_id ()
           | None ->
               report
                 "config binding references non-existent profile '%s' (skipped)"

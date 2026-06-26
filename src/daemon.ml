@@ -1018,15 +1018,13 @@ let run ~(config : Runtime_config.t) =
           (* Reconcile room profile config into DB BEFORE publishing new_config
              so that on failure the old config remains active. *)
           (match db with
-          | Some db ->
-              (try
-                 ignore
-                   (Memory.reconcile_room_profiles ~db ~config:new_config)
-               with exn ->
-                 Logs.err (fun m ->
-                     m "Room profile reconciliation failed: %s"
-                       (Printexc.to_string exn));
-                 raise exn)
+          | Some db -> (
+              try ignore (Memory.reconcile_room_profiles ~db ~config:new_config)
+              with exn ->
+                Logs.err (fun m ->
+                    m "Room profile reconciliation failed: %s"
+                      (Printexc.to_string exn));
+                raise exn)
           | None -> ());
           sandbox := make_sandbox new_config;
           current_config := new_config;
@@ -1387,15 +1385,15 @@ let run ~(config : Runtime_config.t) =
                     active. On failure, last_config_mtime is NOT advanced so
                     the watcher retries on the next cycle. *)
                  (match db with
-                 | Some db ->
-                     (try
-                        ignore
-                          (Memory.reconcile_room_profiles ~db ~config:new_config)
-                      with exn ->
-                        Logs.err (fun m ->
-                            m "Room profile reconciliation failed: %s"
-                              (Printexc.to_string exn));
-                        raise exn)
+                 | Some db -> (
+                     try
+                       ignore
+                         (Memory.reconcile_room_profiles ~db ~config:new_config)
+                     with exn ->
+                       Logs.err (fun m ->
+                           m "Room profile reconciliation failed: %s"
+                             (Printexc.to_string exn));
+                       raise exn)
                  | None -> ());
                  sandbox := make_sandbox new_config;
                  current_config := new_config;

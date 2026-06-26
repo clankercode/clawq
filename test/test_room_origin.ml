@@ -36,13 +36,13 @@ let test_make_with_all_fields () =
   Alcotest.(check (option string)) "workspace_id" (Some "T01") o.workspace_id;
   Alcotest.(check (option string)) "room_id" (Some "C02") o.room_id;
   Alcotest.(check (option string)) "requester_id" (Some "U03") o.requester_id;
-  Alcotest.(check (option string)) "requester_name" (Some "Alice")
-    o.requester_name;
-  Alcotest.(check (option string)) "source_message_id" (Some "M04")
-    o.source_message_id;
+  Alcotest.(check (option string))
+    "requester_name" (Some "Alice") o.requester_name;
+  Alcotest.(check (option string))
+    "source_message_id" (Some "M04") o.source_message_id;
   Alcotest.(check (option string)) "thread_id" (Some "T05") o.thread_id;
-  Alcotest.(check (option string)) "service_url"
-    (Some "https://slack.example.com") o.service_url;
+  Alcotest.(check (option string))
+    "service_url" (Some "https://slack.example.com") o.service_url;
   Alcotest.(check (option int)) "profile_id" (Some 42) o.profile_id
 
 let test_make_partial () =
@@ -72,27 +72,29 @@ let test_to_json_roundtrip () =
   | Error msg -> Alcotest.failf "roundtrip parse failed: %s" msg
   | Ok parsed ->
       Alcotest.(check (option string)) "connector" o.connector parsed.connector;
-      Alcotest.(check (option string)) "workspace_id" o.workspace_id
-        parsed.workspace_id;
+      Alcotest.(check (option string))
+        "workspace_id" o.workspace_id parsed.workspace_id;
       Alcotest.(check (option string)) "room_id" o.room_id parsed.room_id;
-      Alcotest.(check (option string)) "requester_id" o.requester_id
-        parsed.requester_id;
-      Alcotest.(check (option string)) "requester_name" o.requester_name
-        parsed.requester_name;
-      Alcotest.(check (option string)) "source_message_id"
-        o.source_message_id parsed.source_message_id;
+      Alcotest.(check (option string))
+        "requester_id" o.requester_id parsed.requester_id;
+      Alcotest.(check (option string))
+        "requester_name" o.requester_name parsed.requester_name;
+      Alcotest.(check (option string))
+        "source_message_id" o.source_message_id parsed.source_message_id;
       Alcotest.(check (option string)) "thread_id" o.thread_id parsed.thread_id;
-      Alcotest.(check (option string)) "service_url" o.service_url
-        parsed.service_url;
+      Alcotest.(check (option string))
+        "service_url" o.service_url parsed.service_url;
       Alcotest.(check (option int)) "profile_id" o.profile_id parsed.profile_id
 
 let test_compact_json_omits_none () =
   let o = Room_origin.make ~connector:"telegram" ~room_id:"123" () in
   let json = Room_origin.to_compact_json o in
   let str = Yojson.Safe.to_string json in
-  Alcotest.(check bool) "no workspace_id" false
+  Alcotest.(check bool)
+    "no workspace_id" false
     (contains_sub str "workspace_id");
-  Alcotest.(check bool) "no requester_id" false
+  Alcotest.(check bool)
+    "no requester_id" false
     (contains_sub str "requester_id");
   Alcotest.(check bool) "has connector" true (contains_sub str "connector")
 
@@ -122,8 +124,8 @@ let test_of_json_string_roundtrip () =
   | Error msg -> Alcotest.failf "string roundtrip failed: %s" msg
   | Ok parsed ->
       Alcotest.(check (option string)) "connector" o.connector parsed.connector;
-      Alcotest.(check (option string)) "requester_id" o.requester_id
-        parsed.requester_id
+      Alcotest.(check (option string))
+        "requester_id" o.requester_id parsed.requester_id
 
 let test_of_json_string_opt_error () =
   Alcotest.check
@@ -152,8 +154,8 @@ let test_from_room_session () =
   Alcotest.(check (option string)) "room_id" (Some "C01") o.room_id;
   Alcotest.(check (option string)) "requester_id" (Some "U01") o.requester_id;
   Alcotest.(check (option string)) "thread_id" (Some "thr-1") o.thread_id;
-  Alcotest.(check (option string)) "service_url"
-    (Some "https://slack.example.com") o.service_url;
+  Alcotest.(check (option string))
+    "service_url" (Some "https://slack.example.com") o.service_url;
   Alcotest.(check (option int)) "profile_id" (Some 5) o.profile_id
 
 let test_from_room_session_minimal () =
@@ -172,21 +174,22 @@ let test_display_summary () =
       ()
   in
   let expected = "Slack room=C01 requester=Alice" in
-  Alcotest.(check string) "display summary" expected
+  Alcotest.(check string)
+    "display summary" expected
     (Room_origin.display_summary o)
 
 let test_display_summary_none () =
   let expected = "CLI room=- requester=-" in
-  Alcotest.(check string) "display summary empty" expected
+  Alcotest.(check string)
+    "display summary empty" expected
     (Room_origin.display_summary Room_origin.empty)
 
 let test_display_summary_requester_id_fallback () =
   let o =
-    Room_origin.make ~connector:"telegram" ~room_id:"123" ~requester_id:"U01"
-      ()
+    Room_origin.make ~connector:"telegram" ~room_id:"123" ~requester_id:"U01" ()
   in
-  Alcotest.(check string) "requester id fallback"
-    "Telegram room=123 requester=U01"
+  Alcotest.(check string)
+    "requester id fallback" "Telegram room=123 requester=U01"
     (Room_origin.display_summary o)
 
 let suite =
@@ -206,8 +209,7 @@ let suite =
       test_of_json_string_roundtrip;
     Alcotest.test_case "of_json_string_opt error" `Quick
       test_of_json_string_opt_error;
-    Alcotest.test_case "of_json_string_opt ok" `Quick
-      test_of_json_string_opt_ok;
+    Alcotest.test_case "of_json_string_opt ok" `Quick test_of_json_string_opt_ok;
     Alcotest.test_case "from_room_session" `Quick test_from_room_session;
     Alcotest.test_case "from_room_session minimal" `Quick
       test_from_room_session_minimal;
