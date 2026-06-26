@@ -1,12 +1,12 @@
 (* ngrok tunnel implementation *)
 
-type tunnel_status =
+type tunnel_status = Tunnel_intf.tunnel_status =
   | Starting
   | Running of string (* url *)
   | Stopped
   | Error of string
 
-type t = {
+type t = Tunnel_intf.base = {
   mutable process : Lwt_process.process_none option;
   mutable status : tunnel_status;
   mutable url : string option;
@@ -121,26 +121,11 @@ let start t =
   end
 
 let stop t =
-  (match t.process with
-  | None -> ()
-  | Some proc -> (
-      try proc#terminate
-      with exn ->
-        Logs.warn (fun m ->
-            m "Error terminating ngrok: %s" (Printexc.to_string exn))));
-  t.process <- None;
-  t.status <- Stopped;
-  t.url <- None;
+  Tunnel_intf.stop_base ~name:"ngrok" t;
   Logs.info (fun m -> m "ngrok tunnel stopped");
   Lwt.return_unit
 
-let get_status t = t.status
-let get_url t = t.url
-let get_pid t = match t.process with Some proc -> Some proc#pid | None -> None
-
-let status_string t =
-  match t.status with
-  | Starting -> "starting"
-  | Running url -> Printf.sprintf "running (%s)" url
-  | Stopped -> "stopped"
-  | Error msg -> Printf.sprintf "error: %s" msg
+let get_status = Tunnel_intf.get_status
+let get_url = Tunnel_intf.get_url
+let get_pid = Tunnel_intf.get_pid
+let status_string = Tunnel_intf.status_string
