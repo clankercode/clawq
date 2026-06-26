@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Typed Room Session Keys
       path: 03-typed-room-session-keys
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Admin-only list/show/bind/unbind/rebind/delete/rename surfaces and safe lifecycle semantics.
