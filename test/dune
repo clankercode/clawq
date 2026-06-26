@@ -76,6 +76,7 @@
   test_restart
   test_room_session
   test_room_origin
+  test_room_workspace
   test_sandbox
   test_scheduler
   test_secret_store
