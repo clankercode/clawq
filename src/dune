@@ -154,6 +154,7 @@
   restart_notify
   room_session
   room_origin
+  room_workspace
   daemon_status
   benchmark
   debate
