@@ -4,7 +4,7 @@ estimate_hours: 6
 id: P11.M1.E2
 locked: false
 name: Room Workspace Safety
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -13,6 +13,6 @@ tasks:
       file: T001-implement-safe-persistent-room.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Implement safe persistent room workspace paths

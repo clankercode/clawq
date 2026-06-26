@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Room Workspace Safety
       path: 02-room-workspace-safety
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Single construct+parse authority for room/thread/routine keys and migration of positional parsers.
