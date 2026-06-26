@@ -228,6 +228,10 @@
   daemon
   command_bridge_models
   command_bridge_helpers
+  command_bridge_bgargs
+  command_bridge_plan
+  command_bridge_auth
+  command_bridge_pipeline
   command_bridge_session
   command_bridge_debug
   command_bridge_agent_cmds
