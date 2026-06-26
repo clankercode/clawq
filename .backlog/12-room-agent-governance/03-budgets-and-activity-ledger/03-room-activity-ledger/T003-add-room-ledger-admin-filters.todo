@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P12.M3.E3.T002
+    - P12.M2.E3.T001
+estimate_hours: 3
+id: P12.M3.E3.T003
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add room ledger admin filters export and retention
+---
+Acceptance: admins can filter room ledger entries by profile, room, thread, task/background id, requester, status, and time range; export format is JSONL; retention enforcement timing is explicit and reuses existing audit/retention helpers where suitable; read/export/retention paths are admin-only; artifact contents stay redacted or referenced unless separately authorized. Files: command/UI/admin docs/tests, audit retention helpers if reused.

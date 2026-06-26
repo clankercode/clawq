@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M1.E1.T003
+estimate_hours: 5
+id: P12.M1.E1.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add scoped memory tables and migration mechanics
+---
+Acceptance: memory_scopes, scoped_memories, and memory_grants are added through normal schema versioning, migrate_step, repair_missing_columns, and ensure_all_tables; V1 scope kinds include personal, room, thread, workspace, and legacy; memory_scopes has stable scope kind/key/profile/parent/provenance fields with uniqueness on kind+key; scoped_memories records scope_id, content/reference, provenance, timestamps, and redaction metadata with useful indexes; memory_grants records scope_id, principal kind/id, capability, grantor, created/expiry fields, and direct non-transitive semantics; FK/null behavior is explicit; double init is idempotent. Files: src/memory_0_schema.ml, src/memory.ml, test/test_memory.ml.

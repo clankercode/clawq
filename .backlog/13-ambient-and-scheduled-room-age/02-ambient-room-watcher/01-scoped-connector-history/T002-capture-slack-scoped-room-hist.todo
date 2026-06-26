@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P13.M2.E1.T001
+estimate_hours: 3
+id: P13.M2.E1.T002
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Capture Slack scoped room history for ambient watcher
+---
+Acceptance: Slack history capture has parity where feasible, handles thread context safely, requires profile-level capture opt-in, stores only authorized-room content with bounded retention and redacted/reference defaults, and skips unauthorized/restricted/private content. Files: src/slack.ml, connector history tests.

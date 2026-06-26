@@ -1,0 +1,43 @@
+complexity: high
+depends_on: []
+estimate_hours: 10
+id: P13.M2.E2
+locked: false
+name: Stale Thread and Task Watcher
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P13.M2.E1.T003
+        - P11.M4.E1.T001
+        - P12.M2.E1.T001
+        - P12.M3.E2.T005
+        - P7.M2.E1.T003
+        - P7.M2.E2.T003
+      estimate_hours: 3
+      file: T001-add-opt-in-stale-room-task-and.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add stale room task and thread query engine
+    - complexity: high
+      depends_on:
+        - P13.M2.E2.T001
+      estimate_hours: 3
+      file: T002-persist-watcher-decisions-and.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Persist watcher decisions and material-change checks
+    - complexity: high
+      depends_on:
+        - P13.M2.E2.T002
+        - P13.M2.E3.T001
+      estimate_hours: 3
+      file: T003-deliver-ambient-follow-ups-saf.todo
+      id: T003
+      priority: high
+      status: pending
+      tags: []
+      title: Deliver ambient follow-ups safely

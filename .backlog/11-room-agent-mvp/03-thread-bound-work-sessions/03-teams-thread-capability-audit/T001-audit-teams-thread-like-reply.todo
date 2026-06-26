@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P11.M3.E1.T001
+estimate_hours: 2
+id: P11.M3.E3.T001
+priority: medium
+status: pending
+tags:
+    - room-agent
+    - teams
+    - threading
+title: Audit Teams thread-like reply capability
+---
+Acceptance: Teams support matrix documents conversation_id/activity_id/reply_to_id behavior by room type; tests prove reply payloads target expected activity where supported; gaps are captured for P13 hardening. Files: src/teams.ml, test/test_teams.ml, docs/plans or docs/design note. Related: B424,B457,B499.

@@ -1,0 +1,28 @@
+complexity: medium
+depends_on: []
+estimate_hours: 6
+id: P13.M2.E3
+locked: false
+name: Ambient Safety Controls
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P12.M3.E2.T005
+      estimate_hours: 3
+      file: T001-add-ambient-safety-controls-an.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Enforce ambient policy config and rate limits
+    - complexity: medium
+      depends_on:
+        - P13.M2.E2.T003
+        - P13.M2.E3.T001
+      estimate_hours: 2
+      file: T002-add-ambient-admin-inspection-s.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Add ambient admin inspection surface

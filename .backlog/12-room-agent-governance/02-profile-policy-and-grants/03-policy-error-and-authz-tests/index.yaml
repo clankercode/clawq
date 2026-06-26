@@ -1,0 +1,19 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P12.M2.E3
+locked: false
+name: Policy Error and Authz Tests
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P12.M2.E1.T001
+        - P12.M2.E2.T001
+      estimate_hours: 3
+      file: T001-add-profile-policy-authorizati.todo
+      id: T001
+      priority: medium
+      status: pending
+      tags: []
+      title: Add profile policy authorization and denial tests

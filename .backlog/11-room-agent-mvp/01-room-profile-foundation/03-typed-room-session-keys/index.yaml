@@ -1,0 +1,18 @@
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P11.M1.E3
+locked: false
+name: Typed Room Session Keys
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T003
+      estimate_hours: 4
+      file: T001-add-typed-room-session-key-con.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add typed room session key construction and parsing

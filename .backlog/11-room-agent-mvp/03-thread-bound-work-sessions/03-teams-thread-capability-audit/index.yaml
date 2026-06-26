@@ -1,0 +1,17 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P11.M3.E3
+locked: false
+name: Teams Thread Capability Audit
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P11.M3.E1.T001
+      estimate_hours: 2
+      file: T001-audit-teams-thread-like-reply.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Audit Teams thread-like reply capability

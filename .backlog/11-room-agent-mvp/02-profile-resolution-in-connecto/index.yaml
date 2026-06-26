@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Slack-first shared room session routing and profile resolution while preserving unprofiled behavior.
+      estimate_hours: 8
+      id: E1
+      locked: false
+      name: Slack Profile Resolution MVP
+      path: 01-slack-profile-resolution-mvp
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Effective CWD policy, /repo interaction, model/template precedence, and OAuth/sandbox guardrails.
+      estimate_hours: 8
+      id: E2
+      locked: false
+      name: Room CWD and Model Precedence
+      path: 02-room-cwd-and-model-precedence
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Disable unscoped global memory/search injection for profiled rooms until scoped memory lands.
+      estimate_hours: 6
+      id: E3
+      locked: false
+      name: P11 Privacy Guard
+      path: 03-p11-privacy-guard
+      status: pending
+estimate_hours: 22
+id: P11.M2
+locked: false
+name: Profile Resolution in Connectors
+status: pending

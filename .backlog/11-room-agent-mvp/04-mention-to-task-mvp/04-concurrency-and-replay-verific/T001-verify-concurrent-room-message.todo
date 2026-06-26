@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M4.E2.T004
+    - P11.M4.E3.T003
+estimate_hours: 4
+id: P11.M4.E4.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Verify concurrent room messages and restart replay
+---
+Acceptance: two concurrent profiled room messages do not corrupt shared history, CWD, or origin attribution; an in-flight task completes after daemon restart exactly once; missing delivery target becomes a ledger/task error. Files: test/test_daemon.ml, test/test_restart.ml, test/test_session_persistence.ml, test/test_background_task.ml.

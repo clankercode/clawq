@@ -1,0 +1,19 @@
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P11.M4.E4
+locked: false
+name: Concurrency and Replay Verification
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M4.E2.T004
+        - P11.M4.E3.T003
+      estimate_hours: 4
+      file: T001-verify-concurrent-room-message.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Verify concurrent room messages and restart replay

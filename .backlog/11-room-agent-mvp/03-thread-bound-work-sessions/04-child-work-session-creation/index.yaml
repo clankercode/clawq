@@ -1,0 +1,42 @@
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P11.M3.E4
+locked: false
+name: Child Work Session Creation
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E2.T001
+        - P11.M1.E3.T001
+        - P11.M3.E1.T001
+        - P11.M2.E2.T002
+        - P11.M2.E3.T001
+      estimate_hours: 3
+      file: T001-create-child-thread-and-routin.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Create deterministic child thread sessions
+    - complexity: high
+      depends_on:
+        - P11.M3.E4.T001
+      estimate_hours: 3
+      file: T002-add-routine-session-key-and-wo.todo
+      id: T002
+      priority: high
+      status: pending
+      tags: []
+      title: Add routine session key and workspace plumbing
+    - complexity: medium
+      depends_on:
+        - P11.M3.E4.T001
+        - P11.M3.E4.T002
+      estimate_hours: 2
+      file: T003-add-deterministic-thread-less.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add deterministic thread-less child session fallback

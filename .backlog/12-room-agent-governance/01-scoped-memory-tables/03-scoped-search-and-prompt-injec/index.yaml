@@ -1,0 +1,37 @@
+complexity: high
+depends_on: []
+estimate_hours: 12
+id: P12.M1.E3
+locked: false
+name: Scoped Search and Prompt Injection
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P12.M1.E2.T003
+        - P11.M2.E3.T001
+      estimate_hours: 3
+      file: T001-scope-room-search-and-prompt-i.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add scoped filters to Memory.search
+    - complexity: high
+      depends_on:
+        - P12.M1.E3.T001
+      estimate_hours: 4
+      file: T002-wire-scoped-memory-into-agent.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Wire scoped memory into agent prompt injection and compaction
+    - complexity: medium
+      depends_on:
+        - P12.M1.E3.T002
+      estimate_hours: 3
+      file: T003-audit-global-memory-callsites.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Audit global memory callsites and legacy routing

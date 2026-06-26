@@ -1,0 +1,19 @@
+complexity: high
+depends_on: []
+estimate_hours: 10
+id: P12.M3.E1
+locked: false
+name: Budget Attribution
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T003
+        - P11.M3.E4.T003
+      estimate_hours: 4
+      file: T001-attribute-request-stats-to-roo.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Attribute request stats to room profiles

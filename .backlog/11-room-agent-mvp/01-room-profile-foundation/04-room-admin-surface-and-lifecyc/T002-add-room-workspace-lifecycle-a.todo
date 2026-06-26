@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P11.M1.E2.T001
+    - P11.M1.E4.T003
+estimate_hours: 2
+id: P11.M1.E4.T002
+priority: medium
+started_at: null
+status: pending
+tags: []
+title: Add room workspace lifecycle and retention policy
+---
+Acceptance: workspace GC is retention-based, never deletes active task/routine/ledger references, and lifecycle commands report preserved/purged paths clearly. Files: room workspace/profile API tests.

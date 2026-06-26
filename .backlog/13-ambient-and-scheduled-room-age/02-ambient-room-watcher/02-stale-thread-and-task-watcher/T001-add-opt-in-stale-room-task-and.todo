@@ -1,0 +1,19 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P13.M2.E1.T003
+    - P11.M4.E1.T001
+    - P12.M2.E1.T001
+    - P12.M3.E2.T005
+    - P7.M2.E1.T003
+    - P7.M2.E2.T003
+estimate_hours: 3
+id: P13.M2.E2.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add stale room task and thread query engine
+---
+Acceptance: query engine finds blocked or in-progress room tasks/threads beyond stale-after duration using scoped origin data; output is deterministic and testable. Files: task/background/query modules, tests.

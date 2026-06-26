@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+estimate_hours: 8
+id: P11.M1.E1
+locked: false
+name: Profile Schema and Binding Model
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T001-add-one-room-one-profile-schem.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add room profile config types and validation
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T001
+      estimate_hours: 3
+      file: T002-add-room-profile-binding-db-sc.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add room profile binding DB schema and API
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T002
+      estimate_hours: 3
+      file: T003-reconcile-room-profile-config.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Reconcile room profile config and DB bindings

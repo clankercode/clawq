@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P12.M1.E2.T003
+    - P13.M3.E1.T001
+estimate_hours: 3
+id: P13.M2.E1.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add connector-history policy and retention core
+---
+Acceptance: connector history capture has explicit profile-level opt-in/consent record, obeys profile policy, grants, retention, and restricted/private room rules; storage is scoped to authorized room context with redacted/reference content by default; default retention is bounded and documented; negative tests cover unauthorized room, private message, restricted channel, and bystander content exclusions. Files: connector history core, scoped memory/history tests.

@@ -1,0 +1,44 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Task tree and background rows store profile/origin/thread/requester metadata.
+      estimate_hours: 6
+      id: E1
+      locked: false
+      name: Room Task Origin Binding
+      path: 01-room-task-origin-binding
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Deterministic quick-reply vs async-task classification and policy-aware task launch.
+      estimate_hours: 8
+      id: E2
+      locked: false
+      name: Request Classification and Async Launch
+      path: 02-request-classification-and-asy
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Sparse room/thread progress states and restart-safe completion delivery.
+      estimate_hours: 8
+      id: E3
+      locked: false
+      name: Thread Progress and Completion Delivery
+      path: 03-thread-progress-and-completion
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Concurrent shared-room messages and daemon-restart replay do not corrupt or duplicate delivery.
+      estimate_hours: 6
+      id: E4
+      locked: false
+      name: Concurrency and Replay Verification
+      path: 04-concurrency-and-replay-verific
+      status: pending
+estimate_hours: 28
+id: P11.M4
+locked: false
+name: Mention-to-Task MVP
+status: pending

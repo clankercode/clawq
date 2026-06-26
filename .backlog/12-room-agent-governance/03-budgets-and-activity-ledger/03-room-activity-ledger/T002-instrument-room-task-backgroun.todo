@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - P12.M3.E3.T001
+estimate_hours: 4
+id: P12.M3.E3.T002
+priority: high
+status: pending
+tags:
+    - room-agent
+    - ledger
+    - privacy
+title: Instrument room task background and provider events into ledger
+---
+Acceptance: room task creation, background execution, provider calls, tool decisions, completion/failure, and delivery failures append best-effort nonblocking ledger events. Files: task/background/agent/provider paths, tests.

@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P11.M4.E2.T003
+estimate_hours: 2
+id: P11.M4.E2.T004
+priority: high
+status: pending
+tags:
+    - room-agent
+    - profiled-room
+    - authz
+title: Enforce guest policy for room async requests
+---
+Acceptance: guest/non-admin callers can only use allowed async surfaces; denied state-mutating or privileged requests are audited and produce actionable room replies. Files: connector handlers, policy tests.

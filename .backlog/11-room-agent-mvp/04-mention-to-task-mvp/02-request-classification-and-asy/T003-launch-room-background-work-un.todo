@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: high
+depends_on:
+    - P11.M4.E2.T002
+estimate_hours: 4
+id: P11.M4.E2.T003
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Launch room background work under profile policy
+---
+Acceptance: background/native launch uses child room sessions, room CWD, P11 model/template/privacy-guard context, admin/guest async guard, and P7 durable queue semantics; launch errors become task-visible failures. Full P12 tool/codebase/budget/scoped-memory enforcement is added by governance tasks. Files: background_task_tools, src/background_task.ml, src/session_turn.ml, test/test_background_task.ml, test/test_session_persistence.ml.

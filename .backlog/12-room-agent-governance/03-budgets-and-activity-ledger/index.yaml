@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Profile/session/request stats attribution and monthly roll-up for room, thread, and routine sessions.
+      estimate_hours: 10
+      id: E1
+      locked: false
+      name: Budget Attribution
+      path: 01-budget-attribution
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Per-provider-call hard budget enforcement and admin soft-limit warnings.
+      estimate_hours: 10
+      id: E2
+      locked: false
+      name: Budget Enforcement
+      path: 02-budget-enforcement
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Redacted room activity ledger with requester/task/tool/model/cost/artifact/status lineage.
+      estimate_hours: 16
+      id: E3
+      locked: false
+      name: Room Activity Ledger
+      path: 03-room-activity-ledger
+      status: pending
+estimate_hours: 36
+id: P12.M3
+locked: false
+name: Budgets and Activity Ledger
+status: pending

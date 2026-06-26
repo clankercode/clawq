@@ -1,0 +1,14 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P11.M3.E1.T001
+estimate_hours: 4
+id: P13.M3.E1.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Extend connector capability matrix for room agents
+---
+Acceptance: connector_capabilities covers thread replies, edit-in-place, files, cards/buttons, typing/status, and history capture; thread-less connectors have deterministic fallbacks; both progress delivery and ambient history capture choose behavior from the matrix; fallback tests cover unsupported thread/history/card cases. This is a prerequisite for P13 ambient history despite living in the connector-polish milestone. Files: src/connector_capabilities.ml, test/test_connector_capabilities.ml, connector tests.

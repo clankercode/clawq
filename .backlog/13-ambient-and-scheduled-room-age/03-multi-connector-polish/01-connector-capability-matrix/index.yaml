@@ -1,0 +1,18 @@
+complexity: medium
+depends_on: []
+estimate_hours: 8
+id: P13.M3.E1
+locked: false
+name: Connector Capability Matrix
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P11.M3.E1.T001
+      estimate_hours: 4
+      file: T001-extend-connector-capability-ma.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Extend connector capability matrix for room agents

@@ -1,0 +1,17 @@
+complexity: high
+depends_on: []
+estimate_hours: 10
+id: P12.M2.E2
+locked: false
+name: Codebase Grant Enforcement
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P12.M2.E1.T001
+      estimate_hours: 4
+      file: T001-enforce-codebase-grants-under.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Enforce codebase grants under global security

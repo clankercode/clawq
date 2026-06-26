@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P11.M1.E4.T001
+estimate_hours: 3
+id: P11.M1.E4.T003
+priority: high
+status: pending
+tags:
+    - room-agent
+    - profiled-room
+    - admin
+title: Add room profile rebind rename and delete lifecycle
+---
+Acceptance: rebind requires explicit preserve/reset choice; rename updates display metadata without changing stable identity unexpectedly; delete is soft by default and refuses active tasks/routines unless forced. Files: command bridge, room profile API, tests.

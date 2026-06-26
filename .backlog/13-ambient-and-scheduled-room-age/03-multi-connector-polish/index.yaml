@@ -1,0 +1,35 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: Extend connector_capabilities with thread, edit, file, card/button, typing/status, and history capability flags.
+      estimate_hours: 8
+      id: E1
+      locked: false
+      name: Connector Capability Matrix
+      path: 01-connector-capability-matrix
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Fold Teams slash/card/tool visibility bugs into room-agent connector polish.
+      estimate_hours: 8
+      id: E2
+      locked: false
+      name: Teams Room-Agent Hardening
+      path: 02-teams-room-agent-hardening
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Operator docs and llms-full updates for profiles, scoped memory, routines, and troubleshooting.
+      estimate_hours: 8
+      id: E3
+      locked: false
+      name: Room Agent Documentation
+      path: 03-room-agent-documentation
+      status: pending
+estimate_hours: 24
+id: P13.M3
+locked: false
+name: Multi-Connector Polish
+status: pending

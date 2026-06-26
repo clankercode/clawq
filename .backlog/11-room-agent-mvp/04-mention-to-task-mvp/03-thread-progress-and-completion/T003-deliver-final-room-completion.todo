@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - P11.M4.E3.T002
+estimate_hours: 3
+id: P11.M4.E3.T003
+priority: high
+status: pending
+tags:
+    - room-agent
+    - threading
+    - async
+title: Deliver final room completion and failure messages
+---
+Acceptance: completion/failure delivery posts concise final state to originating thread/room, records delivery failure durably, and never leaks raw logs or unauthorized content. Files: daemon_util.ml, background_task.ml, connector tests.

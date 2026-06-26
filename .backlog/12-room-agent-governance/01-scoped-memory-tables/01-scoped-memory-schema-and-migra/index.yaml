@@ -1,0 +1,27 @@
+complexity: high
+depends_on: []
+estimate_hours: 12
+id: P12.M1.E1
+locked: false
+name: Scoped Memory Schema and Migration
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P11.M1.E1.T003
+      estimate_hours: 5
+      file: T001-add-scoped-memory-tables-and-m.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add scoped memory tables and migration mechanics
+    - complexity: medium
+      depends_on:
+        - P12.M1.E1.T001
+      estimate_hours: 3
+      file: T002-add-legacy-memory-read-in-plac.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add legacy memory read-in-place scope

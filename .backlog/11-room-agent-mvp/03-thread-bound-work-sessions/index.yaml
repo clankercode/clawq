@@ -1,0 +1,44 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: Generic room/thread origin metadata for task, background, ledger, and delivery rows.
+      estimate_hours: 6
+      id: E1
+      locked: false
+      name: Origin Metadata Model
+      path: 01-origin-metadata-model
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Parse Slack thread_ts and send thread-bound replies without changing normal channel sends.
+      estimate_hours: 6
+      id: E2
+      locked: false
+      name: Slack Thread Support
+      path: 02-slack-thread-support
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Document and test Teams conversation/activity/reply_to_id support for thread-like replies.
+      estimate_hours: 4
+      id: E3
+      locked: false
+      name: Teams Thread Capability Audit
+      path: 03-teams-thread-capability-audit
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Create child thread/routine work sessions under room profiles with inherited policy and CWD.
+      estimate_hours: 6
+      id: E4
+      locked: false
+      name: Child Work Session Creation
+      path: 04-child-work-session-creation
+      status: pending
+estimate_hours: 18
+id: P11.M3
+locked: false
+name: Thread-Bound Work Sessions
+status: pending

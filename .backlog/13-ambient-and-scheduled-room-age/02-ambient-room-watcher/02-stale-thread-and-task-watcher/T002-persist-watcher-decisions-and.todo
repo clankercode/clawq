@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - P13.M2.E2.T001
+estimate_hours: 3
+id: P13.M2.E2.T002
+priority: high
+status: pending
+tags:
+    - room-agent
+    - ambient
+    - watcher
+title: Persist watcher decisions and material-change checks
+---
+Acceptance: watcher records why it did or did not act; material-change predicates are explicit; repeated no-op decisions stay silent and inspectable by admins. Files: watcher storage/tests.

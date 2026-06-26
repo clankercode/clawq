@@ -1,0 +1,16 @@
+---
+complexity: medium
+depends_on:
+    - P13.M1.E3.T003
+    - P12.M2.E3.T001
+estimate_hours: 2
+id: P13.M1.E3.T004
+priority: medium
+status: pending
+tags:
+    - room-agent
+    - scheduler
+    - admin
+title: Add room routine admin and negative tests
+---
+Acceptance: non-admin routine create/edit/remove/trigger attempts are denied and audited; minimal-build and slash/CLI surfaces produce consistent errors. Files: command_bridge_min.ml if needed, scheduler admin tests.

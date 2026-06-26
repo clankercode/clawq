@@ -1,0 +1,54 @@
+complexity: high
+depends_on: []
+estimate_hours: 10
+id: P12.M3.E2
+locked: false
+name: Budget Enforcement
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P12.M3.E1.T001
+      estimate_hours: 3
+      file: T001-enforce-monthly-room-profile-b.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Add room budget state and query API
+    - complexity: high
+      depends_on:
+        - P12.M3.E2.T001
+      estimate_hours: 4
+      file: T002-add-provider-pre-call-budget-g.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add provider pre-call budget guards to agent loops
+    - complexity: high
+      depends_on:
+        - P12.M3.E2.T002
+      estimate_hours: 3
+      file: T003-implement-budget-reservation-a.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Implement budget reservation and concurrency semantics
+    - complexity: medium
+      depends_on:
+        - P12.M3.E2.T003
+      estimate_hours: 2
+      file: T004-add-room-budget-soft-warnings.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Add room budget soft warnings and admin notification
+    - complexity: medium
+      depends_on:
+        - P12.M3.E2.T004
+      estimate_hours: 2
+      file: T005-add-budget-denial-redaction-an.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Add budget denial redaction and negative tests

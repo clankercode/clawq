@@ -1,0 +1,18 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P11.M4.E1.T001
+    - P11.M3.E2.T001
+    - P11.M2.E1.T001
+    - P7.M2.E1.T003
+    - P7.M2.E2.T003
+estimate_hours: 2
+id: P11.M4.E3.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Persist sparse room progress states
+---
+Acceptance: accepted/planned/working/blocked/completed/failed/needs-input states are represented and persisted best-effort for room-origin work; no raw logs are stored for posting. Files: status_message modules, daemon/background tests.

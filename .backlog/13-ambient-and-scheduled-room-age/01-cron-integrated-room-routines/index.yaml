@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Extend scheduler cron job metadata with nullable profile/thread/routine workspace fields.
+      estimate_hours: 8
+      id: E1
+      locked: false
+      name: Routine Metadata
+      path: 01-routine-metadata
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Resolve profile at tick time and run cron jobs as room/routine sessions with inherited policy.
+      estimate_hours: 10
+      id: E2
+      locked: false
+      name: Routine Execution
+      path: 02-routine-execution
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Admin-only room routine creation, edit, delete, and trigger surfaces.
+      estimate_hours: 6
+      id: E3
+      locked: false
+      name: Routine Admin Surface
+      path: 03-routine-admin-surface
+      status: pending
+estimate_hours: 24
+id: P13.M1
+locked: false
+name: Cron-Integrated Room Routines
+status: pending

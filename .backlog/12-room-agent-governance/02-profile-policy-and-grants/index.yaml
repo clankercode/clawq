@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Room profile tool allow/deny policy composes with templates and global security.
+      estimate_hours: 10
+      id: E1
+      locked: false
+      name: Tool Grant Enforcement
+      path: 01-tool-grant-enforcement
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Named repo/codebase grants intersect with global workspace/sandbox policy.
+      estimate_hours: 10
+      id: E2
+      locked: false
+      name: Codebase Grant Enforcement
+      path: 02-codebase-grant-enforcement
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Denied access is actionable, audited, and covered by guest/admin tests.
+      estimate_hours: 4
+      id: E3
+      locked: false
+      name: Policy Error and Authz Tests
+      path: 03-policy-error-and-authz-tests
+      status: pending
+estimate_hours: 24
+id: P12.M2
+locked: false
+name: Profile Policy and Grants
+status: pending

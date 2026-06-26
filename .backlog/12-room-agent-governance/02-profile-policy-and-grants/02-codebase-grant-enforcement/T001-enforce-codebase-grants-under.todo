@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - P12.M2.E1.T001
+estimate_hours: 4
+id: P12.M2.E2.T001
+priority: high
+status: pending
+tags:
+    - room-agent
+    - policy
+    - workspace
+title: Enforce codebase grants under global security
+---
+Acceptance: named repo/codebase entries govern room workspaces; background tasks inherit granted repo policy; denied global workspace or sandbox path fails closed; no raw filesystem grant is required for normal room operation.

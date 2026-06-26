@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P13.M3.E2.T001
+estimate_hours: 2
+id: P13.M3.E2.T002
+priority: medium
+status: pending
+tags:
+    - room-agent
+    - teams
+    - connectors
+title: Harden Teams consent card actions for room agents
+---
+Acceptance: consent card actions preserve room origin, requester identity, and admin/guest policy; denial and success states render correctly. Files: src/teams.ml, tests.

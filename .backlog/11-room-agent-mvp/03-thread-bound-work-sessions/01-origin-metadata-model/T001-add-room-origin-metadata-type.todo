@@ -1,0 +1,15 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P11.M1.E1.T003
+    - P11.M1.E3.T001
+estimate_hours: 3
+id: P11.M3.E1.T001
+priority: high
+started_at: null
+status: pending
+tags: []
+title: Add room origin metadata type and serialization
+---
+Acceptance: room_origin captures connector, workspace/team id, room id, requester id/name, source message id, thread id, service URL when required, and profile id; serializes for task/background/ledger rows. Files: new src/room_origin.ml, src/dune, test/test_room_origin.ml.
