@@ -1,27 +1,4 @@
-let with_temp_home f =
-  let base = Filename.get_temp_dir_name () in
-  let dir =
-    Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ()))
-  in
-  Unix.mkdir dir 0o755;
-  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
-  Unix.putenv "HOME" dir;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () ->
-      (try
-         Unix.unlink
-           (Filename.concat (Filename.concat dir ".clawq") "config.json")
-       with _ -> ());
-      (try
-         Unix.unlink
-           (Filename.concat (Filename.concat dir ".clawq") "daemon_state.json")
-       with _ -> ());
-      (match old_home with
-      | Some v -> Unix.putenv "HOME" v
-      | None -> Unix.putenv "HOME" "");
-      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
-      try Unix.rmdir dir with _ -> ())
+
 
 let contains s sub =
   let sl = String.length s and subl = String.length sub in
@@ -75,13 +52,21 @@ let with_temp_home f =
   Sys.remove dir;
   Unix.mkdir dir 0o755;
   let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
+  let old_clawq_home = Sys.getenv_opt Dot_dir.env_var in
   Unix.putenv "HOME" dir;
+  (* Clear CLAWQ_HOME so Dot_dir.path () falls back to $HOME/.clawq *)
+  (match old_clawq_home with
+  | Some _ -> Unix.putenv Dot_dir.env_var ""
+  | None -> ());
   Fun.protect
     (fun () -> f dir)
     ~finally:(fun () ->
       (match old_home with
       | Some v -> Unix.putenv "HOME" v
       | None -> Unix.putenv "HOME" "");
+      (match old_clawq_home with
+      | Some v -> Unix.putenv Dot_dir.env_var v
+      | None -> Unix.putenv Dot_dir.env_var "");
       (try
          let clawq_dir = Filename.concat dir ".clawq" in
          if Sys.file_exists clawq_dir then begin
