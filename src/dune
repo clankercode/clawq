@@ -68,6 +68,10 @@
   memory_0_schema
   memory_0_queue
   memory_0_postmortem
+  memory_types
+  memory_core
+  memory_session
+  memory_search
   memory
   rate_limiter
   scheduler
