@@ -14,6 +14,7 @@
   process_group
   phase2
   runtime_config_types
+  runtime_config_json
   runtime_config
   config_loader_support
   config_loader_agent_defaults
