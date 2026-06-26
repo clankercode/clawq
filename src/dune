@@ -241,6 +241,8 @@
   command_bridge_session
   command_bridge_debug
   command_bridge_agent_cmds
+  command_bridge_bgcmd
+  command_bridge_tunnel
   mcp_server
   mcp_transport
   service
