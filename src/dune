@@ -65,6 +65,7 @@
   tools_builtin_fs
   tools_builtin_memory
   tools_builtin_io
+  tools_builtin_zai
   tools_builtin_net
   tools_builtin_browser
   tools_builtin_messaging
