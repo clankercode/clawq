@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Slack Thread Support
       path: 02-slack-thread-support
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Document and test Teams conversation/activity/reply_to_id support for thread-like replies.
