@@ -152,6 +152,7 @@
   setup_tui
   restart_exec
   restart_notify
+  room_session
   daemon_status
   benchmark
   debate
