@@ -157,15 +157,16 @@ let queue_reclaim_stale ~db ~older_than_seconds =
       ignore (Sqlite3.step stmt);
       Sqlite3.changes db)
 
-let queue_reclaim_failed ~db =
+let queue_reclaim_failed ~db ?(max_retries = 5) () =
   let sql =
     "UPDATE inbound_queue SET state = 'pending', claimed_at = NULL WHERE state \
-     = 'failed'"
+     = 'failed' AND attempt_count < ?"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int max_retries)));
       ignore (Sqlite3.step stmt);
       Sqlite3.changes db)
 

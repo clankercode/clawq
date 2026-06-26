@@ -105,8 +105,8 @@ let build_retry_prompt ~original_prompt ~previous_response ~validation_errors =
 
 (* ── Single step execution ─────────────────────────────────────────────── *)
 
-let run_prompt_step ~config ~step_name ~prompt ~system_prompt ~model_override
-    ~output_schema ~max_retries =
+let run_prompt_step ~config ~pipeline_name ~step_name ~prompt ~system_prompt
+    ~model_override ~output_schema ~max_retries =
   let schema_summary =
     Structured_pipeline_schema.schema_summary output_schema
   in
@@ -128,6 +128,9 @@ let run_prompt_step ~config ~step_name ~prompt ~system_prompt ~model_override
       ~schema_summary
   in
   let effective_config =
+    (* Note: max_tool_iterations is intentionally omitted here because
+       Prompt_step calls Provider.complete directly, not Agent.turn,
+       so tool iterations are not used. *)
     match model_override with
     | Some model_str ->
         let pmodel = Pmodel.parse_flexible model_str in
@@ -155,7 +158,9 @@ let run_prompt_step ~config ~step_name ~prompt ~system_prompt ~model_override
     in
     let* response =
       Provider.complete ~config:effective_config ~messages
-        ~session_key:"__pipeline__" ()
+        ~session_key:
+          (Printf.sprintf "__pipeline_%s_%s__" pipeline_name step_name)
+        ()
     in
     let elapsed_s = Unix.gettimeofday () -. t0 in
     let content, usage =
@@ -239,7 +244,7 @@ let rec run_pipeline ~db ~config ~(pipeline : Structured_pipeline.pipeline_def)
         finished_at = None;
       }
   else begin
-    Structured_pipeline.init_schema db;
+    if depth = 0 then Structured_pipeline.init_schema db;
     let run_id =
       Structured_pipeline.insert_run ~db ~pipeline_name:pipeline.name
         ~pipeline_version:pipeline.version ~inputs
@@ -297,9 +302,9 @@ let rec run_pipeline ~db ~config ~(pipeline : Structured_pipeline.pipeline_def)
                   Structured_pipeline.substitute_template prompt
                     ~inputs:effective_inputs ~step_outputs:step_output_list
                 in
-                run_prompt_step ~config ~step_name:step.name ~prompt:substituted
-                  ~system_prompt ~model_override:model ~output_schema
-                  ~max_retries
+                run_prompt_step ~config ~pipeline_name:pipeline.name
+                  ~step_name:step.name ~prompt:substituted ~system_prompt
+                  ~model_override:model ~output_schema ~max_retries
             | Pipeline_step { pipeline = sub_pipeline_name; input_map } -> (
                 match Structured_pipeline.find_pipeline sub_pipeline_name with
                 | None ->
@@ -339,22 +344,46 @@ let rec run_pipeline ~db ~config ~(pipeline : Structured_pipeline.pipeline_def)
                                  (sr.step_name, sr.output_json))
                                sub_run.step_results)
                         in
+                        let total_sub_elapsed =
+                          List.fold_left
+                            (fun acc (sr : Structured_pipeline.step_result) ->
+                              acc +. sr.elapsed_s)
+                            0.0 sub_run.step_results
+                        in
+                        let models_used =
+                          List.map
+                            (fun (sr : Structured_pipeline.step_result) ->
+                              sr.model_used)
+                            sub_run.step_results
+                          |> List.sort_uniq String.compare
+                          |> String.concat ", "
+                        in
+                        let total_tokens =
+                          List.fold_left
+                            (fun acc (sr : Structured_pipeline.step_result) ->
+                              match (acc, sr.tokens) with
+                              | Some (pt, ct), Some (spt, sct) ->
+                                  Some (pt + spt, ct + sct)
+                              | None, x | x, None -> x)
+                            None sub_run.step_results
+                        in
                         Lwt.return
                           (Ok
                              {
                                Structured_pipeline.step_name = step.name;
                                output_json = combined;
                                output_raw = Yojson.Safe.to_string combined;
-                               model_used = "(sub-pipeline)";
+                               model_used = models_used;
                                attempts = 1;
-                               elapsed_s = 0.0;
-                               tokens = None;
+                               elapsed_s = total_sub_elapsed;
+                               tokens = total_tokens;
                              })
                     | Failed msg ->
                         Lwt.return
                           (Error
-                             (Printf.sprintf "Sub-pipeline \"%s\" failed: %s"
-                                sub_pipeline_name msg))
+                             (Printf.sprintf
+                                "Sub-pipeline \"%s\" (step: \"%s\") failed: %s"
+                                sub_pipeline_name step.name msg))
                     | _ ->
                         Lwt.return
                           (Error

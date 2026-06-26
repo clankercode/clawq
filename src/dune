@@ -57,6 +57,10 @@
   tools_builtin_net
   tools_builtin_browser
   tools_builtin
+  task_tree_types
+  task_tree_db
+  task_tree_render
+  task_tree_ops
   task_tree_core
   memory_0_schema
   memory_0_queue
