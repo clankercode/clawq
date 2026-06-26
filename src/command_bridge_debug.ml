@@ -588,29 +588,4 @@ let cmd_ec_run args =
   end
   else "Usage: clawq ec-run --daemon-mode\n(internal command)\n"
 
-let cmd_manifest = function
-  | [ "teams" ] ->
-      print_string (Slash_commands_manifest.teams_json ());
-      ""
-  | [ "teams"; "--output"; path ] ->
-      let oc = open_out path in
-      Fun.protect
-        ~finally:(fun () -> close_out oc)
-        (fun () -> output_string oc (Slash_commands_manifest.teams_json ()));
-      Printf.sprintf "Wrote Teams manifest to %s" path
-  | [ "teams"; "-n"; n ] -> (
-      match int_of_string_opt n with
-      | Some n when n > 0 ->
-          print_string (Slash_commands_manifest.teams_json ~n ());
-          ""
-      | _ -> "Error: -n requires a positive integer")
-  | [ "telegram" ] ->
-      print_string (Slash_commands_manifest.telegram_json ());
-      ""
-  | _ ->
-      "Usage: clawq manifest <platform>\n\n\
-       Platforms:\n\
-      \  teams    [--output FILE] [-n COUNT]  Generate Teams bot manifest \
-       commands\n\
-      \  telegram                             Generate Telegram setMyCommands \
-       payload"
+let cmd_manifest = Command_bridge_shared.cmd_manifest

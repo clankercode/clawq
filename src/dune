@@ -111,6 +111,7 @@
   agent_template
   agent_template_builtins
   command_bridge_min
+  command_bridge_shared
   cdp_client
   browser_agent
   sandbox
@@ -213,10 +214,12 @@
   command_bridge_debug
   command_bridge_agent_cmds
   mcp_server
+  mcp_transport
   service
   runtime_native
   runtime_docker
   tunnel_cloudflare
+  tunnel_intf
   tunnel_tailscale
   tunnel_ngrok
   tunnel_custom
