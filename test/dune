@@ -74,6 +74,7 @@
   test_request_stats
   test_resilience
   test_restart
+  test_room_session
   test_sandbox
   test_scheduler
   test_secret_store
