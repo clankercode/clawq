@@ -119,8 +119,8 @@
         text-anchor: middle;
       }
       .n-sub {
-        fill: var(--text-tertiary);
-        font-size: 14px;
+        fill: var(--text-secondary);
+        font-size: 17px;
         text-anchor: middle;
         font-style: italic;
       }
@@ -219,8 +219,8 @@
 
       <!-- Faint corner gears -->
       <g opacity="0.08" color="#c9a84c">
-        <use href="#gear" x="34" y="34" width="120" height="120" />
-        <use href="#gear" x="1046" y="476" width="120" height="120" />
+        <use href="#gear" x="40" y="40" width="120" height="120" />
+        <use href="#gear" x="1040" y="470" width="120" height="120" />
       </g>
       <g opacity="0.06" color="#2e8b7a">
         <use href="#gear" x="1066" y="40" width="94" height="94" />
@@ -231,22 +231,22 @@
       <g stroke="#2e8b7a" stroke-width="1.6" opacity="0.72"
         marker-start="url(#arrowTeal)" marker-end="url(#arrowTeal)">
         <!-- Agent A satellites -->
-        <line x1="350" y1="360" x2="222" y2="252" />
-        <line x1="350" y1="360" x2="338" y2="222" />
-        <line x1="350" y1="360" x2="222" y2="468" />
-        <line x1="350" y1="360" x2="338" y2="498" />
+        <line x1="321" y1="335" x2="238" y2="266" />
+        <line x1="347" y1="322" x2="340" y2="243" />
+        <line x1="321" y1="385" x2="238" y2="454" />
+        <line x1="347" y1="398" x2="340" y2="477" />
         <!-- Agent B satellites -->
-        <line x1="850" y1="360" x2="978" y2="252" />
-        <line x1="850" y1="360" x2="862" y2="222" />
-        <line x1="850" y1="360" x2="978" y2="468" />
-        <line x1="850" y1="360" x2="862" y2="498" />
+        <line x1="879" y1="335" x2="962" y2="266" />
+        <line x1="853" y1="322" x2="860" y2="243" />
+        <line x1="879" y1="385" x2="962" y2="454" />
+        <line x1="853" y1="398" x2="860" y2="477" />
       </g>
 
       <!-- ===== Relay path (thick, brass, two-way) ===== -->
       <g stroke="#c9a84c" stroke-width="3.4" marker-start="url(#arrowBrass)"
         marker-end="url(#arrowBrass)">
-        <line x1="412" y1="360" x2="538" y2="360" />
-        <line x1="662" y1="360" x2="788" y2="360" />
+        <line x1="388" y1="360" x2="550" y2="360" />
+        <line x1="650" y1="360" x2="812" y2="360" />
       </g>
 
       <!-- ===== Satellite nodes ===== -->
@@ -254,10 +254,10 @@
         <!-- Agent A peers (projects) -->
         <circle cx="222" cy="252" r="21" fill="#13111a" stroke="#2e8b7a" stroke-width="1.6" />
         <use href="#gear" x="207" y="237" width="30" height="30" color="#5bbfad" />
-        <text x="222" y="294" class="n-sub">project</text>
+        <text x="222" y="222" class="n-sub">project</text>
         <circle cx="338" cy="222" r="21" fill="#13111a" stroke="#2e8b7a" stroke-width="1.6" />
         <use href="#gear" x="323" y="207" width="30" height="30" color="#5bbfad" />
-        <text x="338" y="194" class="n-sub">project</text>
+        <text x="338" y="192" class="n-sub">project</text>
         <!-- Agent A subagents -->
         <circle cx="222" cy="468" r="21" fill="#13111a" stroke="#2e8b7a" stroke-width="1.6" />
         <use href="#gear" x="207" y="453" width="30" height="30" color="#5bbfad" />
@@ -269,10 +269,10 @@
         <!-- Agent B peers (projects) -->
         <circle cx="978" cy="252" r="21" fill="#13111a" stroke="#2e8b7a" stroke-width="1.6" />
         <use href="#gear" x="963" y="237" width="30" height="30" color="#5bbfad" />
-        <text x="978" y="294" class="n-sub">project</text>
+        <text x="978" y="222" class="n-sub">project</text>
         <circle cx="862" cy="222" r="21" fill="#13111a" stroke="#2e8b7a" stroke-width="1.6" />
         <use href="#gear" x="847" y="207" width="30" height="30" color="#5bbfad" />
-        <text x="862" y="194" class="n-sub">project</text>
+        <text x="862" y="192" class="n-sub">project</text>
         <!-- Agent B subagents -->
         <circle cx="978" cy="468" r="21" fill="#13111a" stroke="#2e8b7a" stroke-width="1.6" />
         <use href="#gear" x="963" y="453" width="30" height="30" color="#5bbfad" />
@@ -300,7 +300,7 @@
           stroke-dasharray="3 5" />
         <circle cx="600" cy="360" r="50" fill="#0d0b0f" stroke="#c9a84c" stroke-width="2.8" />
         <text x="600" y="367" class="relay-label">RELAY</text>
-        <text x="600" y="454" class="relay-sub">self-hostable</text>
+        <text x="600" y="437" class="relay-sub">self-hostable</text>
       </g>
     </svg>
 
