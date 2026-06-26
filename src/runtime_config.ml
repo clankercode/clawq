@@ -495,22 +495,10 @@ let default_model_context_caps =
     ("glm-5.2", 272000);
   ]
 
-let strip_date_suffix_cfg s =
-  let len = String.length s in
-  if len >= 9 && s.[len - 9] = '-' then
-    let suffix = String.sub s (len - 8) 8 in
-    let all_digits =
-      try
-        String.iter (fun c -> if c < '0' || c > '9' then raise Exit) suffix;
-        true
-      with Exit -> false
-    in
-    if all_digits then String.sub s 0 (len - 9) else s
-  else s
-
 let normalize_model_name_for_context_lookup model_name =
   let norm =
-    String.lowercase_ascii (strip_date_suffix_cfg (String.trim model_name))
+    String.lowercase_ascii
+      (Model_utils.strip_date_suffix (String.trim model_name))
   in
   strip_model_provider_prefix norm
 

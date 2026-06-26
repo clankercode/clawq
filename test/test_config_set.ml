@@ -589,6 +589,57 @@ let test_channel_default_model_parsed () =
   Alcotest.(check (option string))
     "parsed from JSON" (Some "anthropic:claude-opus-4-6") m
 
+let test_provider_schema_completeness () =
+  let valid = Config_set.validate_set_path in
+  let schema = Config_set.config_schema in
+  Alcotest.(check bool)
+    "providers.X.http_timeout_s" true
+    (valid (Config_set.split_path "providers.test.http_timeout_s") schema);
+  Alcotest.(check bool)
+    "providers.X.max_output_tokens" true
+    (valid (Config_set.split_path "providers.test.max_output_tokens") schema);
+  Alcotest.(check bool)
+    "providers.X.prompt_cache_retention" true
+    (valid
+       (Config_set.split_path "providers.test.prompt_cache_retention")
+       schema)
+
+let test_agent_defaults_subagent_default_model () =
+  let valid = Config_set.validate_set_path in
+  let schema = Config_set.config_schema in
+  Alcotest.(check bool)
+    "agent_defaults.subagent_default_model" true
+    (valid
+       (Config_set.split_path "agent_defaults.subagent_default_model")
+       schema)
+
+let test_prompt_schema_completeness () =
+  let valid = Config_set.validate_set_path in
+  let schema = Config_set.config_schema in
+  Alcotest.(check bool)
+    "prompt.include_project_docs" true
+    (valid (Config_set.split_path "prompt.include_project_docs") schema);
+  Alcotest.(check bool)
+    "prompt.max_project_doc_chars" true
+    (valid (Config_set.split_path "prompt.max_project_doc_chars") schema);
+  Alcotest.(check bool)
+    "prompt.project_doc_warn_chars" true
+    (valid (Config_set.split_path "prompt.project_doc_warn_chars") schema)
+
+let test_strip_date_suffix () =
+  Alcotest.(check string)
+    "strip date suffix" "gpt-5"
+    (Model_utils.strip_date_suffix "gpt-5-20250101");
+  Alcotest.(check string)
+    "no suffix unchanged" "gpt-5"
+    (Model_utils.strip_date_suffix "gpt-5");
+  Alcotest.(check string)
+    "non-digit suffix kept" "gpt-5-abcdef01"
+    (Model_utils.strip_date_suffix "gpt-5-abcdef01");
+  Alcotest.(check string)
+    "short string unchanged" "abc"
+    (Model_utils.strip_date_suffix "abc")
+
 let suite =
   [
     Alcotest.test_case "infer value types" `Quick test_infer_value;
@@ -639,4 +690,11 @@ let suite =
       test_show_skills_set_roundtrip;
     Alcotest.test_case "browser config settable" `Quick
       test_browser_config_settable;
+    Alcotest.test_case "provider schema completeness" `Quick
+      test_provider_schema_completeness;
+    Alcotest.test_case "agent_defaults.subagent_default_model" `Quick
+      test_agent_defaults_subagent_default_model;
+    Alcotest.test_case "prompt schema completeness" `Quick
+      test_prompt_schema_completeness;
+    Alcotest.test_case "strip_date_suffix" `Quick test_strip_date_suffix;
   ]

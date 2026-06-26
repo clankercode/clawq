@@ -79,21 +79,34 @@ let parse_config ?(resolve_secrets = true) json =
               (fun () -> Some (v |> member "default_model" |> to_string))
           in
           let project_id =
-            try Some (v |> member "project_id" |> to_string) with _ -> None
+            with_default
+              ("providers." ^ name ^ ".project_id")
+              None
+              (fun () -> Some (v |> member "project_id" |> to_string))
           in
           let location =
-            try Some (v |> member "location" |> to_string) with _ -> None
+            with_default
+              ("providers." ^ name ^ ".location")
+              None
+              (fun () -> Some (v |> member "location" |> to_string))
           in
           let service_account_json =
-            try Some (v |> member "service_account_json" |> to_string)
-            with _ -> None
+            with_default
+              ("providers." ^ name ^ ".service_account_json")
+              None
+              (fun () -> Some (v |> member "service_account_json" |> to_string))
           in
           let thinking_budget_tokens =
-            try Some (v |> member "thinking_budget_tokens" |> to_int)
-            with _ -> None
+            with_default
+              ("providers." ^ name ^ ".thinking_budget_tokens")
+              None
+              (fun () -> Some (v |> member "thinking_budget_tokens" |> to_int))
           in
           let oai_thinking_style =
-            try v |> member "oai_thinking_style" |> to_string with _ -> "none"
+            with_default
+              ("providers." ^ name ^ ".oai_thinking_style")
+              "none"
+              (fun () -> v |> member "oai_thinking_style" |> to_string)
           in
           let codex_oauth =
             try
@@ -129,41 +142,55 @@ let parse_config ?(resolve_secrets = true) json =
             with _ -> None
           in
           let quota_credentials_file =
-            try Some (v |> member "quota_credentials_file" |> to_string)
-            with _ -> None
+            with_default
+              ("providers." ^ name ^ ".quota_credentials_file")
+              None
+              (fun () ->
+                Some (v |> member "quota_credentials_file" |> to_string))
           in
           let quota_threshold =
-            try Some (v |> member "quota_threshold" |> to_float)
-            with _ -> None
+            with_default
+              ("providers." ^ name ^ ".quota_threshold")
+              None
+              (fun () -> Some (v |> member "quota_threshold" |> to_float))
           in
           let quota_check_enabled =
-            try v |> member "quota_check_enabled" |> to_bool with _ -> true
+            with_default
+              ("providers." ^ name ^ ".quota_check_enabled")
+              true
+              (fun () -> v |> member "quota_check_enabled" |> to_bool)
           in
           let prompt_cache_retention =
-            try
-              match v |> member "prompt_cache_retention" with
-              | `Null -> None
-              | `Bool false -> None
-              | s -> Some (to_string s)
-            with _ -> Some "24h"
+            with_default
+              ("providers." ^ name ^ ".prompt_cache_retention")
+              (Some "24h")
+              (fun () ->
+                match v |> member "prompt_cache_retention" with
+                | `Null -> None
+                | `Bool false -> None
+                | s -> Some (to_string s))
           in
           let http_timeout_s =
-            try
-              match v |> member "http_timeout_s" with
-              | `Null -> None
-              | `Float f -> Some f
-              | `Int i -> Some (float_of_int i)
-              | _ -> None
-            with _ -> None
+            with_default
+              ("providers." ^ name ^ ".http_timeout_s")
+              None
+              (fun () ->
+                match v |> member "http_timeout_s" with
+                | `Null -> None
+                | `Float f -> Some f
+                | `Int i -> Some (float_of_int i)
+                | _ -> None)
           in
           let max_output_tokens =
-            try
-              match v |> member "max_output_tokens" with
-              | `Null -> None
-              | `Int i -> Some i
-              | `Float f -> Some (int_of_float f)
-              | _ -> None
-            with _ -> None
+            with_default
+              ("providers." ^ name ^ ".max_output_tokens")
+              None
+              (fun () ->
+                match v |> member "max_output_tokens" with
+                | `Null -> None
+                | `Int i -> Some i
+                | `Float f -> Some (int_of_float f)
+                | _ -> None)
           in
           ( name,
             ({
@@ -214,62 +241,75 @@ let parse_config ?(resolve_secrets = true) json =
     with _ -> default.agent_defaults
   in
   let workspace =
-    try json |> member "workspace" |> to_string with _ -> default.workspace
+    with_default "workspace" default.workspace (fun () ->
+        json |> member "workspace" |> to_string)
   in
   let prompt =
     try
       let p = json |> member "prompt" in
       let dynamic_enabled =
-        try p |> member "dynamic_enabled" |> to_bool
-        with _ -> default.prompt.dynamic_enabled
+        with_default "prompt.dynamic_enabled" default.prompt.dynamic_enabled
+          (fun () -> p |> member "dynamic_enabled" |> to_bool)
       in
       let include_tools_section =
-        try p |> member "include_tools_section" |> to_bool
-        with _ -> default.prompt.include_tools_section
+        with_default "prompt.include_tools_section"
+          default.prompt.include_tools_section (fun () ->
+            p |> member "include_tools_section" |> to_bool)
       in
       let include_safety_section =
-        try p |> member "include_safety_section" |> to_bool
-        with _ -> default.prompt.include_safety_section
+        with_default "prompt.include_safety_section"
+          default.prompt.include_safety_section (fun () ->
+            p |> member "include_safety_section" |> to_bool)
       in
       let include_workspace_section =
-        try p |> member "include_workspace_section" |> to_bool
-        with _ -> default.prompt.include_workspace_section
+        with_default "prompt.include_workspace_section"
+          default.prompt.include_workspace_section (fun () ->
+            p |> member "include_workspace_section" |> to_bool)
       in
       let include_runtime_section =
-        try p |> member "include_runtime_section" |> to_bool
-        with _ -> default.prompt.include_runtime_section
+        with_default "prompt.include_runtime_section"
+          default.prompt.include_runtime_section (fun () ->
+            p |> member "include_runtime_section" |> to_bool)
       in
       let include_datetime_section =
-        try p |> member "include_datetime_section" |> to_bool
-        with _ -> default.prompt.include_datetime_section
+        with_default "prompt.include_datetime_section"
+          default.prompt.include_datetime_section (fun () ->
+            p |> member "include_datetime_section" |> to_bool)
       in
       let include_autonomy_section =
-        try p |> member "include_autonomy_section" |> to_bool
-        with _ -> default.prompt.include_autonomy_section
+        with_default "prompt.include_autonomy_section"
+          default.prompt.include_autonomy_section (fun () ->
+            p |> member "include_autonomy_section" |> to_bool)
       in
       let include_project_docs =
-        try p |> member "include_project_docs" |> to_bool
-        with _ -> default.prompt.include_project_docs
+        with_default "prompt.include_project_docs"
+          default.prompt.include_project_docs (fun () ->
+            p |> member "include_project_docs" |> to_bool)
       in
       let workspace_files =
-        try p |> member "workspace_files" |> to_list |> List.map to_string
-        with _ -> default.prompt.workspace_files
+        with_default "prompt.workspace_files" default.prompt.workspace_files
+          (fun () ->
+            p |> member "workspace_files" |> to_list |> List.map to_string)
       in
       let max_workspace_file_chars =
-        try p |> member "max_workspace_file_chars" |> to_int
-        with _ -> default.prompt.max_workspace_file_chars
+        with_default "prompt.max_workspace_file_chars"
+          default.prompt.max_workspace_file_chars (fun () ->
+            p |> member "max_workspace_file_chars" |> to_int)
       in
       let max_workspace_total_chars =
-        try p |> member "max_workspace_total_chars" |> to_int
-        with _ -> default.prompt.max_workspace_total_chars
+        with_default "prompt.max_workspace_total_chars"
+          default.prompt.max_workspace_total_chars (fun () ->
+            p |> member "max_workspace_total_chars" |> to_int)
       in
       let max_project_doc_chars =
-        try p |> member "max_project_doc_chars" |> to_int
-        with _ -> default.prompt.max_project_doc_chars
+        with_default "prompt.max_project_doc_chars"
+          default.prompt.max_project_doc_chars (fun () ->
+            p |> member "max_project_doc_chars" |> to_int)
       in
       let project_doc_warn_chars =
-        try p |> member "project_doc_warn_chars" |> to_int
-        with _ -> default.prompt.project_doc_warn_chars
+        with_default "prompt.project_doc_warn_chars"
+          default.prompt.project_doc_warn_chars (fun () ->
+            p |> member "project_doc_warn_chars" |> to_int)
       in
       ({
          dynamic_enabled;

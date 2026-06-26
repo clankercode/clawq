@@ -29,6 +29,9 @@ let provider_schema =
             ("account_id", L);
             ("email", L);
           ] );
+      ("http_timeout_s", L);
+      ("max_output_tokens", L);
+      ("prompt_cache_retention", L);
     ]
 
 let telegram_account_schema =
@@ -240,6 +243,7 @@ let config_schema =
             ("autonomous_continuation_enabled", L);
             ("task_tree_notifications", L);
             ("max_concurrent_native_agents", L);
+            ("subagent_default_model", L);
           ] );
       ( "prompt",
         O
@@ -254,6 +258,9 @@ let config_schema =
             ("workspace_files", L);
             ("max_workspace_file_chars", L);
             ("max_workspace_total_chars", L);
+            ("include_project_docs", L);
+            ("max_project_doc_chars", L);
+            ("project_doc_warn_chars", L);
           ] );
       ("channels", channels_schema);
       ( "gateway",
