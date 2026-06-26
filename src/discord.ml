@@ -654,6 +654,11 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           {
             connector = Format_adapter.Discord;
             connector_name = "discord";
+            log_name = "Discord";
+            thinking_channel_field = "channel";
+            thinking_user_field = "user";
+            show_thinking_channel_field = "channel_id";
+            show_thinking_user_field = "author_id";
             session_mgr;
             key;
             channel_id = msg.channel_id;

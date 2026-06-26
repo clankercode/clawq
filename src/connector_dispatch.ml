@@ -7,7 +7,9 @@
 
    Per-connector differences are captured in [dispatch_env]:
    - [connector]      the [Format_adapter.connector] used to render replies;
-   - [connector_name] used for config-update [~source] and log lines;
+   - [connector_name] lower-case connector identity for admin OTC and config
+     update [~source];
+   - [log_name] and log field labels preserve each connector's existing log text;
    - [send_plain]     send an unformatted reply (Telegram uses bare send_message);
    - [send_formatted] send a rich/markdown/HTML reply (Telegram chunks + HTML).
      For Discord/Slack [send_plain] and [send_formatted] are the same closure.
@@ -22,6 +24,11 @@
 type dispatch_env = {
   connector : Format_adapter.connector;
   connector_name : string;
+  log_name : string;
+  thinking_channel_field : string;
+  thinking_user_field : string;
+  show_thinking_channel_field : string;
+  show_thinking_user_field : string;
   session_mgr : Session.t;
   key : string;
   channel_id : string;
@@ -32,8 +39,9 @@ type dispatch_env = {
 }
 
 (* Shared implementation of the per-connector [set_thinking_level] helpers.
-   The user-facing string is identical across connectors; only the config
-   [~source] tag and the log line differ, both derived from [connector_name]. *)
+   The user-facing string is identical across connectors. [connector_name]
+   preserves the config [~source] tag, while [log_name] and the field-label
+   strings preserve connector-specific log lines. *)
 let set_thinking_level (env : dispatch_env) level =
   let cfg = Session.get_config env.session_mgr in
   let previous = cfg.agent_defaults.reasoning_effort in
@@ -45,8 +53,9 @@ let set_thinking_level (env : dispatch_env) level =
       Session.update_config ~source:env.connector_name env.session_mgr
         { cfg with agent_defaults };
       Logs.info (fun m ->
-          m "%s thinking level updated channel=%s user=%s from=%s to=%s"
-            env.connector_name env.channel_id env.user_id
+          m "%s thinking level updated %s=%s %s=%s from=%s to=%s" env.log_name
+            env.thinking_channel_field env.channel_id env.thinking_user_field
+            env.user_id
             (Slash_commands.thinking_level_to_string previous)
             (Slash_commands.thinking_level_to_string level));
       Printf.sprintf "Thinking level changed from %s to %s."
@@ -54,8 +63,9 @@ let set_thinking_level (env : dispatch_env) level =
         (Slash_commands.thinking_level_to_string level)
   | Error err ->
       Logs.err (fun m ->
-          m "%s thinking level update failed channel=%s user=%s: %s"
-            env.connector_name env.channel_id env.user_id err);
+          m "%s thinking level update failed %s=%s %s=%s: %s" env.log_name
+            env.thinking_channel_field env.channel_id env.thinking_user_field
+            env.user_id err);
       "Failed to update thinking level: " ^ err
 
 let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
@@ -141,11 +151,10 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
                 Session.update_config ~source:env.connector_name session_mgr
                   { cfg with agent_defaults };
                 Logs.info (fun m ->
-                    m
-                      "%s show_thinking toggled channel=%s user=%s from=%b \
-                       to=%b"
-                      env.connector_name env.channel_id env.user_id current
-                      new_val);
+                    m "%s show_thinking toggled %s=%s %s=%s from=%b to=%b"
+                      env.log_name env.show_thinking_channel_field
+                      env.channel_id env.show_thinking_user_field env.user_id
+                      current new_val);
                 Slash_commands_fmt.format_show_thinking_toggle ~connector
                   new_val
             | Error err -> "Failed to update show_thinking: " ^ err)
@@ -297,8 +306,8 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
               Session.set_effective_cwd session_mgr ~key ~cwd)
             action
       | None ->
-          env.send_formatted
-            "Repository management is not available (no database).")
+          env.send_plain "Repository management is not available (no database)."
+      )
   (* Commands with per-connector behaviour are handled by each connector's own
      match and never routed here; treat as a no-op for totality. *)
   | Compact | Delegate _ | ForkAnd _ | AgentInvoke _ | Debate _ | BashRun _

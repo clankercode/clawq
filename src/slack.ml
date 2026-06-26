@@ -386,6 +386,11 @@ let handle_event ~(config : Runtime_config.slack_config)
               {
                 connector = Format_adapter.Slack;
                 connector_name = "slack";
+                log_name = "Slack";
+                thinking_channel_field = "channel";
+                thinking_user_field = "user";
+                show_thinking_channel_field = "channel_id";
+                show_thinking_user_field = "user_id";
                 session_mgr = session_manager;
                 key;
                 channel_id;

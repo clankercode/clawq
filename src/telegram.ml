@@ -517,6 +517,11 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
           {
             connector = Format_adapter.Telegram_html;
             connector_name = "telegram";
+            log_name = "Telegram";
+            thinking_channel_field = "chat_id";
+            thinking_user_field = "user_id";
+            show_thinking_channel_field = "chat_id";
+            show_thinking_user_field = "user_id";
             session_mgr;
             key;
             channel_id = update.chat_id;
