@@ -1,0 +1,19 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B703
+priority: high
+status: pending
+tags: []
+title: Admin stop commands queued during active turns are not checked when drained/injected, causing them to be treated as normal user messages instead of halting the session
+---
+Root cause: `stop_busy_session_if_admin_stop` in `src/session_core.ml` (lines 474-484) only intercepts admin stop commands before the session lock is acquired. When an admin `stop` arrives during an active turn, it is queued with `queued_message_interrupt_token` via `enqueue_message_if_busy` (line 527-608). The agent loop continues (since `queued_message_interrupt_token` is deliberately not a real stop). After the current tool batch, `inject_messages` in `run_locked_turn` (`src/session_turn.ml` lines 392-404) picks up the queued message and injects it into history as a normal user message. The `drain_queued_messages_loop` (lines 547-573) also blindly runs each queued message through `run_locked_turn` without checking for admin stop semantics.
+
+Suggested fix: In `src/session_turn.ml`, before `inject_messages` adds a queued message to agent history, check `is_admin_stop_message` on each queued message. If an admin stop is found, set `stop_interrupt_token` instead of injecting it as a normal user message. Similarly, in `drain_queued_messages_loop`, check each queued message for admin stop before calling `run_locked_turn`; if it matches, stop the session cleanly and return rather than processing it as a turn. This ensures admin stop commands are intercepted at both the enqueue and dequeue paths, not just when the session is idle.
+
+Relevant files: `src/session_turn.ml`, `src/session_core.ml`, `src/agent.ml`
+
+--
+Auto-filed by clawq postmortem for session teams:personal:19:33930192bcc34118be4fb34139fd1949@thread.v2 (pattern: stop command not executed).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-06-26T115239-teams:personal:19:33930192bcc34118be4fb34139fd1949@thread.v2.md
