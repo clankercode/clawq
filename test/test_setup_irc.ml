@@ -100,7 +100,9 @@ let instructions_content () =
   Alcotest.(check bool)
     "has docs URL" true
     (Test_helpers.string_contains s "https://clawq.org/channels/#irc");
-  Alcotest.(check bool) "has daemon start" true (Test_helpers.string_contains s "clawq daemon start")
+  Alcotest.(check bool)
+    "has daemon start" true
+    (Test_helpers.string_contains s "clawq daemon start")
 
 let suite =
   [

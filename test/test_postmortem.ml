@@ -3,7 +3,6 @@
    message as just [role]: content, losing assistant tool_call names/args and
    tool result tool names. *)
 
-
 let assistant_with_tool_calls ~calls =
   {
     Provider.role = "assistant";
@@ -72,11 +71,14 @@ let test_format_history_text_repeated_tool_calls_show_each_invocation () =
   in
   Alcotest.(check bool)
     "rendered shows tool call id 'a'" true
-    (Test_helpers.string_contains rendered "tc=" || Test_helpers.string_contains rendered "id=a");
+    (Test_helpers.string_contains rendered "tc="
+    || Test_helpers.string_contains rendered "id=a");
   Alcotest.(check bool)
-    "rendered shows tool call id 'b'" true (Test_helpers.string_contains rendered "id=b");
+    "rendered shows tool call id 'b'" true
+    (Test_helpers.string_contains rendered "id=b");
   Alcotest.(check bool)
-    "rendered shows tool call id 'c'" true (Test_helpers.string_contains rendered "id=c");
+    "rendered shows tool call id 'c'" true
+    (Test_helpers.string_contains rendered "id=c");
   Alcotest.(check bool)
     "rendered mentions missing required parameter" true
     (Test_helpers.string_contains rendered "missing required parameter")

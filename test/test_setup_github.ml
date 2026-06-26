@@ -145,11 +145,16 @@ let instructions_without_tunnel () =
   Alcotest.(check bool)
     "has localhost url" true
     (Test_helpers.string_contains s "http://localhost:13451/github/webhook/app");
-  Alcotest.(check bool) "has secret" true (Test_helpers.string_contains s "abc123");
-  Alcotest.(check bool) "has tunnel note" true (Test_helpers.string_contains s "set up a tunnel");
+  Alcotest.(check bool)
+    "has secret" true
+    (Test_helpers.string_contains s "abc123");
+  Alcotest.(check bool)
+    "has tunnel note" true
+    (Test_helpers.string_contains s "set up a tunnel");
   Alcotest.(check bool)
     "has direct link" true
-    (Test_helpers.string_contains s "https://github.com/acme/app/settings/hooks/new")
+    (Test_helpers.string_contains s
+       "https://github.com/acme/app/settings/hooks/new")
 
 let instructions_with_tunnel () =
   let s =
@@ -159,8 +164,11 @@ let instructions_with_tunnel () =
   in
   Alcotest.(check bool)
     "has tunnel url" true
-    (Test_helpers.string_contains s "https://my.tunnel.example.com/github/webhook/app");
-  Alcotest.(check bool) "no tunnel note" false (Test_helpers.string_contains s "set up a tunnel")
+    (Test_helpers.string_contains s
+       "https://my.tunnel.example.com/github/webhook/app");
+  Alcotest.(check bool)
+    "no tunnel note" false
+    (Test_helpers.string_contains s "set up a tunnel")
 
 let instructions_include_verification_and_hook_notes () =
   let s =
@@ -178,12 +186,14 @@ let instructions_include_verification_and_hook_notes () =
     "mentions daemon log" true
     (Test_helpers.string_contains s "tail -f ~/.clawq/daemon.log");
   Alcotest.(check bool)
-    "mentions github hooks log lines" true (Test_helpers.string_contains s "GitHub hooks:");
+    "mentions github hooks log lines" true
+    (Test_helpers.string_contains s "GitHub hooks:");
   Alcotest.(check bool)
     "mentions gh-hooks dir" true
     (Test_helpers.string_contains s "~/.clawq/workspace/gh-hooks/");
   Alcotest.(check bool)
-    "mentions workflow event name" true (Test_helpers.string_contains s "workflow_run");
+    "mentions workflow event name" true
+    (Test_helpers.string_contains s "workflow_run");
   Alcotest.(check bool)
     "mentions workflow failure status" true
     (Test_helpers.string_contains s "status: completed");
@@ -273,7 +283,8 @@ let instructions_has_settings_link () =
   in
   Alcotest.(check bool)
     "settings link" true
-    (Test_helpers.string_contains s "https://github.com/org/my-repo/settings/hooks/new")
+    (Test_helpers.string_contains s
+       "https://github.com/org/my-repo/settings/hooks/new")
 
 let suite =
   [

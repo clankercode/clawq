@@ -1,4 +1,3 @@
-
 let always_exists _ = true
 
 let rec remove_tree path =

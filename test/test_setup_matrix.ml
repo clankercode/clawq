@@ -103,7 +103,8 @@ let build_json_specific_rooms () =
 let instructions_content () =
   let s = Setup_matrix.post_setup_instructions in
   Alcotest.(check bool)
-    "has access token mention" true (Test_helpers.string_contains s "access token");
+    "has access token mention" true
+    (Test_helpers.string_contains s "access token");
   Alcotest.(check bool)
     "has docs URL" true
     (Test_helpers.string_contains s "https://clawq.org/channels/#matrix")

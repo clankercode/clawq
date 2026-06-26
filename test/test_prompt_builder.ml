@@ -1,4 +1,3 @@
-
 let with_temp_workspace f =
   let base = Filename.get_temp_dir_name () in
   let dir =
@@ -102,10 +101,13 @@ let test_runtime_context_includes_git_details () =
             Prompt_builder.build_runtime_context ~config:cfg ()
             |> Option.value ~default:""
           in
-          Alcotest.(check bool) "includes os" true (Test_helpers.string_contains runtime "- OS: ");
+          Alcotest.(check bool)
+            "includes os" true
+            (Test_helpers.string_contains runtime "- OS: ");
           Alcotest.(check bool)
             "includes repo root" true
-            (Test_helpers.string_contains runtime ("- Git repo root: " ^ workspace));
+            (Test_helpers.string_contains runtime
+               ("- Git repo root: " ^ workspace));
           Alcotest.(check bool)
             "includes git branch" true
             (Test_helpers.string_contains runtime "- Git branch: main"))
@@ -164,7 +166,8 @@ let test_runtime_context_includes_session_details () =
         (Test_helpers.string_contains runtime "- Session id: telegram:123:456");
       Alcotest.(check bool)
         "includes heartbeat applicability" true
-        (Test_helpers.string_contains runtime "- Heartbeat routing enabled for this session: yes");
+        (Test_helpers.string_contains runtime
+           "- Heartbeat routing enabled for this session: yes");
       Alcotest.(check bool)
         "includes sandbox summary" true
         (Test_helpers.string_contains runtime
@@ -174,7 +177,8 @@ let test_runtime_context_includes_session_details () =
         (Test_helpers.string_contains runtime "- Daemon uptime: 1h 23m");
       Alcotest.(check bool)
         "includes context usage" true
-        (Test_helpers.string_contains runtime "- Context usage: 12 messages, ~3456/128000 tokens");
+        (Test_helpers.string_contains runtime
+           "- Context usage: 12 messages, ~3456/128000 tokens");
       Alcotest.(check bool)
         "includes compaction trigger" true
         (Test_helpers.string_contains runtime
@@ -185,7 +189,8 @@ let test_runtime_context_includes_session_details () =
         (Test_helpers.string_contains runtime "- Background tasks: none running");
       Alcotest.(check bool)
         "includes tunnel status" true
-        (Test_helpers.string_contains runtime "- Tunnel: https://my-tunnel.trycloudflare.com"))
+        (Test_helpers.string_contains runtime
+           "- Tunnel: https://my-tunnel.trycloudflare.com"))
 
 let remove_file path = try Sys.remove path with _ -> ()
 
@@ -738,7 +743,8 @@ let test_project_docs_dedup_vs_workspace () =
       | Some c ->
           Alcotest.(check bool)
             "deduped AGENTS.md not in project docs" false
-            (Test_helpers.string_contains c "SHARED CONTENT BETWEEN WORKSPACE AND PROJECT"))
+            (Test_helpers.string_contains c
+               "SHARED CONTENT BETWEEN WORKSPACE AND PROJECT"))
 
 let test_project_docs_dedup_self () =
   with_temp_git_repo (fun dir ->
@@ -1012,7 +1018,8 @@ let test_workspace_docs_suppressed_for_named_agent () =
         (fun (name, sentinel) ->
           Alcotest.(check bool)
             (Printf.sprintf "%s content excluded for named agent" name)
-            false (Test_helpers.string_contains prompt sentinel))
+            false
+            (Test_helpers.string_contains prompt sentinel))
         all_ws_files;
       (* BOOTSTRAP.md also excluded *)
       Alcotest.(check bool)
@@ -1096,7 +1103,8 @@ let test_workspace_docs_present_for_default_agent () =
           Alcotest.(check bool)
             (Printf.sprintf "%s content %s for default agent" name
                (if expect then "present" else "excluded (EGO.md exists)"))
-            expect (Test_helpers.string_contains prompt sentinel))
+            expect
+            (Test_helpers.string_contains prompt sentinel))
         all_ws_files;
       (* No suppression note *)
       Alcotest.(check bool)
@@ -1246,7 +1254,8 @@ let test_root_docs_refresh_on_change () =
       | None -> Alcotest.fail "expected content after refresh"
       | Some c ->
           Alcotest.(check bool)
-            "content updated to MODIFIED" true (Test_helpers.string_contains c "MODIFIED"))
+            "content updated to MODIFIED" true
+            (Test_helpers.string_contains c "MODIFIED"))
 
 let test_root_docs_no_refresh_when_unchanged () =
   with_temp_git_repo (fun dir ->

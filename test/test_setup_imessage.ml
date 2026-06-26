@@ -56,7 +56,9 @@ let post_instructions_content () =
   Alcotest.(check bool)
     "has docs url" true
     (Test_helpers.string_contains s "https://clawq.org/channels/#imessage");
-  Alcotest.(check bool) "has poll mention" true (Test_helpers.string_contains s "poll")
+  Alcotest.(check bool)
+    "has poll mention" true
+    (Test_helpers.string_contains s "poll")
 
 let suite =
   [

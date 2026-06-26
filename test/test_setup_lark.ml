@@ -68,8 +68,11 @@ let instructions_content () =
     (Test_helpers.string_contains s "https://clawq.org/channels/#lark");
   Alcotest.(check bool)
     "has feishu mention" true
-    (Test_helpers.string_contains s "feishu" || Test_helpers.string_contains s "Feishu");
-  Alcotest.(check bool) "has daemon start" true (Test_helpers.string_contains s "clawq daemon start")
+    (Test_helpers.string_contains s "feishu"
+    || Test_helpers.string_contains s "Feishu");
+  Alcotest.(check bool)
+    "has daemon start" true
+    (Test_helpers.string_contains s "clawq daemon start")
 
 let suite =
   [

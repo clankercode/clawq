@@ -84,8 +84,12 @@ let post_instructions_content () =
   Alcotest.(check bool)
     "has docs url" true
     (Test_helpers.string_contains s "https://clawq.org/heartbeat/");
-  Alcotest.(check bool) "mentions interval" true (Test_helpers.string_contains s "interval");
-  Alcotest.(check bool) "mentions quiet" true (Test_helpers.string_contains s "quiet")
+  Alcotest.(check bool)
+    "mentions interval" true
+    (Test_helpers.string_contains s "interval");
+  Alcotest.(check bool)
+    "mentions quiet" true
+    (Test_helpers.string_contains s "quiet")
 
 let suite =
   [

@@ -102,8 +102,12 @@ let post_instructions_content () =
   Alcotest.(check bool)
     "has docs url" true
     (Test_helpers.string_contains s "https://clawq.org/gateway/");
-  Alcotest.(check bool) "mentions pairing" true (Test_helpers.string_contains s "pairing");
-  Alcotest.(check bool) "mentions port" true (Test_helpers.string_contains s "port")
+  Alcotest.(check bool)
+    "mentions pairing" true
+    (Test_helpers.string_contains s "pairing");
+  Alcotest.(check bool)
+    "mentions port" true
+    (Test_helpers.string_contains s "port")
 
 let suite =
   [

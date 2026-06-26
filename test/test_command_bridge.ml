@@ -1137,7 +1137,6 @@ let test_handle_auth () =
   let result = Command_bridge.handle [ "auth" ] in
   Alcotest.(check bool) "auth returns output" true (String.length result > 0)
 
-
 let test_auth_set_key_redacts_output () =
   with_temp_home (fun home ->
       let clawq_dir = Filename.concat home ".clawq" in
@@ -1164,7 +1163,9 @@ let test_auth_set_key_unknown_provider_errors () =
         Command_bridge.handle
           [ "auth"; "set-key"; "notarealprovider"; "sk-abcdef" ]
       in
-      Alcotest.(check bool) "returns error" true (Test_helpers.string_contains result "Error:");
+      Alcotest.(check bool)
+        "returns error" true
+        (Test_helpers.string_contains result "Error:");
       Alcotest.(check bool)
         "mentions unknown provider" true
         (Test_helpers.string_contains result "notarealprovider");
@@ -1180,7 +1181,9 @@ let test_auth_set_key_unknown_provider_errors () =
 
 let test_auth_set_key_no_args_shows_usage () =
   let result = Command_bridge.handle [ "auth"; "set-key" ] in
-  Alcotest.(check bool) "shows usage" true (Test_helpers.string_contains result "Usage:");
+  Alcotest.(check bool)
+    "shows usage" true
+    (Test_helpers.string_contains result "Usage:");
   Alcotest.(check bool)
     "mentions interactive" true
     (Test_helpers.string_contains result "interactively")

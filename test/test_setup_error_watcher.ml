@@ -114,7 +114,9 @@ let post_instructions_content () =
   Alcotest.(check bool)
     "has docs url" true
     (Test_helpers.string_contains s "https://clawq.org/error-watcher/");
-  Alcotest.(check bool) "mentions scan" true (Test_helpers.string_contains s "scan")
+  Alcotest.(check bool)
+    "mentions scan" true
+    (Test_helpers.string_contains s "scan")
 
 let suite =
   [
