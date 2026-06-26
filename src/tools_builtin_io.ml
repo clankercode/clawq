@@ -744,10 +744,6 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
   }
 
 let is_localhost_url url =
-  let is_loopback_host host =
-    let host = String.lowercase_ascii host in
-    host = "localhost" || host = "127.0.0.1" || host = "::1"
-  in
   let has_http_scheme uri =
     match Uri.scheme uri with
     | Some scheme ->
@@ -761,7 +757,7 @@ let is_localhost_url url =
     && Uri.userinfo uri = None
     &&
     match Uri.host uri with
-    | Some host -> is_loopback_host host
+    | Some host -> String_util.is_loopback_host host
     | None -> false
   with _ -> false
 

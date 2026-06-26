@@ -165,10 +165,7 @@ let parse_json_error_body body =
     | _ -> None
   with _ -> None
 
-let is_loopback_host host =
-  match String.lowercase_ascii (String.trim host) with
-  | "localhost" | "127.0.0.1" | "::1" -> true
-  | _ -> false
+let is_loopback_host = String_util.is_loopback_host
 
 let post_json_sync ~uri ~headers ~body =
   Lwt_main.run

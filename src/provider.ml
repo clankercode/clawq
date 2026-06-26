@@ -287,8 +287,18 @@ let model_requires_reasoning_content model =
 (* B638: inline copy of Message_history.ensure_tool_group_integrity so the
    OpenAI-compat path in this module can pre-strip orphan tool_use /
    tool_result pairs without creating a cyclic import (Message_history
-   already depends on Provider for the message type). Keep in sync if the
-   upstream implementation evolves. *)
+   already depends on Provider for the message type, so Provider cannot call
+   back into it). Keep the core orphan-stripping logic in sync if the upstream
+   implementation evolves.
+
+   Intentional divergence from Message_history.ensure_tool_group_integrity:
+   that version additionally strips orphaned function_call entries from each
+   message's provider_response_items_json (the Codex/Responses-API replay
+   payload) and emits a "[message_history]" WARN per dropped orphan. This
+   inline copy is only ever applied on the /chat/completions fallback path
+   below, where messages_to_json never serializes provider_response_items_json,
+   so the strip step would be dead work here. Do NOT add it back without a
+   concrete chat/completions need. *)
 let inline_ensure_tool_group_integrity (msgs : message list) =
   let call_ids =
     List.fold_left

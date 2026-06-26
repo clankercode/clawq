@@ -43,3 +43,12 @@ let redact_token s =
   let len = String.length s in
   if len <= 8 then String.make len '*'
   else String.sub s 0 4 ^ "..." ^ String.sub s (len - 4) 4
+
+(* True for hostnames that resolve to the local loopback interface. Shared by
+   command_bridge_helpers (gateway pairing auto-fetch guard) and
+   tools_builtin_io (http_get localhost-only guard). Trims surrounding
+   whitespace defensively. *)
+let is_loopback_host host =
+  match String.lowercase_ascii (String.trim host) with
+  | "localhost" | "127.0.0.1" | "::1" -> true
+  | _ -> false
