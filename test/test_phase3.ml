@@ -623,7 +623,7 @@ let test_config_nullclaw_compat_paths () =
     }|}
   in
   let json = Yojson.Safe.from_string json_str in
-  let config = Config_loader.parse_config json in
+  let config = Config_loader.parse_config ~resolve_secrets:false json in
   Alcotest.(check int)
     "providers from models.providers" 1
     (List.length config.providers);

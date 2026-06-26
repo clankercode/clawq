@@ -168,11 +168,12 @@ let test_parse_message_event () =
     {|{"type":"event_callback","event":{"type":"message","channel":"C123","user":"U456","text":"hello"}}|}
   in
   match Slack.parse_event body with
-  | Some (Slack.Message { channel_id; user_id; text; bot_id }) ->
+  | Some (Slack.Message { channel_id; user_id; text; bot_id; thread_ts; _ }) ->
       Alcotest.(check string) "channel" "C123" channel_id;
       Alcotest.(check string) "user" "U456" user_id;
       Alcotest.(check string) "text" "hello" text;
-      Alcotest.(check (option string)) "no bot_id" None bot_id
+      Alcotest.(check (option string)) "no bot_id" None bot_id;
+      Alcotest.(check (option string)) "no thread_ts" None thread_ts
   | _ -> Alcotest.fail "expected Message"
 
 let test_bot_message_ignored () =
@@ -308,6 +309,53 @@ let test_parse_event_no_files () =
       Alcotest.(check int) "no files" 0 (List.length files)
   | _ -> Alcotest.fail "expected Message"
 
+let test_parse_threaded_message () =
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"reply in thread","ts":"1234.5678","thread_ts":"1234.0000"}}|}
+  in
+  match Slack.parse_event body with
+  | Some (Slack.Message { channel_id; text; thread_ts; ts; _ }) ->
+      Alcotest.(check string) "channel" "C1" channel_id;
+      Alcotest.(check string) "text" "reply in thread" text;
+      Alcotest.(check string) "ts" "1234.5678" ts;
+      Alcotest.(check (option string)) "thread_ts" (Some "1234.0000") thread_ts
+  | _ -> Alcotest.fail "expected Message with thread_ts"
+
+let test_parse_non_threaded_message () =
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"regular message","ts":"5678.1234"}}|}
+  in
+  match Slack.parse_event body with
+  | Some (Slack.Message { thread_ts; ts; _ }) ->
+      Alcotest.(check string) "ts" "5678.1234" ts;
+      Alcotest.(check (option string)) "thread_ts" None thread_ts
+  | _ -> Alcotest.fail "expected Message without thread_ts"
+
+let test_reply_body_includes_thread_ts () =
+  let json_str =
+    Slack.build_post_body ~channel_id:"C1" ~text:"hi"
+      ~thread_ts:(Some "1234.0000")
+  in
+  let json = Yojson.Safe.from_string json_str in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "channel" "C1" (json |> member "channel" |> to_string);
+  Alcotest.(check string) "text" "hi" (json |> member "text" |> to_string);
+  Alcotest.(check string)
+    "thread_ts present" "1234.0000"
+    (json |> member "thread_ts" |> to_string)
+
+let test_reply_body_omits_thread_ts () =
+  let json_str =
+    Slack.build_post_body ~channel_id:"C1" ~text:"hi" ~thread_ts:None
+  in
+  let json = Yojson.Safe.from_string json_str in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "channel" "C1" (json |> member "channel" |> to_string);
+  Alcotest.(check string) "text" "hi" (json |> member "text" |> to_string);
+  Alcotest.(check bool)
+    "thread_ts absent" true
+    (match json |> member "thread_ts" with `Null -> true | _ -> false)
+
 let suite =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -336,6 +384,14 @@ let suite =
     Alcotest.test_case "parse event with files" `Quick
       test_parse_event_with_files;
     Alcotest.test_case "parse event no files" `Quick test_parse_event_no_files;
+    Alcotest.test_case "parse threaded message" `Quick
+      test_parse_threaded_message;
+    Alcotest.test_case "parse non-threaded message" `Quick
+      test_parse_non_threaded_message;
+    Alcotest.test_case "reply body includes thread_ts" `Quick
+      test_reply_body_includes_thread_ts;
+    Alcotest.test_case "reply body omits thread_ts" `Quick
+      test_reply_body_omits_thread_ts;
   ]
 
 let test_resolve_session_key_unprofiled () =

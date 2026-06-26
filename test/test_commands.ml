@@ -232,7 +232,7 @@ let test_config_parse_providers () =
     Yojson.Safe.from_string
       {|{"providers": {"openai": {"api_key": "sk-test"}}}|}
   in
-  let cfg = Config_loader.parse_config json in
+  let cfg = Config_loader.parse_config ~resolve_secrets:false json in
   Alcotest.(check int) "1 provider" 1 (List.length cfg.providers);
   let name, _ = List.hd cfg.providers in
   Alcotest.(check string) "provider name" "openai" name
@@ -279,7 +279,7 @@ let test_config_parse_multiple_providers () =
           "groq": {"api_key": "sk-groq"}
         }}|}
   in
-  let cfg = Config_loader.parse_config json in
+  let cfg = Config_loader.parse_config ~resolve_secrets:false json in
   Alcotest.(check int) "3 providers" 3 (List.length cfg.providers)
 
 let test_config_parse_no_channels () =
