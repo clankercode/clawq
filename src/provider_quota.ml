@@ -540,12 +540,9 @@ let parse_iso8601 s =
     (* Convert UTC struct tm to unix epoch via mktime (local) then adjust
        for the local timezone offset. *)
     let local_ts, _ = Unix.mktime tm in
-    let dummy_gm = Unix.gmtime 0.0 in
-    let dummy_local = Unix.localtime 0.0 in
     let tz_offset_s =
-      float_of_int
-        (((dummy_local.Unix.tm_hour - dummy_gm.Unix.tm_hour) * 3600)
-        + ((dummy_local.Unix.tm_min - dummy_gm.Unix.tm_min) * 60))
+      let local_back_ts, _ = Unix.mktime (Unix.localtime 0.0) in
+      local_back_ts
     in
     Some (local_ts -. tz_offset_s)
   with _ -> None

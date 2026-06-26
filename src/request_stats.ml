@@ -169,27 +169,41 @@ let summary_for_session ~db ~session_key =
   with _ -> zero_summary
 
 let is_valid_date_expr s =
-  (* Whitelist: must be a datetime() or date() call with 'now' and safe args *)
+  (* Strict whitelist: only allow datetime('now', '...') or date('now', '...')
+     where the modifier contains only safe chars (no SQL metacharacters). *)
   let len = String.length s in
   let starts_with prefix =
     let plen = String.length prefix in
     len >= plen && String.sub s 0 plen = prefix
   in
-  let has_substr sub =
-    let slen = String.length sub in
-    let rec go i =
-      if i + slen > len then false
-      else if String.sub s i slen = sub then true
-      else go (i + 1)
-    in
-    go 0
-  in
-  (starts_with "datetime('now'," || starts_with "date('now',")
+  (starts_with "datetime('now', '" || starts_with "date('now', '")
   && len > 0
   && s.[len - 1] = ')'
-  && (not (has_substr ";"))
-  && (not (has_substr "' UNION"))
-  && not (has_substr "' OR")
+  (* Extract the modifier between the inner quotes *)
+  &&
+  let inner_start =
+    if starts_with "datetime('now', '" then String.length "datetime('now', '"
+    else String.length "date('now', '"
+  in
+  (* Find the closing inner quote *)
+  let rec find_quote i =
+    if i >= len then None
+    else if s.[i] = '\'' then Some i
+    else find_quote (i + 1)
+  in
+  match find_quote inner_start with
+  | None -> false
+  | Some quote_pos ->
+      let modifier = String.sub s inner_start (quote_pos - inner_start) in
+      (* Only allow: alphanumeric, space, +, - *)
+      String.length modifier > 0
+      && String.for_all
+           (fun c ->
+             (c >= 'a' && c <= 'z')
+             || (c >= 'A' && c <= 'Z')
+             || (c >= '0' && c <= '9')
+             || c = ' ' || c = '+' || c = '-')
+           modifier
 
 let resolve_since ~db since =
   if not (is_valid_date_expr since) then (

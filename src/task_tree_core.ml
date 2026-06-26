@@ -468,11 +468,10 @@ let get_ancestors ~tasks ~id =
   go id []
 
 let next_sort_order ~db ~session_key =
-  Memory.query_single_int db
-    (Printf.sprintf
-       "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM task_tree WHERE \
-        session_key = '%s'"
-       (String.concat "''" (String.split_on_char '\'' session_key)))
+  Memory.query_single_int_with_params db
+    "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM task_tree WHERE session_key \
+     = ?"
+    [ Sqlite3.Data.TEXT session_key ]
 
 let insert_task ~db ~session_key ~id ~parent_id ~title ~status ~note ~depends_on
     ~agent_model ~agent_type ~agent_prompt ~agent_details ~autostart =

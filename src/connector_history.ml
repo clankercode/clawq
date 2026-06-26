@@ -31,15 +31,12 @@ let parse_utc_datetime s =
         (* Unix.mktime interprets tm as local time. To get the UTC epoch,
            compute the local-timezone offset and add it back. *)
         let local_epoch, _ = Unix.mktime tm in
-        let utc_of_local = Unix.gmtime local_epoch in
-        let local_of_local = Unix.localtime local_epoch in
-        let diff_h = local_of_local.Unix.tm_hour - utc_of_local.Unix.tm_hour in
-        let diff_d = local_of_local.Unix.tm_yday - utc_of_local.Unix.tm_yday in
-        (* Normalize day diff for year boundary (e.g., Dec 31 vs Jan 1) *)
-        let diff_d =
-          if diff_d > 1 then -1 else if diff_d < -1 then 1 else diff_d
+        (* Compute timezone offset using timestamp diff to handle day boundaries *)
+        let tz_offset =
+          let local_back_ts, _ = Unix.mktime (Unix.localtime 0.0) in
+          local_back_ts
         in
-        local_epoch +. float_of_int ((diff_h + (diff_d * 24)) * 3600))
+        local_epoch -. tz_offset)
   with _ -> Unix.gettimeofday ()
 
 (* Per-session in-memory buffers.  Key = session_key, value = entry list

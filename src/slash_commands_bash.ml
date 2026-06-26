@@ -5,13 +5,21 @@ let run_bash_command ?(timeout_secs = 60.0) cmd =
     Lwt.catch (fun () -> Lwt_io.read ch) (fun _ -> Lwt.return "")
   in
   let forced_result = ref None in
+  let closed = ref false in
+  let safe_close () =
+    if not !closed then begin
+      closed := true;
+      Process_group.close proc
+    end
+    else Lwt.return_unit
+  in
   let runner () =
     let open Lwt.Syntax in
     let* stdout, stderr =
       Lwt.both (read_all proc.stdout) (read_all proc.stderr)
     in
     let* status = Process_group.wait proc.pid in
-    let* () = Process_group.close proc in
+    let* () = safe_close () in
     match !forced_result with
     | Some msg -> Lwt.return (Error msg)
     | None ->
@@ -29,7 +37,7 @@ let run_bash_command ?(timeout_secs = 60.0) cmd =
     forced_result := Some "command timed out";
     let* () = Process_group.terminate proc.pid in
     let* _ = Process_group.wait proc.pid in
-    let* () = Process_group.close proc in
+    let* () = safe_close () in
     Lwt.return (Error "command timed out")
   in
   Lwt.pick [ runner (); timeout () ]

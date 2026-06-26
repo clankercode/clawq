@@ -574,13 +574,20 @@ let parse_callback_input ~expected_state input =
   else Ok trimmed
 
 let try_open_browser url =
-  let commands =
-    [
-      Printf.sprintf "xdg-open '%s' >/dev/null 2>&1" url;
-      Printf.sprintf "open '%s' >/dev/null 2>&1" url;
-    ]
+  let safe =
+    let lower = String.lowercase_ascii url in
+    String.starts_with ~prefix:"http://" lower
+    || String.starts_with ~prefix:"https://" lower
   in
-  List.exists (fun cmd -> Sys.command cmd = 0) commands
+  if not safe then false
+  else
+    let commands =
+      [
+        Printf.sprintf "xdg-open %s >/dev/null 2>&1" (Filename.quote url);
+        Printf.sprintf "open %s >/dev/null 2>&1" (Filename.quote url);
+      ]
+    in
+    List.exists (fun cmd -> Sys.command cmd = 0) commands
 
 let callback_page_ok =
   Html_page.render ~title:"Auth Complete" ~extra_css:""

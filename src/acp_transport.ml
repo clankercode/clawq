@@ -31,7 +31,7 @@ let jsonrpc_request ~id ~method_ ~params =
   `Assoc
     [
       ("jsonrpc", `String "2.0");
-      ("id", `Int id);
+      ("id", id);
       ("method", `String method_);
       ("params", params);
     ]
@@ -43,12 +43,12 @@ let jsonrpc_notification ~method_ ~params =
     ]
 
 let jsonrpc_response ~id ~result =
-  `Assoc [ ("jsonrpc", `String "2.0"); ("id", `Int id); ("result", result) ]
+  `Assoc [ ("jsonrpc", `String "2.0"); ("id", id); ("result", result) ]
 
 let jsonrpc_error ~id ~code ~message =
   `Assoc
     [
       ("jsonrpc", `String "2.0");
-      ("id", `Int id);
+      ("id", id);
       ("error", `Assoc [ ("code", `Int code); ("message", `String message) ]);
     ]
