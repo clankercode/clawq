@@ -227,29 +227,42 @@ let parse_pipeline_def ?(source_path = "") (json : Yojson.Safe.t) =
           let description =
             match string_of "description" pairs with Some d -> d | None -> ""
           in
-          let inputs =
+          let inputs, input_errors =
             match assoc_of "inputs" pairs with
             | Some input_pairs ->
-                List.filter_map
-                  (fun (key, v) ->
+                List.fold_left
+                  (fun (acc, errs) (key, v) ->
                     match parse_input_def v with
-                    | Ok def -> Some (key, def)
-                    | Error _ -> None)
-                  input_pairs
-            | None -> []
+                    | Ok def -> ((key, def) :: acc, errs)
+                    | Error msg ->
+                        (acc, Printf.sprintf "input '%s': %s" key msg :: errs))
+                  ([], []) input_pairs
+            | None -> ([], [])
           in
-          let steps =
+          let steps, step_errors =
             match list_of "steps" pairs with
             | Some step_list ->
-                List.filter_map
-                  (fun s ->
+                List.fold_left
+                  (fun (acc, errs) s ->
                     match parse_step s with
-                    | Ok step -> Some step
-                    | Error _ -> None)
-                  step_list
-            | None -> []
+                    | Ok step -> (step :: acc, errs)
+                    | Error msg -> (acc, ("step: " ^ msg) :: errs))
+                  ([], []) step_list
+            | None -> ([], [])
           in
-          Ok { name; version; description; inputs; steps; source_path })
+          let all_errors = input_errors @ step_errors in
+          if all_errors <> [] then
+            Error (String.concat "; " (List.rev all_errors))
+          else
+            Ok
+              {
+                name;
+                version;
+                description;
+                inputs = List.rev inputs;
+                steps = List.rev steps;
+                source_path;
+              })
   | _ -> Error "pipeline definition must be a JSON object"
 
 let load_pipeline path =
@@ -341,6 +354,13 @@ let validate_pipeline_def (def : pipeline_def) =
 
 (* ── Template substitution ─────────────────────────────────────────────── *)
 
+(* Note: template variables are delimited by {{ and }}. Nested braces
+   within variable expressions are not supported (e.g., {{json: {"key":
+   "val"}}} would match the inner }} prematurely). Escaped \{{ is also
+   not handled. If you need literal braces in output, use step outputs
+   that contain the desired text. *)
+(* Note: input_map keys are static; only values support {{template}}
+   substitution. Dynamic key references are not supported. *)
 let substitute_template template ~inputs ~step_outputs =
   let buf = Buffer.create (String.length template) in
   let len = String.length template in

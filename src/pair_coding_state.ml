@@ -80,9 +80,7 @@ let init_schema db =
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_pair_note_session ON pair_note(session_id)"
 
-let generate_id () =
-  let n = Random.int 0x10000000 in
-  Printf.sprintf "%07x" n
+let generate_id () = Printf.sprintf "%016Lx" (Random.int64 Int64.max_int)
 
 let create_session ~db ~(config : pair_config) =
   let rec try_id () =
@@ -90,13 +88,15 @@ let create_session ~db ~(config : pair_config) =
     let stmt =
       Sqlite3.prepare db "SELECT COUNT(*) FROM pair_session WHERE id = ?"
     in
-    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
     let exists =
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> Sqlite3.column_int stmt 0 > 0
-      | _ -> false
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW -> Sqlite3.column_int stmt 0 > 0
+          | _ -> false)
     in
-    ignore (Sqlite3.finalize stmt);
     if exists then try_id () else id
   in
   let id = try_id () in
@@ -111,30 +111,34 @@ let create_session ~db ~(config : pair_config) =
        observer_key, coordinator_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
        ?, ?, ?)"
   in
-  let opt_text = function Some s -> Sqlite3.Data.TEXT s | None -> NULL in
-  ignore (Sqlite3.bind stmt 1 (TEXT id));
-  ignore (Sqlite3.bind stmt 2 (TEXT config.task_description));
-  ignore (Sqlite3.bind stmt 3 (INT (Int64.of_int config.max_review_rounds)));
-  ignore
-    (Sqlite3.bind stmt 4
-       (TEXT (Pair_coding_types.interrupt_mode_to_string config.interrupt_mode)));
-  ignore (Sqlite3.bind stmt 5 (opt_text config.workspace));
-  ignore (Sqlite3.bind stmt 6 (opt_text config.worktree_path));
-  ignore (Sqlite3.bind stmt 7 (opt_text config.branch_name));
-  ignore (Sqlite3.bind stmt 8 (INT (if config.auto_swap_roles then 1L else 0L)));
-  ignore (Sqlite3.bind stmt 9 (opt_text config.coder_model));
-  ignore (Sqlite3.bind stmt 10 (opt_text config.observer_model));
-  ignore (Sqlite3.bind stmt 11 (opt_text config.coordinator_model));
-  ignore (Sqlite3.bind stmt 12 (TEXT coder_key));
-  ignore (Sqlite3.bind stmt 13 (TEXT observer_key));
-  ignore (Sqlite3.bind stmt 14 (TEXT coordinator_key));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to create pair session: %s"
-           (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt);
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let opt_text = function Some s -> Sqlite3.Data.TEXT s | None -> NULL in
+      ignore (Sqlite3.bind stmt 1 (TEXT id));
+      ignore (Sqlite3.bind stmt 2 (TEXT config.task_description));
+      ignore (Sqlite3.bind stmt 3 (INT (Int64.of_int config.max_review_rounds)));
+      ignore
+        (Sqlite3.bind stmt 4
+           (TEXT
+              (Pair_coding_types.interrupt_mode_to_string config.interrupt_mode)));
+      ignore (Sqlite3.bind stmt 5 (opt_text config.workspace));
+      ignore (Sqlite3.bind stmt 6 (opt_text config.worktree_path));
+      ignore (Sqlite3.bind stmt 7 (opt_text config.branch_name));
+      ignore
+        (Sqlite3.bind stmt 8 (INT (if config.auto_swap_roles then 1L else 0L)));
+      ignore (Sqlite3.bind stmt 9 (opt_text config.coder_model));
+      ignore (Sqlite3.bind stmt 10 (opt_text config.observer_model));
+      ignore (Sqlite3.bind stmt 11 (opt_text config.coordinator_model));
+      ignore (Sqlite3.bind stmt 12 (TEXT coder_key));
+      ignore (Sqlite3.bind stmt 13 (TEXT observer_key));
+      ignore (Sqlite3.bind stmt 14 (TEXT coordinator_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to create pair session: %s"
+               (Sqlite3.Rc.to_string rc)));
   id
 
 let opt_text_col stmt i =
@@ -205,27 +209,30 @@ let load_session ~db ~id =
       (Printf.sprintf "SELECT %s FROM pair_session WHERE id = ?"
          session_select_cols)
   in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
-  let result =
-    match Sqlite3.step stmt with
-    | Sqlite3.Rc.ROW -> Some (record_of_row stmt)
-    | _ -> None
-  in
-  ignore (Sqlite3.finalize stmt);
-  result
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> Some (record_of_row stmt)
+      | _ -> None)
 
 let update_phase ~db ~id (phase : Pair_coding_types.phase) =
   let stmt =
     Sqlite3.prepare db "UPDATE pair_session SET phase = ? WHERE id = ?"
   in
-  ignore (Sqlite3.bind stmt 1 (TEXT (Pair_coding_types.phase_to_string phase)));
-  ignore (Sqlite3.bind stmt 2 (TEXT id));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to update phase: %s" (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1 (TEXT (Pair_coding_types.phase_to_string phase)));
+      ignore (Sqlite3.bind stmt 2 (TEXT id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to update phase: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 let set_approval ~db ~id ~(role : Pair_coding_types.role) ~approved ~comment =
   exec_exn db "BEGIN IMMEDIATE";
@@ -279,26 +286,29 @@ let add_note ~db ~session_id ~description ?category ~severity ?file ?line () =
       "INSERT INTO pair_note (session_id, description, category, severity, \
        file, line) VALUES (?, ?, ?, ?, ?, ?)"
   in
-  let opt_text = function Some s -> Sqlite3.Data.TEXT s | None -> NULL in
-  let opt_int = function
-    | Some n -> Sqlite3.Data.INT (Int64.of_int n)
-    | None -> NULL
-  in
-  ignore (Sqlite3.bind stmt 1 (TEXT session_id));
-  ignore (Sqlite3.bind stmt 2 (TEXT description));
-  ignore
-    (Sqlite3.bind stmt 3
-       (opt_text (Option.map Pair_coding_types.category_to_string category)));
-  ignore
-    (Sqlite3.bind stmt 4 (TEXT (Pair_coding_types.severity_to_string severity)));
-  ignore (Sqlite3.bind stmt 5 (opt_text file));
-  ignore (Sqlite3.bind stmt 6 (opt_int line));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to add note: %s" (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt);
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let opt_text = function Some s -> Sqlite3.Data.TEXT s | None -> NULL in
+      let opt_int = function
+        | Some n -> Sqlite3.Data.INT (Int64.of_int n)
+        | None -> NULL
+      in
+      ignore (Sqlite3.bind stmt 1 (TEXT session_id));
+      ignore (Sqlite3.bind stmt 2 (TEXT description));
+      ignore
+        (Sqlite3.bind stmt 3
+           (opt_text (Option.map Pair_coding_types.category_to_string category)));
+      ignore
+        (Sqlite3.bind stmt 4
+           (TEXT (Pair_coding_types.severity_to_string severity)));
+      ignore (Sqlite3.bind stmt 5 (opt_text file));
+      ignore (Sqlite3.bind stmt 6 (opt_int line));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to add note: %s" (Sqlite3.Rc.to_string rc)));
   let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
   id
 
@@ -308,50 +318,57 @@ let load_notes ~db ~session_id =
       "SELECT id, description, category, severity, file, line, resolved, \
        created_at FROM pair_note WHERE session_id = ? ORDER BY id ASC"
   in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_id));
-  let notes = ref [] in
-  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-    let sev_str = text_col stmt 3 in
-    let severity =
-      match Pair_coding_types.severity_of_string sev_str with
-      | Some s -> s
-      | None -> Pair_coding_types.Medium
-    in
-    let cat_str = opt_text_col stmt 2 in
-    let category = Option.bind cat_str Pair_coding_types.category_of_string in
-    let line_val =
-      match Sqlite3.column stmt 5 with
-      | Sqlite3.Data.INT n -> Some (Int64.to_int n)
-      | _ -> None
-    in
-    let note : Pair_coding_types.note =
-      {
-        id = int_col stmt 0;
-        description = text_col stmt 1;
-        category;
-        severity;
-        file = opt_text_col stmt 4;
-        line = line_val;
-        resolved = bool_col stmt 6;
-        created_at_ms = 0;
-      }
-    in
-    notes := note :: !notes
-  done;
-  ignore (Sqlite3.finalize stmt);
-  List.rev !notes
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_id));
+      let notes = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let sev_str = text_col stmt 3 in
+        let severity =
+          match Pair_coding_types.severity_of_string sev_str with
+          | Some s -> s
+          | None -> Pair_coding_types.Medium
+        in
+        let cat_str = opt_text_col stmt 2 in
+        let category =
+          Option.bind cat_str Pair_coding_types.category_of_string
+        in
+        let line_val =
+          match Sqlite3.column stmt 5 with
+          | Sqlite3.Data.INT n -> Some (Int64.to_int n)
+          | _ -> None
+        in
+        let note : Pair_coding_types.note =
+          {
+            id = int_col stmt 0;
+            description = text_col stmt 1;
+            category;
+            severity;
+            file = opt_text_col stmt 4;
+            line = line_val;
+            resolved = bool_col stmt 6;
+            created_at_ms = 0;
+          }
+        in
+        notes := note :: !notes
+      done;
+      List.rev !notes)
 
 let resolve_note ~db ~note_id =
   let stmt =
     Sqlite3.prepare db "UPDATE pair_note SET resolved = 1 WHERE id = ?"
   in
-  ignore (Sqlite3.bind stmt 1 (INT (Int64.of_int note_id)));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to resolve note: %s" (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (INT (Int64.of_int note_id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to resolve note: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 let finish_session ~db ~id =
   let stmt =
@@ -359,13 +376,16 @@ let finish_session ~db ~id =
       "UPDATE pair_session SET active = 0, finished_at = datetime('now') WHERE \
        id = ?"
   in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to finish session: %s" (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to finish session: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 let list_sessions ~db ?(active_only = false) () =
   let sql =
@@ -378,26 +398,30 @@ let list_sessions ~db ?(active_only = false) () =
         session_select_cols
   in
   let stmt = Sqlite3.prepare db sql in
-  let sessions = ref [] in
-  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-    sessions := record_of_row stmt :: !sessions
-  done;
-  ignore (Sqlite3.finalize stmt);
-  List.rev !sessions
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let sessions = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        sessions := record_of_row stmt :: !sessions
+      done;
+      List.rev !sessions)
 
 let update_review_round ~db ~id ~round =
   let stmt =
     Sqlite3.prepare db "UPDATE pair_session SET review_round = ? WHERE id = ?"
   in
-  ignore (Sqlite3.bind stmt 1 (INT (Int64.of_int round)));
-  ignore (Sqlite3.bind stmt 2 (TEXT id));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to update review_round: %s"
-           (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (INT (Int64.of_int round)));
+      ignore (Sqlite3.bind stmt 2 (TEXT id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to update review_round: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 let clear_approvals ~db ~id =
   let stmt =
@@ -405,11 +429,13 @@ let clear_approvals ~db ~id =
       "UPDATE pair_session SET coder_approved = 0, observer_approved = 0, \
        coder_comment = '', observer_comment = '' WHERE id = ?"
   in
-  ignore (Sqlite3.bind stmt 1 (TEXT id));
-  (match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "Failed to clear approvals: %s"
-           (Sqlite3.Rc.to_string rc)));
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (TEXT id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "Failed to clear approvals: %s"
+               (Sqlite3.Rc.to_string rc)))

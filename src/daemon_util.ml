@@ -1412,7 +1412,7 @@ let replay_durable_inbound_queue
       if reclaimed > 0 then
         Logs.info (fun m ->
             m "Boot: reclaimed %d stale inbound queue claims" reclaimed);
-      let reclaimed_failed = Memory.queue_reclaim_failed ~db in
+      let reclaimed_failed = Memory.queue_reclaim_failed ~db () in
       if reclaimed_failed > 0 then
         Logs.info (fun m ->
             m "Boot: reclaimed %d failed inbound queue rows for retry"

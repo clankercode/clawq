@@ -361,7 +361,7 @@ let test_create_session () =
     }
   in
   let id = Pair_coding_state.create_session ~db ~config in
-  Alcotest.(check bool) "id length <= 7" true (String.length id <= 7);
+  Alcotest.(check bool) "id length = 16" true (String.length id = 16);
   let session = Pair_coding_state.load_session ~db ~id in
   Alcotest.(check bool) "session exists" true (Option.is_some session);
   let s = Option.get session in
@@ -390,7 +390,7 @@ let test_id_length () =
   in
   for _ = 1 to 50 do
     let id = Pair_coding_state.create_session ~db ~config in
-    Alcotest.(check bool) "id <= 7 chars" true (String.length id <= 7)
+    Alcotest.(check bool) "id = 16 chars" true (String.length id = 16)
   done
 
 let test_session_keys () =

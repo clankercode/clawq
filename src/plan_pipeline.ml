@@ -89,7 +89,7 @@ let stage_of_string s =
             (String.length s - String.length pfx_fail)
         in
         PipelineFailed rest
-      else Planning
+      else PipelineFailed ("unknown stage string: " ^ s)
 
 let ensure_dir path =
   try if not (Sys.file_exists path) then Unix.mkdir path 0o755
@@ -391,9 +391,11 @@ let check_plan_stable ~pipeline ~bg_task =
       try
         let current_hash = Digest.file plan_path in
         let ic = open_in hash_file in
-        let before_hash = really_input_string ic (in_channel_length ic) in
-        close_in ic;
-        Lwt.return (current_hash = before_hash)
+        Fun.protect
+          ~finally:(fun () -> close_in_noerr ic)
+          (fun () ->
+            let before_hash = really_input_string ic (in_channel_length ic) in
+            Lwt.return (current_hash = before_hash))
       with _ -> Lwt.return false
     else Lwt.return false
 

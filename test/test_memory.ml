@@ -763,12 +763,36 @@ let test_queue_reclaim_failed () =
     | Memory.Claim_empty -> Alcotest.failf "expected claim"
   in
   Memory.queue_record_failure ~db ~queue_id:row.queue_id ~error:"boom";
-  let reclaimed = Memory.queue_reclaim_failed ~db in
+  let reclaimed = Memory.queue_reclaim_failed ~db () in
   Alcotest.(check int) "one failed row reclaimed" 1 reclaimed;
   let result = Memory.queue_claim ~db ~session_key:"s1" in
   match result with
   | Memory.Claim_ok _ -> ()
   | Memory.Claim_empty -> Alcotest.fail "expected failed row to be reclaimable"
+
+let test_queue_reclaim_failed_max_retries () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"test"
+      ~payload_json:{|{"msg":"retry"}|}
+  in
+  let row =
+    match Memory.queue_claim ~db ~session_key:"s1" with
+    | Memory.Claim_ok r -> r
+    | Memory.Claim_empty -> Alcotest.failf "expected claim"
+  in
+  (* Fail 10 times to exceed max_retries *)
+  for _ = 1 to 10 do
+    Memory.queue_record_failure ~db ~queue_id:row.queue_id ~error:"boom"
+  done;
+  (* With max_retries=5, item should stay failed *)
+  let reclaimed = Memory.queue_reclaim_failed ~db ~max_retries:5 () in
+  Alcotest.(check int) "no rows reclaimed (exceeded max_retries)" 0 reclaimed;
+  let result = Memory.queue_claim ~db ~session_key:"s1" in
+  match result with
+  | Memory.Claim_ok _ ->
+      Alcotest.fail "exceeded max_retries row should stay failed"
+  | Memory.Claim_empty -> ()
 
 let test_queue_count () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1504,6 +1528,8 @@ let suite =
       test_queue_record_failure_tracks_error;
     Alcotest.test_case "queue reclaim stale" `Quick test_queue_reclaim_stale;
     Alcotest.test_case "queue reclaim failed" `Quick test_queue_reclaim_failed;
+    Alcotest.test_case "queue reclaim failed max retries" `Quick
+      test_queue_reclaim_failed_max_retries;
     Alcotest.test_case "queue count" `Quick test_queue_count;
     Alcotest.test_case "queue session isolation" `Quick
       test_queue_session_isolation;
