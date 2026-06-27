@@ -33,7 +33,8 @@ tasks:
       file: T003-add-manual-room-routine-trigge.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Add manual room routine trigger path
     - complexity: medium
       depends_on:
