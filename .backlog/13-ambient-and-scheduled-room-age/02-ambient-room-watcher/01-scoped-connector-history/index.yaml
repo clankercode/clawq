@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P13.M2.E1
 locked: false
 name: Scoped Connector History
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -35,6 +35,6 @@ tasks:
       file: T003-add-teams-and-discord-scoped-h.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: Add Teams and Discord scoped-history behavior

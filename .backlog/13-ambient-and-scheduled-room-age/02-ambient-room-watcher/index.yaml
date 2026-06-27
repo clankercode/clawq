@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Scoped Connector History
       path: 01-scoped-connector-history
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Opt-in watcher detects stale room tasks/threads and posts sparse follow-ups.
