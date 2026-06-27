@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P13.M3.E2
 locked: false
 name: Teams Room-Agent Hardening
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -34,5 +34,6 @@ tasks:
       file: T003-harden-teams-background-comple.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Harden Teams background completion and tool visibility
