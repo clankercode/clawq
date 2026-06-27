@@ -13,7 +13,7 @@ estimate_hours: 5
 id: P13.M1.E2.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Run cron jobs as room profile sessions
 ---

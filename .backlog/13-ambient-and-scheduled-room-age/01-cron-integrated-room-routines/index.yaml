@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Routine Execution
       path: 02-routine-execution
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Admin-only room routine creation, edit, delete, and trigger surfaces.

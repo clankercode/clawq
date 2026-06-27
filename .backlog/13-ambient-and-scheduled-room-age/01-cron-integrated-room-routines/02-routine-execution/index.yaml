@@ -4,7 +4,7 @@ estimate_hours: 10
 id: P13.M1.E2
 locked: false
 name: Routine Execution
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -19,6 +19,6 @@ tasks:
       file: T001-run-cron-jobs-as-room-profile.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Run cron jobs as room profile sessions
