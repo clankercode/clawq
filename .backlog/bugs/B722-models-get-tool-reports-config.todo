@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-06-27T07:34:32Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B722
 priority: high
-status: pending
+started_at: "2026-06-27T07:34:32Z"
+status: in_progress
 tags: []
 title: models get tool reports config default, not session-level model override
 ---
