@@ -59,6 +59,21 @@ let resolve_session_key ~(session_manager : Session.t) ~team_id ~conversation_id
   if has_profile then "teams:" ^ Session.sanitize_session_key conversation_id
   else session_key ~team_id ~conversation_id
 
+let consent_room_context ~(session_manager : Session.t) ~conversation_id =
+  match Session.get_db session_manager with
+  | None -> None
+  | Some db -> (
+      match Memory.get_room_profile_for_room ~db ~room_id:conversation_id with
+      | None -> None
+      | Some profile ->
+          Some
+            {
+              room_id = conversation_id;
+              session_key =
+                "teams:" ^ Session.sanitize_session_key conversation_id;
+              profile_name = profile.name;
+            })
+
 let slash_command_name token =
   let token = String.trim token in
   let token =
@@ -594,12 +609,12 @@ let send_file ~(config : Runtime_config.teams_config) ~service_url
 
 (* Wrappers that bind fetch_token and post_json_throttled for the
    file consent sub-module functions *)
-let send_file_consent_card ~(config : Runtime_config.teams_config) ~service_url
-    ~conversation_id ~reply_to_id ~filename ~description ~size_bytes ~consent_id
-    () =
-  Teams_file_consent.send_file_consent_card ~fetch_token ~post_json_throttled
-    ~config ~service_url ~conversation_id ~reply_to_id ~filename ~description
-    ~size_bytes ~consent_id ()
+let send_file_consent_card ?room_context ~(config : Runtime_config.teams_config)
+    ~service_url ~conversation_id ~reply_to_id ~filename ~description
+    ~size_bytes ~consent_id () =
+  Teams_file_consent.send_file_consent_card ?room_context ~fetch_token
+    ~post_json_throttled ~config ~service_url ~conversation_id ~reply_to_id
+    ~filename ~description ~size_bytes ~consent_id ()
 
 let send_file_info_card ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~filename ~content_url ~unique_id ~file_type () =
@@ -1721,12 +1736,17 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           match delivery with
                           | File_consent_card -> (
                               let size_bytes = String.length content in
+                              let room_context =
+                                consent_room_context ~session_manager
+                                  ~conversation_id
+                              in
                               let consent_id =
-                                store_pending_consent ~content ~filename
-                                  ~content_type:"application/json" ~ttl_s:600.0
+                                store_pending_consent ?room_context ~content
+                                  ~filename ~content_type:"application/json"
+                                  ~ttl_s:600.0 ()
                               in
                               let* result =
-                                send_file_consent_card ~config
+                                send_file_consent_card ?room_context ~config
                                   ~service_url:effective_service_url
                                   ~conversation_id ~reply_to_id:activity_id
                                   ~filename ~description:"Session debug dump"
