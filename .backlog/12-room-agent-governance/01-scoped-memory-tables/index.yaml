@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Scoped Memory APIs and Grants
       path: 02-scoped-memory-apis-and-grants
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Profiled room prompt/search paths respect scoped memory and cannot read other channels.

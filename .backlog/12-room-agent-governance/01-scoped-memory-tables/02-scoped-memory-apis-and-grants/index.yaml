@@ -4,7 +4,7 @@ estimate_hours: 12
 id: P12.M1.E2
 locked: false
 name: Scoped Memory APIs and Grants
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -33,5 +33,6 @@ tasks:
       file: T003-gate-memory-grant-mutations-th.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Gate memory grant mutations through admin tooling
