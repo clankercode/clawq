@@ -475,6 +475,29 @@ let handle_event ~(config : Runtime_config.slack_config)
                 send_formatted = send_reply;
               }
             in
+            (* Create task-tree record for async commands from profiled rooms *)
+            (if
+               Room_request_classifier.classify cmd_result = AsyncCommand
+            then
+              match Session.get_db session_manager with
+              | Some db -> (
+                  Task_tree.init_schema db;
+                  match
+                    Memory.get_room_profile_binding ~db ~room_id:channel_id
+                  with
+                  | Some binding ->
+                      let origin =
+                        Room_origin.make ~connector:"slack"
+                          ~room_id:channel_id ~requester_id:user_id
+                          ~profile_id:binding.profile_id ()
+                      in
+                      ignore
+                        (Task_tree_ops.create_async_cmd_task ~db
+                           ~session_key:key cmd_result ~origin
+                           ?thread_id:thread_ts ~requester:(Some user_id)
+                           ~profile_id:(Some binding.profile_id) ())
+                  | None -> ())
+              | None -> ());
             match cmd_result with
             | AdminRequired _ -> assert false
             | Compact ->

@@ -1,6 +1,33 @@
 open Task_tree_types
 include Task_tree_db
 
+(** Create a task-tree record for an [AsyncCommand] dispatched from a room.
+    Uses {!Room_request_classifier.title_of_async_cmd} to derive the title.
+    Populates origin metadata ([origin_json], [thread_id], [requester],
+    [profile_id]) from the room context.
+
+    Returns [Ok task_id] if the record was created, [Error msg] on failure,
+    or [Ok ""] if the command is not an async command (no title). *)
+let create_async_cmd_task ~db ~session_key
+    (result : Slash_commands.result) ~(origin : Room_origin.t) ?thread_id
+    ?requester ?profile_id () =
+  match Room_request_classifier.title_of_async_cmd result with
+  | None -> Ok ""
+  | Some title ->
+      let origin_json =
+        if Room_origin.is_empty origin then None
+        else Some (Room_origin.to_compact_json_string origin)
+      in
+      let id = next_auto_id ~db ~session_key in
+      match
+        insert_task ~db ~session_key ~id ~parent_id:None ~title
+          ~status:Pending ~note:None ~depends_on:[] ~agent_model:None
+          ~agent_type:None ~agent_prompt:None ~agent_details:None
+          ~autostart:false ?profile_id ?origin_json ?thread_id ?requester ()
+      with
+      | Ok () -> Ok id
+      | Error e -> Error e
+
 let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
   let open Yojson.Safe.Util in
   let meaningful_ops =

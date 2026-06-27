@@ -721,6 +721,32 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             send_formatted = send_reply;
           }
         in
+        (* Create task-tree record for async commands from profiled rooms *)
+        (if
+           Room_request_classifier.classify cmd_result = AsyncCommand
+        then
+          match Session.get_db session_mgr with
+          | Some db -> (
+              Task_tree.init_schema db;
+              match
+                Memory.get_room_profile_binding ~db
+                  ~room_id:msg.channel_id
+              with
+              | Some binding ->
+                  let origin =
+                    Room_origin.make ~connector:"discord"
+                      ~room_id:msg.channel_id
+                      ~requester_id:msg.author_id
+                      ~profile_id:binding.profile_id ()
+                  in
+                  ignore
+                    (Task_tree_ops.create_async_cmd_task ~db
+                       ~session_key:key cmd_result ~origin
+                       ?thread_id:None
+                       ~requester:(Some msg.author_id)
+                       ~profile_id:(Some binding.profile_id) ())
+              | None -> ())
+          | None -> ());
         match cmd_result with
         | AdminRequired _ -> assert false
         | InjectConnectorHistory _ ->
