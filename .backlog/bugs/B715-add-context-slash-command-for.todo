@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B715
+priority: low
+status: pending
+tags: []
+title: Add /context slash command for session and context info
+---
+There is no built-in slash command to display current session info: token usage, % of context window used, compaction thresholds, session ID, channel, and other runtime metadata. Users have no quick way to inspect their context budget. Add a /context command that surfaces this information in-channel.
