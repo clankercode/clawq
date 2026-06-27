@@ -361,6 +361,65 @@ let test_finalize_idempotent_with_tools () =
   Alcotest.(check int)
     "second finalize is a no-op" edited_after_first_finalize !edited
 
+let test_finalize_rerenders_small_active_batch () =
+  let notifier, _sent, edited, _deleted = make_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start sm ~id:"t1" ~name:"shell_exec" ~summary:None
+     in
+     Status_message.finalize sm);
+  Alcotest.(check int) "active small batch gets a final edit" 1 !edited
+
+let test_completed_small_batch_drains_late_rerender_before_finalize () =
+  let edited = ref 0 in
+  let release_send, release_send_u = Lwt.wait () in
+  let sm_ref = ref None in
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ _text ->
+          let open Lwt.Syntax in
+          let* () = release_send in
+          Lwt.return "42");
+      edit =
+        (fun _id ?parse_mode:_ _text ->
+          let open Lwt.Syntax in
+          incr edited;
+          match (!edited, !sm_ref) with
+          | 1, Some sm ->
+              let* () =
+                Status_message.update_thinking sm
+                  "late update queued while draining the completed tool"
+              in
+              Lwt.return None
+          | _ -> Lwt.return None);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  sm_ref := Some sm;
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let start_p =
+       Status_message.tool_start sm ~id:"t1" ~name:"shell_exec" ~summary:None
+     in
+     let* () = Lwt.pause () in
+     let* () =
+       Status_message.tool_result sm ~id:"t1" ~name:"shell_exec" ~result:"ok"
+         ~is_error:false
+     in
+     Lwt.wakeup_later release_send_u ();
+     let* () = start_p in
+     Status_message.finalize sm);
+  Alcotest.(check int)
+    "late rerender is flushed before small completed finalize no-op" 2 !edited
+
 let test_is_not_modified_error_detects_telegram_error () =
   Alcotest.(check bool)
     "detects message-not-modified" true
@@ -455,6 +514,10 @@ let suite =
       test_finalize_idempotent_no_tools;
     Alcotest.test_case "finalize with tools is idempotent" `Quick
       test_finalize_idempotent_with_tools;
+    Alcotest.test_case "finalize rerenders small active batch" `Quick
+      test_finalize_rerenders_small_active_batch;
+    Alcotest.test_case "completed small batch drains late rerender" `Quick
+      test_completed_small_batch_drains_late_rerender_before_finalize;
     Alcotest.test_case "is_not_modified_error detects telegram error" `Quick
       test_is_not_modified_error_detects_telegram_error;
     Alcotest.test_case "edit skips fallback on not-modified" `Quick

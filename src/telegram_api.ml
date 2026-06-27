@@ -182,6 +182,16 @@ let is_not_modified_error resp_body =
     with Not_found -> false
   with _ -> false
 
+let is_success_status status = status >= 200 && status < 300
+
+let log_edit_message_failure ~chat_id ~message_id ~status ~body =
+  Logs.warn (fun m ->
+      m
+        "Telegram editMessageText failed (HTTP %d, chat_id=%s, message_id=%s): \
+         %s"
+        status chat_id message_id
+        (Stream_visibility.truncate_text ~max_chars:300 body))
+
 let html_fallback_to_plain_text text =
   let with_newlines =
     text
@@ -1000,10 +1010,12 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
         if status = 429 then (
           record_outbound_rate_limit ~chat_id ~body:resp_body;
           Lwt.return_unit)
+        else if is_success_status status || is_not_modified_error resp_body then
+          Lwt.return_unit
         else if
           parse_mode <> None && status = 400
           && not (is_not_modified_error resp_body)
-        then
+        then (
           let plain_text =
             match parse_mode with
             | Some "HTML" -> html_fallback_to_plain_text text
@@ -1017,11 +1029,19 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
             ]
           in
           let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
-          let* _status, _body =
+          let* fallback_status, fallback_body =
             Http_client.post_json ~uri ~headers:[] ~body:plain_body
           in
-          Lwt.return_unit
-        else Lwt.return_unit)
+          if
+            (not (is_success_status fallback_status))
+            && not (is_not_modified_error fallback_body)
+          then
+            log_edit_message_failure ~chat_id ~message_id
+              ~status:fallback_status ~body:fallback_body;
+          Lwt.return_unit)
+        else (
+          log_edit_message_failure ~chat_id ~message_id ~status ~body:resp_body;
+          Lwt.return_unit))
 
 let delete_message ~bot_token ~chat_id ~message_id () =
   let open Lwt.Syntax in

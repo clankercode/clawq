@@ -284,10 +284,18 @@ let render t =
   let doc = to_document t in
   if doc = [] then "" else Content_dsl.render_document t.connector doc
 
+let has_active_tools t =
+  Hashtbl.fold
+    (fun _ (e : tool_entry) acc ->
+      acc
+      || match e.state with Running | Pending -> true | Done | Failed -> false)
+    t.tools false
+
 (* Debounced send or edit, serialized with a mutex to prevent duplicate sends.
    When callers arrive while an edit is in-flight, they mark a pending rerender
    instead of queueing up — the mutex holder drains pending rerenders before
-   releasing, so rapid-fire updates coalesce into a single API call. *)
+   releasing, so rapid-fire updates coalesce without leaving a stale queued
+   render behind. *)
 let send_or_edit t =
   if Lwt_mutex.is_locked t.edit_mutex then begin
     t.pending_rerender <- true;
@@ -333,14 +341,15 @@ let send_or_edit t =
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
         in
-        let* () = do_send_or_edit () in
-        (* If updates arrived while we held the lock, do one final render
-           to pick up the latest state. No loop — just the most recent. *)
-        if t.pending_rerender then begin
-          t.pending_rerender <- false;
-          do_send_or_edit ()
-        end
-        else Lwt.return_unit)
+        let rec drain () =
+          let* () = do_send_or_edit () in
+          if t.pending_rerender then begin
+            t.pending_rerender <- false;
+            drain ()
+          end
+          else Lwt.return_unit
+        in
+        drain ())
 
 (* Idempotent heartbeat manager: starts a heartbeat if any tools are Running
    and none exists, cancels it if no tools are Running. Safe to call multiple
@@ -523,23 +532,9 @@ let finalize t =
       | None ->
           t.finalized <- true;
           Lwt.return_unit)
-    else if total >= 4 then (
+    else if total >= 4 || has_active_tools t then (
       t.finalized <- true;
-      let text = render t in
-      match t.msg_id with
-      | Some id ->
-          let* new_id_opt =
-            t.notifier.edit id
-              ~parse_mode:(Format_adapter.parse_mode_string t.connector)
-              text
-          in
-          (match new_id_opt with
-          | Some new_id when is_valid_notifier_message_id new_id ->
-              t.msg_id <- Some new_id
-          | Some _ -> ()
-          | None -> ());
-          Lwt.return_unit
-      | None -> Lwt.return_unit)
+      send_or_edit t)
     else (
       t.finalized <- true;
       Lwt.return_unit)
