@@ -149,6 +149,7 @@ let channel_and_id key =
   | None -> None
 
 let child_thread_prefix = "__room_child_thread"
+let routine_prefix = "__room_routine"
 
 type child_thread = {
   connector : string;
@@ -157,6 +158,8 @@ type child_thread = {
   thread_id : string option;
   source_message_id : string option;
 }
+
+type routine = { profile_id : string; routine_id : string }
 
 let is_unreserved = function
   | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '_' | '.' | '~' -> true
@@ -244,5 +247,19 @@ let parse_child_thread_key key =
           Some thread_id,
           Some source_message_id ) ->
           Some { connector; profile_id; room_id; thread_id; source_message_id }
+      | _ -> None)
+  | _ -> None
+
+let routine_key ~profile_id ~routine_id () =
+  String.concat ":"
+    [ routine_prefix; percent_encode profile_id; percent_encode routine_id ]
+
+let make_routine_key = routine_key
+
+let parse_routine_key key =
+  match String.split_on_char ':' key with
+  | [ prefix; profile_id; routine_id ] when prefix = routine_prefix -> (
+      match (percent_decode profile_id, percent_decode routine_id) with
+      | Some profile_id, Some routine_id -> Some { profile_id; routine_id }
       | _ -> None)
   | _ -> None

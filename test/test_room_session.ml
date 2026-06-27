@@ -370,6 +370,41 @@ let test_child_thread_key_rejects_missing_source () =
         (Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
            ~room_id:"C01" ()))
 
+(* --- Routine session keys --- *)
+
+let test_routine_key_deterministic () =
+  let key1 =
+    Room_session.routine_key ~profile_id:"vip" ~routine_id:"daily-briefing" ()
+  in
+  let key2 =
+    Room_session.routine_key ~profile_id:"vip" ~routine_id:"daily-briefing" ()
+  in
+  Alcotest.(check string) "same metadata gives same key" key1 key2;
+  match Room_session.parse_routine_key key1 with
+  | None -> Alcotest.fail "expected routine key to parse"
+  | Some routine ->
+      Alcotest.(check string) "profile_id" "vip" routine.profile_id;
+      Alcotest.(check string) "routine_id" "daily-briefing" routine.routine_id
+
+let test_routine_key_changes_with_routine_id () =
+  let key1 =
+    Room_session.routine_key ~profile_id:"vip" ~routine_id:"daily" ()
+  in
+  let key2 =
+    Room_session.routine_key ~profile_id:"vip" ~routine_id:"weekly" ()
+  in
+  Alcotest.(check bool) "different routine changes key" true (key1 <> key2)
+
+let test_routine_key_preserves_encoded_segments () =
+  let key =
+    Room_session.routine_key ~profile_id:"ops/team" ~routine_id:"daily:09:00" ()
+  in
+  match Room_session.parse_routine_key key with
+  | None -> Alcotest.fail "expected routine key to parse"
+  | Some routine ->
+      Alcotest.(check string) "profile_id" "ops/team" routine.profile_id;
+      Alcotest.(check string) "routine_id" "daily:09:00" routine.routine_id
+
 let suite =
   [
     Alcotest.test_case "slack room" `Quick test_slack_room;
@@ -420,4 +455,10 @@ let suite =
       test_teams_child_thread_key_preserves_encoded_room;
     Alcotest.test_case "child thread key rejects missing source" `Quick
       test_child_thread_key_rejects_missing_source;
+    Alcotest.test_case "routine key deterministic" `Quick
+      test_routine_key_deterministic;
+    Alcotest.test_case "routine key changes with routine id" `Quick
+      test_routine_key_changes_with_routine_id;
+    Alcotest.test_case "routine key preserves encoded segments" `Quick
+      test_routine_key_preserves_encoded_segments;
   ]

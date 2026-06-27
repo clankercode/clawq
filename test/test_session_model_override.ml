@@ -1103,6 +1103,86 @@ let test_child_thread_session_inherits_parent_room_cwd () =
     "child cwd" (Some cwd)
     (Session.get_session_effective_cwd mgr ~key)
 
+let test_routine_session_inherits_profile_and_uses_routine_cwd () =
+  let old_home = try Some (Sys.getenv "CLAWQ_HOME") with Not_found -> None in
+  let home =
+    Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "clawq-routine-home-%d" (Unix.getpid ()))
+  in
+  let rec rmrf path =
+    if Sys.file_exists path then
+      match (Unix.lstat path).Unix.st_kind with
+      | Unix.S_DIR ->
+          Array.iter
+            (fun name -> rmrf (Filename.concat path name))
+            (Sys.readdir path);
+          Unix.rmdir path
+      | _ -> Unix.unlink path
+  in
+  (try Unix.mkdir home 0o755 with _ -> ());
+  Unix.putenv "CLAWQ_HOME" home;
+  Fun.protect
+    ~finally:(fun () ->
+      (match old_home with
+      | Some value -> Unix.putenv "CLAWQ_HOME" value
+      | None -> Unix.putenv "CLAWQ_HOME" "");
+      rmrf home)
+    (fun () ->
+      let profiles =
+        [
+          {
+            Runtime_config.id = "vip";
+            display_name = None;
+            model = "openai:gpt-4";
+            system_prompt = "routine room profile prompt";
+            max_tool_iterations = 19;
+            status = "active";
+            allowed_tools = [];
+            denied_tools = [];
+          };
+        ]
+      in
+      let bindings =
+        [ { Runtime_config.profile_id = "vip"; room = "C01"; active = true } ]
+      in
+      let config =
+        make_template_config ~room_profiles:profiles
+          ~room_profile_bindings:bindings ()
+      in
+      let config =
+        {
+          config with
+          security =
+            {
+              config.security with
+              workspace_only = false;
+              allowed_cwd_patterns = [];
+            };
+        }
+      in
+      let key =
+        Room_session.routine_key ~profile_id:"vip" ~routine_id:"daily-briefing"
+          ()
+      in
+      let mgr = Session.create ~config () in
+      ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+      Alcotest.(check string)
+        "routine inherits profile model" "openai:gpt-4"
+        (Session.get_session_effective_model mgr ~key);
+      let defaults = Session.get_session_agent_defaults mgr ~key in
+      Alcotest.(check string)
+        "routine inherits profile template" "routine room profile prompt"
+        defaults.system_prompt;
+      Alcotest.(check int)
+        "routine inherits max iterations" 19 defaults.max_tool_iterations;
+      Alcotest.(check (option string))
+        "routine cwd"
+        (Some
+           (Room_workspace.routine_workspace_path ~create:false
+              ~profile_id:"vip" ~routine_id:"daily-briefing"))
+        (Session.get_session_effective_cwd mgr ~key))
+
 let suite =
   [
     Alcotest.test_case "set and get model override" `Quick
@@ -1190,4 +1270,6 @@ let suite =
       test_child_thread_session_inherits_profile_model_template_and_privacy;
     Alcotest.test_case "child thread inherits parent room cwd" `Quick
       test_child_thread_session_inherits_parent_room_cwd;
+    Alcotest.test_case "routine session inherits profile and cwd" `Quick
+      test_routine_session_inherits_profile_and_uses_routine_cwd;
   ]

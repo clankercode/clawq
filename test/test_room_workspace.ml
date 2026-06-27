@@ -103,6 +103,23 @@ let test_no_collision () =
           let p2 = Room_workspace.workspace_path "room-beta" in
           Alcotest.(check bool) "different paths" true (p1 <> p2)))
 
+let test_routine_workspace_isolated_from_room_workspace () =
+  with_temp_dir (fun home ->
+      with_clawq_home home (fun () ->
+          let room_path = Room_workspace.workspace_path "C01" in
+          let routine_path =
+            Room_workspace.routine_workspace_path ~create:true ~profile_id:"vip"
+              ~routine_id:"daily-briefing"
+          in
+          Alcotest.(check bool)
+            "routine path differs from room/task path" true
+            (routine_path <> room_path);
+          Alcotest.(check bool)
+            "routine path is under routines root" true
+            (String.starts_with
+               ~prefix:(Room_workspace.routines_root ())
+               routine_path)))
+
 (** Workspace directory is created under rooms root. *)
 let test_creates_dir () =
   with_temp_dir (fun home ->
@@ -405,6 +422,8 @@ let suite =
     Alcotest.test_case "slug format" `Quick test_slug_format;
     Alcotest.test_case "hash length >= 12 hex" `Quick test_hash_length;
     Alcotest.test_case "no collision" `Quick test_no_collision;
+    Alcotest.test_case "routine workspace isolated from room workspace" `Quick
+      test_routine_workspace_isolated_from_room_workspace;
     Alcotest.test_case "creates dir" `Quick test_creates_dir;
     Alcotest.test_case "under rooms root" `Quick test_under_rooms_root;
     Alcotest.test_case "unicode room id" `Quick test_unicode_room_id;

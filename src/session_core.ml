@@ -971,9 +971,10 @@ let resolve_agent_template_for_key mgr ~key =
 
 (** [resolve_initial_cwd mgr ~session_key ~db ~agent_template] resolves the
     initial effective CWD at session creation time. Precedence: 1. DB room
-    workspace (if persisted and allowed) 2. Config workspace default (if
-    explicitly set by user and allowed) 3. agent_template.cwd (if valid and
-    allowed) 4. global fallback ([None] — tools use [effective_workspace])
+    workspace (if persisted and allowed) 2. Routine workspace for routine
+    sessions 3. Config workspace default (if explicitly set by user and allowed)
+    4. agent_template.cwd (if valid and allowed) 5. global fallback ([None] —
+    tools use [effective_workspace])
 
     At turn time, /repo explicit overrides via [set_effective_cwd]. *)
 let child_thread_parent_session_key key =
@@ -991,20 +992,39 @@ let room_profile_binding_matches_child (cfg : Runtime_config.t)
          || b.room = child.connector ^ ":" ^ child.room_id))
     cfg.room_profile_bindings
 
+let room_profile_binding_active_for_profile (cfg : Runtime_config.t) ~profile_id
+    =
+  List.exists
+    (fun (b : Runtime_config.room_profile_binding) ->
+      b.active && b.profile_id = profile_id)
+    cfg.room_profile_bindings
+
+let find_active_room_profile (cfg : Runtime_config.t) ~profile_id =
+  List.find_opt
+    (fun (p : Runtime_config.room_profile) ->
+      p.id = profile_id && String.lowercase_ascii p.status <> "deleted")
+    cfg.room_profiles
+
 let resolve_room_profile_for_session mgr ~key =
   match Runtime_config.resolve_room_profile mgr.config ~session_key:key with
   | Some _ as profile -> profile
   | None -> (
       match Room_session.parse_child_thread_key key with
-      | None -> None
       | Some child ->
           if not (room_profile_binding_matches_child mgr.config child) then None
-          else
-            List.find_opt
-              (fun (p : Runtime_config.room_profile) ->
-                p.id = child.profile_id
-                && String.lowercase_ascii p.status <> "deleted")
-              mgr.config.room_profiles)
+          else find_active_room_profile mgr.config ~profile_id:child.profile_id
+      | None -> (
+          match Room_session.parse_routine_key key with
+          | None -> None
+          | Some routine ->
+              if
+                not
+                  (room_profile_binding_active_for_profile mgr.config
+                     ~profile_id:routine.profile_id)
+              then None
+              else
+                find_active_room_profile mgr.config
+                  ~profile_id:routine.profile_id))
 
 let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
   let cfg = mgr.config in
@@ -1051,12 +1071,25 @@ let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
         | Some parent_key -> cwd_from_db_key parent_key
         | None -> None)
   in
+  let cwd_from_routine () =
+    match Room_session.parse_routine_key session_key with
+    | None -> None
+    | Some routine ->
+        let cwd =
+          Room_workspace.routine_workspace_path ~create:true
+            ~profile_id:routine.profile_id ~routine_id:routine.routine_id
+        in
+        if is_cwd_allowed mgr ~cwd then Some cwd else None
+  in
   match cwd_from_db () with
   | Some _ as r -> r
   | None -> (
-      match cwd_from_config () with
+      match cwd_from_routine () with
       | Some _ as r -> r
-      | None -> cwd_from_template ())
+      | None -> (
+          match cwd_from_config () with
+          | Some _ as r -> r
+          | None -> cwd_from_template ()))
 
 (** [apply_room_profile_template_fields mgr ~key agent] resolves the active room
     profile and applies its template fields ([system_prompt] and

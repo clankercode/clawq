@@ -10,12 +10,18 @@
     configured [extra_allowed_paths]. *)
 
 let rooms_subdir = "rooms"
+let routines_subdir = "routines"
 let default_retention_days = 30.0
 
 (** [rooms_root ()] returns the canonical rooms directory:
     [<dot_dir>/workspace/rooms/]. *)
 let rooms_root () =
   Filename.concat (Filename.concat (Dot_dir.path ()) "workspace") rooms_subdir
+
+let routines_root () =
+  Filename.concat
+    (Filename.concat (Dot_dir.path ()) "workspace")
+    routines_subdir
 
 (** [ensure_dir path] creates [path] and all missing parents, like [mkdir -p].
     Ignores errors (e.g. already exists). *)
@@ -92,6 +98,18 @@ let workspace_dir_name room_id =
 
 let workspace_path ?(create = true) room_id =
   let path = Filename.concat (rooms_root ()) (workspace_dir_name room_id) in
+  if create then ensure_dir path;
+  path
+
+let routine_workspace_dir_name ~profile_id ~routine_id =
+  workspace_dir_name (profile_id ^ ":" ^ routine_id)
+
+let[@warning "-16"] routine_workspace_path ?(create = true) ~profile_id
+    ~routine_id =
+  let path =
+    Filename.concat (routines_root ())
+      (routine_workspace_dir_name ~profile_id ~routine_id)
+  in
   if create then ensure_dir path;
   path
 
