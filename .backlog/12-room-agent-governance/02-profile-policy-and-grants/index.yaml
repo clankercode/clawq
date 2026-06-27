@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Tool Grant Enforcement
       path: 01-tool-grant-enforcement
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Named repo/codebase grants intersect with global workspace/sandbox policy.
