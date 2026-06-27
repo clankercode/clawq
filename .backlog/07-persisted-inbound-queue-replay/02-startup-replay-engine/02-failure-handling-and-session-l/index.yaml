@@ -21,7 +21,7 @@ tasks:
       file: T001-implement-attempt-count-and-la.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement attempt_count and last_error bookkeeping with structured malformed and transient failure handling
     - complexity: medium
