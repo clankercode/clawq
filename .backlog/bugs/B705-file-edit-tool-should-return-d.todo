@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-27T08:30:09Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-27T08:39:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 9.272359684783334
 estimate_hours: 1
 id: B705
 priority: high
 started_at: "2026-06-27T08:30:09Z"
-status: in_progress
+status: done
 tags: []
 title: file_edit tool should return diagnostic context on "old_text not found" failure
 ---

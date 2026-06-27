@@ -434,7 +434,78 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                 in
                 find 0
               in
-              if idx < 0 then Lwt.return "Error: old_text not found in file"
+              if idx < 0 then
+                let diagnostic =
+                  let cl = String.length content in
+                  let ol = String.length old_text in
+                  (* Check if a prefix of given length exists in content *)
+                  let find_prefix len =
+                    if len <= 0 then -1
+                    else
+                      let rec find i =
+                        if i + len > cl then -1
+                        else if
+                          String.sub content i len = String.sub old_text 0 len
+                        then i
+                        else find (i + 1)
+                      in
+                      find 0
+                  in
+                  (* Binary search for the longest matching prefix *)
+                  let match_len, match_pos =
+                    let rec search lo hi best_len best_pos =
+                      if lo > hi then (best_len, best_pos)
+                      else
+                        let mid = (lo + hi) / 2 in
+                        match find_prefix mid with
+                        | -1 -> search lo (mid - 1) best_len best_pos
+                        | pos -> search (mid + 1) hi mid pos
+                    in
+                    search 1 (min ol cl) 0 (-1)
+                  in
+                  if match_len <= 0 then
+                    Printf.sprintf
+                      "Error: old_text not found in file (%d lines, %d chars)"
+                      (List.length (String.split_on_char '\n' content))
+                      cl
+                  else
+                    (* Compute line number of match position *)
+                    let line_num =
+                      let rec count n i =
+                        if i >= match_pos then n
+                        else
+                          count (if content.[i] = '\n' then n + 1 else n) (i + 1)
+                      in
+                      count 1 0
+                    in
+                    (* Extract context lines around the match *)
+                    let lines = String.split_on_char '\n' content in
+                    let ctx_before = 2 in
+                    let ctx_after = 2 in
+                    let start_line = max 1 (line_num - ctx_before) in
+                    let end_line =
+                      min (List.length lines) (line_num + ctx_after)
+                    in
+                    let context_lines =
+                      List.mapi
+                        (fun i line ->
+                          let n = i + 1 in
+                          if n >= start_line && n <= end_line then
+                            Some (Printf.sprintf "%4d| %s" n line)
+                          else None)
+                        lines
+                      |> List.filter_map Fun.id |> String.concat "\n"
+                    in
+                    Printf.sprintf
+                      "Error: old_text not found in file.\n\
+                       Longest matching prefix (%d of %d chars) found near \
+                       line %d:\n\
+                       %s\n\
+                       Tip: re-read the file to get exact current content, \
+                       then retry the edit with verified old_text."
+                      match_len ol line_num context_lines
+                in
+                Lwt.return diagnostic
               else
                 let replacements =
                   let rec count i acc =

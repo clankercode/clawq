@@ -972,6 +972,85 @@ let test_file_edit_replace_all () =
       close_in ic;
       Alcotest.(check string) "all replaced" "z b z b" content)
 
+let test_file_edit_not_found_returns_diagnostic () =
+  with_temp_workspace (fun workspace ->
+      let full_path = Filename.concat workspace "diag.txt" in
+      let oc = open_out full_path in
+      output_string oc "line one\nline two\nline three\nline four\nline five";
+      close_out oc;
+      let tool =
+        Tools_builtin.file_edit ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let args =
+        `Assoc
+          [
+            ("path", `String "diag.txt");
+            ("old_text", `String "line oneX");
+            ("new_text", `String "replaced");
+          ]
+      in
+      let out = Lwt_main.run (tool.invoke args) in
+      (* Should contain line number hint *)
+      Alcotest.(check bool)
+        "contains line reference" true
+        (Test_helpers.string_contains out "near line");
+      (* Should contain context lines *)
+      Alcotest.(check bool)
+        "contains context" true
+        (Test_helpers.string_contains out "line one");
+      (* Should contain the prefix match ratio *)
+      Alcotest.(check bool)
+        "contains match ratio" true
+        (Test_helpers.string_contains out "matching prefix"))
+
+let test_file_edit_not_found_no_match_at_all () =
+  with_temp_workspace (fun workspace ->
+      let full_path = Filename.concat workspace "nomatch.txt" in
+      let oc = open_out full_path in
+      output_string oc "hello world";
+      close_out oc;
+      let tool =
+        Tools_builtin.file_edit ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let args =
+        `Assoc
+          [
+            ("path", `String "nomatch.txt");
+            ("old_text", `String "zzzzz");
+            ("new_text", `String "replaced");
+          ]
+      in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "no match error" true
+        (Test_helpers.string_contains out "old_text not found"))
+
+let test_file_edit_not_found_multiline_partial () =
+  with_temp_workspace (fun workspace ->
+      let full_path = Filename.concat workspace "multi.txt" in
+      let oc = open_out full_path in
+      output_string oc "let foo x =\n  let a = 1 in\n  let b = 2 in\n  a + b";
+      close_out oc;
+      let tool =
+        Tools_builtin.file_edit ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      (* old_text starts matching but diverges *)
+      let args =
+        `Assoc
+          [
+            ("path", `String "multi.txt");
+            ("old_text", `String "let foo x =\n  let a = 1 in\n  let c = 3 in");
+            ("new_text", `String "let bar x =\n  let c = 3 in");
+          ]
+      in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "multiline diagnostic" true
+        (Test_helpers.string_contains out "near line"))
+
 let test_file_edit_lines_replaces_range () =
   with_temp_workspace (fun workspace ->
       let full_path = Filename.concat workspace "lines.txt" in
@@ -1531,6 +1610,12 @@ let suite =
     Alcotest.test_case "file_append creates and appends" `Quick
       test_file_append_creates_and_appends;
     Alcotest.test_case "file_edit replace_all" `Quick test_file_edit_replace_all;
+    Alcotest.test_case "file_edit not found diagnostic" `Quick
+      test_file_edit_not_found_returns_diagnostic;
+    Alcotest.test_case "file_edit not found no match" `Quick
+      test_file_edit_not_found_no_match_at_all;
+    Alcotest.test_case "file_edit not found multiline partial" `Quick
+      test_file_edit_not_found_multiline_partial;
     Alcotest.test_case "file_edit_lines range replace" `Quick
       test_file_edit_lines_replaces_range;
     Alcotest.test_case "register_all file_read path policy" `Quick
