@@ -65,6 +65,12 @@ let task_of_stmt stmt : task =
     origin_json = (try Sqlite3.column stmt 31 |> sql_text with _ -> None);
     thread_id = (try Sqlite3.column stmt 32 |> sql_text with _ -> None);
     requester = (try Sqlite3.column stmt 33 |> sql_text with _ -> None);
+    progress_state =
+      (try
+         match Sqlite3.column stmt 34 with
+         | Sqlite3.Data.TEXT s -> progress_state_of_string s
+         | _ -> None
+       with _ -> None);
   }
 
 let init_schema db =
@@ -144,6 +150,7 @@ let init_schema db =
   try_alter "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN progress_state TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -421,7 +428,7 @@ let select_columns =
    parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0), \
    agent_name, notification_status, notification_error, \
    COALESCE(notification_attempts, 0), follow_up_prompt, profile_id, \
-   origin_json, thread_id, requester"
+   origin_json, thread_id, requester, progress_state"
 
 let list_tasks ~db : task list =
   let sql =
@@ -518,6 +525,27 @@ let set_runner_session_id ~db ~id ~runner_session_id =
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT runner_session_id));
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
+
+let set_progress_state ~db ~id ~(state : progress_state) =
+  let sql = "UPDATE background_tasks SET progress_state = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1
+           (Sqlite3.Data.TEXT (string_of_progress_state state)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
+
+let clear_progress_state ~db ~id =
+  let sql = "UPDATE background_tasks SET progress_state = NULL WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
       ignore (Sqlite3.step stmt))
 
 let finish ~db ~id ~status ~result_preview =
