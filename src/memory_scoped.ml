@@ -334,7 +334,7 @@ let upsert_scoped_memory ~db ~scope_id ~reference ?content
       | None -> failwith "upsert_scoped_memory: stored row was not found")
   | None -> failwith "upsert_scoped_memory: no row stored"
 
-let query_scoped_memories ~db ?scope_kind ?content_search ?provenance
+let query_scoped_memories ~db ?scope_kind ?scope_key ?content_search ?provenance
     ?(limit = 50) ?(offset = 0) () =
   if limit <= 0 then []
   else
@@ -347,6 +347,9 @@ let query_scoped_memories ~db ?scope_kind ?content_search ?provenance
     Option.iter
       (fun k -> add_clause "s.kind = ?" (Sqlite3.Data.TEXT k))
       scope_kind;
+    Option.iter
+      (fun k -> add_clause "s.key = ?" (Sqlite3.Data.TEXT k))
+      scope_key;
     Option.iter
       (fun q ->
         if q <> "" then

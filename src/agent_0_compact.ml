@@ -232,6 +232,44 @@ let reload_skills_after_compaction ~to_compact ~to_keep =
   in
   skill_msgs @ overflow_msg
 
+let scoped_memory_reference_lines messages =
+  messages
+  |> List.concat_map (fun (msg : Provider.message) ->
+      if msg.role <> "system" then []
+      else
+        msg.content |> String.split_on_char '\n'
+        |> List.filter_map (fun line ->
+            let line = String.trim line in
+            if
+              String.starts_with ~prefix:"[scoped:" line
+              || String.starts_with ~prefix:"[scoped-message:" line
+            then Some line
+            else None))
+
+let preserve_scoped_memory_references_after_compaction ~to_compact ~to_keep =
+  let kept = Hashtbl.create 8 in
+  List.iter
+    (fun line -> Hashtbl.replace kept line ())
+    (scoped_memory_reference_lines to_keep);
+  let seen = Hashtbl.create 8 in
+  let refs =
+    scoped_memory_reference_lines to_compact
+    |> List.filter (fun line ->
+        (not (Hashtbl.mem kept line)) && not (Hashtbl.mem seen line))
+    |> List.map (fun line ->
+        Hashtbl.replace seen line ();
+        line)
+  in
+  match refs with
+  | [] -> []
+  | _ ->
+      [
+        Provider.make_message ~role:"system"
+          ~content:
+            ("[Scoped memory references preserved after compaction]\n"
+           ^ String.concat "\n" refs);
+      ]
+
 (* History must have more than this many messages before force-compression
    is attempted (to avoid compressing already-tiny histories). *)
 let context_recovery_min_history = 6
@@ -809,7 +847,12 @@ let compact_history_if_needed agent ?db ?on_llm_call_debug () =
           Provider.make_message ~role:"assistant" ~content:merged_summary
         in
         let skill_msgs = reload_skills_after_compaction ~to_compact ~to_keep in
-        agent.history <- List.rev (skill_msgs @ [ summary_msg ] @ to_keep);
+        let scoped_msgs =
+          preserve_scoped_memory_references_after_compaction ~to_compact
+            ~to_keep
+        in
+        agent.history <-
+          List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
         let post_tokens = estimate_history_tokens agent.history in
         Lwt.return_some
           { pre_tokens = current_tokens; post_tokens; context_window = cw }
@@ -942,7 +985,11 @@ let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
         Provider.make_message ~role:"assistant" ~content:merged_summary
       in
       let skill_msgs = reload_skills_after_compaction ~to_compact ~to_keep in
-      agent.history <- List.rev (skill_msgs @ [ summary_msg ] @ to_keep);
+      let scoped_msgs =
+        preserve_scoped_memory_references_after_compaction ~to_compact ~to_keep
+      in
+      agent.history <-
+        List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
       let post_tokens = estimate_history_tokens agent.history in
       Lwt.return_some { pre_tokens; post_tokens; context_window = cw }
     end
@@ -1105,7 +1152,12 @@ let apply_compact_result agent plan ~summary =
     let skill_msgs =
       reload_skills_after_compaction ~to_compact:plan.cp_to_compact ~to_keep
     in
-    agent.history <- new_msgs @ List.rev (skill_msgs @ [ summary_msg ] @ to_keep);
+    let scoped_msgs =
+      preserve_scoped_memory_references_after_compaction
+        ~to_compact:plan.cp_to_compact ~to_keep
+    in
+    agent.history <-
+      new_msgs @ List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
     let post_tokens = estimate_history_tokens agent.history in
     Some
       {

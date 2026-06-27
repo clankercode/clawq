@@ -58,19 +58,29 @@ let room_has_profile_binding ~db room_id =
   try Option.is_some (Memory.get_room_profile_binding ~db ~room_id)
   with _ -> false
 
-let session_has_room_profile_binding ~db ?room_id session_key =
+let profiled_room_candidates ~db ?room_id ?session_key () =
   let candidates =
     match room_id with Some room_id -> [ room_id ] | None -> []
   in
-  let candidates =
-    match Memory.get_session_channel ~db ~session_key with
-    | Some (_channel, channel_id) -> channel_id :: candidates
-    | None -> (
-        match room_id_from_profiled_session_key session_key with
-        | Some room_id -> room_id :: candidates
-        | None -> candidates)
-  in
-  List.exists (room_has_profile_binding ~db) candidates
+  match session_key with
+  | Some session_key -> (
+      match Memory.get_session_channel ~db ~session_key with
+      | Some (_channel, channel_id) -> channel_id :: candidates
+      | None -> (
+          match room_id_from_profiled_session_key session_key with
+          | Some room_id -> room_id :: candidates
+          | None -> candidates))
+  | None -> candidates
+
+let session_has_room_profile_binding ~db ?room_id session_key =
+  profiled_room_candidates ~db ?room_id ~session_key ()
+  |> List.exists (room_has_profile_binding ~db)
+
+let scoped_memory_room_key_for_turn ~db ?session_key ?room_id () =
+  let candidates = profiled_room_candidates ~db ?room_id ?session_key () in
+  match List.find_opt (room_has_profile_binding ~db) candidates with
+  | Some room_id -> Some room_id
+  | None -> List.find_opt (fun s -> String.trim s <> "") candidates
 
 let refresh_profiled_room_flag agent ?db ?session_key ?room_id () =
   let has_binding =
@@ -100,6 +110,12 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
   refresh_profiled_room_flag agent ?db ?session_key ?room_id ();
   let* () =
     match db with
+    | Some db when agent.profiled_room -> (
+        match scoped_memory_room_key_for_turn ~db ?session_key ?room_id () with
+        | Some scope_key ->
+            Agent_2_tools.inject_search_context agent ~db ~user_message
+              ~scope_kind:"room" ~scope_key
+        | None -> Lwt.return_unit)
     | Some db when unscoped_memory_context_allowed agent ->
         Agent_2_tools.inject_search_context agent ~db ~user_message
     | _ -> Lwt.return_unit
