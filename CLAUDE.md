@@ -131,6 +131,7 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 ## Misc Notes
 
 - When implementing or updating features, have a background subagent check `docs/*` to see if anything requires updating. Claude code agents: Use haiku for the model when creating the agent task.
+- **Dune memory usage:** A dependency cycle in the module graph (e.g. `task_tree_ops → slash_commands → ... → task_tree_ops`) causes dune/ocamldep to loop and consume 20-30+ GB of RAM until OOM. If dune uses >2GB, suspect a cycle — check with `dune build 2>&1 | grep "Dependency cycle"`. The Makefile sets `OCAMLRUNPARAM=o=120,O=120` to cap OCaml GC memory, but cycles bypass this. Fix by breaking the cycle (e.g. pass `~title:string` instead of a high-level type).
 
 ## Recommended Agent Workflow
 
