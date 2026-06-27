@@ -192,6 +192,8 @@ let write_config_json home json =
   if not (Sys.file_exists clawq_dir) then Unix.mkdir clawq_dir 0o755;
   write_json_file (Filename.concat clawq_dir "config.json") json
 
+let touch_mtime path mtime = Unix.utimes path mtime mtime
+
 let test_handle_doctor_flags_codex_provider_with_api_key_only () =
   with_temp_home (fun home ->
       write_config_json home
@@ -3663,6 +3665,105 @@ let test_rooms_delete_force_soft_deletes_and_removes_bindings () =
         "bindings removed" 0
         (List.length cfg.room_profile_bindings))
 
+let test_rooms_workspace_reports_preserved_path () =
+  with_temp_home (fun _home ->
+      let path = Room_workspace.workspace_path ~create:false "slack:C1" in
+      let result = Command_bridge.handle [ "rooms"; "workspace"; "slack:C1" ] in
+      Alcotest.(check bool)
+        "workspace reports preserved path" true
+        (Test_helpers.string_contains result "Preserved path"
+        && Test_helpers.string_contains result path);
+      Alcotest.(check bool) "workspace exists" true (Sys.file_exists path))
+
+let test_rooms_gc_preserves_active_refs_and_reports_paths () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let active_task_path = Room_workspace.workspace_path "slack:C1" in
+      let active_routine_path = Room_workspace.workspace_path "slack:C2" in
+      let active_ledger_path = Room_workspace.workspace_path "slack:C4" in
+      let recent_path = Room_workspace.workspace_path "slack:C5" in
+      let stale_path = Room_workspace.workspace_path "slack:C3" in
+      let now = Unix.gettimeofday () in
+      let old = now -. (2.0 *. Room_workspace.seconds_per_day) in
+      List.iter
+        (fun path -> touch_mtime path old)
+        [
+          active_task_path; active_routine_path; active_ledger_path; stale_path;
+        ];
+      touch_mtime recent_path (now -. 60.0);
+      let db = session_db home in
+      Background_task.init_schema db;
+      ignore
+        (match
+           Background_task.enqueue ~db ~runner:Background_task.Local
+             ~require_git:false ~use_worktree:false ~repo_path:home
+             ~prompt:"active" ~session_key:"slack:C1:U1" ~channel_id:"C1" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      Scheduler.init_schema db;
+      ignore
+        (match
+           Scheduler.add_job ~db ~name:"room-routine" ~session_key:"__main__"
+             ~message:"run" ~schedule:"0 9 * * *"
+             ~routine_workspace_id:"slack:C2" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      Task_tree.init_schema db;
+      let origin_json =
+        Room_origin.(
+          make ~connector:"slack" ~room_id:"C4" () |> to_compact_json_string)
+      in
+      ignore
+        (match
+           Task_tree.do_add ~db ~session_key:"__main__" ~id:(Some "ledger")
+             ~parent_id:None ~title:"active ledger task"
+             ~status:(Some Task_tree.In_progress) ~note:None ~depends_on:[]
+             ~agent_model:None ~agent_type:None ~agent_prompt:None
+             ~agent_details:None ~autostart:false ~origin_json ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      let result =
+        Command_bridge.handle [ "rooms"; "gc"; "--retention-days"; "1" ]
+      in
+      Alcotest.(check bool)
+        "gc reports preserved and purged" true
+        (Test_helpers.string_contains result "Room workspace GC complete"
+        && Test_helpers.string_contains result "retention 1.0 day(s)"
+        && Test_helpers.string_contains result "Preserved paths"
+        && Test_helpers.string_contains result "Purged paths");
+      List.iter
+        (fun (label, path) ->
+          Alcotest.(check bool)
+            (label ^ " reported") true
+            (Test_helpers.string_contains result path);
+          Alcotest.(check bool)
+            (label ^ " preserved") true (Sys.file_exists path))
+        [
+          ("active task path", active_task_path);
+          ("active routine path", active_routine_path);
+          ("active ledger path", active_ledger_path);
+          ("recent path", recent_path);
+        ];
+      Alcotest.(check bool)
+        "active refs report reason" true
+        (Test_helpers.string_contains result
+           "active room task/routine/ledger/profile reference");
+      Alcotest.(check bool)
+        "recent path reports retention reason" true
+        (Test_helpers.string_contains result "within retention");
+      Alcotest.(check bool)
+        "stale path reported" true
+        (Test_helpers.string_contains result stale_path);
+      Alcotest.(check bool)
+        "stale path reports purge reason" true
+        (Test_helpers.string_contains result "expired retention");
+      Alcotest.(check bool)
+        "stale path purged" false
+        (Sys.file_exists stale_path))
+
 let test_rooms_usage () =
   let result = Command_bridge.handle [ "rooms"; "help" ] in
   Alcotest.(check bool)
@@ -3679,7 +3780,10 @@ let test_rooms_usage () =
     (Test_helpers.string_contains result "rename");
   Alcotest.(check bool)
     "rooms usage mentions delete" true
-    (Test_helpers.string_contains result "delete")
+    (Test_helpers.string_contains result "delete");
+  Alcotest.(check bool)
+    "rooms usage mentions gc" true
+    (Test_helpers.string_contains result "gc")
 
 let test_rooms_bind_rejected_without_admin () =
   with_temp_home (fun home ->
@@ -4046,6 +4150,10 @@ let suite =
       test_rooms_delete_refuses_active_cron_job;
     Alcotest.test_case "rooms delete force soft deletes and removes bindings"
       `Quick test_rooms_delete_force_soft_deletes_and_removes_bindings;
+    Alcotest.test_case "rooms workspace reports preserved path" `Quick
+      test_rooms_workspace_reports_preserved_path;
+    Alcotest.test_case "rooms gc preserves active refs and reports paths" `Quick
+      test_rooms_gc_preserves_active_refs_and_reports_paths;
     Alcotest.test_case "rooms unbind" `Quick test_rooms_unbind;
     Alcotest.test_case "rooms unbind no binding" `Quick
       test_rooms_unbind_no_binding;

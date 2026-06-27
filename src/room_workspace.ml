@@ -10,6 +10,7 @@
     configured [extra_allowed_paths]. *)
 
 let rooms_subdir = "rooms"
+let default_retention_days = 30.0
 
 (** [rooms_root ()] returns the canonical rooms directory:
     [<dot_dir>/workspace/rooms/]. *)
@@ -84,12 +85,14 @@ let hash_hex raw =
     a given room identifier. The directory is
     [~/.clawq/workspace/rooms/<slug>-<hash>/]. The directory is created if it
     does not exist. *)
-let workspace_path room_id =
+let workspace_dir_name room_id =
   let slug = slugify room_id in
   let hash = hash_hex room_id in
-  let dir_name = Printf.sprintf "%s-%s" slug hash in
-  let path = Filename.concat (rooms_root ()) dir_name in
-  ensure_dir path;
+  Printf.sprintf "%s-%s" slug hash
+
+let workspace_path ?(create = true) room_id =
+  let path = Filename.concat (rooms_root ()) (workspace_dir_name room_id) in
+  if create then ensure_dir path;
   path
 
 (* -- validation for explicit overrides ------------------------------------- *)
@@ -214,3 +217,118 @@ let resolve_workspace ~is_admin ?extra_allowed_paths ?workspace_dir room_id =
   | None -> Ok (workspace_path room_id)
   | Some _dir when not is_admin -> Error Not_admin
   | Some dir -> validate_override ?extra_allowed_paths dir
+
+(* -- retention-based garbage collection ------------------------------------ *)
+
+type gc_action = Preserved | Purged
+
+type gc_reason =
+  | Recent of float
+  | Active_reference
+  | Invalid_managed_path
+  | Expired of float
+  | Purge_failed of string
+
+type gc_entry = { path : string; action : gc_action; reason : gc_reason }
+type gc_result = { preserved : gc_entry list; purged : gc_entry list }
+
+let seconds_per_day = 86_400.0
+
+let room_ids_for_reference ?channel_id session_key =
+  let add seen value =
+    if value = "" || List.mem value seen then seen else value :: seen
+  in
+  let seen = add [] session_key in
+  let seen = match channel_id with Some id -> add seen id | None -> seen in
+  let seen =
+    match String.split_on_char ':' session_key with
+    | channel :: room :: _ when channel <> "" && room <> "" ->
+        add seen (channel ^ ":" ^ room)
+    | _ -> seen
+  in
+  List.rev seen
+
+let gc_reason_to_string = function
+  | Recent seconds -> Printf.sprintf "within retention (%.0fs old)" seconds
+  | Active_reference -> "active room task/routine/ledger/profile reference"
+  | Invalid_managed_path -> "preserved: invalid managed workspace path"
+  | Expired seconds -> Printf.sprintf "expired retention (%.0fs old)" seconds
+  | Purge_failed msg -> "purge failed: " ^ msg
+
+let action_to_string = function Preserved -> "preserved" | Purged -> "purged"
+let dir_mtime path = (Unix.stat path).Unix.st_mtime
+
+let managed_room_dirs () =
+  let root = rooms_root () in
+  if not (Sys.file_exists root) then []
+  else
+    Sys.readdir root |> Array.to_list
+    |> List.filter_map (fun name ->
+        let path = Filename.concat root name in
+        try
+          match (Unix.lstat path).Unix.st_kind with
+          | Unix.S_DIR -> Some path
+          | _ -> None
+        with _ -> None)
+
+let rec remove_tree path =
+  match (Unix.lstat path).Unix.st_kind with
+  | Unix.S_DIR ->
+      Sys.readdir path
+      |> Array.iter (fun name -> remove_tree (Filename.concat path name));
+      Unix.rmdir path
+  | _ -> Unix.unlink path
+
+let path_is_protected ~protected_paths path =
+  List.exists
+    (fun protected_path ->
+      is_prefix_of ~prefix:path protected_path
+      || is_prefix_of ~prefix:protected_path path)
+    protected_paths
+
+let safe_managed_dir path =
+  try
+    let root = Unix.realpath (rooms_root ()) in
+    let resolved = Unix.realpath path in
+    is_prefix_of ~prefix:root resolved
+  with _ -> false
+
+let gc ?(now = Unix.gettimeofday ())
+    ?(retention_seconds = default_retention_days *. seconds_per_day)
+    ?(protected_paths = []) () =
+  let protected_paths =
+    protected_paths
+    |> List.filter_map (fun path ->
+        try Some (Unix.realpath path) with _ -> None)
+  in
+  let preserved = ref [] in
+  let purged = ref [] in
+  let record entry =
+    match entry.action with
+    | Preserved -> preserved := entry :: !preserved
+    | Purged -> purged := entry :: !purged
+  in
+  managed_room_dirs ()
+  |> List.iter (fun path ->
+      let entry =
+        if not (safe_managed_dir path) then
+          { path; action = Preserved; reason = Invalid_managed_path }
+        else if path_is_protected ~protected_paths path then
+          { path; action = Preserved; reason = Active_reference }
+        else
+          let age = max 0.0 (now -. dir_mtime path) in
+          if age < retention_seconds then
+            { path; action = Preserved; reason = Recent age }
+          else
+            try
+              remove_tree path;
+              { path; action = Purged; reason = Expired age }
+            with exn ->
+              {
+                path;
+                action = Preserved;
+                reason = Purge_failed (Printexc.to_string exn);
+              }
+      in
+      record entry);
+  { preserved = List.rev !preserved; purged = List.rev !purged }

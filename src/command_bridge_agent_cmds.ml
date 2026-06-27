@@ -347,6 +347,126 @@ let active_cron_count_for_rooms ~db rooms =
       j.enabled && List.mem j.session_key rooms)
   |> List.length
 
+let add_room_ids_from_reference acc ?channel_id session_key =
+  Room_workspace.room_ids_for_reference ?channel_id session_key @ acc
+
+let add_room_ids_from_origin acc = function
+  | None -> acc
+  | Some origin_json -> (
+      match Room_origin.of_json_string_opt origin_json with
+      | None -> acc
+      | Some origin -> (
+          let acc =
+            match (origin.connector, origin.room_id) with
+            | Some connector, Some room_id -> (connector ^ ":" ^ room_id) :: acc
+            | _ -> acc
+          in
+          match origin.room_id with
+          | Some room_id -> room_id :: acc
+          | None -> acc))
+
+let active_task_tree_room_ids ~db =
+  Task_tree.init_schema db;
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT session_key, origin_json FROM task_tree WHERE deleted_at IS NULL \
+       AND status NOT IN ('done', 'cancelled')"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let refs = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let acc =
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT key -> add_room_ids_from_reference !refs key
+          | _ -> !refs
+        in
+        refs :=
+          match Sqlite3.column stmt 1 with
+          | Sqlite3.Data.TEXT origin_json ->
+              add_room_ids_from_origin acc (Some origin_json)
+          | _ -> acc
+      done;
+      !refs)
+
+let active_room_workspace_ids ~cfg ~db =
+  let configured =
+    cfg.Runtime_config.room_profile_bindings
+    |> List.filter (fun (b : Runtime_config.room_profile_binding) -> b.active)
+    |> List.map (fun (b : Runtime_config.room_profile_binding) -> b.room)
+  in
+  Background_task.init_schema db;
+  let task_refs =
+    Background_task.list_tasks ~db
+    |> List.fold_left
+         (fun acc (t : Background_task.task) ->
+           match t.status with
+           | Background_task.Queued | Background_task.Running -> (
+               let acc = add_room_ids_from_origin acc t.origin_json in
+               let acc =
+                 match t.session_key with
+                 | Some key ->
+                     add_room_ids_from_reference acc ?channel_id:t.channel_id
+                       key
+                 | None -> acc
+               in
+               match t.channel_id with Some id -> id :: acc | None -> acc)
+           | _ -> acc)
+         []
+  in
+  Scheduler.init_schema db;
+  let routine_refs =
+    Scheduler.list_jobs ~db
+    |> List.fold_left
+         (fun acc (j : Scheduler.job) ->
+           if not j.enabled then acc
+           else
+             let acc = add_room_ids_from_reference acc j.session_key in
+             match j.routine_workspace_id with
+             | Some id -> id :: acc
+             | None -> acc)
+         []
+  in
+  configured @ task_refs @ routine_refs @ active_task_tree_room_ids ~db
+  |> List.sort_uniq String.compare
+
+let room_workspace_paths_for_refs room_ids =
+  room_ids
+  |> List.map (Room_workspace.workspace_path ~create:false)
+  |> List.sort_uniq String.compare
+
+let parse_retention_seconds flags =
+  let rec loop retention_days = function
+    | [] -> Ok (retention_days *. Room_workspace.seconds_per_day)
+    | "--retention-days" :: value :: rest -> (
+        match float_of_string_opt value with
+        | Some days when days >= 0.0 -> loop days rest
+        | _ -> Error "--retention-days must be a non-negative number")
+    | flag :: _ -> Error (Printf.sprintf "unknown rooms gc flag: %s" flag)
+  in
+  loop Room_workspace.default_retention_days flags
+
+let format_gc_section title entries =
+  let lines =
+    match entries with
+    | [] -> [ Printf.sprintf "%s: (none)" title ]
+    | _ ->
+        Printf.sprintf "%s:" title
+        :: List.map
+             (fun (entry : Room_workspace.gc_entry) ->
+               Printf.sprintf "- %s (%s)" entry.path
+                 (Room_workspace.gc_reason_to_string entry.reason))
+             entries
+  in
+  String.concat "\n" lines
+
+let format_gc_result retention_seconds (result : Room_workspace.gc_result) =
+  Printf.sprintf "Room workspace GC complete (retention %.1f day(s)).\n%s\n%s"
+    (retention_seconds /. Room_workspace.seconds_per_day)
+    (format_gc_section "Preserved paths" result.preserved)
+    (format_gc_section "Purged paths" result.purged)
+
 let cmd_rooms args =
   let cfg = get_config () in
   match args with
@@ -453,6 +573,25 @@ let cmd_rooms args =
                    b.profile_id)
           | None -> ()));
       String.concat "\n" (List.rev !lines)
+  | [ "workspace"; room_id ] ->
+      let path = Room_workspace.workspace_path room_id in
+      Printf.sprintf "Workspace for room '%s':\nPreserved path: %s" room_id path
+  | "gc" :: flags -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          match parse_retention_seconds flags with
+          | Error msg -> "Error: " ^ msg
+          | Ok retention_seconds ->
+              let db = get_db () in
+              let protected_paths =
+                active_room_workspace_ids ~cfg ~db
+                |> room_workspace_paths_for_refs
+              in
+              let result =
+                Room_workspace.gc ~retention_seconds ~protected_paths ()
+              in
+              format_gc_result retention_seconds result))
   | "bind" :: room_id :: profile_id :: rest -> (
       match require_admin () with
       | Some err -> err
@@ -662,10 +801,12 @@ let cmd_rooms args =
                     room_id path
               | Error e -> Printf.sprintf "Failed to write config: %s" e)))
   | _ ->
-      "Usage: clawq rooms <list|show|bind|rename|delete|unbind>\n\n\
+      "Usage: clawq rooms <list|show|workspace|gc|bind|rename|delete|unbind>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
+      \  workspace <room_id>         Show/create the room workspace path\n\
+      \  gc [--retention-days N]     Purge expired room workspaces (admin-only)\n\
       \  bind <room_id> <profile_id> [--preserve|--reset]\n\
       \                              Bind or explicitly rebind a room \
        (admin-only)\n\
