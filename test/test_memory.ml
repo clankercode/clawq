@@ -1649,6 +1649,54 @@ let index_exists db index_name =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT index_name));
       Sqlite3.step stmt = Sqlite3.Rc.ROW)
 
+let test_migrate_v35_adds_request_stats_profile_columns_before_index () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (35)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      exec_exn db
+        {|CREATE TABLE request_stats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  message_id INTEGER,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_tokens INTEGER NOT NULL,
+  completion_tokens INTEGER NOT NULL,
+  cost_usd REAL,
+  requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+  added_prompt_tokens INTEGER,
+  cached_tokens INTEGER
+)|};
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is current" Memory.schema_version
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "request_stats.profile_id exists" true
+        (column_exists migrated "request_stats" "profile_id");
+      Alcotest.(check bool)
+        "request_stats.latency_ms exists" true
+        (column_exists migrated "request_stats" "latency_ms");
+      Alcotest.(check bool)
+        "profile-time index exists" true
+        (index_exists migrated "idx_request_stats_profile_time"))
+
 let foreign_key_exists db table_name ~from_col ~to_table ~on_delete =
   let stmt =
     Sqlite3.prepare db (Printf.sprintf "PRAGMA foreign_key_list(%s)" table_name)
@@ -2554,6 +2602,9 @@ let suite =
       test_migrate_v31_to_current_creates_room_profiles;
     Alcotest.test_case "migrate v32 adds origin columns" `Quick
       test_migrate_v32_adds_origin_columns;
+    Alcotest.test_case
+      "migrate v35 adds request stats profile columns before index" `Quick
+      test_migrate_v35_adds_request_stats_profile_columns_before_index;
     Alcotest.test_case "init creates scoped memory tables" `Quick
       test_init_creates_scoped_memory_tables;
     Alcotest.test_case "scoped memory schema shape" `Quick

@@ -199,9 +199,11 @@ let init_request_stats_schema db =
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_request_stats_model ON \
      request_stats(model, requested_at)";
-  exec_exn db
-    "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
-     request_stats(profile_id, requested_at)"
+  try
+    exec_exn db
+      "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+       request_stats(profile_id, requested_at)"
+  with _ -> ()
 
 let init_epoch_schema db =
   exec_exn db
