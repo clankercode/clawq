@@ -523,7 +523,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
     then begin
       Logs.debug (fun m -> m "Discord: ignoring unaddressed guild message");
       let cfg = Session.get_config session_mgr in
-      if cfg.connector_history.enabled then begin
+      if
+        Connector_capabilities.should_capture_history
+          ~enabled:cfg.connector_history.enabled Connector_capabilities.discord
+      then begin
         let hist_key = Printf.sprintf "discord-hist:%s" msg.channel_id in
         let db =
           if cfg.connector_history.persist_to_db then Session.get_db session_mgr
