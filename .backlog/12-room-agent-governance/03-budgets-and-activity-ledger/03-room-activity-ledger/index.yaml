@@ -14,7 +14,7 @@ tasks:
       file: T001-add-redacted-room-activity-led.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add room activity ledger schema and append API
     - complexity: high

@@ -8,7 +8,7 @@ estimate_hours: 3
 id: P12.M3.E3.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add room activity ledger schema and append API
 ---
