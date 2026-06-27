@@ -53,6 +53,7 @@ type task = {
           once the task succeeds. Use cases: "make sure tests pass, run
           review-and-fix, commit and rebase against master" — a checklist the
           resumed session should execute. *)
+  description : string option;
 }
 
 type queued_message = {
@@ -548,9 +549,15 @@ let elapsed_string (task : task) =
 let task_label (task : task) =
   let repo = Filename.basename task.repo_path in
   let branch = if task.branch = "" then "(auto)" else task.branch in
-  Printf.sprintf "%s repo=%s branch=%s"
-    (string_of_runner task.runner)
-    repo branch
+  match task.description with
+  | Some desc when String.trim desc <> "" ->
+      Printf.sprintf "%s repo=%s branch=%s [%s]"
+        (string_of_runner task.runner)
+        repo branch desc
+  | _ ->
+      Printf.sprintf "%s repo=%s branch=%s"
+        (string_of_runner task.runner)
+        repo branch
 
 let terse_started_message (task : task) =
   Printf.sprintf "[bg #%d started: %s]" task.id (task_label task)

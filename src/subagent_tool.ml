@@ -178,7 +178,7 @@ let spawn_tool ~db =
             | _ -> None
           with _ -> None
         in
-        let _description =
+        let description =
           try
             match args |> member "description" with
             | `String s when String.trim s <> "" -> Some (String.trim s)
@@ -217,17 +217,22 @@ let spawn_tool ~db =
               Background_task.enqueue ~db ~runner:Background_task.Local
                 ~use_worktree:false ~automerge:false ~repo_path ~prompt:goal
                 ?model ?agent_name:agent_template
-                ?session_key:parent_session_key ?parent_task_id ()
+                ?session_key:parent_session_key ?parent_task_id ?description ()
             with
             | Ok id ->
                 let session_key = Printf.sprintf "__bg_task:%d" id in
+                let desc_suffix =
+                  match description with
+                  | Some d -> Printf.sprintf ": %s" d
+                  | None -> ""
+                in
                 Lwt.return
                   (Printf.sprintf
-                     "Spawned subagent task %d.\n\
+                     "Spawned subagent task %d%s.\n\
                       Session key: %s\n\n\
                       Use subagent_result with {\"id\": %d} to poll status, or \
                       {\"id\": %d, \"wait\": true} to block until completion."
-                     id session_key id id)
+                     id desc_suffix session_key id id)
             | Error msg -> Lwt.return ("Error: " ^ msg));
     invoke_stream = None;
     risk_level = Medium;

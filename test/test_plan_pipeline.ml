@@ -140,6 +140,7 @@ let test_check_plan_stable_hash_unchanged () =
               notification_error = None;
               notification_attempts = 0;
               follow_up_prompt = None;
+              description = None;
             }
           in
           let stable =
@@ -191,6 +192,7 @@ let test_check_plan_stable_marker () =
               notification_error = None;
               notification_attempts = 0;
               follow_up_prompt = None;
+              description = None;
             }
           in
           let stable =
@@ -240,6 +242,7 @@ let test_stage_transitions () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      description = None;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -324,6 +327,7 @@ let test_stage_force_stop_at_max () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      description = None;
     }
   in
   with_temp_git_repo (fun repo ->
