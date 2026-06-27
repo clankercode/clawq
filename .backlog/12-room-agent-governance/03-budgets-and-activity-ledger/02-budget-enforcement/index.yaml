@@ -23,7 +23,8 @@ tasks:
       file: T002-add-provider-pre-call-budget-g.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add provider pre-call budget guards to agent loops
     - complexity: high
       depends_on:
