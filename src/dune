@@ -16,6 +16,7 @@
   runtime_config_types
   runtime_config_json
   runtime_config
+  profile_policy
   config_loader_support
   config_loader_agent_defaults
   config_loader_channels

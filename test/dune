@@ -66,6 +66,7 @@
   test_postmortem
   test_prompt_builder
   test_provider
+  test_profile_policy
   test_provider_anthropic
   test_provider_minimax
   test_provider_openai_codex

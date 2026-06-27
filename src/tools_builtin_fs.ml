@@ -711,24 +711,16 @@ let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
                                     (Runtime_config.expand_cwd_pattern ~config)
                                     grants
                                 in
-                                if
+                                let granted =
                                   List.exists
                                     (fun pat ->
                                       pat <> ""
                                       && glob_matches_path ~pattern:pat resolved)
                                     expanded_grants
-                                then None
-                                else
-                                  Some
-                                    (Printf.sprintf
-                                       "Error: directory %s is outside the \
-                                        room_profile_codebase_grants for \
-                                        profile '%s'. Configured grants: %s."
-                                       resolved profile.id
-                                       (String.concat ", "
-                                          (List.map
-                                             (fun p -> "\"" ^ p ^ "\"")
-                                             grants))))
+                                in
+                                Profile_policy.codebase_denial
+                                  ~profile_id:profile.id ~path:resolved
+                                  ~configured_grants:grants ~granted)
                     in
                     match profile_grant_denial with
                     | Some msg -> Lwt.return msg

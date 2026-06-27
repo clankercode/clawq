@@ -449,24 +449,8 @@ let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =
   | None -> []
 
 let room_profile_tool_denial (profile : room_profile) ~tool_name =
-  if List.mem tool_name profile.denied_tools then
-    Some
-      (Printf.sprintf
-         "Error: tool '%s' is not permitted in room profile '%s': it is listed \
-          in denied_tools. Ask an administrator to remove it from denied_tools \
-          or use a permitted tool."
-         tool_name profile.id)
-  else
-    match profile.allowed_tools with
-    | [] -> None
-    | allowed when List.mem tool_name allowed -> None
-    | _ ->
-        Some
-          (Printf.sprintf
-             "Error: tool '%s' is not permitted in room profile '%s': it is \
-              not listed in allowed_tools. Ask an administrator to add it to \
-              allowed_tools or use a permitted tool."
-             tool_name profile.id)
+  Profile_policy.tool_denial ~profile_id:profile.id ~tool_name
+    ~allowed_tools:profile.allowed_tools ~denied_tools:profile.denied_tools
 
 let room_profile_tool_denial_for_session cfg ~session_key ~tool_name =
   match resolve_room_profile cfg ~session_key with

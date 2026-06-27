@@ -88,6 +88,7 @@ let () =
        ("slack_socket", Test_slack_socket.suite);
        ("slash_commands", Test_slash_commands.suite);
        ("provider", Test_provider.suite);
+       ("profile_policy", Test_profile_policy.suite);
        ("provider_quota", Test_provider_quota.suite);
        ("totp", Test_totp.suite);
        ("cost_tracker", Test_cost_tracker.suite);
