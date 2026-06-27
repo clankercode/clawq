@@ -56,6 +56,41 @@ let session_key ~channel_id ~author_id =
     (Session.sanitize_session_key channel_id)
     (Session.sanitize_session_key author_id)
 
+let room_has_profile_binding ~(session_mgr : Session.t) ~channel_id =
+  match Session.get_db session_mgr with
+  | Some db -> (
+      match Memory.get_room_profile_binding ~db ~room_id:channel_id with
+      | Some _ -> true
+      | None -> false)
+  | None -> false
+
+let scoped_room_history_key ~channel_id =
+  "discord:" ^ Session.sanitize_session_key channel_id
+
+let history_key_for_channel ~(session_mgr : Session.t) ~channel_id =
+  if room_has_profile_binding ~session_mgr ~channel_id then
+    scoped_room_history_key ~channel_id
+  else Printf.sprintf "discord-hist:%s" channel_id
+
+let record_scoped_room_history_if_bound ~(session_mgr : Session.t) ~channel_id
+    ~author_id ~content =
+  let cfg = Session.get_config session_mgr in
+  if
+    String.trim content <> ""
+    && room_has_profile_binding ~session_mgr ~channel_id
+    && Connector_capabilities.should_capture_history
+         ~enabled:cfg.connector_history.enabled Connector_capabilities.discord
+  then
+    let key = scoped_room_history_key ~channel_id in
+    let db =
+      if cfg.connector_history.persist_to_db then Session.get_db session_mgr
+      else None
+    in
+    Connector_history.record ?db ~persist:cfg.connector_history.persist_to_db
+      ~key ~room_id:channel_id ~connector_type:"discord" ~channel_type:"discord"
+      ~max:cfg.connector_history.max_messages ~sender_name:author_id
+      ~sender_id:author_id ~text:content ()
+
 let chunk_text ?(max_len = 2000) text =
   Channel_util.chunk_text ~prefer_newline_break:false ~max_len text
 
@@ -522,22 +557,29 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
            ~is_reply_to_bot:false ~bot_name:"clawq" msg.content)
     then begin
       Logs.debug (fun m -> m "Discord: ignoring unaddressed guild message");
-      let cfg = Session.get_config session_mgr in
-      if
-        Connector_capabilities.should_capture_history
-          ~enabled:cfg.connector_history.enabled Connector_capabilities.discord
-      then begin
-        let hist_key = Printf.sprintf "discord-hist:%s" msg.channel_id in
-        let db =
-          if cfg.connector_history.persist_to_db then Session.get_db session_mgr
-          else None
-        in
-        Connector_history.record ?db
-          ~persist:cfg.connector_history.persist_to_db ~key:hist_key
-          ~channel_type:"discord" ~max:cfg.connector_history.max_messages
-          ~sender_name:msg.author_id ~sender_id:msg.author_id ~text:msg.content
-          ()
-      end;
+      (if room_has_profile_binding ~session_mgr ~channel_id:msg.channel_id then
+         record_scoped_room_history_if_bound ~session_mgr
+           ~channel_id:msg.channel_id ~author_id:msg.author_id
+           ~content:msg.content
+       else
+         let cfg = Session.get_config session_mgr in
+         if
+           Connector_capabilities.should_capture_history
+             ~enabled:cfg.connector_history.enabled
+             Connector_capabilities.discord
+         then begin
+           let hist_key = Printf.sprintf "discord-hist:%s" msg.channel_id in
+           let db =
+             if cfg.connector_history.persist_to_db then
+               Session.get_db session_mgr
+             else None
+           in
+           Connector_history.record ?db
+             ~persist:cfg.connector_history.persist_to_db ~key:hist_key
+             ~channel_type:"discord" ~max:cfg.connector_history.max_messages
+             ~sender_name:msg.author_id ~sender_id:msg.author_id
+             ~text:msg.content ()
+         end);
       Lwt.return_unit
     end
     else
@@ -602,7 +644,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     Lwt.return (Slash_commands.Reply err_msg, msg, [], None))
           | Slash_commands.InjectConnectorHistory count ->
               let cfg = Session.get_config session_mgr in
-              let hist_key = Printf.sprintf "discord-hist:%s" msg.channel_id in
+              let hist_key =
+                history_key_for_channel ~session_mgr ~channel_id:msg.channel_id
+              in
               let db =
                 if cfg.connector_history.persist_to_db then
                   Session.get_db session_mgr
@@ -649,6 +693,12 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
         in
         let user_group = if is_admin then "admin" else "guest" in
         let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
+        (match cmd_result with
+        | InjectConnectorHistory _ -> ()
+        | _ ->
+            record_scoped_room_history_if_bound ~session_mgr
+              ~channel_id:msg.channel_id ~author_id:msg.author_id
+              ~content:msg.content);
         let send_reply text =
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text

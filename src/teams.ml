@@ -46,18 +46,38 @@ let agent_error_message err =
 (** Resolve the session key for a Teams conversation. If the conversation has an
     active room profile binding, use the shared room session "teams:CONV".
     Otherwise fall back to the existing team+conversation session key. *)
+let room_has_profile_binding ~(session_manager : Session.t) ~conversation_id =
+  match Session.get_db session_manager with
+  | Some db -> (
+      match Memory.get_room_profile_binding ~db ~room_id:conversation_id with
+      | Some _ -> true
+      | None -> false)
+  | None -> false
+
 let resolve_session_key ~(session_manager : Session.t) ~team_id ~conversation_id
     =
-  let has_profile =
-    match Session.get_db session_manager with
-    | Some db -> (
-        match Memory.get_room_profile_binding ~db ~room_id:conversation_id with
-        | Some _ -> true
-        | None -> false)
-    | None -> false
-  in
-  if has_profile then "teams:" ^ Session.sanitize_session_key conversation_id
+  if room_has_profile_binding ~session_manager ~conversation_id then
+    "teams:" ^ Session.sanitize_session_key conversation_id
   else session_key ~team_id ~conversation_id
+
+let record_scoped_room_history_if_bound ~(session_manager : Session.t) ~team_id
+    ~conversation_id ~user_id ~user_name ~text =
+  let cfg = Session.get_config session_manager in
+  if
+    String.trim text <> ""
+    && room_has_profile_binding ~session_manager ~conversation_id
+    && Connector_capabilities.should_capture_history
+         ~enabled:cfg.connector_history.enabled Connector_capabilities.teams
+  then
+    let key = resolve_session_key ~session_manager ~team_id ~conversation_id in
+    let db =
+      if cfg.connector_history.persist_to_db then Session.get_db session_manager
+      else None
+    in
+    Connector_history.record ?db ~persist:cfg.connector_history.persist_to_db
+      ~key ~room_id:conversation_id ~connector_type:"teams"
+      ~channel_type:"teams" ~max:cfg.connector_history.max_messages
+      ~sender_name:user_name ~sender_id:user_id ~text ()
 
 let consent_room_context ~(session_manager : Session.t) ~conversation_id =
   match Session.get_db session_manager with
@@ -861,28 +881,33 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       "Teams: ignoring unaddressed group message conv=%s \
                        user=%s"
                       conversation_id user_id);
-                let cfg = Session.get_config session_manager in
-                if
-                  Connector_capabilities.should_capture_history
-                    ~enabled:cfg.connector_history.enabled
-                    Connector_capabilities.teams
-                then begin
-                  let eff_tid = if team_id = "" then "personal" else team_id in
-                  let hist_key =
-                    resolve_session_key ~session_manager ~team_id:eff_tid
-                      ~conversation_id
-                  in
-                  let db =
-                    if cfg.connector_history.persist_to_db then
-                      Session.get_db session_manager
-                    else None
-                  in
-                  Connector_history.record ?db
-                    ~persist:cfg.connector_history.persist_to_db ~key:hist_key
-                    ~channel_type:"teams"
-                    ~max:cfg.connector_history.max_messages
-                    ~sender_name:user_name ~sender_id:user_id ~text ()
-                end;
+                let eff_tid = if team_id = "" then "personal" else team_id in
+                (if room_has_profile_binding ~session_manager ~conversation_id
+                 then
+                   record_scoped_room_history_if_bound ~session_manager
+                     ~team_id:eff_tid ~conversation_id ~user_id ~user_name ~text
+                 else
+                   let cfg = Session.get_config session_manager in
+                   if
+                     Connector_capabilities.should_capture_history
+                       ~enabled:cfg.connector_history.enabled
+                       Connector_capabilities.teams
+                   then begin
+                     let hist_key =
+                       resolve_session_key ~session_manager ~team_id:eff_tid
+                         ~conversation_id
+                     in
+                     let db =
+                       if cfg.connector_history.persist_to_db then
+                         Session.get_db session_manager
+                       else None
+                     in
+                     Connector_history.record ?db
+                       ~persist:cfg.connector_history.persist_to_db
+                       ~key:hist_key ~channel_type:"teams"
+                       ~max:cfg.connector_history.max_messages
+                       ~sender_name:user_name ~sender_id:user_id ~text ()
+                   end);
                 Lwt.return_unit
               end
               else
@@ -1057,6 +1082,12 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       let cmd_result =
                         Slash_commands.gate_admin ~is_admin cmd_result
                       in
+                      (match cmd_result with
+                      | InjectConnectorHistory _ -> ()
+                      | _ ->
+                          record_scoped_room_history_if_bound ~session_manager
+                            ~team_id:effective_team_id ~conversation_id ~user_id
+                            ~user_name ~text);
                       match cmd_result with
                       | RegisterAsAdminOtc None ->
                           let _code =

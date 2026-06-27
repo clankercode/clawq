@@ -211,6 +211,81 @@ let test_consent_room_context_uses_room_binding () =
       Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
       Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
 
+let runtime_config_with_connector_history ?(enabled = true) () =
+  {
+    Runtime_config.default with
+    connector_history =
+      {
+        Runtime_config.default.connector_history with
+        enabled;
+        persist_to_db = true;
+      };
+  }
+
+let bind_room_profile ~db ~room_id =
+  let profile_id =
+    Memory.insert_room_profile ~db ~name:("profile-" ^ room_id)
+  in
+  Memory.upsert_room_profile_binding ~db ~room_id ~profile_id
+
+let handle_teams_room_message ?(enabled = true) ~db ~conversation_id ~text () =
+  Hashtbl.reset Connector_history.buffers;
+  let config = test_teams_config () in
+  let session_manager =
+    Session.create
+      ~config:(runtime_config_with_connector_history ~enabled ())
+      ~db ()
+  in
+  let sent = ref [] in
+  let body =
+    activity_json ~activity_type:"message" ~text ~activity_id:"act-room"
+      ~service_url:"https://svc" ~user_id:"u-room" ~user_name:"Room User"
+      ~conversation_id ~team_id:"team-room" ~is_group:true ()
+  in
+  Lwt_main.run
+    (Teams.handle_webhook ~config ~session_manager
+       ~send_reply_fn:(capture_reply sent)
+       ~auth_header:(bearer_for_config config) body)
+
+let test_room_history_capture_for_bound_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"conv-history";
+  handle_teams_room_message ~db ~conversation_id:"conv-history" ~text:"/help" ();
+  match
+    Connector_history.query ~db ~room_id:"conv-history" ~connector_type:"teams"
+      ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "room_id" "conv-history" entry.room_id;
+      Alcotest.(check string) "sender_id" "u-room" entry.sender_id;
+      Alcotest.(check string) "sender_name" "Room User" entry.sender_name;
+      Alcotest.(check string) "text" "/help" entry.text
+  | entries ->
+      Alcotest.failf "expected one Teams scoped history entry, got %d"
+        (List.length entries)
+
+let test_room_history_privacy_guard_requires_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  handle_teams_room_message ~db ~conversation_id:"conv-unbound" ~text:"/help" ();
+  let entries =
+    Connector_history.query ~db ~room_id:"conv-unbound" ~connector_type:"teams"
+      ()
+  in
+  Alcotest.(check int)
+    "unbound Teams room history entries" 0 (List.length entries)
+
+let test_room_history_respects_capabilities_gate () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"conv-disabled";
+  handle_teams_room_message ~enabled:false ~db ~conversation_id:"conv-disabled"
+    ~text:"/help" ();
+  let entries =
+    Connector_history.query ~db ~room_id:"conv-disabled" ~connector_type:"teams"
+      ()
+  in
+  Alcotest.(check int)
+    "disabled Teams room history entries" 0 (List.length entries)
+
 let test_normalize_clawq_slash_known_subcommand () =
   Alcotest.(check string)
     "known subcommand" "/status"
@@ -1535,6 +1610,12 @@ let suite =
       `Quick test_resolve_session_key_falls_back_to_team_conversation;
     Alcotest.test_case "consent room context uses room binding" `Quick
       test_consent_room_context_uses_room_binding;
+    Alcotest.test_case "room history captures bound room messages" `Quick
+      test_room_history_capture_for_bound_room;
+    Alcotest.test_case "room history requires room binding" `Quick
+      test_room_history_privacy_guard_requires_binding;
+    Alcotest.test_case "room history respects capabilities gate" `Quick
+      test_room_history_respects_capabilities_gate;
     Alcotest.test_case "normalize /clawq known subcommand" `Quick
       test_normalize_clawq_slash_known_subcommand;
     Alcotest.test_case "normalize /clawq unknown subcommand" `Quick

@@ -90,6 +90,91 @@ let test_session_key_format () =
   let key = Discord.session_key ~channel_id:"ch1" ~author_id:"au1" in
   Alcotest.(check string) "session key format" "discord:ch1:au1" key
 
+let runtime_config_with_connector_history ?(enabled = true) () =
+  {
+    Runtime_config.default with
+    connector_history =
+      {
+        Runtime_config.default.connector_history with
+        enabled;
+        persist_to_db = true;
+      };
+  }
+
+let bind_room_profile ~db ~room_id =
+  let profile_id =
+    Memory.insert_room_profile ~db ~name:("profile-" ^ room_id)
+  in
+  Memory.upsert_room_profile_binding ~db ~room_id ~profile_id
+
+let handle_discord_room_message ?(enabled = true) ~db ~channel_id ~content () =
+  Hashtbl.reset Connector_history.buffers;
+  let session_mgr =
+    Session.create
+      ~config:(runtime_config_with_connector_history ~enabled ())
+      ~db ()
+  in
+  let sent = ref [] in
+  let msg : Discord.message =
+    {
+      id = "msg-room";
+      channel_id;
+      guild_id = Some "guild-room";
+      author_id = "user-room";
+      author_bot = false;
+      content;
+      mention_ids = [];
+      attachments = [];
+    }
+  in
+  Lwt_main.run
+    (Discord.handle_message ~discord_config:(make_config ()) ~session_mgr
+       ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
+         sent := text :: !sent;
+         Lwt.return_unit)
+       msg)
+
+let test_room_history_capture_for_bound_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"channel-history";
+  handle_discord_room_message ~db ~channel_id:"channel-history" ~content:"/help"
+    ();
+  match
+    Connector_history.query ~db ~room_id:"channel-history"
+      ~connector_type:"discord" ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "room_id" "channel-history" entry.room_id;
+      Alcotest.(check string) "sender_id" "user-room" entry.sender_id;
+      Alcotest.(check string) "sender_name" "user-room" entry.sender_name;
+      Alcotest.(check string) "text" "/help" entry.text
+  | entries ->
+      Alcotest.failf "expected one Discord scoped history entry, got %d"
+        (List.length entries)
+
+let test_room_history_privacy_guard_requires_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  handle_discord_room_message ~db ~channel_id:"channel-unbound" ~content:"/help"
+    ();
+  let entries =
+    Connector_history.query ~db ~room_id:"channel-unbound"
+      ~connector_type:"discord" ()
+  in
+  Alcotest.(check int)
+    "unbound Discord room history entries" 0 (List.length entries)
+
+let test_room_history_respects_capabilities_gate () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"channel-disabled";
+  handle_discord_room_message ~enabled:false ~db ~channel_id:"channel-disabled"
+    ~content:"/help" ();
+  let entries =
+    Connector_history.query ~db ~room_id:"channel-disabled"
+      ~connector_type:"discord" ()
+  in
+  Alcotest.(check int)
+    "disabled Discord room history entries" 0 (List.length entries)
+
 let test_bot_message_ignored () =
   let bot_json =
     Yojson.Safe.from_string
@@ -428,6 +513,12 @@ let suite : unit Alcotest.test_case list =
     Alcotest.test_case "send_message chunking" `Quick test_send_message_chunking;
     Alcotest.test_case "parse_message_create" `Quick test_parse_message_create;
     Alcotest.test_case "session_key format" `Quick test_session_key_format;
+    Alcotest.test_case "room history captures bound room messages" `Quick
+      test_room_history_capture_for_bound_room;
+    Alcotest.test_case "room history requires room binding" `Quick
+      test_room_history_privacy_guard_requires_binding;
+    Alcotest.test_case "room history respects capabilities gate" `Quick
+      test_room_history_respects_capabilities_gate;
     Alcotest.test_case "bot_message ignored" `Quick test_bot_message_ignored;
     Alcotest.test_case "rate limit header update" `Quick
       test_update_rate_limit_headers;
