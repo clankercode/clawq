@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P13.M1.E1
 locked: false
 name: Routine Metadata
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -13,6 +13,6 @@ tasks:
       file: T001-extend-scheduler-cron-metadata.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Extend scheduler cron metadata for room routines
