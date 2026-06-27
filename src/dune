@@ -165,6 +165,7 @@
   room_origin
   room_workspace
   room_activity_ledger
+  room_budget
   daemon_status
   benchmark
   debate

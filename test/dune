@@ -51,6 +51,7 @@
   test_mcp
   test_memory
   test_room_profile_reconcile
+  test_room_budget
   test_memory_retention
   test_memory_search
   test_migrate
