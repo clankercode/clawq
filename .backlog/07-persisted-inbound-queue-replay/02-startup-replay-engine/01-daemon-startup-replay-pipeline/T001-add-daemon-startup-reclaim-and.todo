@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-03-09T19:16:43Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-27T12:32:30Z"
 complexity: high
 depends_on:
     - P7.M1
+duration_minutes: 157995.79172990675
 estimate_hours: 4
 id: P7.M2.E1.T001
 priority: high
 started_at: "2026-03-09T19:16:43Z"
-status: in_progress
+status: done
 tags: []
 title: Add daemon startup reclaim and ordering so pending agent resume happens before durable inbound replay
 ---
