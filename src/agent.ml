@@ -39,7 +39,85 @@ let create ~config ?tool_registry ?agent_template ?cwd () =
     last_missing_required_count = 0;
     hard_abort_reason = None;
     room_profile_system_prompt = None;
+    profiled_room = false;
   }
+
+let room_profile_prompt_active = function
+  | Some s when String.trim s <> "" -> true
+  | _ -> false
+
+let room_id_from_profiled_session_key session_key =
+  match String.index_opt session_key ':' with
+  | None -> None
+  | Some idx when idx + 1 < String.length session_key ->
+      Some
+        (String.sub session_key (idx + 1) (String.length session_key - idx - 1))
+  | Some _ -> None
+
+let room_has_profile_binding ~db room_id =
+  try Option.is_some (Memory.get_room_profile_binding ~db ~room_id)
+  with _ -> false
+
+let session_has_room_profile_binding ~db ?room_id session_key =
+  let candidates =
+    match room_id with Some room_id -> [ room_id ] | None -> []
+  in
+  let candidates =
+    match Memory.get_session_channel ~db ~session_key with
+    | Some (_channel, channel_id) -> channel_id :: candidates
+    | None -> (
+        match room_id_from_profiled_session_key session_key with
+        | Some room_id -> room_id :: candidates
+        | None -> candidates)
+  in
+  List.exists (room_has_profile_binding ~db) candidates
+
+let refresh_profiled_room_flag agent ?db ?session_key ?room_id () =
+  let has_binding =
+    match (db, session_key, room_id) with
+    | Some db, Some session_key, _ ->
+        session_has_room_profile_binding ~db ?room_id session_key
+    | Some db, None, Some room_id -> room_has_profile_binding ~db room_id
+    | _ -> false
+  in
+  agent.profiled_room <-
+    room_profile_prompt_active agent.room_profile_system_prompt || has_binding
+
+let unscoped_memory_context_allowed agent = not agent.profiled_room
+
+let prepare_turn_history agent ~user_message ?(content_parts = [])
+    ?(workspace_refresh_checked = false) ?db ?session_key ?room_id
+    ?on_llm_call_debug:_on_llm_call_debug () =
+  let open Lwt.Syntax in
+  let* () =
+    if workspace_refresh_checked then Lwt.return_unit
+    else begin
+      let _ = note_external_workspace_refresh_if_needed agent in
+      let _ = refresh_project_docs_if_changed agent in
+      Lwt.return_unit
+    end
+  in
+  refresh_profiled_room_flag agent ?db ?session_key ?room_id ();
+  let* () =
+    match db with
+    | Some db when unscoped_memory_context_allowed agent ->
+        Agent_2_tools.inject_search_context agent ~db ~user_message
+    | _ -> Lwt.return_unit
+  in
+  let filtered_content_parts =
+    filter_content_parts_for_model agent.config content_parts
+  in
+  let user_msg =
+    match filtered_content_parts with
+    | [] -> Provider.make_message ~role:"user" ~content:user_message
+    | parts ->
+        Provider.make_message_with_parts ~role:"user" ~content:user_message
+          ~content_parts:(Provider.Text user_message :: parts)
+  in
+  agent.history <- user_msg :: agent.history;
+  let* compacted = compact_history_if_needed agent ?db () in
+  trim_history agent;
+  Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     ?on_inject_messages ?on_tool_round_complete ?runtime_context
@@ -54,9 +132,10 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     | _ -> false
   in
   let open Lwt.Syntax in
+  refresh_profiled_room_flag agent ?db ?session_key ();
   let* _compaction_info =
     if history_prepared then Lwt.return_none
-    else prepare_turn_history agent ~user_message ?db ()
+    else prepare_turn_history agent ~user_message ?db ?session_key ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
@@ -481,9 +560,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     | _ -> false
   in
   let open Lwt.Syntax in
+  refresh_profiled_room_flag agent ?db ?session_key ();
   let* _compaction_info =
     if history_prepared then Lwt.return_none
-    else prepare_turn_history agent ~user_message ?db ()
+    else prepare_turn_history agent ~user_message ?db ?session_key ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in

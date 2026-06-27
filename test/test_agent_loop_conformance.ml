@@ -258,10 +258,85 @@ let test_tool_name_preservation_compress () =
     "name 'tool_one' preserved" true
     (List.mem "tool_one" names)
 
+let make_openai_test_config () =
+  let provider =
+    {
+      Runtime_config.default_provider_config with
+      api_key = "test-key";
+      kind = Some "openai";
+      default_model = Some "gpt-test";
+    }
+  in
+  {
+    Runtime_config.default with
+    providers = [ ("openai", provider) ];
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = "openai:gpt-test";
+      };
+    memory = { Runtime_config.default.memory with search_enabled = true };
+  }
+
+let with_captured_provider f =
+  let captured = ref [] in
+  let prev_complete = !Provider.native_complete in
+  Fun.protect
+    (fun () ->
+      Provider.register_native_complete Provider.OpenAICompat
+        (fun
+          ~config:_ ~provider:_ ~model ~messages ?tools:_ ?session_key:_ () ->
+          captured := messages;
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "ok";
+                 model;
+                 usage = None;
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      f captured)
+    ~finally:(fun () -> Provider.native_complete := prev_complete)
+
+let all_message_content messages =
+  messages
+  |> List.map (fun (m : Provider.message) -> m.content)
+  |> String.concat "\n"
+
+let test_profiled_room_turn_skips_unscoped_memory_context () =
+  with_captured_provider (fun captured ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+      let profile_id =
+        Memory.insert_room_profile ~db ~name:"channel-a-profile"
+      in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C_A" ~profile_id;
+      Memory.store_message ~db ~session_key:"slack:C_A"
+        (Provider.make_message ~role:"user" ~content:"channel A local context");
+      Memory.store_message ~db ~session_key:"slack:C_B"
+        (Provider.make_message ~role:"user"
+           ~content:"CHANNEL-B-SECRET leak-token only belongs to channel B");
+      Memory.store_core ~db ~key:"global-core-secret"
+        ~content:"GLOBAL-CORE-SECRET must not be injected" ();
+      let agent = Agent.create ~config:(make_openai_test_config ()) () in
+      ignore
+        (Lwt_main.run
+           (Agent.turn agent ~user_message:"leak-token" ~db
+              ~session_key:"slack:C_A" ()));
+      let prompt = all_message_content !captured in
+      Alcotest.(check bool)
+        "cross-channel search result absent" false
+        (Test_helpers.string_contains prompt "CHANNEL-B-SECRET");
+      Alcotest.(check bool)
+        "global core memory absent" false
+        (Test_helpers.string_contains prompt "GLOBAL-CORE-SECRET"))
+
 (* Test suite *)
 
 let suite =
   [
+    Alcotest.test_case "profiled room skips unscoped memory context" `Quick
+      test_profiled_room_turn_skips_unscoped_memory_context;
     Alcotest.test_case "collect_tool_call_ids basic" `Quick
       test_collect_tool_call_ids_basic;
     Alcotest.test_case "collect_tool_call_ids empty" `Quick

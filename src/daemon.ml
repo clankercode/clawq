@@ -456,6 +456,8 @@ let run ~(config : Runtime_config.t) =
                      (Session.find_registered_notifier session_manager
                         ~key:session_key)
                  in
+                 Agent.refresh_profiled_room_flag agent ?db:session_manager.db
+                   ~session_key ();
                  let* info =
                    Agent.force_compact_history agent ?db:session_manager.db
                      ?on_llm_call_debug ()

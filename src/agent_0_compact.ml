@@ -30,6 +30,7 @@ type t = {
      Prompt_builder.build uses this instead of agent_template.system_prompt.
      Set by apply_room_profile_template_fields in session_core. *)
   mutable room_profile_system_prompt : string option;
+  mutable profiled_room : bool;
 }
 
 exception Interrupted of string
@@ -50,6 +51,7 @@ type compact_plan = {
   cp_to_compact : Provider.message list;
   cp_to_keep : Provider.message list;
   cp_history_length : int;
+  cp_profiled_room : bool;
 }
 
 type compact_callbacks = {
@@ -81,6 +83,13 @@ let () =
     | _ -> false)
 
 let is_session_event_message (msg : Provider.message) = msg.role = "event"
+
+let profiled_room_active agent =
+  agent.profiled_room
+  ||
+  match agent.room_profile_system_prompt with
+  | Some s when String.trim s <> "" -> true
+  | _ -> false
 
 let runtime_history_messages history =
   List.filter
@@ -751,7 +760,9 @@ let compact_history_if_needed agent ?db ?on_llm_call_debug () =
       if to_compact = [] then Lwt.return_none
       else begin
         (match db with
-        | Some db when agent.config.memory.pre_compaction_flush ->
+        | Some db
+          when agent.config.memory.pre_compaction_flush
+               && not (profiled_room_active agent) ->
             let snapshot = List.map Fun.id to_compact in
             let flush_config = agent.config in
             let system_prompt = agent.system_prompt in
@@ -834,7 +845,12 @@ let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
     if to_compact = [] then Lwt.return_none
     else begin
       let* () =
-        match (db, compact_cbs, agent.config.memory.pre_compaction_flush) with
+        match
+          ( db,
+            compact_cbs,
+            agent.config.memory.pre_compaction_flush
+            && not (profiled_room_active agent) )
+        with
         | Some db, Some cbs, true ->
             let snapshot = List.map Fun.id to_compact in
             let flush_config = agent.config in
@@ -963,6 +979,7 @@ let plan_force_compact agent =
           cp_to_compact = to_compact;
           cp_to_keep = to_keep;
           cp_history_length = List.length agent.history;
+          cp_profiled_room = profiled_room_active agent;
         }
   end
 
@@ -972,7 +989,11 @@ let execute_compact_plan plan ?db ?compact_cbs ?on_llm_call_debug () =
   let system_prompt = plan.cp_system_prompt in
   let to_compact = plan.cp_to_compact in
   let* () =
-    match (db, compact_cbs, config.memory.pre_compaction_flush) with
+    match
+      ( db,
+        compact_cbs,
+        config.memory.pre_compaction_flush && not plan.cp_profiled_room )
+    with
     | Some db, Some cbs, true ->
         let snapshot = List.map Fun.id to_compact in
         let t0 = Unix.gettimeofday () in

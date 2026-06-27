@@ -885,6 +885,7 @@ let default_resume_turn ?on_history_persisted ~(session_manager : Session.t)
           dropped_count session_key);
     agent.Agent.history <- sanitized
   end;
+  Agent.refresh_profiled_room_flag agent ?db:session_manager.db ~session_key ();
   let* compaction_info =
     Agent.compact_history_if_needed agent ?db:session_manager.db
       ?on_llm_call_debug ()

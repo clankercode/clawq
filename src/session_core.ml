@@ -1932,14 +1932,17 @@ let compact mgr ~key ?notifier () =
         (* Phase 1: Plan -- acquire lock, snapshot state, release lock. *)
         let* plan_opt =
           with_session_lock mgr ~key (fun agent _interrupt ->
+              Agent.refresh_profiled_room_flag agent ?db:mgr.db ~session_key:key
+                ();
               let plan = Agent.plan_force_compact agent in
               (* Set up progress steps while we have the agent *)
               let* () =
                 match (plan, send_or_edit_opt) with
-                | Some _, Some soe ->
+                | Some plan, Some soe ->
                     let has_mem_flush =
                       agent.Agent.config.memory.pre_compaction_flush
                       && Option.is_some mgr.db
+                      && not plan.Agent.cp_profiled_room
                     in
                     overall_start := Unix.gettimeofday ();
                     steps :=

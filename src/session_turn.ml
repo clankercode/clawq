@@ -361,7 +361,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       let* compaction_info =
         Agent.prepare_turn_history agent ~user_message:effective_message
           ~content_parts ~workspace_refresh_checked:true ?db:mgr.db
-          ?on_llm_call_debug ()
+          ~session_key:key ?room_id:channel_id ?on_llm_call_debug ()
       in
       let compacted = Option.is_some compaction_info in
       let* () =
@@ -1216,6 +1216,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                           Agent.prepare_turn_history agent
                             ~user_message:effective_message ~content_parts
                             ~workspace_refresh_checked:true ?db:mgr.db
+                            ~session_key:key ?room_id:channel_id
                             ?on_llm_call_debug ()
                         in
                         let compacted = Option.is_some compaction_info in
