@@ -40,58 +40,23 @@ echo "Compiling Coq proofs..."
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/ConfigProofs.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/CliProofs.v
 
-if rg -n '^Admitted\.$' coq/theories/Clawq/LandlockPolicy.v >/dev/null; then
-  echo "LandlockPolicy.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/LandlockPolicy.v
-  exit 1
-fi
+check_no_admitted() {
+  local file="$1"
+  local name
+  name="$(basename "$file")"
 
-echo "Verified: coq/theories/Clawq/LandlockPolicy.v contains no Admitted proofs."
+  if grep -nH '^Admitted\.$' "$file"; then
+    echo "${name} still contains Admitted proofs."
+    exit 1
+  fi
 
-if rg -n '^Admitted\.$' coq/theories/Clawq/PairCoding.v >/dev/null; then
-  echo "PairCoding.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/PairCoding.v
-  exit 1
-fi
+  echo "Verified: ${file} contains no Admitted proofs."
+}
 
-echo "Verified: coq/theories/Clawq/PairCoding.v contains no Admitted proofs."
-
-if rg -n '^Admitted\.$' coq/theories/Clawq/PmodelParsing.v >/dev/null; then
-  echo "PmodelParsing.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/PmodelParsing.v
-  exit 1
-fi
-
-echo "Verified: coq/theories/Clawq/PmodelParsing.v contains no Admitted proofs."
-
-if rg -n '^Admitted\.$' coq/theories/Clawq/TaskTree.v >/dev/null; then
-  echo "TaskTree.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/TaskTree.v
-  exit 1
-fi
-
-echo "Verified: coq/theories/Clawq/TaskTree.v contains no Admitted proofs."
-
-if rg -n '^Admitted\.$' coq/theories/Clawq/SchedulerCron.v >/dev/null; then
-  echo "SchedulerCron.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/SchedulerCron.v
-  exit 1
-fi
-
-echo "Verified: coq/theories/Clawq/SchedulerCron.v contains no Admitted proofs."
-
-if rg -n '^Admitted\.$' coq/theories/Clawq/DiscordGateway.v >/dev/null; then
-  echo "DiscordGateway.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/DiscordGateway.v
-  exit 1
-fi
-
-echo "Verified: coq/theories/Clawq/DiscordGateway.v contains no Admitted proofs."
-
-if rg -n '^Admitted\.$' coq/theories/Clawq/SandboxPolicy.v >/dev/null; then
-  echo "SandboxPolicy.v still contains Admitted proofs."
-  rg -n '^Admitted\.$' coq/theories/Clawq/SandboxPolicy.v
-  exit 1
-fi
-
-echo "Verified: coq/theories/Clawq/SandboxPolicy.v contains no Admitted proofs."
+check_no_admitted coq/theories/Clawq/LandlockPolicy.v
+check_no_admitted coq/theories/Clawq/PairCoding.v
+check_no_admitted coq/theories/Clawq/PmodelParsing.v
+check_no_admitted coq/theories/Clawq/TaskTree.v
+check_no_admitted coq/theories/Clawq/SchedulerCron.v
+check_no_admitted coq/theories/Clawq/DiscordGateway.v
+check_no_admitted coq/theories/Clawq/SandboxPolicy.v
