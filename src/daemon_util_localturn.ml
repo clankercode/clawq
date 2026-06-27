@@ -97,31 +97,14 @@ let run_local_background_turn ~(session_manager : Session.t) ~key ~message
                 List.rev (Memory.load_history ~db ~session_key:key)
               in
               (* B720: if context_snapshot is present, prepend the forked
-                 parent conversation history before the agent's own history *)
+                 parent conversation history verbatim (no extra messages)
+                 so the child hits the same prompt cache as the parent *)
               let history =
                 match context_snapshot with
                 | Some snapshot when String.trim snapshot <> "" ->
                     let forked = messages_of_json_string snapshot in
                     if forked = [] then db_history
-                    else
-                      let prefix =
-                        {
-                          Provider.role = "system";
-                          content =
-                            "The following messages are from the parent \
-                             conversation that spawned this subagent. They \
-                             provide context about what was discussed before \
-                             you were created.";
-                          content_parts = [];
-                          tool_calls = [];
-                          tool_call_id = None;
-                          name = None;
-                          provider_response_items_json = None;
-                          thinking = None;
-                          is_error = false;
-                        }
-                      in
-                      (prefix :: forked) @ db_history
+ else forked @ db_history
                 | _ -> db_history
               in
               agent.history <- history
