@@ -670,27 +670,9 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               (fun agent interrupt ->
                 Session_core.with_in_flight mgr (fun () ->
                     (match cwd with
-                    | Some c -> (
-                        let old_cwd = agent.Agent.effective_cwd in
-                        agent.Agent.effective_cwd <- Some c;
-                        (match old_cwd with
-                        | Some prev when prev <> c ->
-                            let event_msg =
-                              Provider.make_message ~role:"event"
-                                ~content:
-                                  (Printf.sprintf
-                                     "[system] Working directory changed from \
-                                      %s to %s"
-                                     prev c)
-                            in
-                            agent.Agent.history <-
-                              agent.Agent.history @ [ event_msg ]
-                        | _ -> ());
-                        match mgr.Session_core.db with
-                        | Some db ->
-                            Memory.set_session_cwd ~db ~session_key:key
-                              ~cwd:(Some c)
-                        | None -> ())
+                    | Some c ->
+                        Session_core.apply_cwd_change_for_turn mgr ~key agent
+                          ~cwd:c
                     | None -> ());
                     let* response =
                       run_locked_turn mgr ~key agent interrupt ~message
@@ -1120,27 +1102,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               (fun agent interrupt ->
                 Session_core.with_in_flight mgr (fun () ->
                     (match cwd with
-                    | Some c -> (
-                        let old_cwd = agent.Agent.effective_cwd in
-                        agent.Agent.effective_cwd <- Some c;
-                        (match old_cwd with
-                        | Some prev when prev <> c ->
-                            let event_msg =
-                              Provider.make_message ~role:"event"
-                                ~content:
-                                  (Printf.sprintf
-                                     "[system] Working directory changed from \
-                                      %s to %s"
-                                     prev c)
-                            in
-                            agent.Agent.history <-
-                              agent.Agent.history @ [ event_msg ]
-                        | _ -> ());
-                        match mgr.Session_core.db with
-                        | Some db ->
-                            Memory.set_session_cwd ~db ~session_key:key
-                              ~cwd:(Some c)
-                        | None -> ())
+                    | Some c ->
+                        Session_core.apply_cwd_change_for_turn mgr ~key agent
+                          ~cwd:c
                     | None -> ());
                     let interrupt_check () = !interrupt in
                     interrupt := None;
