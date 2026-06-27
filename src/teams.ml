@@ -1396,9 +1396,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           in
                           send_text text
                       | Menu page ->
+                          let full_config =
+                            Session.get_config session_manager
+                          in
                           let card_json =
                             Slash_commands_manifest.menu_adaptive_card_json
-                              ~page ~is_admin ()
+                              ~page ~is_admin ~config:full_config
+                              ~session_key:key ()
                           in
                           send_adaptive_card ~config
                             ~service_url:effective_service_url ~conversation_id
@@ -1636,9 +1640,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                   tasks
                             | None -> []
                           in
+                          let full_config =
+                            Session.get_config session_manager
+                          in
                           let card_json =
                             Slash_commands_manifest.bg_menu_adaptive_card_json
-                              ~cancellable ()
+                              ~config:full_config ~session_key:key ~cancellable
+                              ()
                           in
                           send_adaptive_card ~config
                             ~service_url:effective_service_url ~conversation_id

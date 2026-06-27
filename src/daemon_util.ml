@@ -485,11 +485,17 @@ let background_task_wakeup_message task =
              (Background_task.preview_text_n 500 text))
     | _ -> None
   in
+  let room_context =
+    Option.map
+      (fun context -> "Room: " ^ context)
+      (Background_task.room_context_summary task)
+  in
   String.concat "\n"
     (List.filter
        (fun s -> String.trim s <> "")
        [
          base;
+         Option.value ~default:"" room_context;
          Option.value ~default:"" preview;
          Printf.sprintf "Transcript: `subagents transcript %d`" task.id;
        ])
@@ -497,6 +503,34 @@ let background_task_wakeup_message task =
 (* run_local_background_turn + config_with_primary_model live in
    daemon_util_localturn.ml; re-exported here to keep Daemon_util.* stable. *)
 include Daemon_util_localturn
+
+let teams_room_context_for_completion ?db (task : Background_task.task) =
+  match (db, task.channel, task.channel_id) with
+  | Some db, Some "teams", Some channel_id -> (
+      let service_url, conversation_id = Teams.decode_channel_id channel_id in
+      match Memory.get_room_profile_binding ~db ~room_id:conversation_id with
+      | None -> None
+      | Some binding ->
+          let origin =
+            Room_origin.make ~connector:"teams" ~room_id:conversation_id
+              ~service_url ~profile_id:binding.profile_id ()
+          in
+          Some
+            ( "teams:" ^ Session.sanitize_session_key conversation_id,
+              Room_origin.to_compact_json_string origin,
+              Room_origin.display_summary origin ))
+  | _ -> None
+
+let task_with_teams_room_context ?db (task : Background_task.task) =
+  match teams_room_context_for_completion ?db task with
+  | None -> task
+  | Some (session_key, origin_json, requester) ->
+      {
+        task with
+        session_key = Some session_key;
+        origin_json = Some origin_json;
+        requester = Some requester;
+      }
 
 let inject_background_task_completion
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
@@ -691,6 +725,7 @@ let notify_background_task_finished ?continuation_delay
             Lwt.return (task, true))
     | _ -> Lwt.return (task, false)
   in
+  let task = task_with_teams_room_context ?db task in
   (* B630/B632: if this task was triggered by a cron job, record its output
      so the scheduler can detect consecutive-identical-output loops and
      disable the cron before it burns more tokens. Safe no-op for non-cron

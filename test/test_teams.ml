@@ -288,6 +288,77 @@ let test_teams_menu_command_sends_adaptive_card () =
     "Teams card uses imBack" true
     (Test_helpers.string_contains card_text "\"imBack\"")
 
+let test_teams_menu_filters_room_profile_tools () =
+  let config =
+    {
+      Runtime_config.default with
+      room_profiles =
+        [
+          {
+            id = "incident";
+            display_name = None;
+            model = "";
+            system_prompt = "";
+            max_tool_iterations = 10;
+            status = "active";
+            allowed_tools = [ "background_task_list" ];
+            denied_tools = [];
+          };
+        ];
+      room_profile_bindings =
+        [ { profile_id = "incident"; room = "conv-bound"; active = true } ];
+    }
+  in
+  let card =
+    Slash_commands_manifest.menu_adaptive_card_json ~page:2 ~is_admin:true
+      ~config ~session_key:"teams:conv-bound" ()
+  in
+  let card_text = Yojson.Safe.to_string card in
+  Alcotest.(check bool)
+    "bg remains visible because list tool is allowed" true
+    (Test_helpers.string_contains card_text "/bg");
+  Alcotest.(check bool)
+    "delegate hidden because delegate tool is not allowed" false
+    (Test_helpers.string_contains card_text "/delegate")
+
+let test_teams_bg_card_filters_room_profile_tools () =
+  let config =
+    {
+      Runtime_config.default with
+      room_profiles =
+        [
+          {
+            id = "incident";
+            display_name = None;
+            model = "";
+            system_prompt = "";
+            max_tool_iterations = 10;
+            status = "active";
+            allowed_tools = [ "background_task_list" ];
+            denied_tools = [];
+          };
+        ];
+      room_profile_bindings =
+        [ { profile_id = "incident"; room = "conv-bound"; active = true } ];
+    }
+  in
+  let card =
+    Slash_commands_manifest.bg_menu_adaptive_card_json ~config
+      ~session_key:"teams:conv-bound"
+      ~cancellable:[ (7, "codex") ]
+      ()
+  in
+  let card_text = Yojson.Safe.to_string card in
+  Alcotest.(check bool)
+    "list button visible" true
+    (Test_helpers.string_contains card_text "List Tasks");
+  Alcotest.(check bool)
+    "create button hidden" false
+    (Test_helpers.string_contains card_text "Create Task");
+  Alcotest.(check bool)
+    "cancel button hidden" false
+    (Test_helpers.string_contains card_text "Cancel #7")
+
 let test_teams_agent_error_replies_like_slack () =
   let sent = ref [] in
   run_teams_webhook ~send_reply_fn:(capture_reply sent) ~turn_fn:failing_turn
@@ -1478,6 +1549,10 @@ let suite =
       test_teams_menu_card_renders_imback_actions;
     Alcotest.test_case "menu command sends adaptive card" `Quick
       test_teams_menu_command_sends_adaptive_card;
+    Alcotest.test_case "menu filters room profile tools" `Quick
+      test_teams_menu_filters_room_profile_tools;
+    Alcotest.test_case "bg card filters room profile tools" `Quick
+      test_teams_bg_card_filters_room_profile_tools;
     Alcotest.test_case "agent error replies like Slack" `Quick
       test_teams_agent_error_replies_like_slack;
     Alcotest.test_case "strip_at_mentions" `Quick test_strip_at_mentions;

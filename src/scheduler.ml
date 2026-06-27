@@ -774,12 +774,23 @@ let hash_and_detect_loop ~db ~run_id ~job_name ~output =
 (* Called from the bg-task completion path (daemon_util) so the scheduler can
    record output for cron-triggered runs and disable degenerate loops. Safe to
    call with a non-cron task id — it just returns None when no row matches. *)
+let table_exists ~db ~name =
+  let sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
 let mark_run_output ~db ~bg_task_id ~output =
-  match lookup_run_id_for_bg_task ~db ~bg_task_id with
-  | None -> None
-  | Some (run_id, job_name) ->
-      hash_and_detect_loop ~db ~run_id ~job_name ~output;
-      Some job_name
+  if not (table_exists ~db ~name:"cron_runs") then None
+  else
+    match lookup_run_id_for_bg_task ~db ~bg_task_id with
+    | None -> None
+    | Some (run_id, job_name) ->
+        hash_and_detect_loop ~db ~run_id ~job_name ~output;
+        Some job_name
 
 (* B665: called from the inline cron tick (where we already have run_id and
    job_name in scope) so cron jobs that never spawn a Background_task — i.e.,

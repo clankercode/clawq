@@ -223,24 +223,34 @@ let queued_message_count ~db ~task_id =
           | _ -> 0)
       | _ -> 0)
 
-let record_notification_result ~db ~id ~status ?error () =
-  let sql =
-    "UPDATE background_tasks SET notification_status = ?, notification_error = \
-     ?, notification_attempts = COALESCE(notification_attempts, 0) + 1 WHERE \
-     id = ?"
-  in
+let table_exists ~db ~name =
+  let sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
-      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status));
-      ignore
-        (Sqlite3.bind stmt 2
-           (match error with
-           | Some e -> Sqlite3.Data.TEXT e
-           | None -> Sqlite3.Data.NULL));
-      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
-      ignore (Sqlite3.step stmt))
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
+let record_notification_result ~db ~id ~status ?error () =
+  if table_exists ~db ~name:"background_tasks" then
+    let sql =
+      "UPDATE background_tasks SET notification_status = ?, notification_error \
+       = ?, notification_attempts = COALESCE(notification_attempts, 0) + 1 \
+       WHERE id = ?"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status));
+        ignore
+          (Sqlite3.bind stmt 2
+             (match error with
+             | Some e -> Sqlite3.Data.TEXT e
+             | None -> Sqlite3.Data.NULL));
+        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
+        ignore (Sqlite3.step stmt))
 
 let resume_supported (task : task) =
   task.use_worktree && task.branch <> ""

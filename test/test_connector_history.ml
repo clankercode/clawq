@@ -252,7 +252,8 @@ let test_inject_tool_respects_capability_matrix () =
   in
   let mgr = Session.create ~config ~db () in
   let key = "telegram:chat1:user1" in
-  Session.register_connector_capabilities mgr ~key Connector_capabilities.telegram;
+  Session.register_connector_capabilities mgr ~key
+    Connector_capabilities.telegram;
   Connector_history.record ~persist:false ~key ~channel_type:"telegram" ~max:50
     ~sender_name:"Alice" ~sender_id:"u1" ~text:"not injectable" ();
   let tool =

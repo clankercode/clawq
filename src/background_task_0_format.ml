@@ -601,6 +601,12 @@ let terse_finished_message (task : task) =
       base ^ merge_suffix ^ " -- " ^ short ^ "]"
   | _ -> base ^ merge_suffix ^ "]"
 
+let room_context_summary (task : task) =
+  match Option.bind task.origin_json Room_origin.of_json_string_opt with
+  | Some origin when not (Room_origin.is_empty origin) ->
+      Some (Room_origin.display_summary origin)
+  | _ -> task.requester
+
 let finalize_hint (task : task) =
   match (task.status, task.branch, task.worktree_path) with
   | DirtyWorktree, _, Some wt ->
@@ -716,6 +722,9 @@ let channel_notification_message ?summary ?git_info (task : task) =
     (Printf.sprintf "Background task #%d finished: %s%s" task.id status_word
        merge_suffix);
   add (Printf.sprintf "%s (%s)" (task_label task) elapsed);
+  (match room_context_summary task with
+  | Some context -> add ("Room: " ^ context)
+  | None -> ());
   (match git_info with Some info -> add (format_git_status info) | None -> ());
   (match summary with
   | Some s -> add (Printf.sprintf "Summary: %s" s)
