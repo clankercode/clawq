@@ -195,6 +195,7 @@ let convert (json : Yojson.Safe.t) =
       debate = default.debate;
       postmortem = default.postmortem;
       room_profiles = default.room_profiles;
+      room_profile_codebase_grants = default.room_profile_codebase_grants;
       room_profile_bindings = default.room_profile_bindings;
     }
   in

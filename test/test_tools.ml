@@ -2925,17 +2925,59 @@ let test_git_operations_repo_path_absolute_used_as_cwd () =
         "status in explicit repo succeeds (no fatal error)" true
         (not (Test_helpers.string_contains result "fatal:")))
 
-let make_test_config ~workspace ~allowed_cwd_patterns =
+let make_test_config ?(workspace_only = false) ~workspace ~allowed_cwd_patterns
+    () =
   {
     Runtime_config.default with
     workspace;
     security =
       {
         Runtime_config.default.security with
-        workspace_only = false;
+        workspace_only;
         allowed_cwd_patterns;
       };
   }
+
+let make_room_profile_codebase_config ?(workspace_only = false) ~workspace
+    ~allowed_cwd_patterns ~codebase_grants () =
+  {
+    (make_test_config ~workspace_only ~workspace ~allowed_cwd_patterns ()) with
+    room_profiles =
+      [
+        {
+          Runtime_config.id = "profile-a";
+          display_name = None;
+          model = "openai:gpt-5.4";
+          system_prompt = "";
+          max_tool_iterations = 10;
+          status = "active";
+          allowed_tools = [];
+          denied_tools = [];
+        };
+      ];
+    room_profile_bindings =
+      [
+        { Runtime_config.profile_id = "profile-a"; room = "C_A"; active = true };
+      ];
+    room_profile_codebase_grants = codebase_grants;
+  }
+
+let room_profile_cwd_context changed_to =
+  {
+    Tool.session_key = Some "web:C_A";
+    send_progress = None;
+    interrupt_check = None;
+    inject_system_messages = None;
+    effective_cwd = None;
+    request_cwd_change = Some (fun path _wipe -> changed_to := Some path);
+  }
+
+let with_extra_dir base name f =
+  let path = Filename.concat (Filename.dirname base) name in
+  Unix.mkdir path 0o755;
+  Fun.protect
+    (fun () -> f path)
+    ~finally:(fun () -> try Unix.rmdir path with _ -> ())
 
 let with_temp_dir_tree f =
   let root = Filename.temp_file "clawq_cwd_test" "" in
@@ -2962,7 +3004,9 @@ let with_temp_dir_tree f =
 let test_change_working_dir_basic () =
   with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
       let config =
-        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+        make_test_config ~workspace:root
+          ~allowed_cwd_patterns:[ root ^ "/**" ]
+          ()
       in
       let tool =
         Tools_builtin.change_working_dir ~config ~workspace:root
@@ -2995,6 +3039,7 @@ let test_change_working_dir_rejects_unmatched_pattern () =
       let config =
         make_test_config ~workspace:root
           ~allowed_cwd_patterns:[ "/nonexistent/pattern/**" ]
+          ()
       in
       let tool =
         Tools_builtin.change_working_dir ~config ~workspace:root
@@ -3021,7 +3066,9 @@ let test_change_working_dir_rejects_unmatched_pattern () =
 let test_change_working_dir_allows_matching_pattern () =
   with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
       let config =
-        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+        make_test_config ~workspace:root
+          ~allowed_cwd_patterns:[ root ^ "/**" ]
+          ()
       in
       let tool =
         Tools_builtin.change_working_dir ~config ~workspace:root
@@ -3047,10 +3094,112 @@ let test_change_working_dir_allows_matching_pattern () =
         (not (String.starts_with ~prefix:"Error:" result));
       Alcotest.(check bool) "callback fired" true !cwd_changed)
 
+let test_change_working_dir_allows_profile_codebase_grant () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      let config =
+        make_room_profile_codebase_config ~workspace:root
+          ~allowed_cwd_patterns:[ root ^ "/**" ]
+          ~codebase_grants:[ ("profile-a", [ sub ^ "/**" ]) ]
+          ()
+      in
+      let tool =
+        Tools_builtin.change_working_dir ~config ~workspace:root
+          ~workspace_only:false ~extra_allowed_paths:[]
+      in
+      let changed_to = ref None in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             ~context:(room_profile_cwd_context changed_to)
+             (`Assoc [ ("path", `String sub) ]))
+      in
+      Alcotest.(check bool)
+        "granted codebase path accepted" true
+        (not (String.starts_with ~prefix:"Error:" result));
+      Alcotest.(check (option string)) "callback fired" (Some sub) !changed_to)
+
+let test_change_working_dir_blocks_ungranted_profile_codebase () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      with_extra_dir root "clawq_cwd_other" (fun other ->
+          let config =
+            make_room_profile_codebase_config ~workspace:root
+              ~allowed_cwd_patterns:[ root ^ "/**"; other ^ "/**" ]
+              ~codebase_grants:[ ("profile-a", [ sub ^ "/**" ]) ]
+              ()
+          in
+          let tool =
+            Tools_builtin.change_working_dir ~config ~workspace:root
+              ~workspace_only:false ~extra_allowed_paths:[]
+          in
+          let changed_to = ref None in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke
+                 ~context:(room_profile_cwd_context changed_to)
+                 (`Assoc [ ("path", `String other) ]))
+          in
+          Alcotest.(check bool)
+            "ungranted codebase path rejected" true
+            (Test_helpers.string_contains result "codebase_grants");
+          Alcotest.(check (option string)) "callback not fired" None !changed_to))
+
+let test_change_working_dir_falls_back_without_profile_codebase_grant () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
+      with_extra_dir root "clawq_cwd_fallback" (fun other ->
+          let config =
+            make_room_profile_codebase_config ~workspace:root
+              ~allowed_cwd_patterns:[ root ^ "/**"; other ^ "/**" ]
+              ~codebase_grants:[] ()
+          in
+          let tool =
+            Tools_builtin.change_working_dir ~config ~workspace:root
+              ~workspace_only:false ~extra_allowed_paths:[]
+          in
+          let changed_to = ref None in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke
+                 ~context:(room_profile_cwd_context changed_to)
+                 (`Assoc [ ("path", `String other) ]))
+          in
+          Alcotest.(check bool)
+            "fallback path accepted by global policy" true
+            (not (String.starts_with ~prefix:"Error:" result));
+          Alcotest.(check (option string))
+            "callback fired" (Some other) !changed_to))
+
+let test_change_working_dir_rejects_profile_grant_outside_global_workspace () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
+      with_extra_dir root "clawq_cwd_global_denied" (fun other ->
+          let config =
+            make_room_profile_codebase_config ~workspace_only:true
+              ~workspace:root
+              ~allowed_cwd_patterns:[ root ^ "/**"; other ^ "/**" ]
+              ~codebase_grants:[ ("profile-a", [ other ^ "/**" ]) ]
+              ()
+          in
+          let tool =
+            Tools_builtin.change_working_dir ~config ~workspace:root
+              ~workspace_only:true ~extra_allowed_paths:[]
+          in
+          let changed_to = ref None in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke
+                 ~context:(room_profile_cwd_context changed_to)
+                 (`Assoc [ ("path", `String other) ]))
+          in
+          Alcotest.(check bool)
+            "global workspace policy still rejects granted path" true
+            (String.starts_with ~prefix:"Error:" result);
+          Alcotest.(check (option string)) "callback not fired" None !changed_to))
+
 let test_change_working_dir_rejects_nonexistent () =
   with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
       let config =
-        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+        make_test_config ~workspace:root
+          ~allowed_cwd_patterns:[ root ^ "/**" ]
+          ()
       in
       let tool =
         Tools_builtin.change_working_dir ~config ~workspace:root
@@ -3078,7 +3227,9 @@ let test_change_working_dir_rejects_nonexistent () =
 let test_change_working_dir_rejects_file () =
   with_temp_dir_tree (fun ~root ~sub:_ ~file ~sub_file:_ ->
       let config =
-        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+        make_test_config ~workspace:root
+          ~allowed_cwd_patterns:[ root ^ "/**" ]
+          ()
       in
       let tool =
         Tools_builtin.change_working_dir ~config ~workspace:root
@@ -3105,7 +3256,9 @@ let test_change_working_dir_rejects_file () =
 let test_change_working_dir_wipe_history () =
   with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
       let config =
-        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+        make_test_config ~workspace:root
+          ~allowed_cwd_patterns:[ root ^ "/**" ]
+          ()
       in
       let agent = Agent.create ~config () in
       agent.history <-
@@ -3938,6 +4091,16 @@ let suite =
       test_change_working_dir_rejects_unmatched_pattern;
     Alcotest.test_case "change_working_dir allows matching pattern" `Quick
       test_change_working_dir_allows_matching_pattern;
+    Alcotest.test_case "change_working_dir allows profile codebase grant" `Quick
+      test_change_working_dir_allows_profile_codebase_grant;
+    Alcotest.test_case "change_working_dir blocks ungranted profile codebase"
+      `Quick test_change_working_dir_blocks_ungranted_profile_codebase;
+    Alcotest.test_case
+      "change_working_dir falls back without profile codebase grant" `Quick
+      test_change_working_dir_falls_back_without_profile_codebase_grant;
+    Alcotest.test_case
+      "change_working_dir rejects profile grant outside global workspace" `Quick
+      test_change_working_dir_rejects_profile_grant_outside_global_workspace;
     Alcotest.test_case "change_working_dir rejects non-existent" `Quick
       test_change_working_dir_rejects_nonexistent;
     Alcotest.test_case "change_working_dir rejects file" `Quick

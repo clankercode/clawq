@@ -578,5 +578,6 @@ type t = {
   debate : debate_config;
   postmortem : postmortem_config;
   room_profiles : room_profile list;
+  room_profile_codebase_grants : (string * string list) list;
   room_profile_bindings : room_profile_binding list;
 }

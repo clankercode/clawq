@@ -1151,6 +1151,7 @@ let test_room_profiles_roundtrip () =
             active = true;
           };
         ];
+      room_profile_codebase_grants = [ ("test-p", [ "$CLAWQ_WORKSPACE/**" ]) ];
     }
   in
   let json = Runtime_config.to_json cfg in
@@ -1166,7 +1167,11 @@ let test_room_profiles_roundtrip () =
     (List.length cfg2.room_profile_bindings);
   let b = List.nth cfg2.room_profile_bindings 0 in
   Alcotest.(check string) "binding room" "general" b.room;
-  Alcotest.(check bool) "binding active" true b.active
+  Alcotest.(check bool) "binding active" true b.active;
+  Alcotest.(check (list string))
+    "codebase grants roundtrip" [ "$CLAWQ_WORKSPACE/**" ]
+    (Runtime_config.room_profile_codebase_grants_for_profile cfg2
+       ~profile_id:"test-p")
 
 let test_room_profiles_to_json_omits_empty () =
   let json = Runtime_config.to_json Runtime_config.default in

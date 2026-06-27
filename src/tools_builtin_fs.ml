@@ -654,7 +654,7 @@ let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
                   Lwt.return
                     "Error: change_working_dir callback not available. This \
                      tool can only be used within an agent session."
-              | Some request_cwd_change ->
+              | Some request_cwd_change -> (
                   let eff_ws =
                     effective_cwd_or_workspace ?context ~workspace ()
                   in
@@ -689,69 +689,117 @@ let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
                       "Error: path is outside the workspace in workspace_only \
                        mode"
                   else
-                    let patterns = config.security.allowed_cwd_patterns in
-                    let expanded_patterns =
-                      List.map
-                        (Runtime_config.expand_cwd_pattern ~config)
-                        patterns
+                    let profile_grant_denial =
+                      match ctx.Tool.session_key with
+                      | None -> None
+                      | Some session_key -> (
+                          match
+                            Runtime_config.resolve_room_profile config
+                              ~session_key
+                          with
+                          | None -> None
+                          | Some profile ->
+                              let grants =
+                                Runtime_config
+                                .room_profile_codebase_grants_for_profile config
+                                  ~profile_id:profile.id
+                              in
+                              if grants = [] then None
+                              else
+                                let expanded_grants =
+                                  List.map
+                                    (Runtime_config.expand_cwd_pattern ~config)
+                                    grants
+                                in
+                                if
+                                  List.exists
+                                    (fun pat ->
+                                      pat <> ""
+                                      && glob_matches_path ~pattern:pat resolved)
+                                    expanded_grants
+                                then None
+                                else
+                                  Some
+                                    (Printf.sprintf
+                                       "Error: directory %s is outside the \
+                                        room_profile_codebase_grants for \
+                                        profile '%s'. Configured grants: %s."
+                                       resolved profile.id
+                                       (String.concat ", "
+                                          (List.map
+                                             (fun p -> "\"" ^ p ^ "\"")
+                                             grants))))
                     in
-                    let matches =
-                      List.exists
-                        (fun pat -> glob_matches_path ~pattern:pat resolved)
-                        expanded_patterns
-                    in
-                    if not matches then
-                      Lwt.return
-                        (Printf.sprintf
-                           "Error: directory %s does not match any \
-                            allowed_cwd_patterns. Configured patterns: %s. \
-                            Update security.allowed_cwd_patterns in %s to \
-                            allow this directory."
-                           resolved
-                           (String.concat ", "
-                              (List.map (fun p -> "\"" ^ p ^ "\"") patterns))
-                           (Dot_dir.config_path ()))
-                    else begin
-                      request_cwd_change resolved wipe_history;
-                      let entries =
-                        try
-                          let items =
-                            Sys.readdir resolved |> Array.to_list
-                            |> List.filter (fun e -> e = "" || e.[0] <> '.')
-                            |> List.sort String.compare
+                    match profile_grant_denial with
+                    | Some msg -> Lwt.return msg
+                    | None ->
+                        let patterns = config.security.allowed_cwd_patterns in
+                        let expanded_patterns =
+                          List.map
+                            (Runtime_config.expand_cwd_pattern ~config)
+                            patterns
+                        in
+                        let matches =
+                          List.exists
+                            (fun pat -> glob_matches_path ~pattern:pat resolved)
+                            expanded_patterns
+                        in
+                        if not matches then
+                          Lwt.return
+                            (Printf.sprintf
+                               "Error: directory %s does not match any \
+                                allowed_cwd_patterns. Configured patterns: %s. \
+                                Update security.allowed_cwd_patterns in %s to \
+                                allow this directory."
+                               resolved
+                               (String.concat ", "
+                                  (List.map (fun p -> "\"" ^ p ^ "\"") patterns))
+                               (Dot_dir.config_path ()))
+                        else begin
+                          request_cwd_change resolved wipe_history;
+                          let entries =
+                            try
+                              let items =
+                                Sys.readdir resolved |> Array.to_list
+                                |> List.filter (fun e -> e = "" || e.[0] <> '.')
+                                |> List.sort String.compare
+                              in
+                              let classified =
+                                List.map
+                                  (fun name ->
+                                    let full = Filename.concat resolved name in
+                                    if
+                                      try Sys.is_directory full
+                                      with _ -> false
+                                    then name ^ "/"
+                                    else name)
+                                  items
+                              in
+                              let max_show = 30 in
+                              let len = List.length classified in
+                              if len = 0 then "(empty directory)"
+                              else if len <= max_show then
+                                String.concat "  " classified
+                              else
+                                String.concat "  "
+                                  (List.filteri
+                                     (fun i _ -> i < max_show)
+                                     classified)
+                                ^ Printf.sprintf "  ...(%d more)"
+                                    (len - max_show)
+                            with _ -> "(unable to list)"
                           in
-                          let classified =
-                            List.map
-                              (fun name ->
-                                let full = Filename.concat resolved name in
-                                if try Sys.is_directory full with _ -> false
-                                then name ^ "/"
-                                else name)
-                              items
-                          in
-                          let max_show = 30 in
-                          let len = List.length classified in
-                          if len = 0 then "(empty directory)"
-                          else if len <= max_show then
-                            String.concat "  " classified
-                          else
-                            String.concat "  "
-                              (List.filteri
-                                 (fun i _ -> i < max_show)
-                                 classified)
-                            ^ Printf.sprintf "  ...(%d more)" (len - max_show)
-                        with _ -> "(unable to list)"
-                      in
-                      Lwt.return
-                        (Printf.sprintf
-                           "Changed working directory to: %s\nContents: %s%s"
-                           resolved entries
-                           (if wipe_history then
-                              "\n\
-                               (History wiped — only first user message and \
-                               summary retained)"
-                            else ""))
-                    end));
+                          Lwt.return
+                            (Printf.sprintf
+                               "Changed working directory to: %s\n\
+                                Contents: %s%s"
+                               resolved entries
+                               (if wipe_history then
+                                  "\n\
+                                   (History wiped — only first user message \
+                                   and summary retained)"
+                                else ""))
+                        end)));
     invoke_stream = None;
     risk_level = Medium;
     deferred = false;
