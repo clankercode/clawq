@@ -36,9 +36,9 @@ epics:
       locked: false
       name: Concurrency and Replay Verification
       path: 04-concurrency-and-replay-verific
-      status: pending
+      status: done
 estimate_hours: 28
 id: P11.M4
 locked: false
 name: Mention-to-Task MVP
-status: pending
+status: done

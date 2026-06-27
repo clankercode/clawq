@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 96
 id: P11
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -39,7 +39,7 @@ milestones:
       locked: false
       name: Mention-to-Task MVP
       path: 04-mention-to-task-mvp
-      status: pending
+      status: done
 name: Room Agent MVP
-status: pending
+status: done
 weeks: 4
