@@ -29,6 +29,7 @@ jobs:
 
       - name: Install opam deps
         run: |
+          opam option --global 'archive-mirrors+="https://opam.ocaml.org/cache"'
           opam install -y . --deps-only --with-test
           opam install -y ocamlformat.0.28.1
 

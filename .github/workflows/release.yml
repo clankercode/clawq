@@ -24,7 +24,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
       - name: Install opam deps
-        run: opam install -y . --deps-only
+        run: |
+          opam option --global 'archive-mirrors+="https://opam.ocaml.org/cache"'
+          opam install -y . --deps-only
 
       - name: Detect opam switch
         id: opam-switch
