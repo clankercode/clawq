@@ -708,7 +708,13 @@ let notify_background_task_finished ?continuation_delay
   | _ -> ());
   if skip_notification then Lwt.return_unit
   else
-    let* summary = summarize_for_notification ~config task in
+    (* B712: skip summarizer LLM for subagent tasks (agent_name set +
+       no worktree). Use result_preview directly — YAGNI on summarizer. *)
+    let* summary =
+      match task.Background_task.agent_name with
+      | Some _ when not task.Background_task.use_worktree -> Lwt.return_none
+      | _ -> summarize_for_notification ~config task
+    in
     let git_info = Background_task.gather_git_status task in
     let channel_text =
       Background_task.channel_notification_message ?summary ?git_info task

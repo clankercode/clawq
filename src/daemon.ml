@@ -1688,7 +1688,10 @@ let run ~(config : Runtime_config.t) =
                       (notify_background_task_started ~session_manager ~config)
                     ()
                 in
-                let* () = Lwt_unix.sleep 5.0 in
+                let* () = Lwt.choose [
+                  Lwt_condition.wait Background_task_db.enqueue_condition;
+                  Lwt_unix.sleep 5.0;
+                ] in
                 loop ()
               in
               loop ())
