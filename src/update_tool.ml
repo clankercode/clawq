@@ -663,7 +663,7 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
   (send_progress, get_final_text)
 
 let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
-    ?send_signal () =
+    ?send_signal ?session_model_override () =
   let invoke_common ?context ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let mode =
@@ -687,8 +687,17 @@ let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
       | Some { Tool.session_key = Some key; _ } ->
           fun () ->
             (match Restart_notify.parse_channel_from_key key with
-            | Some (channel, channel_id) ->
-                Restart_notify.write ~channel ~channel_id
+            | Some (channel, channel_id) -> (
+                match
+                  Option.bind session_model_override (fun get_model ->
+                      get_model key)
+                with
+                | Some model ->
+                    Restart_notify.write_session ~channel ~channel_id
+                      ~session_key:key ~model
+                | None ->
+                    Restart_notify.write_session_key ~channel ~channel_id
+                      ~session_key:key)
             | None -> ());
             Lwt.return (Ok ())
       | _ -> fun () -> Lwt.return (Ok ())

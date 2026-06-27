@@ -672,6 +672,8 @@ let run ~(config : Runtime_config.t) =
   | Some registry ->
       Tool_registry.register registry
         (Update_tool.tool ~claim_update ~finish_update
+           ~session_model_override:(fun key ->
+             Session.get_session_model_override session_manager ~key)
            ~is_draining:(fun () -> Session.is_draining session_manager)
            ())
   | None -> ());
@@ -686,8 +688,14 @@ let run ~(config : Runtime_config.t) =
         in
         let prepare_restart () =
           (match Restart_notify.parse_channel_from_key key with
-          | Some (channel, channel_id) ->
-              Restart_notify.write ~channel ~channel_id
+          | Some (channel, channel_id) -> (
+              match Session.get_session_model_override session_manager ~key with
+              | Some model ->
+                  Restart_notify.write_session ~channel ~channel_id
+                    ~session_key:key ~model
+              | None ->
+                  Restart_notify.write_session_key ~channel ~channel_id
+                    ~session_key:key)
           | None -> ());
           Lwt.return (Ok ())
         in
@@ -702,27 +710,32 @@ let run ~(config : Runtime_config.t) =
         let marker =
           match Sys.getenv_opt Restart_notify.env_key with
           | Some raw when String.trim raw <> "" -> (
-              match Restart_notify.from_json_string raw with
+              match Restart_notify.marker_from_json_string raw with
               | Some marker -> Some marker
-              | None -> Restart_notify.read ())
-          | _ -> Restart_notify.read ()
+              | None -> Restart_notify.read_marker ())
+          | _ -> Restart_notify.read_marker ()
         in
         match marker with
-        | Some (channel, channel_id) ->
+        | Some marker ->
             Restart_notify.remove ();
+            (match (marker.session_key, marker.model) with
+            | Some key, Some model ->
+                Session.set_session_model session_manager ~key ~model
+            | _ -> ());
             let text =
               Printf.sprintf "clawq updated and restarted successfully (%s)."
                 Build_info.version_string
             in
             let open Lwt.Syntax in
             let* result =
-              dispatch_resumed_message ~config ~channel ~channel_id ~text ()
+              dispatch_resumed_message ~config ~channel:marker.channel
+                ~channel_id:marker.channel_id ~text ()
             in
             (match result with
             | Ok () ->
                 Logs.info (fun m ->
-                    m "Sent post-update notification to %s:%s" channel
-                      channel_id)
+                    m "Sent post-update notification to %s:%s" marker.channel
+                      marker.channel_id)
             | Error err ->
                 Logs.warn (fun m ->
                     m "Failed to send post-update notification: %s" err));

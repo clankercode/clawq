@@ -472,8 +472,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         let* _response =
           run_update_command
             ~prepare_restart:(fun () ->
-              Restart_notify.write ~channel:"telegram"
-                ~channel_id:update.chat_id;
+              (match Session.get_session_model_override session_mgr ~key with
+              | Some model ->
+                  Restart_notify.write_session ~channel:"telegram"
+                    ~channel_id:update.chat_id ~session_key:key ~model
+              | None ->
+                  Restart_notify.write_session_key ~channel:"telegram"
+                    ~channel_id:update.chat_id ~session_key:key);
               acknowledge_update ~bot_token ~update_id:update.update_id)
             ~send_progress ()
         in

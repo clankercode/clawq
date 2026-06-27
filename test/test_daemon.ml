@@ -1264,6 +1264,21 @@ let test_restart_notify_write_read_roundtrip () =
     (Some ("telegram", "12345"))
     result
 
+let test_restart_notify_preserves_session_model_context () =
+  Restart_notify.write_session ~channel:"telegram" ~channel_id:"123:456"
+    ~session_key:"telegram:123:456" ~model:"anthropic:claude-sonnet-4-6";
+  let result = Restart_notify.read_marker () in
+  Restart_notify.remove ();
+  match result with
+  | None -> Alcotest.fail "expected restart marker"
+  | Some marker ->
+      Alcotest.(check string) "channel" "telegram" marker.channel;
+      Alcotest.(check string) "channel id" "123:456" marker.channel_id;
+      Alcotest.(check (option string))
+        "session key" (Some "telegram:123:456") marker.session_key;
+      Alcotest.(check (option string))
+        "model" (Some "anthropic:claude-sonnet-4-6") marker.model
+
 let test_restart_notify_expired_marker () =
   let path = Restart_notify.path () in
   let json =
@@ -3125,6 +3140,8 @@ let suite =
       `Quick test_restart_signal_duplicate_delta_negative_delta;
     Alcotest.test_case "restart notify write/read roundtrip" `Quick
       test_restart_notify_write_read_roundtrip;
+    Alcotest.test_case "restart notify preserves session model context" `Quick
+      test_restart_notify_preserves_session_model_context;
     Alcotest.test_case "restart notify expired marker" `Quick
       test_restart_notify_expired_marker;
     Alcotest.test_case "restart notify missing marker" `Quick

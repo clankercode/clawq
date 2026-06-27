@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-27T07:34:59Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-27T07:44:28Z"
 complexity: medium
 depends_on: []
+duration_minutes: 9.498358421933334
 estimate_hours: 1
 id: B717
 priority: high
 started_at: "2026-06-27T07:34:59Z"
-status: in_progress
+status: done
 tags: []
 title: Session model resets to default after /update
 ---

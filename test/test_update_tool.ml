@@ -260,6 +260,9 @@ let test_update_tool_writes_restart_marker_from_session_context () =
               ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
             Lwt.return 0)
           ~send_signal:(fun pid sig_ -> sent_signal := Some (pid, sig_))
+          ~session_model_override:(fun key ->
+            if key = "telegram:123:456" then Some "anthropic:claude-sonnet-4-6"
+            else None)
           ())
          .Tool.invoke
          ~context:
@@ -279,6 +282,48 @@ let test_update_tool_writes_restart_marker_from_session_context () =
     "restart marker"
     (Some ("telegram", "123:456"))
     (Restart_notify.read ());
+  (match Restart_notify.read_marker () with
+  | Some marker ->
+      Alcotest.(check (option string))
+        "restart marker model" (Some "anthropic:claude-sonnet-4-6") marker.model
+  | None -> Alcotest.fail "expected restart marker");
+  Restart_notify.remove ();
+  ignore sent_signal
+
+let test_update_tool_does_not_pin_model_without_explicit_override () =
+  let sent_signal = ref None in
+  Restart_notify.remove ();
+  let result =
+    Lwt_main.run
+      ((Update_tool.tool
+          ~is_draining:(fun () -> false)
+          ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+          ~run_command:(fun
+              ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
+            Lwt.return 0)
+          ~send_signal:(fun pid sig_ -> sent_signal := Some (pid, sig_))
+          ~session_model_override:(fun _key -> None)
+          ())
+         .Tool.invoke
+         ~context:
+           {
+             Tool.session_key = Some "telegram:123:456";
+             send_progress = None;
+             interrupt_check = None;
+             inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
+           }
+         (`Assoc [ ("mode", `String "git") ]))
+  in
+  Alcotest.(check string)
+    "update result" "Build complete. Sending restart signal..." result;
+  (match Restart_notify.read_marker () with
+  | Some marker ->
+      Alcotest.(check (option string))
+        "restart marker session" (Some "telegram:123:456") marker.session_key;
+      Alcotest.(check (option string)) "restart marker model" None marker.model
+  | None -> Alcotest.fail "expected restart marker");
   Restart_notify.remove ();
   ignore sent_signal
 
@@ -741,6 +786,9 @@ let suite =
       test_run_update_binary_mode_requires_url;
     Alcotest.test_case "update tool writes restart marker from session context"
       `Quick test_update_tool_writes_restart_marker_from_session_context;
+    Alcotest.test_case
+      "update tool does not pin model without explicit override" `Quick
+      test_update_tool_does_not_pin_model_without_explicit_override;
     Alcotest.test_case "run update prepares restart before signal" `Quick
       test_run_update_prepares_restart_before_signal;
     Alcotest.test_case "run update sets reexec path to fresh git build" `Quick

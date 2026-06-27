@@ -1458,6 +1458,11 @@ let set_session_model mgr ~key ~model =
   | Some db -> Memory.set_session_model_override ~db ~session_key:key ~model
   | None -> ()
 
+let get_session_model_override mgr ~key =
+  match mgr.db with
+  | Some db -> Memory.get_session_model_override ~db ~session_key:key
+  | None -> None
+
 let get_session_effective_model mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) -> agent.Agent.config.agent_defaults.primary_model

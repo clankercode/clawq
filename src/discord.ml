@@ -1050,8 +1050,18 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                       let* _response =
                         Update_tool.run_update
                           ~prepare_restart:(fun () ->
-                            Restart_notify.write ~channel:"discord"
-                              ~channel_id:msg.channel_id;
+                            (match
+                               Session.get_session_model_override session_mgr
+                                 ~key
+                             with
+                            | Some model ->
+                                Restart_notify.write_session ~channel:"discord"
+                                  ~channel_id:msg.channel_id ~session_key:key
+                                  ~model
+                            | None ->
+                                Restart_notify.write_session_key
+                                  ~channel:"discord" ~channel_id:msg.channel_id
+                                  ~session_key:key);
                             Lwt.return (Ok ()))
                           ~is_draining:(fun () ->
                             Session.is_draining session_mgr)

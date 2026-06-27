@@ -328,7 +328,17 @@ let handle_event ~(config : Runtime_config.slack_config)
                         let* _response =
                           run_update_command
                             ~prepare_restart:(fun () ->
-                              Restart_notify.write ~channel:"slack" ~channel_id;
+                              (match
+                                 Session.get_session_model_override
+                                   session_manager ~key
+                               with
+                              | Some model ->
+                                  Restart_notify.write_session ~channel:"slack"
+                                    ~channel_id ~session_key:key ~model
+                              | None ->
+                                  Restart_notify.write_session_key
+                                    ~channel:"slack" ~channel_id
+                                    ~session_key:key);
                               Lwt.return (Ok ()))
                             ~send_progress ()
                         in

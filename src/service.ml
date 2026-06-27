@@ -211,12 +211,12 @@ let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
               m "Restart aborted: %s; falling back to clean shutdown" msg)
       | Ok executable -> (
           let set_vars =
-            match Restart_notify.read () with
-            | Some (channel, channel_id) ->
+            match Restart_notify.read_marker () with
+            | Some marker ->
                 [
                   (nofork_env, "1");
                   ( Restart_notify.env_key,
-                    Restart_notify.to_json_string ~channel ~channel_id );
+                    Restart_notify.marker_to_json_string marker );
                 ]
             | None -> [ (nofork_env, "1") ]
           in
