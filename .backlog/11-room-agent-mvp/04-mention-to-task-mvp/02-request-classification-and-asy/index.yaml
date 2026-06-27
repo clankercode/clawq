@@ -19,7 +19,7 @@ tasks:
       file: T001-add-deterministic-request-clas.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add deterministic room request classifier tests
     - complexity: high
