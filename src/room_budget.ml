@@ -175,3 +175,111 @@ let reset_profile_budget ~db ~profile_id ?period_started_at () =
           failwith
             (Printf.sprintf "reset_profile_budget failed: %s"
                (Sqlite3.Rc.to_string rc)))
+
+(* Reservations are intentionally in-memory. Request_stats remains the durable
+   source of completed usage; reservations only close the race between
+   concurrent provider calls within this process. *)
+type reservation_slot = {
+  mutex : Lwt_mutex.t;
+  condition : unit Lwt_condition.t;
+  mutable reserved_tokens : int;
+  mutable reserved_cost_usd : float;
+}
+
+let reservation_slots : (int * int, reservation_slot) Hashtbl.t =
+  Hashtbl.create 16
+
+let reservation_slots_mutex = Lwt_mutex.create ()
+
+let reservation_slot_for_profile db profile_id =
+  let key = (Hashtbl.hash db, profile_id) in
+  Lwt_mutex.with_lock reservation_slots_mutex (fun () ->
+      match Hashtbl.find_opt reservation_slots key with
+      | Some slot -> Lwt.return slot
+      | None ->
+          let slot =
+            {
+              mutex = Lwt_mutex.create ();
+              condition = Lwt_condition.create ();
+              reserved_tokens = 0;
+              reserved_cost_usd = 0.0;
+            }
+          in
+          Hashtbl.add reservation_slots key slot;
+          Lwt.return slot)
+
+let reservation_would_exceed state slot ~estimated_tokens ~estimated_cost_usd =
+  let projected_tokens =
+    state.current_usage.total_tokens + slot.reserved_tokens + estimated_tokens
+  in
+  let projected_cost =
+    state.current_usage.cost_usd +. slot.reserved_cost_usd +. estimated_cost_usd
+  in
+  projected_tokens > state.token_limit || projected_cost > state.cost_limit_usd
+
+let reservation_impossible state ~estimated_tokens ~estimated_cost_usd =
+  estimated_tokens > state.token_limit
+  || estimated_cost_usd > state.cost_limit_usd
+
+let release_reservation slot ~tokens ~cost_usd released () =
+  if not !released then begin
+    released := true;
+    slot.reserved_tokens <- max 0 (slot.reserved_tokens - tokens);
+    slot.reserved_cost_usd <- max 0.0 (slot.reserved_cost_usd -. cost_usd);
+    Lwt_condition.broadcast slot.condition ()
+  end
+
+let reserve_profile_budget ~db ~profile_id ~estimated_tokens ~estimated_cost_usd
+    =
+  let open Lwt.Syntax in
+  let estimated_tokens = max 0 estimated_tokens in
+  let estimated_cost_usd = max 0.0 estimated_cost_usd in
+  let* slot = reservation_slot_for_profile db profile_id in
+  Lwt_mutex.with_lock slot.mutex (fun () ->
+      let rec wait_for_budget () =
+        match get_profile_budget ~db ~profile_id with
+        | None -> Lwt.return (Ok (fun () -> ()))
+        | Some state
+          when state.limit_exceeded
+               || reservation_impossible state ~estimated_tokens
+                    ~estimated_cost_usd ->
+            Lwt.return (Error state)
+        | Some state
+          when not
+                 (reservation_would_exceed state slot ~estimated_tokens
+                    ~estimated_cost_usd) ->
+            slot.reserved_tokens <- slot.reserved_tokens + estimated_tokens;
+            slot.reserved_cost_usd <-
+              slot.reserved_cost_usd +. estimated_cost_usd;
+            let released = ref false in
+            Lwt.return
+              (Ok
+                 (release_reservation slot ~tokens:estimated_tokens
+                    ~cost_usd:estimated_cost_usd released))
+        | Some state ->
+            if slot.reserved_tokens > 0 || slot.reserved_cost_usd > 0.0 then
+              let* () = Lwt_condition.wait ~mutex:slot.mutex slot.condition in
+              wait_for_budget ()
+            else Lwt.return (Error state)
+      in
+      wait_for_budget ())
+
+let budget_exceeded_message state =
+  Printf.sprintf
+    "budget exceeded for room profile %d: current usage is %d tokens, %.6f \
+     USD; limits are %d tokens and %.6f USD"
+    state.profile_id state.current_usage.total_tokens
+    state.current_usage.cost_usd state.token_limit state.cost_limit_usd
+
+let with_profile_budget_reservation ~db ~profile_id ~estimated_tokens
+    ~estimated_cost_usd f =
+  let open Lwt.Syntax in
+  let* reservation =
+    reserve_profile_budget ~db ~profile_id ~estimated_tokens ~estimated_cost_usd
+  in
+  match reservation with
+  | Error state -> Lwt.fail_with (budget_exceeded_message state)
+  | Ok release ->
+      Lwt.finalize f (fun () ->
+          release ();
+          Lwt.return_unit)

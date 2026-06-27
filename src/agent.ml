@@ -187,6 +187,18 @@ let format_room_budget_exceeded (state : Room_budget.state) =
     state.current_usage.cost_usd state.current_usage.turns state.token_limit
     state.cost_limit_usd state.period_started_at
 
+let default_room_budget_reservation_tokens = 20
+
+let estimated_room_budget_reservation_tokens ~db ~profile_id ~messages =
+  let estimated =
+    max 1
+      (min default_room_budget_reservation_tokens
+         (Provider.estimate_messages_tokens messages))
+  in
+  match Room_budget.get_profile_budget ~db ~profile_id with
+  | Some state -> min estimated state.token_limit
+  | None -> estimated
+
 let check_room_budget_before_provider_call ?db ?session_key () =
   match db with
   | None -> ()
@@ -198,6 +210,26 @@ let check_room_budget_before_provider_call ?db ?session_key () =
           | Some state when state.limit_exceeded ->
               raise (Budget_exceeded (format_room_budget_exceeded state))
           | Some _ | None -> ()))
+
+let reserve_room_budget_before_provider_call ?db ?session_key ~messages () =
+  let open Lwt.Syntax in
+  match db with
+  | None -> Lwt.return (fun () -> ())
+  | Some db -> (
+      match room_budget_profile_id_for_turn ~db ?session_key () with
+      | None -> Lwt.return (fun () -> ())
+      | Some profile_id -> (
+          let estimated_tokens =
+            estimated_room_budget_reservation_tokens ~db ~profile_id ~messages
+          in
+          let* reservation =
+            Room_budget.reserve_profile_budget ~db ~profile_id ~estimated_tokens
+              ~estimated_cost_usd:0.0
+          in
+          match reservation with
+          | Ok release -> Lwt.return release
+          | Error state ->
+              Lwt.fail (Budget_exceeded (format_room_budget_exceeded state))))
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])
     ?(workspace_refresh_checked = false) ?db ?session_key ?room_id
@@ -293,7 +325,6 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     let res = config.Runtime_config.resilience in
     let open Lwt.Syntax in
     let primary () =
-      check_room_budget_before_provider_call ?db ?session_key ();
       Provider.complete ~config ~messages ?tools ?session_key
         ?quota_states:quota_states_opt ()
     in
@@ -309,17 +340,28 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                check_room_budget_before_provider_call ?db ?session_key ();
                 Provider.complete ~config ~messages ?tools ?session_key
                   ~preferred_provider:fb_name ())
       | None -> primary ()
     in
-    let* timed =
-      Resilience.with_timeout_retry ~timeout_s:res.timeout_s
-        ~max_retries:res.max_retries ~base_delay_s:res.base_delay_s
-        with_optional_fallback
+    let* release_budget =
+      reserve_room_budget_before_provider_call ?db ?session_key ~messages ()
     in
-    match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
+    Lwt.catch
+      (fun () ->
+        let* timed =
+          Resilience.with_timeout_retry ~timeout_s:res.timeout_s
+            ~max_retries:res.max_retries ~base_delay_s:res.base_delay_s
+            with_optional_fallback
+        in
+        match timed with
+        | Ok v -> Lwt.return (v, release_budget)
+        | Error e ->
+            release_budget ();
+            Lwt.fail_with e)
+      (fun exn ->
+        release_budget ();
+        Lwt.fail exn)
   in
   let complete_with_ledger messages =
     let provider_name, _, model =
@@ -465,7 +507,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     let current_request_history_len = List.length agent.history in
     let llm_start = Unix.gettimeofday () in
-    let* response =
+    let* response, release_budget =
       Lwt.catch
         (fun () ->
           let messages = build_messages ?runtime_context agent in
@@ -487,7 +529,11 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     let latency_ms =
       int_of_float ((Unix.gettimeofday () -. llm_start) *. 1000.0)
     in
-    track_cost ~current_request_history_len ~latency_ms response;
+    (try track_cost ~current_request_history_len ~latency_ms response
+     with exn ->
+       release_budget ();
+       raise exn);
+    release_budget ();
     agent.last_request_history_len <- Some current_request_history_len;
     (* Invoke debug callback if provided *)
     (match on_llm_call_debug with
@@ -777,7 +823,6 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let open Lwt.Syntax in
     Buffer.clear partial_buf;
     let primary () =
-      check_room_budget_before_provider_call ?db ?session_key ();
       Provider.complete_stream ~config ~messages ?tools ?session_key
         ?quota_states:quota_states_opt ~on_chunk ()
     in
@@ -793,17 +838,28 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                check_room_budget_before_provider_call ?db ?session_key ();
                 Provider.complete_stream ~config ~messages ?tools ?session_key
                   ~preferred_provider:fb_name ~on_chunk ())
       | None -> primary ()
     in
-    let* timed =
-      Resilience.with_timeout_retry ~timeout_s:res.timeout_s
-        ~max_retries:res.max_retries ~base_delay_s:res.base_delay_s
-        with_optional_fallback
+    let* release_budget =
+      reserve_room_budget_before_provider_call ?db ?session_key ~messages ()
     in
-    match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
+    Lwt.catch
+      (fun () ->
+        let* timed =
+          Resilience.with_timeout_retry ~timeout_s:res.timeout_s
+            ~max_retries:res.max_retries ~base_delay_s:res.base_delay_s
+            with_optional_fallback
+        in
+        match timed with
+        | Ok v -> Lwt.return (v, release_budget)
+        | Error e ->
+            release_budget ();
+            Lwt.fail_with e)
+      (fun exn ->
+        release_budget ();
+        Lwt.fail exn)
   in
   let stream_with_ledger messages =
     let provider_name, _, model =
@@ -951,7 +1007,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let llm_start = Unix.gettimeofday () in
     Lwt.catch
       (fun () ->
-        let* response =
+        let* response, release_budget =
           Lwt.catch
             (fun () ->
               let messages = build_messages ?runtime_context agent in
@@ -973,7 +1029,11 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         let latency_ms =
           int_of_float ((Unix.gettimeofday () -. llm_start) *. 1000.0)
         in
-        track_cost ~current_request_history_len ~latency_ms response;
+        (try track_cost ~current_request_history_len ~latency_ms response
+         with exn ->
+           release_budget ();
+           raise exn);
+        release_budget ();
         agent.last_request_history_len <- Some current_request_history_len;
         (* Invoke debug callback if provided *)
         (match on_llm_call_debug with

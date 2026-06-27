@@ -97,6 +97,86 @@ let test_budget_reset_starts_new_period () =
       Alcotest.(check (float 0.0001))
         "new cost counted" 0.20 current.current_usage.cost_usd)
 
+let expect_reservation = function
+  | Ok release -> release
+  | Error state ->
+      Alcotest.failf "expected budget reservation, got exceeded for profile %d"
+        state.Room_budget.profile_id
+
+let test_concurrent_reservations_do_not_overcommit () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* first =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:80 ~estimated_cost_usd:0.0
+         in
+         let release_first = expect_reservation first in
+         let second =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:30 ~estimated_cost_usd:0.0
+         in
+         let* () = Lwt.pause () in
+         Alcotest.(check bool)
+           "second reservation queued" true
+           (match Lwt.state second with Lwt.Sleep -> true | _ -> false);
+         release_first ();
+         let* second_result = second in
+         let release_second = expect_reservation second_result in
+         release_second ();
+         Lwt.return_unit))
+
+let test_reservation_released_on_failure () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* failed =
+           Lwt.catch
+             (fun () ->
+               Room_budget.with_profile_budget_reservation ~db ~profile_id
+                 ~estimated_tokens:100 ~estimated_cost_usd:0.0 (fun () ->
+                   Lwt.fail_with "provider failed"))
+             (fun exn -> Lwt.return (Printexc.to_string exn))
+         in
+         Alcotest.(check bool)
+           "provider failure observed" true
+           (Test_helpers.string_contains failed "provider failed");
+         let* next =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:100 ~estimated_cost_usd:0.0
+         in
+         let release_next = expect_reservation next in
+         release_next ();
+         Lwt.return_unit))
+
+let test_reservation_fails_when_budget_unavailable () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_usage ~db ~profile_id ~session_key:"used" ~prompt_tokens:95
+        ~completion_tokens:0 ~cost_usd:0.50 ~requested_at:"2026-01-01 01:00:00";
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* reservation =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:10 ~estimated_cost_usd:0.0
+         in
+         match reservation with
+         | Ok release ->
+             release ();
+             Alcotest.fail "reservation should fail when budget is unavailable"
+         | Error state ->
+             Alcotest.(check int)
+               "reported current usage" 95 state.current_usage.total_tokens;
+             Lwt.return_unit))
+
 let suite =
   [
     Alcotest.test_case "budget creation and idempotent query" `Quick
@@ -105,4 +185,10 @@ let suite =
       test_usage_tracking_and_limit_exceeded;
     Alcotest.test_case "budget reset starts new period" `Quick
       test_budget_reset_starts_new_period;
+    Alcotest.test_case "concurrent reservations do not overcommit" `Quick
+      test_concurrent_reservations_do_not_overcommit;
+    Alcotest.test_case "reservation released on failure" `Quick
+      test_reservation_released_on_failure;
+    Alcotest.test_case "reservation fails when budget unavailable" `Quick
+      test_reservation_fails_when_budget_unavailable;
   ]
