@@ -1359,14 +1359,22 @@ let cmd_rooms args =
                      %s"
                     room_id path
               | Error e -> Printf.sprintf "Failed to write config: %s" e)))
+  | [ "inspect"; room_id ] -> (
+      match require_admin () with
+      | Some err -> err
+      | None ->
+          let db = get_db () in
+          let result = Ambient_inspection.inspect ~db ~cfg ~room_id () in
+          Ambient_inspection.format_inspection result)
   | "routine" :: rest -> cmd_rooms_routine cfg rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|ledger|gc|bind|rename|delete|unbind|routine>\n\n\
+       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
       \  workspace <room_id>         Show/create the room workspace path\n\
+      \  inspect <room_id>           Inspect ambient watcher state (admin-only)\n\
       \  ledger <list|export|retention-cleanup>\n\
       \                              Query/export/prune room activity ledger \
        entries (admin-only)\n\
