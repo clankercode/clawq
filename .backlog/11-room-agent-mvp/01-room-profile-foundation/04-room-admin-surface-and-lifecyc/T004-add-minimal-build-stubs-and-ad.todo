@@ -8,7 +8,7 @@ estimate_hours: 2
 id: P11.M1.E4.T004
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add minimal build stubs and admin authz tests for rooms CLI
 ---

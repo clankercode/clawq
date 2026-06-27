@@ -47,6 +47,6 @@ tasks:
       file: T004-add-minimal-build-stubs-and-ad.todo
       id: T004
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add minimal build stubs and admin authz tests for rooms CLI
