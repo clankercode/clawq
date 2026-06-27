@@ -757,7 +757,7 @@ let migrate_step db v =
       exec_exn db
         "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
          request_stats(profile_id, requested_at)"
-| 36 -> init_room_activity_ledger_schema db
+| 37 -> init_room_activity_ledger_schema db
   | 36 -> Room_budget.init_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
