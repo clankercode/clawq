@@ -13,7 +13,7 @@ tasks:
       file: T001-enforce-monthly-room-profile-b.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add room budget state and query API
     - complexity: high
