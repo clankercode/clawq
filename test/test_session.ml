@@ -2778,7 +2778,7 @@ let test_consolidated_status_on_chunk_hides_thinking_when_disabled () =
     Status_update.make_handler ~strategy:Consolidated
       ~notifier_factory:(Some (fun () -> sm))
       ~notify:(fun _ -> Lwt.return_unit)
-      ~agent_defaults ~parse_mode:"Markdown"
+      ~agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run (handler.on_chunk (Provider.ThinkingDelta thinking));
   Alcotest.(check string)
@@ -2806,7 +2806,7 @@ let test_consolidated_status_on_chunk_shows_thinking_when_enabled () =
     Status_update.make_handler ~strategy:Consolidated
       ~notifier_factory:(Some (fun () -> sm))
       ~notify:(fun _ -> Lwt.return_unit)
-      ~agent_defaults ~parse_mode:"Markdown"
+      ~agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run (handler.on_chunk (Provider.ThinkingDelta thinking));
   Alcotest.(check string)

@@ -67,7 +67,7 @@ let handle_model_action ~session_manager ~key ~emit action =
   | ModelSet _ | ModelSetForce _ | ModelSetDefault _ ->
       let* text =
         Slash_commands_model.handle_model_set_action
-           ~config_source:"gateway_api" ~session_manager ~key action
+          ~config_source:"gateway_api" ~session_manager ~key action
       in
       emit text
   | ModelFav name ->

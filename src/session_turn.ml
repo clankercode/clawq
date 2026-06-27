@@ -13,7 +13,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
   in
   let handler =
     Status_update.make_handler ~strategy ~notifier_factory ~notify
-      ~agent_defaults ~parse_mode
+      ~agent_defaults ~parse_mode ()
   in
   let* response =
     Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db

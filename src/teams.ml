@@ -1121,7 +1121,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           in
                           Connector_dispatch.dispatch_followup
                             ~session_mgr:session_manager ~key
-                            ~connector_name:"teams" ~channel_id:followup_channel_id
+                            ~connector_name:"teams"
+                            ~channel_id:followup_channel_id
                             ~channel_name:"teams"
                             ~channel_type:(if is_group then "group" else "dm")
                             ?sender_name ~message_id:activity_id ~user_id

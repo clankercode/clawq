@@ -1088,7 +1088,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 ~notify:(fun text ->
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text)
-                ~agent_defaults ~parse_mode:"Markdown"
+                ~agent_defaults ~parse_mode:"Markdown" ()
             in
             let on_chunk chunk =
               (match chunk with

@@ -831,7 +831,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                   Status_update.make_handler ~strategy ~notifier_factory
                     ~notify:(fun text -> reply ~text)
                     ~agent_defaults
-                    ~parse_mode:Connector_status.Slack.status_parse_mode
+                    ~parse_mode:Connector_status.Slack.status_parse_mode ()
                 in
                 let on_chunk chunk =
                   (match chunk with

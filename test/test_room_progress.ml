@@ -34,6 +34,8 @@ let make_task ?(id = 1) ?(status = Running) ?(progress_state = None)
     notification_error = None;
     notification_attempts = 0;
     follow_up_prompt = None;
+    description = None;
+    context_snapshot = None;
     profile_id = None;
     origin_json;
     thread_id;

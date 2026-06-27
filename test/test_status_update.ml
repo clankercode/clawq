@@ -70,7 +70,7 @@ let test_consolidated_handler_tool_events () =
     Status_update.make_handler ~strategy:Consolidated
       ~notifier_factory:(Some (fun () -> sm))
       ~notify:(fun _ -> Lwt.return_unit)
-      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -103,7 +103,7 @@ let test_consolidated_handler_thinking () =
     Status_update.make_handler ~strategy:Consolidated
       ~notifier_factory:(Some (fun () -> sm))
       ~notify:(fun _ -> Lwt.return_unit)
-      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run (handler.on_chunk (Provider.ThinkingDelta "let me think"));
   Alcotest.(check string)
@@ -117,7 +117,7 @@ let test_individual_handler () =
   in
   let handler =
     Status_update.make_handler ~strategy:Individual ~notifier_factory:None
-      ~notify ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+      ~notify ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -141,7 +141,7 @@ let test_buffered_handler () =
   in
   let handler =
     Status_update.make_handler ~strategy:Buffered ~notifier_factory:None ~notify
-      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -191,7 +191,7 @@ let test_consolidated_handler_reset_creates_new_group () =
     Status_update.make_handler ~strategy:Consolidated
       ~notifier_factory:(Some factory)
       ~notify:(fun _ -> Lwt.return_unit)
-      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -249,7 +249,7 @@ let test_consolidated_fallback_without_factory () =
   in
   let handler =
     Status_update.make_handler ~strategy:Consolidated ~notifier_factory:None
-      ~notify ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+      ~notify ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in

@@ -257,17 +257,18 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                     if skip_validation then
                       Lwt.map
                         (fun s ->
-                          s ^ "\nNote: validation skipped (skip_validation=true).")
-                        (do_set ~cfg ~session_key ~model ~provider ~model_id ~fmt
-                           ~previous_model)
+                          s
+                          ^ "\nNote: validation skipped (skip_validation=true).")
+                        (do_set ~cfg ~session_key ~model ~provider ~model_id
+                           ~fmt ~previous_model)
                     else
                       let* result =
                         Model_validation.validate ~config:cfg ~model ()
                       in
                       match result with
                       | Model_validation.Ok_validated ->
-                          do_set ~cfg ~session_key ~model ~provider ~model_id ~fmt
-                            ~previous_model
+                          do_set ~cfg ~session_key ~model ~provider ~model_id
+                            ~fmt ~previous_model
                       | Model_validation.Error_msg msg ->
                           let rollback_cmd =
                             Printf.sprintf

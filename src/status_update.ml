@@ -1,3 +1,28 @@
+(** Lifecycle event emitted by the handler when a tool call starts or completes.
+    Connectors use this for side effects (reactions, detail accumulation, error
+    notifications) without duplicating status-rendering logic. *)
+type tool_event =
+  | Tool_started of { id : string; name : string; summary : string option }
+  | Tool_completed of {
+      id : string;
+      name : string;
+      result : string;
+      is_error : bool;
+      summary : string option;
+      duration_secs : float option;
+    }
+
+type error_detail = {
+  id : string;
+  name : string;
+  emoji : string;
+  summary : string option;
+  duration_secs : float option;
+  result : string;
+}
+(** Error detail payload emitted for failed tools. Connectors use this to send
+    standalone error messages with full context. *)
+
 type handler = {
   on_chunk : Provider.stream_event -> unit Lwt.t;
   finalize : unit -> unit Lwt.t;
@@ -6,6 +31,12 @@ type handler = {
       (** Finalize the current status group and start a fresh one. Used when a
           mid-turn user message arrives so that subsequent tool calls get
           visually separated from the pre-injection batch. *)
+  on_tool_event : tool_event -> unit Lwt.t;
+      (** Called after Status_message has processed a ToolStart or ToolResult.
+          Default: no-op. *)
+  on_error_detail : error_detail -> unit Lwt.t;
+      (** Called for failed tools with full context for standalone error
+          rendering. Default: no-op. *)
 }
 
 type strategy = Consolidated | Individual | Buffered
@@ -25,8 +56,13 @@ let select_strategy ~(agent_defaults : Runtime_config.agent_defaults)
     | None -> Consolidated
   else Individual
 
+let no_op_tool_event _ = Lwt.return_unit
+let no_op_error_detail _ = Lwt.return_unit
+
 let make_handler ~strategy ~notifier_factory ~notify
-    ~(agent_defaults : Runtime_config.agent_defaults) ~parse_mode =
+    ~(agent_defaults : Runtime_config.agent_defaults) ~parse_mode
+    ?(on_tool_event = no_op_tool_event) ?(on_error_detail = no_op_error_detail)
+    () =
   match strategy with
   | Consolidated -> (
       match notifier_factory with
@@ -35,12 +71,41 @@ let make_handler ~strategy ~notifier_factory ~notify
           let thinking_buf = Buffer.create 256 in
           let on_chunk = function
             | Provider.ToolStart { id; name; arguments } ->
+                let open Lwt.Syntax in
                 let summary =
                   Stream_visibility.summarize_tool_arguments ~name arguments
                 in
-                Status_message.tool_start !sm ~id ~name ~summary
+                let* () = Status_message.tool_start !sm ~id ~name ~summary in
+                on_tool_event (Tool_started { id; name; summary })
             | Provider.ToolResult { id; name; result; is_error } ->
-                Status_message.tool_result !sm ~id ~name ~result ~is_error
+                let open Lwt.Syntax in
+                let* () =
+                  Status_message.tool_result !sm ~id ~name ~result ~is_error
+                in
+                let info = Status_message.get_tool_info !sm ~id in
+                let summary =
+                  Option.bind info (fun (e : Status_message.tool_entry) ->
+                      e.summary)
+                in
+                let duration_secs =
+                  Option.bind info (fun (e : Status_message.tool_entry) ->
+                      Option.map (fun fin -> fin -. e.started_at) e.finished_at)
+                in
+                let* () =
+                  on_tool_event
+                    (Tool_completed
+                       { id; name; result; is_error; summary; duration_secs })
+                in
+                if is_error then begin
+                  let emoji =
+                    Option.fold ~none:"\xE2\x9C\x97"
+                      ~some:(fun (e : Status_message.tool_entry) -> e.emoji)
+                      info
+                  in
+                  on_error_detail
+                    { id; name; emoji; summary; duration_secs; result }
+                end
+                else Lwt.return_unit
             | Provider.ThinkingDelta text ->
                 if agent_defaults.show_thinking then begin
                   Buffer.add_string thinking_buf text;
@@ -60,7 +125,14 @@ let make_handler ~strategy ~notifier_factory ~notify
             Buffer.clear thinking_buf;
             Lwt.return_unit
           in
-          { on_chunk; finalize; get_thinking; reset }
+          {
+            on_chunk;
+            finalize;
+            get_thinking;
+            reset;
+            on_tool_event;
+            on_error_detail;
+          }
       | None ->
           (* Fall back to Individual if no factory available *)
           let visibility = Stream_visibility.create () in
@@ -78,7 +150,14 @@ let make_handler ~strategy ~notifier_factory ~notify
           let finalize () = Lwt.return_unit in
           let get_thinking () = Stream_visibility.thinking_text visibility in
           let reset () = Lwt.return_unit in
-          { on_chunk; finalize; get_thinking; reset })
+          {
+            on_chunk;
+            finalize;
+            get_thinking;
+            reset;
+            on_tool_event;
+            on_error_detail;
+          })
   | Individual ->
       let visibility = Stream_visibility.create () in
       let settings : Stream_visibility.settings =
@@ -89,13 +168,54 @@ let make_handler ~strategy ~notifier_factory ~notify
           notify_tool_successes = true;
         }
       in
-      let on_chunk chunk =
-        Stream_visibility.on_chunk visibility ~settings ~notify chunk
+      let tool_start_times : (string, float) Hashtbl.t = Hashtbl.create 8 in
+      let on_chunk = function
+        | Provider.ToolStart { id; name; arguments } ->
+            let open Lwt.Syntax in
+            Hashtbl.replace tool_start_times id (Unix.gettimeofday ());
+            let summary =
+              Stream_visibility.summarize_tool_arguments ~name arguments
+            in
+            let* () =
+              Stream_visibility.on_chunk visibility ~settings ~notify
+                (Provider.ToolStart { id; name; arguments })
+            in
+            on_tool_event (Tool_started { id; name; summary })
+        | Provider.ToolResult { id; name; result; is_error } ->
+            let open Lwt.Syntax in
+            let duration_secs =
+              match Hashtbl.find_opt tool_start_times id with
+              | Some t0 -> Some (Unix.gettimeofday () -. t0)
+              | None -> None
+            in
+            let* () =
+              Stream_visibility.on_chunk visibility ~settings ~notify
+                (Provider.ToolResult { id; name; result; is_error })
+            in
+            let summary = None in
+            let* () =
+              on_tool_event
+                (Tool_completed
+                   { id; name; result; is_error; summary; duration_secs })
+            in
+            if is_error then
+              let emoji = Stream_visibility.tool_emoji name in
+              on_error_detail
+                { id; name; emoji; summary; duration_secs; result }
+            else Lwt.return_unit
+        | chunk -> Stream_visibility.on_chunk visibility ~settings ~notify chunk
       in
       let finalize () = Lwt.return_unit in
       let get_thinking () = Stream_visibility.thinking_text visibility in
       let reset () = Lwt.return_unit in
-      { on_chunk; finalize; get_thinking; reset }
+      {
+        on_chunk;
+        finalize;
+        get_thinking;
+        reset;
+        on_tool_event;
+        on_error_detail;
+      }
   | Buffered ->
       let thinking_buf = Buffer.create 256 in
       let tool_events = ref [] in
@@ -174,4 +294,11 @@ let make_handler ~strategy ~notifier_factory ~notify
         Buffer.clear thinking_buf;
         Lwt.return_unit
       in
-      { on_chunk; finalize; get_thinking; reset }
+      {
+        on_chunk;
+        finalize;
+        get_thinking;
+        reset;
+        on_tool_event;
+        on_error_detail;
+      }

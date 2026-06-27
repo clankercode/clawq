@@ -79,7 +79,8 @@ let handle_model_set_action ?(config_source = "slash_command") ~session_manager
                 Config_set.set_json_value "agent_defaults.primary_model"
                   (`String resolved.canonical_value)
               with
-              | Error e -> Lwt.return (Printf.sprintf "Error writing config: %s" e)
+              | Error e ->
+                  Lwt.return (Printf.sprintf "Error writing config: %s" e)
               | Ok () ->
                   let agent_defaults =
                     {
