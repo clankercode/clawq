@@ -624,20 +624,48 @@ let record_run_bg_task ~db ~run_id ~bg_task_id =
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
       ignore (Sqlite3.step stmt))
 
+(* P13.M1.E2.T001: resolve the effective session key for a cron tick. When the
+   job has a [profile_id], a routine session key is constructed so
+   [Session.turn] resolves the current room profile (model, template, tools,
+   memory, budget, CWD) instead of using stale stored keys. Falls back to
+   [job.session_key] when no profile is set or the DB profile row is missing. *)
+let effective_session_key ~db (job : job) : string * string =
+  match job.profile_id with
+  | None -> (job.session_key, job.session_key)
+  | Some db_profile_id -> (
+      match Memory_core.get_room_profile ~db ~id:db_profile_id with
+      | None ->
+          Logs.warn (fun m ->
+              m
+                "Cron job %s: profile_id %d not found in room_profiles, \
+                 falling back to session_key"
+                job.name db_profile_id);
+          (job.session_key, job.session_key)
+      | Some profile ->
+          let routine_key =
+            Room_session.make_routine_key ~profile_id:profile.name
+              ~routine_id:job.name ()
+          in
+          Logs.info (fun m ->
+              m "Cron job %s: using routine key %s (profile=%s)" job.name
+                routine_key profile.name);
+          (routine_key, job.session_key))
+
 let trigger_job ~db ~name =
   match get_job ~db ~name with
   | None -> Error (Printf.sprintf "No cron job found with name '%s'." name)
   | Some job -> (
       let run_id = record_run_start ~db ~job_name:job.name in
+      let turn_key, delivery_key = effective_session_key ~db job in
       let channel_info =
-        Memory.get_session_channel ~db ~session_key:job.session_key
+        Memory.get_session_channel ~db ~session_key:delivery_key
       in
       let channel = Option.map fst channel_info in
       let channel_id = Option.map snd channel_info in
       match
         Background_task.enqueue ~db ~runner:Local ~require_git:false
           ~use_worktree:false ~repo_path:(Dot_dir.path ()) ~prompt:job.message
-          ~session_key:job.session_key ?channel ?channel_id ()
+          ~session_key:turn_key ?channel ?channel_id ()
       with
       | Ok task_id ->
           record_run_finish ~db ~run_id ~status:"triggered"
@@ -871,13 +899,14 @@ let tick ~db ~session_mgr
               if should_run sched ~last_run ~now then begin
                 if job.ephemeral then begin
                   let run_id = record_run_start ~db ~job_name:job.name in
+                  let turn_key, delivery_key = effective_session_key ~db job in
                   Logs.info (fun m ->
                       m
                         "Cron job %s: enqueuing ephemeral bg task for session \
                          %s"
-                        job.name job.session_key);
+                        job.name turn_key);
                   let channel_info =
-                    Memory.get_session_channel ~db ~session_key:job.session_key
+                    Memory.get_session_channel ~db ~session_key:delivery_key
                   in
                   let channel = Option.map fst channel_info in
                   let channel_id = Option.map snd channel_info in
@@ -885,7 +914,7 @@ let tick ~db ~session_mgr
                      Background_task.enqueue ~db ~runner:Local
                        ~require_git:false ~use_worktree:false
                        ~repo_path:(Dot_dir.path ()) ~prompt:job.message
-                       ~session_key:job.session_key ?channel ?channel_id ()
+                       ~session_key:turn_key ?channel ?channel_id ()
                    with
                   | Ok task_id ->
                       record_run_finish ~db ~run_id ~status:"delegated"
@@ -906,9 +935,10 @@ let tick ~db ~session_mgr
                 else begin
                   Hashtbl.replace in_flight_jobs job.name ();
                   let run_id = record_run_start ~db ~job_name:job.name in
+                  let turn_key, delivery_key = effective_session_key ~db job in
                   Logs.info (fun m ->
                       m "Cron job %s: starting turn for session %s" job.name
-                        job.session_key);
+                        turn_key);
                   Lwt.async (fun () ->
                       Lwt.finalize
                         (fun () ->
@@ -924,7 +954,7 @@ let tick ~db ~session_mgr
                               let* () =
                                 match
                                   Session.find_registered_notifier session_mgr
-                                    ~key:job.session_key
+                                    ~key:delivery_key
                                 with
                                 | Some notify ->
                                     Lwt.catch
@@ -940,7 +970,7 @@ let tick ~db ~session_mgr
                                     match
                                       ( deliver,
                                         Memory.get_session_channel ~db
-                                          ~session_key:job.session_key )
+                                          ~session_key:delivery_key )
                                     with
                                     | Some deliver_fn, Some (channel, channel_id)
                                       ->
@@ -970,7 +1000,7 @@ let tick ~db ~session_mgr
                                     | _ -> Lwt.return_unit)
                               in
                               let* result =
-                                Session.turn session_mgr ~key:job.session_key
+                                Session.turn session_mgr ~key:turn_key
                                   ~message:job.message ()
                               in
                               Logs.info (fun m ->
@@ -982,7 +1012,7 @@ let tick ~db ~session_mgr
                               let has_notifier =
                                 Option.is_some
                                   (Session.find_registered_notifier session_mgr
-                                     ~key:job.session_key)
+                                     ~key:delivery_key)
                               in
                               let* () =
                                 if has_notifier then begin
@@ -1014,7 +1044,7 @@ let tick ~db ~session_mgr
                                   match
                                     ( deliver,
                                       Memory.get_session_channel ~db
-                                        ~session_key:job.session_key )
+                                        ~session_key:delivery_key )
                                   with
                                   | Some deliver_fn, Some (channel, channel_id)
                                     -> (
@@ -1088,7 +1118,7 @@ let tick ~db ~session_mgr
                                       Lwt.return_unit
                               in
                               Session.mark_response_sent session_mgr
-                                ~key:job.session_key;
+                                ~key:turn_key;
                               Lwt.return_unit)
                             (fun exn ->
                               Logs.err (fun m ->
@@ -1097,7 +1127,7 @@ let tick ~db ~session_mgr
                               record_run_finish ~db ~run_id ~status:"error"
                                 ~result_preview:(Printexc.to_string exn);
                               Session.mark_response_sent session_mgr
-                                ~key:job.session_key;
+                                ~key:turn_key;
                               Lwt.return_unit))
                         (fun () ->
                           Hashtbl.remove in_flight_jobs job.name;
