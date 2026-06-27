@@ -130,6 +130,18 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `rig adjust <name>` | Reconfigure an installed rig |
 | `rig remove <name>` | Remove an installed rig and clean up |
 | `rig list` | List available rigs with install status |
+| `rooms` | Manage room profiles, bindings, workspaces, and the room activity ledger. Admin-only mutation and ledger surfaces require `CLAWQ_ADMIN=1` and are not exposed as agent tools or slash commands |
+| `rooms list` | List configured room profiles and bindings |
+| `rooms show ROOM_ID` | Show a room binding and profile details |
+| `rooms workspace ROOM_ID` | Show/create the preserved workspace path for a room |
+| `rooms ledger list [FILTERS]` | List room activity ledger entries. Admin-only. Filters include `--room-id`, `--event-type`, `--from`, `--to`, `--actor`, `--profile-id`, `--thread-id`, `--task-id`, `--background-id`, `--requester`, and `--status` |
+| `rooms ledger export [FILTERS] [--format json\|jsonl]` | Export filtered room activity ledger entries as JSON (or JSONL with `--format jsonl` / `--jsonl`). Admin-only |
+| `rooms ledger retention-cleanup --retention-days N` | Delete ledger entries older than the configured retention period. Admin-only |
+| `rooms gc [--retention-days N]` | Purge expired room workspaces while preserving active references. Admin-only |
+| `rooms bind ROOM_ID PROFILE_ID [--preserve\|--reset]` | Bind or explicitly rebind a room to a profile. Admin-only |
+| `rooms rename PROFILE_ID NAME` | Update a room profile display name. Admin-only |
+| `rooms delete PROFILE_ID [--force]` | Soft-delete a room profile and remove bindings. Admin-only |
+| `rooms unbind ROOM_ID` | Remove a room binding while preserving the profile. Admin-only |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
 | `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (auto-backs up workspace first; leaves cron jobs and config.json intact) |
 | `runtime` | Manage native and Docker runtimes (default: status) |

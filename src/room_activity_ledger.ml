@@ -57,6 +57,27 @@ let event_of_stmt stmt =
     metadata = metadata_of_string (text_column stmt 5);
   }
 
+let event_to_json event =
+  `Assoc
+    [
+      ("id", `Int event.id);
+      ("room_id", `String event.room_id);
+      ("event_type", `String event.event_type);
+      ("timestamp", `String event.timestamp);
+      ("actor", `String event.actor);
+      ("metadata", event.metadata);
+    ]
+
+let events_to_json events = `List (List.map event_to_json events)
+
+let events_to_json_string events =
+  Yojson.Safe.pretty_to_string (events_to_json events)
+
+let events_to_jsonl events =
+  events
+  |> List.map (fun event -> event_to_json event |> Yojson.Safe.to_string)
+  |> String.concat "\n"
+
 let timestamp_now () =
   let now = Unix.gettimeofday () in
   let tm = Unix.gmtime now in
@@ -169,3 +190,18 @@ let query ?room_id ?event_type ?from_timestamp ?to_timestamp ~db () =
       in
       loop ());
   List.rev !events
+
+let delete_before ~db ~before_timestamp =
+  let stmt =
+    Sqlite3.prepare db "DELETE FROM room_activity_ledger WHERE timestamp < ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      bind_params stmt [ Sqlite3.Data.TEXT before_timestamp ];
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Sqlite3.changes db
+      | rc ->
+          failwith
+            (Printf.sprintf "room_activity_ledger retention cleanup failed: %s"
+               (Sqlite3.Rc.to_string rc)))

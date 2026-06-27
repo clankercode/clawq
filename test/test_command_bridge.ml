@@ -3838,6 +3838,123 @@ let test_rooms_gc_preserves_active_refs_and_reports_paths () =
         "stale path purged" false
         (Sys.file_exists stale_path))
 
+let add_room_ledger_event db ~room_id ~event_type ~timestamp ~actor =
+  ignore
+    (Room_activity_ledger.append ~db ~room_id ~event_type ~timestamp ~actor
+       ~metadata:(`Assoc [ ("note", `String event_type) ]))
+
+let test_rooms_ledger_list_filters_and_exports_json () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let db = session_db home in
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"task_started"
+        ~timestamp:"2026-06-27T10:00:00Z" ~actor:"agent-1";
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"task_done"
+        ~timestamp:"2026-06-27T10:05:00Z" ~actor:"agent-1";
+      add_room_ledger_event db ~room_id:"room-2" ~event_type:"task_started"
+        ~timestamp:"2026-06-27T10:10:00Z" ~actor:"agent-2";
+      let list_result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "ledger";
+            "list";
+            "--room-id";
+            "room-1";
+            "--event-type";
+            "task_started";
+            "--from";
+            "2026-06-27T09:59:00Z";
+            "--to";
+            "2026-06-27T10:01:00Z";
+          ]
+      in
+      Alcotest.(check bool)
+        "filtered list includes matching event" true
+        (Test_helpers.string_contains list_result "task_started");
+      Alcotest.(check bool)
+        "filtered list excludes other event type" false
+        (Test_helpers.string_contains list_result "task_done");
+      Alcotest.(check bool)
+        "filtered list excludes other room" false
+        (Test_helpers.string_contains list_result "room-2");
+      let export_result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "ledger";
+            "export";
+            "--room-id";
+            "room-1";
+            "--event-type";
+            "task_started";
+          ]
+      in
+      match Yojson.Safe.from_string export_result with
+      | `List [ `Assoc fields ] ->
+          Alcotest.(check (option string))
+            "export room_id" (Some "room-1")
+            (match List.assoc_opt "room_id" fields with
+            | Some (`String s) -> Some s
+            | _ -> None);
+          Alcotest.(check (option string))
+            "export event_type" (Some "task_started")
+            (match List.assoc_opt "event_type" fields with
+            | Some (`String s) -> Some s
+            | _ -> None)
+      | _ -> Alcotest.fail "expected ledger export JSON array with one event")
+
+let test_rooms_ledger_retention_cleanup () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let db = session_db home in
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"old"
+        ~timestamp:"2026-06-20T09:59:59Z" ~actor:"agent";
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"kept"
+        ~timestamp:"2026-06-20T10:00:00Z" ~actor:"agent";
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "ledger";
+            "retention-cleanup";
+            "--retention-days";
+            "7";
+            "--now";
+            "2026-06-27T10:00:00Z";
+          ]
+      in
+      Alcotest.(check bool)
+        "cleanup reports deleted count" true
+        (Test_helpers.string_contains result "deleted 1");
+      let remaining = Room_activity_ledger.query ~db () in
+      Alcotest.(check (list string))
+        "remaining ledger events" [ "kept" ]
+        (List.map (fun e -> e.Room_activity_ledger.event_type) remaining))
+
+let test_rooms_ledger_rejected_without_admin () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"task_started"
+        ~timestamp:"2026-06-27T10:00:00Z" ~actor:"agent";
+      let list_result = Command_bridge.handle [ "rooms"; "ledger"; "list" ] in
+      Alcotest.(check bool)
+        "ledger list rejected mentions admin" true
+        (Test_helpers.string_contains list_result "admin");
+      let export_result =
+        Command_bridge.handle [ "rooms"; "ledger"; "export" ]
+      in
+      Alcotest.(check bool)
+        "ledger export rejected mentions admin" true
+        (Test_helpers.string_contains export_result "admin");
+      let cleanup_result =
+        Command_bridge.handle
+          [ "rooms"; "ledger"; "retention-cleanup"; "--retention-days"; "1" ]
+      in
+      Alcotest.(check bool)
+        "ledger cleanup rejected mentions admin" true
+        (Test_helpers.string_contains cleanup_result "admin"))
+
 let test_rooms_usage () =
   let result = Command_bridge.handle [ "rooms"; "help" ] in
   Alcotest.(check bool)
@@ -3857,7 +3974,10 @@ let test_rooms_usage () =
     (Test_helpers.string_contains result "delete");
   Alcotest.(check bool)
     "rooms usage mentions gc" true
-    (Test_helpers.string_contains result "gc")
+    (Test_helpers.string_contains result "gc");
+  Alcotest.(check bool)
+    "rooms usage mentions ledger" true
+    (Test_helpers.string_contains result "ledger")
 
 let test_rooms_bind_rejected_without_admin () =
   with_temp_home (fun home ->
@@ -3936,6 +4056,9 @@ let test_min_rooms_mutation_paths_disabled () =
       [ "rooms"; "rename"; "coding"; "New Name" ];
       [ "rooms"; "delete"; "coding"; "--force" ];
       [ "rooms"; "unbind"; "slack:C1" ];
+      [ "rooms"; "ledger"; "list" ];
+      [ "rooms"; "ledger"; "export" ];
+      [ "rooms"; "ledger"; "retention-cleanup" ];
     ]
   in
   List.iter
@@ -4232,6 +4355,12 @@ let suite =
       test_rooms_workspace_reports_preserved_path;
     Alcotest.test_case "rooms gc preserves active refs and reports paths" `Quick
       test_rooms_gc_preserves_active_refs_and_reports_paths;
+    Alcotest.test_case "rooms ledger list filters and exports json" `Quick
+      test_rooms_ledger_list_filters_and_exports_json;
+    Alcotest.test_case "rooms ledger retention cleanup" `Quick
+      test_rooms_ledger_retention_cleanup;
+    Alcotest.test_case "rooms ledger rejected without admin" `Quick
+      test_rooms_ledger_rejected_without_admin;
     Alcotest.test_case "rooms unbind" `Quick test_rooms_unbind;
     Alcotest.test_case "rooms unbind no binding" `Quick
       test_rooms_unbind_no_binding;

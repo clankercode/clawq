@@ -67,6 +67,26 @@ let test_query_filters () =
             "filtered timestamp" "2026-06-27T10:15:00Z" event.timestamp
       | _ -> Alcotest.fail "expected one ranged event")
 
+let test_retention_deletes_older_entries () =
+  with_db (fun db ->
+      let add event_type timestamp =
+        ignore
+          (Room_activity_ledger.append ~db ~room_id:"room-1" ~event_type
+             ~timestamp ~actor:"agent" ~metadata:(`Assoc []))
+      in
+      add "old" "2026-06-20T09:59:59Z";
+      add "boundary" "2026-06-20T10:00:00Z";
+      add "new" "2026-06-21T10:00:00Z";
+      let deleted =
+        Room_activity_ledger.delete_before ~db
+          ~before_timestamp:"2026-06-20T10:00:00Z"
+      in
+      Alcotest.(check int) "deleted count" 1 deleted;
+      let remaining = Room_activity_ledger.query ~db () in
+      Alcotest.(check (list string))
+        "remaining events" [ "boundary"; "new" ]
+        (List.map (fun e -> e.Room_activity_ledger.event_type) remaining))
+
 let test_migration_adds_schema () =
   Test_helpers.with_temp_dir (fun dir ->
       let db_path = Filename.concat dir "memory.db" in
@@ -242,6 +262,8 @@ let suite =
     Alcotest.test_case "append stores event" `Quick test_append_stores_event;
     Alcotest.test_case "append is idempotent" `Quick test_append_is_idempotent;
     Alcotest.test_case "query filters" `Quick test_query_filters;
+    Alcotest.test_case "retention deletes older entries" `Quick
+      test_retention_deletes_older_entries;
     Alcotest.test_case "migration adds schema" `Quick test_migration_adds_schema;
     Alcotest.test_case "background task events recorded" `Quick
       test_background_task_events_recorded;

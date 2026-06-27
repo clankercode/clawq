@@ -91,6 +91,18 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq rig adjust <name>` | Reconfigure an installed rig |
 | `clawq rig remove <name>` | Remove an installed rig and clean up |
 | `clawq rig list` | List available rigs and their install status |
+| `clawq rooms` | Manage room profiles, bindings, workspaces, and the room activity ledger |
+| `clawq rooms list` | List all room profiles and bindings |
+| `clawq rooms show ROOM_ID` | Show a room binding and profile details |
+| `clawq rooms workspace ROOM_ID` | Show/create the preserved workspace path for a room |
+| `clawq rooms ledger list [FILTERS]` | List room activity ledger entries (admin-only). Filters: `--room-id`, `--event-type`, `--from`, `--to`, `--actor`, `--profile-id`, `--thread-id`, `--task-id`, `--background-id`, `--requester`, `--status` |
+| `clawq rooms ledger export [FILTERS] [--format json\|jsonl]` | Export filtered room activity ledger entries as JSON (or JSONL with `--format jsonl` / `--jsonl`) |
+| `clawq rooms ledger retention-cleanup --retention-days N` | Delete ledger entries older than the configured retention period (admin-only) |
+| `clawq rooms gc [--retention-days N]` | Purge expired room workspaces while preserving active references (admin-only) |
+| `clawq rooms bind ROOM_ID PROFILE_ID [--preserve\|--reset]` | Bind or explicitly rebind a room to a profile (admin-only) |
+| `clawq rooms rename PROFILE_ID NAME` | Update a room profile display name (admin-only) |
+| `clawq rooms delete PROFILE_ID [--force]` | Soft-delete a room profile and remove bindings (admin-only) |
+| `clawq rooms unbind ROOM_ID` | Remove a room binding while preserving the profile (admin-only) |
 | `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
 | `clawq runtime` | Manage native and Docker runtimes |
 | `clawq service` | Manage the clawq system service (start/stop/restart/install/uninstall/systemd-unit) |

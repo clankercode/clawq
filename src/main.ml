@@ -1482,15 +1482,31 @@ let rig_cmd =
 
 let rooms_cmd =
   with_args "rooms"
-    "Manage room profiles and bindings (list, show, bind, unbind)."
+    "Manage room profiles, bindings, workspaces, and activity ledger."
     [
       `S "SUBCOMMANDS";
       `I ("list", "List all room profiles and their bindings.");
       `I ("show ROOM_ID", "Show a room's binding and profile details.");
+      `I ("workspace ROOM_ID", "Show/create a room workspace path.");
+      `I
+        ( "ledger list [FILTERS]",
+          "List room activity ledger entries (requires admin)." );
+      `I
+        ( "ledger export [FILTERS] [--format json|jsonl]",
+          "Export room activity ledger entries as JSON (requires admin)." );
+      `I
+        ( "ledger retention-cleanup --retention-days N",
+          "Delete ledger entries older than N days (requires admin)." );
+      `I ("gc [--retention-days N]", "Purge expired room workspaces.");
       `I
         ("bind ROOM_ID PROFILE_ID", "Bind a room to a profile (requires admin).");
       `I ("unbind ROOM_ID", "Remove a room binding (profile is preserved).");
       `S "NOTES";
+      `P
+        "Ledger filters include --room-id, --event-type, --from, --to, \
+         --actor, --profile-id, --thread-id, --task-id, --background-id, \
+         --requester, and --status. Admin room/ledger surfaces are CLI-only \
+         and are not exposed as agent tools or slash commands.";
       `P
         "Room profiles and bindings are stored in config.json and reconciled \
          to the database at daemon startup. After bind/unbind, restart the \
