@@ -87,6 +87,7 @@
   memory_session
   memory_search
   room_profile_reconcile
+  room_stale_query
   memory
   rate_limiter
   scheduler
