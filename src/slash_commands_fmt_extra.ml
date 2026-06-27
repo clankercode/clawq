@@ -374,18 +374,30 @@ let format_cron ~connector ~db ~session_key action =
               Content_dsl.Paragraph
                 [ Bold "Cron Job"; Text " — "; Code job.name ];
               Paragraph [ Text "Session: "; Code job.session_key ];
-              Paragraph [ Text "Schedule: "; Code job.schedule_str ];
-              Paragraph
-                [ Text "Enabled: "; Text (if job.enabled then "yes" else "no") ];
-              Paragraph
-                [
-                  Text "Expires: ";
-                  Text
-                    (match job.expires_at with
-                    | Some ea -> ea
-                    | None -> "never");
-                ];
             ]
+            @ (match Scheduler.job_routine_target job with
+              | Some target ->
+                  [
+                    Content_dsl.Paragraph
+                      [ Text "Routine target: "; Code target ];
+                  ]
+              | None -> [])
+            @ [
+                Content_dsl.Paragraph
+                  [ Text "Schedule: "; Code job.schedule_str ];
+                Paragraph
+                  [
+                    Text "Enabled: "; Text (if job.enabled then "yes" else "no");
+                  ];
+                Paragraph
+                  [
+                    Text "Expires: ";
+                    Text
+                      (match job.expires_at with
+                      | Some ea -> ea
+                      | None -> "never");
+                  ];
+              ]
             @ (match job.agent_name with
               | Some agent ->
                   [ Content_dsl.Paragraph [ Text "Agent: "; Code agent ] ]
@@ -438,7 +450,12 @@ let format_cron ~connector ~db ~session_key action =
                       | Some p -> p
                       | None -> ""
                     in
-                    [ string_of_int r.run_id; r.started_at; r.status; preview ])
+                    let status =
+                      match Scheduler.run_routine_target r with
+                      | Some target -> r.status ^ " " ^ target
+                      | None -> r.status
+                    in
+                    [ string_of_int r.run_id; r.started_at; status; preview ])
                   runs
               in
               [ Content_dsl.Separator; Paragraph [ Bold "Recent Runs" ] ]
@@ -478,7 +495,9 @@ let format_cron ~connector ~db ~session_key action =
               in
               [
                 j.name;
-                j.session_key;
+                (match Scheduler.job_routine_target j with
+                | Some target -> Printf.sprintf "%s (%s)" j.session_key target
+                | None -> j.session_key);
                 j.schedule_str;
                 (if j.enabled then "yes" else "no");
                 (match j.expires_at with Some ea -> ea | None -> "-");
@@ -558,11 +577,16 @@ let format_cron ~connector ~db ~session_key action =
                 | Some p -> p
                 | None -> ""
               in
+              let status =
+                match Scheduler.run_routine_target r with
+                | Some target -> r.status ^ " " ^ target
+                | None -> r.status
+              in
               [
                 string_of_int r.run_id;
                 r.job_name;
                 r.started_at;
-                r.status;
+                status;
                 preview;
               ])
             runs

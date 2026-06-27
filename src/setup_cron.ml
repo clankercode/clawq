@@ -57,9 +57,15 @@ let draw_jobs_dashboard jobs =
                | Some ea -> " expires:" ^ ea
                | None -> ""
              in
-             Printf.sprintf "  %s  %s  %s  %s%s"
+             let target =
+               match Scheduler.job_routine_target j with
+               | Some target -> " target:" ^ target
+               | None -> ""
+             in
+             Printf.sprintf "  %s  %s  %s  %s%s%s"
                (cyan (string_of_int j.id))
-               (bold j.name) status (dim j.schedule_str) (dim expires))
+               (bold j.name) status (dim j.schedule_str) (dim expires)
+               (dim target))
            jobs)
     @ [ "" ]
   in
@@ -84,6 +90,11 @@ let print_jobs_table jobs =
       (fun (j : Scheduler.job) ->
         let status = if j.enabled then green "enabled " else dim "disabled" in
         let expires = match j.expires_at with Some ea -> ea | None -> "-" in
+        let session =
+          match Scheduler.job_routine_target j with
+          | Some target -> Printf.sprintf "%s (%s)" j.session_key target
+          | None -> j.session_key
+        in
         Printf.printf "  %-4d  %-20s  %s  %-25s  %-19s  %s\n" j.id
           (if String.length j.name > 20 then String.sub j.name 0 17 ^ "..."
            else j.name)
@@ -91,7 +102,7 @@ let print_jobs_table jobs =
           (if String.length j.schedule_str > 25 then
              String.sub j.schedule_str 0 22 ^ "..."
            else j.schedule_str)
-          expires j.session_key)
+          expires session)
       jobs
   end;
   Printf.printf "\n"

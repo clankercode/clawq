@@ -476,7 +476,9 @@ let cmd_cron args =
               let base =
                 [
                   j.name;
-                  j.session_key;
+                  (match Scheduler.job_routine_target j with
+                  | Some target -> Printf.sprintf "%s (%s)" j.session_key target
+                  | None -> j.session_key);
                   j.schedule_str;
                   (if j.enabled then "yes" else "no");
                 ]
