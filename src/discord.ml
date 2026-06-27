@@ -754,7 +754,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                       Room_request_classifier.launch_room_async_bg ~db
                         ~session_key:key ~connector:"discord"
                         ~room_id:msg.channel_id ~requester_id:msg.author_id
-                        cmd_result
+                        ~is_admin cmd_result
                     with
                     | Ok (Some bg_id) ->
                         Lwt.async (fun () ->

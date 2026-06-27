@@ -207,6 +207,92 @@ let test_show_thinking_is_quick_reply () =
   Alcotest.check check_classification "show_thinking" QuickReply
     (classify (ShowThinking ToggleShowThinking))
 
+(* Guest async policy *)
+
+let check_guest_policy =
+  Alcotest.testable
+    (fun fmt r ->
+      Format.fprintf fmt "%s"
+        (match r with Ok () -> "Ok" | Error msg -> "Error: " ^ msg))
+    ( = )
+
+let test_guest_delegate_allowed () =
+  Alcotest.check check_guest_policy "delegate" (Ok ())
+    (Room_request_classifier.guest_async_policy
+       (Delegate (None, "build feature")))
+
+let test_guest_agent_invoke_allowed () =
+  Alcotest.check check_guest_policy "agent_invoke" (Ok ())
+    (Room_request_classifier.guest_async_policy
+       (AgentInvoke ("coder", "implement X")))
+
+let test_guest_debate_allowed () =
+  Alcotest.check check_guest_policy "debate" (Ok ())
+    (Room_request_classifier.guest_async_policy (Debate "should we use X or Y?"))
+
+let test_guest_fork_denied () =
+  match Room_request_classifier.guest_async_policy (ForkAnd (None, "fork")) with
+  | Ok () -> Alcotest.fail "expected denial for ForkAnd"
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions admin" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "admin") msg 0);
+           true
+         with Not_found -> false)
+
+let test_guest_bash_denied () =
+  match Room_request_classifier.guest_async_policy (BashRun "ls") with
+  | Ok () -> Alcotest.fail "expected denial for BashRun"
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions admin" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "admin") msg 0);
+           true
+         with Not_found -> false)
+
+let test_guest_rig_install_denied () =
+  match
+    Room_request_classifier.guest_async_policy (Rig (RigInstall "my-rig"))
+  with
+  | Ok () -> Alcotest.fail "expected denial for RigInstall"
+  | Error _ -> ()
+
+let test_guest_rig_adjust_denied () =
+  match
+    Room_request_classifier.guest_async_policy (Rig (RigAdjust "my-rig"))
+  with
+  | Ok () -> Alcotest.fail "expected denial for RigAdjust"
+  | Error _ -> ()
+
+let test_guest_rig_remove_denied () =
+  match
+    Room_request_classifier.guest_async_policy (Rig (RigRemove "my-rig"))
+  with
+  | Ok () -> Alcotest.fail "expected denial for RigRemove"
+  | Error _ -> ()
+
+let test_guest_compact_allowed () =
+  Alcotest.check check_guest_policy "compact" (Ok ())
+    (Room_request_classifier.guest_async_policy Compact)
+
+let test_guest_not_a_command_allowed () =
+  Alcotest.check check_guest_policy "not_a_command" (Ok ())
+    (Room_request_classifier.guest_async_policy NotACommand)
+
+let test_guest_admin_required_unwrapped () =
+  Alcotest.check check_guest_policy "admin_required_delegate" (Ok ())
+    (Room_request_classifier.guest_async_policy
+       (AdminRequired (Delegate (None, "prompt"))))
+
+let test_guest_admin_required_bash_denied () =
+  match
+    Room_request_classifier.guest_async_policy (AdminRequired (BashRun "ls"))
+  with
+  | Ok () -> Alcotest.fail "expected denial for AdminRequired BashRun"
+  | Error _ -> ()
+
 let suite =
   [
     (* Quick-reply commands *)
@@ -285,4 +371,25 @@ let suite =
     (* AdminRequired unwrapping *)
     Alcotest.test_case "admin_required delegates to inner" `Quick
       test_admin_required_delegates_to_inner;
+    (* Guest async policy *)
+    Alcotest.test_case "guest delegate allowed" `Quick
+      test_guest_delegate_allowed;
+    Alcotest.test_case "guest agent_invoke allowed" `Quick
+      test_guest_agent_invoke_allowed;
+    Alcotest.test_case "guest debate allowed" `Quick test_guest_debate_allowed;
+    Alcotest.test_case "guest fork_and denied" `Quick test_guest_fork_denied;
+    Alcotest.test_case "guest bash_run denied" `Quick test_guest_bash_denied;
+    Alcotest.test_case "guest rig_install denied" `Quick
+      test_guest_rig_install_denied;
+    Alcotest.test_case "guest rig_adjust denied" `Quick
+      test_guest_rig_adjust_denied;
+    Alcotest.test_case "guest rig_remove denied" `Quick
+      test_guest_rig_remove_denied;
+    Alcotest.test_case "guest compact allowed" `Quick test_guest_compact_allowed;
+    Alcotest.test_case "guest not_a_command allowed" `Quick
+      test_guest_not_a_command_allowed;
+    Alcotest.test_case "guest admin_required delegate allowed" `Quick
+      test_guest_admin_required_unwrapped;
+    Alcotest.test_case "guest admin_required bash_run denied" `Quick
+      test_guest_admin_required_bash_denied;
   ]

@@ -106,14 +106,64 @@ let rec async_cmd_to_bg_launch (result : Slash_commands.result) :
   | Compact | Model _ -> None
   | _ -> None
 
+(** Check whether an [AsyncCommand] result is allowed for a guest (non-admin)
+    caller in a room async context. Returns [Ok ()] if allowed, or
+    [Error message] with an actionable denial message if denied.
+
+    Guest-allowed commands are limited to read-only or delegated agent
+    interactions: Delegate, AgentInvoke, and Debate. State-mutating or
+    privileged commands (BashRun, ForkAnd, Rig install/adjust/remove) are denied
+    for guests. *)
+let rec guest_async_policy (result : Slash_commands.result) :
+    (unit, string) result =
+  let open Slash_commands in
+  match result with
+  | Delegate _ | AgentInvoke _ | Debate _ -> Ok ()
+  | ForkAnd _ ->
+      Error
+        "Error: forking sessions requires admin privileges. Ask an admin to \
+         run this command or register as admin with /register_as_admin_otc."
+  | BashRun _ ->
+      Error
+        "Error: running shell commands requires admin privileges. Ask an admin \
+         to run this command or register as admin with /register_as_admin_otc."
+  | Rig (RigInstall _) ->
+      Error
+        "Error: installing rigs requires admin privileges. Ask an admin to run \
+         this command or register as admin with /register_as_admin_otc."
+  | Rig (RigAdjust _) ->
+      Error
+        "Error: adjusting rigs requires admin privileges. Ask an admin to run \
+         this command or register as admin with /register_as_admin_otc."
+  | Rig (RigRemove _) ->
+      Error
+        "Error: removing rigs requires admin privileges. Ask an admin to run \
+         this command or register as admin with /register_as_admin_otc."
+  | AdminRequired inner -> guest_async_policy inner
+  | _ -> Ok ()
+
 (** Launch an async room command as a background task using the room's profile
     policy. Combines [async_cmd_to_bg_launch] with
     [Background_task.launch_room_bg_task].
 
+    Guest callers (non-admin) are checked against [guest_async_policy] before
+    launch. Denied requests produce an actionable error message.
+
     Returns [Ok (Some bg_task_id)] if a background task was launched, [Ok None]
-    if the command should remain inline, or [Error msg] on launch failure. *)
+    if the command should remain inline, or [Error msg] on launch failure or
+    guest policy denial. *)
 let launch_room_async_bg ~db ~session_key ~connector ~room_id ~requester_id
-    ?thread_id ?model_override ?notify_cfg (result : Slash_commands.result) =
+    ~is_admin ?thread_id ?model_override ?notify_cfg
+    (result : Slash_commands.result) =
+  let ( let* ) = Result.bind in
+  let* () =
+    if is_admin then Ok ()
+    else (
+      Logs.info (fun m ->
+          m "Guest policy check for %s in room %s: %s" requester_id room_id
+            (Option.value (title_of_async_cmd result) ~default:"unknown"));
+      guest_async_policy result)
+  in
   match async_cmd_to_bg_launch result with
   | None -> Ok None
   | Some (goal, runner_s, agent_name) -> (

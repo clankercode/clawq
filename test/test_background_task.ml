@@ -5274,7 +5274,7 @@ let test_launch_room_async_bg_delegate () =
   match
     Room_request_classifier.launch_room_async_bg ~db
       ~session_key:"slack:C-ASYNC-ROOM:U456" ~connector:"slack" ~room_id
-      ~requester_id:"U456" result
+      ~requester_id:"U456" ~is_admin:true result
   with
   | Error msg -> Alcotest.failf "launch failed: %s" msg
   | Ok None -> Alcotest.fail "expected Some for Delegate"
@@ -5303,7 +5303,7 @@ let test_launch_room_async_bg_compact_none () =
   match
     Room_request_classifier.launch_room_async_bg ~db
       ~session_key:"slack:C-ROOM:U789" ~connector:"slack" ~room_id:"C-ROOM"
-      ~requester_id:"U789" result
+      ~requester_id:"U789" ~is_admin:true result
   with
   | Error msg -> Alcotest.failf "unexpected error: %s" msg
   | Ok None -> () (* expected *)

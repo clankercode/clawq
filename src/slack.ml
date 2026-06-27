@@ -503,7 +503,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                         match
                           Room_request_classifier.launch_room_async_bg ~db
                             ~session_key:key ~connector:"slack"
-                            ~room_id:channel_id ~requester_id:user_id cmd_result
+                            ~room_id:channel_id ~requester_id:user_id ~is_admin
+                            cmd_result
                         with
                         | Ok (Some bg_id) ->
                             Lwt.async (fun () ->
