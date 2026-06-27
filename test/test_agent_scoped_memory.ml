@@ -7,6 +7,101 @@ let config_with_memory =
 
 let contains = Test_helpers.string_contains
 
+let audit_report_relpath =
+  "docs/ultra-plans/room-agent-profiles/nodes/04-scoped-memory/P12.M1.E3.T003-global-memory-callsite-audit.md"
+
+let repo_root () =
+  let exe =
+    if Filename.is_relative Sys.executable_name then
+      Filename.concat (Sys.getcwd ()) Sys.executable_name
+    else Sys.executable_name
+  in
+  exe |> Filename.dirname |> Filename.dirname |> Filename.dirname
+  |> Filename.dirname
+
+let read_file path =
+  let ic = open_in path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr ic)
+    (fun () -> really_input_string ic (in_channel_length ic))
+
+let read_lines path =
+  let ic = open_in path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr ic)
+    (fun () ->
+      let rec loop acc =
+        match input_line ic with
+        | line -> loop (line :: acc)
+        | exception End_of_file -> List.rev acc
+      in
+      loop [])
+
+let monitored_source_files () =
+  let src_dir = Filename.concat (repo_root ()) "src" in
+  Sys.readdir src_dir |> Array.to_list
+  |> List.filter (fun name ->
+      Filename.check_suffix name ".ml"
+      && (String.starts_with ~prefix:"agent" name
+         || String.starts_with ~prefix:"session" name
+         || name = "prompt_builder.ml"))
+  |> List.sort String.compare
+  |> List.map (fun name -> ("src/" ^ name, Filename.concat src_dir name))
+
+let memory_call_re =
+  Str.regexp
+    "Memory\\.\\(search\\|list_core\\|recall_core\\)\\([^A-Za-z0-9_]\\|$\\)"
+
+let line_has_audited_memory_call line =
+  try
+    ignore (Str.search_forward memory_call_re line 0);
+    true
+  with Not_found -> false
+
+let audited_memory_callsite_keys () =
+  monitored_source_files ()
+  |> List.concat_map (fun (rel, path) ->
+      read_lines path
+      |> List.filter line_has_audited_memory_call
+      |> List.map (fun line -> Printf.sprintf "%s | %s" rel (String.trim line)))
+
+let expected_memory_callsite_keys =
+  [
+    "src/agent_0_compact.ml | let results = Memory.recall_core ~db ~query \
+     ~limit in";
+    "src/agent_0_compact.ml | let results = Memory.list_core ~db ~category () \
+     in";
+    "src/agent_2_tools.ml | Memory.search ~db ~query:user_message ~scope_kind \
+     ~scope_key";
+    "src/agent_2_tools.ml | Memory.search ~db ~query:user_message ~limit:5 ()";
+    "src/agent_2_tools.ml | let all = Memory.list_core ~db () in";
+  ]
+
+let test_global_memory_callsite_audit_report_accounts_for_all_callsites () =
+  let actual = audited_memory_callsite_keys () |> List.sort String.compare in
+  let expected = expected_memory_callsite_keys |> List.sort String.compare in
+  Alcotest.(check (list string)) "audited callsites" expected actual;
+  let report =
+    read_file (Filename.concat (repo_root ()) audit_report_relpath)
+  in
+  List.iter
+    (fun key ->
+      Alcotest.(check bool)
+        ("report accounts for " ^ key)
+        true (contains report key))
+    expected;
+  Alcotest.(check bool)
+    "legacy fallback documented" true
+    (contains report "Legacy routing fallback");
+  let source_text =
+    monitored_source_files ()
+    |> List.map (fun (_, path) -> read_file path)
+    |> String.concat "\n"
+  in
+  Alcotest.(check bool)
+    "source flags scoped-memory audit TODOs" true
+    (contains source_text "TODO(scoped-memory-audit)")
+
 let seed_profiled_room ~db ~room_id =
   let profile_id =
     Memory.insert_room_profile ~db ~name:(room_id ^ "-profile")
@@ -84,4 +179,7 @@ let suite =
       test_profiled_room_injects_scoped_memory_and_prefers_it;
     Alcotest.test_case "compaction preserves scoped memory references" `Quick
       test_compaction_preserves_scoped_memory_references;
+    Alcotest.test_case
+      "global memory callsite audit report accounts for all callsites" `Quick
+      test_global_memory_callsite_audit_report_accounts_for_all_callsites;
   ]

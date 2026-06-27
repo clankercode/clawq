@@ -714,6 +714,11 @@ let inject_search_context ?scope_kind ?scope_key agent ~db ~user_message =
               Lwt.return_unit
             end
         | _ -> (
+            (* Legacy routing fallback: only unprofiled or scope-less sessions
+               should reach this branch. Profiled room/thread turns must pass
+               scope_kind/scope_key and use the scoped branch above. *)
+            (* TODO(scoped-memory-audit): keep this global message search as an
+               explicit legacy fallback; do not route profiled rooms here. *)
             (* FTS keyword search *)
             let keyword_results =
               Memory.search ~db ~query:user_message ~limit:5 ()
@@ -752,6 +757,9 @@ let inject_search_context ?scope_kind ?scope_key agent ~db ~user_message =
                   ~vector_weight:agent.config.memory.vector_weight
             in
             let top = List.filteri (fun i _ -> i < 3) merged in
+            (* TODO(scoped-memory-audit): global core memory injection is a
+               legacy fallback for unscoped turns; route to scoped memories if
+               scope metadata becomes available here. *)
             (* Core memories: always include for awareness *)
             let core_items =
               let all = Memory.list_core ~db () in

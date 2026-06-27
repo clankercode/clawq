@@ -640,6 +640,10 @@ let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
         let limit = try args |> member "limit" |> to_int with _ -> 5 in
         if query = "" then "Error: query is required"
         else
+          (* TODO(scoped-memory-audit): compaction flush tool calls currently
+             read legacy global core memories because no memory scope is passed
+             into dispatch_flush_tool_call. Thread scope context here before
+             enabling this recall path for profiled room/thread compactions. *)
           let results = Memory.recall_core ~db ~query ~limit in
           if results = [] then "No matching memories found"
           else
@@ -658,6 +662,9 @@ let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
         let category =
           try args |> member "category" |> to_string with _ -> ""
         in
+        (* TODO(scoped-memory-audit): this list path exposes legacy global core
+           memory. Thread scope context into flush memory tools before enabling
+           it for profiled room/thread compactions. *)
         let results = Memory.list_core ~db ~category () in
         if results = [] then "No memories found"
         else
