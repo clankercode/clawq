@@ -24,7 +24,7 @@ tasks:
       file: T002-capture-slack-scoped-room-hist.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Capture Slack scoped room history for ambient watcher
     - complexity: medium
