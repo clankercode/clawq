@@ -1,0 +1,41 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B716
+priority: high
+status: pending
+tags: []
+title: Tool call status stuck as Running in consolidated status message after tool completes
+---
+## Description
+
+When using the consolidated tool call status message (edit-in-place), a tool that completes successfully can remain displayed as "◉ Running" indefinitely. The daemon log confirms the tool completed (e.g. `Tool git_operations completed in 0.002s`, `Tool result: git_operations -> exit_code: 128`) but the Telegram status message is never updated to reflect the Done state. Other tools in the same batch continue updating normally.
+
+The notification pipeline is: Agent tool execution → notify_async (ToolStart/ToolResult) → Lwt.join → on_chunk → Status_message.tool_start/tool_result → send_or_edit → Telegram API editMessageText.
+
+## Root Causes
+
+**Bug A — Silent API failure in `send_or_edit`.** Both `telegram_api.ml:edit_message` (line 978) and `status_message.ml:send_or_edit` (line 291) swallow all errors. `edit_message` discards the HTTP status and body on non-400 responses, always returning `Lwt.return_unit`. The Telegram notifier's `edit` closure returns `None` unconditionally. If the edit fails (network error, Telegram server error, rate limit not caught as 429), `tool_result` marks the entry as `Done` internally but the rendered message is never updated — the user sees "Running" permanently. The `Lwt.join` resolves successfully because the notification promise did not throw, just silently failed.
+
+**Bug B — Interrupt finalizer races with tool notifications.** When a user sends a message mid-turn while tools are executing, Telegram's `register_interrupt_finalizer` (line 1012) fires `Status_message.finalize sm`. For batches < 4 tools, `finalize` (line 543) sets `t.finalized = true` without re-rendering. Any tool that was still "Running" at interrupt time stays as "Running" in the last-rendered message. The heartbeat is also canceled, so the periodic re-render safety net disappears.
+
+## Evidence
+
+- Daemon log shows `Tool git_operations completed in 0.002s` with `exit_code: 128`
+- No notification errors, no timeouts, no interrupts logged for the stuck tool
+- 70+ other tools in the same turn completed and updated normally
+- The status message showed `git_operations` as "◉ Running" for 1210+ seconds
+
+## Proposed Fixes
+
+1. **Log Telegram API edit failures.** In `telegram_api.ml:edit_message`, log non-200 responses at WARN level so silent failures become visible.
+2. **Add a late-render guard in `finalize`.** When `finalize` is called with tools still in `Running` state, force a final `send_or_edit` even for < 4 tools.
+3. **Add a watchdog re-render.** The heartbeat loop already fires every 5s. If the message has not been edited in >30s but tools are still "Running", force a re-render.
+
+## Key Files
+
+- `src/status_message.ml` — `send_or_edit`, `finalize`, `tool_result`, heartbeat logic
+- `src/telegram_api.ml` — `edit_message` (line 978), error swallowing
+- `src/telegram.ml` — `on_chunk` handler (line 1059), `register_interrupt_finalizer` (line 1012)
+- `src/agent_2_tools.ml` — `execute_tool_calls_stream`, `notify_async`, `Lwt.join` (line 402)
