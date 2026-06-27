@@ -33,7 +33,8 @@ tasks:
       file: T003-implement-budget-reservation-a.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement budget reservation and concurrency semantics
     - complexity: medium
       depends_on:

@@ -1,15 +1,14 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P12.M3.E2.T002
 estimate_hours: 3
 id: P12.M3.E2.T003
 priority: high
-status: pending
-tags:
-    - room-agent
-    - budget
-    - provider
+started_at: null
+status: done
+tags: []
 title: Implement budget reservation and concurrency semantics
 ---
 Acceptance: concurrent room work has bounded overshoot or serialized reserve accounting; reservations are released/settled on success, failure, cancellation, and restart; tests cover overlapping calls. Files: budget/request_stats modules, src/agent.ml, concurrency tests.
