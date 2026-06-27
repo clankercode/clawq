@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Budget Attribution
       path: 01-budget-attribution
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Per-provider-call hard budget enforcement and admin soft-limit warnings.
