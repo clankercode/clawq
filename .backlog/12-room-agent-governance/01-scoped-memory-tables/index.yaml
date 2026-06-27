@@ -27,9 +27,9 @@ epics:
       locked: false
       name: Scoped Search and Prompt Injection
       path: 03-scoped-search-and-prompt-injec
-      status: pending
+      status: done
 estimate_hours: 36
 id: P12.M1
 locked: false
 name: Scoped Memory Tables
-status: pending
+status: done

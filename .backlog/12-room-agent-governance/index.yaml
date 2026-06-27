@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Scoped Memory Tables
       path: 01-scoped-memory-tables
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Enforce room profile tool grants and codebase grants without bypassing global security policy.

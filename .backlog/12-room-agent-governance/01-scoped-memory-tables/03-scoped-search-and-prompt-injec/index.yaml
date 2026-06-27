@@ -4,7 +4,7 @@ estimate_hours: 12
 id: P12.M1.E3
 locked: false
 name: Scoped Search and Prompt Injection
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -34,5 +34,6 @@ tasks:
       file: T003-audit-global-memory-callsites.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Audit global memory callsites and legacy routing

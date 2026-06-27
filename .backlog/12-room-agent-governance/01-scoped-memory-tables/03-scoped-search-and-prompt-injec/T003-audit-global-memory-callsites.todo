@@ -1,15 +1,14 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P12.M1.E3.T002
 estimate_hours: 3
 id: P12.M1.E3.T003
 priority: high
-status: pending
-tags:
-    - room-agent
-    - memory
-    - privacy
+started_at: null
+status: done
+tags: []
 title: Audit global memory callsites and legacy routing
 ---
 Acceptance: all profiled-room memory/search callsites are scoped or explicitly legacy-gated; tests prove P11 privacy guard is not bypassed after P12 lands. Files: memory/search callsites and tests.
