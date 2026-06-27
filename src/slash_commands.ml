@@ -29,6 +29,8 @@ let handle ?(skill_names = []) text =
         | "context" -> Context
         | "runtime-ctx" | "runtime_ctx" -> RuntimeCtx
         | "uptime" -> Uptime
+        | "version" ->
+            FormattedReply (fun connector -> format_version ~connector)
         | "status" -> Status
         | "thinking" -> (
             match args with
