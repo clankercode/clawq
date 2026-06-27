@@ -324,6 +324,99 @@ let test_soft_budget_warning_resets_with_period () =
         "warning fires in new period" true
         (match second with Some _ -> true | None -> false))
 
+let test_denial_with_zero_budget () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:0
+        ~cost_limit_usd:0.0 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* reservation =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:1 ~estimated_cost_usd:0.0
+         in
+         match reservation with
+         | Ok release ->
+             release ();
+             Alcotest.fail "reservation should fail with zero budget"
+         | Error state ->
+             (* With zero budget, any reservation is impossible. The state
+                reflects the configured limits. *)
+             Alcotest.(check int) "zero token limit" 0 state.token_limit;
+             Alcotest.(check (float 0.0001))
+               "zero cost limit" 0.0 state.cost_limit_usd;
+             Lwt.return_unit))
+
+let test_denial_with_concurrent_overcommit () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      (* Exceed the budget via actual usage, then verify reservation fails *)
+      record_usage ~db ~profile_id ~session_key:"heavy" ~prompt_tokens:60
+        ~completion_tokens:45 ~cost_usd:0.90 ~requested_at:"2026-01-01 01:00:00";
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         (* Now reservation of 10 tokens would exceed: 105 + 10 > 100 *)
+         let* reservation =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:10 ~estimated_cost_usd:0.0
+         in
+         match reservation with
+         | Ok release ->
+             release ();
+             Alcotest.fail
+               "reservation should fail when budget is already exceeded"
+         | Error state ->
+             Alcotest.(check bool) "budget exceeded" true state.limit_exceeded;
+             Alcotest.(check int)
+               "current usage is 105" 105 state.current_usage.total_tokens;
+             Lwt.return_unit))
+
+let test_budget_exceeded_message_redacted () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_usage ~db ~profile_id ~session_key:"exceeded" ~prompt_tokens:70
+        ~completion_tokens:40 ~cost_usd:1.10 ~requested_at:"2026-01-01 01:00:00";
+      let state = expect_budget ~db ~profile_id in
+      let redacted_msg = Room_budget.budget_exceeded_message_redacted state in
+      let admin_msg = Room_budget.budget_exceeded_message state in
+      (* Redacted message should NOT contain token counts or cost amounts *)
+      Alcotest.(check bool)
+        "redacted msg no token count" true
+        (not (Test_helpers.string_contains redacted_msg "110"));
+      Alcotest.(check bool)
+        "redacted msg no cost amount" true
+        (not (Test_helpers.string_contains redacted_msg "1.10"));
+      Alcotest.(check bool)
+        "redacted msg no USD" true
+        (not (Test_helpers.string_contains redacted_msg "USD"));
+      Alcotest.(check bool)
+        "redacted msg no limits" true
+        (not (Test_helpers.string_contains redacted_msg "limits"));
+      (* Redacted message should still identify the profile *)
+      Alcotest.(check bool)
+        "redacted msg has profile id" true
+        (Test_helpers.string_contains redacted_msg (string_of_int profile_id));
+      Alcotest.(check bool)
+        "redacted msg has budget exceeded" true
+        (Test_helpers.string_contains redacted_msg "budget exceeded");
+      (* Admin message SHOULD contain sensitive details *)
+      Alcotest.(check bool)
+        "admin msg has token count" true
+        (Test_helpers.string_contains admin_msg "110");
+      Alcotest.(check bool)
+        "admin msg has cost amount" true
+        (Test_helpers.string_contains admin_msg "1.10");
+      Alcotest.(check bool)
+        "admin msg has USD" true
+        (Test_helpers.string_contains admin_msg "USD");
+      Alcotest.(check bool)
+        "admin msg has limits" true
+        (Test_helpers.string_contains admin_msg "limits"))
+
 let suite =
   [
     Alcotest.test_case "budget creation and idempotent query" `Quick
@@ -352,4 +445,10 @@ let suite =
       test_hard_budget_still_blocks_with_soft_warning;
     Alcotest.test_case "soft budget warning resets with period" `Quick
       test_soft_budget_warning_resets_with_period;
+    Alcotest.test_case "denial with zero budget" `Quick
+      test_denial_with_zero_budget;
+    Alcotest.test_case "denial with concurrent overcommit" `Quick
+      test_denial_with_concurrent_overcommit;
+    Alcotest.test_case "budget exceeded message redaction" `Quick
+      test_budget_exceeded_message_redacted;
   ]

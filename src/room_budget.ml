@@ -307,6 +307,12 @@ let budget_exceeded_message state =
     state.profile_id state.current_usage.total_tokens
     state.current_usage.cost_usd state.token_limit state.cost_limit_usd
 
+let budget_exceeded_message_redacted state =
+  Printf.sprintf
+    "budget exceeded for room profile %d: usage has exceeded the configured \
+     thresholds. Please contact an administrator for details."
+    state.profile_id
+
 let with_profile_budget_reservation ~db ~profile_id ~estimated_tokens
     ~estimated_cost_usd f =
   let open Lwt.Syntax in
@@ -314,7 +320,7 @@ let with_profile_budget_reservation ~db ~profile_id ~estimated_tokens
     reserve_profile_budget ~db ~profile_id ~estimated_tokens ~estimated_cost_usd
   in
   match reservation with
-  | Error state -> Lwt.fail_with (budget_exceeded_message state)
+  | Error state -> Lwt.fail_with (budget_exceeded_message_redacted state)
   | Ok release ->
       Lwt.finalize f (fun () ->
           release ();
