@@ -1533,6 +1533,9 @@ let run ~(config : Runtime_config.t) =
   | Some db ->
       Scheduler.init_schema db;
       Background_task.init_schema db;
+      Task_tree_core.init_schema db;
+      Room_watcher_decision.init_schema db;
+      Room_activity_ledger.init_schema db;
       let recovered =
         Background_task.reap_dead_running_tasks ~db
           ~on_task_finished:
@@ -1570,6 +1573,64 @@ let run ~(config : Runtime_config.t) =
                 in
                 let now = Unix.gettimeofday () in
                 let cur_config = Session.get_config session_manager in
+                let ambient_send ~room_id ?thread_id ~message () =
+                  let connector_type =
+                    Room_ambient_delivery.latest_connector_type_for_room ~db
+                      ~room_id
+                  in
+                  match connector_type with
+                  | None ->
+                      Lwt.return
+                        (Error
+                           (Printf.sprintf
+                              "no connector history available for room %s"
+                              room_id))
+                  | Some channel ->
+                      let text =
+                        match thread_id with
+                        | Some tid ->
+                            Printf.sprintf "[thread:%s] %s" tid message
+                        | None -> message
+                      in
+                      Daemon_util.dispatch_resumed_message ~config:cur_config
+                        ~channel ~channel_id:room_id ~text ()
+                in
+                let ambient_profiles =
+                  List.filter_map
+                    (fun (binding : Runtime_config.room_profile_binding) ->
+                      if not binding.active then None
+                      else
+                        match
+                          List.find_opt
+                            (fun (profile : Runtime_config.room_profile) ->
+                              profile.id = binding.profile_id)
+                            cur_config.room_profiles
+                        with
+                        | Some profile
+                          when profile.ambient_enabled
+                               && String.lowercase_ascii profile.status
+                                  = "active" ->
+                            Some (binding.room, profile)
+                        | _ -> None)
+                    cur_config.room_profile_bindings
+                in
+                let* () =
+                  Lwt.catch
+                    (fun () ->
+                      Lwt_list.iter_s
+                        (fun (room_id, profile) ->
+                          let* _outcomes =
+                            Room_ambient_delivery.deliver_room_ambient_followups
+                              ~db ~profile ~room_id ~stale_after_s:3600.0
+                              ~send_message:ambient_send ()
+                          in
+                          Lwt.return_unit)
+                        ambient_profiles)
+                    (fun exn ->
+                      Logs.err (fun m ->
+                          m "Ambient watcher error: %s" (Printexc.to_string exn));
+                      Lwt.return_unit)
+                in
                 if now -. !last_memory_cleanup >= 3600.0 then begin
                   last_memory_cleanup := now;
                   let mem = cur_config.memory in

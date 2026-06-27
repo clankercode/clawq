@@ -110,6 +110,17 @@ let sync_config_to_db ~(db : Sqlite3.db) ~(config : Runtime_config.t) :
           | _ -> ())
       db_bindings_before;
 
+    let db_profile_id_is_conflicted db_profile_id =
+      Hashtbl.fold
+        (fun profile_id () acc ->
+          acc
+          ||
+          match Hashtbl.find_opt config_id_to_db_id profile_id with
+          | Some id -> id = db_profile_id
+          | None -> false)
+        conflicted_profiles false
+    in
+
     (* Phase 3: upsert active bindings into DB. Only profiles that are both in
        config and have an active binding get a DB binding.
        Skip any binding involving a conflicted room or profile (fail closed).
@@ -129,10 +140,16 @@ let sync_config_to_db ~(db : Sqlite3.db) ~(config : Runtime_config.t) :
             | None -> () (* already reported in phase 2 *))
       config.room_profile_bindings;
 
-    (* Phase 4: remove stale DB bindings *)
+    (* Phase 4: remove stale or conflicted DB bindings. Duplicate active config
+       bindings are intentionally fail-closed: skipping the upsert is not enough
+       because a previous reconcile may have left an old binding in place. *)
     List.iter
       (fun (rb : room_profile_binding) ->
-        if not (Hashtbl.mem config_room_set rb.room_id) then
+        if
+          (not (Hashtbl.mem config_room_set rb.room_id))
+          || Hashtbl.mem conflicted_rooms rb.room_id
+          || db_profile_id_is_conflicted rb.profile_id
+        then
           ignore
             (Memory_core.remove_room_profile_binding ~db ~room_id:rb.room_id))
       db_bindings_before;

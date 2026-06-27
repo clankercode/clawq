@@ -82,6 +82,17 @@ let scoped_memory_room_key_for_turn ~db ?session_key ?room_id () =
   | Some room_id -> Some room_id
   | None -> List.find_opt (fun s -> String.trim s <> "") candidates
 
+let scoped_memory_room_for_turn ~db ?session_key ?room_id () =
+  match scoped_memory_room_key_for_turn ~db ?session_key ?room_id () with
+  | None -> None
+  | Some scope_key ->
+      let profile_id =
+        match Memory.get_room_profile_binding ~db ~room_id:scope_key with
+        | Some binding -> Some binding.profile_id
+        | None -> None
+      in
+      Some (scope_key, profile_id)
+
 let ledger_room_id_for_session ~db session_key =
   try
     match Memory.get_session_channel ~db ~session_key with
@@ -260,8 +271,12 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
   let* () =
     match db with
     | Some db when agent.profiled_room -> (
-        match scoped_memory_room_key_for_turn ~db ?session_key ?room_id () with
-        | Some scope_key ->
+        match scoped_memory_room_for_turn ~db ?session_key ?room_id () with
+        | Some (scope_key, Some profile_id) ->
+            Agent_2_tools.inject_search_context agent ~db ~user_message
+              ~scope_kind:"room" ~scope_key ~principal_kind:"profile"
+              ~principal_id:(string_of_int profile_id)
+        | Some (scope_key, None) ->
             Agent_2_tools.inject_search_context agent ~db ~user_message
               ~scope_kind:"room" ~scope_key
         | None -> Lwt.return_unit)

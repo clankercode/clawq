@@ -1,5 +1,21 @@
 (* Tests for room profile reconciliation (config-to-DB sync) *)
 
+let test_profile id =
+  {
+    Runtime_config.id;
+    display_name = None;
+    model = "m";
+    system_prompt = "";
+    max_tool_iterations = 10;
+    status = "active";
+    allowed_tools = [];
+    denied_tools = [];
+    ambient_enabled = false;
+    ambient_quiet_start = 23;
+    ambient_quiet_end = 8;
+    ambient_rate_limit_rph = 0;
+  }
+
 let test_reconcile_empty_config_noop () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -426,6 +442,74 @@ let test_reconcile_reports_duplicate_profile_bindings () =
   Alcotest.(check int)
     "no bindings for conflicted profile" 0 (List.length bindings)
 
+let test_reconcile_duplicate_room_removes_existing_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config1 =
+    {
+      Runtime_config.default with
+      room_profiles = [ test_profile "p1"; test_profile "p2" ];
+      room_profile_bindings =
+        [ { profile_id = "p1"; room = "shared-room"; active = true } ];
+    }
+  in
+  ignore (Memory.sync_config_to_db ~db ~config:config1);
+  Alcotest.(check int)
+    "initial binding exists" 1
+    (List.length (Memory.list_room_profile_bindings_all ~db));
+  let config2 =
+    {
+      config1 with
+      room_profile_bindings =
+        [
+          { profile_id = "p1"; room = "shared-room"; active = true };
+          { profile_id = "p2"; room = "shared-room"; active = true };
+        ];
+    }
+  in
+  let issues = Memory.sync_config_to_db ~db ~config:config2 in
+  Alcotest.(check bool)
+    "duplicate room reported" true
+    (List.exists
+       (fun s -> Test_helpers.string_contains s "duplicate config binding")
+       issues);
+  Alcotest.(check int)
+    "existing conflicted room binding removed" 0
+    (List.length (Memory.list_room_profile_bindings_all ~db))
+
+let test_reconcile_duplicate_profile_removes_existing_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config1 =
+    {
+      Runtime_config.default with
+      room_profiles = [ test_profile "shared-profile" ];
+      room_profile_bindings =
+        [ { profile_id = "shared-profile"; room = "room-a"; active = true } ];
+    }
+  in
+  ignore (Memory.sync_config_to_db ~db ~config:config1);
+  Alcotest.(check int)
+    "initial binding exists" 1
+    (List.length (Memory.list_room_profile_bindings_all ~db));
+  let config2 =
+    {
+      config1 with
+      room_profile_bindings =
+        [
+          { profile_id = "shared-profile"; room = "room-a"; active = true };
+          { profile_id = "shared-profile"; room = "room-b"; active = true };
+        ];
+    }
+  in
+  let issues = Memory.sync_config_to_db ~db ~config:config2 in
+  Alcotest.(check bool)
+    "duplicate profile reported" true
+    (List.exists
+       (fun s -> Test_helpers.string_contains s "duplicate config binding")
+       issues);
+  Alcotest.(check int)
+    "existing conflicted profile binding removed" 0
+    (List.length (Memory.list_room_profile_bindings_all ~db))
+
 (* Production-path test: uses reconcile_room_profiles (the same helper
    called from daemon.ml) to verify config-reload reconciliation. *)
 let test_reconcile_reload_helper_updates_db () =
@@ -575,6 +659,10 @@ let suite =
       test_reconcile_reports_duplicate_room_bindings;
     Alcotest.test_case "reconcile reports duplicate profile bindings" `Quick
       test_reconcile_reports_duplicate_profile_bindings;
+    Alcotest.test_case "reconcile duplicate room removes existing binding"
+      `Quick test_reconcile_duplicate_room_removes_existing_binding;
+    Alcotest.test_case "reconcile duplicate profile removes existing binding"
+      `Quick test_reconcile_duplicate_profile_removes_existing_binding;
     Alcotest.test_case "reconcile reload helper updates db" `Quick
       test_reconcile_reload_helper_updates_db;
     Alcotest.test_case "reconcile detects profile mismatch" `Quick

@@ -168,42 +168,8 @@ let make_handler ~strategy ~notifier_factory ~notify
           notify_tool_successes = true;
         }
       in
-      let tool_start_times : (string, float) Hashtbl.t = Hashtbl.create 8 in
-      let on_chunk = function
-        | Provider.ToolStart { id; name; arguments } ->
-            let open Lwt.Syntax in
-            Hashtbl.replace tool_start_times id (Unix.gettimeofday ());
-            let summary =
-              Stream_visibility.summarize_tool_arguments ~name arguments
-            in
-            let* () =
-              Stream_visibility.on_chunk visibility ~settings ~notify
-                (Provider.ToolStart { id; name; arguments })
-            in
-            on_tool_event (Tool_started { id; name; summary })
-        | Provider.ToolResult { id; name; result; is_error } ->
-            let open Lwt.Syntax in
-            let duration_secs =
-              match Hashtbl.find_opt tool_start_times id with
-              | Some t0 -> Some (Unix.gettimeofday () -. t0)
-              | None -> None
-            in
-            let* () =
-              Stream_visibility.on_chunk visibility ~settings ~notify
-                (Provider.ToolResult { id; name; result; is_error })
-            in
-            let summary = None in
-            let* () =
-              on_tool_event
-                (Tool_completed
-                   { id; name; result; is_error; summary; duration_secs })
-            in
-            if is_error then
-              let emoji = Stream_visibility.tool_emoji name in
-              on_error_detail
-                { id; name; emoji; summary; duration_secs; result }
-            else Lwt.return_unit
-        | chunk -> Stream_visibility.on_chunk visibility ~settings ~notify chunk
+      let on_chunk chunk =
+        Stream_visibility.on_chunk visibility ~settings ~notify chunk
       in
       let finalize () = Lwt.return_unit in
       let get_thinking () = Stream_visibility.thinking_text visibility in

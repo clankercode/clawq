@@ -661,45 +661,81 @@ let clip_memory_content content =
   if String.length content > 300 then String.sub content 0 300 ^ "..."
   else content
 
-let scoped_memory_strings ~db ~scope_kind ~scope_key ~query =
-  let content_matches =
-    Memory.query_scoped_memories ~db ~scope_kind ~scope_key
-      ~content_search:query ~limit:10 ()
-  in
-  let all_when_no_content_match =
-    if content_matches = [] then
-      Memory.query_scoped_memories ~db ~scope_kind ~scope_key ~limit:10 ()
-    else []
-  in
-  let rows = content_matches @ all_when_no_content_match in
-  List.map
-    (fun (m : Memory_types.scoped_memory) ->
-      let content =
-        match m.content with
-        | Some c -> " " ^ clip_memory_content c
-        | None -> ""
-      in
-      Printf.sprintf "[scoped:%s/%s#%d ref=%s]%s" m.scope_kind m.scope_key m.id
-        m.reference content)
-    rows
+let scoped_memory_granted ~db ~scope_kind ~scope_key ?principal_kind
+    ?principal_id ~capability () =
+  match (principal_kind, principal_id) with
+  | None, _ | _, None -> true
+  | Some principal_kind, Some principal_id -> (
+      match
+        Memory.get_scope_by_kind_key ~db ~kind:scope_kind ~key:scope_key
+      with
+      | None -> false
+      | Some scope ->
+          let owns_scope =
+            match
+              (principal_kind, int_of_string_opt principal_id, scope.profile_id)
+            with
+            | "profile", Some profile_id, Some owner_id -> profile_id = owner_id
+            | _ -> false
+          in
+          owns_scope
+          || List.mem capability
+               (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind
+                  ~principal_id))
 
-let inject_search_context ?scope_kind ?scope_key agent ~db ~user_message =
+let scoped_memory_strings ~db ~scope_kind ~scope_key ?principal_kind
+    ?principal_id ~query () =
+  if
+    not
+      (scoped_memory_granted ~db ~scope_kind ~scope_key ?principal_kind
+         ?principal_id ~capability:"read" ())
+  then []
+  else
+    let content_matches =
+      Memory.query_scoped_memories ~db ~scope_kind ~scope_key
+        ~content_search:query ~limit:10 ()
+    in
+    let all_when_no_content_match =
+      if content_matches = [] then
+        Memory.query_scoped_memories ~db ~scope_kind ~scope_key ~limit:10 ()
+      else []
+    in
+    let rows = content_matches @ all_when_no_content_match in
+    List.map
+      (fun (m : Memory_types.scoped_memory) ->
+        let content =
+          match m.content with
+          | Some c -> " " ^ clip_memory_content c
+          | None -> ""
+        in
+        Printf.sprintf "[scoped:%s/%s#%d ref=%s]%s" m.scope_kind m.scope_key
+          m.id m.reference content)
+      rows
+
+let inject_search_context ?scope_kind ?scope_key ?principal_kind ?principal_id
+    agent ~db ~user_message =
   let open Lwt.Syntax in
   if agent.config.memory.search_enabled then
     Lwt.catch
       (fun () ->
         match (scope_kind, scope_key) with
         | Some scope_kind, Some scope_key ->
+            let has_read_grant =
+              scoped_memory_granted ~db ~scope_kind ~scope_key ?principal_kind
+                ?principal_id ~capability:"read" ()
+            in
             let scoped_message_results =
-              Memory.search ~db ~query:user_message ~scope_kind ~scope_key
-                ~limit:5 ()
-              |> List.map (fun (m : Provider.message) ->
-                  "[scoped-message:" ^ scope_kind ^ "/" ^ scope_key ^ "] "
-                  ^ clip_memory_content m.content)
+              if not has_read_grant then []
+              else
+                Memory.search ~db ~query:user_message ~scope_kind ~scope_key
+                  ~limit:5 ()
+                |> List.map (fun (m : Provider.message) ->
+                    "[scoped-message:" ^ scope_kind ^ "/" ^ scope_key ^ "] "
+                    ^ clip_memory_content m.content)
             in
             let scoped_rows =
-              scoped_memory_strings ~db ~scope_kind ~scope_key
-                ~query:user_message
+              scoped_memory_strings ~db ~scope_kind ~scope_key ?principal_kind
+                ?principal_id ~query:user_message ()
             in
             let parts = scoped_message_results @ scoped_rows in
             if parts = [] then Lwt.return_unit

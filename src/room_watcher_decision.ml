@@ -148,19 +148,18 @@ let timestamp_now () =
 
 (** {1 Material-change fingerprints} *)
 
-(** Build a fingerprint string from the key fields of a stale item. Two items
-    with the same fingerprint have not materially changed. *)
+(** Build a fingerprint string from the stable material fields of a stale item.
+    Two items with the same fingerprint have not materially changed. Age is
+    intentionally excluded: a still-stale item getting older is not by itself a
+    new material event. *)
 let compute_fingerprint ~(source : [ `Background_task | `Task_tree ]) ~item_id
-    ~status ~age_seconds =
+    ~status ~age_seconds:_ =
   let source_str =
     match source with
     | `Background_task -> "background_task"
     | `Task_tree -> "task_tree"
   in
-  (* Round age to 60s buckets so minor clock drift doesn't trigger
-     false material-change positives. *)
-  let age_bucket = int_of_float (age_seconds /. 60.0) in
-  Printf.sprintf "%s:%s:%s:%d" source_str item_id status age_bucket
+  Printf.sprintf "%s:%s:%s" source_str item_id status
 
 (** Return [true] if [new_fingerprint] differs from [old_fingerprint], meaning a
     material change has occurred. *)

@@ -145,6 +145,43 @@ let test_profiled_room_injects_scoped_memory_and_prefers_it () =
     "global memory not injected" false
     (contains history "global alpha fact")
 
+let test_profiled_room_requires_scope_owner_or_read_grant () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"room-a-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-a" ~profile_id;
+  let private_scope =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-a" ~provenance:"test" ()
+  in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:private_scope.id
+       ~reference:"private-note" ~content:"private alpha fact"
+       ~provenance:"test" ());
+  let ungranted = Agent.create ~config:config_with_memory () in
+  ungranted.room_profile_system_prompt <- Some "Profiled room prompt content";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history ungranted ~user_message:"alpha" ~db
+          ~session_key:"s1" ~room_id:"room-a" ()));
+  Alcotest.(check bool)
+    "ungranted scope memory not injected" false
+    (contains (combined_history ungranted) "private alpha fact");
+  (match
+     Memory.grant_access ~db ~is_admin:true ~scope_id:private_scope.id
+       ~principal_kind:"profile" ~principal_id:(string_of_int profile_id)
+       ~capability:"read" ()
+   with
+  | Ok () -> ()
+  | Error msg -> Alcotest.fail msg);
+  let granted = Agent.create ~config:config_with_memory () in
+  granted.room_profile_system_prompt <- Some "Profiled room prompt content";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history granted ~user_message:"alpha" ~db
+          ~session_key:"s1" ~room_id:"room-a" ()));
+  Alcotest.(check bool)
+    "direct read grant injects scope memory" true
+    (contains (combined_history granted) "private alpha fact")
+
 let test_compaction_preserves_scoped_memory_references () =
   let agent = Agent.create ~config:config_with_memory () in
   let scoped_context =
@@ -177,6 +214,8 @@ let suite =
     Alcotest.test_case
       "profiled room injects scoped memory and prefers it over global" `Quick
       test_profiled_room_injects_scoped_memory_and_prefers_it;
+    Alcotest.test_case "profiled room requires scope owner or read grant" `Quick
+      test_profiled_room_requires_scope_owner_or_read_grant;
     Alcotest.test_case "compaction preserves scoped memory references" `Quick
       test_compaction_preserves_scoped_memory_references;
     Alcotest.test_case

@@ -142,6 +142,14 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `rooms rename PROFILE_ID NAME` | Update a room profile display name. Admin-only |
 | `rooms delete PROFILE_ID [--force]` | Soft-delete a room profile and remove bindings. Admin-only |
 | `rooms unbind ROOM_ID` | Remove a room binding while preserving the profile. Admin-only |
+| `rooms routine create PROFILE_ID SCHEDULE MESSAGE [--thread-id ID]` | Create a scheduled routine for a room profile. Admin-only. Schedule: interval (`"every 5m"`) or 5-field cron |
+| `rooms routine list` | List all configured room routines |
+| `rooms routine show NAME` | Show details of a room routine including schedule and recent runs |
+| `rooms routine edit NAME [--schedule S] [--message M]` | Edit an existing room routine's schedule and/or message. Admin-only |
+| `rooms routine remove NAME` | Remove a room routine. Admin-only |
+| `rooms routine enable NAME` | Enable a disabled room routine. Admin-only |
+| `rooms routine disable NAME` | Disable a room routine without removing it. Admin-only |
+| `rooms routine trigger NAME` | Trigger a room routine immediately. Admin-only |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
 | `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (auto-backs up workspace first; leaves cron jobs and config.json intact) |
 | `runtime` | Manage native and Docker runtimes (default: status) |
@@ -679,6 +687,32 @@ FIFO per session (creation order).  At daemon startup the replay step runs
 after pending agent session resume.  `session pending SESSION` shows the
 current queue state for a given session; `session list` appends
 `pending_inbound=N` when queued rows exist.
+
+## Room Agents
+
+Room agents bind a connector room (Slack channel, Discord channel, Teams
+conversation, etc.) to a shared room profile with its own model, system prompt,
+tool policy, workspace, budget, routines, and ambient follow-up policy.
+Configured profiles live in `room_profiles`; active room bindings live in
+`room_profile_bindings`.
+
+- Shared room sessions use connector-specific room keys; thread work uses
+  `__room_child_thread:*` keys; scheduled routines use
+  `__room_routine:<profile_id>:<routine_id>` keys.
+- `clawq rooms bind ROOM_ID PROFILE_ID --preserve|--reset` attaches a room to a
+  profile. Mutations require `CLAWQ_ADMIN=1`.
+- Room routines are cron-backed jobs managed through `clawq rooms routine ...`.
+  They run under the room profile and can be triggered manually with
+  `rooms routine trigger NAME`.
+- Ambient follow-up is opt-in with `ambient_enabled: true`. The daemon checks
+  stale background/task-tree work, applies quiet hours, rate limits, budget
+  state, connector capability gates, and material-change suppression, then
+  records delivery attempts in the room activity ledger.
+- Supported ambient-history connectors are currently Slack, Discord, and Teams;
+  unsupported connectors are policy-denied rather than delivered.
+- Inspect operator state with `clawq rooms ledger ...` and the ambient inspection
+  command surfaces. See `docs/src/content/docs/room-agents.mdx` for full
+  operator guidance.
 
 ## Heartbeats
 

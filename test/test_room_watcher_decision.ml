@@ -33,16 +33,16 @@ let test_fingerprint_different_status () =
   in
   Alcotest.(check bool) "different status" true (fp1 <> fp2)
 
-let test_fingerprint_different_age_bucket () =
+let test_fingerprint_ignores_age_bucket () =
   let fp1 =
     compute_fingerprint ~source:`Background_task ~item_id:"42" ~status:"queued"
       ~age_seconds:59.0
   in
   let fp2 =
     compute_fingerprint ~source:`Background_task ~item_id:"42" ~status:"queued"
-      ~age_seconds:61.0
+      ~age_seconds:3600.0
   in
-  Alcotest.(check bool) "different bucket" true (fp1 <> fp2)
+  Alcotest.(check string) "age-only drift is not material" fp1 fp2
 
 let test_fingerprint_different_source () =
   let fp1 =
@@ -468,8 +468,8 @@ let suite =
       test_fingerprint_same_status;
     Alcotest.test_case "fingerprint different status" `Quick
       test_fingerprint_different_status;
-    Alcotest.test_case "fingerprint different age bucket" `Quick
-      test_fingerprint_different_age_bucket;
+    Alcotest.test_case "fingerprint ignores age bucket" `Quick
+      test_fingerprint_ignores_age_bucket;
     Alcotest.test_case "fingerprint different source" `Quick
       test_fingerprint_different_source;
     Alcotest.test_case "fingerprint different item" `Quick
