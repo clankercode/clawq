@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B711
+priority: high
+status: pending
+tags: []
+title: 'Skill reload message: show ''Using skill: X'' instead of ''Loaded skill: X'' on repeat loads'
+---
+
+Skill reload message: show 'Using skill: X' instead of 'Loaded skill: X' on repeat loads

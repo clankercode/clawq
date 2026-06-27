@@ -705,3 +705,4 @@ bugs:
     - file: B708-on-the-website-home-page-add-a.todo
     - file: B709-fuzzy-model-set-matching-show.todo
     - file: B710-pre-switch-context-check-compa.todo
+    - file: B711-skill-reload-message-show-usin.todo
