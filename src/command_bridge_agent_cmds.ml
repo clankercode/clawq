@@ -292,6 +292,28 @@ let require_admin () =
       "Error: this command requires admin privileges. Set CLAWQ_ADMIN=1 in \
        your environment."
 
+(** Like [require_admin] but also records a denial event in the room activity
+    ledger when the check fails. [room_id] identifies the affected room or
+    profile scope; [action] describes the attempted operation. *)
+let require_admin_audited ~room_id ~action =
+  match require_admin () with
+  | Some _ as err ->
+      (try
+         let db = get_db () in
+         Room_activity_ledger.init_schema db;
+         ignore
+           (Room_activity_ledger.append_now ~db ~room_id
+              ~event_type:"admin_denied" ~actor:"cli"
+              ~metadata:
+                (`Assoc
+                   [
+                     ("action", `String action);
+                     ("error", `String "requires CLAWQ_ADMIN");
+                   ]))
+       with _ -> ());
+      err
+  | None -> None
+
 let room_profile_deleted (p : Runtime_config.room_profile) =
   String.lowercase_ascii p.status = "deleted"
 
@@ -818,7 +840,9 @@ let show_room_routine name =
 let cmd_rooms_routine cfg args =
   match args with
   | "create" :: profile_id_str :: schedule :: message_parts -> (
-      match require_admin () with
+      match
+        require_admin_audited ~room_id:profile_id_str ~action:"routine_create"
+      with
       | Some err -> err
       | None -> (
           let thread_id, message_parts = extract_thread_id_flag message_parts in
@@ -902,7 +926,7 @@ let cmd_rooms_routine cfg args =
       "Error: rooms routine show requires a routine name. Usage: clawq rooms \
        routine show <name>"
   | "edit" :: name :: edit_parts -> (
-      match require_admin () with
+      match require_admin_audited ~room_id:name ~action:"routine_edit" with
       | Some err -> err
       | None -> (
           let db = get_db () in
@@ -954,7 +978,7 @@ let cmd_rooms_routine cfg args =
       "Error: rooms routine edit requires a routine name. Usage: clawq rooms \
        routine edit <name> [--schedule S] [--message M]"
   | [ "remove"; name ] -> (
-      match require_admin () with
+      match require_admin_audited ~room_id:name ~action:"routine_remove" with
       | Some err -> err
       | None -> (
           let db = get_db () in
@@ -974,7 +998,7 @@ let cmd_rooms_routine cfg args =
       "Error: rooms routine remove requires a routine name. Usage: clawq rooms \
        routine remove <name>"
   | [ "enable"; name ] -> (
-      match require_admin () with
+      match require_admin_audited ~room_id:name ~action:"routine_enable" with
       | Some err -> err
       | None -> (
           let db = get_db () in
@@ -993,7 +1017,7 @@ let cmd_rooms_routine cfg args =
               | Error e -> Printf.sprintf "Error: %s" e)))
   | [ "enable" ] -> "Error: rooms routine enable requires a routine name."
   | [ "disable"; name ] -> (
-      match require_admin () with
+      match require_admin_audited ~room_id:name ~action:"routine_disable" with
       | Some err -> err
       | None -> (
           let db = get_db () in
@@ -1012,7 +1036,7 @@ let cmd_rooms_routine cfg args =
               | Error e -> Printf.sprintf "Error: %s" e)))
   | [ "disable" ] -> "Error: rooms routine disable requires a routine name."
   | [ "trigger"; name ] -> (
-      match require_admin () with
+      match require_admin_audited ~room_id:name ~action:"routine_trigger" with
       | Some err -> err
       | None -> (
           let db = get_db () in
