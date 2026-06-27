@@ -4,7 +4,7 @@ estimate_hours: 6
 id: P11.M3.E4
 locked: false
 name: Child Work Session Creation
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -38,5 +38,6 @@ tasks:
       file: T003-add-deterministic-thread-less.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add deterministic thread-less child session fallback

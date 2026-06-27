@@ -30,7 +30,7 @@ milestones:
       locked: false
       name: Thread-Bound Work Sessions
       path: 03-thread-bound-work-sessions
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Classify profiled room mentions, create durable origin-bound tasks/background tasks, post concise progress, and verify restart/concurrency behavior.

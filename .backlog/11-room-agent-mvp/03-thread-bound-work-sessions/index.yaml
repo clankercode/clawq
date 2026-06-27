@@ -36,9 +36,9 @@ epics:
       locked: false
       name: Child Work Session Creation
       path: 04-child-work-session-creation
-      status: pending
+      status: done
 estimate_hours: 18
 id: P11.M3
 locked: false
 name: Thread-Bound Work Sessions
-status: pending
+status: done
