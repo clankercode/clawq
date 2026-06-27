@@ -180,6 +180,9 @@ let room_budget_profile_id_for_turn ~db ?session_key () =
           | None -> None)
 
 let format_room_budget_exceeded (state : Room_budget.state) =
+  Room_budget.budget_exceeded_message_redacted state
+
+let format_room_budget_exceeded_admin (state : Room_budget.state) =
   Printf.sprintf
     "budget exceeded for room profile %d: current usage is %d tokens, %.6f \
      USD, %d turn(s); limits are %d tokens and %.6f USD; period started at %s"
@@ -208,6 +211,9 @@ let check_room_budget_before_provider_call ?db ?session_key () =
       | Some profile_id -> (
           match Room_budget.get_profile_budget ~db ~profile_id with
           | Some state when state.limit_exceeded ->
+              Logs.warn (fun m ->
+                  m "Budget exceeded (admin): %s"
+                    (format_room_budget_exceeded_admin state));
               raise (Budget_exceeded (format_room_budget_exceeded state))
           | Some _ | None -> ()))
 
@@ -233,6 +239,9 @@ let reserve_room_budget_before_provider_call ?db ?session_key ~messages () =
               | None -> ());
               Lwt.return release
           | Error state ->
+              Logs.warn (fun m ->
+                  m "Budget exceeded (admin): %s"
+                    (format_room_budget_exceeded_admin state));
               Lwt.fail (Budget_exceeded (format_room_budget_exceeded state))))
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])
