@@ -6,11 +6,11 @@ locked: false
 name: Ambient Safety Controls
 stats:
     blocked: 0
-    done: 0
+    done: 2
     in_progress: 0
-    pending: 2
+    pending: 0
     total: 2
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -19,7 +19,7 @@ tasks:
       file: T001-add-ambient-safety-controls-an.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Enforce ambient policy config and rate limits
     - complexity: medium
@@ -30,5 +30,6 @@ tasks:
       file: T002-add-ambient-admin-inspection-s.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add ambient admin inspection surface

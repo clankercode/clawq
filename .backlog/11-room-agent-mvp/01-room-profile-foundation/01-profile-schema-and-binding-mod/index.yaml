@@ -6,11 +6,11 @@ locked: false
 name: Profile Schema and Binding Model
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -18,7 +18,7 @@ tasks:
       file: T001-add-one-room-one-profile-schem.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add room profile config types and validation
     - complexity: high
@@ -28,7 +28,7 @@ tasks:
       file: T002-add-room-profile-binding-db-sc.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add room profile binding DB schema and API
     - complexity: high
@@ -38,5 +38,6 @@ tasks:
       file: T003-reconcile-room-profile-config.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Reconcile room profile config and DB bindings

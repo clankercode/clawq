@@ -6,11 +6,11 @@ locked: false
 name: Scoped Search and Prompt Injection
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -20,7 +20,7 @@ tasks:
       file: T001-scope-room-search-and-prompt-i.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add scoped filters to Memory.search
     - complexity: high
@@ -30,7 +30,8 @@ tasks:
       file: T002-wire-scoped-memory-into-agent.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Wire scoped memory into agent prompt injection and compaction
     - complexity: medium
       depends_on:
@@ -39,5 +40,6 @@ tasks:
       file: T003-audit-global-memory-callsites.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Audit global memory callsites and legacy routing

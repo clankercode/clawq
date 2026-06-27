@@ -1433,6 +1433,978 @@ let test_import_snapshot_upserts () =
       | Some (_, c, _) -> Alcotest.(check string) "k2 new" "new" c
       | None -> Alcotest.fail "k2 not found")
 
+(* --- room profile schema tests --- *)
+
+let test_init_creates_room_profile_tables () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check bool)
+    "room_profiles exists" true
+    (table_exists db "room_profiles");
+  Alcotest.(check bool)
+    "room_profile_bindings exists" true
+    (table_exists db "room_profile_bindings")
+
+let test_ensure_all_tables_creates_room_profiles () =
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Drop tables to simulate a pre-existing db without them *)
+  exec_exn db "DROP TABLE room_profile_bindings";
+  exec_exn db "DROP TABLE room_profiles";
+  Alcotest.(check bool)
+    "room_profiles gone" false
+    (table_exists db "room_profiles");
+  Memory.ensure_all_tables db;
+  Alcotest.(check bool)
+    "room_profiles restored by ensure_all_tables" true
+    (table_exists db "room_profiles");
+  Alcotest.(check bool)
+    "room_profile_bindings restored by ensure_all_tables" true
+    (table_exists db "room_profile_bindings")
+
+let test_migrate_v31_to_current_creates_room_profiles () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (31)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is current" Memory.schema_version
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "room_profiles exists after v31 migration" true
+        (table_exists migrated "room_profiles");
+      Alcotest.(check bool)
+        "room_profile_bindings exists after v31 migration" true
+        (table_exists migrated "room_profile_bindings"))
+
+let test_migrate_v32_adds_origin_columns () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (32)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      exec_exn db
+        {|CREATE TABLE task_tree (
+  id INTEGER NOT NULL,
+  session_key TEXT NOT NULL,
+  parent_id INTEGER,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  note TEXT,
+  depends_on TEXT,
+  agent_model TEXT,
+  agent_type TEXT,
+  agent_prompt TEXT,
+  agent_details TEXT,
+  autostart INTEGER NOT NULL DEFAULT 0,
+  agent_task_id INTEGER,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (session_key, id)
+)|};
+      exec_exn db
+        {|CREATE TABLE background_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  runner TEXT NOT NULL,
+  model TEXT,
+  repo_path TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  branch TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  exit_code INTEGER,
+  started_at TEXT,
+  finished_at TEXT,
+  result TEXT,
+  session_key TEXT,
+  channel TEXT,
+  channel_id TEXT,
+  automerge INTEGER NOT NULL DEFAULT 1,
+  use_worktree INTEGER NOT NULL DEFAULT 1,
+  worktree_path TEXT,
+  log_path TEXT,
+  merge_status TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  parent_task_id INTEGER,
+  replaced_by INTEGER,
+  runner_session_id TEXT,
+  acp INTEGER NOT NULL DEFAULT 0,
+  agent_name TEXT,
+  notification_status TEXT,
+  notification_error TEXT,
+  notification_attempts INTEGER NOT NULL DEFAULT 0,
+  follow_up_prompt TEXT
+)|};
+      (* Insert a pre-migration task_tree row *)
+      exec_exn db
+        "INSERT INTO task_tree (id, session_key, title) VALUES (1, 's1', \
+         'pre-migration task')";
+      (* Insert a pre-migration background_tasks row *)
+      exec_exn db
+        "INSERT INTO background_tasks (runner, repo_path, prompt) VALUES \
+         ('codex', '/tmp/repo', 'test prompt')";
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is current" Memory.schema_version
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
+      (* Assert all new origin columns exist on task_tree *)
+      Alcotest.(check bool)
+        "task_tree.profile_id exists" true
+        (column_exists migrated "task_tree" "profile_id");
+      Alcotest.(check bool)
+        "task_tree.origin_json exists" true
+        (column_exists migrated "task_tree" "origin_json");
+      Alcotest.(check bool)
+        "task_tree.thread_id exists" true
+        (column_exists migrated "task_tree" "thread_id");
+      Alcotest.(check bool)
+        "task_tree.requester exists" true
+        (column_exists migrated "task_tree" "requester");
+      (* Assert all new origin columns exist on background_tasks *)
+      Alcotest.(check bool)
+        "background_tasks.profile_id exists" true
+        (column_exists migrated "background_tasks" "profile_id");
+      Alcotest.(check bool)
+        "background_tasks.origin_json exists" true
+        (column_exists migrated "background_tasks" "origin_json");
+      Alcotest.(check bool)
+        "background_tasks.thread_id exists" true
+        (column_exists migrated "background_tasks" "thread_id");
+      Alcotest.(check bool)
+        "background_tasks.requester exists" true
+        (column_exists migrated "background_tasks" "requester");
+      (* Pre-migration rows are still readable *)
+      let stmt =
+        Sqlite3.prepare migrated
+          "SELECT title FROM task_tree WHERE session_key = 's1'"
+      in
+      (match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let title =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          Alcotest.(check string)
+            "pre-migration task readable" "pre-migration task" title
+      | _ -> Alcotest.fail "pre-migration task_tree row not found");
+      ignore (Sqlite3.finalize stmt);
+      let stmt =
+        Sqlite3.prepare migrated
+          "SELECT prompt FROM background_tasks WHERE id = 1"
+      in
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let prompt =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          Alcotest.(check string)
+            "pre-migration bg task readable" "test prompt" prompt;
+          ignore (Sqlite3.finalize stmt)
+      | _ ->
+          ignore (Sqlite3.finalize stmt);
+          Alcotest.fail "pre-migration background_tasks row not found")
+
+(* --- scoped memory schema tests --- *)
+
+let index_exists db index_name =
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT index_name));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
+let foreign_key_exists db table_name ~from_col ~to_table ~on_delete =
+  let stmt =
+    Sqlite3.prepare db (Printf.sprintf "PRAGMA foreign_key_list(%s)" table_name)
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let found = ref false in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let text_col i =
+          match Sqlite3.column stmt i with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        if
+          text_col 2 = to_table
+          && text_col 3 = from_col
+          && text_col 6 = on_delete
+        then found := true
+      done;
+      !found)
+
+let exec_succeeds db sql = Sqlite3.exec db sql = Sqlite3.Rc.OK
+let exec_fails db sql = not (exec_succeeds db sql)
+
+let insert_memory_grant ?expires_at ?revoked_at ~db ~scope_id ~principal_kind
+    ~principal_id ~capability () =
+  let has_revoked_at = column_exists db "memory_grants" "revoked_at" in
+  let sql =
+    "INSERT INTO memory_grants (scope_id, principal_kind, principal_id, \
+     capability, expires_at"
+    ^ (if has_revoked_at then ", revoked_at" else "")
+    ^ ") VALUES (?, ?, ?, ?, ?"
+    ^ (if has_revoked_at then ", ?" else "")
+    ^ ")"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+      ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT capability));
+      (match expires_at with
+      | Some value -> ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT value))
+      | None -> ignore (Sqlite3.bind stmt 5 Sqlite3.Data.NULL));
+      (if has_revoked_at then
+         match revoked_at with
+         | Some value -> ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT value))
+         | None -> ignore (Sqlite3.bind stmt 6 Sqlite3.Data.NULL));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          Alcotest.failf "insert_memory_grant failed: %s"
+            (Sqlite3.Rc.to_string rc))
+
+let test_init_creates_scoped_memory_tables () =
+  let db = Memory.init ~db_path:":memory:" () in
+  List.iter
+    (fun table ->
+      Alcotest.(check bool) (table ^ " exists") true (table_exists db table))
+    [ "memory_scopes"; "scoped_memories"; "memory_grants" ];
+  List.iter
+    (fun kind ->
+      exec_exn db
+        (Printf.sprintf
+           "INSERT INTO memory_scopes (kind, key, provenance) VALUES ('%s', \
+            'key-%s', 'test')"
+           kind kind))
+    [ "personal"; "room"; "thread"; "workspace"; "legacy" ];
+  Alcotest.(check bool)
+    "invalid scope kind rejected" true
+    (exec_fails db
+       "INSERT INTO memory_scopes (kind, key, provenance) VALUES ('global', \
+        'bad', 'test')");
+  Alcotest.(check bool)
+    "duplicate kind/key rejected" true
+    (exec_fails db
+       "INSERT INTO memory_scopes (kind, key, provenance) VALUES ('personal', \
+        'key-personal', 'test')");
+  Alcotest.(check bool)
+    "same key accepted across kinds" true
+    (exec_succeeds db
+       "INSERT INTO memory_scopes (kind, key, provenance) VALUES ('room', \
+        'key-personal', 'test')")
+
+let test_scoped_memory_schema_shape () =
+  let db = Memory.init ~db_path:":memory:" () in
+  List.iter
+    (fun col ->
+      Alcotest.(check bool)
+        ("memory_scopes." ^ col) true
+        (column_exists db "memory_scopes" col))
+    [
+      "id";
+      "kind";
+      "key";
+      "profile_id";
+      "parent_scope_id";
+      "provenance";
+      "created_at";
+      "updated_at";
+    ];
+  List.iter
+    (fun col ->
+      Alcotest.(check bool)
+        ("scoped_memories." ^ col) true
+        (column_exists db "scoped_memories" col))
+    [
+      "id";
+      "scope_id";
+      "content";
+      "reference";
+      "provenance";
+      "created_at";
+      "updated_at";
+      "redacted_at";
+      "redaction_reason";
+      "redaction_metadata";
+    ];
+  List.iter
+    (fun col ->
+      Alcotest.(check bool)
+        ("memory_grants." ^ col) true
+        (column_exists db "memory_grants" col))
+    [
+      "id";
+      "scope_id";
+      "principal_kind";
+      "principal_id";
+      "capability";
+      "grantor_kind";
+      "grantor_id";
+      "created_at";
+      "expires_at";
+      "is_transitive";
+    ];
+  List.iter
+    (fun index -> Alcotest.(check bool) index true (index_exists db index))
+    [
+      "idx_memory_scopes_profile";
+      "idx_memory_scopes_parent";
+      "idx_scoped_memories_scope_created";
+      "idx_scoped_memories_reference";
+      "idx_scoped_memories_redacted";
+      "idx_memory_grants_scope";
+      "idx_memory_grants_principal";
+      "idx_memory_grants_capability";
+    ];
+  Alcotest.(check bool)
+    "memory_scopes.profile_id ON DELETE SET NULL" true
+    (foreign_key_exists db "memory_scopes" ~from_col:"profile_id"
+       ~to_table:"room_profiles" ~on_delete:"SET NULL");
+  Alcotest.(check bool)
+    "memory_scopes.parent_scope_id ON DELETE SET NULL" true
+    (foreign_key_exists db "memory_scopes" ~from_col:"parent_scope_id"
+       ~to_table:"memory_scopes" ~on_delete:"SET NULL");
+  Alcotest.(check bool)
+    "scoped_memories.scope_id ON DELETE CASCADE" true
+    (foreign_key_exists db "scoped_memories" ~from_col:"scope_id"
+       ~to_table:"memory_scopes" ~on_delete:"CASCADE");
+  Alcotest.(check bool)
+    "memory_grants.scope_id ON DELETE CASCADE" true
+    (foreign_key_exists db "memory_grants" ~from_col:"scope_id"
+       ~to_table:"memory_scopes" ~on_delete:"CASCADE")
+
+let test_scoped_memory_constraints_and_cascade () =
+  let db = Memory.init ~db_path:":memory:" () in
+  exec_exn db
+    "INSERT INTO memory_scopes (kind, key, provenance) VALUES ('room', 'r1', \
+     'test')";
+  let scope_id = Int64.to_int (Sqlite3.last_insert_rowid db) in
+  exec_exn db
+    (Printf.sprintf
+       "INSERT INTO scoped_memories (scope_id, content, provenance) VALUES \
+        (%d, 'remember this', 'test')"
+       scope_id);
+  exec_exn db
+    (Printf.sprintf
+       "INSERT INTO scoped_memories (scope_id, reference, provenance) VALUES \
+        (%d, 'msg:1', 'test')"
+       scope_id);
+  exec_exn db
+    (Printf.sprintf
+       "INSERT INTO memory_grants (scope_id, principal_kind, principal_id, \
+        capability, grantor_kind, grantor_id) VALUES (%d, 'user', 'u1', \
+        'read', 'system', 'migration')"
+       scope_id);
+  Alcotest.(check bool)
+    "memory requires content or reference" true
+    (exec_fails db
+       (Printf.sprintf
+          "INSERT INTO scoped_memories (scope_id, provenance) VALUES (%d, \
+           'test')"
+          scope_id));
+  Alcotest.(check bool)
+    "grants are direct and non-transitive" true
+    (exec_fails db
+       (Printf.sprintf
+          "INSERT INTO memory_grants (scope_id, principal_kind, principal_id, \
+           capability, is_transitive) VALUES (%d, 'user', 'u2', 'read', 1)"
+          scope_id));
+  exec_exn db "DELETE FROM memory_scopes WHERE key = 'r1'";
+  Alcotest.(check int)
+    "scoped memories cascade" 0
+    (Test_helpers.query_single_int db "SELECT COUNT(*) FROM scoped_memories");
+  Alcotest.(check int)
+    "memory grants cascade" 0
+    (Test_helpers.query_single_int db
+       "SELECT COUNT(*) FROM memory_grants WHERE principal_id = 'u1'")
+
+let test_memory_grants_require_admin_for_create_and_revoke () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"room-1" () in
+  let grant_count () =
+    Test_helpers.query_single_int db
+      "SELECT COUNT(*) FROM memory_grants WHERE scope_id = (SELECT id FROM \
+       memory_scopes WHERE kind = 'room' AND key = 'room-1')"
+  in
+  (match
+     Memory.grant_access ~db ~is_admin:false ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "non-admin create error mentions admin" true
+        (Test_helpers.string_contains msg "admin")
+  | Ok () -> Alcotest.fail "non-admin grant create should fail");
+  Alcotest.(check int) "non-admin create leaves no grants" 0 (grant_count ());
+  (match
+     Memory.grant_access ~db ~is_admin:true ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Ok () -> ()
+  | Error msg -> Alcotest.fail msg);
+  Alcotest.(check int) "admin create stores grant" 1 (grant_count ());
+  (match
+     Memory.revoke_access ~db ~is_admin:false ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "non-admin revoke error mentions admin" true
+        (Test_helpers.string_contains msg "admin")
+  | Ok _ -> Alcotest.fail "non-admin grant revoke should fail");
+  Alcotest.(check int) "non-admin revoke leaves grant" 1 (grant_count ());
+  (match
+     Memory.revoke_access ~db ~is_admin:true ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Ok removed -> Alcotest.(check int) "admin revoke removes one" 1 removed
+  | Error msg -> Alcotest.fail msg);
+  Alcotest.(check int) "admin revoke clears grant" 0 (grant_count ())
+
+let test_scoped_memory_schema_migration_and_repair_paths () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (33)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is current" Memory.schema_version
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "migrate_step created memory_scopes" true
+        (table_exists migrated "memory_scopes");
+      exec_exn migrated "DROP TABLE memory_grants";
+      exec_exn migrated "DROP TABLE scoped_memories";
+      exec_exn migrated "DROP TABLE memory_scopes";
+      Memory.ensure_all_tables migrated;
+      Alcotest.(check bool)
+        "ensure_all_tables restores memory_scopes" true
+        (table_exists migrated "memory_scopes");
+      exec_exn migrated "DROP TABLE memory_grants";
+      exec_exn migrated "DROP TABLE scoped_memories";
+      exec_exn migrated "DROP TABLE memory_scopes";
+      Memory.repair_missing_columns migrated;
+      Alcotest.(check bool)
+        "repair_missing_columns restores memory_scopes" true
+        (table_exists migrated "memory_scopes"))
+
+let test_scoped_memory_double_init_is_idempotent () =
+  with_temp_db (fun db_path ->
+      let db1 = Memory.init ~db_path () in
+      exec_exn db1
+        "INSERT INTO memory_scopes (kind, key, provenance) VALUES ('personal', \
+         'u1', 'test')";
+      ignore (Sqlite3.db_close db1);
+      let db2 = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "existing scope preserved" 1
+        (Test_helpers.query_single_int db2
+           "SELECT COUNT(*) FROM memory_scopes WHERE kind = 'personal' AND key \
+            = 'u1'");
+      Alcotest.(check int)
+        "schema version current after second init" Memory.schema_version
+        (Test_helpers.query_single_int db2 "SELECT version FROM schema_version"))
+
+let legacy_scope_id db =
+  Test_helpers.query_single_int db
+    "SELECT id FROM memory_scopes WHERE kind = 'legacy' AND key = 'core'"
+
+let legacy_grant_capabilities db =
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT capability FROM memory_grants WHERE scope_id = ? ORDER BY \
+       capability"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1
+           (Sqlite3.Data.INT (Int64.of_int (legacy_scope_id db))));
+      let capabilities = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        match Sqlite3.column stmt 0 with
+        | Sqlite3.Data.TEXT s -> capabilities := s :: !capabilities
+        | _ -> ()
+      done;
+      List.rev !capabilities)
+
+let test_legacy_memory_scope_seeded_read_only () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check int)
+    "legacy core scope seeded once" 1
+    (Test_helpers.query_single_int db
+       "SELECT COUNT(*) FROM memory_scopes WHERE kind = 'legacy' AND key = \
+        'core' AND provenance = 'system'");
+  Alcotest.(check (list string))
+    "legacy grants are read/list only" [ "list"; "read" ]
+    (legacy_grant_capabilities db);
+  let legacy_id = legacy_scope_id db in
+  Alcotest.(check bool)
+    "legacy write grant rejected" true
+    (exec_fails db
+       (Printf.sprintf
+          "INSERT INTO memory_grants (scope_id, principal_kind, principal_id, \
+           capability, grantor_kind, grantor_id) VALUES (%d, 'system', \
+           'legacy', 'write', 'system', 'seed')"
+          legacy_id));
+  Alcotest.(check (list string))
+    "failed write grant leaves read/list only" [ "list"; "read" ]
+    (legacy_grant_capabilities db)
+
+let test_legacy_memory_scope_is_idempotent () =
+  with_temp_db (fun db_path ->
+      let db1 = Memory.init ~db_path () in
+      ignore (Sqlite3.db_close db1);
+      let db2 = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "legacy scope not duplicated" 1
+        (Test_helpers.query_single_int db2
+           "SELECT COUNT(*) FROM memory_scopes WHERE kind = 'legacy' AND key = \
+            'core'");
+      Alcotest.(check (list string))
+        "legacy grants not duplicated" [ "list"; "read" ]
+        (legacy_grant_capabilities db2))
+
+let test_legacy_memory_fallback_preserves_existing_reads () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  Memory.store_core ~db ~key:"rig:briefing:config"
+    ~content:"legacy briefing memory" ~category:"rig" ();
+  Memory.store_message ~db ~session_key:"s1"
+    (Provider.make_message ~role:"user"
+       ~content:"please search the legacy briefing memory");
+  Alcotest.(check int)
+    "legacy scope does not copy core memories" 0
+    (Test_helpers.query_single_int db "SELECT COUNT(*) FROM scoped_memories");
+  Alcotest.(check bool)
+    "core list reads still work" true
+    (List.exists
+       (fun (key, content, category) ->
+         key = "rig:briefing:config"
+         && content = "legacy briefing memory"
+         && category = "rig")
+       (Memory.list_core ~db ()));
+  Alcotest.(check bool)
+    "core recall still works" true
+    (List.exists
+       (fun (key, _, _) -> key = "rig:briefing:config")
+       (Memory.recall_core ~db ~query:"briefing" ~limit:5));
+  Alcotest.(check bool)
+    "message search still falls back to existing path" true
+    (List.exists
+       (fun (m : Provider.message) -> m.content <> "")
+       (Memory.search ~db ~query:"briefing" ~limit:5 ()))
+
+let test_scoped_memory_scope_crud_roundtrip () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope =
+    Memory.create_scope ~db ~kind:"personal" ~key:"u1" ~provenance:"test" ()
+  in
+  Alcotest.(check bool) "scope id set" true (scope.id > 0);
+  Alcotest.(check string) "scope kind" "personal" scope.kind;
+  Alcotest.(check string) "scope key" "u1" scope.key;
+  (match Memory.get_scope ~db ~id:scope.id with
+  | None -> Alcotest.fail "expected scope by id"
+  | Some found -> Alcotest.(check string) "found key" "u1" found.key);
+  let same =
+    Memory.create_scope ~db ~kind:"personal" ~key:"u1" ~provenance:"again" ()
+  in
+  Alcotest.(check int) "double create returns existing" scope.id same.id;
+  let room = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  let all = Memory.list_scopes ~db () in
+  (* legacy scope is auto-seeded, so we have 3 total *)
+  Alcotest.(check bool) "scopes include created" true (List.length all >= 2);
+  let personal = Memory.list_scopes ~db ~kind:"personal" () in
+  Alcotest.(check int) "one personal scope" 1 (List.length personal);
+  Alcotest.(check int)
+    "room scope created" room.id
+    (List.hd (Memory.list_scopes ~db ~kind:"room" ())).id
+
+let test_scoped_memory_upsert_is_idempotent () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"thread" ~key:"t1" () in
+  let first =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"msg:1"
+      ~content:"first content" ~provenance:"tool" ()
+  in
+  let second =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"msg:1"
+      ~content:"updated content" ~provenance:"manual" ()
+  in
+  Alcotest.(check int) "same row reused" first.id second.id;
+  Alcotest.(check string)
+    "content updated" "updated content"
+    (Option.get second.content);
+  Alcotest.(check string) "provenance updated" "manual" second.provenance;
+  let rows = Memory.query_scoped_memories ~db ~limit:10 () in
+  Alcotest.(check int) "still one row" 1 (List.length rows)
+
+let test_scoped_memory_query_filters_and_pagination () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let personal = Memory.create_scope ~db ~kind:"personal" ~key:"u1" () in
+  let room = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  let other_personal = Memory.create_scope ~db ~kind:"personal" ~key:"u2" () in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:personal.id ~reference:"a"
+       ~content:"alpha fish" ~provenance:"tool" ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:personal.id ~reference:"b"
+       ~content:"beta fish" ~provenance:"manual" ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:room.id ~reference:"c"
+       ~content:"alpha bird" ~provenance:"tool" ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:other_personal.id ~reference:"d"
+       ~content:"fish only" ~provenance:"tool" ());
+  let filtered =
+    Memory.query_scoped_memories ~db ~scope_kind:"personal"
+      ~content_search:"alpha" ~provenance:"tool" ~limit:10 ()
+  in
+  Alcotest.(check int) "one filtered row" 1 (List.length filtered);
+  Alcotest.(check string) "filtered reference" "a" (List.hd filtered).reference;
+  let paged =
+    Memory.query_scoped_memories ~db ~content_search:"fish" ~limit:1 ~offset:1
+      ()
+  in
+  Alcotest.(check int) "one paged row" 1 (List.length paged);
+  Alcotest.(check string) "second fish row" "b" (List.hd paged).reference
+
+let test_scoped_memory_delete_and_boundaries () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"workspace" ~key:"/repo" () in
+  let row =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"file:1"
+      ~content:"path data" ()
+  in
+  Alcotest.(check bool)
+    "deleted existing row" true
+    (Memory.delete_scoped_memory ~db ~id:row.id);
+  Alcotest.(check bool)
+    "delete missing row is false" false
+    (Memory.delete_scoped_memory ~db ~id:row.id);
+  Alcotest.(check int)
+    "deleted row not queried" 0
+    (List.length (Memory.query_scoped_memories ~db ~limit:10 ()));
+  Alcotest.(check int)
+    "unknown kind has no scopes" 0
+    (List.length (Memory.list_scopes ~db ~kind:"room" ()));
+  Alcotest.(check int)
+    "zero limit returns no rows" 0
+    (List.length (Memory.query_scoped_memories ~db ~limit:0 ()))
+
+let test_resolve_grants_single_grant () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  Alcotest.(check (list string))
+    "single direct grant" [ "read" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_merges_matching_direct_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  let other_scope = Memory.create_scope ~db ~kind:"room" ~key:"r2" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"write" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p2" ~capability:"admin" ();
+  insert_memory_grant ~db ~scope_id:other_scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"delete" ();
+  Alcotest.(check (list string))
+    "matching capabilities only" [ "read"; "write" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_excludes_expired_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ~expires_at:"2999-01-01 00:00:00" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"write" ~expires_at:"1970-01-01 00:00:00" ();
+  Alcotest.(check (list string))
+    "active capabilities only" [ "read" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_excludes_revoked_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  exec_exn db "ALTER TABLE memory_grants ADD COLUMN revoked_at TEXT";
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"write" ~revoked_at:"2026-01-01 00:00:00" ();
+  Alcotest.(check (list string))
+    "non-revoked capabilities only" [ "read" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_no_match_denies_access () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let parent = Memory.create_scope ~db ~kind:"room" ~key:"parent" () in
+  let child =
+    Memory.create_scope ~db ~kind:"thread" ~key:"child"
+      ~parent_scope_id:parent.id ()
+  in
+  insert_memory_grant ~db ~scope_id:parent.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  Alcotest.(check (list string))
+    "no direct child grant" []
+    (Memory.resolve_grants ~db ~scope_id:child.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+(* --- room profile API tests --- *)
+
+let test_insert_and_get_room_profile () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let id = Memory.insert_room_profile ~db ~name:"default" in
+  Alcotest.(check bool) "id > 0" true (id > 0);
+  let p = Memory.get_room_profile ~db ~id in
+  match p with
+  | None -> Alcotest.fail "expected profile"
+  | Some p ->
+      Alcotest.(check int) "id matches" id p.id;
+      Alcotest.(check string) "name" "default" p.name
+
+let test_insert_room_profile_unique_constraint () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id = Memory.insert_room_profile ~db ~name:"dup" in
+  match
+    try `Ok (Memory.insert_room_profile ~db ~name:"dup")
+    with Failure _ -> `Fail
+  with
+  | `Fail -> ()
+  | `Ok _ -> Alcotest.fail "expected duplicate name to fail"
+
+let test_get_room_profile_by_name () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let id = Memory.insert_room_profile ~db ~name:"work" in
+  let p = Memory.get_room_profile_by_name ~db ~name:"work" in
+  match p with
+  | None -> Alcotest.fail "expected profile by name"
+  | Some p ->
+      Alcotest.(check int) "id matches" id p.id;
+      Alcotest.(check string) "name" "work" p.name
+
+let test_list_room_profiles () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _ = Memory.insert_room_profile ~db ~name:"a" in
+  let _ = Memory.insert_room_profile ~db ~name:"b" in
+  let _ = Memory.insert_room_profile ~db ~name:"c" in
+  let profiles = Memory.list_room_profiles ~db in
+  Alcotest.(check int) "three profiles" 3 (List.length profiles);
+  let names = List.map (fun (p : Memory.room_profile) -> p.name) profiles in
+  Alcotest.(check (list string)) "in order" [ "a"; "b"; "c" ] names
+
+let test_delete_room_profile_cascades_bindings () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"to-delete" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room1" ~profile_id:pid;
+  ignore (Memory.delete_room_profile ~db ~id:pid);
+  Alcotest.(check bool)
+    "profile gone" true
+    (Memory.get_room_profile ~db ~id:pid = None);
+  Alcotest.(check bool)
+    "binding cascade-deleted" true
+    (Memory.get_room_profile_binding ~db ~room_id:"room1" = None)
+
+let test_upsert_room_profile_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let p1 = Memory.insert_room_profile ~db ~name:"p1" in
+  let p2 = Memory.insert_room_profile ~db ~name:"p2" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:p1;
+  let b = Memory.get_room_profile_binding ~db ~room_id:"r1" in
+  match b with
+  | None -> Alcotest.fail "expected binding"
+  | Some b -> (
+      Alcotest.(check int) "bound to p1" p1 b.profile_id;
+      (* rebind to p2 *)
+      Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:p2;
+      let b2 = Memory.get_room_profile_binding ~db ~room_id:"r1" in
+      match b2 with
+      | None -> Alcotest.fail "expected binding after rebind"
+      | Some b2 -> Alcotest.(check int) "rebound to p2" p2 b2.profile_id)
+
+let test_room_profile_binding_unique_constraint () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let p1 = Memory.insert_room_profile ~db ~name:"p1" in
+  let p2 = Memory.insert_room_profile ~db ~name:"p2" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:p1;
+  (* Bind a different room to p1 -- should replace the r1 binding (1:1) *)
+  Memory.upsert_room_profile_binding ~db ~room_id:"r2" ~profile_id:p1;
+  Alcotest.(check bool)
+    "r1 unbound" true
+    (Memory.get_room_profile_binding ~db ~room_id:"r1" = None);
+  (match Memory.get_room_profile_binding ~db ~room_id:"r2" with
+  | None -> Alcotest.fail "expected r2 binding"
+  | Some b -> Alcotest.(check int) "r2 bound to p1" p1 b.profile_id);
+  (* Rebind r2 to p2 -- old binding replaced *)
+  Memory.upsert_room_profile_binding ~db ~room_id:"r2" ~profile_id:p2;
+  match Memory.get_room_profile_binding ~db ~room_id:"r2" with
+  | None -> Alcotest.fail "expected r2 binding after rebind"
+  | Some b -> Alcotest.(check int) "r2 rebound to p2" p2 b.profile_id
+
+let test_get_room_profile_for_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"my-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-x" ~profile_id:pid;
+  let p = Memory.get_room_profile_for_room ~db ~room_id:"room-x" in
+  match p with
+  | None -> Alcotest.fail "expected profile for room"
+  | Some p -> Alcotest.(check string) "name" "my-profile" p.name
+
+let test_get_room_profile_for_room_no_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let p = Memory.get_room_profile_for_room ~db ~room_id:"unbound" in
+  Alcotest.(check bool) "no profile" true (p = None)
+
+let test_list_rooms_for_profile_one_to_one () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"shared" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:pid;
+  (* With 1:1 cardinality, re-binding the same profile to r2 unbinds r1 *)
+  Memory.upsert_room_profile_binding ~db ~room_id:"r2" ~profile_id:pid;
+  Alcotest.(check bool)
+    "r1 unbound after rebind" true
+    (Memory.get_room_profile_binding ~db ~room_id:"r1" = None);
+  match Memory.get_room_profile_binding ~db ~room_id:"r2" with
+  | None -> Alcotest.fail "expected r2 binding"
+  | Some b -> Alcotest.(check int) "bound to pid" pid b.profile_id
+
+let test_remove_room_profile_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let pid = Memory.insert_room_profile ~db ~name:"removable" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:pid;
+  let ok = Memory.remove_room_profile_binding ~db ~room_id:"r1" in
+  Alcotest.(check bool) "removed" true ok;
+  let b = Memory.get_room_profile_binding ~db ~room_id:"r1" in
+  Alcotest.(check bool) "gone" true (b = None)
+
+let column_exists db table col =
+  let r = ref false in
+  let stmt =
+    Sqlite3.prepare db (Printf.sprintf "PRAGMA table_info(%s)" table)
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        match Sqlite3.column stmt 1 with
+        | Sqlite3.Data.TEXT s when s = col -> r := true
+        | _ -> ()
+      done);
+  !r
+
+let test_repair_missing_columns_restores_dropped_column () =
+  (* exercise repair_missing_columns directly -- the reviewer found the
+     previous test only called ensure_all_tables, which is a different code
+     path.  repair_missing_columns handles ALTER TABLE ADD COLUMN idempotent
+     repair; we verify it by dropping a known column and calling it. *)
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Verify the column exists after init *)
+  Alcotest.(check bool)
+    "debug_enabled present after init" true
+    (column_exists db "session_state" "debug_enabled");
+  (* Drop the column via table rebuild (SQLite has no DROP COLUMN < 3.35) *)
+  exec_exn db "CREATE TABLE session_state_backup AS SELECT * FROM session_state";
+  exec_exn db "DROP TABLE session_state";
+  exec_exn db
+    "CREATE TABLE session_state (session_key TEXT PRIMARY KEY, turn TEXT NOT \
+     NULL DEFAULT 'user', channel TEXT, channel_id TEXT, response_sent_at \
+     TEXT, last_active TEXT NOT NULL DEFAULT (datetime('now')), \
+     keepalive_enabled INTEGER NOT NULL DEFAULT 0, heartbeat_enabled INTEGER \
+     NOT NULL DEFAULT 0, model_override TEXT DEFAULT NULL, effective_cwd TEXT \
+     DEFAULT NULL, CHECK ((channel IS NULL) = (channel_id IS NULL)))";
+  exec_exn db
+    "INSERT INTO session_state (session_key, turn, channel, channel_id, \
+     response_sent_at, last_active, keepalive_enabled, heartbeat_enabled, \
+     model_override, effective_cwd) SELECT session_key, turn, channel, \
+     channel_id, response_sent_at, last_active, keepalive_enabled, \
+     heartbeat_enabled, model_override, effective_cwd FROM \
+     session_state_backup";
+  exec_exn db "DROP TABLE session_state_backup";
+  Alcotest.(check bool)
+    "debug_enabled gone after rebuild" false
+    (column_exists db "session_state" "debug_enabled");
+  (* Call repair_missing_columns directly *)
+  Memory.repair_missing_columns db;
+  Alcotest.(check bool)
+    "debug_enabled restored by repair_missing_columns" true
+    (column_exists db "session_state" "debug_enabled")
+
+let test_upsert_room_profile_binding_orphan_rejection () =
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Binding to a nonexistent profile_id must fail *)
+  match
+    try
+      Memory.upsert_room_profile_binding ~db ~room_id:"r1" ~profile_id:9999;
+      `Ok
+    with Failure _ -> `Fail
+  with
+  | `Fail -> ()
+  | `Ok -> Alcotest.fail "expected orphan binding to fail"
+
 let suite =
   [
     Alcotest.test_case "init sets busy_timeout" `Quick
@@ -1574,4 +2546,73 @@ let suite =
       test_import_snapshot_rejects_bad_version;
     Alcotest.test_case "import snapshot upserts" `Quick
       test_import_snapshot_upserts;
+    Alcotest.test_case "init creates room profile tables" `Quick
+      test_init_creates_room_profile_tables;
+    Alcotest.test_case "ensure_all_tables creates room profiles" `Quick
+      test_ensure_all_tables_creates_room_profiles;
+    Alcotest.test_case "migrate v31 to current creates room profiles" `Quick
+      test_migrate_v31_to_current_creates_room_profiles;
+    Alcotest.test_case "migrate v32 adds origin columns" `Quick
+      test_migrate_v32_adds_origin_columns;
+    Alcotest.test_case "init creates scoped memory tables" `Quick
+      test_init_creates_scoped_memory_tables;
+    Alcotest.test_case "scoped memory schema shape" `Quick
+      test_scoped_memory_schema_shape;
+    Alcotest.test_case "scoped memory constraints and cascade" `Quick
+      test_scoped_memory_constraints_and_cascade;
+    Alcotest.test_case "memory grants require admin" `Quick
+      test_memory_grants_require_admin_for_create_and_revoke;
+    Alcotest.test_case "scoped memory migration and repair paths" `Quick
+      test_scoped_memory_schema_migration_and_repair_paths;
+    Alcotest.test_case "scoped memory double init idempotent" `Quick
+      test_scoped_memory_double_init_is_idempotent;
+    Alcotest.test_case "legacy memory scope seeded read only" `Quick
+      test_legacy_memory_scope_seeded_read_only;
+    Alcotest.test_case "legacy memory scope idempotent" `Quick
+      test_legacy_memory_scope_is_idempotent;
+    Alcotest.test_case "legacy memory fallback preserves reads" `Quick
+      test_legacy_memory_fallback_preserves_existing_reads;
+    Alcotest.test_case "scoped memory scope CRUD roundtrip" `Quick
+      test_scoped_memory_scope_crud_roundtrip;
+    Alcotest.test_case "scoped memory upsert is idempotent" `Quick
+      test_scoped_memory_upsert_is_idempotent;
+    Alcotest.test_case "scoped memory query filters and pagination" `Quick
+      test_scoped_memory_query_filters_and_pagination;
+    Alcotest.test_case "scoped memory delete and boundaries" `Quick
+      test_scoped_memory_delete_and_boundaries;
+    Alcotest.test_case "resolve grants single grant" `Quick
+      test_resolve_grants_single_grant;
+    Alcotest.test_case "resolve grants merges matching direct grants" `Quick
+      test_resolve_grants_merges_matching_direct_grants;
+    Alcotest.test_case "resolve grants excludes expired grants" `Quick
+      test_resolve_grants_excludes_expired_grants;
+    Alcotest.test_case "resolve grants excludes revoked grants" `Quick
+      test_resolve_grants_excludes_revoked_grants;
+    Alcotest.test_case "resolve grants no match denies access" `Quick
+      test_resolve_grants_no_match_denies_access;
+    Alcotest.test_case "insert and get room profile" `Quick
+      test_insert_and_get_room_profile;
+    Alcotest.test_case "insert room profile unique constraint" `Quick
+      test_insert_room_profile_unique_constraint;
+    Alcotest.test_case "get room profile by name" `Quick
+      test_get_room_profile_by_name;
+    Alcotest.test_case "list room profiles" `Quick test_list_room_profiles;
+    Alcotest.test_case "delete room profile cascades bindings" `Quick
+      test_delete_room_profile_cascades_bindings;
+    Alcotest.test_case "upsert room profile binding" `Quick
+      test_upsert_room_profile_binding;
+    Alcotest.test_case "room profile binding unique constraint" `Quick
+      test_room_profile_binding_unique_constraint;
+    Alcotest.test_case "get room profile for room" `Quick
+      test_get_room_profile_for_room;
+    Alcotest.test_case "get room profile for room no binding" `Quick
+      test_get_room_profile_for_room_no_binding;
+    Alcotest.test_case "list rooms for profile 1:1" `Quick
+      test_list_rooms_for_profile_one_to_one;
+    Alcotest.test_case "remove room profile binding" `Quick
+      test_remove_room_profile_binding;
+    Alcotest.test_case "repair missing columns restores dropped column" `Quick
+      test_repair_missing_columns_restores_dropped_column;
+    Alcotest.test_case "upsert room profile binding orphan rejection" `Quick
+      test_upsert_room_profile_binding_orphan_rejection;
   ]

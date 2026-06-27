@@ -6,11 +6,11 @@ locked: false
 name: Connector Capability Matrix
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 1
+    pending: 0
     total: 1
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,6 +19,6 @@ tasks:
       file: T001-extend-connector-capability-ma.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Extend connector capability matrix for room agents

@@ -6,11 +6,11 @@ locked: false
 name: Teams Thread Capability Audit
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 1
+    pending: 0
     total: 1
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,5 +19,6 @@ tasks:
       file: T001-audit-teams-thread-like-reply.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Audit Teams thread-like reply capability

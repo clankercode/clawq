@@ -138,11 +138,11 @@ phases:
       description: 'Governance layer for room agents: scoped memory tables, grant policy, profile tool/codebase policy, budgets, and activity ledger. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
       estimate_hours: 96
       id: P12
-      locked: false
+      locked: true
       name: Room Agent Governance
       path: 12-room-agent-governance
       priority: high
-      status: pending
+      status: done
       weeks: 4
     - depends_on: []
       description: 'Cron-integrated room routines, opt-in ambient room watcher, connector capability matrix, and multi-connector polish for room agents. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'

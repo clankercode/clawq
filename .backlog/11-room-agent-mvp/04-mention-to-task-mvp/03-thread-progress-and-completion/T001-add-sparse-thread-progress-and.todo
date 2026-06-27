@@ -11,7 +11,7 @@ estimate_hours: 2
 id: P11.M4.E3.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Persist sparse room progress states
 ---

@@ -1,16 +1,14 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P12.M1.E2.T002
 estimate_hours: 3
 id: P12.M1.E2.T003
 priority: high
-status: pending
-tags:
-    - room-agent
-    - memory
-    - privacy
-    - admin
+started_at: null
+status: done
+tags: []
 title: Gate memory grant mutations through admin tooling
 ---
 Acceptance: grant creation/removal is admin-only and never exposed as a general agent tool; tool integration uses scoped APIs; denial messages are actionable. Files: src/tools_builtin_io.ml, command/admin tests.

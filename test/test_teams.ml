@@ -74,6 +74,43 @@ let check_ok_invoke_response ~msg body_str =
     (msg ^ " body is object") true
     (match json |> member "body" with `Assoc [] -> true | _ -> false)
 
+let run_teams_webhook ?send_reply_fn ?send_adaptive_card_fn ?event_limiter
+    ?turn_fn ?(activity_id = "act-webhook") ?(text = "hello") () =
+  let config = test_teams_config () in
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  let body =
+    activity_json ~activity_type:"message" ~text ~activity_id
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
+      ~conversation_id:"conv-1" ~team_id:"team-1" ()
+  in
+  Lwt_main.run
+    (Teams.handle_webhook ~config ~session_manager ?send_reply_fn
+       ?send_adaptive_card_fn ?event_limiter ?turn_fn
+       ~auth_header:(bearer_for_config config) body)
+
+let capture_reply sent ?alert:_ ~config:_ ~service_url:_ ~conversation_id:_
+    ~reply_to_id:_ ~text ?mention:_ () =
+  sent := text :: !sent;
+  Lwt.return "reply-id"
+
+let capture_adaptive_card cards ~config:_ ~service_url:_ ~conversation_id:_
+    ~reply_to_id:_ ~card () =
+  cards := card :: !cards;
+  Lwt.return_unit
+
+let successful_turn count _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
+    ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
+    ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id:_ ?cwd:_
+    ?before_drain:_ () =
+  incr count;
+  Lwt.return "agent ok"
+
+let failing_turn _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
+    ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
+    ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id:_ ?cwd:_
+    ?before_drain:_ () =
+  Lwt.fail_with "boom"
+
 let test_parse_activity_returns_record () =
   let body =
     activity_json ~activity_type:"message" ~text:"hello" ~activity_id:"act-1"
@@ -138,6 +175,284 @@ let test_session_key () =
 let test_session_key_personal () =
   let key = Teams.session_key ~team_id:"personal" ~conversation_id:"conv-abc" in
   Alcotest.(check string) "personal session key" "teams:personal:conv-abc" key
+
+let test_resolve_session_key_uses_room_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"teams-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-bound"
+  in
+  Alcotest.(check string) "bound room key" "teams:conv-bound" key
+
+let test_resolve_session_key_falls_back_to_team_conversation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-free"
+  in
+  Alcotest.(check string) "unbound key" "teams:team-1:conv-free" key
+
+let test_consent_room_context_uses_room_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"incident-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  match
+    Teams.consent_room_context ~session_manager:mgr
+      ~conversation_id:"conv-bound"
+  with
+  | None -> Alcotest.fail "expected room consent context"
+  | Some ctx ->
+      Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
+      Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
+      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
+
+let runtime_config_with_connector_history ?(enabled = true) () =
+  {
+    Runtime_config.default with
+    connector_history =
+      {
+        Runtime_config.default.connector_history with
+        enabled;
+        persist_to_db = true;
+      };
+  }
+
+let bind_room_profile ~db ~room_id =
+  let profile_id =
+    Memory.insert_room_profile ~db ~name:("profile-" ^ room_id)
+  in
+  Memory.upsert_room_profile_binding ~db ~room_id ~profile_id
+
+let handle_teams_room_message ?(enabled = true) ~db ~conversation_id ~text () =
+  Hashtbl.reset Connector_history.buffers;
+  let config = test_teams_config () in
+  let session_manager =
+    Session.create
+      ~config:(runtime_config_with_connector_history ~enabled ())
+      ~db ()
+  in
+  let sent = ref [] in
+  let body =
+    activity_json ~activity_type:"message" ~text ~activity_id:"act-room"
+      ~service_url:"https://svc" ~user_id:"u-room" ~user_name:"Room User"
+      ~conversation_id ~team_id:"team-room" ~is_group:true ()
+  in
+  Lwt_main.run
+    (Teams.handle_webhook ~config ~session_manager
+       ~send_reply_fn:(capture_reply sent)
+       ~auth_header:(bearer_for_config config) body)
+
+let test_room_history_capture_for_bound_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"conv-history";
+  handle_teams_room_message ~db ~conversation_id:"conv-history" ~text:"/help" ();
+  match
+    Connector_history.query ~db ~room_id:"conv-history" ~connector_type:"teams"
+      ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "room_id" "conv-history" entry.room_id;
+      Alcotest.(check string) "sender_id" "u-room" entry.sender_id;
+      Alcotest.(check string) "sender_name" "Room User" entry.sender_name;
+      Alcotest.(check string) "text" "/help" entry.text
+  | entries ->
+      Alcotest.failf "expected one Teams scoped history entry, got %d"
+        (List.length entries)
+
+let test_room_history_privacy_guard_requires_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  handle_teams_room_message ~db ~conversation_id:"conv-unbound" ~text:"/help" ();
+  let entries =
+    Connector_history.query ~db ~room_id:"conv-unbound" ~connector_type:"teams"
+      ()
+  in
+  Alcotest.(check int)
+    "unbound Teams room history entries" 0 (List.length entries)
+
+let test_room_history_respects_capabilities_gate () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"conv-disabled";
+  handle_teams_room_message ~enabled:false ~db ~conversation_id:"conv-disabled"
+    ~text:"/help" ();
+  let entries =
+    Connector_history.query ~db ~room_id:"conv-disabled" ~connector_type:"teams"
+      ()
+  in
+  Alcotest.(check int)
+    "disabled Teams room history entries" 0 (List.length entries)
+
+let test_normalize_clawq_slash_known_subcommand () =
+  Alcotest.(check string)
+    "known subcommand" "/status"
+    (Teams.normalize_clawq_slash_text "/clawq status")
+
+let test_normalize_clawq_slash_unknown_subcommand_shows_help () =
+  let normalized = Teams.normalize_clawq_slash_text "/clawq frobnicate" in
+  Alcotest.(check string) "unknown becomes help" "/help" normalized;
+  match Slash_commands.handle normalized with
+  | Slash_commands.Help -> ()
+  | _ -> Alcotest.fail "expected Help"
+
+let test_normalize_clawq_slash_admin_subcommand_still_gated () =
+  let normalized = Teams.normalize_clawq_slash_text "/clawq config show" in
+  Alcotest.(check string) "admin subcommand" "/config show" normalized;
+  match
+    Slash_commands.handle normalized
+    |> Slash_commands.gate_admin ~is_admin:false
+  with
+  | Slash_commands.Reply msg ->
+      Alcotest.(check bool)
+        "requires admin" true
+        (Test_helpers.string_contains msg "requires admin")
+  | _ -> Alcotest.fail "expected admin-required reply"
+
+let test_teams_rate_limit_message_matches_slack_text () =
+  Alcotest.(check string)
+    "rate limit message"
+    "Please slow down, I can only process a limited number of messages per \
+     minute."
+    Teams.incoming_rate_limited_message
+
+let test_teams_rate_limit_enforced_like_slack () =
+  Hashtbl.clear Teams.rate_limit_warnings;
+  let limiter = Rate_limiter.create ~rate_per_minute:1 ~burst_multiplier:1.0 in
+  let sent = ref [] in
+  let turn_count = ref 0 in
+  let send_reply_fn = capture_reply sent in
+  let turn_fn = successful_turn turn_count in
+  run_teams_webhook ~send_reply_fn ~event_limiter:limiter ~turn_fn
+    ~activity_id:"act-rate-1" ~text:"hello" ();
+  run_teams_webhook ~send_reply_fn ~event_limiter:limiter ~turn_fn
+    ~activity_id:"act-rate-2" ~text:"hello again" ();
+  Alcotest.(check int) "only first turn reaches agent" 1 !turn_count;
+  Alcotest.(check bool)
+    "rate-limit warning sent" true
+    (List.exists (fun msg -> msg = Teams.incoming_rate_limited_message) !sent)
+
+let test_teams_menu_card_renders_imback_actions () =
+  let card =
+    Slash_commands_manifest.menu_adaptive_card_json ~is_admin:false ()
+  in
+  let s = Yojson.Safe.to_string card in
+  Alcotest.(check bool)
+    "adaptive card attachment" true
+    (Test_helpers.string_contains s "application/vnd.microsoft.card.adaptive");
+  Alcotest.(check bool)
+    "Teams imBack actions" true
+    (Test_helpers.string_contains s "\"imBack\"")
+
+let test_teams_menu_command_sends_adaptive_card () =
+  let sent = ref [] in
+  let cards = ref [] in
+  run_teams_webhook ~send_reply_fn:(capture_reply sent)
+    ~send_adaptive_card_fn:(capture_adaptive_card cards)
+    ~activity_id:"act-menu" ~text:"/clawq menu" ();
+  Alcotest.(check int) "one adaptive card" 1 (List.length !cards);
+  Alcotest.(check (list string)) "no text reply" [] !sent;
+  let card_text = Yojson.Safe.to_string (List.hd !cards) in
+  Alcotest.(check bool)
+    "Teams card content type" true
+    (Test_helpers.string_contains card_text
+       "application/vnd.microsoft.card.adaptive");
+  Alcotest.(check bool)
+    "Teams card uses imBack" true
+    (Test_helpers.string_contains card_text "\"imBack\"")
+
+let test_teams_menu_filters_room_profile_tools () =
+  let config =
+    {
+      Runtime_config.default with
+      room_profiles =
+        [
+          {
+            id = "incident";
+            display_name = None;
+            model = "";
+            system_prompt = "";
+            max_tool_iterations = 10;
+            status = "active";
+            allowed_tools = [ "background_task_list" ];
+            denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
+          };
+        ];
+      room_profile_bindings =
+        [ { profile_id = "incident"; room = "conv-bound"; active = true } ];
+    }
+  in
+  let card =
+    Slash_commands_manifest.menu_adaptive_card_json ~page:2 ~is_admin:true
+      ~config ~session_key:"teams:conv-bound" ()
+  in
+  let card_text = Yojson.Safe.to_string card in
+  Alcotest.(check bool)
+    "bg remains visible because list tool is allowed" true
+    (Test_helpers.string_contains card_text "/bg");
+  Alcotest.(check bool)
+    "delegate hidden because delegate tool is not allowed" false
+    (Test_helpers.string_contains card_text "/delegate")
+
+let test_teams_bg_card_filters_room_profile_tools () =
+  let config =
+    {
+      Runtime_config.default with
+      room_profiles =
+        [
+          {
+            id = "incident";
+            display_name = None;
+            model = "";
+            system_prompt = "";
+            max_tool_iterations = 10;
+            status = "active";
+            allowed_tools = [ "background_task_list" ];
+            denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
+          };
+        ];
+      room_profile_bindings =
+        [ { profile_id = "incident"; room = "conv-bound"; active = true } ];
+    }
+  in
+  let card =
+    Slash_commands_manifest.bg_menu_adaptive_card_json ~config
+      ~session_key:"teams:conv-bound"
+      ~cancellable:[ (7, "codex") ]
+      ()
+  in
+  let card_text = Yojson.Safe.to_string card in
+  Alcotest.(check bool)
+    "list button visible" true
+    (Test_helpers.string_contains card_text "List Tasks");
+  Alcotest.(check bool)
+    "create button hidden" false
+    (Test_helpers.string_contains card_text "Create Task");
+  Alcotest.(check bool)
+    "cancel button hidden" false
+    (Test_helpers.string_contains card_text "Cancel #7")
+
+let test_teams_agent_error_replies_like_slack () =
+  let sent = ref [] in
+  run_teams_webhook ~send_reply_fn:(capture_reply sent) ~turn_fn:failing_turn
+    ~activity_id:"act-error" ~text:"hello" ();
+  Alcotest.(check bool)
+    "error reply sent" true
+    (List.exists
+       (fun msg ->
+         Test_helpers.string_contains msg
+           "Sorry, an error occurred processing your message: boom")
+       !sent)
 
 let test_strip_at_mentions () =
   let result = Teams.strip_at_mentions "<at>Bot</at> hello world" in
@@ -537,7 +852,7 @@ let test_temp_downloads_cleanup () =
 let test_build_file_consent_card () =
   let body =
     Teams.build_file_consent_card ~filename:"dump.json"
-      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123"
+      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123" ()
   in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -564,6 +879,42 @@ let test_build_file_consent_card () =
   Alcotest.(check string)
     "declineContext consentId" "abc123"
     (decline_ctx |> member "consentId" |> to_string)
+
+let test_build_file_consent_card_includes_room_profile_context () =
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-room";
+      session_key = "teams:conv-room";
+      profile_name = "support-room";
+    }
+  in
+  let body =
+    Teams.build_file_consent_card ~filename:"dump.json"
+      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123"
+      ~room_context ()
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let content =
+    json |> member "attachments" |> to_list |> List.hd |> member "content"
+  in
+  Alcotest.(check string)
+    "description names room profile" "Session dump\nRoom profile: support-room"
+    (content |> member "description" |> to_string);
+  List.iter
+    (fun field ->
+      let ctx = content |> member field in
+      Alcotest.(check string)
+        (field ^ " roomId") "conv-room"
+        (ctx |> member "roomId" |> to_string);
+      Alcotest.(check string)
+        (field ^ " sessionKey") "teams:conv-room"
+        (ctx |> member "sessionKey" |> to_string);
+      Alcotest.(check string)
+        (field ^ " roomProfileName")
+        "support-room"
+        (ctx |> member "roomProfileName" |> to_string))
+    [ "acceptContext"; "declineContext" ]
 
 let test_build_file_info_card () =
   let body =
@@ -592,7 +943,7 @@ let test_build_file_info_card () =
 let test_pending_consent_store_and_get () =
   let consent_id =
     Teams.store_pending_consent ~content:"test data" ~filename:"test.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   Alcotest.(check bool) "id non-empty" true (String.length consent_id > 0);
   match Teams.get_pending_consent consent_id with
@@ -601,10 +952,34 @@ let test_pending_consent_store_and_get () =
       Alcotest.(check string) "content" "test data" entry.content;
       Alcotest.(check string) "filename" "test.json" entry.filename
 
+let test_pending_consent_preserves_room_context () =
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-bound";
+      session_key = "teams:conv-bound";
+      profile_name = "incident-room";
+    }
+  in
+  let consent_id =
+    Teams.store_pending_consent ~content:"test data" ~filename:"test.json"
+      ~content_type:"application/json" ~ttl_s:60.0 ~room_context ()
+  in
+  match Teams.get_pending_consent consent_id with
+  | None -> Alcotest.fail "expected Some"
+  | Some entry -> (
+      match entry.room_context with
+      | None -> Alcotest.fail "expected room context"
+      | Some ctx ->
+          Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
+          Alcotest.(check string)
+            "session key" "teams:conv-bound" ctx.session_key;
+          Alcotest.(check string)
+            "profile name" "incident-room" ctx.profile_name)
+
 let test_pending_consent_expired () =
   let consent_id =
     Teams.store_pending_consent ~content:"old" ~filename:"old.json"
-      ~content_type:"application/json" ~ttl_s:0.0
+      ~content_type:"application/json" ~ttl_s:0.0 ()
   in
   Unix.sleepf 0.01;
   Alcotest.(check bool)
@@ -614,7 +989,7 @@ let test_pending_consent_expired () =
 let test_pending_consent_consumed_on_get () =
   let consent_id =
     Teams.store_pending_consent ~content:"once" ~filename:"once.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   ignore (Teams.get_pending_consent consent_id);
   Alcotest.(check bool)
@@ -624,11 +999,11 @@ let test_pending_consent_consumed_on_get () =
 let test_pending_consent_cleanup () =
   let _live =
     Teams.store_pending_consent ~content:"live" ~filename:"live.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let expired =
     Teams.store_pending_consent ~content:"expired" ~filename:"exp.json"
-      ~content_type:"application/json" ~ttl_s:0.0
+      ~content_type:"application/json" ~ttl_s:0.0 ()
   in
   Unix.sleepf 0.01;
   Teams.cleanup_pending_consents ();
@@ -640,7 +1015,7 @@ let test_file_consent_invoke_returns_immediately () =
   (* Store a pending consent so handle_file_consent_invoke finds it *)
   let consent_id =
     Teams.store_pending_consent ~content:"file data" ~filename:"test.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
   let invoke_json =
@@ -701,10 +1076,27 @@ let test_file_consent_invoke_expired_returns_200 () =
   check_ok_invoke_response ~msg:"expired consent returns 200"
     (Teams.invoke_response_body response)
 
+let test_file_consent_context_roundtrips_from_invoke () =
+  let context =
+    `Assoc
+      [
+        ("consentId", `String "abc123");
+        ("roomId", `String "conv-bound");
+        ("sessionKey", `String "teams:conv-bound");
+        ("roomProfileName", `String "incident-room");
+      ]
+  in
+  match Teams.consent_room_context_of_json context with
+  | None -> Alcotest.fail "expected room context"
+  | Some ctx ->
+      Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
+      Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
+      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
+
 let test_file_consent_invoke_decline () =
   let consent_id =
     Teams.store_pending_consent ~content:"data" ~filename:"d.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
   let invoke_json =
@@ -736,7 +1128,7 @@ let test_file_consent_invoke_decline () =
 let test_handle_invoke_file_consent_decline () =
   let consent_id =
     Teams.store_pending_consent ~content:"data" ~filename:"d.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
   let body =
@@ -991,6 +1383,217 @@ let test_edit_activity_empty_text_short_circuits () =
        ~service_url:"https://smba.trafficmanager.net/au/test/"
        ~conversation_id:"19:test@thread.v2" ~activity_id:"act-1" ~text:"" ())
 
+(* --- P11.M3.E3.T001: Reply targeting tests --- *)
+
+(* build_reply_uri with non-empty reply_to_id targets the specific activity
+   (threaded reply via Bot Framework). *)
+let test_build_reply_uri_with_reply_to_id () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:abc@thread.v2" ~reply_to_id:"act-42"
+  in
+  Alcotest.(check string)
+    "targets specific activity"
+    "https://smba.trafficmanager.net/amer/v3/conversations/19:abc@thread.v2/activities/act-42"
+    uri
+
+(* build_reply_uri with empty reply_to_id posts a new activity to the
+   conversation (no threading). *)
+let test_build_reply_uri_empty_reply_to_id () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:abc@thread.v2" ~reply_to_id:""
+  in
+  Alcotest.(check string)
+    "targets conversation"
+    "https://smba.trafficmanager.net/amer/v3/conversations/19:abc@thread.v2/activities"
+    uri
+
+(* Personal 1:1 chat: conversation_id is a simple opaque string,
+   reply_to_id targets the specific activity. *)
+let test_build_reply_uri_personal_chat () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"a:1personal-conversation-id"
+      ~reply_to_id:"act-personal-1"
+  in
+  (* conversation_id contains colon which gets percent-encoded *)
+  Alcotest.(check bool)
+    "personal chat reply contains activities path" true
+    (String.length uri > 0
+    && String.sub uri 0
+         (String.length "https://smba.trafficmanager.net/amer/v3/conversations/")
+       = "https://smba.trafficmanager.net/amer/v3/conversations/");
+  Alcotest.(check bool)
+    "personal chat reply ends with activity id" true
+    (let suffix = "/activities/act-personal-1" in
+     let ulen = String.length uri in
+     let slen = String.length suffix in
+     ulen >= slen && String.sub uri (ulen - slen) slen = suffix)
+
+(* Group chat: conversation_id is a group opaque string,
+   reply_to_id targets the specific activity. *)
+let test_build_reply_uri_group_chat () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:meeting-id@thread.v2" ~reply_to_id:"act-group-1"
+  in
+  Alcotest.(check bool)
+    "group chat reply contains activities path" true
+    (String.length uri > 0
+    && String.sub uri 0
+         (String.length "https://smba.trafficmanager.net/amer/v3/conversations/")
+       = "https://smba.trafficmanager.net/amer/v3/conversations/");
+  Alcotest.(check bool)
+    "group chat reply ends with activity id" true
+    (let suffix = "/activities/act-group-1" in
+     let ulen = String.length uri in
+     let slen = String.length suffix in
+     ulen >= slen && String.sub uri (ulen - slen) slen = suffix)
+
+(* Channel thread conversation: @thread.v2 suffix means Thread kind.
+   reply_to_id still targets the specific activity via the same URL scheme. *)
+let test_build_reply_uri_channel_thread () =
+  let uri =
+    Teams.build_reply_uri ~service_url:"https://smba.trafficmanager.net/amer"
+      ~conversation_id:"19:channel-thread-id@thread.v2"
+      ~reply_to_id:"act-thread-1"
+  in
+  Alcotest.(check bool)
+    "channel thread reply contains activities path" true
+    (String.length uri > 0
+    && String.sub uri 0
+         (String.length "https://smba.trafficmanager.net/amer/v3/conversations/")
+       = "https://smba.trafficmanager.net/amer/v3/conversations/");
+  Alcotest.(check bool)
+    "channel thread reply ends with activity id" true
+    (let suffix = "/activities/act-thread-1" in
+     let ulen = String.length uri in
+     let slen = String.length suffix in
+     ulen >= slen && String.sub uri (ulen - slen) slen = suffix)
+
+(* parse_activity extracts activity_id correctly so callers can use it
+   as reply_to_id for threaded replies. *)
+let test_parse_activity_extracts_activity_id_for_reply () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"please reply"
+      ~activity_id:"msg-target-99" ~service_url:"https://svc" ~user_id:"u1"
+      ~user_name:"Alice" ~conversation_id:"conv-r" ~team_id:"t1" ()
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check string)
+        "activity_id usable as reply_to_id" "msg-target-99" a.activity_id
+
+(* parse_activity with @thread.v2 conversation_id — the extracted
+   conversation_id preserves the thread suffix for key construction. *)
+let test_parse_activity_thread_conversation_id () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"threaded" ~activity_id:"act-t"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Bob"
+      ~conversation_id:"19:abc@thread.v2" ~team_id:"t1" ()
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check bool)
+        "@thread.v2 suffix preserved" true
+        (Room_session.is_thread_conversation_id a.conversation_id);
+      Alcotest.(check string)
+        "session key reflects thread" "teams:t1:19:abc@thread.v2"
+        (Teams.session_key ~team_id:a.team_id ~conversation_id:a.conversation_id)
+
+(* Room_session.detect_teams_kind correctly classifies room types:
+   - Thread: conversation_id ends with @thread.v2
+   - Personal: team_id = "personal"
+   - Room: everything else *)
+let test_detect_teams_kind_thread () =
+  Alcotest.(check string)
+    "@thread.v2 -> Thread" "thread"
+    (Room_session.kind_to_string
+       (Room_session.detect_teams_kind "t1" "19:abc@thread.v2"))
+
+let test_detect_teams_kind_personal () =
+  Alcotest.(check string)
+    "personal team_id -> Personal" "personal"
+    (Room_session.kind_to_string
+       (Room_session.detect_teams_kind "personal" "a:1conv-id"))
+
+let test_detect_teams_kind_room () =
+  Alcotest.(check string)
+    "other -> Room" "room"
+    (Room_session.kind_to_string
+       (Room_session.detect_teams_kind "t1" "19:channel-msg"))
+
+(* Reply URL scheme is consistent across all room types — the Bot Framework
+   uses the same /activities/{id} path regardless of room kind. *)
+let test_reply_url_scheme_consistent_across_room_types () =
+  let svc = "https://smba.trafficmanager.net/amer" in
+  let test_cases =
+    [
+      ("personal", "a:1personal-conv", "act-p");
+      ("group", "19:meeting@thread.v2", "act-g");
+      ("channel", "19:channel-msg@thread.v2", "act-c");
+      ("thread", "19:abc@thread.v2", "act-t");
+    ]
+  in
+  List.iter
+    (fun (label, conv_id, reply_id) ->
+      let uri =
+        Teams.build_reply_uri ~service_url:svc ~conversation_id:conv_id
+          ~reply_to_id:reply_id
+      in
+      (* All room types use the same /activities/{id} path scheme *)
+      Alcotest.(check bool)
+        (label ^ " reply URI has activities path")
+        true
+        (let prefix = svc ^ "/v3/conversations/" in
+         let plen = String.length prefix in
+         String.length uri > plen && String.sub uri 0 plen = prefix);
+      Alcotest.(check bool)
+        (label ^ " reply URI ends with reply_id")
+        true
+        (let suffix = "/activities/" ^ reply_id in
+         let ulen = String.length uri in
+         let slen = String.length suffix in
+         ulen >= slen && String.sub uri (ulen - slen) slen = suffix))
+    test_cases
+
+(* B464: empty text guard — both send_reply and edit_activity must short-circuit
+   without calling fetch_token / hitting HTTP. We assert this by using an
+   intentionally invalid service_url; if the guard didn't fire, the next branch
+   would log an error about service_url scheme. With the guard, we get only the
+   "refusing to send empty reply" warning and an empty activity_id back. *)
+let test_send_reply_empty_text_short_circuits () =
+  let cfg = test_teams_config () in
+  let result =
+    Lwt_main.run
+      (Teams.send_reply ~config:cfg
+         ~service_url:"https://smba.trafficmanager.net/au/test/"
+         ~conversation_id:"19:test@thread.v2" ~reply_to_id:"" ~text:"" ())
+  in
+  Alcotest.(check string) "empty text returns empty activity_id" "" result
+
+let test_send_reply_whitespace_only_short_circuits () =
+  let cfg = test_teams_config () in
+  let result =
+    Lwt_main.run
+      (Teams.send_reply ~config:cfg
+         ~service_url:"https://smba.trafficmanager.net/au/test/"
+         ~conversation_id:"19:test@thread.v2" ~reply_to_id:"" ~text:"   \n\t  "
+         ())
+  in
+  Alcotest.(check string) "whitespace-only returns empty activity_id" "" result
+
+let test_edit_activity_empty_text_short_circuits () =
+  let cfg = test_teams_config () in
+  (* Should return unit immediately without HTTP. *)
+  Lwt_main.run
+    (Teams.edit_activity ~config:cfg
+       ~service_url:"https://smba.trafficmanager.net/au/test/"
+       ~conversation_id:"19:test@thread.v2" ~activity_id:"act-1" ~text:"" ())
+
 let suite =
   [
     Alcotest.test_case "B464: send_reply empty text short-circuits" `Quick
@@ -1009,6 +1612,38 @@ let suite =
       test_parse_activity_missing_from_name;
     Alcotest.test_case "session_key format" `Quick test_session_key;
     Alcotest.test_case "session_key personal" `Quick test_session_key_personal;
+    Alcotest.test_case "resolve_session_key uses room binding" `Quick
+      test_resolve_session_key_uses_room_binding;
+    Alcotest.test_case "resolve_session_key falls back to team conversation"
+      `Quick test_resolve_session_key_falls_back_to_team_conversation;
+    Alcotest.test_case "consent room context uses room binding" `Quick
+      test_consent_room_context_uses_room_binding;
+    Alcotest.test_case "room history captures bound room messages" `Quick
+      test_room_history_capture_for_bound_room;
+    Alcotest.test_case "room history requires room binding" `Quick
+      test_room_history_privacy_guard_requires_binding;
+    Alcotest.test_case "room history respects capabilities gate" `Quick
+      test_room_history_respects_capabilities_gate;
+    Alcotest.test_case "normalize /clawq known subcommand" `Quick
+      test_normalize_clawq_slash_known_subcommand;
+    Alcotest.test_case "normalize /clawq unknown subcommand" `Quick
+      test_normalize_clawq_slash_unknown_subcommand_shows_help;
+    Alcotest.test_case "normalize /clawq admin subcommand remains gated" `Quick
+      test_normalize_clawq_slash_admin_subcommand_still_gated;
+    Alcotest.test_case "rate limit message matches Slack" `Quick
+      test_teams_rate_limit_message_matches_slack_text;
+    Alcotest.test_case "rate limit enforced like Slack" `Quick
+      test_teams_rate_limit_enforced_like_slack;
+    Alcotest.test_case "menu card renders imBack actions" `Quick
+      test_teams_menu_card_renders_imback_actions;
+    Alcotest.test_case "menu command sends adaptive card" `Quick
+      test_teams_menu_command_sends_adaptive_card;
+    Alcotest.test_case "menu filters room profile tools" `Quick
+      test_teams_menu_filters_room_profile_tools;
+    Alcotest.test_case "bg card filters room profile tools" `Quick
+      test_teams_bg_card_filters_room_profile_tools;
+    Alcotest.test_case "agent error replies like Slack" `Quick
+      test_teams_agent_error_replies_like_slack;
     Alcotest.test_case "strip_at_mentions" `Quick test_strip_at_mentions;
     Alcotest.test_case "strip_at_mentions multiple" `Quick
       test_strip_at_mentions_multiple;
@@ -1087,9 +1722,13 @@ let suite =
       test_temp_downloads_cleanup;
     Alcotest.test_case "file consent card JSON" `Quick
       test_build_file_consent_card;
+    Alcotest.test_case "file consent card room context" `Quick
+      test_build_file_consent_card_includes_room_profile_context;
     Alcotest.test_case "file info card JSON" `Quick test_build_file_info_card;
     Alcotest.test_case "pending consent store and get" `Quick
       test_pending_consent_store_and_get;
+    Alcotest.test_case "pending consent room context" `Quick
+      test_pending_consent_preserves_room_context;
     Alcotest.test_case "pending consent expired" `Quick
       test_pending_consent_expired;
     Alcotest.test_case "pending consent consumed on get" `Quick
@@ -1100,6 +1739,8 @@ let suite =
       test_file_consent_invoke_returns_immediately;
     Alcotest.test_case "file consent invoke expired returns 200" `Quick
       test_file_consent_invoke_expired_returns_200;
+    Alcotest.test_case "file consent invoke room context" `Quick
+      test_file_consent_context_roundtrips_from_invoke;
     Alcotest.test_case "file consent invoke decline" `Quick
       test_file_consent_invoke_decline;
     Alcotest.test_case "handle_invoke file consent decline" `Quick
@@ -1112,4 +1753,27 @@ let suite =
       test_parse_activity_card_filtered;
     Alcotest.test_case "parse_activity attachment only" `Quick
       test_parse_activity_attachment_only;
+    (* P11.M3.E3.T001: Reply targeting tests *)
+    Alcotest.test_case "reply_uri with reply_to_id" `Quick
+      test_build_reply_uri_with_reply_to_id;
+    Alcotest.test_case "reply_uri empty reply_to_id" `Quick
+      test_build_reply_uri_empty_reply_to_id;
+    Alcotest.test_case "reply_uri personal chat" `Quick
+      test_build_reply_uri_personal_chat;
+    Alcotest.test_case "reply_uri group chat" `Quick
+      test_build_reply_uri_group_chat;
+    Alcotest.test_case "reply_uri channel thread" `Quick
+      test_build_reply_uri_channel_thread;
+    Alcotest.test_case "parse_activity extracts activity_id for reply" `Quick
+      test_parse_activity_extracts_activity_id_for_reply;
+    Alcotest.test_case "parse_activity thread conversation_id" `Quick
+      test_parse_activity_thread_conversation_id;
+    Alcotest.test_case "detect_teams_kind thread" `Quick
+      test_detect_teams_kind_thread;
+    Alcotest.test_case "detect_teams_kind personal" `Quick
+      test_detect_teams_kind_personal;
+    Alcotest.test_case "detect_teams_kind room" `Quick
+      test_detect_teams_kind_room;
+    Alcotest.test_case "reply URI scheme consistent across room types" `Quick
+      test_reply_url_scheme_consistent_across_room_types;
   ]

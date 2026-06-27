@@ -887,4 +887,99 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
             ] );
       ]
   in
+  let fields =
+    if cfg.room_profiles = [] then fields
+    else
+      fields
+      @ [
+          ( "room_profiles",
+            `List
+              (List.map
+                 (fun (p : room_profile) ->
+                   `Assoc
+                     ([
+                        ("id", `String p.id);
+                        ("model", `String p.model);
+                        ("system_prompt", `String p.system_prompt);
+                        ("max_tool_iterations", `Int p.max_tool_iterations);
+                        ("status", `String p.status);
+                      ]
+                     @ (if p.allowed_tools = [] then []
+                        else
+                          [
+                            ( "allowed_tools",
+                              `List
+                                (List.map (fun t -> `String t) p.allowed_tools)
+                            );
+                          ])
+                     @ (if p.denied_tools = [] then []
+                        else
+                          [
+                            ( "denied_tools",
+                              `List
+                                (List.map (fun t -> `String t) p.denied_tools)
+                            );
+                          ])
+                     @ (if not p.ambient_enabled then []
+                        else [ ("ambient_enabled", `Bool true) ])
+                     @ (let qs = p.ambient_quiet_start in
+                        let qe = p.ambient_quiet_end in
+                        if
+                          qs = Ambient_policy.default_ambient_quiet_start
+                          && qe = Ambient_policy.default_ambient_quiet_end
+                        then []
+                        else
+                          [
+                            ("ambient_quiet_start", `Int qs);
+                            ("ambient_quiet_end", `Int qe);
+                          ])
+                     @ (if p.ambient_rate_limit_rph = 0 then []
+                        else
+                          [
+                            ( "ambient_rate_limit_rph",
+                              `Int p.ambient_rate_limit_rph );
+                          ])
+                     @
+                     match p.display_name with
+                     | Some name -> [ ("display_name", `String name) ]
+                     | None -> []))
+                 cfg.room_profiles) );
+        ]
+  in
+  let fields =
+    if cfg.room_profile_codebase_grants = [] then fields
+    else
+      fields
+      @ [
+          ( "room_profile_codebase_grants",
+            `List
+              (List.map
+                 (fun (profile_id, patterns) ->
+                   `Assoc
+                     [
+                       ("profile_id", `String profile_id);
+                       ( "patterns",
+                         `List (List.map (fun p -> `String p) patterns) );
+                     ])
+                 cfg.room_profile_codebase_grants) );
+        ]
+  in
+  let fields =
+    if cfg.room_profile_bindings = [] then fields
+    else
+      fields
+      @ [
+          ( "room_profile_bindings",
+            `List
+              (List.map
+                 (fun (b : room_profile_binding) ->
+                   `Assoc
+                     [
+                       ("profile_id", `String b.profile_id);
+                       ("room", `String b.room);
+                       ("active", `Bool b.active);
+                     ])
+                 cfg.room_profile_bindings) );
+        ]
+  in
   `Assoc fields

@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Profile Schema and Binding Model
       path: 01-profile-schema-and-binding-mod
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Stable room workspace path generation, containment validation, and adversarial path tests.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Room Workspace Safety
       path: 02-room-workspace-safety
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Single construct+parse authority for room/thread/routine keys and migration of positional parsers.
@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Typed Room Session Keys
       path: 03-typed-room-session-keys
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Admin-only list/show/bind/unbind/rebind/delete/rename surfaces and safe lifecycle semantics.
@@ -36,15 +36,15 @@ epics:
       locked: false
       name: Room Admin Surface and Lifecycle
       path: 04-room-admin-surface-and-lifecyc
-      status: pending
+      status: done
 estimate_hours: 28
 id: P11.M1
 locked: false
 name: Room Profile Foundation
 stats:
     blocked: 0
-    done: 0
+    done: 9
     in_progress: 0
-    pending: 9
+    pending: 0
     total_tasks: 9
-status: pending
+status: done

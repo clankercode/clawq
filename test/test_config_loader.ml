@@ -1082,6 +1082,231 @@ let test_postmortem_model_missing_uses_default () =
     "postmortem.model: missing section → default"
     Runtime_config.default_postmortem_config.model cfg.postmortem.model
 
+let test_room_profiles_default_empty () =
+  Alcotest.(check int)
+    "default room_profiles empty" 0
+    (List.length Runtime_config.default.room_profiles);
+  Alcotest.(check int)
+    "default room_profile_bindings empty" 0
+    (List.length Runtime_config.default.room_profile_bindings)
+
+let test_parse_room_profiles () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "room_profiles": [
+          {"id": "p1", "model": "openai:gpt-4o", "system_prompt": "You are helpful", "max_tool_iterations": 5},
+          {"id": "p2", "model": "anthropic:claude-sonnet-4-6"}
+        ],
+        "room_profile_bindings": [
+          {"profile_id": "p1", "room": "general", "active": true},
+          {"profile_id": "p2", "room": "dev", "active": false}
+        ]
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check int) "room_profiles count" 2 (List.length cfg.room_profiles);
+  let p1 = List.nth cfg.room_profiles 0 in
+  Alcotest.(check string) "p1.id" "p1" p1.id;
+  Alcotest.(check string) "p1.model" "openai:gpt-4o" p1.model;
+  Alcotest.(check string) "p1.system_prompt" "You are helpful" p1.system_prompt;
+  Alcotest.(check int) "p1.max_tool_iterations" 5 p1.max_tool_iterations;
+  let p2 = List.nth cfg.room_profiles 1 in
+  Alcotest.(check string) "p2.id" "p2" p2.id;
+  Alcotest.(check string) "p2.system_prompt empty" "" p2.system_prompt;
+  Alcotest.(check int)
+    "p2.max_tool_iterations default" 10 p2.max_tool_iterations;
+  Alcotest.(check int)
+    "room_profile_bindings count" 2
+    (List.length cfg.room_profile_bindings);
+  let b1 = List.nth cfg.room_profile_bindings 0 in
+  Alcotest.(check string) "b1.profile_id" "p1" b1.profile_id;
+  Alcotest.(check string) "b1.room" "general" b1.room;
+  Alcotest.(check bool) "b1.active" true b1.active;
+  let b2 = List.nth cfg.room_profile_bindings 1 in
+  Alcotest.(check bool) "b2.active default false" false b2.active
+
+let test_room_profiles_roundtrip () =
+  let cfg =
+    {
+      Runtime_config.default with
+      room_profiles =
+        [
+          {
+            Runtime_config.id = "test-p";
+            display_name = None;
+            model = "openai:gpt-4o";
+            system_prompt = "hello";
+            max_tool_iterations = 7;
+            status = "active";
+            allowed_tools = [];
+            denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
+          };
+        ];
+      room_profile_bindings =
+        [
+          {
+            Runtime_config.profile_id = "test-p";
+            room = "general";
+            active = true;
+          };
+        ];
+      room_profile_codebase_grants = [ ("test-p", [ "$CLAWQ_WORKSPACE/**" ]) ];
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  Alcotest.(check int)
+    "room_profiles roundtrip" 1
+    (List.length cfg2.room_profiles);
+  let p = List.nth cfg2.room_profiles 0 in
+  Alcotest.(check string) "id roundtrip" "test-p" p.id;
+  Alcotest.(check string) "model roundtrip" "openai:gpt-4o" p.model;
+  Alcotest.(check int)
+    "bindings roundtrip" 1
+    (List.length cfg2.room_profile_bindings);
+  let b = List.nth cfg2.room_profile_bindings 0 in
+  Alcotest.(check string) "binding room" "general" b.room;
+  Alcotest.(check bool) "binding active" true b.active;
+  Alcotest.(check (list string))
+    "codebase grants roundtrip" [ "$CLAWQ_WORKSPACE/**" ]
+    (Runtime_config.room_profile_codebase_grants_for_profile cfg2
+       ~profile_id:"test-p")
+
+let test_room_profiles_to_json_omits_empty () =
+  let json = Runtime_config.to_json Runtime_config.default in
+  Alcotest.(check bool)
+    "empty room_profiles omitted" true
+    (Yojson.Safe.Util.member "room_profiles" json = `Null);
+  Alcotest.(check bool)
+    "empty room_profile_bindings omitted" true
+    (Yojson.Safe.Util.member "room_profile_bindings" json = `Null)
+
+let test_room_profiles_duplicate_ids_rejects () =
+  let json =
+    {|{
+      "room_profiles": [
+        {"id": "dup", "model": "openai:gpt-4o"},
+        {"id": "dup", "model": "anthropic:claude-sonnet-4-6"}
+      ]
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "room_profiles rejected (empty)" 0
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings rejected (empty)" 0
+              (List.length cfg.room_profile_bindings))
+      in
+      Alcotest.(check bool)
+        "warns about duplicate profile id" true
+        (Test_helpers.string_contains stderr_output "duplicate profile id"))
+
+let test_room_profiles_duplicate_active_bindings_rejects () =
+  let json =
+    {|{
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o"},
+        {"id": "p2", "model": "anthropic:claude-sonnet-4-6"}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true},
+        {"profile_id": "p2", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "room_profiles rejected (empty)" 0
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings rejected (empty)" 0
+              (List.length cfg.room_profile_bindings))
+      in
+      Alcotest.(check bool)
+        "warns about duplicate active room binding" true
+        (Test_helpers.string_contains stderr_output
+           "duplicate active binding for room"))
+
+let test_room_profiles_multi_room_binding_rejects () =
+  let json =
+    {|{
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o"}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true},
+        {"profile_id": "p1", "room": "dev", "active": true}
+      ]
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "room_profiles rejected (empty)" 0
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings rejected (empty)" 0
+              (List.length cfg.room_profile_bindings))
+      in
+      Alcotest.(check bool)
+        "warns about multi-room binding" true
+        (Test_helpers.string_contains stderr_output "bound to multiple rooms"))
+
+let test_room_profile_binding_active_default_true () =
+  let json =
+    {|{
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general"}
+      ]
+    }|}
+  in
+  let cfg = Config_loader.parse_config (Yojson.Safe.from_string json) in
+  Alcotest.(check int)
+    "bindings count" 1
+    (List.length cfg.room_profile_bindings);
+  let b = List.nth cfg.room_profile_bindings 0 in
+  Alcotest.(check bool) "active defaults to true" true b.active
+
+let test_room_profile_orphan_binding_rejects () =
+  let json =
+    {|{
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o"}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "ghost", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "room_profiles rejected (empty)" 0
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings rejected (empty)" 0
+              (List.length cfg.room_profile_bindings))
+      in
+      Alcotest.(check bool)
+        "warns about non-existent profile" true
+        (Test_helpers.string_contains stderr_output "non-existent profile"))
+
 let suite =
   [
     Alcotest.test_case "load warns on invalid port" `Quick
@@ -1190,6 +1415,23 @@ let suite =
       test_postmortem_model_string_preserved;
     Alcotest.test_case "B613: postmortem.model missing uses default" `Quick
       test_postmortem_model_missing_uses_default;
+    Alcotest.test_case "room_profiles default empty" `Quick
+      test_room_profiles_default_empty;
+    Alcotest.test_case "parse room profiles" `Quick test_parse_room_profiles;
+    Alcotest.test_case "room_profiles roundtrip" `Quick
+      test_room_profiles_roundtrip;
+    Alcotest.test_case "to_json omits empty room profiles" `Quick
+      test_room_profiles_to_json_omits_empty;
+    Alcotest.test_case "room_profiles duplicate ids rejects" `Quick
+      test_room_profiles_duplicate_ids_rejects;
+    Alcotest.test_case "room_profiles duplicate active bindings rejects" `Quick
+      test_room_profiles_duplicate_active_bindings_rejects;
+    Alcotest.test_case "room_profiles multi-room binding rejects" `Quick
+      test_room_profiles_multi_room_binding_rejects;
+    Alcotest.test_case "room_profile binding active default true" `Quick
+      test_room_profile_binding_active_default_true;
+    Alcotest.test_case "room_profiles orphan binding rejects" `Quick
+      test_room_profile_orphan_binding_rejects;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)

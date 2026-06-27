@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P13.M2.E2.T003
@@ -6,12 +7,9 @@ depends_on:
 estimate_hours: 2
 id: P13.M2.E3.T002
 priority: medium
-status: pending
-tags:
-    - room-agent
-    - ambient
-    - safety
-    - admin
+started_at: null
+status: done
+tags: []
 title: Add ambient admin inspection surface
 ---
 Acceptance: admins can inspect recent watcher decisions, suppressions, rate-limit state, quiet-hours skips, and delivery failures without exposing unauthorized content. Files: admin/command/status paths, watcher inspection tests.

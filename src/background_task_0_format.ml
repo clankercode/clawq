@@ -8,6 +8,17 @@ type status =
   | DirtyWorktree
   | Cancelled
 
+(** Sparse progress state for room-origin work. Persisted best-effort; no raw
+    logs are stored for posting. *)
+type progress_state =
+  | Accepted
+  | Planned
+  | Working
+  | Blocked
+  | Completed
+  | Progress_failed
+  | Needs_input
+
 type health =
   | Active
   | Quiet
@@ -58,6 +69,14 @@ type task = {
       (** B720: JSON-serialized parent conversation history injected into the
           child session before its first turn, giving the subagent context about
           what was discussed. *)
+  profile_id : int option;
+  origin_json : string option;
+  thread_id : string option;
+  requester : string option;
+  progress_state : progress_state option;
+      (** Sparse progress state for room-origin work. Persisted best-effort; no
+          raw logs are stored for posting. Derived from task status when not
+          explicitly set. *)
 }
 
 type queued_message = {
@@ -140,6 +159,52 @@ let status_of_string s =
   | "dirty_worktree" -> DirtyWorktree
   | "cancelled" -> Cancelled
   | _ -> Failed
+
+let string_of_progress_state = function
+  | Accepted -> "accepted"
+  | Planned -> "planned"
+  | Working -> "working"
+  | Blocked -> "blocked"
+  | Completed -> "completed"
+  | Progress_failed -> "failed"
+  | Needs_input -> "needs-input"
+
+let progress_state_of_string s =
+  match String.lowercase_ascii (String.trim s) with
+  | "accepted" -> Some Accepted
+  | "planned" -> Some Planned
+  | "working" -> Some Working
+  | "blocked" -> Some Blocked
+  | "completed" -> Some Completed
+  | "failed" -> Some Progress_failed
+  | "needs-input" | "needs_input" -> Some Needs_input
+  | _ -> None
+
+let is_terminal_progress_state = function
+  | Completed | Progress_failed -> true
+  | Accepted | Planned | Working | Blocked | Needs_input -> false
+
+(** Derive a progress_state from a background task status for room-origin tasks
+    when no explicit progress state has been set. *)
+let progress_state_of_status = function
+  | Queued -> Some Accepted
+  | Running -> Some Working
+  | Succeeded -> Some Completed
+  | Failed | DirtyWorktree -> Some Progress_failed
+  | Cancelled -> None
+
+(** Get the effective progress state for a task. Returns the explicit
+    progress_state if set; for room-origin tasks (has origin_json with room_id),
+    derives from the task status. Returns None for non-room tasks with no
+    explicit state. *)
+let effective_progress_state (task : task) : progress_state option =
+  match task.progress_state with
+  | Some _ as ps -> ps
+  | None ->
+      (* Only derive for room-origin tasks *)
+      if Option.is_some task.origin_json then
+        progress_state_of_status task.status
+      else None
 
 let is_terminal_status = function
   | Succeeded | Failed | DirtyWorktree | Cancelled -> true
@@ -414,7 +479,14 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   (match task.agent_name with
   | Some name -> add (Printf.sprintf "agent: %s" name)
   | None -> ());
+  (match task.requester with
+  | Some r when String.trim r <> "" -> add (Printf.sprintf "requester: %s" r)
+  | _ -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
+  (* Show progress state for room-origin tasks *)
+  (match effective_progress_state task with
+  | Some ps -> add (Printf.sprintf "progress: %s" (string_of_progress_state ps))
+  | None -> ());
   if task.retry_count > 0 then
     add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
   (match task.parent_task_id with
@@ -477,6 +549,7 @@ and task_list_table_data tasks =
         { header = "ID"; align = Right; min_width = 2; flex = false };
         { header = "RUNNER"; align = Left; min_width = 6; flex = false };
         { header = "STATUS"; align = Left; min_width = 6; flex = false };
+        { header = "PROGRESS"; align = Left; min_width = 8; flex = false };
         { header = "HEALTH"; align = Left; min_width = 6; flex = false };
         { header = "AGE"; align = Left; min_width = 3; flex = false };
         { header = "RUNTIME"; align = Left; min_width = 7; flex = false };
@@ -497,10 +570,16 @@ and task_list_table_data tasks =
           else if task.automerge then "auto"
           else "manual"
         in
+        let progress =
+          match effective_progress_state task with
+          | Some ps -> string_of_progress_state ps
+          | None -> "-"
+        in
         [
           string_of_int task.id;
           string_of_runner task.runner;
           string_of_status task.status;
+          progress;
           string_of_health health;
           age;
           runtime;
@@ -604,6 +683,12 @@ let terse_finished_message (task : task) =
       in
       base ^ merge_suffix ^ " -- " ^ short ^ "]"
   | _ -> base ^ merge_suffix ^ "]"
+
+let room_context_summary (task : task) =
+  match Option.bind task.origin_json Room_origin.of_json_string_opt with
+  | Some origin when not (Room_origin.is_empty origin) ->
+      Some (Room_origin.display_summary origin)
+  | _ -> task.requester
 
 let finalize_hint (task : task) =
   match (task.status, task.branch, task.worktree_path) with
@@ -720,6 +805,9 @@ let channel_notification_message ?summary ?git_info (task : task) =
     (Printf.sprintf "Background task #%d finished: %s%s" task.id status_word
        merge_suffix);
   add (Printf.sprintf "%s (%s)" (task_label task) elapsed);
+  (match room_context_summary task with
+  | Some context -> add ("Room: " ^ context)
+  | None -> ());
   (match git_info with Some info -> add (format_git_status info) | None -> ());
   (match summary with
   | Some s -> add (Printf.sprintf "Summary: %s" s)

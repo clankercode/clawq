@@ -1656,6 +1656,11 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     follow_up_prompt = None;
     description = None;
     context_snapshot = None;
+    profile_id = None;
+    origin_json = None;
+    thread_id = None;
+    requester = None;
+    progress_state = None;
   }
 
 let test_local_background_turn_template_persists_history_and_model () =
@@ -2027,6 +2032,84 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
   | msgs ->
       Alcotest.failf "expected exactly one injected wake-up message, got %d"
         (List.length msgs)
+
+let test_notify_background_task_finished_routes_teams_room_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"incident-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+  let teams_config : Runtime_config.teams_config =
+    {
+      app_id = "teams-app";
+      app_secret = "teams-secret";
+      tenant_id = "teams-tenant";
+      webhook_path = "/teams/webhook";
+      service_url = "https://svc";
+      allow_teams = [ "*" ];
+      allow_users = [ "*" ];
+      default_model = None;
+      mention_mode = "entity";
+      file_consent_cards = true;
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        { Runtime_config.default.channels with teams = Some teams_config };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let dispatched = ref [] in
+  let injected = ref [] in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_teams =
+        (fun ~config:_ ~channel_id ~text ->
+          dispatched := (channel_id, text) :: !dispatched;
+          Lwt.return "activity-123");
+    }
+  in
+  Session.set_special_command_handler session_manager
+    (fun ~key ~message ~send_progress:_ ~interrupt_check:_ ->
+      if key = "teams:conv-bound" then begin
+        injected := (key, message) :: !injected;
+        Lwt.return_some "room agent handled completion"
+      end
+      else if key = "teams:team-1:conv-bound" then
+        Alcotest.fail "completion routed through team-scoped Teams session"
+      else Lwt.return_none);
+  let channel_id =
+    Teams.encode_channel_id ~service_url:"https://svc"
+      ~conversation_id:"conv-bound"
+  in
+  let task =
+    make_test_task ~session_key:(Some "teams:team-1:conv-bound")
+      ~channel:(Some "teams") ~channel_id:(Some channel_id) ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.notify_background_task_finished ~continuation_delay:100.0 ~senders
+         ~session_manager ~config ~db task
+     in
+     let* () = Lwt.pause () in
+     Session.cancel_autonomous_continuation session_manager
+       ~key:"teams:conv-bound");
+  Alcotest.(check int) "one room-agent injection" 1 (List.length !injected);
+  (match List.rev !injected with
+  | [ (key, message) ] ->
+      Alcotest.(check string) "room session key" "teams:conv-bound" key;
+      Alcotest.(check bool)
+        "wake-up includes room context" true
+        (Test_helpers.string_contains message "Teams room=conv-bound")
+  | _ -> Alcotest.fail "expected one room-agent wake-up");
+  Alcotest.(check bool)
+    "agent response dispatched to Teams channel" true
+    (List.exists
+       (fun (cid, text) ->
+         cid = channel_id && text = "room agent handled completion")
+       !dispatched)
 
 let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -2875,7 +2958,7 @@ let test_refresh_task_tree_tools_replaces_start_agent_workspace_on_reload () =
                ~parent_id:None ~title:"Implement" ~status:Task_tree.Pending
                ~note:None ~depends_on:[] ~agent_model:None ~agent_type:None
                ~agent_prompt:(Some "Build it") ~agent_details:None
-               ~autostart:false);
+               ~autostart:false ());
           current_config := { !current_config with workspace = repo2 };
           Session.update_config ~source:"test_reload" session_manager
             !current_config;
@@ -3255,6 +3338,8 @@ let suite =
       `Quick test_local_background_turn_no_template_subagent_default_model;
     Alcotest.test_case "background completion dispatches and injects wake-up"
       `Quick test_notify_background_task_finished_dispatches_and_injects_wakeup;
+    Alcotest.test_case "Teams room-bound completion routes through room agent"
+      `Quick test_notify_background_task_finished_routes_teams_room_binding;
     Alcotest.test_case "background completion queues wake-up when session busy"
       `Quick
       test_notify_background_task_finished_queues_wakeup_when_session_busy;

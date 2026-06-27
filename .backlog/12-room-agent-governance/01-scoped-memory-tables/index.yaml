@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Scoped Memory Schema and Migration
       path: 01-scoped-memory-schema-and-migra
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Actor-context scoped memory APIs and default-deny non-transitive grant resolution.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Scoped Memory APIs and Grants
       path: 02-scoped-memory-apis-and-grants
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Profiled room prompt/search paths respect scoped memory and cannot read other channels.
@@ -27,15 +27,15 @@ epics:
       locked: false
       name: Scoped Search and Prompt Injection
       path: 03-scoped-search-and-prompt-injec
-      status: pending
+      status: done
 estimate_hours: 36
 id: P12.M1
 locked: false
 name: Scoped Memory Tables
 stats:
     blocked: 0
-    done: 0
+    done: 8
     in_progress: 0
-    pending: 8
+    pending: 0
     total_tasks: 8
-status: pending
+status: done

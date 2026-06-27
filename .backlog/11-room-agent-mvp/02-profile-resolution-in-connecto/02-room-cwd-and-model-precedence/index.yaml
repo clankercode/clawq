@@ -6,11 +6,11 @@ locked: false
 name: Room CWD and Model Precedence
 stats:
     blocked: 0
-    done: 0
+    done: 2
     in_progress: 0
-    pending: 2
+    pending: 0
     total: 2
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -20,7 +20,7 @@ tasks:
       file: T001-apply-room-cwd-and-profile-mod.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Apply room CWD precedence and repo policy
     - complexity: high
@@ -30,6 +30,6 @@ tasks:
       file: T002-apply-room-profile-model-templ.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Apply room profile model template and OAuth precedence

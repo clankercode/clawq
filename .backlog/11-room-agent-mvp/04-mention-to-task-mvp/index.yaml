@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Room Task Origin Binding
       path: 01-room-task-origin-binding
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Deterministic quick-reply vs async-task classification and policy-aware task launch.

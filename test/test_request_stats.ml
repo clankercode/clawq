@@ -4,9 +4,46 @@ let with_db f =
       f db)
 
 let insert ~db ~session_key ~provider ~model ~prompt_tokens ~completion_tokens
-    ?cost_usd ?added_prompt_tokens () =
+    ?cost_usd ?added_prompt_tokens ?profile_id ?latency_ms () =
   Request_stats.record ~db ~session_key ~provider ~model ~prompt_tokens
-    ~completion_tokens ?cost_usd ?added_prompt_tokens ()
+    ~completion_tokens ?cost_usd ?added_prompt_tokens ?profile_id ?latency_ms ()
+
+let exec_exn db sql =
+  match Sqlite3.exec db sql with
+  | Sqlite3.Rc.OK -> ()
+  | rc ->
+      failwith
+        (Printf.sprintf "sqlite exec failed: %s" (Sqlite3.Rc.to_string rc))
+
+let request_stat_profile_latency ~db ~session_key =
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT profile_id, latency_ms, requested_at FROM request_stats WHERE \
+       session_key = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let profile_id =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.INT n -> Some (Int64.to_int n)
+            | _ -> None
+          in
+          let latency_ms =
+            match Sqlite3.column stmt 1 with
+            | Sqlite3.Data.INT n -> Some (Int64.to_int n)
+            | _ -> None
+          in
+          let requested_at =
+            match Sqlite3.column stmt 2 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          (profile_id, latency_ms, requested_at)
+      | _ -> Alcotest.fail "request_stats row not found")
 
 let test_total_summary_empty () =
   with_db (fun db ->
@@ -169,6 +206,94 @@ let test_added_prompt_tokens_stored () =
       let s = Request_stats.total_summary ~db in
       Alcotest.(check int) "added stored" 800 s.total_added_prompt_tokens)
 
+let test_profiled_stats_attribution_stored () =
+  with_db (fun db ->
+      insert ~db ~session_key:"room-session" ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:100 ~completion_tokens:25 ~cost_usd:0.01 ~profile_id:42
+        ~latency_ms:123 ();
+      let profile_id, latency_ms, requested_at =
+        request_stat_profile_latency ~db ~session_key:"room-session"
+      in
+      Alcotest.(check (option int)) "profile_id stored" (Some 42) profile_id;
+      Alcotest.(check (option int)) "latency stored" (Some 123) latency_ms;
+      Alcotest.(check bool)
+        "timestamp stored" true
+        (String.length requested_at > 0))
+
+let test_summary_query_filters_profile_and_time_range () =
+  with_db (fun db ->
+      insert ~db ~session_key:"old-p1" ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:100 ~completion_tokens:10 ~cost_usd:0.10 ~profile_id:1 ();
+      insert ~db ~session_key:"new-p1" ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:200 ~completion_tokens:20 ~cost_usd:0.20 ~profile_id:1 ();
+      insert ~db ~session_key:"new-p2" ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:400 ~completion_tokens:40 ~cost_usd:0.40 ~profile_id:2 ();
+      exec_exn db
+        "UPDATE request_stats SET requested_at = '2026-01-01 00:00:00' WHERE \
+         session_key = 'old-p1'";
+      exec_exn db
+        "UPDATE request_stats SET requested_at = '2026-01-02 00:00:00' WHERE \
+         session_key = 'new-p1'";
+      exec_exn db
+        "UPDATE request_stats SET requested_at = '2026-01-02 00:00:00' WHERE \
+         session_key = 'new-p2'";
+      let s =
+        Request_stats.summary_query ~db ~profile_id:1
+          ~since:"2026-01-01 12:00:00" ~until:"2026-01-03 00:00:00" ()
+      in
+      Alcotest.(check (float 0.0001)) "profile/time cost" 0.20 s.total_cost_usd;
+      Alcotest.(check int) "profile/time turns" 1 s.total_turns;
+      Alcotest.(check int) "profile/time prompt" 200 s.total_prompt_tokens)
+
+let test_profile_resolution_from_room_sessions () =
+  with_db (fun db ->
+      Memory.init_room_profiles_schema db;
+      Memory.init_room_profile_bindings_schema db;
+      let profile_id = Memory.insert_room_profile ~db ~name:"coding" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"slack:C1" ~profile_id;
+      insert ~db ~session_key:"slack:C1" ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:100 ~completion_tokens:10 ();
+      let child_key =
+        Room_session.child_thread_key ~connector:"slack" ~profile_id:"coding"
+          ~room_id:"C1" ()
+      in
+      insert ~db ~session_key:child_key ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:200 ~completion_tokens:20 ();
+      let routine_key =
+        Room_session.routine_key ~profile_id:"coding" ~routine_id:"daily" ()
+      in
+      insert ~db ~session_key:routine_key ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:300 ~completion_tokens:30 ();
+      let direct_profile, _, _ =
+        request_stat_profile_latency ~db ~session_key:"slack:C1"
+      in
+      let child_profile, _, _ =
+        request_stat_profile_latency ~db ~session_key:child_key
+      in
+      let routine_profile, _, _ =
+        request_stat_profile_latency ~db ~session_key:routine_key
+      in
+      Alcotest.(check (option int))
+        "direct room profile" (Some profile_id) direct_profile;
+      Alcotest.(check (option int))
+        "child thread profile" (Some profile_id) child_profile;
+      Alcotest.(check (option int))
+        "routine profile" (Some profile_id) routine_profile)
+
+let test_unprofiled_stats_fallback () =
+  with_db (fun db ->
+      insert ~db ~session_key:"plain" ~provider:"openai" ~model:"gpt-5.4"
+        ~prompt_tokens:100 ~completion_tokens:10 ~cost_usd:0.10 ();
+      let profile_id, latency_ms, _ =
+        request_stat_profile_latency ~db ~session_key:"plain"
+      in
+      Alcotest.(check (option int)) "profile remains null" None profile_id;
+      Alcotest.(check (option int)) "latency remains null" None latency_ms;
+      let s = Request_stats.summary_query ~db () in
+      Alcotest.(check (float 0.0001))
+        "unprofiled cost counted" 0.10 s.total_cost_usd;
+      Alcotest.(check int) "unprofiled turns counted" 1 s.total_turns)
+
 let test_cache_pricing_calculation () =
   let cost =
     Cost_tracker.calculate_cost_with_cache ~model:"claude-opus-4-6"
@@ -209,6 +334,14 @@ let suite =
     Alcotest.test_case "get_prev_totals empty" `Quick test_get_prev_totals_empty;
     Alcotest.test_case "added_prompt_tokens stored" `Quick
       test_added_prompt_tokens_stored;
+    Alcotest.test_case "profiled stats attribution stored" `Quick
+      test_profiled_stats_attribution_stored;
+    Alcotest.test_case "summary_query filters profile and time range" `Quick
+      test_summary_query_filters_profile_and_time_range;
+    Alcotest.test_case "profile resolution from room sessions" `Quick
+      test_profile_resolution_from_room_sessions;
+    Alcotest.test_case "unprofiled stats fallback" `Quick
+      test_unprofiled_stats_fallback;
     Alcotest.test_case "cache pricing calculation" `Quick
       test_cache_pricing_calculation;
     Alcotest.test_case "cache pricing without cache" `Quick

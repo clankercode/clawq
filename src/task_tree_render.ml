@@ -46,6 +46,10 @@ let render_task_tree tasks =
               (match t.agent_task_id with
               | Some id -> Some (Printf.sprintf "bg=%d" id)
               | None -> None);
+              (match t.requester with
+              | Some r when String.trim r <> "" ->
+                  Some (Printf.sprintf "from=%s" r)
+              | _ -> None);
             ]
         in
         let metadata_str =
@@ -213,9 +217,14 @@ let render_compact ~db ~session_key =
           let note_str =
             match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
           in
+          let requester_str =
+            match t.requester with
+            | Some r when String.trim r <> "" -> " [" ^ r ^ "]"
+            | _ -> ""
+          in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [>] %s — %s%s" (display_id t.id) t.title
-               note_str))
+            (Printf.sprintf "\n  [>] %s — %s%s%s" (display_id t.id) t.title
+               note_str requester_str))
         active_tasks
     end;
     (* Blocked section *)
@@ -230,9 +239,14 @@ let render_compact ~db ~session_key =
           let note_str =
             match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
           in
+          let requester_str =
+            match t.requester with
+            | Some r when String.trim r <> "" -> " [" ^ r ^ "]"
+            | _ -> ""
+          in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [!] %s — %s%s" (display_id t.id) t.title
-               note_str))
+            (Printf.sprintf "\n  [!] %s — %s%s%s" (display_id t.id) t.title
+               note_str requester_str))
         error_tasks
     end;
     (* Next: root-actionable pending tasks (no pending ancestor) *)
@@ -297,6 +311,11 @@ let render_focus ~db ~session_key =
           let note_str =
             match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
           in
+          let requester_str =
+            match t.requester with
+            | Some r when String.trim r <> "" -> " [" ^ r ^ "]"
+            | _ -> ""
+          in
           let ancs = Task_tree_db.get_ancestors ~tasks ~id:t.id in
           let path_ancs =
             match List.rev ancs with _ :: rest -> List.rev rest | [] -> []
@@ -308,8 +327,8 @@ let render_focus ~db ~session_key =
               ^ String.concat " > " (List.map (fun a -> a.title) path_ancs)
           in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [>] %s — %s%s%s" (display_id t.id) t.title
-               note_str path_str))
+            (Printf.sprintf "\n  [>] %s — %s%s%s%s" (display_id t.id) t.title
+               note_str requester_str path_str))
         active_tasks
     end;
     (* --- blocked --- *)
@@ -322,9 +341,14 @@ let render_focus ~db ~session_key =
       List.iter
         (fun t ->
           let note_str = match t.note with Some n -> " — " ^ n | None -> "" in
+          let requester_str =
+            match t.requester with
+            | Some r when String.trim r <> "" -> " [" ^ r ^ "]"
+            | _ -> ""
+          in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [!] %s — %s%s" (display_id t.id) t.title
-               note_str))
+            (Printf.sprintf "\n  [!] %s — %s%s%s" (display_id t.id) t.title
+               note_str requester_str))
         error_tasks
     end;
     (* --- next: children of active first, then actionable pending --- *)

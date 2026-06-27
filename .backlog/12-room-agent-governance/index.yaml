@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 96
 id: P12
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Scoped Memory Tables
       path: 01-scoped-memory-tables
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Enforce room profile tool grants and codebase grants without bypassing global security policy.
@@ -21,7 +21,7 @@ milestones:
       locked: false
       name: Profile Policy and Grants
       path: 02-profile-policy-and-grants
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Add room/profile budget attribution and enforcement plus redacted room activity ledger.
@@ -30,13 +30,13 @@ milestones:
       locked: false
       name: Budgets and Activity Ledger
       path: 03-budgets-and-activity-ledger
-      status: pending
+      status: done
 name: Room Agent Governance
 stats:
     blocked: 0
-    done: 0
+    done: 20
     in_progress: 0
-    pending: 20
+    pending: 0
     total_tasks: 20
-status: pending
+status: done
 weeks: 4

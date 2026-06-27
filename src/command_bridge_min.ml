@@ -494,7 +494,9 @@ let cmd_cron args =
               let base =
                 [
                   j.name;
-                  j.session_key;
+                  (match Scheduler.job_routine_target j with
+                  | Some target -> Printf.sprintf "%s (%s)" j.session_key target
+                  | None -> j.session_key);
                   j.schedule_str;
                   (if j.enabled then "yes" else "no");
                 ]
@@ -637,6 +639,7 @@ let handle args =
   | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
+  | "rooms" :: _ -> unsupported "rooms"
   | "held-items" :: _ -> unsupported "held-items"
   | "rig" :: _ | "rigging" :: _ -> unsupported "rig"
   | "costs" :: _ -> unsupported "costs"

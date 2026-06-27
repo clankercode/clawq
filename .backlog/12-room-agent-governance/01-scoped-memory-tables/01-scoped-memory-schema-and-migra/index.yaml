@@ -6,11 +6,11 @@ locked: false
 name: Scoped Memory Schema and Migration
 stats:
     blocked: 0
-    done: 0
+    done: 2
     in_progress: 0
-    pending: 2
+    pending: 0
     total: 2
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -19,7 +19,7 @@ tasks:
       file: T001-add-scoped-memory-tables-and-m.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add scoped memory tables and migration mechanics
     - complexity: medium
@@ -29,5 +29,6 @@ tasks:
       file: T002-add-legacy-memory-read-in-plac.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add legacy memory read-in-place scope

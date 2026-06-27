@@ -6,11 +6,11 @@ locked: false
 name: Scoped Memory APIs and Grants
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -19,7 +19,7 @@ tasks:
       file: T001-add-scoped-memory-apis-and-gra.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add scoped memory CRUD APIs
     - complexity: high
@@ -29,7 +29,8 @@ tasks:
       file: T002-implement-scoped-memory-grant.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement scoped memory grant resolution
     - complexity: high
       depends_on:
@@ -38,5 +39,6 @@ tasks:
       file: T003-gate-memory-grant-mutations-th.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Gate memory grant mutations through admin tooling

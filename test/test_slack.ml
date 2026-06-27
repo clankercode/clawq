@@ -168,11 +168,12 @@ let test_parse_message_event () =
     {|{"type":"event_callback","event":{"type":"message","channel":"C123","user":"U456","text":"hello"}}|}
   in
   match Slack.parse_event body with
-  | Some (Slack.Message { channel_id; user_id; text; bot_id }) ->
+  | Some (Slack.Message { channel_id; user_id; text; bot_id; thread_ts; _ }) ->
       Alcotest.(check string) "channel" "C123" channel_id;
       Alcotest.(check string) "user" "U456" user_id;
       Alcotest.(check string) "text" "hello" text;
-      Alcotest.(check (option string)) "no bot_id" None bot_id
+      Alcotest.(check (option string)) "no bot_id" None bot_id;
+      Alcotest.(check (option string)) "no thread_ts" None thread_ts
   | _ -> Alcotest.fail "expected Message"
 
 let test_bot_message_ignored () =
@@ -453,6 +454,53 @@ let test_parse_event_no_files () =
       Alcotest.(check int) "no files" 0 (List.length files)
   | _ -> Alcotest.fail "expected Message"
 
+let test_parse_threaded_message () =
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"reply in thread","ts":"1234.5678","thread_ts":"1234.0000"}}|}
+  in
+  match Slack.parse_event body with
+  | Some (Slack.Message { channel_id; text; thread_ts; ts; _ }) ->
+      Alcotest.(check string) "channel" "C1" channel_id;
+      Alcotest.(check string) "text" "reply in thread" text;
+      Alcotest.(check string) "ts" "1234.5678" ts;
+      Alcotest.(check (option string)) "thread_ts" (Some "1234.0000") thread_ts
+  | _ -> Alcotest.fail "expected Message with thread_ts"
+
+let test_parse_non_threaded_message () =
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"regular message","ts":"5678.1234"}}|}
+  in
+  match Slack.parse_event body with
+  | Some (Slack.Message { thread_ts; ts; _ }) ->
+      Alcotest.(check string) "ts" "5678.1234" ts;
+      Alcotest.(check (option string)) "thread_ts" None thread_ts
+  | _ -> Alcotest.fail "expected Message without thread_ts"
+
+let test_reply_body_includes_thread_ts () =
+  let json_str =
+    Slack.build_post_body ~channel_id:"C1" ~text:"hi"
+      ~thread_ts:(Some "1234.0000")
+  in
+  let json = Yojson.Safe.from_string json_str in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "channel" "C1" (json |> member "channel" |> to_string);
+  Alcotest.(check string) "text" "hi" (json |> member "text" |> to_string);
+  Alcotest.(check string)
+    "thread_ts present" "1234.0000"
+    (json |> member "thread_ts" |> to_string)
+
+let test_reply_body_omits_thread_ts () =
+  let json_str =
+    Slack.build_post_body ~channel_id:"C1" ~text:"hi" ~thread_ts:None
+  in
+  let json = Yojson.Safe.from_string json_str in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "channel" "C1" (json |> member "channel" |> to_string);
+  Alcotest.(check string) "text" "hi" (json |> member "text" |> to_string);
+  Alcotest.(check bool)
+    "thread_ts absent" true
+    (match json |> member "thread_ts" with `Null -> true | _ -> false)
+
 let suite =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -487,4 +535,176 @@ let suite =
     Alcotest.test_case "parse event with files" `Quick
       test_parse_event_with_files;
     Alcotest.test_case "parse event no files" `Quick test_parse_event_no_files;
+    Alcotest.test_case "parse threaded message" `Quick
+      test_parse_threaded_message;
+    Alcotest.test_case "parse non-threaded message" `Quick
+      test_parse_non_threaded_message;
+    Alcotest.test_case "reply body includes thread_ts" `Quick
+      test_reply_body_includes_thread_ts;
+    Alcotest.test_case "reply body omits thread_ts" `Quick
+      test_reply_body_omits_thread_ts;
+  ]
+
+let test_resolve_session_key_unprofiled () =
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  (* No room profile binding exists — should get per-user key *)
+  let key =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "unprofiled channel uses per-user key" "slack:C123:U456" key
+
+let test_resolve_session_key_profiled () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_room_profiles_schema db;
+  Memory.init_room_profile_bindings_schema db;
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  (* Create a profile and bind it to channel C123 *)
+  let profile_id = Memory.insert_room_profile ~db ~name:"test_profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"C123" ~profile_id;
+  (* Profiled channel should use shared room key *)
+  let key =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "profiled channel uses shared room key" "slack:C123" key;
+  (* Different user in same profiled channel gets same key *)
+  let key2 =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U789"
+  in
+  Alcotest.(check string)
+    "different user same profiled channel" "slack:C123" key2;
+  (* Unprofiled channel still uses per-user key *)
+  let key3 =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C999"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "unprofiled channel still per-user" "slack:C999:U456" key3
+
+let test_resolve_session_key_no_db () =
+  (* Session manager without DB — should fall back to per-user key *)
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  let key =
+    Slack.resolve_session_key ~session_manager ~channel_id:"C123"
+      ~user_id:"U456"
+  in
+  Alcotest.(check string)
+    "no db falls back to per-user key" "slack:C123:U456" key
+
+let runtime_config_with_connector_history () =
+  {
+    Runtime_config.default with
+    connector_history =
+      {
+        Runtime_config.default.connector_history with
+        enabled = true;
+        persist_to_db = true;
+      };
+  }
+
+let slack_message_body ~channel_id ~user_id ~text ~ts =
+  `Assoc
+    [
+      ("type", `String "event_callback");
+      ( "event",
+        `Assoc
+          [
+            ("type", `String "message");
+            ("channel", `String channel_id);
+            ("user", `String user_id);
+            ("text", `String text);
+            ("ts", `String ts);
+          ] );
+    ]
+  |> Yojson.Safe.to_string
+
+let bind_room_profile ~db ~room_id =
+  let profile_id =
+    Memory.insert_room_profile ~db ~name:("profile-" ^ room_id)
+  in
+  Memory.upsert_room_profile_binding ~db ~room_id ~profile_id
+
+let handle_slack_test_message ~db ~channel_id ~user_id ~text ~ts =
+  let session_manager =
+    Session.create ~config:(runtime_config_with_connector_history ()) ~db ()
+  in
+  let body = slack_message_body ~channel_id ~user_id ~text ~ts in
+  Lwt_main.run
+    (Slack.handle_event ~config:(make_config ()) ~session_manager
+       ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text:_ ->
+         Lwt.return_unit)
+       body)
+
+let test_room_history_capture_for_bound_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"C-bound";
+  let result =
+    handle_slack_test_message ~db ~channel_id:"C-bound" ~user_id:"U-capture"
+      ~text:"/status capture-me" ~ts:"1234.500000"
+  in
+  Alcotest.(check string) "handled" "ok" result;
+  match
+    Connector_history.query ~db ~room_id:"C-bound" ~connector_type:"slack" ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "room_id" "C-bound" entry.room_id;
+      Alcotest.(check string) "sender_id" "U-capture" entry.sender_id;
+      Alcotest.(check string) "sender_name" "U-capture" entry.sender_name;
+      Alcotest.(check string) "text" "/status capture-me" entry.text;
+      Alcotest.(check (float 0.0001)) "timestamp" 1234.0 entry.timestamp
+  | entries ->
+      Alcotest.failf "expected one history entry, got %d" (List.length entries)
+
+let test_room_history_privacy_guard_requires_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let result =
+    handle_slack_test_message ~db ~channel_id:"C-unbound" ~user_id:"U-private"
+      ~text:"/status do-not-capture" ~ts:"2234.000000"
+  in
+  Alcotest.(check string) "handled" "ok" result;
+  let entries =
+    Connector_history.query ~db ~room_id:"C-unbound" ~connector_type:"slack" ()
+  in
+  Alcotest.(check int) "unbound room history entries" 0 (List.length entries)
+
+let test_room_history_query_is_scoped_to_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"C-alpha";
+  bind_room_profile ~db ~room_id:"C-beta";
+  ignore
+    (handle_slack_test_message ~db ~channel_id:"C-alpha" ~user_id:"U-alpha"
+       ~text:"/status alpha" ~ts:"3234.000000"
+      : string);
+  ignore
+    (handle_slack_test_message ~db ~channel_id:"C-beta" ~user_id:"U-beta"
+       ~text:"/status beta" ~ts:"3235.000000"
+      : string);
+  match
+    Connector_history.query ~db ~room_id:"C-alpha" ~connector_type:"slack" ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "alpha room" "C-alpha" entry.room_id;
+      Alcotest.(check string) "alpha text" "/status alpha" entry.text
+  | entries ->
+      Alcotest.failf "expected one scoped history entry, got %d"
+        (List.length entries)
+
+let test_suite_with_profiles =
+  [
+    Alcotest.test_case "resolve_session_key unprofiled" `Quick
+      test_resolve_session_key_unprofiled;
+    Alcotest.test_case "resolve_session_key profiled" `Quick
+      test_resolve_session_key_profiled;
+    Alcotest.test_case "resolve_session_key no db" `Quick
+      test_resolve_session_key_no_db;
+    Alcotest.test_case "room history captures bound room messages" `Quick
+      test_room_history_capture_for_bound_room;
+    Alcotest.test_case "room history requires room binding" `Quick
+      test_room_history_privacy_guard_requires_binding;
+    Alcotest.test_case "room history query is scoped to room" `Quick
+      test_room_history_query_is_scoped_to_room;
   ]

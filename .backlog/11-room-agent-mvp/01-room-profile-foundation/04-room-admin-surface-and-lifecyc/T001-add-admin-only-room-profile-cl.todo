@@ -9,7 +9,7 @@ estimate_hours: 3
 id: P11.M1.E4.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add admin rooms list show bind and unbind CLI
 ---

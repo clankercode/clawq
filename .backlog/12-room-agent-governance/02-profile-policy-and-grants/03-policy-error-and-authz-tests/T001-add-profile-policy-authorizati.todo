@@ -8,7 +8,7 @@ estimate_hours: 3
 id: P12.M2.E3.T001
 priority: medium
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add profile policy authorization and denial tests
 ---

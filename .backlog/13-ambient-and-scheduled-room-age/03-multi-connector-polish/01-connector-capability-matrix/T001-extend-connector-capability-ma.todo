@@ -7,7 +7,7 @@ estimate_hours: 4
 id: P13.M3.E1.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Extend connector capability matrix for room agents
 ---

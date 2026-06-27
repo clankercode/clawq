@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Scoped Connector History
       path: 01-scoped-connector-history
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Opt-in watcher detects stale room tasks/threads and posts sparse follow-ups.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Stale Thread and Task Watcher
       path: 02-stale-thread-and-task-watcher
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Quiet hours, rate limits, inspection, and default-off ambient policy.
@@ -27,15 +27,15 @@ epics:
       locked: false
       name: Ambient Safety Controls
       path: 03-ambient-safety-controls
-      status: pending
+      status: done
 estimate_hours: 24
 id: P13.M2
 locked: false
 name: Ambient Room Watcher
 stats:
     blocked: 0
-    done: 0
+    done: 8
     in_progress: 0
-    pending: 8
+    pending: 0
     total_tasks: 8
-status: pending
+status: done

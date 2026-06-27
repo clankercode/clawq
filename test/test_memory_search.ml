@@ -96,6 +96,59 @@ let test_search_with_colon_query () =
     "colon-query search returns row" true
     (List.length results > 0)
 
+let store_message_get_id ~db ~session_key ~content =
+  Memory.store_message ~db ~session_key
+    (Provider.make_message ~role:"user" ~content);
+  Test_helpers.query_single_int db "SELECT MAX(id) FROM messages"
+
+let attach_message_to_scope ~db ~scope_id ~message_id =
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id
+       ~reference:("message:" ^ string_of_int message_id)
+       ~content:"stored message reference" ~provenance:"test" ())
+
+let seed_channel_scope_messages db =
+  let channel_a = Memory.create_scope ~db ~kind:"room" ~key:"channel-a" () in
+  let channel_b = Memory.create_scope ~db ~kind:"room" ~key:"channel-b" () in
+  let a_id =
+    store_message_get_id ~db ~session_key:"channel-a"
+      ~content:"scoped alpha topic belongs to channel A"
+  in
+  let b_id =
+    store_message_get_id ~db ~session_key:"channel-b"
+      ~content:"scoped alpha topic belongs to channel B"
+  in
+  attach_message_to_scope ~db ~scope_id:channel_a.id ~message_id:a_id;
+  attach_message_to_scope ~db ~scope_id:channel_b.id ~message_id:b_id
+
+let test_search_scope_filter_match () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  seed_channel_scope_messages db;
+  let results =
+    Memory.search ~db ~query:"alpha" ~scope_kind:"room" ~scope_key:"channel-a"
+      ~limit:5 ()
+  in
+  Alcotest.(check int) "only matching scope result" 1 (List.length results);
+  Alcotest.(check string)
+    "channel A content" "scoped alpha topic belongs to channel A"
+    (List.hd results).content
+
+let test_search_scope_filter_no_match () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  seed_channel_scope_messages db;
+  let results =
+    Memory.search ~db ~query:"alpha" ~scope_kind:"room" ~scope_key:"missing"
+      ~limit:5 ()
+  in
+  Alcotest.(check int) "no unrelated scope results" 0 (List.length results)
+
+let test_search_scope_filter_no_filter_fallback () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  seed_channel_scope_messages db;
+  let results = Memory.search ~db ~query:"alpha" ~limit:5 () in
+  Alcotest.(check int)
+    "global search still returns both" 2 (List.length results)
+
 let suite =
   [
     Alcotest.test_case "FTS init enabled" `Quick test_fts_init;
@@ -110,4 +163,10 @@ let suite =
       test_recall_core_with_multi_token_query;
     Alcotest.test_case "B654 search colon query" `Quick
       test_search_with_colon_query;
+    Alcotest.test_case "search scope filter match" `Quick
+      test_search_scope_filter_match;
+    Alcotest.test_case "search scope filter no match" `Quick
+      test_search_scope_filter_no_match;
+    Alcotest.test_case "search scope filter no-filter fallback" `Quick
+      test_search_scope_filter_no_filter_fallback;
   ]

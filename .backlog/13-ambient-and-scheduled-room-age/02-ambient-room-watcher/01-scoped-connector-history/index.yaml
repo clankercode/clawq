@@ -6,11 +6,11 @@ locked: false
 name: Scoped Connector History
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -20,7 +20,7 @@ tasks:
       file: T001-capture-scoped-connector-histo.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add connector-history policy and retention core
     - complexity: high
@@ -30,7 +30,7 @@ tasks:
       file: T002-capture-slack-scoped-room-hist.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Capture Slack scoped room history for ambient watcher
     - complexity: medium
@@ -41,6 +41,6 @@ tasks:
       file: T003-add-teams-and-discord-scoped-h.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: Add Teams and Discord scoped-history behavior

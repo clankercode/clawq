@@ -6,11 +6,11 @@ locked: false
 name: Child Work Session Creation
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -23,7 +23,7 @@ tasks:
       file: T001-create-child-thread-and-routin.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Create deterministic child thread sessions
     - complexity: high
@@ -33,7 +33,7 @@ tasks:
       file: T002-add-routine-session-key-and-wo.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add routine session key and workspace plumbing
     - complexity: medium
@@ -44,5 +44,6 @@ tasks:
       file: T003-add-deterministic-thread-less.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add deterministic thread-less child session fallback

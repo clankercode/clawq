@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Origin Metadata Model
       path: 01-origin-metadata-model
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Parse Slack thread_ts and send thread-bound replies without changing normal channel sends.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Slack Thread Support
       path: 02-slack-thread-support
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Document and test Teams conversation/activity/reply_to_id support for thread-like replies.
@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Teams Thread Capability Audit
       path: 03-teams-thread-capability-audit
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Create child thread/routine work sessions under room profiles with inherited policy and CWD.
@@ -36,15 +36,15 @@ epics:
       locked: false
       name: Child Work Session Creation
       path: 04-child-work-session-creation
-      status: pending
+      status: done
 estimate_hours: 18
 id: P11.M3
 locked: false
 name: Thread-Bound Work Sessions
 stats:
     blocked: 0
-    done: 0
+    done: 6
     in_progress: 0
-    pending: 6
+    pending: 0
     total_tasks: 6
-status: pending
+status: done

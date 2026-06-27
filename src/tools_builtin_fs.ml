@@ -135,23 +135,7 @@ let format_dir_listing ?(show_hidden = false) path =
 (* ───── Filesystem navigation tools ───── *)
 
 (* Glob pattern matching helpers *)
-let glob_match_segment pat s =
-  let pl = String.length pat and sl = String.length s in
-  let rec go pi si =
-    if pi = pl then si = sl
-    else
-      match pat.[pi] with
-      | '*' ->
-          let rec try_star j =
-            if j > sl then false
-            else if go (pi + 1) j then true
-            else try_star (j + 1)
-          in
-          try_star si
-      | '?' -> si < sl && go (pi + 1) (si + 1)
-      | c -> si < sl && c = s.[si] && go (pi + 1) (si + 1)
-  in
-  go 0 0
+let glob_match_segment = Path_util.glob_match_segment
 
 let rec glob_match_segs pats parts =
   match (pats, parts) with
@@ -168,9 +152,7 @@ let rec glob_match_segs pats parts =
   | pat :: rest_pats, part :: rest_parts ->
       glob_match_segment pat part && glob_match_segs rest_pats rest_parts
 
-let glob_matches_path ~pattern path =
-  let split s = String.split_on_char '/' s |> List.filter (fun x -> x <> "") in
-  glob_match_segs (split pattern) (split path)
+let glob_matches_path = Path_util.glob_matches_path
 
 let glob ~workspace ~workspace_only ~extra_allowed_paths =
   {
@@ -672,7 +654,7 @@ let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
                   Lwt.return
                     "Error: change_working_dir callback not available. This \
                      tool can only be used within an agent session."
-              | Some request_cwd_change ->
+              | Some request_cwd_change -> (
                   let eff_ws =
                     effective_cwd_or_workspace ?context ~workspace ()
                   in
@@ -707,69 +689,109 @@ let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
                       "Error: path is outside the workspace in workspace_only \
                        mode"
                   else
-                    let patterns = config.security.allowed_cwd_patterns in
-                    let expanded_patterns =
-                      List.map
-                        (Runtime_config.expand_cwd_pattern ~config)
-                        patterns
+                    let profile_grant_denial =
+                      match ctx.Tool.session_key with
+                      | None -> None
+                      | Some session_key -> (
+                          match
+                            Runtime_config.resolve_room_profile config
+                              ~session_key
+                          with
+                          | None -> None
+                          | Some profile ->
+                              let grants =
+                                Runtime_config
+                                .room_profile_codebase_grants_for_profile config
+                                  ~profile_id:profile.id
+                              in
+                              if grants = [] then None
+                              else
+                                let expanded_grants =
+                                  List.map
+                                    (Runtime_config.expand_cwd_pattern ~config)
+                                    grants
+                                in
+                                let granted =
+                                  List.exists
+                                    (fun pat ->
+                                      pat <> ""
+                                      && glob_matches_path ~pattern:pat resolved)
+                                    expanded_grants
+                                in
+                                Profile_policy.codebase_denial
+                                  ~profile_id:profile.id ~path:resolved
+                                  ~configured_grants:grants ~granted)
                     in
-                    let matches =
-                      List.exists
-                        (fun pat -> glob_matches_path ~pattern:pat resolved)
-                        expanded_patterns
-                    in
-                    if not matches then
-                      Lwt.return
-                        (Printf.sprintf
-                           "Error: directory %s does not match any \
-                            allowed_cwd_patterns. Configured patterns: %s. \
-                            Update security.allowed_cwd_patterns in %s to \
-                            allow this directory."
-                           resolved
-                           (String.concat ", "
-                              (List.map (fun p -> "\"" ^ p ^ "\"") patterns))
-                           (Dot_dir.config_path ()))
-                    else begin
-                      request_cwd_change resolved wipe_history;
-                      let entries =
-                        try
-                          let items =
-                            Sys.readdir resolved |> Array.to_list
-                            |> List.filter (fun e -> e = "" || e.[0] <> '.')
-                            |> List.sort String.compare
+                    match profile_grant_denial with
+                    | Some msg -> Lwt.return msg
+                    | None ->
+                        let patterns = config.security.allowed_cwd_patterns in
+                        let expanded_patterns =
+                          List.map
+                            (Runtime_config.expand_cwd_pattern ~config)
+                            patterns
+                        in
+                        let matches =
+                          List.exists
+                            (fun pat -> glob_matches_path ~pattern:pat resolved)
+                            expanded_patterns
+                        in
+                        if not matches then
+                          Lwt.return
+                            (Printf.sprintf
+                               "Error: directory %s does not match any \
+                                allowed_cwd_patterns. Configured patterns: %s. \
+                                Update security.allowed_cwd_patterns in %s to \
+                                allow this directory."
+                               resolved
+                               (String.concat ", "
+                                  (List.map (fun p -> "\"" ^ p ^ "\"") patterns))
+                               (Dot_dir.config_path ()))
+                        else begin
+                          request_cwd_change resolved wipe_history;
+                          let entries =
+                            try
+                              let items =
+                                Sys.readdir resolved |> Array.to_list
+                                |> List.filter (fun e -> e = "" || e.[0] <> '.')
+                                |> List.sort String.compare
+                              in
+                              let classified =
+                                List.map
+                                  (fun name ->
+                                    let full = Filename.concat resolved name in
+                                    if
+                                      try Sys.is_directory full
+                                      with _ -> false
+                                    then name ^ "/"
+                                    else name)
+                                  items
+                              in
+                              let max_show = 30 in
+                              let len = List.length classified in
+                              if len = 0 then "(empty directory)"
+                              else if len <= max_show then
+                                String.concat "  " classified
+                              else
+                                String.concat "  "
+                                  (List.filteri
+                                     (fun i _ -> i < max_show)
+                                     classified)
+                                ^ Printf.sprintf "  ...(%d more)"
+                                    (len - max_show)
+                            with _ -> "(unable to list)"
                           in
-                          let classified =
-                            List.map
-                              (fun name ->
-                                let full = Filename.concat resolved name in
-                                if try Sys.is_directory full with _ -> false
-                                then name ^ "/"
-                                else name)
-                              items
-                          in
-                          let max_show = 30 in
-                          let len = List.length classified in
-                          if len = 0 then "(empty directory)"
-                          else if len <= max_show then
-                            String.concat "  " classified
-                          else
-                            String.concat "  "
-                              (List.filteri
-                                 (fun i _ -> i < max_show)
-                                 classified)
-                            ^ Printf.sprintf "  ...(%d more)" (len - max_show)
-                        with _ -> "(unable to list)"
-                      in
-                      Lwt.return
-                        (Printf.sprintf
-                           "Changed working directory to: %s\nContents: %s%s"
-                           resolved entries
-                           (if wipe_history then
-                              "\n\
-                               (History wiped — only first user message and \
-                               summary retained)"
-                            else ""))
-                    end));
+                          Lwt.return
+                            (Printf.sprintf
+                               "Changed working directory to: %s\n\
+                                Contents: %s%s"
+                               resolved entries
+                               (if wipe_history then
+                                  "\n\
+                                   (History wiped — only first user message \
+                                   and summary retained)"
+                                else ""))
+                        end)));
     invoke_stream = None;
     risk_level = Medium;
     deferred = false;

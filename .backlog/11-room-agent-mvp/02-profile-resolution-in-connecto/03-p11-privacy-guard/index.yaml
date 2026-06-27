@@ -6,11 +6,11 @@ locked: false
 name: P11 Privacy Guard
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 1
+    pending: 0
     total: 1
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -19,5 +19,6 @@ tasks:
       file: T001-disable-unscoped-global-memory.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Disable unscoped global memory/search in profiled rooms

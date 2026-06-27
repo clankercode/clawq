@@ -26,11 +26,17 @@ type t = {
      terminates the turn with a clear user-facing message. Reset on any
      successful tool call. *)
   mutable hard_abort_reason : string option;
+  (* Room profile system_prompt override. When [Some s] and [s <> ""],
+     Prompt_builder.build uses this instead of agent_template.system_prompt.
+     Set by apply_room_profile_template_fields in session_core. *)
+  mutable room_profile_system_prompt : string option;
+  mutable profiled_room : bool;
 }
 
 exception Interrupted of string
 exception Restart_requested
 exception Stop_requested
+exception Budget_exceeded of string
 
 type compaction_info = {
   pre_tokens : int;
@@ -46,6 +52,7 @@ type compact_plan = {
   cp_to_compact : Provider.message list;
   cp_to_keep : Provider.message list;
   cp_history_length : int;
+  cp_profiled_room : bool;
 }
 
 type compact_callbacks = {
@@ -70,13 +77,21 @@ let string_contains_ci_small s sub =
 
 let () =
   Resilience.register_non_retriable (function
-    | Restart_requested | Stop_requested | Interrupted _ -> true
+    | Restart_requested | Stop_requested | Interrupted _ | Budget_exceeded _ ->
+        true
     | Failure msg ->
         string_contains_ci_small msg
           "no tool call found for function call output"
     | _ -> false)
 
 let is_session_event_message (msg : Provider.message) = msg.role = "event"
+
+let profiled_room_active agent =
+  agent.profiled_room
+  ||
+  match agent.room_profile_system_prompt with
+  | Some s when String.trim s <> "" -> true
+  | _ -> false
 
 let runtime_history_messages history =
   List.filter
@@ -218,6 +233,44 @@ let reload_skills_after_compaction ~to_compact ~to_keep =
         [ Provider.make_message ~role:"system" ~content ]
   in
   skill_msgs @ overflow_msg
+
+let scoped_memory_reference_lines messages =
+  messages
+  |> List.concat_map (fun (msg : Provider.message) ->
+      if msg.role <> "system" then []
+      else
+        msg.content |> String.split_on_char '\n'
+        |> List.filter_map (fun line ->
+            let line = String.trim line in
+            if
+              String.starts_with ~prefix:"[scoped:" line
+              || String.starts_with ~prefix:"[scoped-message:" line
+            then Some line
+            else None))
+
+let preserve_scoped_memory_references_after_compaction ~to_compact ~to_keep =
+  let kept = Hashtbl.create 8 in
+  List.iter
+    (fun line -> Hashtbl.replace kept line ())
+    (scoped_memory_reference_lines to_keep);
+  let seen = Hashtbl.create 8 in
+  let refs =
+    scoped_memory_reference_lines to_compact
+    |> List.filter (fun line ->
+        (not (Hashtbl.mem kept line)) && not (Hashtbl.mem seen line))
+    |> List.map (fun line ->
+        Hashtbl.replace seen line ();
+        line)
+  in
+  match refs with
+  | [] -> []
+  | _ ->
+      [
+        Provider.make_message ~role:"system"
+          ~content:
+            ("[Scoped memory references preserved after compaction]\n"
+           ^ String.concat "\n" refs);
+      ]
 
 (* History must have more than this many messages before force-compression
    is attempted (to avoid compressing already-tiny histories). *)
@@ -589,6 +642,10 @@ let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
         let limit = try args |> member "limit" |> to_int with _ -> 5 in
         if query = "" then "Error: query is required"
         else
+          (* TODO(scoped-memory-audit): compaction flush tool calls currently
+             read legacy global core memories because no memory scope is passed
+             into dispatch_flush_tool_call. Thread scope context here before
+             enabling this recall path for profiled room/thread compactions. *)
           let results = Memory.recall_core ~db ~query ~limit in
           if results = [] then "No matching memories found"
           else
@@ -607,6 +664,9 @@ let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
         let category =
           try args |> member "category" |> to_string with _ -> ""
         in
+        (* TODO(scoped-memory-audit): this list path exposes legacy global core
+           memory. Thread scope context into flush memory tools before enabling
+           it for profiled room/thread compactions. *)
         let results = Memory.list_core ~db ~category () in
         if results = [] then "No memories found"
         else
@@ -747,7 +807,9 @@ let compact_history_if_needed agent ?db ?on_llm_call_debug () =
       if to_compact = [] then Lwt.return_none
       else begin
         (match db with
-        | Some db when agent.config.memory.pre_compaction_flush ->
+        | Some db
+          when agent.config.memory.pre_compaction_flush
+               && not (profiled_room_active agent) ->
             let snapshot = List.map Fun.id to_compact in
             let flush_config = agent.config in
             let system_prompt = agent.system_prompt in
@@ -794,7 +856,12 @@ let compact_history_if_needed agent ?db ?on_llm_call_debug () =
           Provider.make_message ~role:"assistant" ~content:merged_summary
         in
         let skill_msgs = reload_skills_after_compaction ~to_compact ~to_keep in
-        agent.history <- List.rev (skill_msgs @ [ summary_msg ] @ to_keep);
+        let scoped_msgs =
+          preserve_scoped_memory_references_after_compaction ~to_compact
+            ~to_keep
+        in
+        agent.history <-
+          List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
         let post_tokens = estimate_history_tokens agent.history in
         Lwt.return_some
           { pre_tokens = current_tokens; post_tokens; context_window = cw }
@@ -830,7 +897,12 @@ let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
     if to_compact = [] then Lwt.return_none
     else begin
       let* () =
-        match (db, compact_cbs, agent.config.memory.pre_compaction_flush) with
+        match
+          ( db,
+            compact_cbs,
+            agent.config.memory.pre_compaction_flush
+            && not (profiled_room_active agent) )
+        with
         | Some db, Some cbs, true ->
             let snapshot = List.map Fun.id to_compact in
             let flush_config = agent.config in
@@ -922,7 +994,11 @@ let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
         Provider.make_message ~role:"assistant" ~content:merged_summary
       in
       let skill_msgs = reload_skills_after_compaction ~to_compact ~to_keep in
-      agent.history <- List.rev (skill_msgs @ [ summary_msg ] @ to_keep);
+      let scoped_msgs =
+        preserve_scoped_memory_references_after_compaction ~to_compact ~to_keep
+      in
+      agent.history <-
+        List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
       let post_tokens = estimate_history_tokens agent.history in
       Lwt.return_some { pre_tokens; post_tokens; context_window = cw }
     end
@@ -959,6 +1035,7 @@ let plan_force_compact agent =
           cp_to_compact = to_compact;
           cp_to_keep = to_keep;
           cp_history_length = List.length agent.history;
+          cp_profiled_room = profiled_room_active agent;
         }
   end
 
@@ -968,7 +1045,11 @@ let execute_compact_plan plan ?db ?compact_cbs ?on_llm_call_debug () =
   let system_prompt = plan.cp_system_prompt in
   let to_compact = plan.cp_to_compact in
   let* () =
-    match (db, compact_cbs, config.memory.pre_compaction_flush) with
+    match
+      ( db,
+        compact_cbs,
+        config.memory.pre_compaction_flush && not plan.cp_profiled_room )
+    with
     | Some db, Some cbs, true ->
         let snapshot = List.map Fun.id to_compact in
         let t0 = Unix.gettimeofday () in
@@ -1080,7 +1161,12 @@ let apply_compact_result agent plan ~summary =
     let skill_msgs =
       reload_skills_after_compaction ~to_compact:plan.cp_to_compact ~to_keep
     in
-    agent.history <- new_msgs @ List.rev (skill_msgs @ [ summary_msg ] @ to_keep);
+    let scoped_msgs =
+      preserve_scoped_memory_references_after_compaction
+        ~to_compact:plan.cp_to_compact ~to_keep
+    in
+    agent.history <-
+      new_msgs @ List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
     let post_tokens = estimate_history_tokens agent.history in
     Some
       {

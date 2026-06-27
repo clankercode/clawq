@@ -277,6 +277,9 @@ let default =
     test = { show_skills = false };
     debate = default_debate_config;
     postmortem = default_postmortem_config;
+    room_profiles = [];
+    room_profile_codebase_grants = [];
+    room_profile_bindings = [];
   }
 
 let is_key_set key =
@@ -402,6 +405,57 @@ let all_channel_types =
     "onebot";
     "teams";
   ]
+
+(** [resolve_room_profile cfg ~session_key] resolves the active room profile
+    bound to the given session key. Matching tries the full session key first,
+    then the channel_id portion (everything after the first colon, matching
+    [Restart_notify.parse_channel_from_key] semantics). Only [active = true]
+    bindings are considered. *)
+let resolve_room_profile (cfg : t) ~session_key : room_profile option =
+  if cfg.room_profiles = [] || cfg.room_profile_bindings = [] then None
+  else
+    let channel_id =
+      match String.index_opt session_key ':' with
+      | Some i ->
+          String.sub session_key (i + 1) (String.length session_key - i - 1)
+      | None -> ""
+    in
+    let find_binding () =
+      List.find_opt
+        (fun (b : room_profile_binding) ->
+          b.active
+          && (b.room = session_key || (channel_id <> "" && b.room = channel_id)))
+        cfg.room_profile_bindings
+    in
+    match find_binding () with
+    | None -> None
+    | Some b ->
+        List.find_opt
+          (fun (p : room_profile) ->
+            p.id = b.profile_id && String.lowercase_ascii p.status <> "deleted")
+          cfg.room_profiles
+
+(** [resolve_room_profile_model cfg ~session_key] resolves the model from the
+    room profile bound to the given session key. Only the model field is
+    returned; use [resolve_room_profile] for full profile access. *)
+let resolve_room_profile_model (cfg : t) ~session_key : string option =
+  match resolve_room_profile cfg ~session_key with
+  | Some p when p.model <> "" -> Some p.model
+  | _ -> None
+
+let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =
+  match List.assoc_opt profile_id cfg.room_profile_codebase_grants with
+  | Some grants -> grants
+  | None -> []
+
+let room_profile_tool_denial (profile : room_profile) ~tool_name =
+  Profile_policy.tool_denial ~profile_id:profile.id ~tool_name
+    ~allowed_tools:profile.allowed_tools ~denied_tools:profile.denied_tools
+
+let room_profile_tool_denial_for_session cfg ~session_key ~tool_name =
+  match resolve_room_profile cfg ~session_key with
+  | None -> None
+  | Some profile -> room_profile_tool_denial profile ~tool_name
 
 let effective_compaction_threshold_percent (memory : memory_config) =
   let p = memory.compaction_threshold_percent in

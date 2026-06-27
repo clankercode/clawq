@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Tool Grant Enforcement
       path: 01-tool-grant-enforcement
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Named repo/codebase grants intersect with global workspace/sandbox policy.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Codebase Grant Enforcement
       path: 02-codebase-grant-enforcement
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Denied access is actionable, audited, and covered by guest/admin tests.
@@ -27,15 +27,15 @@ epics:
       locked: false
       name: Policy Error and Authz Tests
       path: 03-policy-error-and-authz-tests
-      status: pending
+      status: done
 estimate_hours: 24
 id: P12.M2
 locked: false
 name: Profile Policy and Grants
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total_tasks: 3
-status: pending
+status: done

@@ -1,10 +1,17 @@
 (* MS Teams file consent card flow (OneDrive upload) *)
 
+type consent_room_context = {
+  room_id : string;
+  session_key : string;
+  profile_name : string;
+}
+
 type pending_consent = {
   content : string;
   filename : string;
   content_type : string;
   expires_at : float;
+  room_context : consent_room_context option;
 }
 
 type file_upload_delivery = File_consent_card | Temp_download_url
@@ -38,7 +45,8 @@ let generate_consent_id () =
     bytes;
   Buffer.contents buf
 
-let store_pending_consent ~content ~filename ~content_type ~ttl_s =
+let store_pending_consent ?room_context ~content ~filename ~content_type ~ttl_s
+    () =
   let consent_id = generate_consent_id () in
   let entry =
     {
@@ -46,6 +54,7 @@ let store_pending_consent ~content ~filename ~content_type ~ttl_s =
       filename;
       content_type;
       expires_at = Unix.gettimeofday () +. ttl_s;
+      room_context;
     }
   in
   Hashtbl.replace pending_consents consent_id entry;
@@ -73,8 +82,46 @@ let cleanup_pending_consents () =
   in
   List.iter (Hashtbl.remove pending_consents) expired
 
-let build_file_consent_card ~filename ~description ~size_bytes ~consent_id =
-  let ctx = `Assoc [ ("consentId", `String consent_id) ] in
+let consent_room_context_of_json json =
+  let open Yojson.Safe.Util in
+  let string_field name =
+    try
+      let value = json |> member name |> to_string in
+      if value = "" then None else Some value
+    with _ -> None
+  in
+  match
+    ( string_field "roomId",
+      string_field "sessionKey",
+      string_field "roomProfileName" )
+  with
+  | Some room_id, Some session_key, Some profile_name ->
+      Some { room_id; session_key; profile_name }
+  | _ -> None
+
+let consent_context_json ?room_context ~consent_id () =
+  let room_fields =
+    match room_context with
+    | None -> []
+    | Some ctx ->
+        [
+          ("roomId", `String ctx.room_id);
+          ("sessionKey", `String ctx.session_key);
+          ("roomProfileName", `String ctx.profile_name);
+        ]
+  in
+  `Assoc (("consentId", `String consent_id) :: room_fields)
+
+let file_consent_description ?room_context description =
+  match room_context with
+  | Some { profile_name; _ } when String.trim profile_name <> "" ->
+      Printf.sprintf "%s\nRoom profile: %s" description profile_name
+  | _ -> description
+
+let build_file_consent_card ?room_context ~filename ~description ~size_bytes
+    ~consent_id () =
+  let ctx = consent_context_json ?room_context ~consent_id () in
+  let description = file_consent_description ?room_context description in
   `Assoc
     [
       ("type", `String "message");
@@ -148,7 +195,7 @@ let upload_to_onedrive ~upload_url ~content ~content_type =
 
 (* Send a file consent card. Takes ~fetch_token and ~post_json_throttled
    as parameters to avoid circular module dependency. *)
-let send_file_consent_card ~fetch_token ~post_json_throttled
+let send_file_consent_card ?room_context ~fetch_token ~post_json_throttled
     ~(config : Runtime_config.teams_config) ~service_url ~conversation_id
     ~reply_to_id ~filename ~description ~size_bytes ~consent_id () =
   let open Lwt.Syntax in
@@ -169,7 +216,8 @@ let send_file_consent_card ~fetch_token ~post_json_throttled
       in
       let headers = [ ("Authorization", "Bearer " ^ token) ] in
       let body =
-        build_file_consent_card ~filename ~description ~size_bytes ~consent_id
+        build_file_consent_card ?room_context ~filename ~description ~size_bytes
+          ~consent_id ()
       in
       let* status, resp =
         post_json_throttled ~conversation_id ~uri ~headers ~body
@@ -218,6 +266,7 @@ let handle_file_consent_invoke ~fetch_token ~post_json_throttled ~send_reply
   let value = try json |> member "value" with _ -> `Null in
   let action = try value |> member "action" |> to_string with _ -> "" in
   let context = try value |> member "context" with _ -> `Null in
+  let room_context_from_card = consent_room_context_of_json context in
   let consent_id =
     try context |> member "consentId" |> to_string with _ -> ""
   in
@@ -262,6 +311,19 @@ let handle_file_consent_invoke ~fetch_token ~post_json_throttled ~send_reply
                     Lwt.return_unit));
             Lwt.return (ok_invoke_response ())
         | Some pending ->
+            let room_context =
+              match pending.room_context with
+              | Some _ as ctx -> ctx
+              | None -> room_context_from_card
+            in
+            (match room_context with
+            | Some ctx ->
+                Logs.info (fun m ->
+                    m
+                      "Teams: file consent accept preserved room context \
+                       session=%s profile=%s"
+                      ctx.session_key ctx.profile_name)
+            | None -> ());
             let upload_info =
               try value |> member "uploadInfo" with _ -> `Null
             in
@@ -330,10 +392,22 @@ let handle_file_consent_invoke ~fetch_token ~post_json_throttled ~send_reply
               Lwt.return (ok_invoke_response ())
             end)
     | "decline" ->
-        Logs.info (fun m ->
-            m "Teams: file consent declined for id=%s" consent_id);
-        (* Clean up pending consent if still present *)
-        ignore (get_pending_consent consent_id);
+        let room_context =
+          match get_pending_consent consent_id with
+          | Some pending -> (
+              match pending.room_context with
+              | Some _ as ctx -> ctx
+              | None -> room_context_from_card)
+          | None -> room_context_from_card
+        in
+        (match room_context with
+        | Some ctx ->
+            Logs.info (fun m ->
+                m "Teams: file consent declined for id=%s session=%s profile=%s"
+                  consent_id ctx.session_key ctx.profile_name)
+        | None ->
+            Logs.info (fun m ->
+                m "Teams: file consent declined for id=%s" consent_id));
         Lwt.return (ok_invoke_response ())
     | _ ->
         Logs.warn (fun m -> m "Teams: unknown file consent action=%s" action);

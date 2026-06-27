@@ -1,15 +1,14 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P12.M1.E2.T001
 estimate_hours: 3
 id: P12.M1.E2.T002
 priority: high
-status: pending
-tags:
-    - room-agent
-    - memory
-    - privacy
+started_at: null
+status: done
+tags: []
 title: Implement scoped memory grant resolution
 ---
 Acceptance: grant resolution is direct and non-transitive; default is deny across rooms; Channel A/B negative tests prove no cross-room leakage. Files: src/memory.ml, test/test_memory.ml.

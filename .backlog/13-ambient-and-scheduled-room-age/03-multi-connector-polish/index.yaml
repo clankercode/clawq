@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Connector Capability Matrix
       path: 01-connector-capability-matrix
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Fold Teams slash/card/tool visibility bugs into room-agent connector polish.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Teams Room-Agent Hardening
       path: 02-teams-room-agent-hardening
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Operator docs and llms-full updates for profiles, scoped memory, routines, and troubleshooting.

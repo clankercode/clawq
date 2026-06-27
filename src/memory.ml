@@ -2,6 +2,8 @@ include Memory_0_schema
 include Memory_0_queue
 include Memory_0_postmortem
 include Memory_types
+include Memory_scoped
 include Memory_core
 include Memory_session
 include Memory_search
+include Room_profile_reconcile

@@ -6,11 +6,11 @@ locked: false
 name: Stale Thread and Task Watcher
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -24,7 +24,7 @@ tasks:
       file: T001-add-opt-in-stale-room-task-and.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add stale room task and thread query engine
     - complexity: high
@@ -34,7 +34,8 @@ tasks:
       file: T002-persist-watcher-decisions-and.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Persist watcher decisions and material-change checks
     - complexity: high
       depends_on:
@@ -44,6 +45,6 @@ tasks:
       file: T003-deliver-ambient-follow-ups-saf.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Deliver ambient follow-ups safely

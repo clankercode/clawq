@@ -198,6 +198,9 @@ The wizard walks through setting the bot token, allowed guilds/users, and gatewa
 - **Group chat filtering** --- in guild channels, the bot only responds when
   explicitly @mentioned, addressed by name (e.g. "clawq, ..."), or sent a
   slash command. DMs are always processed.
+- **Connector history** --- when `connector_history.enabled` is true, unaddressed
+  guild messages are captured for later context injection via
+  `/inject_connector_history [N]` or the `inject_connector_history` tool.
 - **Guild and user allowlists** --- restrict which servers and users can
   interact with the bot.
 - **REST rate limit tracking** --- server-driven rate limits are parsed from
@@ -302,6 +305,9 @@ timestamp window.
 - **Voice transcription** --- audio file attachments are automatically
   transcribed via the configured STT provider with progress messages.
   Music files are skipped; size limit: 25 MB.
+- **No ambient connector-history capture** --- Slack delivers relevant messages
+  through the normal bot event path; `/inject_connector_history` is currently
+  for Teams and Discord group chats only.
 
 ## GitHub
 
@@ -591,6 +597,9 @@ clawq channel              # confirm teams shows as configured
 - **Group chat filtering** --- in group conversations, the bot only responds
   when explicitly @mentioned, addressed by name (e.g. "clawq, ..."), or sent a
   slash command. 1:1 chats always receive a response.
+- **Connector history** --- when `connector_history.enabled` is true, unaddressed
+  group messages are captured for later context injection via
+  `/inject_connector_history [N]` or the `inject_connector_history` tool.
 - **@mention in group chats** --- when the bot does respond in group
   conversations, it automatically @mentions the sender using Bot Framework
   mention entities, ensuring they receive a notification.

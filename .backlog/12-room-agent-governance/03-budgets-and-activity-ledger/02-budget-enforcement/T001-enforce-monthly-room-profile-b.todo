@@ -7,7 +7,7 @@ estimate_hours: 3
 id: P12.M3.E2.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add room budget state and query API
 ---

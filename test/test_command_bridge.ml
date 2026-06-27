@@ -41,11 +41,14 @@ let with_temp_home f =
   Unix.mkdir dir 0o755;
   let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
   let old_clawq_home = Sys.getenv_opt Dot_dir.env_var in
+  let old_admin = Sys.getenv_opt "CLAWQ_ADMIN" in
   Unix.putenv "HOME" dir;
   (* Clear CLAWQ_HOME so Dot_dir.path () falls back to $HOME/.clawq *)
   (match old_clawq_home with
   | Some _ -> Unix.putenv Dot_dir.env_var ""
   | None -> ());
+  (* Clear CLAWQ_ADMIN so tests default to non-admin *)
+  Unix.putenv "CLAWQ_ADMIN" "";
   Fun.protect
     (fun () -> f dir)
     ~finally:(fun () ->
@@ -55,6 +58,9 @@ let with_temp_home f =
       (match old_clawq_home with
       | Some v -> Unix.putenv Dot_dir.env_var v
       | None -> Unix.putenv Dot_dir.env_var "");
+      (match old_admin with
+      | Some v -> Unix.putenv "CLAWQ_ADMIN" v
+      | None -> Unix.putenv "CLAWQ_ADMIN" "");
       (try
          let clawq_dir = Filename.concat dir ".clawq" in
          if Sys.file_exists clawq_dir then begin
@@ -185,6 +191,8 @@ let write_config_json home json =
   let clawq_dir = Filename.concat home ".clawq" in
   if not (Sys.file_exists clawq_dir) then Unix.mkdir clawq_dir 0o755;
   write_json_file (Filename.concat clawq_dir "config.json") json
+
+let touch_mtime path mtime = Unix.utimes path mtime mtime
 
 let test_handle_doctor_flags_codex_provider_with_api_key_only () =
   with_temp_home (fun home ->
@@ -322,6 +330,80 @@ let test_handle_memory () =
       Alcotest.(check bool)
         "memory contains 'Memory backend'" true
         (String.length result > 0 && String.sub result 0 14 = "Memory backend"))
+
+let memory_grant_count db =
+  Test_helpers.query_single_int db
+    "SELECT COUNT(*) FROM memory_grants WHERE principal_kind = 'user' AND \
+     principal_id = 'u1' AND capability = 'read'"
+
+let test_memory_grant_cli_requires_admin () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      let scope = Memory.create_scope ~db ~kind:"room" ~key:"room-1" () in
+      let scope_id = string_of_int scope.id in
+      let create_args =
+        [ "memory"; "grant"; "create"; scope_id; "user"; "u1"; "read" ]
+      in
+      let revoke_args =
+        [ "memory"; "grant"; "revoke"; scope_id; "user"; "u1"; "read" ]
+      in
+      let denied = Command_bridge.handle create_args in
+      Alcotest.(check bool)
+        "create rejected mentions admin" true
+        (Test_helpers.string_contains denied "admin");
+      Alcotest.(check bool)
+        "create rejected mentions CLAWQ_ADMIN" true
+        (Test_helpers.string_contains denied "CLAWQ_ADMIN");
+      Alcotest.(check int)
+        "rejected create leaves no grant" 0 (memory_grant_count db);
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let created = Command_bridge.handle create_args in
+      Alcotest.(check bool)
+        "admin create succeeds" true
+        (Test_helpers.string_contains created "Created memory grant");
+      Alcotest.(check int) "admin create stores grant" 1 (memory_grant_count db);
+      Unix.putenv "CLAWQ_ADMIN" "";
+      let revoke_denied = Command_bridge.handle revoke_args in
+      Alcotest.(check bool)
+        "revoke rejected mentions admin" true
+        (Test_helpers.string_contains revoke_denied "admin");
+      Alcotest.(check int)
+        "rejected revoke leaves grant" 1 (memory_grant_count db);
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let revoked = Command_bridge.handle revoke_args in
+      Alcotest.(check bool)
+        "admin revoke succeeds" true
+        (Test_helpers.string_contains revoked "Revoked 1 memory grant");
+      Alcotest.(check int)
+        "admin revoke removes grant" 0 (memory_grant_count db))
+
+let test_memory_grants_not_exposed_to_slash_or_agent_tools () =
+  let slash_result =
+    Slash_commands.handle "/memory grant create 1 user u1 read"
+  in
+  (match slash_result with
+  | Slash_commands.Memories _ -> ()
+  | Slash_commands.FormattedReply _ -> ()
+  | Slash_commands.AdminRequired _ ->
+      Alcotest.fail "slash memory grant must not expose admin grant mutation"
+  | _ -> ());
+  let db = Memory.init ~db_path:":memory:" () in
+  let registry = Tool_registry.create () in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None ~workspace:"/tmp"
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  Tools_builtin.register_all ~config:Runtime_config.default ~sandbox
+    ~db:(Some db) registry;
+  let tool_names =
+    List.map (fun (tool : Tool.t) -> tool.name) (Tool_registry.list registry)
+  in
+  Alcotest.(check bool)
+    "no memory grant tool" true
+    (not
+       (List.exists
+          (fun name -> Test_helpers.string_contains name "grant")
+          tool_names))
 
 let test_handle_workspace () =
   let result = Command_bridge.handle [ "workspace" ] in
@@ -1312,6 +1394,56 @@ let test_handle_cron_list_with_jobs () =
              (Str.search_forward (Str.regexp_string "PROMPT") result_prompt 0);
            true
          with Not_found -> false))
+
+let routine_target_text = "profile=42 thread=thread-1 workspace=workspace-1"
+
+let check_contains label expected output =
+  Alcotest.(check bool)
+    label true
+    (Test_helpers.string_contains output expected)
+
+let add_routine_cron_job db ~name =
+  Scheduler.init_schema db;
+  match
+    Scheduler.add_job ~db ~name ~session_key:"room:abc" ~message:"routine msg"
+      ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
+      ~routine_workspace_id:"workspace-1" ()
+  with
+  | Ok () -> ()
+  | Error e -> Alcotest.failf "failed to add routine cron job: %s" e
+
+let test_handle_cron_list_shows_routine_target () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_routine_cron_job db ~name:"routine-list";
+      let result = Command_bridge.handle [ "cron"; "list" ] in
+      check_contains "cron list contains job" "routine-list" result;
+      check_contains "cron list contains routine target" routine_target_text
+        result)
+
+let test_handle_cron_show_shows_routine_target () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_routine_cron_job db ~name:"routine-show";
+      let result = Command_bridge.handle [ "cron"; "show"; "routine-show" ] in
+      check_contains "cron show contains routine target label" "Routine target:"
+        result;
+      check_contains "cron show contains routine target" routine_target_text
+        result)
+
+let test_handle_cron_history_shows_routine_target () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_routine_cron_job db ~name:"routine-history";
+      let run_id = Scheduler.record_run_start ~db ~job_name:"routine-history" in
+      Scheduler.record_run_finish ~db ~run_id ~status:"ok"
+        ~result_preview:"done";
+      let result =
+        Command_bridge.handle [ "cron"; "history"; "routine-history" ]
+      in
+      check_contains "cron history contains target column" "TARGET" result;
+      check_contains "cron history contains routine target" routine_target_text
+        result)
 
 let test_handle_cron_runs () =
   with_temp_home (fun _home ->
@@ -3272,6 +3404,1253 @@ let test_models_set_usage_excludes_session_only_set_without_live_session () =
         "still advertises persistent path" true
         (Test_helpers.string_contains result "set-default MODEL"))
 
+let test_rooms_list_empty () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "rooms"; "list" ] in
+      Alcotest.(check bool)
+        "rooms list empty mentions no profiles" true
+        (Test_helpers.string_contains result "No room profiles"))
+
+let test_rooms_bind_and_list () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "You are a coder.", "max_tool_iterations": 10}
+  ]
+}|});
+      (* Bind a room *)
+      let bind_result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C123"; "coding" ]
+      in
+      Alcotest.(check bool)
+        "bind success mentions room" true
+        (Test_helpers.string_contains bind_result "slack:C123");
+      Alcotest.(check bool)
+        "bind success mentions profile" true
+        (Test_helpers.string_contains bind_result "coding");
+      (* List should now show the binding *)
+      let list_result = Command_bridge.handle [ "rooms"; "list" ] in
+      Alcotest.(check bool)
+        "list shows room" true
+        (Test_helpers.string_contains list_result "slack:C123");
+      Alcotest.(check bool)
+        "list shows profile" true
+        (Test_helpers.string_contains list_result "coding"))
+
+let test_rooms_bind_unknown_profile_errors () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C999"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "error mentions profile not found" true
+        (Test_helpers.string_contains result "not found");
+      Alcotest.(check bool)
+        "error lists available profiles" true
+        (Test_helpers.string_contains result "coding"))
+
+let test_rooms_bind_no_profiles_configured () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home (Yojson.Safe.from_string {|{}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C1"; "any" ]
+      in
+      Alcotest.(check bool)
+        "error mentions no profiles configured" true
+        (Test_helpers.string_contains result "no room profiles"))
+
+let test_rooms_bind_already_bound () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C1"; "coding" ]
+      in
+      Alcotest.(check bool)
+        "already bound message" true
+        (Test_helpers.string_contains result "already bound"))
+
+let test_rooms_bind_rebinds_different_profile () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10},
+    {"id": "review", "model": "claude", "system_prompt": "", "max_tool_iterations": 5}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let rejected =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C1"; "review" ]
+      in
+      Alcotest.(check bool)
+        "implicit rebind requires explicit choice" true
+        (Test_helpers.string_contains rejected "--preserve"
+        && Test_helpers.string_contains rejected "--reset");
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "bind"; "slack:C1"; "review"; "--preserve" ]
+      in
+      Alcotest.(check bool)
+        "rebind success mentions room" true
+        (Test_helpers.string_contains result "slack:C1");
+      Alcotest.(check bool)
+        "rebind success mentions new profile" true
+        (Test_helpers.string_contains result "review"))
+
+let test_rooms_unbind () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let unbind_result =
+        Command_bridge.handle [ "rooms"; "unbind"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "unbind success mentions room" true
+        (Test_helpers.string_contains unbind_result "slack:C1");
+      Alcotest.(check bool)
+        "unbind preserves profile" true
+        (Test_helpers.string_contains unbind_result "preserved");
+      (* Verify binding removed but profile preserved *)
+      let list_result = Command_bridge.handle [ "rooms"; "list" ] in
+      Alcotest.(check bool)
+        "list still shows profile after unbind" true
+        (Test_helpers.string_contains list_result "coding"))
+
+let test_rooms_unbind_no_binding () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "unbind"; "slack:MISSING" ]
+      in
+      Alcotest.(check bool)
+        "no binding error mentions room" true
+        (Test_helpers.string_contains result "slack:MISSING"))
+
+let test_rooms_show_bound () =
+  with_temp_home (fun home ->
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "You are a coder.", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result = Command_bridge.handle [ "rooms"; "show"; "slack:C1" ] in
+      Alcotest.(check bool)
+        "show mentions room" true
+        (Test_helpers.string_contains result "slack:C1");
+      Alcotest.(check bool)
+        "show mentions profile" true
+        (Test_helpers.string_contains result "coding");
+      Alcotest.(check bool)
+        "show mentions model" true
+        (Test_helpers.string_contains result "gpt-5"))
+
+let test_rooms_show_unbound () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "rooms"; "show"; "slack:UNKNOWN" ] in
+      Alcotest.(check bool)
+        "show unbound mentions not bound" true
+        (Test_helpers.string_contains result "not bound"))
+
+let find_loaded_room_profile id =
+  let cfg = Config_loader.load () in
+  match
+    List.find_opt
+      (fun (p : Runtime_config.room_profile) -> p.id = id)
+      cfg.room_profiles
+  with
+  | Some p -> (cfg, p)
+  | None -> Alcotest.failf "profile %s not found after config reload" id
+
+let binding_fingerprints bindings =
+  bindings
+  |> List.map (fun (b : Runtime_config.room_profile_binding) ->
+      Printf.sprintf "%s|%s|%b" b.profile_id b.room b.active)
+  |> List.sort String.compare
+
+let test_rooms_rename_persists_display_metadata () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let original_cfg, original_profile = find_loaded_room_profile "coding" in
+      let original_bindings =
+        binding_fingerprints original_cfg.room_profile_bindings
+      in
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "rename"; "coding"; "My"; "Coding"; "Agent" ]
+      in
+      Alcotest.(check bool)
+        "rename success mentions renamed" true
+        (Test_helpers.string_contains result "renamed");
+      let reloaded_cfg, reloaded_profile = find_loaded_room_profile "coding" in
+      Alcotest.(check string)
+        "stable id unchanged" original_profile.id reloaded_profile.id;
+      Alcotest.(check (option string))
+        "display name persisted" (Some "My Coding Agent")
+        reloaded_profile.display_name;
+      Alcotest.(check (list string))
+        "bindings unchanged" original_bindings
+        (binding_fingerprints reloaded_cfg.room_profile_bindings))
+
+let test_rooms_delete_refuses_active_background_task () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let db = session_db home in
+      Background_task.init_schema db;
+      ignore
+        (match
+           Background_task.enqueue ~db ~runner:Background_task.Local
+             ~require_git:false ~use_worktree:false ~repo_path:home
+             ~prompt:"active" ~session_key:"slack:C1" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      let result = Command_bridge.handle [ "rooms"; "delete"; "coding" ] in
+      Alcotest.(check bool)
+        "delete refuses active background task" true
+        (Test_helpers.string_contains result "active"
+        && Test_helpers.string_contains result "--force");
+      let cfg, profile = find_loaded_room_profile "coding" in
+      Alcotest.(check string) "profile remains active" "active" profile.status;
+      Alcotest.(check int)
+        "binding remains" 1
+        (List.length cfg.room_profile_bindings))
+
+let test_rooms_delete_refuses_active_cron_job () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let db = session_db home in
+      Scheduler.init_schema db;
+      ignore
+        (match
+           Scheduler.add_job ~db ~name:"daily-code" ~session_key:"slack:C1"
+             ~message:"run" ~schedule:"0 9 * * *" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      let result = Command_bridge.handle [ "rooms"; "delete"; "coding" ] in
+      Alcotest.(check bool)
+        "delete refuses active cron job" true
+        (Test_helpers.string_contains result "active"
+        && Test_helpers.string_contains result "--force");
+      let cfg, profile = find_loaded_room_profile "coding" in
+      Alcotest.(check string) "profile remains active" "active" profile.status;
+      Alcotest.(check int)
+        "binding remains" 1
+        (List.length cfg.room_profile_bindings))
+
+let test_rooms_delete_force_soft_deletes_and_removes_bindings () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let db = session_db home in
+      Background_task.init_schema db;
+      Scheduler.init_schema db;
+      ignore
+        (match
+           Background_task.enqueue ~db ~runner:Background_task.Local
+             ~require_git:false ~use_worktree:false ~repo_path:home
+             ~prompt:"active" ~session_key:"slack:C1" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      ignore
+        (match
+           Scheduler.add_job ~db ~name:"daily-code" ~session_key:"slack:C1"
+             ~message:"run" ~schedule:"0 9 * * *" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      let result =
+        Command_bridge.handle [ "rooms"; "delete"; "coding"; "--force" ]
+      in
+      Alcotest.(check bool)
+        "forced delete mentions deleted" true
+        (Test_helpers.string_contains result "deleted");
+      let cfg, profile = find_loaded_room_profile "coding" in
+      Alcotest.(check string) "profile soft-deleted" "deleted" profile.status;
+      Alcotest.(check int)
+        "bindings removed" 0
+        (List.length cfg.room_profile_bindings))
+
+let test_rooms_workspace_reports_preserved_path () =
+  with_temp_home (fun _home ->
+      let path = Room_workspace.workspace_path ~create:false "slack:C1" in
+      let result = Command_bridge.handle [ "rooms"; "workspace"; "slack:C1" ] in
+      Alcotest.(check bool)
+        "workspace reports preserved path" true
+        (Test_helpers.string_contains result "Preserved path"
+        && Test_helpers.string_contains result path);
+      Alcotest.(check bool) "workspace exists" true (Sys.file_exists path))
+
+let test_rooms_gc_preserves_active_refs_and_reports_paths () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let active_task_path = Room_workspace.workspace_path "slack:C1" in
+      let active_routine_path = Room_workspace.workspace_path "slack:C2" in
+      let active_ledger_path = Room_workspace.workspace_path "slack:C4" in
+      let recent_path = Room_workspace.workspace_path "slack:C5" in
+      let stale_path = Room_workspace.workspace_path "slack:C3" in
+      let now = Unix.gettimeofday () in
+      let old = now -. (2.0 *. Room_workspace.seconds_per_day) in
+      List.iter
+        (fun path -> touch_mtime path old)
+        [
+          active_task_path; active_routine_path; active_ledger_path; stale_path;
+        ];
+      touch_mtime recent_path (now -. 60.0);
+      let db = session_db home in
+      Background_task.init_schema db;
+      ignore
+        (match
+           Background_task.enqueue ~db ~runner:Background_task.Local
+             ~require_git:false ~use_worktree:false ~repo_path:home
+             ~prompt:"active" ~session_key:"slack:C1:U1" ~channel_id:"C1" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      Scheduler.init_schema db;
+      ignore
+        (match
+           Scheduler.add_job ~db ~name:"room-routine" ~session_key:"__main__"
+             ~message:"run" ~schedule:"0 9 * * *"
+             ~routine_workspace_id:"slack:C2" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      Task_tree.init_schema db;
+      let origin_json =
+        Room_origin.(
+          make ~connector:"slack" ~room_id:"C4" () |> to_compact_json_string)
+      in
+      ignore
+        (match
+           Task_tree.do_add ~db ~session_key:"__main__" ~id:(Some "ledger")
+             ~parent_id:None ~title:"active ledger task"
+             ~status:(Some Task_tree.In_progress) ~note:None ~depends_on:[]
+             ~agent_model:None ~agent_type:None ~agent_prompt:None
+             ~agent_details:None ~autostart:false ~origin_json ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      let result =
+        Command_bridge.handle [ "rooms"; "gc"; "--retention-days"; "1" ]
+      in
+      Alcotest.(check bool)
+        "gc reports preserved and purged" true
+        (Test_helpers.string_contains result "Room workspace GC complete"
+        && Test_helpers.string_contains result "retention 1.0 day(s)"
+        && Test_helpers.string_contains result "Preserved paths"
+        && Test_helpers.string_contains result "Purged paths");
+      List.iter
+        (fun (label, path) ->
+          Alcotest.(check bool)
+            (label ^ " reported") true
+            (Test_helpers.string_contains result path);
+          Alcotest.(check bool)
+            (label ^ " preserved") true (Sys.file_exists path))
+        [
+          ("active task path", active_task_path);
+          ("active routine path", active_routine_path);
+          ("active ledger path", active_ledger_path);
+          ("recent path", recent_path);
+        ];
+      Alcotest.(check bool)
+        "active refs report reason" true
+        (Test_helpers.string_contains result
+           "active room task/routine/ledger/profile reference");
+      Alcotest.(check bool)
+        "recent path reports retention reason" true
+        (Test_helpers.string_contains result "within retention");
+      Alcotest.(check bool)
+        "stale path reported" true
+        (Test_helpers.string_contains result stale_path);
+      Alcotest.(check bool)
+        "stale path reports purge reason" true
+        (Test_helpers.string_contains result "expired retention");
+      Alcotest.(check bool)
+        "stale path purged" false
+        (Sys.file_exists stale_path))
+
+let add_room_ledger_event db ~room_id ~event_type ~timestamp ~actor =
+  ignore
+    (Room_activity_ledger.append ~db ~room_id ~event_type ~timestamp ~actor
+       ~metadata:(`Assoc [ ("note", `String event_type) ]))
+
+let test_rooms_ledger_list_filters_and_exports_json () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let db = session_db home in
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"task_started"
+        ~timestamp:"2026-06-27T10:00:00Z" ~actor:"agent-1";
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"task_done"
+        ~timestamp:"2026-06-27T10:05:00Z" ~actor:"agent-1";
+      add_room_ledger_event db ~room_id:"room-2" ~event_type:"task_started"
+        ~timestamp:"2026-06-27T10:10:00Z" ~actor:"agent-2";
+      let list_result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "ledger";
+            "list";
+            "--room-id";
+            "room-1";
+            "--event-type";
+            "task_started";
+            "--from";
+            "2026-06-27T09:59:00Z";
+            "--to";
+            "2026-06-27T10:01:00Z";
+          ]
+      in
+      Alcotest.(check bool)
+        "filtered list includes matching event" true
+        (Test_helpers.string_contains list_result "task_started");
+      Alcotest.(check bool)
+        "filtered list excludes other event type" false
+        (Test_helpers.string_contains list_result "task_done");
+      Alcotest.(check bool)
+        "filtered list excludes other room" false
+        (Test_helpers.string_contains list_result "room-2");
+      let export_result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "ledger";
+            "export";
+            "--room-id";
+            "room-1";
+            "--event-type";
+            "task_started";
+          ]
+      in
+      match Yojson.Safe.from_string export_result with
+      | `List [ `Assoc fields ] ->
+          Alcotest.(check (option string))
+            "export room_id" (Some "room-1")
+            (match List.assoc_opt "room_id" fields with
+            | Some (`String s) -> Some s
+            | _ -> None);
+          Alcotest.(check (option string))
+            "export event_type" (Some "task_started")
+            (match List.assoc_opt "event_type" fields with
+            | Some (`String s) -> Some s
+            | _ -> None)
+      | _ -> Alcotest.fail "expected ledger export JSON array with one event")
+
+let test_rooms_ledger_retention_cleanup () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let db = session_db home in
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"old"
+        ~timestamp:"2026-06-20T09:59:59Z" ~actor:"agent";
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"kept"
+        ~timestamp:"2026-06-20T10:00:00Z" ~actor:"agent";
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "ledger";
+            "retention-cleanup";
+            "--retention-days";
+            "7";
+            "--now";
+            "2026-06-27T10:00:00Z";
+          ]
+      in
+      Alcotest.(check bool)
+        "cleanup reports deleted count" true
+        (Test_helpers.string_contains result "deleted 1");
+      let remaining = Room_activity_ledger.query ~db () in
+      Alcotest.(check (list string))
+        "remaining ledger events" [ "kept" ]
+        (List.map (fun e -> e.Room_activity_ledger.event_type) remaining))
+
+let test_rooms_ledger_rejected_without_admin () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_room_ledger_event db ~room_id:"room-1" ~event_type:"task_started"
+        ~timestamp:"2026-06-27T10:00:00Z" ~actor:"agent";
+      let list_result = Command_bridge.handle [ "rooms"; "ledger"; "list" ] in
+      Alcotest.(check bool)
+        "ledger list rejected mentions admin" true
+        (Test_helpers.string_contains list_result "admin");
+      let export_result =
+        Command_bridge.handle [ "rooms"; "ledger"; "export" ]
+      in
+      Alcotest.(check bool)
+        "ledger export rejected mentions admin" true
+        (Test_helpers.string_contains export_result "admin");
+      let cleanup_result =
+        Command_bridge.handle
+          [ "rooms"; "ledger"; "retention-cleanup"; "--retention-days"; "1" ]
+      in
+      Alcotest.(check bool)
+        "ledger cleanup rejected mentions admin" true
+        (Test_helpers.string_contains cleanup_result "admin"))
+
+let test_rooms_usage () =
+  let result = Command_bridge.handle [ "rooms"; "help" ] in
+  Alcotest.(check bool)
+    "rooms usage mentions list" true
+    (Test_helpers.string_contains result "list");
+  Alcotest.(check bool)
+    "rooms usage mentions bind" true
+    (Test_helpers.string_contains result "bind");
+  Alcotest.(check bool)
+    "rooms usage mentions unbind" true
+    (Test_helpers.string_contains result "unbind");
+  Alcotest.(check bool)
+    "rooms usage mentions rename" true
+    (Test_helpers.string_contains result "rename");
+  Alcotest.(check bool)
+    "rooms usage mentions delete" true
+    (Test_helpers.string_contains result "delete");
+  Alcotest.(check bool)
+    "rooms usage mentions gc" true
+    (Test_helpers.string_contains result "gc");
+  Alcotest.(check bool)
+    "rooms usage mentions ledger" true
+    (Test_helpers.string_contains result "ledger")
+
+let test_rooms_bind_rejected_without_admin () =
+  with_temp_home (fun home ->
+      (* CLAWQ_ADMIN is cleared by with_temp_home *)
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      (* bind is rejected without admin *)
+      let bind_result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C999"; "coding" ]
+      in
+      Alcotest.(check bool)
+        "bind rejected mentions admin" true
+        (Test_helpers.string_contains bind_result "admin");
+      Alcotest.(check bool)
+        "bind rejected mentions CLAWQ_ADMIN" true
+        (Test_helpers.string_contains bind_result "CLAWQ_ADMIN");
+      (* Config must not have bindings after rejected bind *)
+      let cfg = Config_loader.load () in
+      Alcotest.(check int)
+        "no bindings after rejected bind" 0
+        (List.length cfg.room_profile_bindings);
+      (* unbind is also rejected without admin *)
+      let unbind_result =
+        Command_bridge.handle [ "rooms"; "unbind"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "unbind rejected mentions admin" true
+        (Test_helpers.string_contains unbind_result "admin");
+      (* Still no bindings *)
+      let cfg2 = Config_loader.load () in
+      Alcotest.(check int)
+        "no bindings after rejected unbind" 0
+        (List.length cfg2.room_profile_bindings))
+
+let test_rooms_lifecycle_mutations_rejected_without_admin () =
+  with_temp_home (fun home ->
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let rename_result =
+        Command_bridge.handle [ "rooms"; "rename"; "coding"; "New"; "Name" ]
+      in
+      Alcotest.(check bool)
+        "rename rejected mentions admin" true
+        (Test_helpers.string_contains rename_result "admin");
+      let delete_result =
+        Command_bridge.handle [ "rooms"; "delete"; "coding"; "--force" ]
+      in
+      Alcotest.(check bool)
+        "delete rejected mentions admin" true
+        (Test_helpers.string_contains delete_result "admin");
+      let cfg, profile = find_loaded_room_profile "coding" in
+      Alcotest.(check (option string))
+        "display name unchanged" None profile.display_name;
+      Alcotest.(check string) "profile remains active" "active" profile.status;
+      Alcotest.(check int)
+        "binding remains after rejected mutations" 1
+        (List.length cfg.room_profile_bindings))
+
+let test_min_rooms_mutation_paths_disabled () =
+  let cases =
+    [
+      [ "rooms"; "bind"; "slack:C1"; "coding" ];
+      [ "rooms"; "rename"; "coding"; "New Name" ];
+      [ "rooms"; "delete"; "coding"; "--force" ];
+      [ "rooms"; "unbind"; "slack:C1" ];
+      [ "rooms"; "ledger"; "list" ];
+      [ "rooms"; "ledger"; "export" ];
+      [ "rooms"; "ledger"; "retention-cleanup" ];
+    ]
+  in
+  List.iter
+    (fun args ->
+      let result = Command_bridge_min.handle args in
+      Alcotest.(check bool)
+        (String.concat " " args ^ " disabled in minimal build")
+        true
+        (Test_helpers.string_contains result
+           "not available in the minimal build");
+      Alcotest.(check bool)
+        (String.concat " " args ^ " points to full binary")
+        true
+        (Test_helpers.string_contains result "full clawq"))
+    cases
+
+let test_rooms_admin_surfaces_not_agent_or_tool_exposed () =
+  with_temp_home (fun home ->
+      let guest_commands =
+        Slash_commands.visible_commands ~is_admin:false
+        |> List.map (fun (cmd : Slash_commands.command) -> cmd.name)
+      in
+      let admin_commands =
+        Slash_commands.visible_commands ~is_admin:true
+        |> List.map (fun (cmd : Slash_commands.command) -> cmd.name)
+      in
+      Alcotest.(check bool)
+        "rooms absent from guest slash commands" false
+        (List.mem "rooms" guest_commands);
+      Alcotest.(check bool)
+        "rooms absent from admin slash commands" false
+        (List.mem "rooms" admin_commands);
+      (match Slash_commands.handle "/rooms bind slack:C1 coding" with
+      | Slash_commands.NotACommand -> ()
+      | _ -> Alcotest.fail "rooms slash command must not be exposed");
+      let config = { Runtime_config.default with workspace = home } in
+      let registry = Tool_registry.create () in
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace:home
+          ~extra_allowed_paths:[] ~workspace_only:true ()
+      in
+      Tools_builtin.register_all ~config ~sandbox registry;
+      let tool_names =
+        List.map (fun (tool : Tool.t) -> tool.name) registry.tools
+      in
+      List.iter
+        (fun forbidden ->
+          Alcotest.(check bool)
+            (forbidden ^ " absent from built-in tools")
+            false
+            (List.mem forbidden tool_names))
+        [ "rooms"; "room_admin"; "admin" ])
+
+let test_rooms_routine_create_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let db = session_db home in
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]
+      in
+      Alcotest.(check bool)
+        "create success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "create success mentions profile" true
+        (Test_helpers.string_contains result "coding");
+      Alcotest.(check bool)
+        "create success mentions schedule" true
+        (Test_helpers.string_contains result "every 1h");
+      (* Verify the job exists in the scheduler *)
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found in scheduler"
+      | Some job ->
+          Alcotest.(check bool)
+            "job has profile_id" true (job.profile_id <> None);
+          Alcotest.(check string) "job message" "Check PRs" job.message)
+
+let test_rooms_routine_list_empty () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "rooms"; "routine"; "list" ] in
+      Alcotest.(check bool)
+        "routine list empty mentions no routines" true
+        (Test_helpers.string_contains result "No room routines"))
+
+let test_rooms_routine_list_shows_created () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result = Command_bridge.handle [ "rooms"; "routine"; "list" ] in
+      Alcotest.(check bool)
+        "routine list shows routine-coding" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "routine list shows schedule" true
+        (Test_helpers.string_contains result "every 1h"))
+
+let test_rooms_routine_show_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "show"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "show mentions name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "show mentions message" true
+        (Test_helpers.string_contains result "Check PRs");
+      Alcotest.(check bool)
+        "show mentions schedule" true
+        (Test_helpers.string_contains result "every 1h");
+      Alcotest.(check bool)
+        "show mentions enabled" true
+        (Test_helpers.string_contains result "yes"))
+
+let test_rooms_routine_show_not_found () =
+  with_temp_home (fun _home ->
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "show"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "show not found mentions routine name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_show_no_name () =
+  let result = Command_bridge.handle [ "rooms"; "routine"; "show" ] in
+  Alcotest.(check bool)
+    "show no name shows usage" true
+    (Test_helpers.string_contains result "routine show <name>")
+
+let test_rooms_routine_create_no_message () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "create"; "coding"; "every 1h" ]
+      in
+      Alcotest.(check bool)
+        "no message error is actionable" true
+        (Test_helpers.string_contains result "cannot be empty"))
+
+let test_rooms_routine_create_invalid_profile () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [
+            "rooms"; "routine"; "create"; "nonexistent"; "every 1h"; "Check PRs";
+          ]
+      in
+      Alcotest.(check bool)
+        "invalid profile error mentions profile" true
+        (Test_helpers.string_contains result "nonexistent");
+      Alcotest.(check bool)
+        "invalid profile error lists available" true
+        (Test_helpers.string_contains result "coding"))
+
+let test_rooms_routine_create_rejected_without_admin () =
+  with_temp_home (fun home ->
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check" ]
+      in
+      Alcotest.(check bool)
+        "create rejected mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_usage () =
+  let result = Command_bridge.handle [ "rooms"; "routine" ] in
+  Alcotest.(check bool)
+    "routine usage mentions create" true
+    (Test_helpers.string_contains result "create");
+  Alcotest.(check bool)
+    "routine usage mentions list" true
+    (Test_helpers.string_contains result "list");
+  Alcotest.(check bool)
+    "routine usage mentions show" true
+    (Test_helpers.string_contains result "show");
+  Alcotest.(check bool)
+    "routine usage mentions edit" true
+    (Test_helpers.string_contains result "edit");
+  Alcotest.(check bool)
+    "routine usage mentions remove" true
+    (Test_helpers.string_contains result "remove");
+  Alcotest.(check bool)
+    "routine usage mentions enable" true
+    (Test_helpers.string_contains result "enable");
+  Alcotest.(check bool)
+    "routine usage mentions disable" true
+    (Test_helpers.string_contains result "disable");
+  Alcotest.(check bool)
+    "routine usage mentions trigger" true
+    (Test_helpers.string_contains result "trigger")
+
+let test_rooms_routine_edit_schedule () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "routine";
+            "edit";
+            "routine-coding";
+            "--schedule";
+            "every 2h";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "edit success mentions new schedule" true
+        (Test_helpers.string_contains result "every 2h");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after edit"
+      | Some job ->
+          Alcotest.(check string) "updated schedule" "every 2h" job.schedule_str)
+
+let test_rooms_routine_edit_message () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "routine";
+            "edit";
+            "routine-coding";
+            "--message";
+            "Review open PRs";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after edit"
+      | Some job ->
+          Alcotest.(check string)
+            "updated message" "Review open PRs" job.message)
+
+let test_rooms_routine_edit_not_found () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle
+          [
+            "rooms"; "routine"; "edit"; "nonexistent"; "--schedule"; "every 1h";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit not found mentions name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_edit_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "routine";
+            "edit";
+            "routine-coding";
+            "--schedule";
+            "every 2h";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_remove_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "remove"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "remove success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      Alcotest.(check bool)
+        "routine removed from scheduler" true
+        (Scheduler.get_job ~db ~name:"routine-coding" = None))
+
+let test_rooms_routine_remove_not_found () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "remove"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "remove not found mentions name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_remove_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "remove"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "remove without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_enable_disable () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      (* Disable *)
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "disable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "disable success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      (match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after disable"
+      | Some job -> Alcotest.(check bool) "job disabled" false job.enabled);
+      (* Enable *)
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "enable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "enable success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after enable"
+      | Some job -> Alcotest.(check bool) "job enabled" true job.enabled)
+
+let test_rooms_routine_disable_already_disabled () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "disable"; "routine-coding" ]);
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "disable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "already disabled mentions already disabled" true
+        (Test_helpers.string_contains result "already disabled"))
+
+let test_rooms_routine_enable_already_enabled () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "enable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "already enabled mentions already enabled" true
+        (Test_helpers.string_contains result "already enabled"))
+
+let test_rooms_routine_trigger_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "trigger"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "trigger success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "trigger success mentions Triggered" true
+        (Test_helpers.string_contains result "Triggered");
+      Alcotest.(check bool)
+        "trigger success mentions background task" true
+        (Test_helpers.string_contains result "background task"))
+
+let test_rooms_routine_trigger_not_found () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "trigger"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "trigger not found mentions routine name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_trigger_not_a_routine () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let _ =
+        Command_bridge.handle
+          [ "cron"; "add"; "plain-job"; "sess1"; "every 1h"; "hello" ]
+      in
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "trigger"; "plain-job" ]
+      in
+      Alcotest.(check bool)
+        "trigger non-routine mentions not a room routine" true
+        (Test_helpers.string_contains result "not a room routine"))
+
+let test_rooms_routine_trigger_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "trigger"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "trigger without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_trigger_no_name () =
+  let result = Command_bridge.handle [ "rooms"; "routine"; "trigger" ] in
+  Alcotest.(check bool)
+    "trigger no name shows usage" true
+    (Test_helpers.string_contains result "routine trigger <name>")
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -3314,6 +4693,10 @@ let suite =
     Alcotest.test_case "handle channel test teams" `Quick
       test_handle_channel_test_teams;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;
+    Alcotest.test_case "memory grant CLI requires admin" `Quick
+      test_memory_grant_cli_requires_admin;
+    Alcotest.test_case "memory grants not exposed to slash or tools" `Quick
+      test_memory_grants_not_exposed_to_slash_or_agent_tools;
     Alcotest.test_case "handle workspace" `Quick test_handle_workspace;
     Alcotest.test_case "handle workspace uses effective workspace" `Quick
       test_handle_workspace_uses_effective_workspace;
@@ -3367,6 +4750,8 @@ let suite =
       test_handle_cron_list_prompt_short;
     Alcotest.test_case "handle cron list with jobs" `Quick
       test_handle_cron_list_with_jobs;
+    Alcotest.test_case "handle cron list shows routine target" `Quick
+      test_handle_cron_list_shows_routine_target;
     Alcotest.test_case "handle cron runs" `Quick test_handle_cron_runs;
     Alcotest.test_case "handle cron history missing job" `Quick
       test_handle_cron_history_missing_job;
@@ -3374,6 +4759,10 @@ let suite =
       test_handle_cron_show_missing;
     Alcotest.test_case "handle cron show existing" `Quick
       test_handle_cron_show_existing;
+    Alcotest.test_case "handle cron show shows routine target" `Quick
+      test_handle_cron_show_shows_routine_target;
+    Alcotest.test_case "handle cron history shows routine target" `Quick
+      test_handle_cron_history_shows_routine_target;
     Alcotest.test_case "handle cron trigger missing" `Quick
       test_handle_cron_trigger_missing;
     Alcotest.test_case "handle cron trigger existing" `Quick
@@ -3485,4 +4874,95 @@ let suite =
       test_debug_usage_mentions_context;
     Alcotest.test_case "debug prompt includes workspace file content" `Quick
       test_debug_prompt_includes_workspace_file_content;
+    Alcotest.test_case "rooms list empty" `Quick test_rooms_list_empty;
+    Alcotest.test_case "rooms bind and list" `Quick test_rooms_bind_and_list;
+    Alcotest.test_case "rooms bind unknown profile errors" `Quick
+      test_rooms_bind_unknown_profile_errors;
+    Alcotest.test_case "rooms bind no profiles configured" `Quick
+      test_rooms_bind_no_profiles_configured;
+    Alcotest.test_case "rooms bind already bound" `Quick
+      test_rooms_bind_already_bound;
+    Alcotest.test_case "rooms bind rebinds different profile" `Quick
+      test_rooms_bind_rebinds_different_profile;
+    Alcotest.test_case "rooms rename persists display metadata" `Quick
+      test_rooms_rename_persists_display_metadata;
+    Alcotest.test_case "rooms delete refuses active background task" `Quick
+      test_rooms_delete_refuses_active_background_task;
+    Alcotest.test_case "rooms delete refuses active cron job" `Quick
+      test_rooms_delete_refuses_active_cron_job;
+    Alcotest.test_case "rooms delete force soft deletes and removes bindings"
+      `Quick test_rooms_delete_force_soft_deletes_and_removes_bindings;
+    Alcotest.test_case "rooms workspace reports preserved path" `Quick
+      test_rooms_workspace_reports_preserved_path;
+    Alcotest.test_case "rooms gc preserves active refs and reports paths" `Quick
+      test_rooms_gc_preserves_active_refs_and_reports_paths;
+    Alcotest.test_case "rooms ledger list filters and exports json" `Quick
+      test_rooms_ledger_list_filters_and_exports_json;
+    Alcotest.test_case "rooms ledger retention cleanup" `Quick
+      test_rooms_ledger_retention_cleanup;
+    Alcotest.test_case "rooms ledger rejected without admin" `Quick
+      test_rooms_ledger_rejected_without_admin;
+    Alcotest.test_case "rooms unbind" `Quick test_rooms_unbind;
+    Alcotest.test_case "rooms unbind no binding" `Quick
+      test_rooms_unbind_no_binding;
+    Alcotest.test_case "rooms show bound" `Quick test_rooms_show_bound;
+    Alcotest.test_case "rooms show unbound" `Quick test_rooms_show_unbound;
+    Alcotest.test_case "rooms usage" `Quick test_rooms_usage;
+    Alcotest.test_case "rooms bind rejected without admin" `Quick
+      test_rooms_bind_rejected_without_admin;
+    Alcotest.test_case "rooms lifecycle rejected without admin" `Quick
+      test_rooms_lifecycle_mutations_rejected_without_admin;
+    Alcotest.test_case "minimal rooms mutation paths disabled" `Quick
+      test_min_rooms_mutation_paths_disabled;
+    Alcotest.test_case "rooms admin surfaces not agent/tool exposed" `Quick
+      test_rooms_admin_surfaces_not_agent_or_tool_exposed;
+    Alcotest.test_case "rooms routine create basic" `Quick
+      test_rooms_routine_create_basic;
+    Alcotest.test_case "rooms routine list empty" `Quick
+      test_rooms_routine_list_empty;
+    Alcotest.test_case "rooms routine list shows created" `Quick
+      test_rooms_routine_list_shows_created;
+    Alcotest.test_case "rooms routine show basic" `Quick
+      test_rooms_routine_show_basic;
+    Alcotest.test_case "rooms routine show not found" `Quick
+      test_rooms_routine_show_not_found;
+    Alcotest.test_case "rooms routine show no name" `Quick
+      test_rooms_routine_show_no_name;
+    Alcotest.test_case "rooms routine create no message" `Quick
+      test_rooms_routine_create_no_message;
+    Alcotest.test_case "rooms routine create invalid profile" `Quick
+      test_rooms_routine_create_invalid_profile;
+    Alcotest.test_case "rooms routine create rejected without admin" `Quick
+      test_rooms_routine_create_rejected_without_admin;
+    Alcotest.test_case "rooms routine usage" `Quick test_rooms_routine_usage;
+    Alcotest.test_case "rooms routine edit schedule" `Quick
+      test_rooms_routine_edit_schedule;
+    Alcotest.test_case "rooms routine edit message" `Quick
+      test_rooms_routine_edit_message;
+    Alcotest.test_case "rooms routine edit not found" `Quick
+      test_rooms_routine_edit_not_found;
+    Alcotest.test_case "rooms routine edit rejected without admin" `Quick
+      test_rooms_routine_edit_rejected_without_admin;
+    Alcotest.test_case "rooms routine remove basic" `Quick
+      test_rooms_routine_remove_basic;
+    Alcotest.test_case "rooms routine remove not found" `Quick
+      test_rooms_routine_remove_not_found;
+    Alcotest.test_case "rooms routine remove rejected without admin" `Quick
+      test_rooms_routine_remove_rejected_without_admin;
+    Alcotest.test_case "rooms routine enable/disable" `Quick
+      test_rooms_routine_enable_disable;
+    Alcotest.test_case "rooms routine disable already disabled" `Quick
+      test_rooms_routine_disable_already_disabled;
+    Alcotest.test_case "rooms routine enable already enabled" `Quick
+      test_rooms_routine_enable_already_enabled;
+    Alcotest.test_case "rooms routine trigger basic" `Quick
+      test_rooms_routine_trigger_basic;
+    Alcotest.test_case "rooms routine trigger not found" `Quick
+      test_rooms_routine_trigger_not_found;
+    Alcotest.test_case "rooms routine trigger not a routine" `Quick
+      test_rooms_routine_trigger_not_a_routine;
+    Alcotest.test_case "rooms routine trigger rejected without admin" `Quick
+      test_rooms_routine_trigger_rejected_without_admin;
+    Alcotest.test_case "rooms routine trigger no name" `Quick
+      test_rooms_routine_trigger_no_name;
   ]

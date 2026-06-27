@@ -6,11 +6,11 @@ locked: false
 name: Routine Execution
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 1
+    pending: 0
     total: 1
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -25,6 +25,6 @@ tasks:
       file: T001-run-cron-jobs-as-room-profile.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Run cron jobs as room profile sessions

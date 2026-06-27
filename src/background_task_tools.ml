@@ -229,10 +229,14 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
             let session_key, channel, channel_id =
               Background_task.routing_from_context ?context ?notify_cfg ()
             in
+            let profile_id, origin_json, thread_id, requester =
+              Background_task.origin_fields_from_context ~db ?context ()
+            in
             match
               Background_task.enqueue ~db ~runner ?model ~automerge
                 ~use_worktree ~acp ?agent_name ?follow_up_prompt ~repo_path
-                ~prompt ?branch ?session_key ?channel ?channel_id ()
+                ~prompt ?branch ?session_key ?channel ?channel_id ?profile_id
+                ?origin_json ?thread_id ?requester ()
             with
             | Ok id ->
                 Lwt.return

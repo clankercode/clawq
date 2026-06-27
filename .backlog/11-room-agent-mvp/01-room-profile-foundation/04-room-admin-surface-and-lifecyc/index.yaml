@@ -6,11 +6,11 @@ locked: false
 name: Room Admin Surface and Lifecycle
 stats:
     blocked: 0
-    done: 0
+    done: 4
     in_progress: 0
-    pending: 4
+    pending: 0
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -21,7 +21,7 @@ tasks:
       file: T001-add-admin-only-room-profile-cl.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add admin rooms list show bind and unbind CLI
     - complexity: medium
@@ -32,7 +32,7 @@ tasks:
       file: T002-add-room-workspace-lifecycle-a.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: Add room workspace lifecycle and retention policy
     - complexity: medium
@@ -42,7 +42,8 @@ tasks:
       file: T003-add-room-profile-rebind-rename.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add room profile rebind rename and delete lifecycle
     - complexity: medium
       depends_on:
@@ -52,6 +53,6 @@ tasks:
       file: T004-add-minimal-build-stubs-and-ad.todo
       id: T004
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add minimal build stubs and admin authz tests for rooms CLI

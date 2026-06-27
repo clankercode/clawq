@@ -23,7 +23,7 @@ tasks:
       file: T001-add-sparse-thread-progress-and.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Persist sparse room progress states
     - complexity: high

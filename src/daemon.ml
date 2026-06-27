@@ -227,6 +227,15 @@ let run ~(config : Runtime_config.t) =
           m "Failed to initialize SQLite memory: %s" (Printexc.to_string exn));
       None
   in
+  (* Reconcile room profile config into DB at startup *)
+  (match db with
+  | Some db -> (
+      try ignore (Memory.reconcile_room_profiles ~db ~config)
+      with exn ->
+        Logs.warn (fun m ->
+            m "Room profile reconciliation failed at startup: %s"
+              (Printexc.to_string exn)))
+  | None -> ());
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
@@ -322,6 +331,10 @@ let run ~(config : Runtime_config.t) =
       ~burst_multiplier:rl.burst_multiplier
   in
   let slack_event_limiter =
+    Rate_limiter.create ~rate_per_minute:rl.telegram_per_chat_rpm
+      ~burst_multiplier:rl.burst_multiplier
+  in
+  let teams_event_limiter =
     Rate_limiter.create ~rate_per_minute:rl.telegram_per_chat_rpm
       ~burst_multiplier:rl.burst_multiplier
   in
@@ -442,6 +455,8 @@ let run ~(config : Runtime_config.t) =
                      (Session.find_registered_notifier session_manager
                         ~key:session_key)
                  in
+                 Agent.refresh_profiled_room_flag agent ?db:session_manager.db
+                   ~session_key ();
                  let* info =
                    Agent.force_compact_history agent ?db:session_manager.db
                      ?on_llm_call_debug ()
@@ -922,7 +937,8 @@ let run ~(config : Runtime_config.t) =
             run_update_command ~mode ~send_progress ())
           ?slack_config:config.channels.slack
           ?github_config:config.channels.github ~github_api_limiter ~ip_limiter
-          ~session_limiter ~slack_event_limiter ?web_channel:web_channel_handler
+          ~session_limiter ~slack_event_limiter ~teams_event_limiter
+          ?web_channel:web_channel_handler
           ~slack_run_update_command:run_update_command
           ?whatsapp_config:config.channels.whatsapp
           ?line_config:config.channels.line
@@ -1019,6 +1035,17 @@ let run ~(config : Runtime_config.t) =
         try
           let new_config = Config_loader.load () in
           let old_config = !current_config in
+          (* Reconcile room profile config into DB BEFORE publishing new_config
+             so that on failure the old config remains active. *)
+          (match db with
+          | Some db -> (
+              try ignore (Memory.reconcile_room_profiles ~db ~config:new_config)
+              with exn ->
+                Logs.err (fun m ->
+                    m "Room profile reconciliation failed: %s"
+                      (Printexc.to_string exn));
+                raise exn)
+          | None -> ());
           sandbox := make_sandbox new_config;
           current_config := new_config;
           Session.set_sandbox session_manager !sandbox;
@@ -1371,9 +1398,23 @@ let run ~(config : Runtime_config.t) =
             (try
                let st = Unix.stat config_watch_path in
                if st.Unix.st_mtime > !last_config_mtime then begin
-                 last_config_mtime := st.Unix.st_mtime;
                  let new_config = Config_loader.load () in
                  let old_config = !current_config in
+                 (* Reconcile room profile config into DB BEFORE publishing
+                    new_config so that on failure the old config remains
+                    active. On failure, last_config_mtime is NOT advanced so
+                    the watcher retries on the next cycle. *)
+                 (match db with
+                 | Some db -> (
+                     try
+                       ignore
+                         (Memory.reconcile_room_profiles ~db ~config:new_config)
+                     with exn ->
+                       Logs.err (fun m ->
+                           m "Room profile reconciliation failed: %s"
+                             (Printexc.to_string exn));
+                       raise exn)
+                 | None -> ());
                  sandbox := make_sandbox new_config;
                  current_config := new_config;
                  Session.set_sandbox session_manager !sandbox;
@@ -1443,7 +1484,8 @@ let run ~(config : Runtime_config.t) =
                                  (Printexc.to_string exn));
                            Lwt.return_unit))
                  end;
-                 Logs.info (fun m -> m "Config auto-reloaded (file changed)")
+                 Logs.info (fun m -> m "Config auto-reloaded (file changed)");
+                 last_config_mtime := st.Unix.st_mtime
                end
              with exn ->
                Logs.debug (fun m ->
@@ -1575,6 +1617,10 @@ let run ~(config : Runtime_config.t) =
                 in
                 let* () =
                   Rate_limiter.cleanup_expired slack_event_limiter
+                    ~max_idle_seconds:300.0
+                in
+                let* () =
+                  Rate_limiter.cleanup_expired teams_event_limiter
                     ~max_idle_seconds:300.0
                 in
                 let* () =

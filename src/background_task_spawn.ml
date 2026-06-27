@@ -1,5 +1,39 @@
 include Background_task_control
 
+(** Derive room-origin fields from a tool invoke context's session key and the
+    DB room-profile binding when available. Returns
+    [(profile_id, origin_json, thread_id, requester)] suitable for passing to
+    {!Background_task.enqueue}. *)
+let origin_fields_from_context ~db ?context () =
+  let session_key =
+    match context with
+    | Some (c : Tool.invoke_context) -> c.session_key
+    | None -> None
+  in
+  match session_key with
+  | None -> (None, None, None, None)
+  | Some key -> (
+      match Room_session.parse key with
+      | None -> (None, None, None, None)
+      | Some session ->
+          let room_id = session.channel_id in
+          let profile_id =
+            match Memory.get_room_profile_binding ~db ~room_id with
+            | Some b -> Some b.profile_id
+            | None -> None
+          in
+          let origin = Room_origin.from_room_session ?profile_id session in
+          let origin_json =
+            if Room_origin.is_empty origin then None
+            else Some (Room_origin.to_compact_json_string origin)
+          in
+          let requester =
+            match Room_origin.display_summary origin with
+            | s when s <> "CLI room=- requester=-" -> Some s
+            | _ -> None
+          in
+          (profile_id, origin_json, None, requester))
+
 let ensure_roots () =
   ensure_dir (clawq_dir ());
   ensure_dir (worktree_root ());
@@ -107,11 +141,15 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
             let session_key, channel, channel_id =
               routing_from_context ?context ?notify_cfg ()
             in
+            let profile_id, origin_json, thread_id, requester =
+              origin_fields_from_context ~db ?context ()
+            in
             match
               enqueue ~db ~runner ?model:effective_model ~require_git:false
                 ~automerge ~use_worktree ~acp ?follow_up_prompt
                 ~repo_path:chosen_repo_path ~prompt ?branch ?session_key
-                ?channel ?channel_id ()
+                ?channel ?channel_id ?profile_id ?origin_json ?thread_id
+                ?requester ()
             with
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))

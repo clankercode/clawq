@@ -114,6 +114,56 @@ let test_crud_jobs () =
     "remove nonexistent" false
     (Scheduler.remove_job ~db ~name:"nope")
 
+let test_job_routine_metadata_defaults_to_none () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"plain" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  match Scheduler.get_job ~db ~name:"plain" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      Alcotest.(check (option int)) "profile_id" None j.profile_id;
+      Alcotest.(check (option string)) "thread_id" None j.thread_id;
+      Alcotest.(check (option string))
+        "routine_workspace_id" None j.routine_workspace_id;
+      Alcotest.(check (option string))
+        "routine target" None
+        (Scheduler.job_routine_target j)
+
+let test_job_routine_metadata_round_trips () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"routine" ~session_key:"room:abc" ~message:"m"
+       ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
+       ~routine_workspace_id:"workspace-1" ());
+  let jobs = Scheduler.list_jobs ~db in
+  let j = List.find (fun (j : Scheduler.job) -> j.name = "routine") jobs in
+  Alcotest.(check (option int)) "profile_id" (Some 42) j.profile_id;
+  Alcotest.(check (option string)) "thread_id" (Some "thread-1") j.thread_id;
+  Alcotest.(check (option string))
+    "routine_workspace_id" (Some "workspace-1") j.routine_workspace_id;
+  Alcotest.(check (option string))
+    "routine target" (Some "profile=42 thread=thread-1 workspace=workspace-1")
+    (Scheduler.job_routine_target j)
+
+let test_run_history_includes_routine_target () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"routine_hist" ~session_key:"room:abc"
+       ~message:"m" ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
+       ~routine_workspace_id:"workspace-1" ());
+  let run_id = Scheduler.record_run_start ~db ~job_name:"routine_hist" in
+  Scheduler.record_run_finish ~db ~run_id ~status:"ok" ~result_preview:"done";
+  let runs = Scheduler.get_history ~db ~name:"routine_hist" ~limit:10 in
+  let r = List.hd runs in
+  Alcotest.(check (option int)) "profile_id" (Some 42) r.profile_id;
+  Alcotest.(check (option string))
+    "routine target" (Some "profile=42 thread=thread-1 workspace=workspace-1")
+    (Scheduler.run_routine_target r)
+
 let test_add_invalid_schedule () =
   let db = Memory.init ~db_path:":memory:" () in
   Scheduler.init_schema db;
@@ -774,6 +824,54 @@ let test_tick_marks_response_sent_after_turn () =
        <> None);
      Lwt.return_unit)
 
+(* P13.M1.E2.T001: effective_session_key tests *)
+
+let test_effective_session_key_no_profile () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"plain" ~session_key:"default" ~message:"m"
+       ~schedule:"every 1m" ());
+  match Scheduler.get_job ~db ~name:"plain" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      let turn_key, delivery_key = Scheduler.effective_session_key ~db j in
+      Alcotest.(check string) "turn key" "default" turn_key;
+      Alcotest.(check string) "delivery key" "default" delivery_key
+
+let test_effective_session_key_with_profile () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  let profile_db_id = Memory_core.insert_room_profile ~db ~name:"my-room" in
+  ignore
+    (Scheduler.add_job ~db ~name:"prof" ~session_key:"telegram:42:u"
+       ~message:"m" ~schedule:"every 1m" ~profile_id:profile_db_id ());
+  match Scheduler.get_job ~db ~name:"prof" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      let turn_key, delivery_key = Scheduler.effective_session_key ~db j in
+      let expected_routine =
+        Room_session.make_routine_key ~profile_id:"my-room" ~routine_id:"prof"
+          ()
+      in
+      Alcotest.(check string)
+        "turn key is routine key" expected_routine turn_key;
+      Alcotest.(check string)
+        "delivery key is original" "telegram:42:u" delivery_key
+
+let test_effective_session_key_missing_profile () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"missing" ~session_key:"slack:C:U" ~message:"m"
+       ~schedule:"every 1m" ~profile_id:9999 ());
+  match Scheduler.get_job ~db ~name:"missing" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      let turn_key, delivery_key = Scheduler.effective_session_key ~db j in
+      Alcotest.(check string) "turn key falls back" "slack:C:U" turn_key;
+      Alcotest.(check string) "delivery key falls back" "slack:C:U" delivery_key
+
 let suite =
   [
     Alcotest.test_case "parse interval minutes" `Quick
@@ -792,6 +890,12 @@ let suite =
     Alcotest.test_case "should_run cron uses localtime" `Quick
       test_should_run_cron_uses_localtime;
     Alcotest.test_case "CRUD jobs" `Quick test_crud_jobs;
+    Alcotest.test_case "job routine metadata defaults to none" `Quick
+      test_job_routine_metadata_defaults_to_none;
+    Alcotest.test_case "job routine metadata round trips" `Quick
+      test_job_routine_metadata_round_trips;
+    Alcotest.test_case "run history includes routine target" `Quick
+      test_run_history_includes_routine_target;
     Alcotest.test_case "add invalid schedule" `Quick test_add_invalid_schedule;
     Alcotest.test_case "run history" `Quick test_run_history;
     Alcotest.test_case "get_last_run_time parses timestamp" `Quick
@@ -855,4 +959,10 @@ let suite =
       "B665: inline mark_run_output_by_run_id with varying outputs keeps cron \
        enabled"
       `Quick test_inline_run_output_varying_keeps_enabled;
+    Alcotest.test_case "P13.M1.E2.T001: effective_session_key no profile" `Quick
+      test_effective_session_key_no_profile;
+    Alcotest.test_case "P13.M1.E2.T001: effective_session_key with profile"
+      `Quick test_effective_session_key_with_profile;
+    Alcotest.test_case "P13.M1.E2.T001: effective_session_key missing profile"
+      `Quick test_effective_session_key_missing_profile;
   ]

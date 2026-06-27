@@ -559,32 +559,45 @@ let import_snapshot ~db ~path =
     memories;
   List.length memories
 
-let search ~db ~query ?session_key ~limit () =
-  let sql, has_session =
-    match session_key with
-    | Some _ ->
-        ( "SELECT m.role, m.content, m.tool_call_id, m.tool_name, \
-           m.tool_calls_json, m.provider_response_items_json FROM messages m \
-           JOIN messages_fts f ON m.id = f.rowid WHERE messages_fts MATCH ? \
-           AND f.session_key = ? ORDER BY f.rank LIMIT ?",
-          true )
-    | None ->
-        ( "SELECT m.role, m.content, m.tool_call_id, m.tool_name, \
-           m.tool_calls_json, m.provider_response_items_json FROM messages m \
-           JOIN messages_fts f ON m.id = f.rowid WHERE messages_fts MATCH ? \
-           ORDER BY f.rank LIMIT ?",
-          false )
+let search ~db ~query ?session_key ?scope_kind ?scope_key ~limit () =
+  let scoped = scope_kind <> None || scope_key <> None in
+  let clauses = ref [ "messages_fts MATCH ?" ] in
+  let params = ref [ Sqlite3.Data.TEXT (fts5_safe_query query) ] in
+  let add_clause clause data =
+    clauses := clause :: !clauses;
+    params := data :: !params
+  in
+  Option.iter
+    (fun session -> add_clause "f.session_key = ?" (Sqlite3.Data.TEXT session))
+    session_key;
+  Option.iter
+    (fun kind -> add_clause "s.kind = ?" (Sqlite3.Data.TEXT kind))
+    scope_kind;
+  Option.iter
+    (fun key -> add_clause "s.key = ?" (Sqlite3.Data.TEXT key))
+    scope_key;
+  let scope_join =
+    if scoped then
+      " JOIN scoped_memories sm ON (sm.reference = 'message:' || CAST(m.id AS \
+       TEXT) OR sm.reference = CAST(m.id AS TEXT)) JOIN memory_scopes s ON \
+       s.id = sm.scope_id"
+    else ""
+  in
+  let sql =
+    "SELECT m.role, m.content, m.tool_call_id, m.tool_name, m.tool_calls_json, \
+     m.provider_response_items_json FROM messages m JOIN messages_fts f ON \
+     m.id = f.rowid" ^ scope_join ^ " WHERE "
+    ^ String.concat " AND " (List.rev !clauses)
+    ^ " ORDER BY f.rank LIMIT ?"
   in
   let stmt = Sqlite3.prepare db sql in
-  (* B654: escape FTS5 colons/quotes *)
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (fts5_safe_query query)));
-  if has_session then begin
-    ignore
-      (Sqlite3.bind stmt 2
-         (Sqlite3.Data.TEXT (match session_key with Some s -> s | None -> "")));
-    ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit)))
-  end
-  else ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
+  List.iteri
+    (fun index data -> ignore (Sqlite3.bind stmt (index + 1) data))
+    (List.rev !params);
+  ignore
+    (Sqlite3.bind stmt
+       (List.length !params + 1)
+       (Sqlite3.Data.INT (Int64.of_int limit)));
   let messages = ref [] in
   while Sqlite3.step stmt = Sqlite3.Rc.ROW do
     let role =

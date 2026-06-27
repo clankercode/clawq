@@ -16,6 +16,7 @@
   runtime_config_types
   runtime_config_json
   runtime_config
+  profile_policy
   config_loader_support
   config_loader_agent_defaults
   config_loader_channels
@@ -37,6 +38,7 @@
   reaction_tracker
   status_message
   connector_capabilities
+  ambient_policy
   status_update
   content_dsl
   workspace_scaffold
@@ -80,9 +82,16 @@
   memory_0_queue
   memory_0_postmortem
   memory_types
+  memory_scoped
   memory_core
   memory_session
   memory_search
+  room_profile_reconcile
+  room_stale_query
+  room_watcher_decision
+  room_ambient_delivery
+  ambient_inspection
+  room_progress
   memory
   rate_limiter
   scheduler
@@ -161,6 +170,12 @@
   setup_tui
   restart_exec
   restart_notify
+  room_session
+  room_origin
+  room_workspace
+  room_activity_ledger
+  room_budget
+  room_request_classifier
   daemon_status
   benchmark
   debate

@@ -1,15 +1,17 @@
 ---
+claimed_at: "2026-06-27T15:40:36Z"
+claimed_by: cli-user
+completed_at: "2026-06-27T15:56:15Z"
 complexity: medium
 depends_on:
     - P13.M1.E3.T002
+duration_minutes: 15.6588348925
 estimate_hours: 2
 id: P13.M1.E3.T003
 priority: medium
-status: pending
-tags:
-    - room-agent
-    - scheduler
-    - admin
+started_at: "2026-06-27T15:40:36Z"
+status: done
+tags: []
 title: Add manual room routine trigger path
 ---
 Acceptance: admins can manually trigger a room routine and it uses the same execution path as scheduled ticks; invalid target and policy failures are actionable. Files: scheduler execution/command paths, tests.

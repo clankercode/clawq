@@ -181,7 +181,9 @@ let cmd_cron args =
               let base =
                 [
                   j.name;
-                  j.session_key;
+                  (match Scheduler.job_routine_target j with
+                  | Some target -> Printf.sprintf "%s (%s)" j.session_key target
+                  | None -> j.session_key);
                   j.schedule_str;
                   (if j.enabled then "yes" else "no");
                   (if j.ephemeral then "yes" else "no");
@@ -208,23 +210,35 @@ let cmd_cron args =
               Content_dsl.Paragraph
                 [ Bold "Cron Job"; Text " — "; Code job.name ];
               Paragraph [ Text "Session: "; Code job.session_key ];
-              Paragraph [ Text "Schedule: "; Code job.schedule_str ];
-              Paragraph
-                [ Text "Enabled: "; Text (if job.enabled then "yes" else "no") ];
-              Paragraph
-                [
-                  Text "Ephemeral: ";
-                  Text (if job.ephemeral then "yes" else "no");
-                ];
-              Paragraph
-                [
-                  Text "Expires: ";
-                  Text
-                    (match job.expires_at with
-                    | Some ea -> ea
-                    | None -> "never");
-                ];
             ]
+            @ (match Scheduler.job_routine_target job with
+              | Some target ->
+                  [
+                    Content_dsl.Paragraph
+                      [ Text "Routine target: "; Code target ];
+                  ]
+              | None -> [])
+            @ [
+                Content_dsl.Paragraph
+                  [ Text "Schedule: "; Code job.schedule_str ];
+                Paragraph
+                  [
+                    Text "Enabled: "; Text (if job.enabled then "yes" else "no");
+                  ];
+                Paragraph
+                  [
+                    Text "Ephemeral: ";
+                    Text (if job.ephemeral then "yes" else "no");
+                  ];
+                Paragraph
+                  [
+                    Text "Expires: ";
+                    Text
+                      (match job.expires_at with
+                      | Some ea -> ea
+                      | None -> "never");
+                  ];
+              ]
             @ (match job.agent_name with
               | Some agent ->
                   [ Content_dsl.Paragraph [ Text "Agent: "; Code agent ] ]
@@ -238,34 +252,59 @@ let cmd_cron args =
             if runs = [] then
               [ Content_dsl.Paragraph [ Italic "No run history." ] ]
             else
+              let show_target =
+                List.exists
+                  (fun (r : Scheduler.run) ->
+                    Scheduler.run_routine_target r <> None)
+                  runs
+              in
               let history_columns =
-                Table_format.
-                  [
-                    {
-                      header = "ID";
-                      align = Right;
-                      min_width = 2;
-                      flex = false;
-                    };
-                    {
-                      header = "STARTED";
-                      align = Left;
-                      min_width = 19;
-                      flex = false;
-                    };
-                    {
-                      header = "STATUS";
-                      align = Left;
-                      min_width = 6;
-                      flex = false;
-                    };
-                    {
-                      header = "PREVIEW";
-                      align = Left;
-                      min_width = 10;
-                      flex = true;
-                    };
-                  ]
+                let base =
+                  Table_format.
+                    [
+                      {
+                        header = "ID";
+                        align = Right;
+                        min_width = 2;
+                        flex = false;
+                      };
+                      {
+                        header = "STARTED";
+                        align = Left;
+                        min_width = 19;
+                        flex = false;
+                      };
+                      {
+                        header = "STATUS";
+                        align = Left;
+                        min_width = 6;
+                        flex = false;
+                      };
+                    ]
+                in
+                let target =
+                  if show_target then
+                    Table_format.
+                      [
+                        {
+                          header = "TARGET";
+                          align = Left;
+                          min_width = 6;
+                          flex = false;
+                        };
+                      ]
+                  else []
+                in
+                base @ target
+                @ Table_format.
+                    [
+                      {
+                        header = "PREVIEW";
+                        align = Left;
+                        min_width = 10;
+                        flex = true;
+                      };
+                    ]
               in
               let history_rows =
                 List.map
@@ -277,7 +316,19 @@ let cmd_cron args =
                       | Some p -> p
                       | None -> ""
                     in
-                    [ string_of_int r.run_id; r.started_at; r.status; preview ])
+                    let base =
+                      [ string_of_int r.run_id; r.started_at; r.status ]
+                    in
+                    let target =
+                      if show_target then
+                        [
+                          (match Scheduler.run_routine_target r with
+                          | Some target -> target
+                          | None -> "-");
+                        ]
+                      else []
+                    in
+                    base @ target @ [ preview ])
                   runs
               in
               [
@@ -322,24 +373,64 @@ let cmd_cron args =
       let runs = Scheduler.get_history ~db ~name ~limit:10 in
       if runs = [] then Printf.sprintf "No run history for '%s'" name
       else
+        let show_target =
+          List.exists
+            (fun (r : Scheduler.run) -> Scheduler.run_routine_target r <> None)
+            runs
+        in
         let columns =
-          Table_format.
-            [
-              { header = "ID"; align = Right; min_width = 2; flex = false };
-              { header = "STARTED"; align = Left; min_width = 19; flex = false };
-              { header = "STATUS"; align = Left; min_width = 6; flex = false };
-              { header = "PREVIEW"; align = Left; min_width = 10; flex = true };
-            ]
+          let base =
+            Table_format.
+              [
+                { header = "ID"; align = Right; min_width = 2; flex = false };
+                {
+                  header = "STARTED";
+                  align = Left;
+                  min_width = 19;
+                  flex = false;
+                };
+                { header = "STATUS"; align = Left; min_width = 6; flex = false };
+              ]
+          in
+          let target =
+            if show_target then
+              Table_format.
+                [
+                  {
+                    header = "TARGET";
+                    align = Left;
+                    min_width = 6;
+                    flex = false;
+                  };
+                ]
+            else []
+          in
+          base @ target
+          @ Table_format.
+              [
+                {
+                  header = "PREVIEW";
+                  align = Left;
+                  min_width = 10;
+                  flex = true;
+                };
+              ]
         in
         let rows =
           List.map
             (fun (r : Scheduler.run) ->
-              [
-                string_of_int r.run_id;
-                r.started_at;
-                r.status;
-                (match r.result_preview with Some p -> p | None -> "");
-              ])
+              let base = [ string_of_int r.run_id; r.started_at; r.status ] in
+              let target =
+                if show_target then
+                  [
+                    (match Scheduler.run_routine_target r with
+                    | Some target -> target
+                    | None -> "-");
+                  ]
+                else []
+              in
+              base @ target
+              @ [ (match r.result_preview with Some p -> p | None -> "") ])
             runs
         in
         Format_adapter.bold Format_adapter.Plain
@@ -353,26 +444,67 @@ let cmd_cron args =
       let runs = Scheduler.list_runs ~db ~limit:20 () in
       if runs = [] then "No run history."
       else
+        let show_target =
+          List.exists
+            (fun (r : Scheduler.run) -> Scheduler.run_routine_target r <> None)
+            runs
+        in
         let columns =
-          Table_format.
-            [
-              { header = "ID"; align = Right; min_width = 2; flex = false };
-              { header = "JOB"; align = Left; min_width = 3; flex = false };
-              { header = "STARTED"; align = Left; min_width = 19; flex = false };
-              { header = "STATUS"; align = Left; min_width = 6; flex = false };
-              { header = "PREVIEW"; align = Left; min_width = 10; flex = true };
-            ]
+          let base =
+            Table_format.
+              [
+                { header = "ID"; align = Right; min_width = 2; flex = false };
+                { header = "JOB"; align = Left; min_width = 3; flex = false };
+                {
+                  header = "STARTED";
+                  align = Left;
+                  min_width = 19;
+                  flex = false;
+                };
+                { header = "STATUS"; align = Left; min_width = 6; flex = false };
+              ]
+          in
+          let target =
+            if show_target then
+              Table_format.
+                [
+                  {
+                    header = "TARGET";
+                    align = Left;
+                    min_width = 6;
+                    flex = false;
+                  };
+                ]
+            else []
+          in
+          base @ target
+          @ Table_format.
+              [
+                {
+                  header = "PREVIEW";
+                  align = Left;
+                  min_width = 10;
+                  flex = true;
+                };
+              ]
         in
         let rows =
           List.map
             (fun (r : Scheduler.run) ->
-              [
-                string_of_int r.run_id;
-                r.job_name;
-                r.started_at;
-                r.status;
-                (match r.result_preview with Some p -> p | None -> "");
-              ])
+              let base =
+                [ string_of_int r.run_id; r.job_name; r.started_at; r.status ]
+              in
+              let target =
+                if show_target then
+                  [
+                    (match Scheduler.run_routine_target r with
+                    | Some target -> target
+                    | None -> "-");
+                  ]
+                else []
+              in
+              base @ target
+              @ [ (match r.result_preview with Some p -> p | None -> "") ])
             runs
         in
         Format_adapter.bold Format_adapter.Plain "Run History"
@@ -934,6 +1066,7 @@ let handle args =
   | "skills" :: rest -> Command_bridge_agent_cmds.cmd_skills rest
   | "pair" :: rest -> Command_bridge_pair.cmd_pair rest
   | "agents" :: rest -> Command_bridge_agent_cmds.cmd_agents rest
+  | "rooms" :: rest -> Command_bridge_agent_cmds.cmd_rooms rest
   | "rig" :: rest -> Command_bridge_agent_cmds.cmd_rig rest
   | "rigging" :: _ -> Command_bridge_agent_cmds.cmd_rig [ "list" ]
   | "audit" :: rest -> cmd_audit rest

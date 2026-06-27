@@ -32,8 +32,10 @@ let () =
   Unix.putenv Service.test_disable_live_signal_restart_env "1";
   Alcotest.run "clawq"
     ([
+       ("ambient_policy", Test_ambient_policy.suite);
        ("clawq_core", Test_clawq_core.suite);
        ("agent_loop_conformance", Test_agent_loop_conformance.suite);
+       ("agent_scoped_memory", Test_agent_scoped_memory.suite);
        ("cli_exit", Test_cli_exit.suite);
        ("command_bridge", Test_command_bridge.suite);
        ("phase3", Test_phase3.suite);
@@ -47,6 +49,15 @@ let () =
        ("daemon", Test_daemon.suite);
        ("service", Test_service.suite);
        ("restart", Test_restart.suite);
+       ("room_session", Test_room_session.suite);
+       ("room_origin", Test_room_origin.suite);
+       ("room_workspace", Test_room_workspace.suite);
+       ("room_activity_ledger", Test_room_activity_ledger.suite);
+       ("room_stale_query", Test_room_stale_query.suite);
+       ("room_watcher_decision", Test_room_watcher_decision.suite);
+       ("room_ambient_delivery", Test_room_ambient_delivery.suite);
+       ("ambient_inspection", Test_ambient_inspection.suite);
+       ("room_progress", Test_room_progress.suite);
        ("session", Test_session.suite);
        ("session_observer", Test_session_observer.suite);
        ("session_persistence", Test_session_persistence.suite);
@@ -76,6 +87,7 @@ let () =
        ("landlock", Test_landlock.suite);
        ("rate_limiter", Test_rate_limiter.suite);
        ("slack", Test_slack.suite);
+       ("slack_profiles", Test_slack.test_suite_with_profiles);
        ("discord", Test_discord.suite);
        ("attachment_download", Test_attachment_download.suite);
        ("group_chat_filter", Test_group_chat_filter.suite);
@@ -84,6 +96,7 @@ let () =
        ("slack_socket", Test_slack_socket.suite);
        ("slash_commands", Test_slash_commands.suite);
        ("provider", Test_provider.suite);
+       ("profile_policy", Test_profile_policy.suite);
        ("provider_quota", Test_provider_quota.suite);
        ("totp", Test_totp.suite);
        ("cost_tracker", Test_cost_tracker.suite);
@@ -113,6 +126,9 @@ let () =
        ("tunnel_manager", Test_tunnel_manager.suite);
        ("pairing", Test_pairing.suite);
        ("memory", Test_memory.suite);
+       ("room_profile_reconcile", Test_room_profile_reconcile.suite);
+       ("room_budget", Test_room_budget.suite);
+       ("room_request_classifier", Test_room_request_classifier.suite);
        ("chat_ui", Test_chat_ui.suite);
        ("ui_server", Test_ui_server.suite);
        ("channel_formats", Test_channel_formats.suite);

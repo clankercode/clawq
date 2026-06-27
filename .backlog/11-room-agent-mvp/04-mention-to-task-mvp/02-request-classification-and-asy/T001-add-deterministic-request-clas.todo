@@ -13,7 +13,7 @@ estimate_hours: 2
 id: P11.M4.E2.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add deterministic room request classifier tests
 ---

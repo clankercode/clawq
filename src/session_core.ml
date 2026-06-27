@@ -471,13 +471,102 @@ let is_queued_message_response response = response = queued_message_response
 let should_suppress_response response =
   is_queued_message_response response || Group_chat_filter.is_no_reply response
 
+(** [is_cwd_allowed mgr ~cwd] checks whether [cwd] is permitted under the
+    current security policy. When [workspace_only] is [true], the path must live
+    inside the workspace root or [extra_allowed_paths]. When
+    [allowed_cwd_patterns] are configured, the path must additionally match at
+    least one pattern (using glob semantics). Both constraints apply when both
+    are active — sandbox/global workspace constraints remain stronger than
+    profile choices. *)
+let is_cwd_allowed mgr ~cwd =
+  let cfg = mgr.config in
+  let is_prefix_of ~prefix path =
+    let plen = String.length prefix in
+    let pathlen = String.length path in
+    if pathlen = plen then path = prefix
+    else if pathlen > plen then
+      String.sub path 0 plen = prefix && path.[plen] = '/'
+    else false
+  in
+  let resolve p =
+    try Unix.realpath p
+    with Unix.Unix_error _ ->
+      let dir = Filename.dirname p in
+      let base = Filename.basename p in
+      let real_dir = try Unix.realpath dir with Unix.Unix_error _ -> dir in
+      Filename.concat real_dir base
+  in
+  let under_workspace_roots () =
+    let workspace = Runtime_config.effective_workspace cfg in
+    let real_workspace = resolve workspace in
+    let real_cwd = resolve cwd in
+    is_prefix_of ~prefix:real_workspace real_cwd
+    || List.exists
+         (fun extra ->
+           let expanded = Runtime_config.expand_home extra in
+           is_prefix_of ~prefix:(resolve expanded) real_cwd)
+         cfg.security.extra_allowed_paths
+  in
+  let matches_patterns () =
+    let patterns = cfg.security.allowed_cwd_patterns in
+    if patterns = [] then false
+    else
+      List.exists
+        (fun pat ->
+          let expanded = Runtime_config.expand_cwd_pattern ~config:cfg pat in
+          if expanded = "" then false
+          else Path_util.glob_matches_path ~pattern:expanded cwd)
+        patterns
+  in
+  (* workspace_only containment is always enforced when active. *)
+  let ws_ok = (not cfg.security.workspace_only) || under_workspace_roots () in
+  (* allowed_cwd_patterns are enforced when configured. *)
+  let pat_ok = cfg.security.allowed_cwd_patterns = [] || matches_patterns () in
+  ws_ok && pat_ok
+
 let set_effective_cwd mgr ~key ~cwd =
-  (match Hashtbl.find_opt mgr.sessions key with
-  | Some (agent, _, _) -> agent.Agent.effective_cwd <- Some cwd
-  | None -> ());
-  match mgr.db with
-  | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
-  | None -> ()
+  if not (is_cwd_allowed mgr ~cwd) then begin
+    Logs.warn (fun m ->
+        m "[%s] Refusing to set CWD to %s: outside allowed CWD policy" key cwd);
+    false
+  end
+  else begin
+    (match Hashtbl.find_opt mgr.sessions key with
+    | Some (agent, _, _) -> agent.Agent.effective_cwd <- Some cwd
+    | None -> ());
+    (match mgr.db with
+    | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
+    | None -> ());
+    true
+  end
+
+(** [apply_cwd_change_for_turn mgr ~key agent ~cwd] applies a CWD change
+    requested at the start of a turn. Sets [agent.effective_cwd], injects an
+    event message if the CWD actually changed, and persists to the DB. *)
+let apply_cwd_change_for_turn mgr ~key agent ~cwd =
+  if is_cwd_allowed mgr ~cwd then begin
+    let old_cwd = agent.Agent.effective_cwd in
+    agent.Agent.effective_cwd <- Some cwd;
+    (match old_cwd with
+    | Some prev when prev <> cwd ->
+        let event_msg =
+          Provider.make_message ~role:"event"
+            ~content:
+              (Printf.sprintf "[system] Working directory changed from %s to %s"
+                 prev cwd)
+        in
+        agent.Agent.history <- agent.Agent.history @ [ event_msg ]
+    | _ -> ());
+    match mgr.db with
+    | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
+    | None -> ()
+  end
+  else
+    Logs.warn (fun m ->
+        m
+          "[%s] Ignoring CWD change to %s at turn start: outside allowed CWD \
+           policy"
+          key cwd)
 
 let queueable_channel_key key =
   match Restart_notify.parse_channel_from_key key with
@@ -1008,6 +1097,202 @@ let resolve_agent_template_for_key mgr ~key =
     in
     if agent_name = "default" then None else Agent_template.resolve agent_name
 
+(** [resolve_initial_cwd mgr ~session_key ~db ~agent_template] resolves the
+    initial effective CWD at session creation time. Precedence: 1. DB room
+    workspace (if persisted and allowed) 2. Routine workspace for routine
+    sessions 3. Config workspace default (if explicitly set by user and allowed)
+    4. agent_template.cwd (if valid and allowed) 5. global fallback ([None] —
+    tools use [effective_workspace])
+
+    At turn time, /repo explicit overrides via [set_effective_cwd]. *)
+let child_thread_parent_session_key key =
+  match Room_session.parse_child_thread_key key with
+  | Some child -> Some (child.connector ^ ":" ^ child.room_id)
+  | None -> None
+
+let room_profile_binding_matches_child (cfg : Runtime_config.t)
+    (child : Room_session.child_thread) =
+  List.exists
+    (fun (b : Runtime_config.room_profile_binding) ->
+      b.active
+      && b.profile_id = child.profile_id
+      && (b.room = child.room_id
+         || b.room = child.connector ^ ":" ^ child.room_id))
+    cfg.room_profile_bindings
+
+let room_profile_binding_active_for_profile (cfg : Runtime_config.t) ~profile_id
+    =
+  List.exists
+    (fun (b : Runtime_config.room_profile_binding) ->
+      b.active && b.profile_id = profile_id)
+    cfg.room_profile_bindings
+
+let find_active_room_profile (cfg : Runtime_config.t) ~profile_id =
+  List.find_opt
+    (fun (p : Runtime_config.room_profile) ->
+      p.id = profile_id && String.lowercase_ascii p.status <> "deleted")
+    cfg.room_profiles
+
+let resolve_room_profile_for_session mgr ~key =
+  match Runtime_config.resolve_room_profile mgr.config ~session_key:key with
+  | Some _ as profile -> profile
+  | None -> (
+      match Room_session.parse_child_thread_key key with
+      | Some child ->
+          if not (room_profile_binding_matches_child mgr.config child) then None
+          else find_active_room_profile mgr.config ~profile_id:child.profile_id
+      | None -> (
+          match Room_session.parse_routine_key key with
+          | None -> None
+          | Some routine ->
+              if
+                not
+                  (room_profile_binding_active_for_profile mgr.config
+                     ~profile_id:routine.profile_id)
+              then None
+              else
+                find_active_room_profile mgr.config
+                  ~profile_id:routine.profile_id))
+
+let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
+  let cfg = mgr.config in
+  (* Layer 3: template CWD — lowest priority among explicit layers *)
+  let cwd_from_template () =
+    match agent_template with
+    | Some (tmpl : Agent_template.t) -> (
+        match tmpl.cwd with
+        | Some cwd
+          when Sys.file_exists cwd && Sys.is_directory cwd
+               && is_cwd_allowed mgr ~cwd ->
+            Some cwd
+        | _ -> None)
+    | None -> None
+  in
+  (* Layer 2: config workspace — beats template when user set it explicitly *)
+  let cwd_from_config () =
+    let ws = cfg.workspace in
+    if ws = Runtime_config.default_workspace () then None
+    else
+      let expanded = Runtime_config.expand_home ws in
+      if
+        expanded <> "" && Sys.file_exists expanded && Sys.is_directory expanded
+        && is_cwd_allowed mgr ~cwd:expanded
+      then Some expanded
+      else None
+  in
+  (* Layer 1: DB room workspace — highest priority at session creation.
+     Child thread sessions first check their own stored CWD, then inherit the
+     parent room session CWD for the P11 subset. *)
+  let cwd_from_db_key key =
+    match db with
+    | Some db -> (
+        match Memory.get_session_cwd ~db ~session_key:key with
+        | Some cwd when is_cwd_allowed mgr ~cwd -> Some cwd
+        | _ -> None)
+    | None -> None
+  in
+  let cwd_from_db () =
+    match cwd_from_db_key session_key with
+    | Some _ as r -> r
+    | None -> (
+        match child_thread_parent_session_key session_key with
+        | Some parent_key -> cwd_from_db_key parent_key
+        | None -> None)
+  in
+  let cwd_from_routine () =
+    match Room_session.parse_routine_key session_key with
+    | None -> None
+    | Some routine ->
+        let cwd =
+          Room_workspace.routine_workspace_path ~create:true
+            ~profile_id:routine.profile_id ~routine_id:routine.routine_id
+        in
+        if is_cwd_allowed mgr ~cwd then Some cwd else None
+  in
+  match cwd_from_db () with
+  | Some _ as r -> r
+  | None -> (
+      match cwd_from_routine () with
+      | Some _ as r -> r
+      | None -> (
+          match cwd_from_config () with
+          | Some _ as r -> r
+          | None -> cwd_from_template ()))
+
+(** [apply_room_profile_template_fields mgr ~key agent] resolves the active room
+    profile and applies its template fields ([system_prompt] and
+    [max_tool_iterations]) to the agent's config when they are non-empty /
+    non-default. The room profile tier sits between agent_template (higher) and
+    global agent_defaults (lower) for [system_prompt], and overrides global for
+    [max_tool_iterations]. *)
+let apply_room_profile_template_fields mgr ~key agent =
+  match resolve_room_profile_for_session mgr ~key with
+  | None -> agent.Agent.room_profile_system_prompt <- None
+  | Some profile ->
+      agent.Agent.profiled_room <- true;
+      let cfg = agent.Agent.config in
+      let ad = cfg.agent_defaults in
+      let ad =
+        if profile.system_prompt <> "" then
+          { ad with Runtime_config.system_prompt = profile.system_prompt }
+        else ad
+      in
+      let ad =
+        if profile.max_tool_iterations > 0 then
+          {
+            ad with
+            Runtime_config.max_tool_iterations = profile.max_tool_iterations;
+          }
+        else ad
+      in
+      agent.Agent.config <- { cfg with agent_defaults = ad };
+      agent.Agent.room_profile_system_prompt <-
+        (if profile.system_prompt <> "" then Some profile.system_prompt
+         else None)
+
+(** [resolve_model_for_session mgr ~key] resolves the effective model using the
+    precedence chain: session DB override > room profile > channel default.
+    Security gates (e.g. Anthropic OAuth opt-in) are checked on inherited tiers
+    (room profile, channel default) — if a gate denies the model, the next tier
+    is tried. Session DB overrides set by the user bypass security gates since
+    they represent an explicit choice. Returns [Some model] or [None] if all
+    tiers are empty or denied. Global fallback is handled by the caller. *)
+let resolve_model_for_session mgr ~key : string option =
+  let check_gate model =
+    match
+      Agent_template.check_model_security_gates ~config:mgr.config ~model
+    with
+    | Ok () -> true
+    | Error msg ->
+        Logs.warn (fun m ->
+            m "[session] Model %S for %s denied by security gate: %s" model key
+              msg);
+        false
+  in
+  let try_model = function Some m when check_gate m -> Some m | _ -> None in
+  (* Tier 1: session DB override — bypasses security gate (explicit user
+     choice via /model or slash command). *)
+  let tier1 =
+    match mgr.db with
+    | Some db -> Memory.get_session_model_override ~db ~session_key:key
+    | None -> None
+  in
+  match tier1 with
+  | Some _ -> tier1
+  | None -> (
+      (* Tier 2: room profile *)
+      let tier2 =
+        match resolve_room_profile_for_session mgr ~key with
+        | Some p when p.model <> "" -> Some p.model
+        | _ -> None
+      in
+      match try_model tier2 with
+      | Some _ -> tier2
+      | None ->
+          (* Tier 3: channel default *)
+          let channel_type = Runtime_config.channel_type_of_session_key key in
+          Runtime_config.channel_default_model mgr.config ~channel_type)
+
 let get_or_create_locked mgr ~key =
   let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
@@ -1020,8 +1305,17 @@ let get_or_create_locked mgr ~key =
             Some (Agent_template.filter_tool_registry reg tmpl)
         | _ -> mgr.tool_registry
       in
+      (* CWD precedence: /repo explicit (set at turn time via set_effective_cwd)
+         > DB room workspace > config workspace default > agent_template.cwd >
+         global. At session creation, /repo explicit hasn't fired yet, so we
+         resolve the remaining layers.  Resolve before Agent.create so that
+         project_docs_digests are computed with the correct effective_cwd. *)
+      let initial_cwd =
+        resolve_initial_cwd mgr ~session_key:key ~db:mgr.db ~agent_template
+      in
       let agent =
-        Agent.create ~config:mgr.config ?tool_registry ?agent_template ()
+        Agent.create ~config:mgr.config ?tool_registry ?agent_template
+          ?cwd:initial_cwd ()
       in
       let history = load_restorable_history mgr ~key in
       if history <> [] then begin
@@ -1046,42 +1340,19 @@ let get_or_create_locked mgr ~key =
                 observed_active_workspace_files
           | None -> Agent.sync_observed_active_workspace_files agent)
       | None -> ());
-      (match agent_template with
-      | Some tmpl -> (
-          match tmpl.Agent_template.cwd with
-          | Some cwd when Sys.file_exists cwd && Sys.is_directory cwd ->
-              agent.Agent.effective_cwd <- Some cwd
-          | _ -> ())
+      (* effective_cwd already set via Agent.create ~cwd:initial_cwd above *)
+      (* Model resolution:
+         session DB override > room profile > channel default > global *)
+      (match resolve_model_for_session mgr ~key with
+      | Some model ->
+          let cfg = agent.Agent.config in
+          let agent_defaults =
+            { cfg.agent_defaults with primary_model = model }
+          in
+          agent.Agent.config <- { cfg with agent_defaults }
       | None -> ());
-      (match mgr.db with
-      | Some db -> (
-          match Memory.get_session_cwd ~db ~session_key:key with
-          | Some cwd -> agent.Agent.effective_cwd <- Some cwd
-          | None -> ())
-      | None -> ());
-      (* Model resolution: session DB override > channel default > global *)
-      (let db_override =
-         match mgr.db with
-         | Some db -> Memory.get_session_model_override ~db ~session_key:key
-         | None -> None
-       in
-       let effective_model =
-         match db_override with
-         | Some _ -> db_override
-         | None ->
-             let channel_type =
-               Runtime_config.channel_type_of_session_key key
-             in
-             Runtime_config.channel_default_model mgr.config ~channel_type
-       in
-       match effective_model with
-       | Some model ->
-           let cfg = agent.Agent.config in
-           let agent_defaults =
-             { cfg.agent_defaults with primary_model = model }
-           in
-           agent.Agent.config <- { cfg with agent_defaults }
-       | None -> ());
+      (* Template fields: room profile system_prompt / max_tool_iterations *)
+      apply_room_profile_template_fields mgr ~key agent;
       let mutex = Lwt_mutex.create () in
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
@@ -1550,27 +1821,15 @@ let update_config ?(source = "") mgr config =
   List.iter
     (fun (key, (agent, _, _)) ->
       agent.Agent.config <- config;
-      (* Re-apply session model override or channel default *)
-      (let db_override =
-         match mgr.db with
-         | Some db -> Memory.get_session_model_override ~db ~session_key:key
-         | None -> None
-       in
-       let effective_model =
-         match db_override with
-         | Some _ -> db_override
-         | None ->
-             let channel_type =
-               Runtime_config.channel_type_of_session_key key
-             in
-             Runtime_config.channel_default_model config ~channel_type
-       in
-       match effective_model with
-       | Some model ->
-           let cfg = agent.Agent.config in
-           let ad = { cfg.agent_defaults with primary_model = model } in
-           agent.Agent.config <- { cfg with agent_defaults = ad }
-       | None -> ());
+      (* Re-apply session model override, room profile, or channel default *)
+      (match resolve_model_for_session mgr ~key with
+      | Some model ->
+          let cfg = agent.Agent.config in
+          let ad = { cfg.agent_defaults with primary_model = model } in
+          agent.Agent.config <- { cfg with agent_defaults = ad }
+      | None -> ());
+      (* Re-apply room profile template fields *)
+      apply_room_profile_template_fields mgr ~key agent;
       Agent.sync_observed_active_workspace_files agent;
       persist_session_workspace_state mgr ~key agent)
     (Hashtbl.to_seq mgr.sessions |> List.of_seq)
@@ -1646,35 +1905,70 @@ let get_session_effective_model mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) -> agent.Agent.config.agent_defaults.primary_model
   | None -> (
-      let db_override =
-        match mgr.db with
-        | Some db -> Memory.get_session_model_override ~db ~session_key:key
-        | None -> None
-      in
-      match db_override with
+      match resolve_model_for_session mgr ~key with
       | Some model -> model
-      | None -> (
-          let channel_type = Runtime_config.channel_type_of_session_key key in
-          match
-            Runtime_config.channel_default_model mgr.config ~channel_type
-          with
-          | Some model -> model
-          | None -> mgr.config.agent_defaults.primary_model))
+      | None -> mgr.config.agent_defaults.primary_model)
+
+(** [get_session_agent_defaults mgr ~key] returns the effective agent_defaults
+    for the given session, reading from the in-memory agent if the session is
+    loaded, or from the resolved config otherwise. Exposed for testing room
+    profile template field application. *)
+let get_session_agent_defaults mgr ~key : Runtime_config.agent_defaults =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> agent.Agent.config.agent_defaults
+  | None -> mgr.config.agent_defaults
+
+(** [get_session_system_prompt mgr ~key] returns the effective built
+    system_prompt for the given session, triggering a prompt rebuild with
+    current room profile overrides. Returns "" if session not loaded. *)
+let get_session_system_prompt mgr ~key : string =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) ->
+      let prompt =
+        Prompt_builder.build ~config:agent.Agent.config
+          ~tool_registry:agent.Agent.tool_registry
+          ?agent_template:agent.Agent.agent_template
+          ?room_profile_system_prompt:agent.Agent.room_profile_system_prompt ()
+      in
+      agent.Agent.system_prompt <- prompt;
+      prompt
+  | None -> ""
+
+let get_session_profiled_room mgr ~key =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> Agent.profiled_room_active agent
+  | None -> false
+
+let get_session_effective_cwd mgr ~key =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> agent.Agent.effective_cwd
+  | None -> None
 
 let clear_session_model mgr ~key =
-  (match Hashtbl.find_opt mgr.sessions key with
-  | Some (agent, _, _) ->
-      let cfg = agent.Agent.config in
-      let agent_defaults =
-        {
-          cfg.agent_defaults with
-          primary_model = mgr.config.agent_defaults.primary_model;
-        }
-      in
-      agent.Agent.config <- { cfg with agent_defaults }
-  | None -> ());
-  match mgr.db with
+  (* Clear DB override first so resolve_model_for_session sees the correct
+     fallback chain (room profile > channel default > global). *)
+  (match mgr.db with
   | Some db -> Memory.clear_session_model_override ~db ~session_key:key
+  | None -> ());
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) ->
+      (match resolve_model_for_session mgr ~key with
+      | Some model ->
+          let cfg = agent.Agent.config in
+          let agent_defaults =
+            { cfg.agent_defaults with primary_model = model }
+          in
+          agent.Agent.config <- { cfg with agent_defaults }
+      | None ->
+          let cfg = agent.Agent.config in
+          let agent_defaults =
+            {
+              cfg.agent_defaults with
+              primary_model = mgr.config.agent_defaults.primary_model;
+            }
+          in
+          agent.Agent.config <- { cfg with agent_defaults });
+      apply_room_profile_template_fields mgr ~key agent
   | None -> ()
 
 let reset mgr ~key =
@@ -1908,14 +2202,17 @@ let compact mgr ~key ?notifier () =
         (* Phase 1: Plan -- acquire lock, snapshot state, release lock. *)
         let* plan_opt =
           with_session_lock mgr ~key (fun agent _interrupt ->
+              Agent.refresh_profiled_room_flag agent ?db:mgr.db ~session_key:key
+                ();
               let plan = Agent.plan_force_compact agent in
               (* Set up progress steps while we have the agent *)
               let* () =
                 match (plan, send_or_edit_opt) with
-                | Some _, Some soe ->
+                | Some plan, Some soe ->
                     let has_mem_flush =
                       agent.Agent.config.memory.pre_compaction_flush
                       && Option.is_some mgr.db
+                      && not plan.Agent.cp_profiled_room
                     in
                     overall_start := Unix.gettimeofday ();
                     steps :=

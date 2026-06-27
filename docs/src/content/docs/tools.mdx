@@ -31,6 +31,7 @@ The following tools are registered in `src/tools_builtin.ml` and are available t
 | `send_poll` | Send a poll with options to the user | Low |
 | `doc_write` | Write or update a workspace document that persists across sessions | Medium |
 | `compact_history` | Summarize and compact older conversation history to free context | Low |
+| `inject_connector_history` | Load recent unaddressed room messages into context when `connector_history.enabled` is true and the current connector supports ambient history capture (currently Teams and Discord) | Low |
 | `task_tree` | Add, update, list, and archive persistent hierarchical tasks, including optional agent execution metadata | Medium |
 | `task_start_agent` | Queue a task-tree task as a native/local subagent using that task's agent metadata | Medium |
 | `models` | List available models, get the current model, or set the session model | Low |

@@ -1,4 +1,4 @@
-let schema_version = 31
+let schema_version = 37
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -182,6 +182,7 @@ let init_request_stats_schema db =
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     session_key TEXT NOT NULL,\n\
     \     message_id INTEGER,\n\
+    \     profile_id INTEGER,\n\
     \     provider TEXT NOT NULL,\n\
     \     model TEXT NOT NULL,\n\
     \     prompt_tokens INTEGER NOT NULL,\n\
@@ -189,6 +190,7 @@ let init_request_stats_schema db =
     \     cost_usd REAL,\n\
     \     added_prompt_tokens INTEGER,\n\
     \     cached_tokens INTEGER,\n\
+    \     latency_ms INTEGER,\n\
     \     requested_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )";
   exec_exn db
@@ -196,7 +198,10 @@ let init_request_stats_schema db =
      request_stats(session_key)";
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_request_stats_model ON \
-     request_stats(model, requested_at)"
+     request_stats(model, requested_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+     request_stats(profile_id, requested_at)"
 
 let init_epoch_schema db =
   exec_exn db
@@ -326,6 +331,8 @@ let init_connector_history_schema db =
     "CREATE TABLE IF NOT EXISTS connector_history (\n\
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     session_key TEXT NOT NULL,\n\
+    \     room_id TEXT NOT NULL DEFAULT '',\n\
+    \     connector_type TEXT NOT NULL DEFAULT '',\n\
     \     channel_type TEXT NOT NULL,\n\
     \     sender_name TEXT NOT NULL,\n\
     \     sender_id TEXT NOT NULL,\n\
@@ -333,12 +340,33 @@ let init_connector_history_schema db =
     \     metadata_json TEXT,\n\
     \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )";
+  (try
+     exec_exn db
+       "ALTER TABLE connector_history ADD COLUMN room_id TEXT NOT NULL DEFAULT \
+        ''"
+   with _ -> ());
+  (try
+     exec_exn db
+       "ALTER TABLE connector_history ADD COLUMN connector_type TEXT NOT NULL \
+        DEFAULT ''"
+   with _ -> ());
+  exec_exn db
+    "UPDATE connector_history SET room_id = session_key WHERE room_id = ''";
+  exec_exn db
+    "UPDATE connector_history SET connector_type = channel_type WHERE \
+     connector_type = ''";
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_connector_history_session ON \
      connector_history (session_key, id ASC)";
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_connector_history_created ON \
-     connector_history (created_at)"
+     connector_history (created_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_connector_history_room_connector_created \
+     ON connector_history (room_id, connector_type, created_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_connector_history_connector_created ON \
+     connector_history (connector_type, created_at)"
 
 let init_attachment_log_schema db =
   exec_exn db
@@ -381,6 +409,129 @@ let add_thinking_content_columns db =
     exec_exn db
       "ALTER TABLE session_log_epoch_messages ADD COLUMN thinking_content TEXT"
   with _ -> ()
+
+let init_room_profiles_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS room_profiles (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     name TEXT NOT NULL UNIQUE,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )"
+
+let init_room_profile_bindings_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS room_profile_bindings (\n\
+    \     room_id TEXT NOT NULL PRIMARY KEY,\n\
+    \     profile_id INTEGER NOT NULL UNIQUE,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     FOREIGN KEY (profile_id) REFERENCES room_profiles(id) ON DELETE \
+     CASCADE\n\
+    \   )"
+
+let init_room_activity_ledger_schema db = Room_activity_ledger.init_schema db
+
+let init_scoped_memory_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS memory_scopes (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     kind TEXT NOT NULL CHECK (kind IN ('personal', 'room', 'thread', \n\
+     'workspace', 'legacy')),\n\
+    \     key TEXT NOT NULL,\n\
+    \     profile_id INTEGER,\n\
+    \     parent_scope_id INTEGER,\n\
+    \     provenance TEXT NOT NULL DEFAULT 'unknown',\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     UNIQUE(kind, key),\n\
+    \     CHECK (parent_scope_id IS NULL OR parent_scope_id <> id),\n\
+    \     FOREIGN KEY (profile_id) REFERENCES room_profiles(id) ON DELETE SET \n\
+     NULL,\n\
+    \     FOREIGN KEY (parent_scope_id) REFERENCES memory_scopes(id) ON DELETE \n\
+     SET NULL\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_scopes_profile ON \n\
+    \     memory_scopes(profile_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_scopes_parent ON \n\
+    \     memory_scopes(parent_scope_id)";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS scoped_memories (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     scope_id INTEGER NOT NULL,\n\
+    \     content TEXT,\n\
+    \     reference TEXT,\n\
+    \     provenance TEXT NOT NULL DEFAULT 'unknown',\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     redacted_at TEXT,\n\
+    \     redaction_reason TEXT,\n\
+    \     redaction_metadata TEXT,\n\
+    \     CHECK (content IS NOT NULL OR reference IS NOT NULL),\n\
+    \     FOREIGN KEY (scope_id) REFERENCES memory_scopes(id) ON DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_scoped_memories_scope_created ON \n\
+    \     scoped_memories(scope_id, created_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_scoped_memories_reference ON \n\
+    \     scoped_memories(reference)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_scoped_memories_redacted ON \n\
+    \     scoped_memories(redacted_at)";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS memory_grants (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     scope_id INTEGER NOT NULL,\n\
+    \     principal_kind TEXT NOT NULL,\n\
+    \     principal_id TEXT NOT NULL,\n\
+    \     capability TEXT NOT NULL,\n\
+    \     grantor_kind TEXT,\n\
+    \     grantor_id TEXT,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     expires_at TEXT,\n\
+    \     is_transitive INTEGER NOT NULL DEFAULT 0 CHECK (is_transitive = 0),\n\
+    \     UNIQUE(scope_id, principal_kind, principal_id, capability),\n\
+    \     FOREIGN KEY (scope_id) REFERENCES memory_scopes(id) ON DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_grants_scope ON \n\
+    \     memory_grants(scope_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_grants_principal ON \n\
+    \     memory_grants(principal_kind, principal_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_grants_capability ON \n\
+    \     memory_grants(scope_id, capability)";
+  exec_exn db
+    "CREATE TRIGGER IF NOT EXISTS memory_grants_legacy_read_only_ai BEFORE \n\
+     INSERT ON memory_grants WHEN NEW.capability NOT IN ('list', 'read') AND \n\
+     EXISTS (SELECT 1 FROM memory_scopes WHERE id = NEW.scope_id AND kind = \n\
+     'legacy') BEGIN SELECT RAISE(ABORT, 'legacy memory scope is read-only'); \n\
+     END";
+  exec_exn db
+    "CREATE TRIGGER IF NOT EXISTS memory_grants_legacy_read_only_au BEFORE \n\
+     UPDATE ON memory_grants WHEN NEW.capability NOT IN ('list', 'read') AND \n\
+     EXISTS (SELECT 1 FROM memory_scopes WHERE id = NEW.scope_id AND kind = \n\
+     'legacy') BEGIN SELECT RAISE(ABORT, 'legacy memory scope is read-only'); \n\
+     END";
+  exec_exn db
+    "INSERT OR IGNORE INTO memory_scopes (kind, key, provenance) VALUES \n\
+     ('legacy', 'core', 'system')";
+  exec_exn db
+    "DELETE FROM memory_grants WHERE capability NOT IN ('list', 'read') AND \n\
+     scope_id IN (SELECT id FROM memory_scopes WHERE kind = 'legacy')";
+  exec_exn db
+    "INSERT OR IGNORE INTO memory_grants (scope_id, principal_kind, \n\
+     principal_id, capability, grantor_kind, grantor_id) SELECT id, 'system', \n\
+     'legacy', 'list', 'system', 'seed' FROM memory_scopes WHERE kind = \n\
+     'legacy' AND key = 'core'";
+  exec_exn db
+    "INSERT OR IGNORE INTO memory_grants (scope_id, principal_kind, \n\
+     principal_id, capability, grantor_kind, grantor_id) SELECT id, 'system', \n\
+     'legacy', 'read', 'system', 'seed' FROM memory_scopes WHERE kind = \n\
+     'legacy' AND key = 'core'"
 
 let init_session_repos_schema db =
   exec_exn db
@@ -429,7 +580,12 @@ let ensure_all_tables db =
   Admin.init_schema db;
   Pair_coding_state.init_schema db;
   init_debate_rounds_schema db;
-  init_session_repos_schema db
+  init_session_repos_schema db;
+  init_room_profiles_schema db;
+  init_room_profile_bindings_schema db;
+  init_room_activity_ledger_schema db;
+  Room_budget.init_schema db;
+  init_scoped_memory_schema db
 
 (* Each step migrates from version [v] to [v + 1].
    All ALTER TABLE operations use try/catch for idempotency.
@@ -578,6 +734,31 @@ let migrate_step db v =
         Logs.warn (fun m ->
             m "[memory_0_schema] migration step 30 (unavailable) failed: %s"
               (Printexc.to_string exn)))
+  | 31 ->
+      init_room_profiles_schema db;
+      init_room_profile_bindings_schema db
+  | 32 ->
+      (* Add room-origin columns to task_tree and background_tasks *)
+      let try_add sql = try exec_exn db sql with _ -> () in
+      try_add "ALTER TABLE task_tree ADD COLUMN profile_id INTEGER";
+      try_add "ALTER TABLE task_tree ADD COLUMN origin_json TEXT";
+      try_add "ALTER TABLE task_tree ADD COLUMN thread_id TEXT";
+      try_add "ALTER TABLE task_tree ADD COLUMN requester TEXT";
+      try_add "ALTER TABLE background_tasks ADD COLUMN profile_id INTEGER";
+      try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
+      try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
+      try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
+  | 33 -> init_scoped_memory_schema db
+  | 34 -> init_connector_history_schema db
+  | 35 ->
+      let try_add sql = try exec_exn db sql with _ -> () in
+      try_add "ALTER TABLE request_stats ADD COLUMN profile_id INTEGER";
+      try_add "ALTER TABLE request_stats ADD COLUMN latency_ms INTEGER";
+      exec_exn db
+        "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+         request_stats(profile_id, requested_at)"
+  | 37 -> init_room_activity_ledger_schema db
+  | 36 -> Room_budget.init_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -600,12 +781,29 @@ let repair_missing_columns db =
     "ALTER TABLE session_state ADD COLUMN debug_enabled INTEGER NOT NULL \
      DEFAULT 0";
   try_add "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER";
+  try_add "ALTER TABLE request_stats ADD COLUMN profile_id INTEGER";
+  try_add "ALTER TABLE request_stats ADD COLUMN latency_ms INTEGER";
   try_add "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL";
   try_add "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL";
   try_add
     "ALTER TABLE models_cache ADD COLUMN deprecated INTEGER NOT NULL DEFAULT 0";
   try_add
-    "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0"
+    "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0";
+  try_add "ALTER TABLE task_tree ADD COLUMN profile_id INTEGER";
+  try_add "ALTER TABLE task_tree ADD COLUMN origin_json TEXT";
+  try_add "ALTER TABLE task_tree ADD COLUMN thread_id TEXT";
+  try_add "ALTER TABLE task_tree ADD COLUMN requester TEXT";
+  try_add "ALTER TABLE background_tasks ADD COLUMN profile_id INTEGER";
+  try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
+  try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
+  try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+     request_stats(profile_id, requested_at)";
+  init_connector_history_schema db;
+  init_room_activity_ledger_schema db;
+  Room_budget.init_schema db;
+  init_scoped_memory_schema db
 
 let migrate_schema db current_version =
   match current_version with

@@ -8,7 +8,7 @@ estimate_hours: 2
 id: P11.M1.E4.T002
 priority: medium
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add room workspace lifecycle and retention policy
 ---

@@ -34,6 +34,13 @@ let resolve_tool_search agent (tc : Provider.tool_call) =
           m "Tool search query=%S found=%d tools" query (List.length top));
       Provider.make_tool_search_result ~tool_call_id:tc.id ~tools_json
 
+let room_profile_tool_denial agent ~session_key ~tool_name =
+  match session_key with
+  | None -> None
+  | Some session_key ->
+      Runtime_config.room_profile_tool_denial_for_session agent.config
+        ~session_key ~tool_name
+
 let summarize_history_for_wipe history =
   let lines = ref [] in
   let add line = lines := line :: !lines in
@@ -170,41 +177,47 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
       (fun (tc : Provider.tool_call) ->
         if check_interrupt () then (tc, Error "[skipped: interrupted by user]")
         else
-          match agent.tool_registry with
-          | None -> (tc, Error "Error: no tool registry available")
-          | Some registry -> (
-              match Tool_registry.find registry tc.function_name with
-              | None ->
-                  ( tc,
-                    Error
-                      (Printf.sprintf "Error: unknown tool '%s'"
-                         tc.function_name) )
-              | Some tool -> (
-                  match tc.function_name with
-                  | "tool_search" -> (tc, Ok None)
-                  | _ -> (
-                      let args =
-                        try Yojson.Safe.from_string tc.arguments
-                        with _ ->
-                          Logs.warn (fun m ->
-                              m
-                                "Tool call '%s': failed to parse arguments as \
-                                 JSON (raw: %s)"
-                                tc.function_name tc.arguments);
-                          `Assoc []
-                      in
-                      match
-                        validate_required_with_escalation agent tool args
-                      with
-                      | Error msg -> (tc, Error msg)
-                      | Ok () -> (
+          match
+            room_profile_tool_denial agent ~session_key
+              ~tool_name:tc.function_name
+          with
+          | Some msg -> (tc, Error msg)
+          | None -> (
+              match agent.tool_registry with
+              | None -> (tc, Error "Error: no tool registry available")
+              | Some registry -> (
+                  match Tool_registry.find registry tc.function_name with
+                  | None ->
+                      ( tc,
+                        Error
+                          (Printf.sprintf "Error: unknown tool '%s'"
+                             tc.function_name) )
+                  | Some tool -> (
+                      match tc.function_name with
+                      | "tool_search" -> (tc, Ok None)
+                      | _ -> (
+                          let args =
+                            try Yojson.Safe.from_string tc.arguments
+                            with _ ->
+                              Logs.warn (fun m ->
+                                  m
+                                    "Tool call '%s': failed to parse arguments \
+                                     as JSON (raw: %s)"
+                                    tc.function_name tc.arguments);
+                              `Assoc []
+                          in
                           match
-                            Skill_invocation_guard.use_skill_loaded_noop
-                              ~reserved_no_arg_skills ~history:agent.history
-                              tool args
+                            validate_required_with_escalation agent tool args
                           with
-                          | Some response -> (tc, Error response)
-                          | None -> (tc, Ok (Some (tool, args))))))))
+                          | Error msg -> (tc, Error msg)
+                          | Ok () -> (
+                              match
+                                Skill_invocation_guard.use_skill_loaded_noop
+                                  ~reserved_no_arg_skills ~history:agent.history
+                                  tool args
+                              with
+                              | Some response -> (tc, Error response)
+                              | None -> (tc, Ok (Some (tool, args)))))))))
       calls
   in
   let* results =
@@ -465,41 +478,47 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
       (fun (tc : Provider.tool_call) ->
         if check_interrupt () then (tc, Error "[skipped: interrupted by user]")
         else
-          match agent.tool_registry with
-          | None -> (tc, Error "Error: no tool registry available")
-          | Some registry -> (
-              match Tool_registry.find registry tc.function_name with
-              | None ->
-                  ( tc,
-                    Error
-                      (Printf.sprintf "Error: unknown tool '%s'"
-                         tc.function_name) )
-              | Some tool -> (
-                  match tc.function_name with
-                  | "tool_search" -> (tc, Ok None)
-                  | _ -> (
-                      let args =
-                        try Yojson.Safe.from_string tc.arguments
-                        with _ ->
-                          Logs.warn (fun m ->
-                              m
-                                "Tool call '%s': failed to parse arguments as \
-                                 JSON (raw: %s)"
-                                tc.function_name tc.arguments);
-                          `Assoc []
-                      in
-                      match
-                        validate_required_with_escalation agent tool args
-                      with
-                      | Error msg -> (tc, Error msg)
-                      | Ok () -> (
+          match
+            room_profile_tool_denial agent ~session_key
+              ~tool_name:tc.function_name
+          with
+          | Some msg -> (tc, Error msg)
+          | None -> (
+              match agent.tool_registry with
+              | None -> (tc, Error "Error: no tool registry available")
+              | Some registry -> (
+                  match Tool_registry.find registry tc.function_name with
+                  | None ->
+                      ( tc,
+                        Error
+                          (Printf.sprintf "Error: unknown tool '%s'"
+                             tc.function_name) )
+                  | Some tool -> (
+                      match tc.function_name with
+                      | "tool_search" -> (tc, Ok None)
+                      | _ -> (
+                          let args =
+                            try Yojson.Safe.from_string tc.arguments
+                            with _ ->
+                              Logs.warn (fun m ->
+                                  m
+                                    "Tool call '%s': failed to parse arguments \
+                                     as JSON (raw: %s)"
+                                    tc.function_name tc.arguments);
+                              `Assoc []
+                          in
                           match
-                            Skill_invocation_guard.use_skill_loaded_noop
-                              ~reserved_no_arg_skills ~history:agent.history
-                              tool args
+                            validate_required_with_escalation agent tool args
                           with
-                          | Some response -> (tc, Error response)
-                          | None -> (tc, Ok (Some (tool, args))))))))
+                          | Error msg -> (tc, Error msg)
+                          | Ok () -> (
+                              match
+                                Skill_invocation_guard.use_skill_loaded_noop
+                                  ~reserved_no_arg_skills ~history:agent.history
+                                  tool args
+                              with
+                              | Some response -> (tc, Error response)
+                              | None -> (tc, Ok (Some (tool, args)))))))))
       calls
   in
   let* results =
@@ -638,72 +657,131 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
   in
   Lwt.return_unit
 
-let inject_search_context agent ~db ~user_message =
+let clip_memory_content content =
+  if String.length content > 300 then String.sub content 0 300 ^ "..."
+  else content
+
+let scoped_memory_strings ~db ~scope_kind ~scope_key ~query =
+  let content_matches =
+    Memory.query_scoped_memories ~db ~scope_kind ~scope_key
+      ~content_search:query ~limit:10 ()
+  in
+  let all_when_no_content_match =
+    if content_matches = [] then
+      Memory.query_scoped_memories ~db ~scope_kind ~scope_key ~limit:10 ()
+    else []
+  in
+  let rows = content_matches @ all_when_no_content_match in
+  List.map
+    (fun (m : Memory_types.scoped_memory) ->
+      let content =
+        match m.content with
+        | Some c -> " " ^ clip_memory_content c
+        | None -> ""
+      in
+      Printf.sprintf "[scoped:%s/%s#%d ref=%s]%s" m.scope_kind m.scope_key m.id
+        m.reference content)
+    rows
+
+let inject_search_context ?scope_kind ?scope_key agent ~db ~user_message =
   let open Lwt.Syntax in
   if agent.config.memory.search_enabled then
     Lwt.catch
       (fun () ->
-        (* FTS keyword search *)
-        let keyword_results =
-          Memory.search ~db ~query:user_message ~limit:5 ()
-        in
-        let keyword_strings =
-          List.map
-            (fun (m : Provider.message) ->
-              if String.length m.content > 300 then
-                String.sub m.content 0 300 ^ "..."
-              else m.content)
-            keyword_results
-        in
-        (* Vector search (if embedding provider is configured) *)
-        let* vector_strings =
-          if
-            agent.config.memory.embedding_provider <> None
-            || agent.config.memory.embedding_model <> None
-          then
-            Lwt.catch
-              (fun () ->
-                let* query_emb =
-                  Vector.fetch_embedding ~config:agent.config ~text:user_message
-                in
-                let results =
-                  Vector.search ~db ~query_embedding:query_emb ~limit:5 ()
-                in
-                Lwt.return results)
-              (fun _exn -> Lwt.return [])
-          else Lwt.return []
-        in
-        (* Merge results *)
-        let merged =
-          if vector_strings = [] then keyword_strings
-          else
-            Vector.merge_results ~keyword_results:keyword_strings
-              ~vector_results:vector_strings
-              ~keyword_weight:agent.config.memory.keyword_weight
-              ~vector_weight:agent.config.memory.vector_weight
-        in
-        let top = List.filteri (fun i _ -> i < 3) merged in
-        (* Core memories: always include for awareness *)
-        let core_items =
-          let all = Memory.list_core ~db () in
-          List.filteri (fun i _ -> i < 10) all
-        in
-        let core_strings =
-          List.map
-            (fun (key, content, category) ->
-              Printf.sprintf "[core:%s/%s] %s" category key content)
-            core_items
-        in
-        match top @ core_strings with
-        | [] -> Lwt.return_unit
-        | parts ->
-            let context_msg =
-              Provider.make_message ~role:"system"
-                ~content:
-                  ("Relevant context from memory:\n" ^ String.concat "\n" parts)
+        match (scope_kind, scope_key) with
+        | Some scope_kind, Some scope_key ->
+            let scoped_message_results =
+              Memory.search ~db ~query:user_message ~scope_kind ~scope_key
+                ~limit:5 ()
+              |> List.map (fun (m : Provider.message) ->
+                  "[scoped-message:" ^ scope_kind ^ "/" ^ scope_key ^ "] "
+                  ^ clip_memory_content m.content)
             in
-            agent.history <- context_msg :: agent.history;
-            Lwt.return_unit)
+            let scoped_rows =
+              scoped_memory_strings ~db ~scope_kind ~scope_key
+                ~query:user_message
+            in
+            let parts = scoped_message_results @ scoped_rows in
+            if parts = [] then Lwt.return_unit
+            else begin
+              let context_msg =
+                Provider.make_message ~role:"system"
+                  ~content:
+                    ("Relevant scoped memory context:\n"
+                   ^ String.concat "\n" parts)
+              in
+              agent.history <- context_msg :: agent.history;
+              Lwt.return_unit
+            end
+        | _ -> (
+            (* Legacy routing fallback: only unprofiled or scope-less sessions
+               should reach this branch. Profiled room/thread turns must pass
+               scope_kind/scope_key and use the scoped branch above. *)
+            (* TODO(scoped-memory-audit): keep this global message search as an
+               explicit legacy fallback; do not route profiled rooms here. *)
+            (* FTS keyword search *)
+            let keyword_results =
+              Memory.search ~db ~query:user_message ~limit:5 ()
+            in
+            let keyword_strings =
+              List.map
+                (fun (m : Provider.message) -> clip_memory_content m.content)
+                keyword_results
+            in
+            (* Vector search (if embedding provider is configured) *)
+            let* vector_strings =
+              if
+                agent.config.memory.embedding_provider <> None
+                || agent.config.memory.embedding_model <> None
+              then
+                Lwt.catch
+                  (fun () ->
+                    let* query_emb =
+                      Vector.fetch_embedding ~config:agent.config
+                        ~text:user_message
+                    in
+                    let results =
+                      Vector.search ~db ~query_embedding:query_emb ~limit:5 ()
+                    in
+                    Lwt.return results)
+                  (fun _exn -> Lwt.return [])
+              else Lwt.return []
+            in
+            (* Merge results *)
+            let merged =
+              if vector_strings = [] then keyword_strings
+              else
+                Vector.merge_results ~keyword_results:keyword_strings
+                  ~vector_results:vector_strings
+                  ~keyword_weight:agent.config.memory.keyword_weight
+                  ~vector_weight:agent.config.memory.vector_weight
+            in
+            let top = List.filteri (fun i _ -> i < 3) merged in
+            (* TODO(scoped-memory-audit): global core memory injection is a
+               legacy fallback for unscoped turns; route to scoped memories if
+               scope metadata becomes available here. *)
+            (* Core memories: always include for awareness *)
+            let core_items =
+              let all = Memory.list_core ~db () in
+              List.filteri (fun i _ -> i < 10) all
+            in
+            let core_strings =
+              List.map
+                (fun (key, content, category) ->
+                  Printf.sprintf "[core:%s/%s] %s" category key content)
+                core_items
+            in
+            match top @ core_strings with
+            | [] -> Lwt.return_unit
+            | parts ->
+                let context_msg =
+                  Provider.make_message ~role:"system"
+                    ~content:
+                      ("Relevant context from memory:\n"
+                     ^ String.concat "\n" parts)
+                in
+                agent.history <- context_msg :: agent.history;
+                Lwt.return_unit))
       (fun _ -> Lwt.return_unit)
   else Lwt.return_unit
 

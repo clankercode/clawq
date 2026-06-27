@@ -86,6 +86,36 @@ let test_is_admin_after_registration () =
         "user_group is admin" "admin"
         (Admin.user_group_string ~db ~channel:"telegram" ~sender_id:"user1"))
 
+let test_is_admin_channel_scoped () =
+  with_temp_db (fun db ->
+      let code = Admin.generate_otc ~channel:"telegram" ~sender_id:"user1" in
+      (match
+         Admin.verify_otc ~db ~channel:"telegram" ~sender_id:"user1" ~code
+       with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      Alcotest.(check bool)
+        "same channel is admin" true
+        (Admin.is_admin ~db ~channel:"telegram" ~sender_id:"user1");
+      Alcotest.(check bool)
+        "different channel is guest" false
+        (Admin.is_admin ~db ~channel:"slack" ~sender_id:"user1"))
+
+let test_remove_admin_channel_scoped () =
+  with_temp_db (fun db ->
+      let code = Admin.generate_otc ~channel:"telegram" ~sender_id:"user1" in
+      (match
+         Admin.verify_otc ~db ~channel:"telegram" ~sender_id:"user1" ~code
+       with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      Alcotest.(check bool)
+        "other channel removal returns false" false
+        (Admin.remove_admin ~db ~channel:"slack" ~sender_id:"user1");
+      Alcotest.(check bool)
+        "original channel admin remains" true
+        (Admin.is_admin ~db ~channel:"telegram" ~sender_id:"user1"))
+
 let test_gate_admin_allows_admin () =
   let inner = Slash_commands.Reply "secret config" in
   let result =
@@ -223,6 +253,10 @@ let suite =
     Alcotest.test_case "verify no pending" `Quick test_verify_no_pending;
     Alcotest.test_case "is admin after registration" `Quick
       test_is_admin_after_registration;
+    Alcotest.test_case "is admin is channel-scoped" `Quick
+      test_is_admin_channel_scoped;
+    Alcotest.test_case "remove admin is channel-scoped" `Quick
+      test_remove_admin_channel_scoped;
     Alcotest.test_case "gate_admin allows admin" `Quick
       test_gate_admin_allows_admin;
     Alcotest.test_case "gate_admin blocks guest" `Quick

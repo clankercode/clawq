@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Budget Attribution
       path: 01-budget-attribution
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Per-provider-call hard budget enforcement and admin soft-limit warnings.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Budget Enforcement
       path: 02-budget-enforcement
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Redacted room activity ledger with requester/task/tool/model/cost/artifact/status lineage.
@@ -27,15 +27,15 @@ epics:
       locked: false
       name: Room Activity Ledger
       path: 03-room-activity-ledger
-      status: pending
+      status: done
 estimate_hours: 36
 id: P12.M3
 locked: false
 name: Budgets and Activity Ledger
 stats:
     blocked: 0
-    done: 0
+    done: 9
     in_progress: 0
-    pending: 9
+    pending: 0
     total_tasks: 9
-status: pending
+status: done

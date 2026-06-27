@@ -1,16 +1,14 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P11.M2.E1.T001
 estimate_hours: 4
 id: P11.M2.E3.T001
 priority: high
-status: pending
-tags:
-    - room-agent
-    - profiled-room
-    - memory
-    - security
+started_at: null
+status: done
+tags: []
 title: Disable unscoped global memory/search in profiled rooms
 ---
 Acceptance: profiled room turns do not call unscoped Memory.search across all messages and do not inject raw global/core memories before scoped memory lands; compaction and memory flush paths do not reintroduce global reads; tests seed Channel A/B and prove no cross-channel prompt leakage. Files: src/agent.ml, src/agent_0_compact.ml, memory/search call sites, test/test_memory_search.ml, test/test_agent*.ml.

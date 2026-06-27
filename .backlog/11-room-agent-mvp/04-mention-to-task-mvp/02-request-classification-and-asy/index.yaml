@@ -25,7 +25,7 @@ tasks:
       file: T001-add-deterministic-request-clas.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add deterministic room request classifier tests
     - complexity: high
@@ -35,7 +35,8 @@ tasks:
       file: T002-create-tasks-from-explicit-asy.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Create tasks from explicit async room commands
     - complexity: high
       depends_on:

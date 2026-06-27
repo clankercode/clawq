@@ -102,8 +102,9 @@ Path requirements:
 | Other connectors | Generic typed-key support only | No-op/degraded until connector capability says otherwise | No-op/degraded | Capability matrix decides delivery behavior. |
 
 Thread-less fallback:
-- If a connector lacks durable thread identity, async work should use a deterministic task/session key derived from the source message id or durable queue id.
-- If no stable source id exists, fall back to the shared room session plus task id, not a synthesized random thread id.
+- If a connector lacks durable thread identity, async work should use a deterministic task/session key derived from the source message id or durable queue id when one is available.
+- If no stable source id exists, fall back to a deterministic profile + room child fallback key, not a synthesized random thread id.
+- The fallback key must remain distinct from native/thread-like child thread keys for the same room.
 - The user-facing message should say that the connector cannot keep replies in a native thread.
 
 ## Recommended Phase Structure

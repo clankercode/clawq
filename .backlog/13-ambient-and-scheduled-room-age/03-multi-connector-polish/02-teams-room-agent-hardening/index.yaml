@@ -6,11 +6,11 @@ locked: false
 name: Teams Room-Agent Hardening
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -20,7 +20,7 @@ tasks:
       file: T001-harden-teams-room-agent-ux-pat.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: Harden Teams room-agent slash commands
     - complexity: medium
@@ -30,7 +30,8 @@ tasks:
       file: T002-harden-teams-consent-card-acti.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Harden Teams consent card actions for room agents
     - complexity: medium
       depends_on:
@@ -39,5 +40,6 @@ tasks:
       file: T003-harden-teams-background-comple.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Harden Teams background completion and tool visibility

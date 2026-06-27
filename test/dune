@@ -3,9 +3,11 @@
  (deps ../src/main.exe)
  (modules
   test_main
+  test_ambient_policy
   test_plan_pipeline
   test_agent_loop_conformance
   test_agent_router
+  test_agent_scoped_memory
   test_agent_template
   test_audit
   test_b710
@@ -51,6 +53,9 @@
   test_mattermost
   test_mcp
   test_memory
+  test_room_profile_reconcile
+  test_room_budget
+  test_room_request_classifier
   test_memory_retention
   test_memory_search
   test_migrate
@@ -66,6 +71,7 @@
   test_postmortem
   test_prompt_builder
   test_provider
+  test_profile_policy
   test_provider_anthropic
   test_provider_minimax
   test_provider_openai_codex
@@ -75,6 +81,15 @@
   test_request_stats
   test_resilience
   test_restart
+  test_room_session
+  test_room_origin
+  test_room_workspace
+  test_room_activity_ledger
+  test_room_stale_query
+  test_room_watcher_decision
+  test_room_ambient_delivery
+  test_ambient_inspection
+  test_room_progress
   test_sandbox
   test_scheduler
   test_secret_store

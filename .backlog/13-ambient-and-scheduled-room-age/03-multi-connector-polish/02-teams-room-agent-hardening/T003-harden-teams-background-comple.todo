@@ -1,15 +1,14 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P13.M3.E2.T002
 estimate_hours: 3
 id: P13.M3.E2.T003
 priority: medium
-status: pending
-tags:
-    - room-agent
-    - teams
-    - connectors
+started_at: null
+status: done
+tags: []
 title: Harden Teams background completion and tool visibility
 ---
 Acceptance: Teams background completion delivery and tool visibility respect capability matrix and room-agent policy; related bugs B424, B457, and B499 are linked or closed. Files: src/teams.ml, background/status tests.

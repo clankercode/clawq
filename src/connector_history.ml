@@ -3,12 +3,25 @@
 
 type entry = {
   timestamp : float;
+  room_id : string;
+  connector_type : string;
   sender_name : string;
   sender_id : string;
   text : string;
   channel_type : string;
   metadata_json : string option;
 }
+
+let utc_datetime_of_epoch epoch =
+  let tm = Unix.gmtime epoch in
+  Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+    (tm.tm_mon + 1) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
+
+let text_col stmt idx =
+  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
+
+let opt_text_col stmt idx =
+  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> Some s | _ -> None
 
 (* Parse "YYYY-MM-DD HH:MM:SS" (UTC, from sqlite datetime('now')) to epoch.
    Falls back to current time on parse failure. *)
@@ -46,11 +59,20 @@ let parse_utc_datetime s =
    (newest first, capped at max). *)
 let buffers : (string, entry list) Hashtbl.t = Hashtbl.create 16
 
-let record ?db ~persist ~key ~channel_type ~max ~sender_name ~sender_id ~text
-    ?metadata_json () =
+let record ?db ~persist ~key ?room_id ?connector_type ~channel_type ~max
+    ~sender_name ~sender_id ~text ?metadata_json ?timestamp () =
+  let timestamp =
+    match timestamp with Some t -> t | None -> Unix.gettimeofday ()
+  in
+  let room_id = match room_id with Some r -> r | None -> key in
+  let connector_type =
+    match connector_type with Some c -> c | None -> channel_type
+  in
   let entry =
     {
-      timestamp = Unix.gettimeofday ();
+      timestamp;
+      room_id;
+      connector_type;
       sender_name;
       sender_id;
       text;
@@ -71,22 +93,27 @@ let record ?db ~persist ~key ~channel_type ~max ~sender_name ~sender_id ~text
     | Some db ->
         let stmt =
           Sqlite3.prepare db
-            "INSERT INTO connector_history (session_key, channel_type, \
-             sender_name, sender_id, text, metadata_json) VALUES (?, ?, ?, ?, \
-             ?, ?)"
+            "INSERT INTO connector_history (session_key, room_id, \
+             connector_type, channel_type, sender_name, sender_id, text, \
+             metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         in
         ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key));
-        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT channel_type));
-        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT sender_name));
-        ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT sender_id));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT room_id));
+        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT connector_type));
+        ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT channel_type));
+        ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT sender_name));
+        ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT sender_id));
         ignore
-          (Sqlite3.bind stmt 5
+          (Sqlite3.bind stmt 7
              (if text = "" then Sqlite3.Data.NULL else Sqlite3.Data.TEXT text));
         ignore
-          (Sqlite3.bind stmt 6
+          (Sqlite3.bind stmt 8
              (match metadata_json with
              | Some j -> Sqlite3.Data.TEXT j
              | None -> Sqlite3.Data.NULL));
+        ignore
+          (Sqlite3.bind stmt 9
+             (Sqlite3.Data.TEXT (utc_datetime_of_epoch timestamp)));
         (match Sqlite3.step stmt with
         | Sqlite3.Rc.DONE -> ()
         | rc ->
@@ -94,17 +121,20 @@ let record ?db ~persist ~key ~channel_type ~max ~sender_name ~sender_id ~text
                 m "connector_history: INSERT failed: %s"
                   (Sqlite3.Rc.to_string rc)));
         ignore (Sqlite3.finalize stmt);
-        (* Trim DB for this session_key to max rows *)
+        (* Trim DB for this room/connector scope to max rows. *)
         let trim_sql =
           Printf.sprintf
-            "DELETE FROM connector_history WHERE session_key = ? AND id NOT IN \
-             (SELECT id FROM connector_history WHERE session_key = ? ORDER BY \
-             id DESC LIMIT %d)"
+            "DELETE FROM connector_history WHERE room_id = ? AND \
+             connector_type = ? AND id NOT IN (SELECT id FROM \
+             connector_history WHERE room_id = ? AND connector_type = ? ORDER \
+             BY id DESC LIMIT %d)"
             max
         in
         let trim_stmt = Sqlite3.prepare db trim_sql in
-        ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT key));
-        ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT key));
+        ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT room_id));
+        ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT connector_type));
+        ignore (Sqlite3.bind trim_stmt 3 (Sqlite3.Data.TEXT room_id));
+        ignore (Sqlite3.bind trim_stmt 4 (Sqlite3.Data.TEXT connector_type));
         (match Sqlite3.step trim_stmt with
         | Sqlite3.Rc.DONE -> ()
         | rc ->
@@ -118,8 +148,8 @@ let load_from_db ~db ~key ~max =
   let sql =
     Printf.sprintf
       "SELECT sender_name, sender_id, text, channel_type, metadata_json, \
-       created_at FROM connector_history WHERE session_key = ? ORDER BY id \
-       DESC LIMIT %d"
+       created_at, room_id, connector_type FROM connector_history WHERE \
+       session_key = ? ORDER BY id DESC LIMIT %d"
       max
   in
   let stmt = Sqlite3.prepare db sql in
@@ -129,31 +159,27 @@ let load_from_db ~db ~key ~max =
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-        let sender_name =
-          match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
-        in
-        let sender_id =
-          match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
-        in
-        let text =
-          match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
-        in
-        let channel_type =
-          match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
-        in
-        let metadata_json =
-          match Sqlite3.column stmt 4 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let sender_name = text_col stmt 0 in
+        let sender_id = text_col stmt 1 in
+        let text = text_col stmt 2 in
+        let channel_type = text_col stmt 3 in
+        let metadata_json = opt_text_col stmt 4 in
         let timestamp =
           match Sqlite3.column stmt 5 with
           | Sqlite3.Data.TEXT s -> parse_utc_datetime s
           | _ -> Unix.gettimeofday ()
         in
+        let room_id =
+          match text_col stmt 6 with "" -> key | room_id -> room_id
+        in
+        let connector_type =
+          match text_col stmt 7 with "" -> channel_type | c -> c
+        in
         rows :=
           {
             timestamp;
+            room_id;
+            connector_type;
             sender_name;
             sender_id;
             text;
@@ -187,6 +213,102 @@ let get ?db ~key ~count () =
   in
   (* entries are newest-first; reverse to chronological order *)
   List.rev entries
+
+let query ?room_id ?connector_type ?since_ts ?until_ts ?limit ~db () =
+  let conditions = ref [] in
+  let params = ref [] in
+  let add_filter sql data =
+    conditions := sql :: !conditions;
+    params := data :: !params
+  in
+  (match room_id with
+  | Some room_id -> add_filter "room_id = ?" (Sqlite3.Data.TEXT room_id)
+  | None -> ());
+  (match connector_type with
+  | Some connector_type ->
+      add_filter "connector_type = ?" (Sqlite3.Data.TEXT connector_type)
+  | None -> ());
+  (match since_ts with
+  | Some since_ts ->
+      add_filter "created_at >= ?"
+        (Sqlite3.Data.TEXT (utc_datetime_of_epoch since_ts))
+  | None -> ());
+  (match until_ts with
+  | Some until_ts ->
+      add_filter "created_at <= ?"
+        (Sqlite3.Data.TEXT (utc_datetime_of_epoch until_ts))
+  | None -> ());
+  let where_sql =
+    match List.rev !conditions with
+    | [] -> ""
+    | conditions -> " WHERE " ^ String.concat " AND " conditions
+  in
+  let limit_sql =
+    match limit with
+    | Some limit when limit > 0 -> Printf.sprintf " LIMIT %d" limit
+    | _ -> ""
+  in
+  let sql =
+    "SELECT sender_name, sender_id, text, channel_type, metadata_json, \
+     created_at, room_id, connector_type FROM connector_history" ^ where_sql
+    ^ " ORDER BY created_at ASC, id ASC" ^ limit_sql
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let entries = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      List.iteri
+        (fun i data -> ignore (Sqlite3.bind stmt (i + 1) data))
+        (List.rev !params);
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let sender_name = text_col stmt 0 in
+        let sender_id = text_col stmt 1 in
+        let text = text_col stmt 2 in
+        let channel_type = text_col stmt 3 in
+        let metadata_json = opt_text_col stmt 4 in
+        let timestamp =
+          match Sqlite3.column stmt 5 with
+          | Sqlite3.Data.TEXT s -> parse_utc_datetime s
+          | _ -> Unix.gettimeofday ()
+        in
+        let room_id = text_col stmt 6 in
+        let connector_type =
+          match text_col stmt 7 with "" -> channel_type | c -> c
+        in
+        entries :=
+          {
+            timestamp;
+            room_id;
+            connector_type;
+            sender_name;
+            sender_id;
+            text;
+            channel_type;
+            metadata_json;
+          }
+          :: !entries
+      done);
+  List.rev !entries
+
+let delete_older_than ?now ~db ~max_age_days () =
+  let now = match now with Some now -> now | None -> Unix.gettimeofday () in
+  let cutoff = now -. (float_of_int max_age_days *. 86_400.0) in
+  let stmt =
+    Sqlite3.prepare db "DELETE FROM connector_history WHERE created_at < ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (utc_datetime_of_epoch cutoff)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Sqlite3.changes db
+      | rc ->
+          Logs.warn (fun m ->
+              m "connector_history: retention DELETE failed: %s"
+                (Sqlite3.Rc.to_string rc));
+          0)
 
 let format_for_context entries =
   let format_entry e =

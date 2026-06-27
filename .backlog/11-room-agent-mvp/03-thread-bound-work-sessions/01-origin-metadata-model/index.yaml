@@ -6,11 +6,11 @@ locked: false
 name: Origin Metadata Model
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 1
+    pending: 0
     total: 1
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -20,6 +20,6 @@ tasks:
       file: T001-add-room-origin-metadata-type.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add room origin metadata type and serialization

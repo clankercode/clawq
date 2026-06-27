@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P11.M3.E4.T001
@@ -6,11 +7,9 @@ depends_on:
 estimate_hours: 2
 id: P11.M3.E4.T003
 priority: high
-status: pending
-tags:
-    - room-agent
-    - profiled-room
-    - threading
+started_at: null
+status: done
+tags: []
 title: Add deterministic thread-less child session fallback
 ---
 Acceptance: connectors without native threads derive stable child keys from source message, queue row, or task id; fallback avoids orphaned sessions and restart nondeterminism. Files: session/task/background tests.

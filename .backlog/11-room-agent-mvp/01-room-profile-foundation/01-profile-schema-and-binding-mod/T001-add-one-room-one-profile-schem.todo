@@ -6,7 +6,7 @@ estimate_hours: 2
 id: P11.M1.E1.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Add room profile config types and validation
 ---

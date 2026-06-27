@@ -54,3 +54,42 @@ type session_archive_info = {
   first_message_at : string option;
   last_message_at : string option;
 }
+
+type room_profile = {
+  id : int;
+  name : string;
+  created_at : string;
+  updated_at : string;
+}
+
+type room_profile_binding = {
+  room_id : string;
+  profile_id : int;
+  created_at : string;
+}
+
+type memory_scope = {
+  id : int;
+  kind : string;
+  key : string;
+  profile_id : int option;
+  parent_scope_id : int option;
+  provenance : string;
+  created_at : string;
+  updated_at : string;
+}
+
+type scoped_memory = {
+  id : int;
+  scope_id : int;
+  scope_kind : string;
+  scope_key : string;
+  content : string option;
+  reference : string;
+  provenance : string;
+  created_at : string;
+  updated_at : string;
+  redacted_at : string option;
+  redaction_reason : string option;
+  redaction_metadata : string option;
+}

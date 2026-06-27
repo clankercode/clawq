@@ -487,11 +487,17 @@ let background_task_wakeup_message task =
              (Background_task.preview_text_n 500 text))
     | _ -> None
   in
+  let room_context =
+    Option.map
+      (fun context -> "Room: " ^ context)
+      (Background_task.room_context_summary task)
+  in
   String.concat "\n"
     (List.filter
        (fun s -> String.trim s <> "")
        [
          base;
+         Option.value ~default:"" room_context;
          Option.value ~default:"" preview;
          Printf.sprintf "Transcript: `subagents transcript %d`" task.id;
        ])
@@ -499,6 +505,34 @@ let background_task_wakeup_message task =
 (* run_local_background_turn + config_with_primary_model live in
    daemon_util_localturn.ml; re-exported here to keep Daemon_util.* stable. *)
 include Daemon_util_localturn
+
+let teams_room_context_for_completion ?db (task : Background_task.task) =
+  match (db, task.channel, task.channel_id) with
+  | Some db, Some "teams", Some channel_id -> (
+      let service_url, conversation_id = Teams.decode_channel_id channel_id in
+      match Memory.get_room_profile_binding ~db ~room_id:conversation_id with
+      | None -> None
+      | Some binding ->
+          let origin =
+            Room_origin.make ~connector:"teams" ~room_id:conversation_id
+              ~service_url ~profile_id:binding.profile_id ()
+          in
+          Some
+            ( "teams:" ^ Session.sanitize_session_key conversation_id,
+              Room_origin.to_compact_json_string origin,
+              Room_origin.display_summary origin ))
+  | _ -> None
+
+let task_with_teams_room_context ?db (task : Background_task.task) =
+  match teams_room_context_for_completion ?db task with
+  | None -> task
+  | Some (session_key, origin_json, requester) ->
+      {
+        task with
+        session_key = Some session_key;
+        origin_json = Some origin_json;
+        requester = Some requester;
+      }
 
 let inject_background_task_completion
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
@@ -647,6 +681,50 @@ let record_notification ~db ~task_id ~status ?error () =
         ()
   | None -> ()
 
+let deliver_room_progress ~(config : Runtime_config.t)
+    (task : Background_task.task) =
+  let open Lwt.Syntax in
+  match config.channels.slack with
+  | Some slack_config ->
+      let send ~room_id ?thread_id ~text () =
+        match thread_id with
+        | Some thread_ts ->
+            let uri = "https://slack.com/api/chat.postMessage" in
+            let headers =
+              [ ("Authorization", "Bearer " ^ slack_config.bot_token) ]
+            in
+            let body =
+              `Assoc
+                [
+                  ("channel", `String room_id);
+                  ("text", `String text);
+                  ("thread_ts", `String thread_ts);
+                ]
+              |> Yojson.Safe.to_string
+            in
+            let* _status, resp_body =
+              Http_client.post_json ~uri ~headers ~body
+            in
+            let ts =
+              try
+                let json = Yojson.Safe.from_string resp_body in
+                json
+                |> Yojson.Safe.Util.member "ts"
+                |> Yojson.Safe.Util.to_string
+              with _ -> "0"
+            in
+            Lwt.return ts
+        | None ->
+            Slack.send_message_with_id ~bot_token:slack_config.bot_token
+              ~channel_id:room_id ~text
+      in
+      let edit ~room_id ~msg_id ~text =
+        Slack.edit_message ~bot_token:slack_config.bot_token ~channel_id:room_id
+          ~ts:msg_id ~text
+      in
+      Room_progress.deliver_progress_update ~send ~edit ~task ()
+  | None -> Lwt.return_unit
+
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
     ?db task =
@@ -693,6 +771,7 @@ let notify_background_task_finished ?continuation_delay
             Lwt.return (task, true))
     | _ -> Lwt.return (task, false)
   in
+  let task = task_with_teams_room_context ?db task in
   (* B630/B632: if this task was triggered by a cron job, record its output
      so the scheduler can detect consecutive-identical-output loops and
      disable the cron before it burns more tokens. Safe no-op for non-cron
@@ -710,6 +789,7 @@ let notify_background_task_finished ?continuation_delay
   | _ -> ());
   if skip_notification then Lwt.return_unit
   else
+    let* () = deliver_room_progress ~config task in
     (* B712: skip summarizer LLM for subagent tasks (agent_name set +
        no worktree). Use result_preview directly — YAGNI on summarizer. *)
     let* summary =
@@ -793,11 +873,12 @@ let notify_background_task_finished ?continuation_delay
     | None -> Lwt.return_unit
 
 let notify_background_task_started ~(session_manager : Session.t)
-    ~config:(_config : Runtime_config.t) task =
+    ~(config : Runtime_config.t) task =
+  let open Lwt.Syntax in
   let message = Background_task.terse_started_message task in
+  let* () = deliver_room_progress ~config task in
   match task.Background_task.session_key with
   | Some key ->
-      let open Lwt.Syntax in
       let* _queued =
         Session.enqueue_message_if_busy session_manager ~key
           {
@@ -894,6 +975,7 @@ let default_resume_turn ?on_history_persisted ~(session_manager : Session.t)
           dropped_count session_key);
     agent.Agent.history <- sanitized
   end;
+  Agent.refresh_profiled_room_flag agent ?db:session_manager.db ~session_key ();
   let* compaction_info =
     Agent.compact_history_if_needed agent ?db:session_manager.db
       ?on_llm_call_debug ()

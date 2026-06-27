@@ -13,9 +13,44 @@ let skill_commands ?(show_test = false) () =
       })
     skills
 
-let teams_json ?(n = 10) ?(is_admin = true) () =
+let room_tool_allowed ?config ?session_key tool_name =
+  match (config, session_key) with
+  | Some config, Some session_key ->
+      Option.is_none
+        (Runtime_config.room_profile_tool_denial_for_session config ~session_key
+           ~tool_name)
+  | _ -> true
+
+let command_required_tools name =
+  match String.lowercase_ascii name with
+  | "bg" | "background" ->
+      [
+        "background_task_list";
+        "background_task_enqueue";
+        "background_task_cancel";
+        "background_task_resume";
+        "background_task_logs";
+        "background_finalize";
+      ]
+  | "delegate" -> [ "delegate" ]
+  | "bash" -> [ "shell_exec" ]
+  | "memories" -> [ "memory_list" ]
+  | "tasks" -> [ "task_tree"; "task_list" ]
+  | _ -> []
+
+let command_visible_for_room ?config ?session_key (cmd : Slash_commands.command)
+    =
+  match command_required_tools cmd.name with
+  | [] -> true
+  | tools -> List.exists (room_tool_allowed ?config ?session_key) tools
+
+let filter_commands_for_room ?config ?session_key commands =
+  List.filter (command_visible_for_room ?config ?session_key) commands
+
+let teams_json ?(n = 10) ?(is_admin = true) ?config ?session_key () =
   let all_cmds =
     Slash_commands.sorted_by_priority ~is_admin () @ skill_commands ()
+    |> filter_commands_for_room ?config ?session_key
   in
   let cmds = List.filteri (fun i _ -> i < n) all_cmds in
   let commands_json =
@@ -61,9 +96,11 @@ let telegram_json ?(is_admin = true) () =
   let payload = `Assoc [ ("commands", `List commands_json) ] in
   Yojson.Safe.pretty_to_string ~std:true payload
 
-let menu_adaptive_card_json ?(page = 1) ?(is_admin = true) () =
+let menu_adaptive_card_json ?(page = 1) ?(is_admin = true) ?config ?session_key
+    () =
   let all_cmds =
     Slash_commands.sorted_by_priority ~is_admin () @ skill_commands ()
+    |> filter_commands_for_room ?config ?session_key
   in
   let total = List.length all_cmds in
   let total_pages =
@@ -344,18 +381,29 @@ let costs_menu_adaptive_card_json () =
   in
   button_card ~title:"Cost Views" ~buttons
 
-let bg_menu_adaptive_card_json ?(cancellable = []) () =
+let bg_menu_adaptive_card_json ?config ?session_key ?(cancellable = []) () =
+  let maybe_button tool button =
+    if room_tool_allowed ?config ?session_key tool then [ button ] else []
+  in
   let base_buttons =
-    [ ("List Tasks", "/bg list"); ("Create Task", "/bg create ") ]
+    maybe_button "background_task_list" ("List Tasks", "/bg list")
+    @ maybe_button "background_task_enqueue" ("Create Task", "/bg create ")
   in
   let cancel_buttons =
-    List.map
-      (fun (id, runner_str) ->
-        ( Printf.sprintf "Cancel #%d (%s)" id runner_str,
-          Printf.sprintf "/bg cancel %d" id ))
-      cancellable
+    if room_tool_allowed ?config ?session_key "background_task_cancel" then
+      List.map
+        (fun (id, runner_str) ->
+          ( Printf.sprintf "Cancel #%d (%s)" id runner_str,
+            Printf.sprintf "/bg cancel %d" id ))
+        cancellable
+    else []
   in
-  button_card ~title:"Background Tasks" ~buttons:(base_buttons @ cancel_buttons)
+  let buttons =
+    match base_buttons @ cancel_buttons with
+    | [] -> [ ("No background-task actions permitted", "/help") ]
+    | buttons -> buttons
+  in
+  button_card ~title:"Background Tasks" ~buttons
 
 let agents_per_page = Slash_commands_fmt.agents_per_page
 

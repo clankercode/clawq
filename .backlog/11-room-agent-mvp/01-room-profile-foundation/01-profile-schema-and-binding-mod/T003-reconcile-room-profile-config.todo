@@ -1,15 +1,14 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P11.M1.E1.T002
 estimate_hours: 3
 id: P11.M1.E1.T003
 priority: high
-status: pending
-tags:
-    - room-agent
-    - profiled-room
-    - config
+started_at: null
+status: done
+tags: []
 title: Reconcile room profile config and DB bindings
 ---
 Acceptance: config-to-DB reconciliation is deterministic; config round-trips; stale/duplicate DB rows fail closed or are reported; current no-profile behavior remains unchanged. Files: src/runtime_config.ml, src/config_loader.ml, src/memory.ml, tests.

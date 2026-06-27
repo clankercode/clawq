@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Routine Metadata
       path: 01-routine-metadata
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Resolve profile at tick time and run cron jobs as room/routine sessions with inherited policy.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Routine Execution
       path: 02-routine-execution
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Admin-only room routine creation, edit, delete, and trigger surfaces.

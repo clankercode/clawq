@@ -13,6 +13,7 @@ type event =
       text : string;
       bot_id : string option;
       ts : string;
+      thread_ts : string option;
       files : slack_file list;
     }
   | Other
@@ -31,6 +32,50 @@ let is_allowed_allowlist ~kind ~id allowlist =
         m "Slack allowlist drift for %s=%s: Coq=%b OCaml=%b" kind id coq_allowed
           ocaml_allowed);
   coq_allowed
+
+(** Resolve the session key for a Slack channel+user pair. If the channel has an
+    active room profile binding (shared room session), returns "slack:CHANNEL".
+    Otherwise returns the per-user key "slack:CHANNEL:USER". *)
+let room_has_profile_binding ~(session_manager : Session.t) ~channel_id =
+  match Session.get_db session_manager with
+  | Some db -> (
+      match Memory.get_room_profile_binding ~db ~room_id:channel_id with
+      | Some _ -> true
+      | None -> false)
+  | None -> false
+
+let resolve_session_key ~(session_manager : Session.t) ~channel_id ~user_id =
+  let has_profile = room_has_profile_binding ~session_manager ~channel_id in
+  if has_profile then "slack:" ^ Session.sanitize_session_key channel_id
+  else
+    "slack:"
+    ^ Session.sanitize_session_key channel_id
+    ^ ":"
+    ^ Session.sanitize_session_key user_id
+
+let timestamp_of_slack_ts ts =
+  match float_of_string_opt ts with Some t -> Some t | None -> None
+
+let record_scoped_room_history_if_bound ~(session_manager : Session.t)
+    ~channel_id ~user_id ~text ~ts =
+  let cfg = Session.get_config session_manager in
+  if
+    String.trim text <> ""
+    && room_has_profile_binding ~session_manager ~channel_id
+    && Connector_capabilities.should_capture_history
+         ~enabled:cfg.connector_history.enabled Connector_capabilities.slack
+  then
+    let key = "slack:" ^ Session.sanitize_session_key channel_id in
+    let db =
+      if cfg.connector_history.persist_to_db then Session.get_db session_manager
+      else None
+    in
+    let timestamp = timestamp_of_slack_ts ts in
+    Connector_history.record ?db ?timestamp
+      ~persist:cfg.connector_history.persist_to_db ~key ~room_id:channel_id
+      ~connector_type:"slack" ~channel_type:"slack"
+      ~max:cfg.connector_history.max_messages ~sender_name:user_id
+      ~sender_id:user_id ~text ()
 
 let is_allowed ~(config : Runtime_config.slack_config) ~channel_id ~user_id =
   let ch_ok =
@@ -53,14 +98,19 @@ let verify_signature ~signing_secret ~timestamp ~body ~signature =
     in
     Eqaf.equal expected signature
 
+let build_post_body ~channel_id ~text ~(thread_ts : string option) =
+  let thread_field =
+    match thread_ts with Some ts -> [ ("thread_ts", `String ts) ] | None -> []
+  in
+  `Assoc
+    (("channel", `String channel_id) :: ("text", `String text) :: thread_field)
+  |> Yojson.Safe.to_string
+
 let send_message ~bot_token ~channel_id ~text =
   let open Lwt.Syntax in
   let uri = "https://slack.com/api/chat.postMessage" in
   let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
-  let body =
-    `Assoc [ ("channel", `String channel_id); ("text", `String text) ]
-    |> Yojson.Safe.to_string
-  in
+  let body = build_post_body ~channel_id ~text ~thread_ts:None in
   let* _status, _body = Http_client.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
@@ -68,10 +118,7 @@ let send_message_with_id ~bot_token ~channel_id ~text =
   let open Lwt.Syntax in
   let uri = "https://slack.com/api/chat.postMessage" in
   let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
-  let body =
-    `Assoc [ ("channel", `String channel_id); ("text", `String text) ]
-    |> Yojson.Safe.to_string
-  in
+  let body = build_post_body ~channel_id ~text ~thread_ts:None in
   let* _status, resp_body = Http_client.post_json ~uri ~headers ~body in
   let ts =
     try
@@ -80,6 +127,17 @@ let send_message_with_id ~bot_token ~channel_id ~text =
     with _ -> "0"
   in
   Lwt.return ts
+
+(** Send a message, optionally replying in a Slack thread. When [thread_ts] is
+    provided the message is posted as a reply in that thread; otherwise it is an
+    ordinary channel message. *)
+let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
+  let open Lwt.Syntax in
+  let uri = "https://slack.com/api/chat.postMessage" in
+  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+  let body = build_post_body ~channel_id ~text ~thread_ts in
+  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  Lwt.return_unit
 
 let edit_message ~bot_token ~channel_id ~ts ~text =
   let open Lwt.Syntax in
@@ -181,6 +239,9 @@ let parse_event body =
               try Some (evt |> member "bot_id" |> to_string) with _ -> None
             in
             let ts = try evt |> member "ts" |> to_string with _ -> "" in
+            let thread_ts =
+              try Some (evt |> member "thread_ts" |> to_string) with _ -> None
+            in
             let files =
               try
                 evt |> member "files" |> to_list
@@ -204,7 +265,9 @@ let parse_event body =
                     with _ -> None)
               with _ -> []
             in
-            Some (Message { channel_id; user_id; text; bot_id; ts; files })
+            Some
+              (Message
+                 { channel_id; user_id; text; bot_id; ts; thread_ts; files })
         | _ -> Some Other)
     | _ -> Some Other
   with _ -> None
@@ -220,7 +283,9 @@ let handle_event ~(config : Runtime_config.slack_config)
       in
       Lwt.return resp
   | Some (Message { bot_id = Some _; _ }) -> Lwt.return "ok"
-  | Some (Message { channel_id; user_id; text; bot_id = None; ts; files }) ->
+  | Some
+      (Message
+         { channel_id; user_id; text; bot_id = None; ts; thread_ts; files }) ->
       if not (is_allowed ~config ~channel_id ~user_id) then begin
         Logs.warn (fun m ->
             m "Slack: ignoring message from unauthorized channel=%s user=%s"
@@ -258,11 +323,16 @@ let handle_event ~(config : Runtime_config.slack_config)
           else Lwt.return "ok"
         end
         else
-          let key =
-            "slack:"
-            ^ Session.sanitize_session_key channel_id
-            ^ ":"
-            ^ Session.sanitize_session_key user_id
+          let key = resolve_session_key ~session_manager ~channel_id ~user_id in
+          (* Reply helper: sends into the thread when thread_ts is present,
+             otherwise uses the caller-provided send_message_fn *)
+          let reply ~text =
+            match thread_ts with
+            | Some ts ->
+                send_message_reply ~bot_token:config.bot_token ~channel_id ~text
+                  ~thread_ts:ts ()
+            | None ->
+                send_message_fn ~bot_token:config.bot_token ~channel_id ~text
           in
           (* Register a persistent channel notifier so autonomous continuation
              responses can reach the Slack channel *)
@@ -389,6 +459,11 @@ let handle_event ~(config : Runtime_config.slack_config)
             in
             let user_group = if is_admin then "admin" else "guest" in
             let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
+            (match cmd_result with
+            | InjectConnectorHistory _ -> ()
+            | _ ->
+                record_scoped_room_history_if_bound ~session_manager ~channel_id
+                  ~user_id ~text ~ts);
             let send_reply text =
               send_message_fn ~bot_token:config.bot_token ~channel_id ~text
             in
@@ -414,6 +489,30 @@ let handle_event ~(config : Runtime_config.slack_config)
                 send_formatted = send_reply;
               }
             in
+            (* Create task-tree record for async commands from profiled rooms *)
+            (if Room_request_classifier.classify cmd_result = AsyncCommand then
+               match Session.get_db session_manager with
+               | Some db -> (
+                   Task_tree.init_schema db;
+                   match
+                     Memory.get_room_profile_binding ~db ~room_id:channel_id
+                   with
+                   | Some binding ->
+                       let origin =
+                         Room_origin.make ~connector:"slack" ~room_id:channel_id
+                           ~requester_id:user_id ~profile_id:binding.profile_id
+                           ()
+                       in
+                       let title =
+                         Room_request_classifier.title_of_async_cmd cmd_result
+                         |> Option.value ~default:""
+                       in
+                       ignore
+                         (Task_tree_ops.create_async_cmd_task ~db
+                            ~session_key:key ~title ~origin ?thread_id:thread_ts
+                            ~requester:user_id ~profile_id:binding.profile_id ())
+                   | None -> ())
+               | None -> ());
             match cmd_result with
             | AdminRequired _ -> assert false
             | Compact ->
@@ -637,7 +736,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                     in
                     Lwt.return "ok")
             | BashRun cmd ->
-                let* result = Slash_commands_bash.run_bash_command cmd in
+                let cfg = Session.get_config session_manager in
+                let* result =
+                  Slash_commands_bash.run_bash_command ~config:cfg
+                    ~session_key:key cmd
+                in
                 let full_text = Slash_commands_bash.format_result cmd result in
                 let max_len = 3000 in
                 let text =
@@ -726,9 +829,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 let handler =
                   Status_update.make_handler ~strategy ~notifier_factory
-                    ~notify:(fun text ->
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
-                        ~text)
+                    ~notify:(fun text -> reply ~text)
                     ~agent_defaults
                     ~parse_mode:Connector_status.Slack.status_parse_mode
                 in
@@ -807,15 +908,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                     let* () = handler.finalize () in
                     let thinking = handler.get_thinking () in
                     let* () =
-                      if thinking <> "" then
-                        send_message_fn ~bot_token:config.bot_token ~channel_id
-                          ~text:("_" ^ thinking ^ "_")
+                      if thinking <> "" then reply ~text:("_" ^ thinking ^ "_")
                       else Lwt.return_unit
                     in
-                    let* () =
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
-                        ~text:response
-                    in
+                    let* () = reply ~text:response in
                     let* () =
                       set_reaction
                         (Connector_status.Slack.phase_emoji Completed)
@@ -827,9 +923,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 let* result =
                   Session.with_registered_notifier session_manager ~key
-                    ~notify:(fun text ->
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
-                        ~text)
+                    ~notify:(fun text -> reply ~text)
                     (fun () ->
                       Lwt.catch
                         (fun () ->
@@ -975,29 +1069,19 @@ let handle_event ~(config : Runtime_config.slack_config)
                             remove_reaction ~bot_token:config.bot_token
                               ~channel_id ~timestamp ~emoji_name)
                       in
-                      let send_to_channel text =
-                        send_message_fn ~bot_token:config.bot_token ~channel_id
-                          ~text
-                      in
                       Lwt.async (fun () ->
                           Session.process_autonomous_turn_result
-                            ~on_response:send_to_channel session_manager ~key
-                            ~response);
+                            ~on_response:(fun text -> reply ~text)
+                            session_manager ~key ~response);
                       Lwt.return "ok")
                     else
                       let* () = handler.finalize () in
                       let thinking = handler.get_thinking () in
                       let* () =
-                        if thinking <> "" then
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id
-                            ~text:("_" ^ thinking ^ "_")
+                        if thinking <> "" then reply ~text:("_" ^ thinking ^ "_")
                         else Lwt.return_unit
                       in
-                      let* () =
-                        send_message_fn ~bot_token:config.bot_token ~channel_id
-                          ~text:response
-                      in
+                      let* () = reply ~text:response in
                       let* () =
                         set_reaction
                           (Connector_status.Slack.phase_emoji Completed)
@@ -1012,14 +1096,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                         not
                           (Session.take_response_deferred session_manager ~key)
                       then Session.mark_response_sent session_manager ~key;
-                      let send_to_channel text =
-                        send_message_fn ~bot_token:config.bot_token ~channel_id
-                          ~text
-                      in
                       Lwt.async (fun () ->
                           Session.process_autonomous_turn_result
-                            ~on_response:send_to_channel session_manager ~key
-                            ~response);
+                            ~on_response:(fun text -> reply ~text)
+                            session_manager ~key ~response);
                       Lwt.return "ok"
                 | Error err ->
                     Logs.err (fun m ->
@@ -1027,7 +1107,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                           channel_id user_id err);
                     let* () = handler.finalize () in
                     let* () =
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                      reply
                         ~text:
                           (Printf.sprintf
                              "Sorry, an error occurred processing your \

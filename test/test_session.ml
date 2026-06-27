@@ -198,6 +198,77 @@ let with_fake_chat_provider ?response_for_user f =
       in
       f config)
 
+let make_openai_capture_config () =
+  let provider =
+    {
+      Runtime_config.default_provider_config with
+      api_key = "test-key";
+      kind = Some "openai";
+      default_model = Some "gpt-test";
+    }
+  in
+  {
+    Runtime_config.default with
+    providers = [ ("openai", provider) ];
+    prompt = { Runtime_config.default.prompt with dynamic_enabled = false };
+    security = { Runtime_config.default.security with tools_enabled = false };
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = "openai:gpt-test";
+        show_thinking = false;
+        show_tool_calls = false;
+      };
+    memory = { Runtime_config.default.memory with search_enabled = true };
+  }
+
+let with_captured_native_provider f =
+  let captured = ref [] in
+  let prev_complete = !Provider.native_complete in
+  Fun.protect
+    (fun () ->
+      Provider.register_native_complete Provider.OpenAICompat
+        (fun
+          ~config:_ ~provider:_ ~model ~messages ?tools:_ ?session_key:_ () ->
+          captured := messages;
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "ok";
+                 model;
+                 usage = None;
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      f (make_openai_capture_config ()) captured)
+    ~finally:(fun () -> Provider.native_complete := prev_complete)
+
+let with_tool_capture_native_provider f =
+  let tool_calls = ref 0 in
+  let prev_complete = !Provider.native_complete in
+  Fun.protect
+    (fun () ->
+      Provider.register_native_complete Provider.OpenAICompat
+        (fun
+          ~config:_ ~provider:_ ~model ~messages:_ ?tools ?session_key:_ () ->
+          (match tools with Some _ -> incr tool_calls | None -> ());
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "ok";
+                 model;
+                 usage = None;
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      f (make_openai_capture_config ()) tool_calls)
+    ~finally:(fun () -> Provider.native_complete := prev_complete)
+
+let all_message_content messages =
+  messages
+  |> List.map (fun (m : Provider.message) -> m.content)
+  |> String.concat "\n"
+
 let with_delayed_chat_provider ?(delay_s = 0.05) ?response_for_user f =
   let port = Test_helpers.free_port () in
   let callback _conn req body =
@@ -857,6 +928,35 @@ let test_load_pending_agent_sessions_reads_manager_db () =
     "pending session preserved"
     ("slack:c1:u1", Some "slack", Some "c1")
     (List.hd pending)
+
+let test_profiled_room_session_turn_skips_unscoped_memory_context () =
+  with_captured_native_provider (fun config captured ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+      let profile_id =
+        Memory.insert_room_profile ~db ~name:"channel-a-profile"
+      in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C_A" ~profile_id;
+      Memory.store_message ~db ~session_key:"slack:C_A:user"
+        (Provider.make_message ~role:"user" ~content:"channel A local context");
+      Memory.store_message ~db ~session_key:"slack:C_B:user"
+        (Provider.make_message ~role:"user"
+           ~content:"CHANNEL-B-SECRET leak-token only belongs to channel B");
+      Memory.store_core ~db ~key:"global-core-secret"
+        ~content:"GLOBAL-CORE-SECRET must not be injected" ();
+      let mgr = Session.create ~config ~db () in
+      let response =
+        Lwt_main.run
+          (Session.turn mgr ~key:"slack:C_A:user" ~message:"leak-token"
+             ~channel:"slack" ~channel_id:"C_A" ())
+      in
+      Alcotest.(check string) "response" "ok" response;
+      let prompt = all_message_content !captured in
+      Alcotest.(check bool)
+        "cross-channel search result absent" false
+        (Test_helpers.string_contains prompt "CHANNEL-B-SECRET");
+      Alcotest.(check bool)
+        "global core memory absent" false
+        (Test_helpers.string_contains prompt "GLOBAL-CORE-SECRET"))
 
 let test_turn_returns_restart_message_while_draining () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -2341,6 +2441,107 @@ let make_fake_tool name invocations =
 
 let make_tool_call ~id ~name =
   { Provider.id; function_name = name; arguments = "{}" }
+
+let room_profile_tool_config ?(allowed_tools = []) ?(denied_tools = []) () =
+  {
+    Runtime_config.default with
+    room_profiles =
+      [
+        {
+          Runtime_config.id = "profile-a";
+          display_name = None;
+          model = "openai:gpt-5.4";
+          system_prompt = "";
+          max_tool_iterations = 10;
+          status = "active";
+          allowed_tools;
+          denied_tools;
+          ambient_enabled = false;
+          ambient_quiet_start = 23;
+          ambient_quiet_end = 8;
+          ambient_rate_limit_rph = 0;
+        };
+      ];
+    room_profile_bindings =
+      [
+        { Runtime_config.profile_id = "profile-a"; room = "C_A"; active = true };
+      ];
+  }
+
+let test_room_profile_tool_allowlist_allows_listed_tool () =
+  let config = room_profile_tool_config ~allowed_tools:[ "tool_a" ] () in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:(Some "web:C_A")
+       [ make_tool_call ~id:"tc1" ~name:"tool_a" ]);
+  Alcotest.(check (list string))
+    "allowed tool invoked" [ "tool_a" ] (List.rev !invocations);
+  Alcotest.(check (list string))
+    "allowed tool result" [ "result:tool_a" ]
+    (List.map (fun (msg : Provider.message) -> msg.content) agent.history)
+
+let test_room_profile_tool_denylist_blocks_denied_tool () =
+  let config = room_profile_tool_config ~denied_tools:[ "tool_b" ] () in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:(Some "web:C_A")
+       [ make_tool_call ~id:"tc1" ~name:"tool_b" ]);
+  Alcotest.(check (list string)) "denied tool not invoked" [] !invocations;
+  match agent.history with
+  | [ msg ] ->
+      Alcotest.(check bool)
+        "denied result is not permitted" true
+        (Test_helpers.string_contains msg.content "not permitted")
+  | _ -> Alcotest.fail "expected one denied tool result"
+
+let test_room_profile_tool_allowlist_blocks_unlisted_tool () =
+  let config = room_profile_tool_config ~allowed_tools:[ "tool_a" ] () in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:(Some "web:C_A")
+       [ make_tool_call ~id:"tc1" ~name:"tool_b" ]);
+  Alcotest.(check (list string)) "unlisted tool not invoked" [] !invocations;
+  match agent.history with
+  | [ msg ] ->
+      Alcotest.(check bool)
+        "unlisted result is not permitted" true
+        (Test_helpers.string_contains msg.content "not permitted");
+      Alcotest.(check bool)
+        "unlisted result explains allowlist" true
+        (Test_helpers.string_contains msg.content "allowed_tools")
+  | _ -> Alcotest.fail "expected one unlisted tool result"
+
+let test_room_profile_tool_grants_block_user_bash_command () =
+  let config = room_profile_tool_config ~denied_tools:[ "shell_exec" ] () in
+  let result =
+    Lwt_main.run
+      (Slash_commands_bash.run_bash_command ~config ~session_key:"web:C_A"
+         "echo should-not-run")
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "user slash bash denied as not permitted" true
+        (Test_helpers.string_contains msg "not permitted")
+  | Ok _ -> Alcotest.fail "expected denied user-initiated shell_exec"
 
 let test_interrupt_skips_tool_calls_in_batch () =
   let config = Runtime_config.default in
@@ -4313,6 +4514,25 @@ let seed_compactable_history ~db ~session_key =
          ~content:(Printf.sprintf "msg %02d" i))
   done
 
+let test_compact_profiled_room_skips_pre_compaction_flush () =
+  with_tool_capture_native_provider (fun config tool_calls ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+      let profile_id =
+        Memory.insert_room_profile ~db ~name:"channel-a-profile"
+      in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C_A" ~profile_id;
+      let key = "slack:C_A" in
+      seed_compactable_history ~db ~session_key:key;
+      let mgr = Session.create ~config ~db () in
+      let result = Lwt_main.run (Session.compact mgr ~key ()) in
+      (match result with
+      | Ok true -> ()
+      | Ok false -> Alcotest.fail "compact should compact seeded history"
+      | Error msg ->
+          Alcotest.fail (Printf.sprintf "compact should not fail: %s" msg));
+      Alcotest.(check int)
+        "pre-compaction memory flush tool calls" 0 !tool_calls)
+
 let test_compact_releases_session_lock_while_summarizing () =
   with_delayed_chat_provider ~delay_s:0.05 (fun config ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -4839,6 +5059,17 @@ let suite =
       test_store_message_isolated;
     Alcotest.test_case "load pending agent sessions reads manager db" `Quick
       test_load_pending_agent_sessions_reads_manager_db;
+    Alcotest.test_case
+      "profiled room session turn skips unscoped memory context" `Quick
+      test_profiled_room_session_turn_skips_unscoped_memory_context;
+    Alcotest.test_case "room profile tool allowlist allows listed tool" `Quick
+      test_room_profile_tool_allowlist_allows_listed_tool;
+    Alcotest.test_case "room profile tool denylist blocks denied tool" `Quick
+      test_room_profile_tool_denylist_blocks_denied_tool;
+    Alcotest.test_case "room profile tool allowlist blocks unlisted tool" `Quick
+      test_room_profile_tool_allowlist_blocks_unlisted_tool;
+    Alcotest.test_case "room profile tool grants block user bash command" `Quick
+      test_room_profile_tool_grants_block_user_bash_command;
     Alcotest.test_case "turn returns restart message while draining" `Quick
       test_turn_returns_restart_message_while_draining;
     Alcotest.test_case "registered notifier sends warning" `Quick
@@ -5069,6 +5300,8 @@ let suite =
       `Quick test_workspace_change_not_re_reported_on_subsequent_turn;
     Alcotest.test_case "compact loads session from db when not in memory" `Quick
       test_compact_loads_session_from_db_when_not_in_memory;
+    Alcotest.test_case "compact profiled room skips pre-compaction flush" `Quick
+      test_compact_profiled_room_skips_pre_compaction_flush;
     Alcotest.test_case "compact releases session lock while summarizing" `Quick
       test_compact_releases_session_lock_while_summarizing;
     Alcotest.test_case "compact preserves new messages arriving midflight"

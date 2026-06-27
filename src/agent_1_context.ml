@@ -74,7 +74,8 @@ let inject_runtime_context messages runtime_context =
 let build_messages ?runtime_context agent =
   agent.system_prompt <-
     Prompt_builder.build ~config:agent.config ~tool_registry:agent.tool_registry
-      ?agent_template:agent.agent_template ();
+      ?agent_template:agent.agent_template
+      ?room_profile_system_prompt:agent.room_profile_system_prompt ();
   let sys = Provider.make_message ~role:"system" ~content:agent.system_prompt in
   let dev =
     match agent.project_docs_content with

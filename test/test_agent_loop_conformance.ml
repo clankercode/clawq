@@ -258,10 +258,219 @@ let test_tool_name_preservation_compress () =
     "name 'tool_one' preserved" true
     (List.mem "tool_one" names)
 
+let make_openai_test_config () =
+  let provider =
+    {
+      Runtime_config.default_provider_config with
+      api_key = "test-key";
+      kind = Some "openai";
+      default_model = Some "gpt-test";
+    }
+  in
+  {
+    Runtime_config.default with
+    providers = [ ("openai", provider) ];
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = "openai:gpt-test";
+      };
+    memory = { Runtime_config.default.memory with search_enabled = true };
+  }
+
+let with_captured_provider f =
+  let captured = ref [] in
+  let prev_complete = !Provider.native_complete in
+  Fun.protect
+    (fun () ->
+      Provider.register_native_complete Provider.OpenAICompat
+        (fun
+          ~config:_ ~provider:_ ~model ~messages ?tools:_ ?session_key:_ () ->
+          captured := messages;
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "ok";
+                 model;
+                 usage = None;
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      f captured)
+    ~finally:(fun () -> Provider.native_complete := prev_complete)
+
+let with_counted_provider f =
+  let call_count = ref 0 in
+  let prev_complete = !Provider.native_complete in
+  Fun.protect
+    (fun () ->
+      Provider.register_native_complete Provider.OpenAICompat
+        (fun
+          ~config:_ ~provider:_ ~model ~messages:_ ?tools:_ ?session_key:_ () ->
+          incr call_count;
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "ok";
+                 model;
+                 usage = Some (10, 5, 0);
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      f call_count)
+    ~finally:(fun () -> Provider.native_complete := prev_complete)
+
+let record_profile_usage ~db ~profile_id ~session_key ~prompt_tokens
+    ~completion_tokens ~cost_usd ~requested_at =
+  Request_stats.record ~db ~session_key ~profile_id ~provider:"openai"
+    ~model:"gpt-test" ~prompt_tokens ~completion_tokens ~cost_usd ();
+  let stmt =
+    Sqlite3.prepare db
+      "UPDATE request_stats SET requested_at = ? WHERE session_key = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT requested_at));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          Alcotest.failf "failed to update request_stats timestamp: %s"
+            (Sqlite3.Rc.to_string rc))
+
+let run_turn_result agent ~db ~session_key =
+  Lwt_main.run
+    (Lwt.catch
+       (fun () ->
+         let open Lwt.Syntax in
+         let* content =
+           Agent.turn agent ~user_message:"hello" ~db ~session_key ()
+         in
+         Lwt.return (`Returned content))
+       (fun exn -> Lwt.return (`Failed (Printexc.to_string exn))))
+
+let all_message_content messages =
+  messages
+  |> List.map (fun (m : Provider.message) -> m.content)
+  |> String.concat "\n"
+
+let test_profiled_room_turn_skips_unscoped_memory_context () =
+  with_captured_provider (fun captured ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+      let profile_id =
+        Memory.insert_room_profile ~db ~name:"channel-a-profile"
+      in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C_A" ~profile_id;
+      Memory.store_message ~db ~session_key:"slack:C_A"
+        (Provider.make_message ~role:"user" ~content:"channel A local context");
+      Memory.store_message ~db ~session_key:"slack:C_B"
+        (Provider.make_message ~role:"user"
+           ~content:"CHANNEL-B-SECRET leak-token only belongs to channel B");
+      Memory.store_core ~db ~key:"global-core-secret"
+        ~content:"GLOBAL-CORE-SECRET must not be injected" ();
+      let agent = Agent.create ~config:(make_openai_test_config ()) () in
+      ignore
+        (Lwt_main.run
+           (Agent.turn agent ~user_message:"leak-token" ~db
+              ~session_key:"slack:C_A" ()));
+      let prompt = all_message_content !captured in
+      Alcotest.(check bool)
+        "cross-channel search result absent" false
+        (Test_helpers.string_contains prompt "CHANNEL-B-SECRET");
+      Alcotest.(check bool)
+        "global core memory absent" false
+        (Test_helpers.string_contains prompt "GLOBAL-CORE-SECRET"))
+
+let test_profiled_room_budget_blocks_provider_call () =
+  with_counted_provider (fun call_count ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:false () in
+      let profile_id = Memory.insert_room_profile ~db ~name:"budget-profile" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C_BUDGET" ~profile_id;
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:10.0 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_profile_usage ~db ~profile_id ~session_key:"previous"
+        ~prompt_tokens:90 ~completion_tokens:30 ~cost_usd:1.0
+        ~requested_at:"2026-01-01 01:00:00";
+      let agent = Agent.create ~config:(make_openai_test_config ()) () in
+      match run_turn_result agent ~db ~session_key:"slack:C_BUDGET" with
+      | `Returned content ->
+          Alcotest.failf "expected budget block, got %S" content
+      | `Failed msg ->
+          Alcotest.(check int) "provider not called" 0 !call_count;
+          Alcotest.(check bool)
+            "mentions budget exceeded" true
+            (Test_helpers.string_contains msg "budget exceeded");
+          Alcotest.(check bool)
+            "mentions contact admin" true
+            (Test_helpers.string_contains msg "administrator");
+          Alcotest.(check bool)
+            "redacted: no raw token count" false
+            (Test_helpers.string_contains msg "120");
+          Alcotest.(check bool)
+            "redacted: no raw limit" false
+            (Test_helpers.string_contains msg "100"))
+
+let test_unprofiled_room_budget_guard_is_skipped () =
+  with_counted_provider (fun call_count ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:false () in
+      let profile_id = Memory.insert_room_profile ~db ~name:"budget-profile" in
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:10.0 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_profile_usage ~db ~profile_id ~session_key:"previous"
+        ~prompt_tokens:90 ~completion_tokens:30 ~cost_usd:1.0
+        ~requested_at:"2026-01-01 01:00:00";
+      let agent = Agent.create ~config:(make_openai_test_config ()) () in
+      match run_turn_result agent ~db ~session_key:"slack:C_UNPROFILED" with
+      | `Returned content ->
+          Alcotest.(check string) "provider response" "ok" content;
+          Alcotest.(check int) "provider called" 1 !call_count
+      | `Failed msg -> Alcotest.failf "unprofiled turn should not fail: %s" msg)
+
+let test_profiled_room_budget_allows_after_reset () =
+  with_counted_provider (fun call_count ->
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:false () in
+      let profile_id = Memory.insert_room_profile ~db ~name:"budget-profile" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C_BUDGET" ~profile_id;
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:10.0 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_profile_usage ~db ~profile_id ~session_key:"previous"
+        ~prompt_tokens:90 ~completion_tokens:30 ~cost_usd:1.0
+        ~requested_at:"2026-01-01 01:00:00";
+      let agent = Agent.create ~config:(make_openai_test_config ()) () in
+      (match run_turn_result agent ~db ~session_key:"slack:C_BUDGET" with
+      | `Returned content ->
+          Alcotest.failf "expected budget block, got %S" content
+      | `Failed msg ->
+          Alcotest.(check bool)
+            "first call budget blocked" true
+            (Test_helpers.string_contains msg "budget exceeded"));
+      Alcotest.(check int) "provider not called before reset" 0 !call_count;
+      Alcotest.(check bool)
+        "reset succeeds" true
+        (Room_budget.reset_profile_budget ~db ~profile_id
+           ~period_started_at:"2026-01-02 00:00:00" ());
+      match run_turn_result agent ~db ~session_key:"slack:C_BUDGET" with
+      | `Returned content ->
+          Alcotest.(check string) "provider response after reset" "ok" content;
+          Alcotest.(check int) "provider called after reset" 1 !call_count
+      | `Failed msg -> Alcotest.failf "turn after reset should not fail: %s" msg)
+
 (* Test suite *)
 
 let suite =
   [
+    Alcotest.test_case "profiled room skips unscoped memory context" `Quick
+      test_profiled_room_turn_skips_unscoped_memory_context;
+    Alcotest.test_case "profiled room budget blocks provider call" `Quick
+      test_profiled_room_budget_blocks_provider_call;
+    Alcotest.test_case "unprofiled room skips budget guard" `Quick
+      test_unprofiled_room_budget_guard_is_skipped;
+    Alcotest.test_case "profiled room budget allows after reset" `Quick
+      test_profiled_room_budget_allows_after_reset;
     Alcotest.test_case "collect_tool_call_ids basic" `Quick
       test_collect_tool_call_ids_basic;
     Alcotest.test_case "collect_tool_call_ids empty" `Quick

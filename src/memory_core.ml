@@ -4,6 +4,9 @@ open Memory_0_schema
 let init ~db_path ?(search_enabled = false) () =
   let db = Sqlite3.db_open db_path in
   ignore (Sqlite3.exec db "PRAGMA busy_timeout = 5000");
+  (* Enforce declared FOREIGN KEY constraints (incl. room_profile_bindings -> room_profiles
+     ON DELETE CASCADE). SQLite defaults FK enforcement OFF per-connection. *)
+  ignore (Sqlite3.exec db "PRAGMA foreign_keys = ON");
   exec_exn db
     "CREATE TABLE IF NOT EXISTS schema_version (\n\
     \     version INTEGER NOT NULL\n\
@@ -585,40 +588,309 @@ let cleanup_all ~db ~max_messages ~max_age_days =
     sessions
 
 let cleanup_connector_history ~db ~max_age_days ~max_messages =
-  exec_exn db
-    (Printf.sprintf
-       "DELETE FROM connector_history WHERE created_at < datetime('now', '-%d \
-        days')"
-       max_age_days);
+  ignore (Connector_history.delete_older_than ~db ~max_age_days ());
   let stmt =
-    Sqlite3.prepare db "SELECT DISTINCT session_key FROM connector_history"
+    Sqlite3.prepare db
+      "SELECT DISTINCT room_id, connector_type FROM connector_history"
   in
-  let keys = ref [] in
+  let scopes = ref [] in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-        match Sqlite3.column stmt 0 with
-        | Sqlite3.Data.TEXT k -> keys := k :: !keys
+        match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
+        | Sqlite3.Data.TEXT room_id, Sqlite3.Data.TEXT connector_type ->
+            scopes := (room_id, connector_type) :: !scopes
         | _ -> ()
       done);
   List.iter
-    (fun sk ->
+    (fun (room_id, connector_type) ->
       let trim_sql =
         Printf.sprintf
-          "DELETE FROM connector_history WHERE session_key = ? AND id NOT IN \
-           (SELECT id FROM connector_history WHERE session_key = ? ORDER BY id \
-           DESC LIMIT %d)"
+          "DELETE FROM connector_history WHERE room_id = ? AND connector_type \
+           = ? AND id NOT IN (SELECT id FROM connector_history WHERE room_id = \
+           ? AND connector_type = ? ORDER BY id DESC LIMIT %d)"
           max_messages
       in
       let trim_stmt = Sqlite3.prepare db trim_sql in
-      ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT sk));
-      ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT sk));
+      ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT connector_type));
+      ignore (Sqlite3.bind trim_stmt 3 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.bind trim_stmt 4 (Sqlite3.Data.TEXT connector_type));
       (match Sqlite3.step trim_stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
           Logs.warn (fun m ->
-              m "cleanup_connector_history: trim failed for key=%s: %s" sk
-                (Sqlite3.Rc.to_string rc)));
+              m
+                "cleanup_connector_history: trim failed for room=%s \
+                 connector=%s: %s"
+                room_id connector_type (Sqlite3.Rc.to_string rc)));
       ignore (Sqlite3.finalize trim_stmt))
-    !keys
+    !scopes
+
+(* --- room_profiles --- *)
+
+let insert_room_profile ~db ~name =
+  let sql = "INSERT INTO room_profiles (name) VALUES (?)" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Int64.to_int (Sqlite3.last_insert_rowid db)
+      | rc ->
+          failwith
+            (Printf.sprintf "insert_room_profile failed: %s"
+               (Sqlite3.Rc.to_string rc)))
+
+let get_room_profile ~db ~id =
+  let sql =
+    "SELECT id, name, created_at, updated_at FROM room_profiles WHERE id = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          Some
+            {
+              id =
+                (match Sqlite3.column stmt 0 with
+                | Sqlite3.Data.INT n -> Int64.to_int n
+                | _ -> 0);
+              name =
+                (match Sqlite3.column stmt 1 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+              created_at =
+                (match Sqlite3.column stmt 2 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+              updated_at =
+                (match Sqlite3.column stmt 3 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+            }
+      | _ -> None)
+
+let get_room_profile_by_name ~db ~name =
+  let sql =
+    "SELECT id, name, created_at, updated_at FROM room_profiles WHERE name = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          Some
+            {
+              id =
+                (match Sqlite3.column stmt 0 with
+                | Sqlite3.Data.INT n -> Int64.to_int n
+                | _ -> 0);
+              name =
+                (match Sqlite3.column stmt 1 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+              created_at =
+                (match Sqlite3.column stmt 2 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+              updated_at =
+                (match Sqlite3.column stmt 3 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+            }
+      | _ -> None)
+
+let list_room_profiles ~db =
+  let sql =
+    "SELECT id, name, created_at, updated_at FROM room_profiles ORDER BY id"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let profiles = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        profiles :=
+          {
+            id =
+              (match Sqlite3.column stmt 0 with
+              | Sqlite3.Data.INT n -> Int64.to_int n
+              | _ -> 0);
+            name =
+              (match Sqlite3.column stmt 1 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+            created_at =
+              (match Sqlite3.column stmt 2 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+            updated_at =
+              (match Sqlite3.column stmt 3 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+          }
+          :: !profiles
+      done);
+  List.rev !profiles
+
+let delete_room_profile ~db ~id =
+  let stmt_bind =
+    Sqlite3.prepare db "DELETE FROM room_profile_bindings WHERE profile_id = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt_bind))
+    (fun () ->
+      ignore (Sqlite3.bind stmt_bind 1 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt_bind));
+  let sql = "DELETE FROM room_profiles WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
+      match Sqlite3.step stmt with Sqlite3.Rc.DONE -> true | _ -> false)
+
+(* --- room_profile_bindings --- *)
+
+let upsert_room_profile_binding_txn_impl ~db ~room_id ~profile_id =
+  (* Remove any existing binding for this profile (1:1 cardinality) *)
+  let del_stmt =
+    Sqlite3.prepare db
+      "DELETE FROM room_profile_bindings WHERE profile_id = ? AND room_id <> ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize del_stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind del_stmt 1 (Sqlite3.Data.INT (Int64.of_int profile_id)));
+      ignore (Sqlite3.bind del_stmt 2 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.step del_stmt));
+  let sql =
+    "INSERT INTO room_profile_bindings (room_id, profile_id) VALUES (?, ?) ON \
+     CONFLICT(room_id) DO UPDATE SET profile_id = excluded.profile_id, \
+     created_at = room_profile_bindings.created_at"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int profile_id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "upsert_room_profile_binding failed: %s"
+               (Sqlite3.Rc.to_string rc)))
+
+let upsert_room_profile_binding ~db ~room_id ~profile_id =
+  (* Validate profile_id exists before binding *)
+  (match get_room_profile ~db ~id:profile_id with
+  | None ->
+      failwith
+        (Printf.sprintf
+           "upsert_room_profile_binding: profile_id %d does not exist"
+           profile_id)
+  | Some _ -> ());
+  (* Atomically move/insert the 1:1 binding: a failure between the DELETE and the
+     INSERT must not leave the room unbound, so wrap both in a transaction. *)
+  exec_exn db "BEGIN IMMEDIATE";
+  try
+    upsert_room_profile_binding_txn_impl ~db ~room_id ~profile_id;
+    exec_exn db "COMMIT"
+  with e ->
+    (try exec_exn db "ROLLBACK" with _ -> ());
+    raise e
+
+(** Like {!upsert_room_profile_binding} but does NOT open its own transaction.
+    Caller must provide transactional context (e.g. a SAVEPOINT). *)
+let upsert_room_profile_binding_no_txn ~db ~room_id ~profile_id =
+  (match get_room_profile ~db ~id:profile_id with
+  | None ->
+      failwith
+        (Printf.sprintf
+           "upsert_room_profile_binding_no_txn: profile_id %d does not exist"
+           profile_id)
+  | Some _ -> ());
+  upsert_room_profile_binding_txn_impl ~db ~room_id ~profile_id
+
+let get_room_profile_binding ~db ~room_id =
+  let sql =
+    "SELECT room_id, profile_id, created_at FROM room_profile_bindings WHERE \
+     room_id = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          Some
+            {
+              room_id =
+                (match Sqlite3.column stmt 0 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+              profile_id =
+                (match Sqlite3.column stmt 1 with
+                | Sqlite3.Data.INT n -> Int64.to_int n
+                | _ -> 0);
+              created_at =
+                (match Sqlite3.column stmt 2 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> "");
+            }
+      | _ -> None)
+
+let get_room_profile_for_room ~db ~room_id =
+  match get_room_profile_binding ~db ~room_id with
+  | None -> None
+  | Some binding -> get_room_profile ~db ~id:binding.profile_id
+
+let remove_room_profile_binding ~db ~room_id =
+  let sql = "DELETE FROM room_profile_bindings WHERE room_id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+      match Sqlite3.step stmt with Sqlite3.Rc.DONE -> true | _ -> false)
+
+let list_room_profile_bindings_all ~db =
+  let sql =
+    "SELECT room_id, profile_id, created_at FROM room_profile_bindings ORDER \
+     BY room_id"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let bindings = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        bindings :=
+          {
+            room_id =
+              (match Sqlite3.column stmt 0 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+            profile_id =
+              (match Sqlite3.column stmt 1 with
+              | Sqlite3.Data.INT n -> Int64.to_int n
+              | _ -> 0);
+            created_at =
+              (match Sqlite3.column stmt 2 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> "");
+          }
+          :: !bindings
+      done);
+  List.rev !bindings

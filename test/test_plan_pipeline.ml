@@ -142,6 +142,11 @@ let test_check_plan_stable_hash_unchanged () =
               follow_up_prompt = None;
               description = None;
               context_snapshot = None;
+              profile_id = None;
+              origin_json = None;
+              thread_id = None;
+              requester = None;
+              progress_state = None;
             }
           in
           let stable =
@@ -195,6 +200,11 @@ let test_check_plan_stable_marker () =
               follow_up_prompt = None;
               description = None;
               context_snapshot = None;
+              profile_id = None;
+              origin_json = None;
+              thread_id = None;
+              requester = None;
+              progress_state = None;
             }
           in
           let stable =
@@ -246,6 +256,11 @@ let test_stage_transitions () =
       follow_up_prompt = None;
       description = None;
       context_snapshot = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
+      progress_state = None;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -332,6 +347,11 @@ let test_stage_force_stop_at_max () =
       follow_up_prompt = None;
       description = None;
       context_snapshot = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
+      progress_state = None;
     }
   in
   with_temp_git_repo (fun repo ->
