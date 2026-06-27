@@ -10,6 +10,87 @@ let dedup = Channel_util.Lru_dedup.create 500
 let session_key ~team_id ~conversation_id =
   Printf.sprintf "teams:%s:%s" team_id conversation_id
 
+let incoming_rate_limited_message =
+  "Please slow down, I can only process a limited number of messages per \
+   minute."
+
+type rate_limit_decision = Allowed | Rate_limited of { should_warn : bool }
+
+let rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
+
+let check_incoming_rate_limit ?event_limiter ~limiter_key () =
+  let open Lwt.Syntax in
+  let* rate_ok =
+    match event_limiter with
+    | Some lim -> Rate_limiter.check_and_consume lim ~key:limiter_key
+    | None -> Lwt.return true
+  in
+  if rate_ok then Lwt.return Allowed
+  else
+    let now = Unix.gettimeofday () in
+    let should_warn =
+      match Hashtbl.find_opt rate_limit_warnings limiter_key with
+      | Some last -> now -. last >= 60.0
+      | None -> true
+    in
+    if should_warn then Hashtbl.replace rate_limit_warnings limiter_key now;
+    Lwt.return (Rate_limited { should_warn })
+
+let user_facing_error_of_exn = function
+  | Failure msg -> msg
+  | exn -> Printexc.to_string exn
+
+let agent_error_message err =
+  Printf.sprintf "Sorry, an error occurred processing your message: %s" err
+
+(** Resolve the session key for a Teams conversation. If the conversation has an
+    active room profile binding, use the shared room session "teams:CONV".
+    Otherwise fall back to the existing team+conversation session key. *)
+let resolve_session_key ~(session_manager : Session.t) ~team_id ~conversation_id
+    =
+  let has_profile =
+    match Session.get_db session_manager with
+    | Some db -> (
+        match Memory.get_room_profile_binding ~db ~room_id:conversation_id with
+        | Some _ -> true
+        | None -> false)
+    | None -> false
+  in
+  if has_profile then "teams:" ^ Session.sanitize_session_key conversation_id
+  else session_key ~team_id ~conversation_id
+
+let slash_command_name token =
+  let token = String.trim token in
+  let token =
+    if String.length token > 0 && token.[0] = '/' then
+      String.sub token 1 (String.length token - 1)
+    else token
+  in
+  match String.index_opt token '@' with
+  | Some idx -> String.sub token 0 idx
+  | None -> token
+
+let known_slash_subcommand name =
+  match Slash_commands.handle ("/" ^ name) with
+  | Slash_commands.NotACommand -> false
+  | _ -> true
+
+let normalize_clawq_slash_text text =
+  let trimmed = String.trim text in
+  let parts =
+    String.split_on_char ' ' trimmed |> List.filter (fun part -> part <> "")
+  in
+  match parts with
+  | first :: rest
+    when String.lowercase_ascii (slash_command_name first) = "clawq" -> (
+      match rest with
+      | [] -> "/help"
+      | subcommand :: _ ->
+          if known_slash_subcommand (slash_command_name subcommand) then
+            "/" ^ String.concat " " rest
+          else "/help")
+  | _ -> trimmed
+
 let encode_channel_id ~service_url ~conversation_id =
   service_url ^ "|" ^ conversation_id
 
@@ -711,8 +792,13 @@ let strip_at_mentions text =
 (* Main webhook handler — called from http_server.ml with raw body.
    Responds asynchronously; caller should return 202 immediately. *)
 let handle_webhook ~(config : Runtime_config.teams_config)
-    ~(session_manager : Session.t) ~auth_header body_str =
+    ~(session_manager : Session.t) ?(send_reply_fn = send_reply)
+    ?(send_adaptive_card_fn = send_adaptive_card) ?event_limiter ?turn_fn
+    ~auth_header body_str =
   let open Lwt.Syntax in
+  let send_reply = send_reply_fn in
+  let send_adaptive_card = send_adaptive_card_fn in
+  let session_turn = match turn_fn with Some f -> f | None -> Session.turn in
   (* Verify JWT claims *)
   let* auth_result = verify_auth ~config auth_header in
   match auth_result with
@@ -768,7 +854,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                 then begin
                   let eff_tid = if team_id = "" then "personal" else team_id in
                   let hist_key =
-                    session_key ~team_id:eff_tid ~conversation_id
+                    resolve_session_key ~session_manager ~team_id:eff_tid
+                      ~conversation_id
                   in
                   let db =
                     if cfg.connector_history.persist_to_db then
@@ -809,7 +896,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     if service_url = "" then config.service_url else service_url
                   in
                   let key =
-                    session_key ~team_id:effective_team_id ~conversation_id
+                    resolve_session_key ~session_manager
+                      ~team_id:effective_team_id ~conversation_id
                   in
                   let sender_name =
                     if user_name = "" then None else Some user_name
@@ -833,515 +921,533 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     in
                     Lwt.return_unit
                   in
-                  (* Ensure a typing indicator watcher is running for this
-                   session. The watcher tracks Session live_activity and
-                   sends typing activities while the session is active. *)
-                  let typing_watcher =
-                    Typing_indicator.ensure_session_typing_watcher
-                      ~session_mgr:session_manager ~key
-                      ~send_action:(fun () ->
-                        send_typing_activity ~config
-                          ~service_url:effective_service_url ~conversation_id)
-                      ~interval:3.0 ~idle_timeout:300.0
+                  let limiter_key = conversation_id ^ ":" ^ user_id in
+                  let* rate_decision =
+                    check_incoming_rate_limit ?event_limiter ~limiter_key ()
                   in
-                  let refresh_typing () = typing_watcher.refresh () in
-                  let skill_names =
-                    List.map
-                      (fun (s : Skills.skill_md_meta) -> s.md_name)
-                      (Skills.available_skills ())
-                  in
-                  let* cmd_result, text, skill_injections, _loaded_skill_name =
-                    match Slash_commands.handle ~skill_names text with
-                    | Slash_commands.SkillInvoke (name, args) -> (
-                        if
-                          args = ""
-                          && Session.skill_loaded_in_context session_manager
-                               ~key name
-                        then
-                          Lwt.return (Slash_commands.NotACommand, text, [], None)
-                        else
-                          let* result =
-                            Skills.expand_slash_skill ~name ~args ()
-                          in
-                          match result with
-                          | Ok r ->
+                  match rate_decision with
+                  | Rate_limited { should_warn } ->
+                      if should_warn then
+                        send_text incoming_rate_limited_message
+                      else Lwt.return_unit
+                  | Allowed -> (
+                      (* Ensure a typing indicator watcher is running for this
+                       session. The watcher tracks Session live_activity and
+                       sends typing activities while the session is active. *)
+                      let typing_watcher =
+                        Typing_indicator.ensure_session_typing_watcher
+                          ~session_mgr:session_manager ~key
+                          ~send_action:(fun () ->
+                            send_typing_activity ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id)
+                          ~interval:3.0 ~idle_timeout:300.0
+                      in
+                      let refresh_typing () = typing_watcher.refresh () in
+                      let skill_names =
+                        List.map
+                          (fun (s : Skills.skill_md_meta) -> s.md_name)
+                          (Skills.available_skills ())
+                      in
+                      let slash_text = normalize_clawq_slash_text text in
+                      let* ( cmd_result,
+                             text,
+                             skill_injections,
+                             _loaded_skill_name ) =
+                        match Slash_commands.handle ~skill_names slash_text with
+                        | Slash_commands.SkillInvoke (name, args) -> (
+                            if
+                              args = ""
+                              && Session.skill_loaded_in_context session_manager
+                                   ~key name
+                            then
+                              Lwt.return
+                                (Slash_commands.NotACommand, text, [], None)
+                            else
+                              let* result =
+                                Skills.expand_slash_skill ~name ~args ()
+                              in
+                              match result with
+                              | Ok r ->
+                                  Lwt.return
+                                    ( Slash_commands.NotACommand,
+                                      text,
+                                      [ r.skill_injection ],
+                                      Some name )
+                              | Error err_msg ->
+                                  Lwt.return
+                                    ( Slash_commands.Reply err_msg,
+                                      text,
+                                      [],
+                                      None ))
+                        | Slash_commands.InjectConnectorHistory count ->
+                            let cfg = Session.get_config session_manager in
+                            let hist_key =
+                              resolve_session_key ~session_manager
+                                ~team_id:effective_team_id ~conversation_id
+                            in
+                            let db =
+                              if cfg.connector_history.persist_to_db then
+                                Session.get_db session_manager
+                              else None
+                            in
+                            let entries =
+                              Connector_history.get ?db ~key:hist_key ~count ()
+                            in
+                            if entries = [] then
+                              Lwt.return
+                                ( Slash_commands.Reply
+                                    "No connector history available. Ensure \
+                                     connector_history.enabled is true in \
+                                     config. Buffer captures unaddressed group \
+                                     messages received since daemon started \
+                                     (or from DB if persist_to_db is on).",
+                                  text,
+                                  [],
+                                  None )
+                            else begin
+                              let context =
+                                Connector_history.format_for_context entries
+                              in
+                              let n = List.length entries in
+                              let* _id =
+                                send_reply ~alert:false ~config
+                                  ~service_url:effective_service_url
+                                  ~conversation_id ~reply_to_id:activity_id
+                                  ~text:
+                                    (Printf.sprintf
+                                       "Last %d chat msgs loaded into context" n)
+                                  ()
+                              in
+                              let msg =
+                                Printf.sprintf
+                                  "[Loaded %d messages from channel history]" n
+                              in
                               Lwt.return
                                 ( Slash_commands.NotACommand,
-                                  text,
-                                  [ r.skill_injection ],
-                                  Some name )
-                          | Error err_msg ->
-                              Lwt.return
-                                (Slash_commands.Reply err_msg, text, [], None))
-                    | Slash_commands.InjectConnectorHistory count ->
-                        let cfg = Session.get_config session_manager in
-                        let hist_key =
-                          session_key ~team_id:effective_team_id
-                            ~conversation_id
-                        in
-                        let db =
-                          if cfg.connector_history.persist_to_db then
-                            Session.get_db session_manager
-                          else None
-                        in
-                        let entries =
-                          Connector_history.get ?db ~key:hist_key ~count ()
-                        in
-                        if entries = [] then
-                          Lwt.return
-                            ( Slash_commands.Reply
-                                "No connector history available. Ensure \
-                                 connector_history.enabled is true in config. \
-                                 Buffer captures unaddressed group messages \
-                                 received since daemon started (or from DB if \
-                                 persist_to_db is on).",
-                              text,
-                              [],
-                              None )
-                        else begin
-                          let context =
-                            Connector_history.format_for_context entries
-                          in
-                          let n = List.length entries in
-                          let* _id =
-                            send_reply ~alert:false ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~text:
-                                (Printf.sprintf
-                                   "Last %d chat msgs loaded into context" n)
-                              ()
-                          in
-                          let msg =
-                            Printf.sprintf
-                              "[Loaded %d messages from channel history]" n
-                          in
-                          Lwt.return
-                            (Slash_commands.NotACommand, msg, [ context ], None)
-                        end
-                    | other -> Lwt.return (other, text, [], None)
-                  in
-                  let is_admin =
-                    match Session.get_db session_manager with
-                    | Some db ->
-                        Admin.is_admin ~db ~channel:"teams" ~sender_id:user_id
-                    | None -> false
-                  in
-                  let user_group = if is_admin then "admin" else "guest" in
-                  let cmd_result =
-                    Slash_commands.gate_admin ~is_admin cmd_result
-                  in
-                  match cmd_result with
-                  | RegisterAsAdminOtc None ->
-                      let _code =
-                        Admin.generate_otc ~channel:"teams" ~sender_id:user_id
+                                  msg,
+                                  [ context ],
+                                  None )
+                            end
+                        | other -> Lwt.return (other, text, [], None)
                       in
-                      send_text
-                        "Admin registration initiated. Check the daemon \
-                         console/logs for your one-time code, then run: \
-                         /register_as_admin_otc CODE"
-                  | RegisterAsAdminOtc (Some code) -> (
-                      match Session.get_db session_manager with
-                      | Some db -> (
-                          match
-                            Admin.verify_otc ~db ~channel:"teams"
-                              ~sender_id:user_id ~code
-                          with
-                          | Ok () ->
-                              send_text "Successfully registered as admin."
-                          | Error err_msg -> send_text err_msg)
-                      | None -> send_text "Database not available.")
-                  | AdminRequired _ -> assert false
-                  | InjectConnectorHistory _ ->
-                      Lwt.return_unit (* unreachable: preprocessed above *)
-                  | SkillInvoke _ ->
-                      Lwt.return_unit (* unreachable: preprocessed above *)
-                  | NotACommand -> (
-                      (* Register status message factory and capabilities *)
-                      if
-                        Option.is_none
-                          (Session.find_connector_capabilities session_manager
-                             ~key)
-                      then
-                        Session.register_connector_capabilities session_manager
-                          ~key Connector_capabilities.teams;
-                      Session.register_status_message_factory session_manager
-                        ~key (fun () ->
+                      let is_admin =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Admin.is_admin ~db ~channel:"teams"
+                              ~sender_id:user_id
+                        | None -> false
+                      in
+                      let user_group = if is_admin then "admin" else "guest" in
+                      let cmd_result =
+                        Slash_commands.gate_admin ~is_admin cmd_result
+                      in
+                      match cmd_result with
+                      | RegisterAsAdminOtc None ->
+                          let _code =
+                            Admin.generate_otc ~channel:"teams"
+                              ~sender_id:user_id
+                          in
+                          send_text
+                            "Admin registration initiated. Check the daemon \
+                             console/logs for your one-time code, then run: \
+                             /register_as_admin_otc CODE"
+                      | RegisterAsAdminOtc (Some code) -> (
+                          match Session.get_db session_manager with
+                          | Some db -> (
+                              match
+                                Admin.verify_otc ~db ~channel:"teams"
+                                  ~sender_id:user_id ~code
+                              with
+                              | Ok () ->
+                                  send_text "Successfully registered as admin."
+                              | Error err_msg -> send_text err_msg)
+                          | None -> send_text "Database not available.")
+                      | AdminRequired _ -> assert false
+                      | InjectConnectorHistory _ ->
+                          Lwt.return_unit (* unreachable: preprocessed above *)
+                      | SkillInvoke _ ->
+                          Lwt.return_unit (* unreachable: preprocessed above *)
+                      | NotACommand -> (
+                          (* Register status message factory and capabilities *)
+                          if
+                            Option.is_none
+                              (Session.find_connector_capabilities
+                                 session_manager ~key)
+                          then
+                            Session.register_connector_capabilities
+                              session_manager ~key Connector_capabilities.teams;
+                          Session.register_status_message_factory
+                            session_manager ~key (fun () ->
+                              let notifier =
+                                make_status_notifier ~config
+                                  ~service_url:effective_service_url
+                                  ~conversation_id ~reply_to_id:activity_id
+                              in
+                              Status_message.create ~notifier
+                                ~parse_mode:"Teams" ());
+                          (* Register alerting notifier for ask_user_question *)
+                          Session.register_alert_channel_notifier
+                            session_manager ~key (fun reply_text ->
+                              let* _id =
+                                send_reply ~alert:true ~config
+                                  ~service_url:effective_service_url
+                                  ~conversation_id ~reply_to_id:activity_id
+                                  ~text:reply_text ?mention ()
+                              in
+                              refresh_typing ();
+                              Lwt.return_unit);
+                          (* Register rich notifier for Adaptive Cards *)
+                          if
+                            Option.is_none
+                              (Session.find_rich_notifier session_manager ~key)
+                          then
+                            Session.register_rich_notifier session_manager ~key
+                              (fun msg ->
+                                match msg with
+                                | Rich_message.TextWithButtons
+                                    { text; button_rows } ->
+                                    let card =
+                                      Question_presenter
+                                      .build_teams_card_from_buttons ~text
+                                        ~button_rows
+                                    in
+                                    let* () =
+                                      send_adaptive_card ~config
+                                        ~service_url:effective_service_url
+                                        ~conversation_id
+                                        ~reply_to_id:activity_id ~card ()
+                                    in
+                                    Lwt.return
+                                      Rich_message.
+                                        { message_id = "0"; callback_ids = [] }
+                                | Rich_message.Poll
+                                    { question; options; allows_multiple } ->
+                                    let card =
+                                      Question_presenter.build_teams_poll_card
+                                        ~question ~options
+                                    in
+                                    ignore allows_multiple;
+                                    let* () =
+                                      send_adaptive_card ~config
+                                        ~service_url:effective_service_url
+                                        ~conversation_id
+                                        ~reply_to_id:activity_id ~card ()
+                                    in
+                                    Lwt.return
+                                      Rich_message.
+                                        { message_id = "0"; callback_ids = [] }
+                                | Rich_message.Text text ->
+                                    let* _id =
+                                      send_reply ~alert:false ~config
+                                        ~service_url:effective_service_url
+                                        ~conversation_id
+                                        ~reply_to_id:activity_id ~text ()
+                                    in
+                                    Lwt.return
+                                      Rich_message.
+                                        { message_id = "0"; callback_ids = [] }
+                                | Rich_message.FileAttachment _ ->
+                                    Lwt.return
+                                      Rich_message.
+                                        { message_id = "0"; callback_ids = [] });
+                          let* result =
+                            Session.with_registered_notifier session_manager
+                              ~key
+                              ~notify:(fun reply_text ->
+                                (* No mention on intermediate updates — mention only
+                             on the final response to avoid repeated tagging. *)
+                                let* _id =
+                                  send_reply ~alert:false ~config
+                                    ~service_url:effective_service_url
+                                    ~conversation_id ~reply_to_id:activity_id
+                                    ~text:reply_text ()
+                                in
+                                refresh_typing ();
+                                Lwt.return_unit)
+                              (fun () ->
+                                Lwt.catch
+                                  (fun () ->
+                                    let full_config =
+                                      Session.get_config session_manager
+                                    in
+                                    (* Partition audio attachments for transcription *)
+                                    let audio_atts, non_audio_atts =
+                                      List.partition
+                                        (fun (a : teams_attachment) ->
+                                          Voice_transcription.is_audio_mime
+                                            a.content_type)
+                                        parsed_attachments
+                                    in
+                                    let* token_opt_for_audio =
+                                      if
+                                        audio_atts <> []
+                                        && full_config.security
+                                             .attachment_downloads_enabled
+                                      then fetch_token ~config
+                                      else Lwt.return None
+                                    in
+                                    let* transcription_prefix =
+                                      if
+                                        audio_atts <> []
+                                        && full_config.security
+                                             .attachment_downloads_enabled
+                                      then
+                                        let audio_headers =
+                                          match token_opt_for_audio with
+                                          | Some tok ->
+                                              [
+                                                ( "Authorization",
+                                                  "Bearer " ^ tok );
+                                              ]
+                                          | None -> []
+                                        in
+                                        let* texts =
+                                          Lwt_list.map_s
+                                            (fun (a : teams_attachment) ->
+                                              match
+                                                Voice_transcription.validate
+                                                  ~config:full_config
+                                                  ~filename:a.name
+                                                  ~mime_type:
+                                                    (Some a.content_type)
+                                                  ~size:None
+                                                  ~duration_seconds:None
+                                              with
+                                              | Error reason ->
+                                                  Logs.info (fun m ->
+                                                      m
+                                                        "Teams voice skipped \
+                                                         %s: %s"
+                                                        a.name
+                                                        (Voice_transcription
+                                                         .skip_reason_to_string
+                                                           reason));
+                                                  Lwt.return ""
+                                              | Ok () ->
+                                                  Lwt.catch
+                                                    (fun () ->
+                                                      let* _status, audio_data =
+                                                        Http_client.get
+                                                          ~uri:a.content_url
+                                                          ~headers:audio_headers
+                                                      in
+                                                      let notifier =
+                                                        make_status_notifier
+                                                          ~config
+                                                          ~service_url:
+                                                            effective_service_url
+                                                          ~conversation_id
+                                                          ~reply_to_id:
+                                                            activity_id
+                                                      in
+                                                      Voice_transcription
+                                                      .transcribe_with_progress
+                                                        ~config:full_config
+                                                        ~notifier ~audio_data
+                                                        ~filename:a.name ())
+                                                    (fun exn ->
+                                                      Logs.err (fun m ->
+                                                          m
+                                                            "Teams voice \
+                                                             transcription \
+                                                             failed %s: %s"
+                                                            a.name
+                                                            (Printexc.to_string
+                                                               exn));
+                                                      Lwt.return ""))
+                                            audio_atts
+                                        in
+                                        Lwt.return
+                                          (String.concat ""
+                                             (List.filter
+                                                (fun s -> s <> "")
+                                                texts))
+                                      else Lwt.return ""
+                                    in
+                                    let effective_text =
+                                      if transcription_prefix <> "" then
+                                        transcription_prefix ^ "\n" ^ text
+                                      else text
+                                    in
+                                    let* content_parts, att_list, message =
+                                      if
+                                        non_audio_atts <> []
+                                        && full_config.security
+                                             .attachment_downloads_enabled
+                                      then
+                                        let* token_opt = fetch_token ~config in
+                                        let headers =
+                                          match token_opt with
+                                          | Some tok ->
+                                              [
+                                                ( "Authorization",
+                                                  "Bearer " ^ tok );
+                                              ]
+                                          | None -> []
+                                        in
+                                        let workspace =
+                                          Runtime_config.effective_workspace
+                                            full_config
+                                        in
+                                        let metas =
+                                          List.map
+                                            (fun (a : teams_attachment) ->
+                                              Attachment_download.
+                                                {
+                                                  url = a.content_url;
+                                                  filename = a.name;
+                                                  mime_type =
+                                                    Some a.content_type;
+                                                  size = None;
+                                                })
+                                            non_audio_atts
+                                        in
+                                        Attachment_download.process_attachments
+                                          metas ~headers ~workspace
+                                          ~db:(Session.get_db session_manager)
+                                          ~session_key:key ~source:"teams"
+                                          ~content_parts:[] ~attachments:[]
+                                          ~message:effective_text
+                                      else
+                                        let placeholder =
+                                          if non_audio_atts <> [] then
+                                            let names =
+                                              List.map
+                                                (fun (a : teams_attachment) ->
+                                                  Printf.sprintf
+                                                    "\n\
+                                                     [Attachment: %s (download \
+                                                     disabled)]"
+                                                    a.name)
+                                                non_audio_atts
+                                            in
+                                            effective_text
+                                            ^ String.concat "" names
+                                          else effective_text
+                                        in
+                                        Lwt.return ([], [], placeholder)
+                                    in
+                                    let* response =
+                                      session_turn session_manager ~key ~message
+                                        ~content_parts ~attachments:att_list
+                                        ~skill_injections ~channel_name:"teams"
+                                        ~channel_type:
+                                          (if is_group then "group" else "dm")
+                                        ~user_group ~channel:"teams"
+                                        ~channel_id:
+                                          (encode_channel_id
+                                             ~service_url:effective_service_url
+                                             ~conversation_id)
+                                        ~sender_id:user_id ?sender_name ()
+                                    in
+                                    Lwt.return (Ok response))
+                                  (fun exn ->
+                                    Lwt.return
+                                      (Error (user_facing_error_of_exn exn))))
+                          in
+                          match result with
+                          | Ok response ->
+                              if Session.should_suppress_response response then
+                                Lwt.return_unit
+                              else
+                                let* _id =
+                                  send_reply ~alert:true ~config
+                                    ~service_url:effective_service_url
+                                    ~conversation_id ~reply_to_id:activity_id
+                                    ~text:response ?mention ()
+                                in
+                                Lwt.return_unit
+                          | Error err ->
+                              Logs.err (fun m ->
+                                  m
+                                    "Teams: agent error for conv=%s user=%s \
+                                     (id=%s): %s"
+                                    conversation_id
+                                    (if user_name <> "" then user_name
+                                     else user_id)
+                                    user_id err);
+                              send_text (agent_error_message err))
+                      | Reply text -> send_text text
+                      | FormattedReply fn ->
+                          let text = fn Format_adapter.Teams in
+                          send_text text
+                      | Help ->
+                          let show_test = is_admin in
+                          let text =
+                            Slash_commands.format_help
+                              ~connector:Format_adapter.Teams ~show_test
+                              ~is_admin ()
+                          in
+                          send_text text
+                      | Menu page ->
+                          let card_json =
+                            Slash_commands_manifest.menu_adaptive_card_json
+                              ~page ~is_admin ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | Reset ->
+                          let* active_bg_tasks =
+                            Session.reset session_manager ~key
+                          in
+                          send_text
+                            (Slash_commands_fmt.format_reset
+                               ~connector:Format_adapter.Teams ~active_bg_tasks)
+                      | Compact -> (
                           let notifier =
                             make_status_notifier ~config
                               ~service_url:effective_service_url
                               ~conversation_id ~reply_to_id:activity_id
                           in
-                          Status_message.create ~notifier ~parse_mode:"Teams" ());
-                      (* Register alerting notifier for ask_user_question *)
-                      Session.register_alert_channel_notifier session_manager
-                        ~key (fun reply_text ->
-                          let* _id =
-                            send_reply ~alert:true ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~text:reply_text ?mention ()
+                          let* compact_result =
+                            Session.compact session_manager ~key ~notifier ()
                           in
-                          refresh_typing ();
-                          Lwt.return_unit);
-                      (* Register rich notifier for Adaptive Cards *)
-                      if
-                        Option.is_none
-                          (Session.find_rich_notifier session_manager ~key)
-                      then
-                        Session.register_rich_notifier session_manager ~key
-                          (fun msg ->
-                            match msg with
-                            | Rich_message.TextWithButtons { text; button_rows }
-                              ->
-                                let card =
-                                  Question_presenter
-                                  .build_teams_card_from_buttons ~text
-                                    ~button_rows
-                                in
-                                let* () =
-                                  send_adaptive_card ~config
-                                    ~service_url:effective_service_url
-                                    ~conversation_id ~reply_to_id:activity_id
-                                    ~card ()
-                                in
-                                Lwt.return
-                                  Rich_message.
-                                    { message_id = "0"; callback_ids = [] }
-                            | Rich_message.Poll
-                                { question; options; allows_multiple } ->
-                                let card =
-                                  Question_presenter.build_teams_poll_card
-                                    ~question ~options
-                                in
-                                ignore allows_multiple;
-                                let* () =
-                                  send_adaptive_card ~config
-                                    ~service_url:effective_service_url
-                                    ~conversation_id ~reply_to_id:activity_id
-                                    ~card ()
-                                in
-                                Lwt.return
-                                  Rich_message.
-                                    { message_id = "0"; callback_ids = [] }
-                            | Rich_message.Text text ->
-                                let* _id =
-                                  send_reply ~alert:false ~config
-                                    ~service_url:effective_service_url
-                                    ~conversation_id ~reply_to_id:activity_id
-                                    ~text ()
-                                in
-                                Lwt.return
-                                  Rich_message.
-                                    { message_id = "0"; callback_ids = [] }
-                            | Rich_message.FileAttachment _ ->
-                                Lwt.return
-                                  Rich_message.
-                                    { message_id = "0"; callback_ids = [] });
-                      let* result =
-                        Session.with_registered_notifier session_manager ~key
-                          ~notify:(fun reply_text ->
-                            (* No mention on intermediate updates — mention only
-                             on the final response to avoid repeated tagging. *)
-                            let* _id =
-                              send_reply ~alert:false ~config
-                                ~service_url:effective_service_url
-                                ~conversation_id ~reply_to_id:activity_id
-                                ~text:reply_text ()
-                            in
-                            refresh_typing ();
-                            Lwt.return_unit)
-                          (fun () ->
-                            Lwt.catch
-                              (fun () ->
-                                let full_config =
-                                  Session.get_config session_manager
-                                in
-                                (* Partition audio attachments for transcription *)
-                                let audio_atts, non_audio_atts =
-                                  List.partition
-                                    (fun (a : teams_attachment) ->
-                                      Voice_transcription.is_audio_mime
-                                        a.content_type)
-                                    parsed_attachments
-                                in
-                                let* token_opt_for_audio =
-                                  if
-                                    audio_atts <> []
-                                    && full_config.security
-                                         .attachment_downloads_enabled
-                                  then fetch_token ~config
-                                  else Lwt.return None
-                                in
-                                let* transcription_prefix =
-                                  if
-                                    audio_atts <> []
-                                    && full_config.security
-                                         .attachment_downloads_enabled
-                                  then
-                                    let audio_headers =
-                                      match token_opt_for_audio with
-                                      | Some tok ->
-                                          [ ("Authorization", "Bearer " ^ tok) ]
-                                      | None -> []
-                                    in
-                                    let* texts =
-                                      Lwt_list.map_s
-                                        (fun (a : teams_attachment) ->
-                                          match
-                                            Voice_transcription.validate
-                                              ~config:full_config
-                                              ~filename:a.name
-                                              ~mime_type:(Some a.content_type)
-                                              ~size:None ~duration_seconds:None
-                                          with
-                                          | Error reason ->
-                                              Logs.info (fun m ->
-                                                  m "Teams voice skipped %s: %s"
-                                                    a.name
-                                                    (Voice_transcription
-                                                     .skip_reason_to_string
-                                                       reason));
-                                              Lwt.return ""
-                                          | Ok () ->
-                                              Lwt.catch
-                                                (fun () ->
-                                                  let* _status, audio_data =
-                                                    Http_client.get
-                                                      ~uri:a.content_url
-                                                      ~headers:audio_headers
-                                                  in
-                                                  let notifier =
-                                                    make_status_notifier ~config
-                                                      ~service_url:
-                                                        effective_service_url
-                                                      ~conversation_id
-                                                      ~reply_to_id:activity_id
-                                                  in
-                                                  Voice_transcription
-                                                  .transcribe_with_progress
-                                                    ~config:full_config
-                                                    ~notifier ~audio_data
-                                                    ~filename:a.name ())
-                                                (fun exn ->
-                                                  Logs.err (fun m ->
-                                                      m
-                                                        "Teams voice \
-                                                         transcription failed \
-                                                         %s: %s"
-                                                        a.name
-                                                        (Printexc.to_string exn));
-                                                  Lwt.return ""))
-                                        audio_atts
-                                    in
-                                    Lwt.return
-                                      (String.concat ""
-                                         (List.filter (fun s -> s <> "") texts))
-                                  else Lwt.return ""
-                                in
-                                let effective_text =
-                                  if transcription_prefix <> "" then
-                                    transcription_prefix ^ "\n" ^ text
-                                  else text
-                                in
-                                let* content_parts, att_list, message =
-                                  if
-                                    non_audio_atts <> []
-                                    && full_config.security
-                                         .attachment_downloads_enabled
-                                  then
-                                    let* token_opt = fetch_token ~config in
-                                    let headers =
-                                      match token_opt with
-                                      | Some tok ->
-                                          [ ("Authorization", "Bearer " ^ tok) ]
-                                      | None -> []
-                                    in
-                                    let workspace =
-                                      Runtime_config.effective_workspace
-                                        full_config
-                                    in
-                                    let metas =
-                                      List.map
-                                        (fun (a : teams_attachment) ->
-                                          Attachment_download.
-                                            {
-                                              url = a.content_url;
-                                              filename = a.name;
-                                              mime_type = Some a.content_type;
-                                              size = None;
-                                            })
-                                        non_audio_atts
-                                    in
-                                    Attachment_download.process_attachments
-                                      metas ~headers ~workspace
-                                      ~db:(Session.get_db session_manager)
-                                      ~session_key:key ~source:"teams"
-                                      ~content_parts:[] ~attachments:[]
-                                      ~message:effective_text
-                                  else
-                                    let placeholder =
-                                      if non_audio_atts <> [] then
-                                        let names =
-                                          List.map
-                                            (fun (a : teams_attachment) ->
-                                              Printf.sprintf
-                                                "\n\
-                                                 [Attachment: %s (download \
-                                                 disabled)]"
-                                                a.name)
-                                            non_audio_atts
-                                        in
-                                        effective_text ^ String.concat "" names
-                                      else effective_text
-                                    in
-                                    Lwt.return ([], [], placeholder)
-                                in
-                                let* response =
-                                  Session.turn session_manager ~key ~message
-                                    ~content_parts ~attachments:att_list
-                                    ~skill_injections ~channel_name:"teams"
-                                    ~channel_type:
-                                      (if is_group then "group" else "dm")
-                                    ~user_group ~channel:"teams"
-                                    ~channel_id:
-                                      (encode_channel_id
-                                         ~service_url:effective_service_url
-                                         ~conversation_id)
-                                    ~sender_id:user_id ?sender_name ()
-                                in
-                                Lwt.return (Ok response))
-                              (fun exn ->
-                                Lwt.return (Error (Printexc.to_string exn))))
-                      in
-                      match result with
-                      | Ok response ->
-                          if Session.should_suppress_response response then
-                            Lwt.return_unit
-                          else
-                            let* _id =
-                              send_reply ~alert:true ~config
-                                ~service_url:effective_service_url
-                                ~conversation_id ~reply_to_id:activity_id
-                                ~text:response ?mention ()
-                            in
-                            Lwt.return_unit
-                      | Error err ->
-                          Logs.err (fun m ->
-                              m
-                                "Teams: agent error for conv=%s user=%s \
-                                 (id=%s): %s"
-                                conversation_id
-                                (if user_name <> "" then user_name else user_id)
-                                user_id err);
-                          Lwt.return_unit)
-                  | Reply text -> send_text text
-                  | FormattedReply fn ->
-                      let text = fn Format_adapter.Teams in
-                      send_text text
-                  | Help ->
-                      let show_test = is_admin in
-                      let text =
-                        Slash_commands.format_help
-                          ~connector:Format_adapter.Teams ~show_test ~is_admin
-                          ()
-                      in
-                      send_text text
-                  | Menu page ->
-                      let card_json =
-                        Slash_commands_manifest.menu_adaptive_card_json ~page
-                          ~is_admin ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | Reset ->
-                      let* active_bg_tasks =
-                        Session.reset session_manager ~key
-                      in
-                      send_text
-                        (Slash_commands_fmt.format_reset
-                           ~connector:Format_adapter.Teams ~active_bg_tasks)
-                  | Compact -> (
-                      let notifier =
-                        make_status_notifier ~config
-                          ~service_url:effective_service_url ~conversation_id
-                          ~reply_to_id:activity_id
-                      in
-                      let* compact_result =
-                        Session.compact session_manager ~key ~notifier ()
-                      in
-                      match compact_result with
-                      | Ok _ -> Lwt.return_unit
-                      | Error err ->
-                          send_text (Printf.sprintf "Compaction failed: %s" err)
-                      )
-                  | RuntimeCtx ->
-                      let* text =
-                        Session.runtime_context_block session_manager ~key
-                      in
-                      send_text text
-                  | Uptime ->
-                      let raw =
-                        Daemon_status.daemon_uptime_reply
-                          ~pid:(Daemon_status.read_current_daemon_pid ())
-                      in
-                      send_text
-                        (Slash_commands_fmt.format_uptime
-                           ~connector:Format_adapter.Teams raw)
-                  | Status ->
-                      let text =
-                        Slash_commands.format_status
-                          ~connector:Format_adapter.Teams
-                          ~db:(Session.get_db session_manager)
-                          ~session_count:(Session.session_count session_manager)
-                          ~active_count:
-                            (Session.active_session_count session_manager)
-                          ()
-                      in
-                      send_text text
-                  | Thinking Slash_commands.ShowThinking ->
-                      let current =
-                        (Session.get_config session_manager).agent_defaults
-                          .reasoning_effort
-                      in
-                      send_text
-                        (Slash_commands_fmt.format_thinking_status
-                           ~connector:Format_adapter.Teams current)
-                  | Thinking (Slash_commands.SetThinking level) ->
-                      let connector = Format_adapter.Teams in
-                      let cfg = Session.get_config session_manager in
-                      let previous = cfg.agent_defaults.reasoning_effort in
-                      let text =
-                        match Config_set.set_reasoning_effort level with
-                        | Ok () ->
-                            Session.update_config ~source:"teams"
-                              session_manager
-                              {
-                                cfg with
-                                agent_defaults =
-                                  {
-                                    cfg.agent_defaults with
-                                    reasoning_effort = level;
-                                  };
-                              };
-                            Slash_commands_fmt.format_thinking_set ~connector
-                              ~previous level
-                        | Error err -> "Failed to set thinking level: " ^ err
-                      in
-                      send_text text
-                  | ShowThinking action ->
-                      let connector = Format_adapter.Teams in
-                      let cfg = Session.get_config session_manager in
-                      let current = cfg.agent_defaults.show_thinking in
-                      let text =
-                        match action with
-                        | Slash_commands.ShowThinkingStatus ->
-                            Slash_commands_fmt.format_show_thinking_status
-                              ~connector current
-                        | Slash_commands.ToggleShowThinking -> (
-                            let new_val = not current in
-                            match Config_set.set_show_thinking new_val with
+                          match compact_result with
+                          | Ok _ -> Lwt.return_unit
+                          | Error err ->
+                              send_text
+                                (Printf.sprintf "Compaction failed: %s" err))
+                      | RuntimeCtx ->
+                          let* text =
+                            Session.runtime_context_block session_manager ~key
+                          in
+                          send_text text
+                      | Uptime ->
+                          let raw =
+                            Daemon_status.daemon_uptime_reply
+                              ~pid:(Daemon_status.read_current_daemon_pid ())
+                          in
+                          send_text
+                            (Slash_commands_fmt.format_uptime
+                               ~connector:Format_adapter.Teams raw)
+                      | Status ->
+                          let text =
+                            Slash_commands.format_status
+                              ~connector:Format_adapter.Teams
+                              ~db:(Session.get_db session_manager)
+                              ~session_count:
+                                (Session.session_count session_manager)
+                              ~active_count:
+                                (Session.active_session_count session_manager)
+                              ()
+                          in
+                          send_text text
+                      | Thinking Slash_commands.ShowThinking ->
+                          let current =
+                            (Session.get_config session_manager).agent_defaults
+                              .reasoning_effort
+                          in
+                          send_text
+                            (Slash_commands_fmt.format_thinking_status
+                               ~connector:Format_adapter.Teams current)
+                      | Thinking (Slash_commands.SetThinking level) ->
+                          let connector = Format_adapter.Teams in
+                          let cfg = Session.get_config session_manager in
+                          let previous = cfg.agent_defaults.reasoning_effort in
+                          let text =
+                            match Config_set.set_reasoning_effort level with
                             | Ok () ->
                                 Session.update_config ~source:"teams"
                                   session_manager
@@ -1350,487 +1456,644 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                     agent_defaults =
                                       {
                                         cfg.agent_defaults with
-                                        show_thinking = new_val;
+                                        reasoning_effort = level;
                                       };
                                   };
-                                Slash_commands_fmt.format_show_thinking_toggle
-                                  ~connector new_val
+                                Slash_commands_fmt.format_thinking_set
+                                  ~connector ~previous level
                             | Error err ->
-                                "Failed to update show_thinking: " ^ err)
-                      in
-                      send_text text
-                  | Heartbeat action ->
-                      let connector = Format_adapter.Teams in
-                      let text =
-                        match action with
-                        | Slash_commands.HeartbeatStatus ->
-                            Slash_commands_fmt.format_heartbeat_status
-                              ~connector
-                              (Session.session_heartbeat_status_text
-                                 session_manager ~key)
-                        | Slash_commands.SetHeartbeat enabled -> (
-                            match
-                              Session.set_session_heartbeat session_manager ~key
-                                ~enabled
-                            with
-                            | Ok () ->
-                                Slash_commands_fmt.format_heartbeat_set
-                                  ~connector enabled key
-                            | Error err -> err)
-                      in
-                      send_text text
-                  | Debug action ->
-                      let connector = Format_adapter.Teams in
-                      let text =
-                        match action with
-                        | Slash_commands.DebugStatus ->
-                            Slash_commands_fmt.format_debug_status ~connector
-                              (Session.session_debug_status_text session_manager
-                                 ~key)
-                        | Slash_commands.SetDebug enabled -> (
-                            match
-                              Session.set_session_debug session_manager ~key
-                                ~enabled
-                            with
-                            | Ok () ->
-                                Slash_commands_fmt.format_debug_set ~connector
-                                  enabled key
-                            | Error err -> err)
-                      in
-                      send_text text
-                  | Delegate (agent_name, prompt) ->
-                      let* () =
-                        send_text "Delegating to a temporary session..."
-                      in
-                      Session.delegate_turn session_manager ~parent_key:key
-                        ~debug_notify:send_text ?agent_name ~prompt
-                        ~send_reply:send_text ();
-                      Lwt.return_unit
-                  | AgentInvoke (agent_name, prompt) ->
-                      let* () =
-                        send_text
-                          (Printf.sprintf "Invoking agent '%s'..." agent_name)
-                      in
-                      Session.agent_invoke_turn session_manager ~agent_name
-                        ~parent_key:key ~debug_notify:send_text ~prompt
-                        ~send_reply:send_text ();
-                      Lwt.return_unit
-                  | AgentMenu page ->
-                      let card_json =
-                        Slash_commands_manifest.agent_menu_adaptive_card_json
-                          ~page ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | ModelMenu page ->
-                      let card_json =
-                        Slash_commands_manifest.model_menu_adaptive_card_json
-                          ~page ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | ThinkingMenu ->
-                      let card_json =
-                        Slash_commands_manifest.thinking_menu_adaptive_card_json
-                          ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | ConfigMenu page ->
-                      let card_json =
-                        Slash_commands_manifest.config_menu_adaptive_card_json
-                          ~page ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | SkillsMenu page ->
-                      let show_test = is_admin in
-                      let card_json =
-                        Slash_commands_manifest.skills_menu_adaptive_card_json
-                          ~show_test ~page ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | CostsMenu ->
-                      let card_json =
-                        Slash_commands_manifest.costs_menu_adaptive_card_json ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | BgMenu ->
-                      let cancellable =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            let tasks, _ =
-                              Background_task.list_tasks_for_display ~db
-                            in
-                            List.filter_map
-                              (fun (t : Background_task.task) ->
-                                match t.status with
-                                | Running | Queued ->
-                                    Some
-                                      ( t.id,
-                                        Background_task.string_of_runner
-                                          t.runner )
-                                | _ -> None)
-                              tasks
-                        | None -> []
-                      in
-                      let card_json =
-                        Slash_commands_manifest.bg_menu_adaptive_card_json
-                          ~cancellable ()
-                      in
-                      send_adaptive_card ~config
-                        ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~card:card_json ()
-                  | ForkAnd (agent_name, prompt) ->
-                      let* () = send_text "Forking session..." in
-                      Session.fork_and_run session_manager ~parent_key:key
-                        ~debug_notify:send_text ?agent_name ~prompt
-                        ~send_reply:send_text ();
-                      Lwt.return_unit
-                  | Debate prompt -> (
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          let config = Session.get_config session_manager in
-                          let on_llm_call_debug =
-                            Session.debug_callback_for session_manager ~key
-                              (Some send_text)
-                          in
-                          let* text =
-                            Debate.run_for_prompt ?on_llm_call_debug ~config ~db
-                              ~prompt ()
+                                "Failed to set thinking level: " ^ err
                           in
                           send_text text
-                      | None -> send_text "Debate requires a database.")
-                  | BashRun cmd ->
-                      let* result = Slash_commands_bash.run_bash_command cmd in
-                      let full_text =
-                        Slash_commands_bash.format_result cmd result
-                      in
-                      let max_len = 25000 in
-                      let text =
-                        if String.length full_text <= max_len then full_text
-                        else String.sub full_text 0 max_len ^ "\n...[truncated]"
-                      in
-                      send_text text
-                  | DebugDumpChat -> (
-                      let content = Session.dump_json session_manager ~key in
-                      let timestamp =
-                        Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
-                      in
-                      let safe_key =
-                        String.map
-                          (fun c ->
-                            match c with
-                            | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c
-                            | _ -> '_')
-                          key
-                      in
-                      let filename =
-                        Printf.sprintf "session_%s_%d.json" safe_key timestamp
-                      in
-                      let send_temp_download () =
-                        let token =
-                          Temp_downloads.add ~content
-                            ~content_type:"application/json" ~filename
-                            ~ttl_s:3600.0
-                        in
-                        let msg =
-                          match Temp_downloads.download_url token with
-                          | Some url ->
-                              Printf.sprintf
-                                "Session dump available for download (%d \
-                                 bytes, expires in 1 hour):\n\n\
-                                 %s"
-                                (String.length content) url
-                          | None ->
-                              let max_len = 25000 in
-                              if String.length content <= max_len then content
-                              else
-                                Printf.sprintf
-                                  "Session dump (truncated — configure \
-                                   tunnel.url for full file download):\n\
-                                   %s\n\
-                                   ...\n\n\
-                                   Full dump: %d bytes"
-                                  (String.sub content 0 max_len)
-                                  (String.length content)
-                        in
-                        send_text msg
-                      in
-                      let delivery =
-                        select_file_upload_delivery
-                          ~file_consent_cards:config.file_consent_cards ~team_id
-                          ~is_group
-                      in
-                      match delivery with
-                      | File_consent_card -> (
-                          let size_bytes = String.length content in
-                          let consent_id =
-                            store_pending_consent ~content ~filename
-                              ~content_type:"application/json" ~ttl_s:600.0
+                      | ShowThinking action ->
+                          let connector = Format_adapter.Teams in
+                          let cfg = Session.get_config session_manager in
+                          let current = cfg.agent_defaults.show_thinking in
+                          let text =
+                            match action with
+                            | Slash_commands.ShowThinkingStatus ->
+                                Slash_commands_fmt.format_show_thinking_status
+                                  ~connector current
+                            | Slash_commands.ToggleShowThinking -> (
+                                let new_val = not current in
+                                match Config_set.set_show_thinking new_val with
+                                | Ok () ->
+                                    Session.update_config ~source:"teams"
+                                      session_manager
+                                      {
+                                        cfg with
+                                        agent_defaults =
+                                          {
+                                            cfg.agent_defaults with
+                                            show_thinking = new_val;
+                                          };
+                                      };
+                                    Slash_commands_fmt
+                                    .format_show_thinking_toggle ~connector
+                                      new_val
+                                | Error err ->
+                                    "Failed to update show_thinking: " ^ err)
                           in
-                          let* result =
-                            send_file_consent_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~filename ~description:"Session debug dump"
-                              ~size_bytes ~consent_id ()
-                          in
-                          match result with
-                          | Ok () ->
-                              (* Also send the download link as a fallback
-                                 in case the file upload consent flow fails *)
-                              send_temp_download ()
-                          | Error err ->
-                              Logs.warn (fun m ->
-                                  m
-                                    "Teams: file consent card failed (%s), \
-                                     falling back to temp download"
-                                    err);
-                              send_temp_download ())
-                      | Temp_download_url -> send_temp_download ())
-                  | Tools ->
-                      let show_test = is_admin in
-                      let text =
-                        match Session.get_tool_registry session_manager with
-                        | Some reg ->
-                            let tools, _ = Tool_registry.partition_skills reg in
-                            let tools =
-                              Skills.filter_visible_tools ~show_test tools
-                            in
-                            let skills =
-                              Skills.filter_visible_tools ~show_test
-                                (Skills.available_skills_as_tools ())
-                            in
-                            Slash_commands.format_tools
-                              ~connector:Format_adapter.Teams tools skills
-                              (Agent_template.available_templates ())
-                        | None -> "Tools are not enabled."
-                      in
-                      send_text text
-                  | Tasks ->
-                      let raw =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Task_tree.init_schema db;
-                            Task_tree.render_emoji_tree ~db ~session_key:key ()
-                        | None -> "Tasks are not available (no database)."
-                      in
-                      send_text
-                        (Slash_commands_fmt.format_tasks
-                           ~connector:Format_adapter.Teams raw)
-                  | TasksFull ->
-                      let raw =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Task_tree.init_schema db;
-                            Task_tree.render_tree_with_legend ~db
-                              ~session_key:key
-                        | None -> "Tasks are not available (no database)."
-                      in
-                      send_text
-                        (Slash_commands_fmt.format_tasks
-                           ~connector:Format_adapter.Teams raw)
-                  | Costs action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands.format_costs
-                              ~connector:Format_adapter.Teams ~db action
-                        | None -> "Costs are not available (no database)."
-                      in
-                      send_text text
-                  | Session action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands_sessions.format_session
-                              ~connector:Format_adapter.Teams ~db action
-                        | None -> "Sessions not available (no database)."
-                      in
-                      send_text text
-                  | Usage action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands.format_usage
-                              ~connector:Format_adapter.Teams ~db action
-                        | None -> "Usage is not available (no database)."
-                      in
-                      send_text text
-                  | Active ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            let cfg = Session.get_config session_manager in
-                            Slash_commands.format_active
-                              ~connector:Format_adapter.Teams ~db ~config:cfg ()
-                        | None -> "Active usage is not available (no database)."
-                      in
-                      send_text text
-                  | Bg action -> (
-                      match Session.get_db session_manager with
-                      | None ->
-                          send_text
-                            "Background tasks are not available (no database)."
-                      | Some db -> (
-                          match action with
-                          | BgCancel id ->
-                              let text =
+                          send_text text
+                      | Heartbeat action ->
+                          let connector = Format_adapter.Teams in
+                          let text =
+                            match action with
+                            | Slash_commands.HeartbeatStatus ->
+                                Slash_commands_fmt.format_heartbeat_status
+                                  ~connector
+                                  (Session.session_heartbeat_status_text
+                                     session_manager ~key)
+                            | Slash_commands.SetHeartbeat enabled -> (
                                 match
-                                  Background_task.cancel_with_signal
-                                    ~send_signal:Unix.kill
-                                    ~terminate_group:(fun
-                                        ?grace_seconds:_ ?wait_seconds:_ pid ->
-                                      Lwt.async (fun () ->
-                                          Process_group.terminate pid))
-                                    ~db ~id ()
+                                  Session.set_session_heartbeat session_manager
+                                    ~key ~enabled
                                 with
-                                | Ok msg -> msg
-                                | Error msg -> msg
+                                | Ok () ->
+                                    Slash_commands_fmt.format_heartbeat_set
+                                      ~connector enabled key
+                                | Error err -> err)
+                          in
+                          send_text text
+                      | Debug action ->
+                          let connector = Format_adapter.Teams in
+                          let text =
+                            match action with
+                            | Slash_commands.DebugStatus ->
+                                Slash_commands_fmt.format_debug_status
+                                  ~connector
+                                  (Session.session_debug_status_text
+                                     session_manager ~key)
+                            | Slash_commands.SetDebug enabled -> (
+                                match
+                                  Session.set_session_debug session_manager ~key
+                                    ~enabled
+                                with
+                                | Ok () ->
+                                    Slash_commands_fmt.format_debug_set
+                                      ~connector enabled key
+                                | Error err -> err)
+                          in
+                          send_text text
+                      | Delegate (agent_name, prompt) ->
+                          let* () =
+                            send_text "Delegating to a temporary session..."
+                          in
+                          Session.delegate_turn session_manager ~parent_key:key
+                            ~debug_notify:send_text ?agent_name ~prompt
+                            ~send_reply:send_text ();
+                          Lwt.return_unit
+                      | AgentInvoke (agent_name, prompt) ->
+                          let* () =
+                            send_text
+                              (Printf.sprintf "Invoking agent '%s'..."
+                                 agent_name)
+                          in
+                          Session.agent_invoke_turn session_manager ~agent_name
+                            ~parent_key:key ~debug_notify:send_text ~prompt
+                            ~send_reply:send_text ();
+                          Lwt.return_unit
+                      | AgentMenu page ->
+                          let card_json =
+                            Slash_commands_manifest
+                            .agent_menu_adaptive_card_json ~page ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | ModelMenu page ->
+                          let card_json =
+                            Slash_commands_manifest
+                            .model_menu_adaptive_card_json ~page ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | ThinkingMenu ->
+                          let card_json =
+                            Slash_commands_manifest
+                            .thinking_menu_adaptive_card_json ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | ConfigMenu page ->
+                          let card_json =
+                            Slash_commands_manifest
+                            .config_menu_adaptive_card_json ~page ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | SkillsMenu page ->
+                          let show_test = is_admin in
+                          let card_json =
+                            Slash_commands_manifest
+                            .skills_menu_adaptive_card_json ~show_test ~page ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | CostsMenu ->
+                          let card_json =
+                            Slash_commands_manifest
+                            .costs_menu_adaptive_card_json ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | BgMenu ->
+                          let cancellable =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                let tasks, _ =
+                                  Background_task.list_tasks_for_display ~db
+                                in
+                                List.filter_map
+                                  (fun (t : Background_task.task) ->
+                                    match t.status with
+                                    | Running | Queued ->
+                                        Some
+                                          ( t.id,
+                                            Background_task.string_of_runner
+                                              t.runner )
+                                    | _ -> None)
+                                  tasks
+                            | None -> []
+                          in
+                          let card_json =
+                            Slash_commands_manifest.bg_menu_adaptive_card_json
+                              ~cancellable ()
+                          in
+                          send_adaptive_card ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~card:card_json ()
+                      | ForkAnd (agent_name, prompt) ->
+                          let* () = send_text "Forking session..." in
+                          Session.fork_and_run session_manager ~parent_key:key
+                            ~debug_notify:send_text ?agent_name ~prompt
+                            ~send_reply:send_text ();
+                          Lwt.return_unit
+                      | Debate prompt -> (
+                          match Session.get_db session_manager with
+                          | Some db ->
+                              let config = Session.get_config session_manager in
+                              let on_llm_call_debug =
+                                Session.debug_callback_for session_manager ~key
+                                  (Some send_text)
+                              in
+                              let* text =
+                                Debate.run_for_prompt ?on_llm_call_debug ~config
+                                  ~db ~prompt ()
                               in
                               send_text text
-                          | _ ->
-                              let* text =
-                                Slash_commands.format_bg
-                                  ~connector:Format_adapter.Teams ~db action
-                              in
-                              send_text text))
-                  | Cron action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands.format_cron
-                              ~connector:Format_adapter.Teams ~db
-                              ~session_key:key action
-                        | None -> "Cron is not available (no database)."
-                      in
-                      send_text text
-                  | Bl action ->
-                      let text =
-                        Slash_commands.format_bl ~connector:Format_adapter.Teams
-                          action
-                      in
-                      send_text text
-                  | HeldItems action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands.format_held_items
-                              ~connector:Format_adapter.Teams ~db action
-                        | None -> "Held items are not available (no database)."
-                      in
-                      send_text text
-                  | Memories action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands.format_memories
-                              ~connector:Format_adapter.Teams ~db action
-                        | None -> "Memories are not available (no database)."
-                      in
-                      send_text text
-                  | Rig action -> (
-                      match action with
-                      | RigList ->
-                          let text = Rig.list_text () in
-                          send_text text
-                      | RigInstall name | RigAdjust name | RigRemove name -> (
-                          let act =
-                            match action with
-                            | RigInstall _ -> `Install
-                            | RigAdjust _ -> `Adjust
-                            | _ -> `Remove
+                          | None -> send_text "Debate requires a database.")
+                      | BashRun cmd ->
+                          let* result =
+                            Slash_commands_bash.run_bash_command cmd
                           in
-                          let act_str =
-                            match act with
-                            | `Install -> "install"
-                            | `Adjust -> "adjust"
-                            | `Remove -> "remove"
+                          let full_text =
+                            Slash_commands_bash.format_result cmd result
                           in
-                          match Rig.prompt_for ~name ~action:act with
-                          | Error msg -> send_text msg
-                          | Ok prompt ->
-                              let* () =
-                                send_text
-                                  (Printf.sprintf "Running rig %s for '%s'..."
-                                     act_str name)
-                              in
-                              Session.delegate_turn session_manager ~prompt
-                                ~parent_key:key ~debug_notify:send_text
-                                ~send_reply:send_text ();
-                              (match act with
-                              | `Install -> (
-                                  match Rig.find_rig name with
-                                  | Some rig ->
-                                      Rig.mark_installed ~name
-                                        ~version:rig.version
-                                  | None -> ())
-                              | `Remove -> Rig.mark_removed ~name
-                              | `Adjust -> ());
-                              Lwt.return_unit))
-                  | Repo action -> (
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Slash_commands_repo.handle_repo_action ~db
-                            ~session_key:key ~connector:Format_adapter.Teams
-                            ~send_reply:send_text
-                            ~set_cwd:(fun cwd ->
-                              Session.set_effective_cwd session_manager ~key
-                                ~cwd)
-                            action
-                      | None ->
-                          send_text
-                            "Repository management is not available (no \
-                             database).")
-                  | Model action -> (
-                      let open Slash_commands in
-                      match action with
-                      | ModelShow ->
-                          let current =
-                            Session.get_session_effective_model session_manager
-                              ~key
-                          in
-                          let prefs = Model_preferences.load () in
-                          let usage_ranked =
-                            List.filter_map
-                              (fun (m, c) ->
-                                if List.mem m prefs.favorites then None
-                                else Some (m, c))
-                              prefs.usage_counts
-                          in
+                          let max_len = 25000 in
                           let text =
-                            format_model_show ~connector:Format_adapter.Teams
-                              ~current ~favorites:prefs.favorites ~usage_ranked
+                            if String.length full_text <= max_len then full_text
+                            else
+                              String.sub full_text 0 max_len
+                              ^ "\n...[truncated]"
                           in
                           send_text text
-                      | ModelSet name | ModelSetForce name -> (
-                          let force =
-                            match action with
-                            | ModelSetForce _ -> true
-                            | _ -> false
+                      | DebugDumpChat -> (
+                          let content =
+                            Session.dump_json session_manager ~key
                           in
-                          let cfg = Session.get_config session_manager in
-                          let configured_providers =
-                            List.map fst cfg.providers
+                          let timestamp =
+                            Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
                           in
-                          let validation_error =
-                            if force then None
-                            else
-                              Models_catalog.validate_model_name
-                                ~configured_providers name
+                          let safe_key =
+                            String.map
+                              (fun c ->
+                                match c with
+                                | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' ->
+                                    c
+                                | _ -> '_')
+                              key
                           in
-                          match validation_error with
-                          | Some err -> send_text err
-                          | None -> (
+                          let filename =
+                            Printf.sprintf "session_%s_%d.json" safe_key
+                              timestamp
+                          in
+                          let send_temp_download () =
+                            let token =
+                              Temp_downloads.add ~content
+                                ~content_type:"application/json" ~filename
+                                ~ttl_s:3600.0
+                            in
+                            let msg =
+                              match Temp_downloads.download_url token with
+                              | Some url ->
+                                  Printf.sprintf
+                                    "Session dump available for download (%d \
+                                     bytes, expires in 1 hour):\n\n\
+                                     %s"
+                                    (String.length content) url
+                              | None ->
+                                  let max_len = 25000 in
+                                  if String.length content <= max_len then
+                                    content
+                                  else
+                                    Printf.sprintf
+                                      "Session dump (truncated — configure \
+                                       tunnel.url for full file download):\n\
+                                       %s\n\
+                                       ...\n\n\
+                                       Full dump: %d bytes"
+                                      (String.sub content 0 max_len)
+                                      (String.length content)
+                            in
+                            send_text msg
+                          in
+                          let delivery =
+                            select_file_upload_delivery
+                              ~file_consent_cards:config.file_consent_cards
+                              ~team_id ~is_group
+                          in
+                          match delivery with
+                          | File_consent_card -> (
+                              let size_bytes = String.length content in
+                              let consent_id =
+                                store_pending_consent ~content ~filename
+                                  ~content_type:"application/json" ~ttl_s:600.0
+                              in
+                              let* result =
+                                send_file_consent_card ~config
+                                  ~service_url:effective_service_url
+                                  ~conversation_id ~reply_to_id:activity_id
+                                  ~filename ~description:"Session debug dump"
+                                  ~size_bytes ~consent_id ()
+                              in
+                              match result with
+                              | Ok () ->
+                                  (* Also send the download link as a fallback
+                                 in case the file upload consent flow fails *)
+                                  send_temp_download ()
+                              | Error err ->
+                                  Logs.warn (fun m ->
+                                      m
+                                        "Teams: file consent card failed (%s), \
+                                         falling back to temp download"
+                                        err);
+                                  send_temp_download ())
+                          | Temp_download_url -> send_temp_download ())
+                      | Tools ->
+                          let show_test = is_admin in
+                          let text =
+                            match Session.get_tool_registry session_manager with
+                            | Some reg ->
+                                let tools, _ =
+                                  Tool_registry.partition_skills reg
+                                in
+                                let tools =
+                                  Skills.filter_visible_tools ~show_test tools
+                                in
+                                let skills =
+                                  Skills.filter_visible_tools ~show_test
+                                    (Skills.available_skills_as_tools ())
+                                in
+                                Slash_commands.format_tools
+                                  ~connector:Format_adapter.Teams tools skills
+                                  (Agent_template.available_templates ())
+                            | None -> "Tools are not enabled."
+                          in
+                          send_text text
+                      | Tasks ->
+                          let raw =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Task_tree.init_schema db;
+                                Task_tree.render_emoji_tree ~db ~session_key:key
+                                  ()
+                            | None -> "Tasks are not available (no database)."
+                          in
+                          send_text
+                            (Slash_commands_fmt.format_tasks
+                               ~connector:Format_adapter.Teams raw)
+                      | TasksFull ->
+                          let raw =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Task_tree.init_schema db;
+                                Task_tree.render_tree_with_legend ~db
+                                  ~session_key:key
+                            | None -> "Tasks are not available (no database)."
+                          in
+                          send_text
+                            (Slash_commands_fmt.format_tasks
+                               ~connector:Format_adapter.Teams raw)
+                      | Costs action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Slash_commands.format_costs
+                                  ~connector:Format_adapter.Teams ~db action
+                            | None -> "Costs are not available (no database)."
+                          in
+                          send_text text
+                      | Session action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Slash_commands_sessions.format_session
+                                  ~connector:Format_adapter.Teams ~db action
+                            | None -> "Sessions not available (no database)."
+                          in
+                          send_text text
+                      | Usage action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Slash_commands.format_usage
+                                  ~connector:Format_adapter.Teams ~db action
+                            | None -> "Usage is not available (no database)."
+                          in
+                          send_text text
+                      | Active ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                let cfg = Session.get_config session_manager in
+                                Slash_commands.format_active
+                                  ~connector:Format_adapter.Teams ~db
+                                  ~config:cfg ()
+                            | None ->
+                                "Active usage is not available (no database)."
+                          in
+                          send_text text
+                      | Bg action -> (
+                          match Session.get_db session_manager with
+                          | None ->
+                              send_text
+                                "Background tasks are not available (no \
+                                 database)."
+                          | Some db -> (
+                              match action with
+                              | BgCancel id ->
+                                  let text =
+                                    match
+                                      Background_task.cancel_with_signal
+                                        ~send_signal:Unix.kill
+                                        ~terminate_group:(fun
+                                            ?grace_seconds:_
+                                            ?wait_seconds:_
+                                            pid
+                                          ->
+                                          Lwt.async (fun () ->
+                                              Process_group.terminate pid))
+                                        ~db ~id ()
+                                    with
+                                    | Ok msg -> msg
+                                    | Error msg -> msg
+                                  in
+                                  send_text text
+                              | _ ->
+                                  let* text =
+                                    Slash_commands.format_bg
+                                      ~connector:Format_adapter.Teams ~db action
+                                  in
+                                  send_text text))
+                      | Cron action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Slash_commands.format_cron
+                                  ~connector:Format_adapter.Teams ~db
+                                  ~session_key:key action
+                            | None -> "Cron is not available (no database)."
+                          in
+                          send_text text
+                      | Bl action ->
+                          let text =
+                            Slash_commands.format_bl
+                              ~connector:Format_adapter.Teams action
+                          in
+                          send_text text
+                      | HeldItems action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Slash_commands.format_held_items
+                                  ~connector:Format_adapter.Teams ~db action
+                            | None ->
+                                "Held items are not available (no database)."
+                          in
+                          send_text text
+                      | Memories action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                Slash_commands.format_memories
+                                  ~connector:Format_adapter.Teams ~db action
+                            | None ->
+                                "Memories are not available (no database)."
+                          in
+                          send_text text
+                      | Rig action -> (
+                          match action with
+                          | RigList ->
+                              let text = Rig.list_text () in
+                              send_text text
+                          | RigInstall name | RigAdjust name | RigRemove name
+                            -> (
+                              let act =
+                                match action with
+                                | RigInstall _ -> `Install
+                                | RigAdjust _ -> `Adjust
+                                | _ -> `Remove
+                              in
+                              let act_str =
+                                match act with
+                                | `Install -> "install"
+                                | `Adjust -> "adjust"
+                                | `Remove -> "remove"
+                              in
+                              match Rig.prompt_for ~name ~action:act with
+                              | Error msg -> send_text msg
+                              | Ok prompt ->
+                                  let* () =
+                                    send_text
+                                      (Printf.sprintf
+                                         "Running rig %s for '%s'..." act_str
+                                         name)
+                                  in
+                                  Session.delegate_turn session_manager ~prompt
+                                    ~parent_key:key ~debug_notify:send_text
+                                    ~send_reply:send_text ();
+                                  (match act with
+                                  | `Install -> (
+                                      match Rig.find_rig name with
+                                      | Some rig ->
+                                          Rig.mark_installed ~name
+                                            ~version:rig.version
+                                      | None -> ())
+                                  | `Remove -> Rig.mark_removed ~name
+                                  | `Adjust -> ());
+                                  Lwt.return_unit))
+                      | Repo action -> (
+                          match Session.get_db session_manager with
+                          | Some db ->
+                              Slash_commands_repo.handle_repo_action ~db
+                                ~session_key:key ~connector:Format_adapter.Teams
+                                ~send_reply:send_text
+                                ~set_cwd:(fun cwd ->
+                                  Session.set_effective_cwd session_manager ~key
+                                    ~cwd)
+                                action
+                          | None ->
+                              send_text
+                                "Repository management is not available (no \
+                                 database).")
+                      | Model action -> (
+                          let open Slash_commands in
+                          match action with
+                          | ModelShow ->
+                              let current =
+                                Session.get_session_effective_model
+                                  session_manager ~key
+                              in
+                              let prefs = Model_preferences.load () in
+                              let usage_ranked =
+                                List.filter_map
+                                  (fun (m, c) ->
+                                    if List.mem m prefs.favorites then None
+                                    else Some (m, c))
+                                  prefs.usage_counts
+                              in
+                              let text =
+                                format_model_show
+                                  ~connector:Format_adapter.Teams ~current
+                                  ~favorites:prefs.favorites ~usage_ranked
+                              in
+                              send_text text
+                          | ModelSet name | ModelSetForce name -> (
+                              let force =
+                                match action with
+                                | ModelSetForce _ -> true
+                                | _ -> false
+                              in
+                              let cfg = Session.get_config session_manager in
+                              let configured_providers =
+                                List.map fst cfg.providers
+                              in
+                              let validation_error =
+                                if force then None
+                                else
+                                  Models_catalog.validate_model_name
+                                    ~configured_providers name
+                              in
+                              match validation_error with
+                              | Some err -> send_text err
+                              | None -> (
+                                  match
+                                    Model_discovery
+                                    .validate_cached_model_allowed_opt
+                                      (Session.get_db session_manager)
+                                      name
+                                  with
+                                  | Some err -> send_text err
+                                  | None ->
+                                      let provider, model_id, fmt =
+                                        Models_catalog.split_name name
+                                      in
+                                      let hint =
+                                        match fmt with
+                                        | Models_catalog.Legacy ->
+                                            Printf.sprintf
+                                              "\n\
+                                               Hint: use %s:%s format instead \
+                                               of %s/%s."
+                                              provider model_id provider
+                                              model_id
+                                        | _ -> ""
+                                      in
+                                      let warn =
+                                        match fmt with
+                                        | Models_catalog.Canonical
+                                        | Models_catalog.Legacy ->
+                                            let provider_in_config =
+                                              List.mem_assoc provider
+                                                cfg.providers
+                                            in
+                                            if not provider_in_config then
+                                              Printf.sprintf
+                                                "\n\
+                                                 Warning: provider '%s' not \
+                                                 found in config. Add it to \
+                                                 your config.json to use this \
+                                                 model."
+                                                provider
+                                            else ""
+                                        | Models_catalog.Plain -> ""
+                                      in
+                                      Session.set_session_model session_manager
+                                        ~key ~model:name;
+                                      let model_info =
+                                        Models_catalog.find_by_full_name name
+                                      in
+                                      let display =
+                                        match (fmt, model_info) with
+                                        | ( ( Models_catalog.Canonical
+                                            | Models_catalog.Legacy ),
+                                            _ ) ->
+                                            Printf.sprintf
+                                              "Model set to: %s (provider: \
+                                               %s)%s%s\n\
+                                               Persisted for this session \
+                                               across restarts. Use /model \
+                                               set-default to change the \
+                                               global default."
+                                              model_id provider hint warn
+                                        | Models_catalog.Plain, None ->
+                                            Printf.sprintf
+                                              "Warning: '%s' not found in \
+                                               model catalog. Setting anyway.\n\
+                                               Persisted for this session \
+                                               across restarts. Use /model \
+                                               set-default to change the \
+                                               global default."
+                                              name
+                                        | Models_catalog.Plain, Some m ->
+                                            if m.Models_catalog.provider <> ""
+                                            then
+                                              Printf.sprintf
+                                                "Model set to: %s (provider: %s)\n\
+                                                 Persisted for this session \
+                                                 across restarts. Use /model \
+                                                 set-default to change the \
+                                                 global default."
+                                                m.Models_catalog.id
+                                                m.Models_catalog.provider
+                                            else
+                                              Printf.sprintf
+                                                "Model set to: %s\n\
+                                                 Persisted for this session \
+                                                 across restarts. Use /model \
+                                                 set-default to change the \
+                                                 global default."
+                                                name
+                                      in
+                                      send_text display))
+                          | ModelSetDefault name -> (
+                              let provider, model_id, fmt =
+                                Models_catalog.split_name name
+                              in
+                              let hint =
+                                match fmt with
+                                | Models_catalog.Legacy ->
+                                    Printf.sprintf
+                                      "\nHint: use %s:%s format instead."
+                                      provider model_id
+                                | _ -> ""
+                              in
                               match
                                 Model_discovery
                                 .validate_cached_model_allowed_opt
@@ -1838,168 +2101,83 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                   name
                               with
                               | Some err -> send_text err
-                              | None ->
-                                  let provider, model_id, fmt =
-                                    Models_catalog.split_name name
+                              | None -> (
+                                  let result =
+                                    Config_set.set_json_value
+                                      "agent_defaults.primary_model"
+                                      (`String name)
                                   in
-                                  let hint =
-                                    match fmt with
-                                    | Models_catalog.Legacy ->
-                                        Printf.sprintf
-                                          "\n\
-                                           Hint: use %s:%s format instead of \
-                                           %s/%s."
-                                          provider model_id provider model_id
-                                    | _ -> ""
-                                  in
-                                  let warn =
-                                    match fmt with
-                                    | Models_catalog.Canonical
-                                    | Models_catalog.Legacy ->
-                                        let provider_in_config =
-                                          List.mem_assoc provider cfg.providers
-                                        in
-                                        if not provider_in_config then
-                                          Printf.sprintf
-                                            "\n\
-                                             Warning: provider '%s' not found \
-                                             in config. Add it to your \
-                                             config.json to use this model."
-                                            provider
-                                        else ""
-                                    | Models_catalog.Plain -> ""
-                                  in
-                                  Session.set_session_model session_manager ~key
-                                    ~model:name;
-                                  let model_info =
-                                    Models_catalog.find_by_full_name name
-                                  in
-                                  let display =
-                                    match (fmt, model_info) with
-                                    | ( ( Models_catalog.Canonical
-                                        | Models_catalog.Legacy ),
-                                        _ ) ->
-                                        Printf.sprintf
-                                          "Model set to: %s (provider: %s)%s%s\n\
-                                           Persisted for this session across \
-                                           restarts. Use /model set-default to \
-                                           change the global default."
-                                          model_id provider hint warn
-                                    | Models_catalog.Plain, None ->
-                                        Printf.sprintf
-                                          "Warning: '%s' not found in model \
-                                           catalog. Setting anyway.\n\
-                                           Persisted for this session across \
-                                           restarts. Use /model set-default to \
-                                           change the global default."
-                                          name
-                                    | Models_catalog.Plain, Some m ->
-                                        if m.Models_catalog.provider <> "" then
-                                          Printf.sprintf
-                                            "Model set to: %s (provider: %s)\n\
-                                             Persisted for this session across \
-                                             restarts. Use /model set-default \
-                                             to change the global default."
-                                            m.Models_catalog.id
-                                            m.Models_catalog.provider
-                                        else
-                                          Printf.sprintf
-                                            "Model set to: %s\n\
-                                             Persisted for this session across \
-                                             restarts. Use /model set-default \
-                                             to change the global default."
-                                            name
-                                  in
-                                  send_text display))
-                      | ModelSetDefault name -> (
-                          let provider, model_id, fmt =
-                            Models_catalog.split_name name
-                          in
-                          let hint =
-                            match fmt with
-                            | Models_catalog.Legacy ->
-                                Printf.sprintf
-                                  "\nHint: use %s:%s format instead." provider
-                                  model_id
-                            | _ -> ""
-                          in
-                          match
-                            Model_discovery.validate_cached_model_allowed_opt
-                              (Session.get_db session_manager)
-                              name
-                          with
-                          | Some err -> send_text err
-                          | None -> (
-                              let result =
-                                Config_set.set_json_value
-                                  "agent_defaults.primary_model" (`String name)
+                                  match result with
+                                  | Error e ->
+                                      send_text
+                                        (Printf.sprintf
+                                           "Error writing config: %s" e)
+                                  | Ok () ->
+                                      let reply_text =
+                                        match fmt with
+                                        | Models_catalog.Canonical
+                                        | Models_catalog.Legacy ->
+                                            Printf.sprintf
+                                              "Default model set to: %s \
+                                               (provider: %s)%s\n\
+                                               Applies to new sessions."
+                                              model_id provider hint
+                                        | Models_catalog.Plain ->
+                                            Printf.sprintf
+                                              "Default model set to: %s\n\
+                                               Applies to new sessions."
+                                              name
+                                      in
+                                      send_text reply_text))
+                          | ModelFav name ->
+                              let prefs =
+                                Model_preferences.toggle_favorite name
                               in
-                              match result with
-                              | Error e ->
-                                  send_text
-                                    (Printf.sprintf "Error writing config: %s" e)
-                              | Ok () ->
-                                  let reply_text =
-                                    match fmt with
-                                    | Models_catalog.Canonical
-                                    | Models_catalog.Legacy ->
-                                        Printf.sprintf
-                                          "Default model set to: %s (provider: \
-                                           %s)%s\n\
-                                           Applies to new sessions."
-                                          model_id provider hint
-                                    | Models_catalog.Plain ->
-                                        Printf.sprintf
-                                          "Default model set to: %s\n\
-                                           Applies to new sessions."
-                                          name
-                                  in
-                                  send_text reply_text))
-                      | ModelFav name ->
-                          let prefs = Model_preferences.toggle_favorite name in
-                          let status =
-                            if List.mem name prefs.favorites then "added to"
-                            else "removed from"
-                          in
-                          send_text
-                            (Printf.sprintf "%s %s favorites" name status)
-                      | ModelUnfav name ->
-                          let _ = Model_preferences.remove_favorite name in
-                          send_text
-                            (Printf.sprintf "Removed from favorites: %s" name)
-                      | ModelList (provider, availability) ->
-                          let db_extras =
-                            match Session.get_db session_manager with
-                            | None -> []
-                            | Some db ->
-                                Model_discovery.get_db_only_model_infos ~db
-                                  ~provider_filter:provider ~availability ()
-                          in
-                          let models =
-                            Models_catalog.to_plain_list
-                              ~provider_filter:provider ~availability ~db_extras
-                              ()
-                            |> String.split_on_char '\n'
-                            |> List.filter (fun s -> s <> "")
-                          in
-                          let text =
-                            format_model_list ~connector:Format_adapter.Teams
-                              ~models ~provider
-                          in
-                          send_text text
-                      | ModelUsage ->
-                          let cfg = Session.get_config session_manager in
-                          Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
-                          let results =
-                            Provider_quota.get_all_cached ()
-                            |> List.map (fun (_name, pq) -> pq)
-                          in
-                          let text =
-                            Slash_commands.format_model_usage
-                              ~connector:Format_adapter.Teams ~config:cfg
-                              results
-                          in
-                          send_text text)))
+                              let status =
+                                if List.mem name prefs.favorites then "added to"
+                                else "removed from"
+                              in
+                              send_text
+                                (Printf.sprintf "%s %s favorites" name status)
+                          | ModelUnfav name ->
+                              let _ = Model_preferences.remove_favorite name in
+                              send_text
+                                (Printf.sprintf "Removed from favorites: %s"
+                                   name)
+                          | ModelList (provider, availability) ->
+                              let db_extras =
+                                match Session.get_db session_manager with
+                                | None -> []
+                                | Some db ->
+                                    Model_discovery.get_db_only_model_infos ~db
+                                      ~provider_filter:provider ~availability ()
+                              in
+                              let models =
+                                Models_catalog.to_plain_list
+                                  ~provider_filter:provider ~availability
+                                  ~db_extras ()
+                                |> String.split_on_char '\n'
+                                |> List.filter (fun s -> s <> "")
+                              in
+                              let text =
+                                format_model_list
+                                  ~connector:Format_adapter.Teams ~models
+                                  ~provider
+                              in
+                              send_text text
+                          | ModelUsage ->
+                              let cfg = Session.get_config session_manager in
+                              Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+                              let results =
+                                Provider_quota.get_all_cached ()
+                                |> List.map (fun (_name, pq) -> pq)
+                              in
+                              let text =
+                                Slash_commands.format_model_usage
+                                  ~connector:Format_adapter.Teams ~config:cfg
+                                  results
+                              in
+                              send_text text))))
 
 (* Channel.S start — webhook-only, no polling loop needed *)
 let start ~(config : Runtime_config.t) ~(_session_manager : Session.t) =

@@ -74,6 +74,43 @@ let check_ok_invoke_response ~msg body_str =
     (msg ^ " body is object") true
     (match json |> member "body" with `Assoc [] -> true | _ -> false)
 
+let run_teams_webhook ?send_reply_fn ?send_adaptive_card_fn ?event_limiter
+    ?turn_fn ?(activity_id = "act-webhook") ?(text = "hello") () =
+  let config = test_teams_config () in
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  let body =
+    activity_json ~activity_type:"message" ~text ~activity_id
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
+      ~conversation_id:"conv-1" ~team_id:"team-1" ()
+  in
+  Lwt_main.run
+    (Teams.handle_webhook ~config ~session_manager ?send_reply_fn
+       ?send_adaptive_card_fn ?event_limiter ?turn_fn
+       ~auth_header:(bearer_for_config config) body)
+
+let capture_reply sent ?alert:_ ~config:_ ~service_url:_ ~conversation_id:_
+    ~reply_to_id:_ ~text ?mention:_ () =
+  sent := text :: !sent;
+  Lwt.return "reply-id"
+
+let capture_adaptive_card cards ~config:_ ~service_url:_ ~conversation_id:_
+    ~reply_to_id:_ ~card () =
+  cards := card :: !cards;
+  Lwt.return_unit
+
+let successful_turn count _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
+    ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
+    ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id:_ ?cwd:_
+    ?before_drain:_ () =
+  incr count;
+  Lwt.return "agent ok"
+
+let failing_turn _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
+    ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
+    ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id:_ ?cwd:_
+    ?before_drain:_ () =
+  Lwt.fail_with "boom"
+
 let test_parse_activity_returns_record () =
   let body =
     activity_json ~activity_type:"message" ~text:"hello" ~activity_id:"act-1"
@@ -138,6 +175,115 @@ let test_session_key () =
 let test_session_key_personal () =
   let key = Teams.session_key ~team_id:"personal" ~conversation_id:"conv-abc" in
   Alcotest.(check string) "personal session key" "teams:personal:conv-abc" key
+
+let test_resolve_session_key_uses_room_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"teams-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-bound"
+  in
+  Alcotest.(check string) "bound room key" "teams:conv-bound" key
+
+let test_resolve_session_key_falls_back_to_team_conversation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-free"
+  in
+  Alcotest.(check string) "unbound key" "teams:team-1:conv-free" key
+
+let test_normalize_clawq_slash_known_subcommand () =
+  Alcotest.(check string)
+    "known subcommand" "/status"
+    (Teams.normalize_clawq_slash_text "/clawq status")
+
+let test_normalize_clawq_slash_unknown_subcommand_shows_help () =
+  let normalized = Teams.normalize_clawq_slash_text "/clawq frobnicate" in
+  Alcotest.(check string) "unknown becomes help" "/help" normalized;
+  match Slash_commands.handle normalized with
+  | Slash_commands.Help -> ()
+  | _ -> Alcotest.fail "expected Help"
+
+let test_normalize_clawq_slash_admin_subcommand_still_gated () =
+  let normalized = Teams.normalize_clawq_slash_text "/clawq config show" in
+  Alcotest.(check string) "admin subcommand" "/config show" normalized;
+  match
+    Slash_commands.handle normalized
+    |> Slash_commands.gate_admin ~is_admin:false
+  with
+  | Slash_commands.Reply msg ->
+      Alcotest.(check bool)
+        "requires admin" true
+        (Test_helpers.string_contains msg "requires admin")
+  | _ -> Alcotest.fail "expected admin-required reply"
+
+let test_teams_rate_limit_message_matches_slack_text () =
+  Alcotest.(check string)
+    "rate limit message"
+    "Please slow down, I can only process a limited number of messages per \
+     minute."
+    Teams.incoming_rate_limited_message
+
+let test_teams_rate_limit_enforced_like_slack () =
+  Hashtbl.clear Teams.rate_limit_warnings;
+  let limiter = Rate_limiter.create ~rate_per_minute:1 ~burst_multiplier:1.0 in
+  let sent = ref [] in
+  let turn_count = ref 0 in
+  let send_reply_fn = capture_reply sent in
+  let turn_fn = successful_turn turn_count in
+  run_teams_webhook ~send_reply_fn ~event_limiter:limiter ~turn_fn
+    ~activity_id:"act-rate-1" ~text:"hello" ();
+  run_teams_webhook ~send_reply_fn ~event_limiter:limiter ~turn_fn
+    ~activity_id:"act-rate-2" ~text:"hello again" ();
+  Alcotest.(check int) "only first turn reaches agent" 1 !turn_count;
+  Alcotest.(check bool)
+    "rate-limit warning sent" true
+    (List.exists (fun msg -> msg = Teams.incoming_rate_limited_message) !sent)
+
+let test_teams_menu_card_renders_imback_actions () =
+  let card =
+    Slash_commands_manifest.menu_adaptive_card_json ~is_admin:false ()
+  in
+  let s = Yojson.Safe.to_string card in
+  Alcotest.(check bool)
+    "adaptive card attachment" true
+    (Test_helpers.string_contains s "application/vnd.microsoft.card.adaptive");
+  Alcotest.(check bool)
+    "Teams imBack actions" true
+    (Test_helpers.string_contains s "\"imBack\"")
+
+let test_teams_menu_command_sends_adaptive_card () =
+  let sent = ref [] in
+  let cards = ref [] in
+  run_teams_webhook ~send_reply_fn:(capture_reply sent)
+    ~send_adaptive_card_fn:(capture_adaptive_card cards)
+    ~activity_id:"act-menu" ~text:"/clawq menu" ();
+  Alcotest.(check int) "one adaptive card" 1 (List.length !cards);
+  Alcotest.(check (list string)) "no text reply" [] !sent;
+  let card_text = Yojson.Safe.to_string (List.hd !cards) in
+  Alcotest.(check bool)
+    "Teams card content type" true
+    (Test_helpers.string_contains card_text
+       "application/vnd.microsoft.card.adaptive");
+  Alcotest.(check bool)
+    "Teams card uses imBack" true
+    (Test_helpers.string_contains card_text "\"imBack\"")
+
+let test_teams_agent_error_replies_like_slack () =
+  let sent = ref [] in
+  run_teams_webhook ~send_reply_fn:(capture_reply sent) ~turn_fn:failing_turn
+    ~activity_id:"act-error" ~text:"hello" ();
+  Alcotest.(check bool)
+    "error reply sent" true
+    (List.exists
+       (fun msg ->
+         Test_helpers.string_contains msg
+           "Sorry, an error occurred processing your message: boom")
+       !sent)
 
 let test_strip_at_mentions () =
   let result = Teams.strip_at_mentions "<at>Bot</at> hello world" in
@@ -1220,6 +1366,26 @@ let suite =
       test_parse_activity_missing_from_name;
     Alcotest.test_case "session_key format" `Quick test_session_key;
     Alcotest.test_case "session_key personal" `Quick test_session_key_personal;
+    Alcotest.test_case "resolve_session_key uses room binding" `Quick
+      test_resolve_session_key_uses_room_binding;
+    Alcotest.test_case "resolve_session_key falls back to team conversation"
+      `Quick test_resolve_session_key_falls_back_to_team_conversation;
+    Alcotest.test_case "normalize /clawq known subcommand" `Quick
+      test_normalize_clawq_slash_known_subcommand;
+    Alcotest.test_case "normalize /clawq unknown subcommand" `Quick
+      test_normalize_clawq_slash_unknown_subcommand_shows_help;
+    Alcotest.test_case "normalize /clawq admin subcommand remains gated" `Quick
+      test_normalize_clawq_slash_admin_subcommand_still_gated;
+    Alcotest.test_case "rate limit message matches Slack" `Quick
+      test_teams_rate_limit_message_matches_slack_text;
+    Alcotest.test_case "rate limit enforced like Slack" `Quick
+      test_teams_rate_limit_enforced_like_slack;
+    Alcotest.test_case "menu card renders imBack actions" `Quick
+      test_teams_menu_card_renders_imback_actions;
+    Alcotest.test_case "menu command sends adaptive card" `Quick
+      test_teams_menu_command_sends_adaptive_card;
+    Alcotest.test_case "agent error replies like Slack" `Quick
+      test_teams_agent_error_replies_like_slack;
     Alcotest.test_case "strip_at_mentions" `Quick test_strip_at_mentions;
     Alcotest.test_case "strip_at_mentions multiple" `Quick
       test_strip_at_mentions_multiple;

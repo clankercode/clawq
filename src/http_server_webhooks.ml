@@ -1,7 +1,8 @@
 let handle ~session_manager ~auth_token ?slack_config ?github_config
-    ?github_api_limiter ?slack_event_limiter ?slack_run_update_command
-    ?web_channel ?whatsapp_config ?line_config ?lark_config ?teams_config
-    ?pairing ?runner_tokens ?ask_fn meth path req body =
+    ?github_api_limiter ?slack_event_limiter ?teams_event_limiter
+    ?slack_run_update_command ?web_channel ?whatsapp_config ?line_config
+    ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn meth path req
+    body =
   let open Lwt.Syntax in
   match (meth, path) with
   | `POST, path
@@ -408,7 +409,7 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config
                 Lwt.catch
                   (fun () ->
                     Teams.handle_webhook ~config:tc ~session_manager
-                      ~auth_header body_str)
+                      ?event_limiter:teams_event_limiter ~auth_header body_str)
                   (fun exn ->
                     Logs.err (fun m ->
                         m "Teams webhook handler error: %s"

@@ -334,6 +334,10 @@ let run ~(config : Runtime_config.t) =
     Rate_limiter.create ~rate_per_minute:rl.telegram_per_chat_rpm
       ~burst_multiplier:rl.burst_multiplier
   in
+  let teams_event_limiter =
+    Rate_limiter.create ~rate_per_minute:rl.telegram_per_chat_rpm
+      ~burst_multiplier:rl.burst_multiplier
+  in
   let landlock_enabled = config.security.landlock_enabled in
   if landlock_enabled then begin
     Logs.info (fun m -> m "Landlock sandbox requested, activating...");
@@ -920,7 +924,8 @@ let run ~(config : Runtime_config.t) =
             run_update_command ~mode ~send_progress ())
           ?slack_config:config.channels.slack
           ?github_config:config.channels.github ~github_api_limiter ~ip_limiter
-          ~session_limiter ~slack_event_limiter ?web_channel:web_channel_handler
+          ~session_limiter ~slack_event_limiter ~teams_event_limiter
+          ?web_channel:web_channel_handler
           ~slack_run_update_command:run_update_command
           ?whatsapp_config:config.channels.whatsapp
           ?line_config:config.channels.line
@@ -1599,6 +1604,10 @@ let run ~(config : Runtime_config.t) =
                 in
                 let* () =
                   Rate_limiter.cleanup_expired slack_event_limiter
+                    ~max_idle_seconds:300.0
+                in
+                let* () =
+                  Rate_limiter.cleanup_expired teams_event_limiter
                     ~max_idle_seconds:300.0
                 in
                 let* () =
