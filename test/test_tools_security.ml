@@ -1441,15 +1441,8 @@ let test_register_all_with_db_registers_memory_and_bg_tools () =
       "memory_forget";
       "memory_list";
       "history_search";
-      "background_task_enqueue";
-      "background_task_list";
-      "background_task_wait";
-      "background_task_logs";
-      "background_task_transcript";
-      "background_task_resume";
-      "background_task_send_message";
-      "delegate";
-      "background_task_cancel";
+      "subagent";
+      "subagent_result";
     ];
   let registry2 = Tool_registry.create () in
   Tools_builtin.register_all ~config:cfg ~sandbox registry2;
@@ -1459,7 +1452,7 @@ let test_register_all_with_db_registers_memory_and_bg_tools () =
         (name ^ " absent without db")
         true
         (Tool_registry.find registry2 name = None))
-    [ "memory_store"; "delegate"; "background_task_enqueue"; "history_search" ]
+    [ "memory_store"; "subagent"; "subagent_result"; "history_search" ]
 
 let suite =
   [

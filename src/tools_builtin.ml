@@ -945,6 +945,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
         (Task_tree.tool ~db ~default_repo_path:workspace ());
       Tool_registry.register registry
         (Task_tree.start_agent_tool ~db ~default_repo_path:workspace ());
+      (* B712: bg_task/delegate tools temporarily disabled — replaced by
+         subagent tool
       Tool_registry.register registry
         (Background_task_tools.enqueue_tool_with_notify ~config
            ~notify_cfg:config.notify ~db ());
@@ -960,6 +962,9 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
            ~default_repo_path:workspace ~notify_cfg:config.notify ());
       Tool_registry.register registry (Background_task_tools.cancel_tool ~db);
       Tool_registry.register registry (Background_task_tools.recover_tool ~db);
+      *)
+      Tool_registry.register registry (Subagent_tool.spawn_tool ~db);
+      Tool_registry.register registry (Subagent_tool.result_tool ~db);
       Tool_registry.register registry (Worktree_merge.finalize_tool ~db);
       Tool_registry.register registry
         (Plan_pipeline.start_tool ~db ~default_repo_path:workspace);

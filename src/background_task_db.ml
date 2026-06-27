@@ -255,6 +255,10 @@ let resume_prompt_of_messages messages =
 
 type invocation = Fresh | Resume of string
 
+(* Reactive enqueue signal: daemon waits on this instead of pure sleep *)
+let enqueue_condition = Lwt_condition.create ()
+let signal_enqueue () = Lwt_condition.signal enqueue_condition ()
+
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
     ?session_key ?channel ?channel_id ?parent_task_id ?agent_name
@@ -307,6 +311,7 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             bind_opt 14 follow_up_prompt;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
+                signal_enqueue ();
                 Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
             | rc ->
                 Error
