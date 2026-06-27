@@ -6,6 +6,7 @@ let exec_exn db sql =
         (Printf.sprintf "sqlite exec failed: %s" (Sqlite3.Rc.to_string rc))
 
 let with_db f =
+  Room_budget.clear_all_soft_warn_debounce ();
   let db = Memory.init ~db_path:":memory:" () in
   let profile_id = Memory.insert_room_profile ~db ~name:"budget-profile" in
   f db profile_id
@@ -177,6 +178,152 @@ let test_reservation_fails_when_budget_unavailable () =
                "reported current usage" 95 state.current_usage.total_tokens;
              Lwt.return_unit))
 
+let test_soft_budget_warning_fires_when_threshold_exceeded () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      (* 85/100 tokens = 85% > default 80% threshold *)
+      record_usage ~db ~profile_id ~session_key:"soft" ~prompt_tokens:50
+        ~completion_tokens:35 ~cost_usd:0.40 ~requested_at:"2026-01-01 01:00:00";
+      let result = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      match result with
+      | None -> Alcotest.fail "expected soft budget warning to fire"
+      | Some (state, msg) ->
+          Alcotest.(check bool)
+            "soft limit exceeded" true state.soft_limit_exceeded;
+          Alcotest.(check bool)
+            "hard limit not exceeded" false state.limit_exceeded;
+          Alcotest.(check bool)
+            "message contains budget warning" true
+            (Test_helpers.string_contains msg "budget warning");
+          Alcotest.(check bool)
+            "message contains profile id" true
+            (Test_helpers.string_contains msg (string_of_int profile_id)))
+
+let test_soft_budget_warning_debounce () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_usage ~db ~profile_id ~session_key:"soft" ~prompt_tokens:50
+        ~completion_tokens:35 ~cost_usd:0.40 ~requested_at:"2026-01-01 01:00:00";
+      let first = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "first warning fires" true
+        (match first with Some _ -> true | None -> false);
+      let second = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "second call debounced" true
+        (match second with None -> true | Some _ -> false))
+
+let test_soft_budget_warning_admin_notification_message () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_usage ~db ~profile_id ~session_key:"soft" ~prompt_tokens:50
+        ~completion_tokens:35 ~cost_usd:0.40 ~requested_at:"2026-01-01 01:00:00";
+      match Room_budget.check_soft_budget_warning ~db ~profile_id with
+      | None -> Alcotest.fail "expected warning"
+      | Some (state, msg) ->
+          (* Admin notification message contains threshold info *)
+          Alcotest.(check bool)
+            "msg has threshold pct" true
+            (Test_helpers.string_contains msg "80%");
+          Alcotest.(check bool)
+            "msg has USD amount" true
+            (Test_helpers.string_contains msg "USD");
+          Alcotest.(check bool)
+            "msg has approaching" true
+            (Test_helpers.string_contains msg "approaching");
+          ignore state)
+
+let test_soft_budget_warning_custom_threshold () =
+  with_db (fun db profile_id ->
+      (* Custom threshold 90% *)
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily" ~soft_warn_threshold_pct:0.9
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      (* 85/100 = 85% — below 90% custom threshold, no warning *)
+      record_usage ~db ~profile_id ~session_key:"below" ~prompt_tokens:50
+        ~completion_tokens:35 ~cost_usd:0.40 ~requested_at:"2026-01-01 01:00:00";
+      let result = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "no warning below custom threshold" true
+        (match result with None -> true | Some _ -> false);
+      (* Now cross 90% *)
+      record_usage ~db ~profile_id ~session_key:"above" ~prompt_tokens:10
+        ~completion_tokens:0 ~cost_usd:0.0 ~requested_at:"2026-01-01 02:00:00";
+      let above = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "warning fires above custom threshold" true
+        (match above with Some _ -> true | None -> false))
+
+let test_soft_budget_no_warning_when_below_threshold () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      (* 50/100 = 50% < 80% threshold *)
+      record_usage ~db ~profile_id ~session_key:"low" ~prompt_tokens:30
+        ~completion_tokens:20 ~cost_usd:0.30 ~requested_at:"2026-01-01 01:00:00";
+      let result = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "no warning below threshold" true
+        (match result with None -> true | Some _ -> false))
+
+let test_hard_budget_still_blocks_with_soft_warning () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      (* 110/100 tokens = hard limit exceeded *)
+      record_usage ~db ~profile_id ~session_key:"hard" ~prompt_tokens:70
+        ~completion_tokens:40 ~cost_usd:1.10 ~requested_at:"2026-01-01 01:00:00";
+      (* Soft warning should NOT fire when hard limit is exceeded *)
+      let result = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "no soft warning when hard exceeded" true
+        (match result with None -> true | Some _ -> false);
+      (* Hard reservation still blocks *)
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* reservation =
+           Room_budget.reserve_profile_budget ~db ~profile_id
+             ~estimated_tokens:5 ~estimated_cost_usd:0.0
+         in
+         match reservation with
+         | Ok release ->
+             release ();
+             Alcotest.fail "hard budget should still block"
+         | Error state ->
+             Alcotest.(check bool)
+               "hard limit exceeded" true state.limit_exceeded;
+             Lwt.return_unit))
+
+let test_soft_budget_warning_resets_with_period () =
+  with_db (fun db profile_id ->
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:1.00 ~reset_period:"daily"
+        ~period_started_at:"2026-01-01 00:00:00" ();
+      record_usage ~db ~profile_id ~session_key:"old" ~prompt_tokens:50
+        ~completion_tokens:35 ~cost_usd:0.40 ~requested_at:"2026-01-01 01:00:00";
+      let first = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "first warning fires" true
+        (match first with Some _ -> true | None -> false);
+      (* Reset budget period — warning should be deliverable again *)
+      ignore
+        (Room_budget.reset_profile_budget ~db ~profile_id
+           ~period_started_at:"2026-01-02 00:00:00" ());
+      record_usage ~db ~profile_id ~session_key:"new" ~prompt_tokens:50
+        ~completion_tokens:35 ~cost_usd:0.40 ~requested_at:"2026-01-02 01:00:00";
+      let second = Room_budget.check_soft_budget_warning ~db ~profile_id in
+      Alcotest.(check bool)
+        "warning fires in new period" true
+        (match second with Some _ -> true | None -> false))
+
 let suite =
   [
     Alcotest.test_case "budget creation and idempotent query" `Quick
@@ -191,4 +338,18 @@ let suite =
       test_reservation_released_on_failure;
     Alcotest.test_case "reservation fails when budget unavailable" `Quick
       test_reservation_fails_when_budget_unavailable;
+    Alcotest.test_case "soft budget warning fires when threshold exceeded"
+      `Quick test_soft_budget_warning_fires_when_threshold_exceeded;
+    Alcotest.test_case "soft budget warning is debounced" `Quick
+      test_soft_budget_warning_debounce;
+    Alcotest.test_case "soft budget warning admin notification message" `Quick
+      test_soft_budget_warning_admin_notification_message;
+    Alcotest.test_case "soft budget warning custom threshold" `Quick
+      test_soft_budget_warning_custom_threshold;
+    Alcotest.test_case "no soft budget warning when below threshold" `Quick
+      test_soft_budget_no_warning_when_below_threshold;
+    Alcotest.test_case "hard budget still blocks with soft warning" `Quick
+      test_hard_budget_still_blocks_with_soft_warning;
+    Alcotest.test_case "soft budget warning resets with period" `Quick
+      test_soft_budget_warning_resets_with_period;
   ]

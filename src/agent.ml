@@ -227,7 +227,11 @@ let reserve_room_budget_before_provider_call ?db ?session_key ~messages () =
               ~estimated_cost_usd:0.0
           in
           match reservation with
-          | Ok release -> Lwt.return release
+          | Ok release ->
+              (match Room_budget.check_soft_budget_warning ~db ~profile_id with
+              | Some (_state, msg) -> Logs.warn (fun m -> m "%s" msg)
+              | None -> ());
+              Lwt.return release
           | Error state ->
               Lwt.fail (Budget_exceeded (format_room_budget_exceeded state))))
 

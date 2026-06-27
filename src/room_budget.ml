@@ -16,6 +16,8 @@ type state = {
   token_limit_exceeded : bool;
   cost_limit_exceeded : bool;
   limit_exceeded : bool;
+  soft_warn_threshold_pct : float;
+  soft_limit_exceeded : bool;
   created_at : string;
   updated_at : string;
 }
@@ -28,28 +30,45 @@ let exec_exn db sql =
         (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
            sql)
 
+let default_soft_warn_threshold_pct = 0.8
+
 let init_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS room_budgets (\n\
     \     profile_id INTEGER PRIMARY KEY,\n\
     \     token_limit INTEGER NOT NULL CHECK(token_limit >= 0),\n\
     \     cost_limit_usd REAL NOT NULL CHECK(cost_limit_usd >= 0.0),\n\
+    \     soft_warn_threshold_pct REAL NOT NULL DEFAULT 0.8,\n\
     \     reset_period TEXT NOT NULL,\n\
     \     period_started_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     FOREIGN KEY (profile_id) REFERENCES room_profiles(id) ON DELETE \
      CASCADE\n\
-    \   )"
+    \   )";
+  (* Migration: add soft_warn_threshold_pct if missing (existing databases) *)
+  match
+    Sqlite3.exec db
+      "ALTER TABLE room_budgets ADD COLUMN soft_warn_threshold_pct REAL NOT \
+       NULL DEFAULT 0.8"
+  with
+  | Sqlite3.Rc.OK | Sqlite3.Rc.ERROR -> ()
+  | _ -> ()
 
 let init_profile_budget ~db ~profile_id ~token_limit ~cost_limit_usd
-    ~reset_period ?period_started_at () =
+    ~reset_period ?soft_warn_threshold_pct ?period_started_at () =
+  let pct =
+    Option.value soft_warn_threshold_pct
+      ~default:default_soft_warn_threshold_pct
+  in
   let sql =
     "INSERT INTO room_budgets (profile_id, token_limit, cost_limit_usd, \
-     reset_period, period_started_at) VALUES (?, ?, ?, ?, COALESCE(?, \
-     datetime('now'))) ON CONFLICT(profile_id) DO UPDATE SET token_limit = \
-     excluded.token_limit, cost_limit_usd = excluded.cost_limit_usd, \
-     reset_period = excluded.reset_period, updated_at = datetime('now')"
+     soft_warn_threshold_pct, reset_period, period_started_at) VALUES (?, ?, \
+     ?, ?, ?, COALESCE(?, datetime('now'))) ON CONFLICT(profile_id) DO UPDATE \
+     SET token_limit = excluded.token_limit, cost_limit_usd = \
+     excluded.cost_limit_usd, soft_warn_threshold_pct = \
+     excluded.soft_warn_threshold_pct, reset_period = excluded.reset_period, \
+     updated_at = datetime('now')"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -58,9 +77,10 @@ let init_profile_budget ~db ~profile_id ~token_limit ~cost_limit_usd
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int profile_id)));
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int token_limit)));
       ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.FLOAT cost_limit_usd));
-      ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT reset_period));
+      ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.FLOAT pct));
+      ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT reset_period));
       ignore
-        (Sqlite3.bind stmt 5
+        (Sqlite3.bind stmt 6
            (match period_started_at with
            | Some ts -> Sqlite3.Data.TEXT ts
            | None -> Sqlite3.Data.NULL));
@@ -117,9 +137,9 @@ let current_usage ~db ~profile_id ~period_started_at =
 
 let get_profile_budget ~db ~profile_id =
   let sql =
-    "SELECT profile_id, token_limit, cost_limit_usd, reset_period, \
-     period_started_at, created_at, updated_at FROM room_budgets WHERE \
-     profile_id = ?"
+    "SELECT profile_id, token_limit, cost_limit_usd, soft_warn_threshold_pct, \
+     reset_period, period_started_at, created_at, updated_at FROM room_budgets \
+     WHERE profile_id = ?"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -131,13 +151,27 @@ let get_profile_budget ~db ~profile_id =
           let profile_id = int_col stmt 0 in
           let token_limit = int_col stmt 1 in
           let cost_limit_usd = float_col stmt 2 in
-          let reset_period = text_col stmt 3 in
-          let period_started_at = text_col stmt 4 in
+          let soft_warn_threshold_pct =
+            match Sqlite3.column stmt 3 with
+            | Sqlite3.Data.FLOAT f -> f
+            | Sqlite3.Data.INT n -> Int64.to_float n
+            | _ -> default_soft_warn_threshold_pct
+          in
+          let reset_period = text_col stmt 4 in
+          let period_started_at = text_col stmt 5 in
           let current_usage =
             current_usage ~db ~profile_id ~period_started_at
           in
           let token_limit_exceeded = current_usage.total_tokens > token_limit in
           let cost_limit_exceeded = current_usage.cost_usd > cost_limit_usd in
+          let token_soft_limit =
+            Float.of_int token_limit *. soft_warn_threshold_pct
+          in
+          let cost_soft_limit = cost_limit_usd *. soft_warn_threshold_pct in
+          let soft_limit_exceeded =
+            Float.of_int current_usage.total_tokens > token_soft_limit
+            || current_usage.cost_usd > cost_soft_limit
+          in
           Some
             {
               profile_id;
@@ -149,8 +183,10 @@ let get_profile_budget ~db ~profile_id =
               token_limit_exceeded;
               cost_limit_exceeded;
               limit_exceeded = token_limit_exceeded || cost_limit_exceeded;
-              created_at = text_col stmt 5;
-              updated_at = text_col stmt 6;
+              soft_warn_threshold_pct;
+              soft_limit_exceeded;
+              created_at = text_col stmt 6;
+              updated_at = text_col stmt 7;
             }
       | _ -> None)
 
@@ -283,3 +319,54 @@ let with_profile_budget_reservation ~db ~profile_id ~estimated_tokens
       Lwt.finalize f (fun () ->
           release ();
           Lwt.return_unit)
+
+(* --- Soft budget warning (debounced, per period) --- *)
+
+(** In-memory debounce state: tracks (profile_id, period_started_at) pairs that
+    have already received a soft budget warning. Prevents repeated warnings
+    within the same budget period. *)
+let soft_warned : (int * string, unit) Hashtbl.t = Hashtbl.create 16
+
+let soft_budget_warning_message (state : state) =
+  Printf.sprintf
+    "[budget warning] room profile %d usage at %d tokens (%.2f%% of %d limit), \
+     %.6f USD (%.2f%% of %.6f limit) — approaching budget (threshold: %.0f%%)"
+    state.profile_id state.current_usage.total_tokens
+    (if state.token_limit > 0 then
+       Float.of_int state.current_usage.total_tokens
+       /. Float.of_int state.token_limit
+       *. 100.0
+     else 0.0)
+    state.token_limit state.current_usage.cost_usd
+    (if state.cost_limit_usd > 0.0 then
+       state.current_usage.cost_usd /. state.cost_limit_usd *. 100.0
+     else 0.0)
+    state.cost_limit_usd
+    (state.soft_warn_threshold_pct *. 100.0)
+
+(** Check if a soft budget warning should fire. Returns [Some (state, message)]
+    when the soft threshold is exceeded AND no warning has been sent yet for the
+    current budget period (debounce). Returns [None] otherwise. Hard-limit
+    exceeded ([limit_exceeded = true]) still blocks via the existing reservation
+    mechanism — this only adds an early warning. *)
+let check_soft_budget_warning ~db ~profile_id =
+  match get_profile_budget ~db ~profile_id with
+  | None -> None
+  | Some state ->
+      if state.limit_exceeded || not state.soft_limit_exceeded then None
+      else
+        let key = (profile_id, state.period_started_at) in
+        if Hashtbl.mem soft_warned key then None
+        else begin
+          Hashtbl.replace soft_warned key ();
+          Some (state, soft_budget_warning_message state)
+        end
+
+(** Reset debounce state for a profile (e.g. after budget period reset). Useful
+    for testing. *)
+let reset_soft_warn_debounce ~profile_id ~period_started_at =
+  Hashtbl.remove soft_warned (profile_id, period_started_at)
+
+(** Clear all soft warn debounce state. Use between tests to avoid cross-test
+    interference from the in-memory table. *)
+let clear_all_soft_warn_debounce () = Hashtbl.clear soft_warned
