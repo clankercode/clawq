@@ -513,54 +513,31 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         in
         let user_group = if is_admin then "admin" else "guest" in
         let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
+        let env : Connector_dispatch.dispatch_env =
+          {
+            connector = Format_adapter.Telegram_html;
+            connector_name = "telegram";
+            log_name = "Telegram";
+            thinking_channel_field = "chat_id";
+            thinking_user_field = "user_id";
+            show_thinking_channel_field = "chat_id";
+            show_thinking_user_field = "user_id";
+            session_mgr;
+            key;
+            channel_id = update.chat_id;
+            user_id = update.user_id;
+            is_admin;
+            send_plain =
+              (fun text ->
+                send_message ~bot_token ~chat_id:update.chat_id ~text ());
+            send_formatted =
+              (fun text ->
+                send_chunked_html_with_fallback ~bot_token
+                  ~chat_id:update.chat_id ~text ());
+          }
+        in
         match cmd_result with
-        | RegisterAsAdminOtc None ->
-            let _code =
-              Admin.generate_otc ~channel:"telegram" ~sender_id:update.user_id
-            in
-            send_message ~bot_token ~chat_id:update.chat_id
-              ~text:
-                "Admin registration initiated. Check the daemon console/logs \
-                 for your one-time code, then run: /register_as_admin_otc CODE"
-              ()
-        | RegisterAsAdminOtc (Some code) -> (
-            match Session.get_db session_mgr with
-            | Some db -> (
-                match
-                  Admin.verify_otc ~db ~channel:"telegram"
-                    ~sender_id:update.user_id ~code
-                with
-                | Ok () ->
-                    send_message ~bot_token ~chat_id:update.chat_id
-                      ~text:"Successfully registered as admin." ()
-                | Error msg ->
-                    send_message ~bot_token ~chat_id:update.chat_id ~text:msg ()
-                )
-            | None ->
-                send_message ~bot_token ~chat_id:update.chat_id
-                  ~text:"Database not available." ())
         | AdminRequired _ -> assert false
-        | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()
-        | FormattedReply fn ->
-            let text = fn Format_adapter.Telegram_html in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Help | Menu _ ->
-            let show_test = is_admin in
-            let text =
-              Slash_commands.format_help ~connector:Format_adapter.Telegram_html
-                ~show_test ~is_admin ()
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Reset ->
-            let* active_bg_tasks = Session.reset session_mgr ~key in
-            let text =
-              Slash_commands_fmt.format_reset
-                ~connector:Format_adapter.Telegram_html ~active_bg_tasks
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
         | Compact -> (
             let notifier =
               make_status_notifier ~bot_token ~chat_id:update.chat_id
@@ -576,110 +553,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 send_message ~bot_token ~chat_id:update.chat_id
                   ~text:(Printf.sprintf "Compaction failed: %s" err)
                   ())
-        | RuntimeCtx ->
-            let* text = Session.runtime_context_block session_mgr ~key in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
-        | Uptime ->
-            let raw =
-              Daemon_status.daemon_uptime_reply
-                ~pid:(Daemon_status.read_current_daemon_pid ())
-            in
-            let text =
-              Slash_commands_fmt.format_uptime
-                ~connector:Format_adapter.Telegram_html raw
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Status ->
-            let text =
-              Slash_commands.format_status
-                ~connector:Format_adapter.Telegram_html
-                ~db:(Session.get_db session_mgr)
-                ~session_count:(Session.session_count session_mgr)
-                ~active_count:(Session.active_session_count session_mgr)
-                ()
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Thinking Slash_commands.ShowThinking ->
-            let current =
-              (Session.get_config session_mgr).agent_defaults.reasoning_effort
-            in
-            let text =
-              Slash_commands_fmt.format_thinking_status
-                ~connector:Format_adapter.Telegram_html current
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Thinking (Slash_commands.SetThinking level) ->
-            let text =
-              set_thinking_level ~session_mgr ~chat_id:update.chat_id
-                ~user_id:update.user_id level
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | ShowThinking action ->
-            let connector = Format_adapter.Telegram_html in
-            let cfg = Session.get_config session_mgr in
-            let current = cfg.agent_defaults.show_thinking in
-            let text =
-              match action with
-              | Slash_commands.ShowThinkingStatus ->
-                  Slash_commands_fmt.format_show_thinking_status ~connector
-                    current
-              | Slash_commands.ToggleShowThinking -> (
-                  let new_val = not current in
-                  match Config_set.set_show_thinking new_val with
-                  | Ok () ->
-                      let agent_defaults =
-                        { cfg.agent_defaults with show_thinking = new_val }
-                      in
-                      Session.update_config ~source:"telegram" session_mgr
-                        { cfg with agent_defaults };
-                      Logs.info (fun m ->
-                          m
-                            "Telegram show_thinking toggled chat_id=%s \
-                             user_id=%s from=%b to=%b"
-                            update.chat_id update.user_id current new_val);
-                      Slash_commands_fmt.format_show_thinking_toggle ~connector
-                        new_val
-                  | Error err -> "Failed to update show_thinking: " ^ err)
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Heartbeat action ->
-            let connector = Format_adapter.Telegram_html in
-            let text =
-              match action with
-              | Slash_commands.HeartbeatStatus ->
-                  Slash_commands_fmt.format_heartbeat_status ~connector
-                    (Session.session_heartbeat_status_text session_mgr ~key)
-              | Slash_commands.SetHeartbeat enabled -> (
-                  match
-                    Session.set_session_heartbeat session_mgr ~key ~enabled
-                  with
-                  | Ok () ->
-                      Slash_commands_fmt.format_heartbeat_set ~connector enabled
-                        key
-                  | Error err -> err)
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Debug action ->
-            let connector = Format_adapter.Telegram_html in
-            let text =
-              match action with
-              | Slash_commands.DebugStatus ->
-                  Slash_commands_fmt.format_debug_status ~connector
-                    (Session.session_debug_status_text session_mgr ~key)
-              | Slash_commands.SetDebug enabled -> (
-                  match Session.set_session_debug session_mgr ~key ~enabled with
-                  | Ok () ->
-                      Slash_commands_fmt.format_debug_set ~connector enabled key
-                  | Error err -> err)
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
         | Delegate (agent_name, prompt) ->
             let* () =
               send_message ~bot_token ~chat_id:update.chat_id
@@ -708,192 +581,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               ~parent_key:key ~debug_notify:send_agent_reply
               ~send_reply:send_agent_reply ();
             Lwt.return_unit
-        | AgentMenu page ->
-            let text =
-              Slash_commands_fmt.format_agent_menu
-                ~connector:Format_adapter.Telegram_html ~page
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | ModelMenu page ->
-            let text =
-              Slash_commands_fmt.format_model_menu
-                ~connector:Format_adapter.Telegram_html ~page
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | ThinkingMenu ->
-            let text =
-              Slash_commands_fmt.format_thinking_menu
-                ~connector:Format_adapter.Telegram_html
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | ConfigMenu page ->
-            let text =
-              Slash_commands_fmt.format_config_menu
-                ~connector:Format_adapter.Telegram_html ~page
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | SkillsMenu page ->
-            let show_test = is_admin in
-            let text =
-              Slash_commands_fmt.format_skills_menu
-                ~connector:Format_adapter.Telegram_html ~page ~show_test ()
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | CostsMenu ->
-            let text =
-              Slash_commands_fmt.format_costs_menu
-                ~connector:Format_adapter.Telegram_html
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | BgMenu ->
-            let text =
-              Slash_commands_fmt.format_bg_menu
-                ~connector:Format_adapter.Telegram_html
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Tools ->
-            let show_test = is_admin in
-            let text =
-              match Session.get_tool_registry session_mgr with
-              | Some reg ->
-                  let tools, _ = Tool_registry.partition_skills reg in
-                  let tools = Skills.filter_visible_tools ~show_test tools in
-                  let skills =
-                    Skills.filter_visible_tools ~show_test
-                      (Skills.available_skills_as_tools ())
-                  in
-                  Slash_commands.format_tools
-                    ~connector:Format_adapter.Telegram_html tools skills
-                    (Agent_template.available_templates ())
-              | None -> "Tools are not enabled."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Tasks ->
-            let raw =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Task_tree.init_schema db;
-                  Task_tree.render_emoji_tree ~db ~session_key:key ()
-              | None -> "Tasks are not available (no database)."
-            in
-            let text =
-              Slash_commands_fmt.format_tasks
-                ~connector:Format_adapter.Telegram_html raw
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | TasksFull ->
-            let raw =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Task_tree.init_schema db;
-                  Task_tree.render_tree_with_legend ~db ~session_key:key
-              | None -> "Tasks are not available (no database)."
-            in
-            let text =
-              Slash_commands_fmt.format_tasks
-                ~connector:Format_adapter.Telegram_html raw
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Costs action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_costs
-                    ~connector:Format_adapter.Telegram_html ~db action
-              | None -> "Costs are not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Session action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands_sessions.format_session
-                    ~connector:Format_adapter.Telegram_html ~db action
-              | None -> "Sessions not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Usage action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_usage
-                    ~connector:Format_adapter.Telegram_html ~db action
-              | None -> "Usage is not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Active ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  let config = Session.get_config session_mgr in
-                  Slash_commands.format_active
-                    ~connector:Format_adapter.Telegram_html ~db ~config ()
-              | None -> "Active usage is not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Bg action ->
-            let* text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_bg
-                    ~connector:Format_adapter.Telegram_html ~db action
-              | None ->
-                  Lwt.return "Background tasks are not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Cron action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_cron
-                    ~connector:Format_adapter.Telegram_html ~db ~session_key:key
-                    action
-              | None -> "Cron is not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Bl action ->
-            let text =
-              Slash_commands.format_bl ~connector:Format_adapter.Telegram_html
-                action
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | HeldItems action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_held_items
-                    ~connector:Format_adapter.Telegram_html ~db action
-              | None -> "Held items are not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
-        | Memories action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_memories
-                    ~connector:Format_adapter.Telegram_html ~db action
-              | None -> "Memories are not available (no database)."
-            in
-            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
-              ~text ()
         | Rig action -> (
             match action with
             | RigList ->
@@ -941,21 +628,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     | `Remove -> Rig.mark_removed ~name
                     | `Adjust -> ());
                     Lwt.return_unit))
-        | Repo action -> (
-            match Session.get_db session_mgr with
-            | Some db ->
-                Slash_commands_repo.handle_repo_action ~db ~session_key:key
-                  ~connector:Format_adapter.Telegram_html
-                  ~send_reply:(fun text ->
-                    send_chunked_html_with_fallback ~bot_token
-                      ~chat_id:update.chat_id ~text ())
-                  ~set_cwd:(fun cwd ->
-                    Session.set_effective_cwd session_mgr ~key ~cwd)
-                  action
-            | None ->
-                send_message ~bot_token ~chat_id:update.chat_id
-                  ~text:"Repository management is not available (no database)."
-                  ())
         | Model action -> (
             let open Slash_commands in
             match action with
@@ -1816,5 +1488,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
                   Lwt.return_unit)
+        | ( RegisterAsAdminOtc _ | Reply _ | FormattedReply _ | Help | Menu _
+          | Reset | RuntimeCtx | Uptime | Status | Thinking _ | ShowThinking _
+          | Heartbeat _ | Debug _ | AgentMenu _ | ModelMenu _ | ThinkingMenu
+          | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu | Tools | Tasks
+          | TasksFull | Costs _ | Session _ | Usage _ | Active | Bg _ | Cron _
+          | Bl _ | HeldItems _ | Memories _ | Repo _ ) as r ->
+            Connector_dispatch.dispatch env r
 
 (* Poll loop, dispatch, and start_polling are in Telegram_poll *)

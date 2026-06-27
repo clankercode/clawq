@@ -144,6 +144,7 @@ let () =
        ("benchmark", Test_benchmark.suite);
        ("models_catalog", Test_models_catalog.suite);
        ("xiaomi", Test_xiaomi.suite);
+       ("provider_xiaomi", Test_provider_xiaomi.suite);
        ("native_subagents_e2e", Test_native_subagents_e2e.suite);
        ("model_discovery", Test_model_discovery.suite);
        ("model_preferences", Test_model_preferences.suite);

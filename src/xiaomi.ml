@@ -1,8 +1,11 @@
 (* Xiaomi MiMo provider data — single source of truth. See xiaomi.mli.
-   Mirrors the pi AI SDK (packages/ai/src/models.generated.ts): every model is
-   reasoning=true, supports tools, api=openai-completions, thinkingFormat=
-   deepseek (handled clawq-side by oai_thinking_style="reasoning_content" and
-   model_requires_reasoning_content "mimo-"). *)
+
+   B713: All providers use the Anthropic-compatible endpoint
+   (https://*.xiaomimimo.com/anthropic). The OpenAI-compat endpoint has broken
+   multi-turn tool calling (xiaomi/MiMo#44 — 400 Param Incorrect on subsequent
+   tool round-trips). The Anthropic endpoint handles tool_use/tool_result blocks
+   natively and supports extended thinking via standard Anthropic thinking
+   content blocks (no DeepSeek-style reasoning_content needed). *)
 
 type model_spec = {
   id : string;
@@ -101,22 +104,22 @@ let providers =
   [
     {
       name = public_provider;
-      base_url = "https://api.xiaomimimo.com/v1";
+      base_url = "https://api.xiaomimimo.com/anthropic";
       env_vars = [ "XIAOMI_API_KEY" ];
     };
     {
       name = "xiaomi-token-plan-cn";
-      base_url = "https://token-plan-cn.xiaomimimo.com/v1";
+      base_url = "https://token-plan-cn.xiaomimimo.com/anthropic";
       env_vars = [ "XIAOMI_TOKEN_PLAN_CN_API_KEY" ];
     };
     {
       name = "xiaomi-token-plan-ams";
-      base_url = "https://token-plan-ams.xiaomimimo.com/v1";
+      base_url = "https://token-plan-ams.xiaomimimo.com/anthropic";
       env_vars = [ "XIAOMI_TOKEN_PLAN_AMS_API_KEY" ];
     };
     {
       name = sgp_provider;
-      base_url = "https://token-plan-sgp.xiaomimimo.com/v1";
+      base_url = "https://token-plan-sgp.xiaomimimo.com/anthropic";
       env_vars = [ "XIAOMI_TOKEN_PLAN_SGP_API_KEY" ];
     };
   ]
@@ -188,8 +191,8 @@ let resolve_api_key name =
       | Some _ as r -> r
       | None -> if name = sgp_provider then read_mimo_key () else None)
 
-(* Backfill a declared xiaomi provider: only fill what's missing, and force
-   reasoning thinking style when it's still the inert default. *)
+(* Backfill a declared xiaomi provider: only fill what's missing.
+   B713: force-migrate base_url from old /v1 (OpenAI-compat) to /anthropic. *)
 let backfill name (pc : Runtime_config.provider_config) :
     Runtime_config.provider_config =
   let api_key =
@@ -197,15 +200,16 @@ let backfill name (pc : Runtime_config.provider_config) :
     else match resolve_api_key name with Some k -> k | None -> pc.api_key
   in
   let base_url =
-    match pc.base_url with Some _ -> pc.base_url | None -> base_url_for name
+    match pc.base_url with
+    | Some url ->
+        (* B713: migrate legacy OpenAI-compat URLs to Anthropic-compat. *)
+        if String.ends_with ~suffix:"/v1" url then
+          Some (String.sub url 0 (String.length url - 3) ^ "/anthropic")
+        else Some url
+    | None -> base_url_for name
   in
   let kind = match pc.kind with Some _ -> pc.kind | None -> Some "xiaomi" in
-  let oai_thinking_style =
-    match pc.oai_thinking_style with
-    | "" | "none" -> "reasoning_content"
-    | s -> s
-  in
-  { pc with api_key; base_url; kind; oai_thinking_style }
+  { pc with api_key; base_url; kind }
 
 let synthesize (p : provider_def) key : Runtime_config.provider_config =
   {
@@ -213,7 +217,6 @@ let synthesize (p : provider_def) key : Runtime_config.provider_config =
     api_key = key;
     kind = Some "xiaomi";
     base_url = Some p.base_url;
-    oai_thinking_style = "reasoning_content";
   }
 
 let augment_providers ~resolve_secrets existing =

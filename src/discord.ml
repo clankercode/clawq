@@ -14,30 +14,6 @@ let is_allowed_allowlist ~kind ~id allowlist =
           coq_allowed ocaml_allowed);
   coq_allowed
 
-let set_thinking_level ~(session_mgr : Session.t) ~channel_id ~author_id level =
-  let cfg = Session.get_config session_mgr in
-  let previous = cfg.agent_defaults.reasoning_effort in
-  match Config_set.set_reasoning_effort level with
-  | Ok () ->
-      let agent_defaults =
-        { cfg.agent_defaults with reasoning_effort = level }
-      in
-      Session.update_config ~source:"discord" session_mgr
-        { cfg with agent_defaults };
-      Logs.info (fun m ->
-          m "Discord thinking level updated channel=%s user=%s from=%s to=%s"
-            channel_id author_id
-            (Slash_commands.thinking_level_to_string previous)
-            (Slash_commands.thinking_level_to_string level));
-      Printf.sprintf "Thinking level changed from %s to %s."
-        (Slash_commands.thinking_level_to_string previous)
-        (Slash_commands.thinking_level_to_string level)
-  | Error err ->
-      Logs.err (fun m ->
-          m "Discord thinking level update failed channel=%s user=%s: %s"
-            channel_id author_id err);
-      "Failed to update thinking level: " ^ err
-
 type discord_attachment = {
   att_id : string;
   att_filename : string;
@@ -670,59 +646,32 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
         in
         let user_group = if is_admin then "admin" else "guest" in
         let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
+        let send_reply text =
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
+        in
+        let env : Connector_dispatch.dispatch_env =
+          {
+            connector = Format_adapter.Discord;
+            connector_name = "discord";
+            log_name = "Discord";
+            thinking_channel_field = "channel";
+            thinking_user_field = "user";
+            show_thinking_channel_field = "channel_id";
+            show_thinking_user_field = "author_id";
+            session_mgr;
+            key;
+            channel_id = msg.channel_id;
+            user_id = msg.author_id;
+            is_admin;
+            send_plain = send_reply;
+            send_formatted = send_reply;
+          }
+        in
         match cmd_result with
-        | RegisterAsAdminOtc None ->
-            let _code =
-              Admin.generate_otc ~channel:"discord" ~sender_id:msg.author_id
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id
-              ~text:
-                "Admin registration initiated. Check the daemon console/logs \
-                 for your one-time code, then run: /register_as_admin_otc CODE"
-        | RegisterAsAdminOtc (Some code) -> (
-            match Session.get_db session_mgr with
-            | Some db -> (
-                match
-                  Admin.verify_otc ~db ~channel:"discord"
-                    ~sender_id:msg.author_id ~code
-                with
-                | Ok () ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id
-                      ~text:"Successfully registered as admin."
-                | Error err_msg ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text:err_msg)
-            | None ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text:"Database not available.")
         | AdminRequired _ -> assert false
         | InjectConnectorHistory _ ->
             Lwt.return_unit (* unreachable: preprocessed above *)
-        | Reply text ->
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | FormattedReply fn ->
-            let text = fn Format_adapter.Discord in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Help | Menu _ ->
-            let show_test = is_admin in
-            let text =
-              Slash_commands.format_help ~connector:Format_adapter.Discord
-                ~show_test ~is_admin ()
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Reset ->
-            let* active_bg_tasks = Session.reset session_mgr ~key in
-            let text =
-              Slash_commands_fmt.format_reset ~connector:Format_adapter.Discord
-                ~active_bg_tasks
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
         | Compact -> (
             let notifier =
               make_status_notifier ~bot_token:discord_config.bot_token
@@ -739,110 +688,6 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 send_message ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id
                   ~text:(Printf.sprintf "Compaction failed: %s" err))
-        | RuntimeCtx ->
-            let* text = Session.runtime_context_block session_mgr ~key in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Uptime ->
-            let raw =
-              Daemon_status.daemon_uptime_reply
-                ~pid:(Daemon_status.read_current_daemon_pid ())
-            in
-            let text =
-              Slash_commands_fmt.format_uptime ~connector:Format_adapter.Discord
-                raw
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Status ->
-            let text =
-              Slash_commands.format_status ~connector:Format_adapter.Discord
-                ~db:(Session.get_db session_mgr)
-                ~session_count:(Session.session_count session_mgr)
-                ~active_count:(Session.active_session_count session_mgr)
-                ()
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Thinking Slash_commands.ShowThinking ->
-            let current =
-              (Session.get_config session_mgr).agent_defaults.reasoning_effort
-            in
-            let text =
-              Slash_commands_fmt.format_thinking_status
-                ~connector:Format_adapter.Discord current
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Thinking (Slash_commands.SetThinking level) ->
-            let text =
-              set_thinking_level ~session_mgr ~channel_id:msg.channel_id
-                ~author_id:msg.author_id level
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | ShowThinking action ->
-            let connector = Format_adapter.Discord in
-            let cfg = Session.get_config session_mgr in
-            let current = cfg.agent_defaults.show_thinking in
-            let text =
-              match action with
-              | Slash_commands.ShowThinkingStatus ->
-                  Slash_commands_fmt.format_show_thinking_status ~connector
-                    current
-              | Slash_commands.ToggleShowThinking -> (
-                  let new_val = not current in
-                  match Config_set.set_show_thinking new_val with
-                  | Ok () ->
-                      let agent_defaults =
-                        { cfg.agent_defaults with show_thinking = new_val }
-                      in
-                      Session.update_config ~source:"discord" session_mgr
-                        { cfg with agent_defaults };
-                      Logs.info (fun m ->
-                          m
-                            "Discord show_thinking toggled channel_id=%s \
-                             author_id=%s from=%b to=%b"
-                            msg.channel_id msg.author_id current new_val);
-                      Slash_commands_fmt.format_show_thinking_toggle ~connector
-                        new_val
-                  | Error err -> "Failed to update show_thinking: " ^ err)
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Heartbeat action ->
-            let connector = Format_adapter.Discord in
-            let text =
-              match action with
-              | Slash_commands.HeartbeatStatus ->
-                  Slash_commands_fmt.format_heartbeat_status ~connector
-                    (Session.session_heartbeat_status_text session_mgr ~key)
-              | Slash_commands.SetHeartbeat enabled -> (
-                  match
-                    Session.set_session_heartbeat session_mgr ~key ~enabled
-                  with
-                  | Ok () ->
-                      Slash_commands_fmt.format_heartbeat_set ~connector enabled
-                        key
-                  | Error err -> err)
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Debug action ->
-            let connector = Format_adapter.Discord in
-            let text =
-              match action with
-              | Slash_commands.DebugStatus ->
-                  Slash_commands_fmt.format_debug_status ~connector
-                    (Session.session_debug_status_text session_mgr ~key)
-              | Slash_commands.SetDebug enabled -> (
-                  match Session.set_session_debug session_mgr ~key ~enabled with
-                  | Ok () ->
-                      Slash_commands_fmt.format_debug_set ~connector enabled key
-                  | Error err -> err)
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
         | Delegate (agent_name, prompt) ->
             let* () =
               send_message_fn ~bot_token:discord_config.bot_token
@@ -871,193 +716,6 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               ~parent_key:key ~debug_notify:send_agent_reply
               ~send_reply:send_agent_reply ();
             Lwt.return_unit
-        | AgentMenu page ->
-            let text =
-              Slash_commands_fmt.format_agent_menu
-                ~connector:Format_adapter.Discord ~page
-            in
-            let* () =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text
-            in
-            Lwt.return_unit
-        | ModelMenu page ->
-            let text =
-              Slash_commands_fmt.format_model_menu
-                ~connector:Format_adapter.Discord ~page
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | ThinkingMenu ->
-            let text =
-              Slash_commands_fmt.format_thinking_menu
-                ~connector:Format_adapter.Discord
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | ConfigMenu page ->
-            let text =
-              Slash_commands_fmt.format_config_menu
-                ~connector:Format_adapter.Discord ~page
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | SkillsMenu page ->
-            let show_test = is_admin in
-            let text =
-              Slash_commands_fmt.format_skills_menu
-                ~connector:Format_adapter.Discord ~page ~show_test ()
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | CostsMenu ->
-            let text =
-              Slash_commands_fmt.format_costs_menu
-                ~connector:Format_adapter.Discord
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | BgMenu ->
-            let text =
-              Slash_commands_fmt.format_bg_menu
-                ~connector:Format_adapter.Discord
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Tools ->
-            let show_test = is_admin in
-            let text =
-              match Session.get_tool_registry session_mgr with
-              | Some reg ->
-                  let tools, _ = Tool_registry.partition_skills reg in
-                  let tools = Skills.filter_visible_tools ~show_test tools in
-                  let skills =
-                    Skills.filter_visible_tools ~show_test
-                      (Skills.available_skills_as_tools ())
-                  in
-                  Slash_commands.format_tools ~connector:Format_adapter.Discord
-                    tools skills
-                    (Agent_template.available_templates ())
-              | None -> "Tools are not enabled."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Tasks ->
-            let raw =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Task_tree.init_schema db;
-                  Task_tree.render_emoji_tree ~db ~session_key:key ()
-              | None -> "Tasks are not available (no database)."
-            in
-            let text =
-              Slash_commands_fmt.format_tasks ~connector:Format_adapter.Discord
-                raw
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | TasksFull ->
-            let raw =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Task_tree.init_schema db;
-                  Task_tree.render_tree_with_legend ~db ~session_key:key
-              | None -> "Tasks are not available (no database)."
-            in
-            let text =
-              Slash_commands_fmt.format_tasks ~connector:Format_adapter.Discord
-                raw
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Costs action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_costs ~connector:Format_adapter.Discord
-                    ~db action
-              | None -> "Costs are not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Session action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands_sessions.format_session
-                    ~connector:Format_adapter.Discord ~db action
-              | None -> "Sessions not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Usage action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_usage ~connector:Format_adapter.Discord
-                    ~db action
-              | None -> "Usage is not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Active ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  let config = Session.get_config session_mgr in
-                  Slash_commands.format_active ~connector:Format_adapter.Discord
-                    ~db ~config ()
-              | None -> "Active usage is not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Bg action ->
-            let* text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_bg ~connector:Format_adapter.Discord ~db
-                    action
-              | None ->
-                  Lwt.return "Background tasks are not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Cron action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_cron ~connector:Format_adapter.Discord
-                    ~db ~session_key:key action
-              | None -> "Cron is not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Bl action ->
-            let text =
-              Slash_commands.format_bl ~connector:Format_adapter.Discord action
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | HeldItems action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_held_items
-                    ~connector:Format_adapter.Discord ~db action
-              | None -> "Held items are not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | Memories action ->
-            let text =
-              match Session.get_db session_mgr with
-              | Some db ->
-                  Slash_commands.format_memories
-                    ~connector:Format_adapter.Discord ~db action
-              | None -> "Memories are not available (no database)."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
         | Rig action -> (
             match action with
             | RigList ->
@@ -1105,21 +763,6 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     | `Remove -> Rig.mark_removed ~name
                     | `Adjust -> ());
                     Lwt.return_unit))
-        | Repo action -> (
-            match Session.get_db session_mgr with
-            | Some db ->
-                Slash_commands_repo.handle_repo_action ~db ~session_key:key
-                  ~connector:Format_adapter.Discord
-                  ~send_reply:(fun text ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text)
-                  ~set_cwd:(fun cwd ->
-                    Session.set_effective_cwd session_mgr ~key ~cwd)
-                  action
-            | None ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-                  ~text:"Repository management is not available (no database).")
         | Model action -> (
             let open Slash_commands in
             match action with
@@ -1819,6 +1462,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)
+        | ( RegisterAsAdminOtc _ | Reply _ | FormattedReply _ | Help | Menu _
+          | Reset | RuntimeCtx | Uptime | Status | Thinking _ | ShowThinking _
+          | Heartbeat _ | Debug _ | AgentMenu _ | ModelMenu _ | ThinkingMenu
+          | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu | Tools | Tasks
+          | TasksFull | Costs _ | Session _ | Usage _ | Active | Bg _ | Cron _
+          | Bl _ | HeldItems _ | Memories _ | Repo _ ) as r ->
+            Connector_dispatch.dispatch env r
 
 (* Close code classification for reconnect behavior *)
 let is_fatal_close_code code =

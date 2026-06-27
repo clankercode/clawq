@@ -33,31 +33,6 @@ let is_allowed_allowlist ~kind ~id allowlist =
           ocaml_allowed);
   coq_allowed
 
-let set_thinking_level ~(session_manager : Session.t) ~channel_id ~user_id level
-    =
-  let cfg = Session.get_config session_manager in
-  let previous = cfg.agent_defaults.reasoning_effort in
-  match Config_set.set_reasoning_effort level with
-  | Ok () ->
-      let agent_defaults =
-        { cfg.agent_defaults with reasoning_effort = level }
-      in
-      Session.update_config ~source:"slack" session_manager
-        { cfg with agent_defaults };
-      Logs.info (fun m ->
-          m "Slack thinking level updated channel=%s user=%s from=%s to=%s"
-            channel_id user_id
-            (Slash_commands.thinking_level_to_string previous)
-            (Slash_commands.thinking_level_to_string level));
-      Printf.sprintf "Thinking level changed from %s to %s."
-        (Slash_commands.thinking_level_to_string previous)
-        (Slash_commands.thinking_level_to_string level)
-  | Error err ->
-      Logs.err (fun m ->
-          m "Slack thinking level update failed channel=%s user=%s: %s"
-            channel_id user_id err);
-      "Failed to update thinking level: " ^ err
-
 (** Resolve the session key for a Slack channel+user pair. If the channel has an
     active room profile binding (shared room session), returns "slack:CHANNEL".
     Otherwise returns the per-user key "slack:CHANNEL:USER". *)
@@ -449,78 +424,29 @@ let handle_event ~(config : Runtime_config.slack_config)
             in
             let user_group = if is_admin then "admin" else "guest" in
             let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
+            let send_reply text =
+              send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+            in
+            let env : Connector_dispatch.dispatch_env =
+              {
+                connector = Format_adapter.Slack;
+                connector_name = "slack";
+                log_name = "Slack";
+                thinking_channel_field = "channel";
+                thinking_user_field = "user";
+                show_thinking_channel_field = "channel_id";
+                show_thinking_user_field = "user_id";
+                session_mgr = session_manager;
+                key;
+                channel_id;
+                user_id;
+                is_admin;
+                send_plain = send_reply;
+                send_formatted = send_reply;
+              }
+            in
             match cmd_result with
-            | RegisterAsAdminOtc None ->
-                let _code =
-                  Admin.generate_otc ~channel:"slack" ~sender_id:user_id
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id
-                    ~text:
-                      "Admin registration initiated. Check the daemon \
-                       console/logs for your one-time code, then run: \
-                       /register_as_admin_otc CODE"
-                in
-                Lwt.return "ok"
-            | RegisterAsAdminOtc (Some code) -> (
-                match Session.get_db session_manager with
-                | Some db -> (
-                    match
-                      Admin.verify_otc ~db ~channel:"slack" ~sender_id:user_id
-                        ~code
-                    with
-                    | Ok () ->
-                        let* () =
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id
-                            ~text:"Successfully registered as admin."
-                        in
-                        Lwt.return "ok"
-                    | Error err_msg ->
-                        let* () =
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text:err_msg
-                        in
-                        Lwt.return "ok")
-                | None ->
-                    let* () =
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
-                        ~text:"Database not available."
-                    in
-                    Lwt.return "ok")
             | AdminRequired _ -> assert false
-            | Reply reply_text ->
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id
-                    ~text:reply_text
-                in
-                Lwt.return "ok"
-            | FormattedReply fn ->
-                let text = fn Format_adapter.Slack in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Help | Menu _ ->
-                let show_test = is_admin in
-                let text =
-                  Slash_commands.format_help ~connector:Format_adapter.Slack
-                    ~show_test ~is_admin ()
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Reset ->
-                let* active_bg_tasks = Session.reset session_manager ~key in
-                let text =
-                  Slash_commands_fmt.format_reset
-                    ~connector:Format_adapter.Slack ~active_bg_tasks
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
             | Compact ->
                 let notifier =
                   make_status_notifier ~bot_token:config.bot_token ~channel_id
@@ -536,133 +462,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                   | Error err ->
                       send_message_fn ~bot_token:config.bot_token ~channel_id
                         ~text:(Printf.sprintf "Compaction failed: %s" err)
-                in
-                Lwt.return "ok"
-            | RuntimeCtx ->
-                let* text =
-                  Session.runtime_context_block session_manager ~key
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Uptime ->
-                let raw =
-                  Daemon_status.daemon_uptime_reply
-                    ~pid:(Daemon_status.read_current_daemon_pid ())
-                in
-                let text =
-                  Slash_commands_fmt.format_uptime
-                    ~connector:Format_adapter.Slack raw
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Status ->
-                let text =
-                  Slash_commands.format_status ~connector:Format_adapter.Slack
-                    ~db:(Session.get_db session_manager)
-                    ~session_count:(Session.session_count session_manager)
-                    ~active_count:(Session.active_session_count session_manager)
-                    ()
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Thinking Slash_commands.ShowThinking ->
-                let current =
-                  (Session.get_config session_manager).agent_defaults
-                    .reasoning_effort
-                in
-                let text =
-                  Slash_commands_fmt.format_thinking_status
-                    ~connector:Format_adapter.Slack current
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Thinking (Slash_commands.SetThinking level) ->
-                let text =
-                  set_thinking_level ~session_manager ~channel_id ~user_id level
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | ShowThinking action ->
-                let connector = Format_adapter.Slack in
-                let cfg = Session.get_config session_manager in
-                let current = cfg.agent_defaults.show_thinking in
-                let text =
-                  match action with
-                  | Slash_commands.ShowThinkingStatus ->
-                      Slash_commands_fmt.format_show_thinking_status ~connector
-                        current
-                  | Slash_commands.ToggleShowThinking -> (
-                      let new_val = not current in
-                      match Config_set.set_show_thinking new_val with
-                      | Ok () ->
-                          let agent_defaults =
-                            { cfg.agent_defaults with show_thinking = new_val }
-                          in
-                          Session.update_config ~source:"slack" session_manager
-                            { cfg with agent_defaults };
-                          Logs.info (fun m ->
-                              m
-                                "Slack show_thinking toggled channel_id=%s \
-                                 user_id=%s from=%b to=%b"
-                                channel_id user_id current new_val);
-                          Slash_commands_fmt.format_show_thinking_toggle
-                            ~connector new_val
-                      | Error err -> "Failed to update show_thinking: " ^ err)
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Heartbeat action ->
-                let connector = Format_adapter.Slack in
-                let text =
-                  match action with
-                  | Slash_commands.HeartbeatStatus ->
-                      Slash_commands_fmt.format_heartbeat_status ~connector
-                        (Session.session_heartbeat_status_text session_manager
-                           ~key)
-                  | Slash_commands.SetHeartbeat enabled -> (
-                      match
-                        Session.set_session_heartbeat session_manager ~key
-                          ~enabled
-                      with
-                      | Ok () ->
-                          Slash_commands_fmt.format_heartbeat_set ~connector
-                            enabled key
-                      | Error err -> err)
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Debug action ->
-                let connector = Format_adapter.Slack in
-                let text =
-                  match action with
-                  | Slash_commands.DebugStatus ->
-                      Slash_commands_fmt.format_debug_status ~connector
-                        (Session.session_debug_status_text session_manager ~key)
-                  | Slash_commands.SetDebug enabled -> (
-                      match
-                        Session.set_session_debug session_manager ~key ~enabled
-                      with
-                      | Ok () ->
-                          Slash_commands_fmt.format_debug_set ~connector enabled
-                            key
-                      | Error err -> err)
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
             | Delegate (agent_name, prompt) ->
@@ -686,232 +485,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                 Session.agent_invoke_turn session_manager ~agent_name ~prompt
                   ~parent_key:key ~debug_notify:send_agent_reply
                   ~send_reply:send_agent_reply ();
-                Lwt.return "ok"
-            | AgentMenu page ->
-                let text =
-                  Slash_commands_fmt.format_agent_menu
-                    ~connector:Format_adapter.Slack ~page
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | ModelMenu page ->
-                let text =
-                  Slash_commands_fmt.format_model_menu
-                    ~connector:Format_adapter.Slack ~page
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | ThinkingMenu ->
-                let text =
-                  Slash_commands_fmt.format_thinking_menu
-                    ~connector:Format_adapter.Slack
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | ConfigMenu page ->
-                let text =
-                  Slash_commands_fmt.format_config_menu
-                    ~connector:Format_adapter.Slack ~page
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | SkillsMenu page ->
-                let text =
-                  let show_test = is_admin in
-                  Slash_commands_fmt.format_skills_menu
-                    ~connector:Format_adapter.Slack ~page ~show_test ()
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | CostsMenu ->
-                let text =
-                  Slash_commands_fmt.format_costs_menu
-                    ~connector:Format_adapter.Slack
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | BgMenu ->
-                let text =
-                  Slash_commands_fmt.format_bg_menu
-                    ~connector:Format_adapter.Slack
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Tools ->
-                let show_test = is_admin in
-                let text =
-                  match Session.get_tool_registry session_manager with
-                  | Some reg ->
-                      let tools, _ = Tool_registry.partition_skills reg in
-                      let tools =
-                        Skills.filter_visible_tools ~show_test tools
-                      in
-                      let skills =
-                        Skills.filter_visible_tools ~show_test
-                          (Skills.available_skills_as_tools ())
-                      in
-                      Slash_commands.format_tools
-                        ~connector:Format_adapter.Slack tools skills
-                        (Agent_template.available_templates ())
-                  | None -> "Tools are not enabled."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Tasks ->
-                let raw =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Task_tree.init_schema db;
-                      Task_tree.render_emoji_tree ~db ~session_key:key ()
-                  | None -> "Tasks are not available (no database)."
-                in
-                let text =
-                  Slash_commands_fmt.format_tasks
-                    ~connector:Format_adapter.Slack raw
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | TasksFull ->
-                let raw =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Task_tree.init_schema db;
-                      Task_tree.render_tree_with_legend ~db ~session_key:key
-                  | None -> "Tasks are not available (no database)."
-                in
-                let text =
-                  Slash_commands_fmt.format_tasks
-                    ~connector:Format_adapter.Slack raw
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Costs action ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands.format_costs
-                        ~connector:Format_adapter.Slack ~db action
-                  | None -> "Costs are not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Session action ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands_sessions.format_session
-                        ~connector:Format_adapter.Slack ~db action
-                  | None -> "Sessions not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Usage action ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands.format_usage
-                        ~connector:Format_adapter.Slack ~db action
-                  | None -> "Usage is not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Active ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      let cfg = Session.get_config session_manager in
-                      Slash_commands.format_active
-                        ~connector:Format_adapter.Slack ~db ~config:cfg ()
-                  | None -> "Active usage is not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Bg action ->
-                let* text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands.format_bg ~connector:Format_adapter.Slack
-                        ~db action
-                  | None ->
-                      Lwt.return
-                        "Background tasks are not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Cron action ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands.format_cron ~connector:Format_adapter.Slack
-                        ~db ~session_key:key action
-                  | None -> "Cron is not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Bl action ->
-                let text =
-                  Slash_commands.format_bl ~connector:Format_adapter.Slack
-                    action
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | HeldItems action ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands.format_held_items
-                        ~connector:Format_adapter.Slack ~db action
-                  | None -> "Held items are not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Memories action ->
-                let text =
-                  match Session.get_db session_manager with
-                  | Some db ->
-                      Slash_commands.format_memories
-                        ~connector:Format_adapter.Slack ~db action
-                  | None -> "Memories are not available (no database)."
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
                 Lwt.return "ok"
             | Rig action -> (
                 match action with
@@ -965,28 +538,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                         | `Remove -> Rig.mark_removed ~name
                         | `Adjust -> ());
                         Lwt.return "ok"))
-            | Repo action -> (
-                match Session.get_db session_manager with
-                | Some db ->
-                    let* () =
-                      Slash_commands_repo.handle_repo_action ~db
-                        ~session_key:key ~connector:Format_adapter.Slack
-                        ~send_reply:(fun text ->
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text)
-                        ~set_cwd:(fun cwd ->
-                          Session.set_effective_cwd session_manager ~key ~cwd)
-                        action
-                    in
-                    Lwt.return "ok"
-                | None ->
-                    let* () =
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
-                        ~text:
-                          "Repository management is not available (no \
-                           database)."
-                    in
-                    Lwt.return "ok")
             | Model action -> (
                 let open Slash_commands in
                 match action with
@@ -1655,5 +1206,14 @@ let handle_event ~(config : Runtime_config.slack_config)
                     if not (Session.take_response_deferred session_manager ~key)
                     then Session.mark_response_sent session_manager ~key;
                     Lwt.return "ok")
+            | ( RegisterAsAdminOtc _ | Reply _ | FormattedReply _ | Help
+              | Menu _ | Reset | RuntimeCtx | Uptime | Status | Thinking _
+              | ShowThinking _ | Heartbeat _ | Debug _ | AgentMenu _
+              | ModelMenu _ | ThinkingMenu | ConfigMenu _ | SkillsMenu _
+              | CostsMenu | BgMenu | Tools | Tasks | TasksFull | Costs _
+              | Session _ | Usage _ | Active | Bg _ | Cron _ | Bl _
+              | HeldItems _ | Memories _ | Repo _ ) as r ->
+                let* () = Connector_dispatch.dispatch env r in
+                Lwt.return "ok"
       end
   | Some Other | None -> Lwt.return "ok"

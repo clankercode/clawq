@@ -703,3 +703,11 @@ bugs:
     - file: B706-ensure-implement-room-thread-s.todo
     - file: B707-update-repo-url-and-git-remote.todo
     - file: B708-on-the-website-home-page-add-a.todo
+    - file: B709-fuzzy-model-set-matching-show.todo
+    - file: B710-pre-switch-context-check-compa.todo
+    - file: B711-skill-reload-message-show-usin.todo
+    - file: B712-add-native-child-session-subag.todo
+    - file: B713-add-a-way-to-send-a-follow-up.todo
+    - file: B714-add-to-help-response-document.todo
+    - file: B715-add-context-slash-command-for.todo
+    - file: B716-tool-call-status-stuck-as-runn.todo

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B710
+priority: high
+status: pending
+tags: []
+title: 'Pre-switch context check: compact if new model window is smaller than current usage'
+---
+When changing model (models set, /model slash command, or programmatic set-default), clawq should first check the current context token usage against the target model's context window. If the new model's limit is smaller than the current context in use, clawq should queue a compaction and only apply the model switch after compaction completes. This prevents the agent from immediately hitting context overflow or truncation on the new model.

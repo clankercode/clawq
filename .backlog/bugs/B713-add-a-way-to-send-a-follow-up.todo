@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B713
+priority: high
+status: pending
+tags: []
+title: 'Add a way to send a follow up prompt/chat msg that is held for delivery to the agent/session until the end of that agents turn. follow-ups are sent one at a time. We need to decide on what/how to do it: we could use a ''~'' prefix or something, or `/followup <blah>` slash command, or maybe something else. need to think and figure out whats best. also, need a way to append to last-queued followup: either ''~+'' prefix, or ''/followup+'' maybe.'
+---
+
+Add a way to send a follow up prompt/chat msg that is held for delivery to the agent/session until the end of that agents turn. follow-ups are sent one at a time. We need to decide on what/how to do it: we could use a '~' prefix or something, or `/followup <blah>` slash command, or maybe something else. need to think and figure out whats best. also, need a way to append to last-queued followup: either '~+' prefix, or '/followup+' maybe.

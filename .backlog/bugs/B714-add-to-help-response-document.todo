@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B714
+priority: high
+status: pending
+tags: []
+title: 'Add to /help response: document ''!'' as a way to interrupt current processing. this task May interact with followups if we use a char prefix for those too.'
+---
+
+Add to /help response: document '!' as a way to interrupt current processing. this task May interact with followups if we use a char prefix for those too.
