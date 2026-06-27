@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Codebase Grant Enforcement
       path: 02-codebase-grant-enforcement
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Denied access is actionable, audited, and covered by guest/admin tests.
