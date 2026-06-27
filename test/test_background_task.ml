@@ -62,6 +62,10 @@ let fake_task ?(runner = Background_task.Codex)
     notification_error = None;
     notification_attempts = 0;
     follow_up_prompt = None;
+    profile_id = None;
+    origin_json = None;
+    thread_id = None;
+    requester = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -97,6 +101,10 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     notification_error = None;
     notification_attempts = 0;
     follow_up_prompt = None;
+    profile_id = None;
+    origin_json = None;
+    thread_id = None;
+    requester = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -121,6 +129,31 @@ let test_enqueue_and_list_tasks () =
       Alcotest.(check string)
         "status" "queued"
         (Background_task.string_of_status task.status))
+
+let test_enqueue_with_origin_fields () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ~profile_id:7
+            ~origin_json:"{\"room\":\"dev\"}" ~thread_id:"thr-001"
+            ~requester:"Bob (Slack)" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check (option int)) "profile_id" (Some 7) task.profile_id;
+          Alcotest.(check (option string))
+            "origin_json" (Some "{\"room\":\"dev\"}") task.origin_json;
+          Alcotest.(check (option string))
+            "thread_id" (Some "thr-001") task.thread_id;
+          Alcotest.(check (option string))
+            "requester" (Some "Bob (Slack)") task.requester)
 
 let test_cancel_queued_task () =
   with_temp_git_repo (fun repo_path ->
@@ -342,6 +375,10 @@ let test_command_of_task_codex () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -388,6 +425,10 @@ let test_command_of_task_claude () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -428,6 +469,10 @@ let test_command_of_task_kimi () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -468,6 +513,10 @@ let test_command_of_task_kimi_with_model () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -508,6 +557,10 @@ let test_command_of_task_gemini () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -548,6 +601,10 @@ let test_command_of_task_gemini_with_model () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -588,6 +645,10 @@ let test_command_of_task_opencode () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -628,6 +689,10 @@ let test_command_of_task_opencode_with_model () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -668,6 +733,10 @@ let test_command_of_task_cursor () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -708,6 +777,10 @@ let test_command_of_task_cursor_with_model () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -1630,6 +1703,10 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     notification_error = None;
     notification_attempts = 0;
     follow_up_prompt = None;
+    profile_id = None;
+    origin_json = None;
+    thread_id = None;
+    requester = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1835,6 +1912,10 @@ let test_command_of_task_codex_with_model () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -1883,6 +1964,10 @@ let test_command_of_task_claude_with_model () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   Alcotest.(check (array string))
@@ -3563,6 +3648,10 @@ let test_terse_message_dirty_worktree () =
       notification_error = None;
       notification_attempts = 0;
       follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -5289,6 +5378,8 @@ let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
       test_enqueue_and_list_tasks;
+    Alcotest.test_case "enqueue with origin fields" `Quick
+      test_enqueue_with_origin_fields;
     Alcotest.test_case "cancel queued task" `Quick test_cancel_queued_task;
     Alcotest.test_case "cancel running task signals process group" `Quick
       test_cancel_running_task_signals_process_group;

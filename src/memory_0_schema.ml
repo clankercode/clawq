@@ -1,4 +1,4 @@
-let schema_version = 32
+let schema_version = 33
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -602,6 +602,17 @@ let migrate_step db v =
   | 31 ->
       init_room_profiles_schema db;
       init_room_profile_bindings_schema db
+  | 32 ->
+      (* Add room-origin columns to task_tree and background_tasks *)
+      let try_add sql = try exec_exn db sql with _ -> () in
+      try_add "ALTER TABLE task_tree ADD COLUMN profile_id INTEGER";
+      try_add "ALTER TABLE task_tree ADD COLUMN origin_json TEXT";
+      try_add "ALTER TABLE task_tree ADD COLUMN thread_id TEXT";
+      try_add "ALTER TABLE task_tree ADD COLUMN requester TEXT";
+      try_add "ALTER TABLE background_tasks ADD COLUMN profile_id INTEGER";
+      try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
+      try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
+      try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -629,7 +640,15 @@ let repair_missing_columns db =
   try_add
     "ALTER TABLE models_cache ADD COLUMN deprecated INTEGER NOT NULL DEFAULT 0";
   try_add
-    "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0"
+    "ALTER TABLE models_cache ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0";
+  try_add "ALTER TABLE task_tree ADD COLUMN profile_id INTEGER";
+  try_add "ALTER TABLE task_tree ADD COLUMN origin_json TEXT";
+  try_add "ALTER TABLE task_tree ADD COLUMN thread_id TEXT";
+  try_add "ALTER TABLE task_tree ADD COLUMN requester TEXT";
+  try_add "ALTER TABLE background_tasks ADD COLUMN profile_id INTEGER";
+  try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
+  try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
+  try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
 
 let migrate_schema db current_version =
   match current_version with

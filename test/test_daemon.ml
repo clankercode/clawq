@@ -1639,6 +1639,10 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     notification_error = None;
     notification_attempts = 0;
     follow_up_prompt = None;
+    profile_id = None;
+    origin_json = None;
+    thread_id = None;
+    requester = None;
   }
 
 let test_local_background_turn_template_persists_history_and_model () =
@@ -2731,7 +2735,7 @@ let test_refresh_task_tree_tools_replaces_start_agent_workspace_on_reload () =
                ~parent_id:None ~title:"Implement" ~status:Task_tree.Pending
                ~note:None ~depends_on:[] ~agent_model:None ~agent_type:None
                ~agent_prompt:(Some "Build it") ~agent_details:None
-               ~autostart:false);
+               ~autostart:false ());
           current_config := { !current_config with workspace = repo2 };
           Session.update_config ~source:"test_reload" session_manager
             !current_config;

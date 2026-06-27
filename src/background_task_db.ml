@@ -61,6 +61,10 @@ let task_of_stmt stmt : task =
       | Sqlite3.Data.INT i -> Int64.to_int i
       | _ -> 0);
     follow_up_prompt = (try Sqlite3.column stmt 29 |> sql_text with _ -> None);
+    profile_id = (try Sqlite3.column stmt 30 |> sql_int with _ -> None);
+    origin_json = (try Sqlite3.column stmt 31 |> sql_text with _ -> None);
+    thread_id = (try Sqlite3.column stmt 32 |> sql_text with _ -> None);
+    requester = (try Sqlite3.column stmt 33 |> sql_text with _ -> None);
   }
 
 let init_schema db =
@@ -136,6 +140,10 @@ let init_schema db =
     "ALTER TABLE background_tasks ADD COLUMN notification_attempts INTEGER NOT \
      NULL DEFAULT 0";
   try_alter "ALTER TABLE background_tasks ADD COLUMN follow_up_prompt TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN profile_id INTEGER";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -258,7 +266,7 @@ type invocation = Fresh | Resume of string
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
     ?session_key ?channel ?channel_id ?parent_task_id ?agent_name
-    ?follow_up_prompt () =
+    ?follow_up_prompt ?profile_id ?origin_json ?thread_id ?requester () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -268,8 +276,9 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
         let sql =
           "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
            branch, session_key, channel, channel_id, automerge, use_worktree, \
-           parent_task_id, acp, agent_name, follow_up_prompt) VALUES (?, ?, ?, \
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+           parent_task_id, acp, agent_name, follow_up_prompt, profile_id, \
+           origin_json, thread_id, requester) VALUES (?, ?, ?, ?, ?, ?, ?, ?, \
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -305,6 +314,15 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
               (Sqlite3.bind stmt 12 (Sqlite3.Data.INT (if acp then 1L else 0L)));
             bind_opt 13 agent_name;
             bind_opt 14 follow_up_prompt;
+            (* profile_id *)
+            (match profile_id with
+            | Some pid ->
+                ignore
+                  (Sqlite3.bind stmt 15 (Sqlite3.Data.INT (Int64.of_int pid)))
+            | None -> ignore (Sqlite3.bind stmt 15 Sqlite3.Data.NULL));
+            bind_opt 16 origin_json;
+            bind_opt 17 thread_id;
+            bind_opt 18 requester;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
@@ -320,7 +338,8 @@ let select_columns =
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
    parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0), \
    agent_name, notification_status, notification_error, \
-   COALESCE(notification_attempts, 0), follow_up_prompt"
+   COALESCE(notification_attempts, 0), follow_up_prompt, profile_id, \
+   origin_json, thread_id, requester"
 
 let list_tasks ~db : task list =
   let sql =

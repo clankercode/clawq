@@ -3832,6 +3832,74 @@ let test_purge_removes_old_rows () =
   in
   Alcotest.(check int) "old soft-deleted row hard-purged" 0 (List.length all)
 
+let test_origin_fields_round_trip () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Origin task");
+            ("profile_id", `Int 42);
+            ("origin_json", `String "{\"room\":\"general\"}");
+            ("thread_id", `String "thread-abc-123");
+            ("requester", `String "Max (Telegram)");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let task = List.hd (Task_tree.load_tasks ~db ~session_key:"s1" ()) in
+  Alcotest.(check (option int)) "profile_id" (Some 42) task.profile_id;
+  Alcotest.(check (option string))
+    "origin_json" (Some "{\"room\":\"general\"}") task.origin_json;
+  Alcotest.(check (option string))
+    "thread_id" (Some "thread-abc-123") task.thread_id;
+  Alcotest.(check (option string))
+    "requester" (Some "Max (Telegram)") task.requester
+
+let test_origin_fields_optional () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "No origin") ] ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let task = List.hd (Task_tree.load_tasks ~db ~session_key:"s1" ()) in
+  Alcotest.(check (option int)) "no profile_id" None task.profile_id;
+  Alcotest.(check (option string)) "no origin_json" None task.origin_json;
+  Alcotest.(check (option string)) "no thread_id" None task.thread_id;
+  Alcotest.(check (option string)) "no requester" None task.requester
+
+let test_requester_shown_in_render () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Task with requester");
+            ("requester", `String "Alice (Discord)");
+          ];
+      ]
+  in
+  let output = Task_tree.render_tree ~db ~session_key:"s1" in
+  Alcotest.(check bool)
+    "render shows requester" true
+    (Test_helpers.string_contains output "from=Alice (Discord)")
+
+let test_requester_not_leaked_when_absent () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Plain task") ] ]
+  in
+  let output = Task_tree.render_tree ~db ~session_key:"s1" in
+  Alcotest.(check bool)
+    "render omits from= when no requester" false
+    (Test_helpers.string_contains output "from=")
+
 let suite =
   [
     Alcotest.test_case "init_schema idempotent" `Quick
@@ -4045,4 +4113,12 @@ let suite =
       test_purge_disabled_by_default;
     Alcotest.test_case "purge removes old rows" `Quick
       test_purge_removes_old_rows;
+    Alcotest.test_case "origin fields round trip" `Quick
+      test_origin_fields_round_trip;
+    Alcotest.test_case "origin fields optional" `Quick
+      test_origin_fields_optional;
+    Alcotest.test_case "requester shown in render" `Quick
+      test_requester_shown_in_render;
+    Alcotest.test_case "requester not leaked when absent" `Quick
+      test_requester_not_leaked_when_absent;
   ]

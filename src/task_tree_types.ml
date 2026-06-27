@@ -34,6 +34,10 @@ type task = {
   agent_task_id : int option;
   sort_order : int;
   deleted_at : string option;
+  profile_id : int option;
+  origin_json : string option;
+  thread_id : string option;
+  requester : string option;
 }
 
 let max_depth = 5

@@ -1491,6 +1491,151 @@ let test_migrate_v31_to_current_creates_room_profiles () =
         "room_profile_bindings exists after v31 migration" true
         (table_exists migrated "room_profile_bindings"))
 
+let test_migrate_v32_adds_origin_columns () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (32)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      exec_exn db
+        {|CREATE TABLE task_tree (
+  id INTEGER NOT NULL,
+  session_key TEXT NOT NULL,
+  parent_id INTEGER,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  note TEXT,
+  depends_on TEXT,
+  agent_model TEXT,
+  agent_type TEXT,
+  agent_prompt TEXT,
+  agent_details TEXT,
+  autostart INTEGER NOT NULL DEFAULT 0,
+  agent_task_id INTEGER,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (session_key, id)
+)|};
+      exec_exn db
+        {|CREATE TABLE background_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  runner TEXT NOT NULL,
+  model TEXT,
+  repo_path TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  branch TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  exit_code INTEGER,
+  started_at TEXT,
+  finished_at TEXT,
+  result TEXT,
+  session_key TEXT,
+  channel TEXT,
+  channel_id TEXT,
+  automerge INTEGER NOT NULL DEFAULT 1,
+  use_worktree INTEGER NOT NULL DEFAULT 1,
+  worktree_path TEXT,
+  log_path TEXT,
+  merge_status TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  parent_task_id INTEGER,
+  replaced_by INTEGER,
+  runner_session_id TEXT,
+  acp INTEGER NOT NULL DEFAULT 0,
+  agent_name TEXT,
+  notification_status TEXT,
+  notification_error TEXT,
+  notification_attempts INTEGER NOT NULL DEFAULT 0,
+  follow_up_prompt TEXT
+)|};
+      (* Insert a pre-migration task_tree row *)
+      exec_exn db
+        "INSERT INTO task_tree (id, session_key, title) VALUES (1, 's1', \
+         'pre-migration task')";
+      (* Insert a pre-migration background_tasks row *)
+      exec_exn db
+        "INSERT INTO background_tasks (runner, repo_path, prompt) VALUES \
+         ('codex', '/tmp/repo', 'test prompt')";
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is current" Memory.schema_version
+        (Test_helpers.query_single_int migrated
+           "SELECT version FROM schema_version");
+      (* Assert all new origin columns exist on task_tree *)
+      Alcotest.(check bool)
+        "task_tree.profile_id exists" true
+        (column_exists migrated "task_tree" "profile_id");
+      Alcotest.(check bool)
+        "task_tree.origin_json exists" true
+        (column_exists migrated "task_tree" "origin_json");
+      Alcotest.(check bool)
+        "task_tree.thread_id exists" true
+        (column_exists migrated "task_tree" "thread_id");
+      Alcotest.(check bool)
+        "task_tree.requester exists" true
+        (column_exists migrated "task_tree" "requester");
+      (* Assert all new origin columns exist on background_tasks *)
+      Alcotest.(check bool)
+        "background_tasks.profile_id exists" true
+        (column_exists migrated "background_tasks" "profile_id");
+      Alcotest.(check bool)
+        "background_tasks.origin_json exists" true
+        (column_exists migrated "background_tasks" "origin_json");
+      Alcotest.(check bool)
+        "background_tasks.thread_id exists" true
+        (column_exists migrated "background_tasks" "thread_id");
+      Alcotest.(check bool)
+        "background_tasks.requester exists" true
+        (column_exists migrated "background_tasks" "requester");
+      (* Pre-migration rows are still readable *)
+      let stmt =
+        Sqlite3.prepare migrated
+          "SELECT title FROM task_tree WHERE session_key = 's1'"
+      in
+      (match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let title =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          Alcotest.(check string)
+            "pre-migration task readable" "pre-migration task" title
+      | _ -> Alcotest.fail "pre-migration task_tree row not found");
+      ignore (Sqlite3.finalize stmt);
+      let stmt =
+        Sqlite3.prepare migrated
+          "SELECT prompt FROM background_tasks WHERE id = 1"
+      in
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let prompt =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          Alcotest.(check string)
+            "pre-migration bg task readable" "test prompt" prompt;
+          ignore (Sqlite3.finalize stmt)
+      | _ ->
+          ignore (Sqlite3.finalize stmt);
+          Alcotest.fail "pre-migration background_tasks row not found")
+
 (* --- room profile API tests --- *)
 
 let test_insert_and_get_room_profile () =
@@ -1829,6 +1974,8 @@ let suite =
       test_ensure_all_tables_creates_room_profiles;
     Alcotest.test_case "migrate v31 to current creates room profiles" `Quick
       test_migrate_v31_to_current_creates_room_profiles;
+    Alcotest.test_case "migrate v32 adds origin columns" `Quick
+      test_migrate_v32_adds_origin_columns;
     Alcotest.test_case "insert and get room profile" `Quick
       test_insert_and_get_room_profile;
     Alcotest.test_case "insert room profile unique constraint" `Quick
