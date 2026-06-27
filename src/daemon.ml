@@ -1673,13 +1673,14 @@ let run ~(config : Runtime_config.t) =
                         ?model
                         ?agent_name
                         ?cwd
+                        ?context_snapshot
                         ~interrupt_check
                         ~on_history_update
                         ()
                       ->
                       Daemon_util.run_local_background_turn ~session_manager
-                        ~key ~message ?model ?agent_name ?cwd ~interrupt_check
-                        ~on_history_update ())
+                        ~key ~message ?model ?agent_name ?cwd ?context_snapshot
+                        ~interrupt_check ~on_history_update ())
                     ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config
@@ -1688,10 +1689,13 @@ let run ~(config : Runtime_config.t) =
                       (notify_background_task_started ~session_manager ~config)
                     ()
                 in
-                let* () = Lwt.choose [
-                  Lwt_condition.wait Background_task_db.enqueue_condition;
-                  Lwt_unix.sleep 5.0;
-                ] in
+                let* () =
+                  Lwt.choose
+                    [
+                      Lwt_condition.wait Background_task_db.enqueue_condition;
+                      Lwt_unix.sleep 5.0;
+                    ]
+                in
                 loop ()
               in
               loop ())
@@ -1819,8 +1823,7 @@ let run ~(config : Runtime_config.t) =
             (fun () -> Subagent_tool.run_subagent_status_loop ~db ())
             (fun exn ->
               Logs.err (fun m ->
-                  m "Subagent status loop error: %s"
-                    (Printexc.to_string exn));
+                  m "Subagent status loop error: %s" (Printexc.to_string exn));
               Lwt.return_unit));
       Logs.info (fun m -> m "Subagent status loop started")
   | None -> Logs.info (fun m -> m "Subagent status loop disabled (no database)"));

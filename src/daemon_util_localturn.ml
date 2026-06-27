@@ -15,8 +15,52 @@ let config_with_primary_model (config : Runtime_config.t) model =
       };
   }
 
+(* B720: Deserialize a JSON string produced by Provider.messages_to_json
+   back into a Provider.message list. Only the fields serialized by
+   message_to_json are restored; content_parts, provider_response_items_json,
+   thinking, and is_error are left at their defaults. *)
+let messages_of_json_string s =
+  try
+    let json = Yojson.Safe.from_string s in
+    let open Yojson.Safe.Util in
+    json |> to_list
+    |> List.map (fun m ->
+        let role = m |> member "role" |> to_string in
+        let content = try m |> member "content" |> to_string with _ -> "" in
+        let tool_call_id =
+          try Some (m |> member "tool_call_id" |> to_string) with _ -> None
+        in
+        let name =
+          try Some (m |> member "name" |> to_string) with _ -> None
+        in
+        let tool_calls =
+          try
+            m |> member "tool_calls" |> to_list
+            |> List.map (fun tc ->
+                let fn = tc |> member "function" in
+                {
+                  Provider.id = tc |> member "id" |> to_string;
+                  function_name = fn |> member "name" |> to_string;
+                  arguments = fn |> member "arguments" |> to_string;
+                })
+          with _ -> []
+        in
+        {
+          Provider.role;
+          content;
+          content_parts = [];
+          tool_calls;
+          tool_call_id;
+          name;
+          provider_response_items_json = None;
+          thinking = None;
+          is_error = false;
+        })
+  with _ -> []
+
 let run_local_background_turn ~(session_manager : Session.t) ~key ~message
-    ?model ?agent_name ?cwd ~interrupt_check ~on_history_update () =
+    ?model ?agent_name ?cwd ?context_snapshot ~interrupt_check
+    ~on_history_update () =
   let workspace =
     Runtime_config.effective_workspace session_manager.Session_core.config
   in
@@ -49,8 +93,38 @@ let run_local_background_turn ~(session_manager : Session.t) ~key ~message
           in
           (match session_manager.Session_core.db with
           | Some db ->
-              agent.history <-
+              let db_history =
                 List.rev (Memory.load_history ~db ~session_key:key)
+              in
+              (* B720: if context_snapshot is present, prepend the forked
+                 parent conversation history before the agent's own history *)
+              let history =
+                match context_snapshot with
+                | Some snapshot when String.trim snapshot <> "" ->
+                    let forked = messages_of_json_string snapshot in
+                    if forked = [] then db_history
+                    else
+                      let prefix =
+                        {
+                          Provider.role = "system";
+                          content =
+                            "The following messages are from the parent \
+                             conversation that spawned this subagent. They \
+                             provide context about what was discussed before \
+                             you were created.";
+                          content_parts = [];
+                          tool_calls = [];
+                          tool_call_id = None;
+                          name = None;
+                          provider_response_items_json = None;
+                          thinking = None;
+                          is_error = false;
+                        }
+                      in
+                      (prefix :: forked) @ db_history
+                | _ -> db_history
+              in
+              agent.history <- history
           | None -> ());
           agent.effective_cwd <- cwd;
           let persisted_up_to = ref (List.length agent.history) in
