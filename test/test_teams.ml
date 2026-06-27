@@ -196,6 +196,21 @@ let test_resolve_session_key_falls_back_to_team_conversation () =
   in
   Alcotest.(check string) "unbound key" "teams:team-1:conv-free" key
 
+let test_consent_room_context_uses_room_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"incident-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  match
+    Teams.consent_room_context ~session_manager:mgr
+      ~conversation_id:"conv-bound"
+  with
+  | None -> Alcotest.fail "expected room consent context"
+  | Some ctx ->
+      Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
+      Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
+      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
+
 let test_normalize_clawq_slash_known_subcommand () =
   Alcotest.(check string)
     "known subcommand" "/status"
@@ -683,7 +698,7 @@ let test_temp_downloads_cleanup () =
 let test_build_file_consent_card () =
   let body =
     Teams.build_file_consent_card ~filename:"dump.json"
-      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123"
+      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123" ()
   in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -710,6 +725,42 @@ let test_build_file_consent_card () =
   Alcotest.(check string)
     "declineContext consentId" "abc123"
     (decline_ctx |> member "consentId" |> to_string)
+
+let test_build_file_consent_card_includes_room_profile_context () =
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-room";
+      session_key = "teams:conv-room";
+      profile_name = "support-room";
+    }
+  in
+  let body =
+    Teams.build_file_consent_card ~filename:"dump.json"
+      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123"
+      ~room_context ()
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let content =
+    json |> member "attachments" |> to_list |> List.hd |> member "content"
+  in
+  Alcotest.(check string)
+    "description names room profile" "Session dump\nRoom profile: support-room"
+    (content |> member "description" |> to_string);
+  List.iter
+    (fun field ->
+      let ctx = content |> member field in
+      Alcotest.(check string)
+        (field ^ " roomId") "conv-room"
+        (ctx |> member "roomId" |> to_string);
+      Alcotest.(check string)
+        (field ^ " sessionKey") "teams:conv-room"
+        (ctx |> member "sessionKey" |> to_string);
+      Alcotest.(check string)
+        (field ^ " roomProfileName")
+        "support-room"
+        (ctx |> member "roomProfileName" |> to_string))
+    [ "acceptContext"; "declineContext" ]
 
 let test_build_file_info_card () =
   let body =
@@ -738,7 +789,7 @@ let test_build_file_info_card () =
 let test_pending_consent_store_and_get () =
   let consent_id =
     Teams.store_pending_consent ~content:"test data" ~filename:"test.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   Alcotest.(check bool) "id non-empty" true (String.length consent_id > 0);
   match Teams.get_pending_consent consent_id with
@@ -747,10 +798,34 @@ let test_pending_consent_store_and_get () =
       Alcotest.(check string) "content" "test data" entry.content;
       Alcotest.(check string) "filename" "test.json" entry.filename
 
+let test_pending_consent_preserves_room_context () =
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-bound";
+      session_key = "teams:conv-bound";
+      profile_name = "incident-room";
+    }
+  in
+  let consent_id =
+    Teams.store_pending_consent ~content:"test data" ~filename:"test.json"
+      ~content_type:"application/json" ~ttl_s:60.0 ~room_context ()
+  in
+  match Teams.get_pending_consent consent_id with
+  | None -> Alcotest.fail "expected Some"
+  | Some entry -> (
+      match entry.room_context with
+      | None -> Alcotest.fail "expected room context"
+      | Some ctx ->
+          Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
+          Alcotest.(check string)
+            "session key" "teams:conv-bound" ctx.session_key;
+          Alcotest.(check string)
+            "profile name" "incident-room" ctx.profile_name)
+
 let test_pending_consent_expired () =
   let consent_id =
     Teams.store_pending_consent ~content:"old" ~filename:"old.json"
-      ~content_type:"application/json" ~ttl_s:0.0
+      ~content_type:"application/json" ~ttl_s:0.0 ()
   in
   Unix.sleepf 0.01;
   Alcotest.(check bool)
@@ -760,7 +835,7 @@ let test_pending_consent_expired () =
 let test_pending_consent_consumed_on_get () =
   let consent_id =
     Teams.store_pending_consent ~content:"once" ~filename:"once.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   ignore (Teams.get_pending_consent consent_id);
   Alcotest.(check bool)
@@ -770,11 +845,11 @@ let test_pending_consent_consumed_on_get () =
 let test_pending_consent_cleanup () =
   let _live =
     Teams.store_pending_consent ~content:"live" ~filename:"live.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let expired =
     Teams.store_pending_consent ~content:"expired" ~filename:"exp.json"
-      ~content_type:"application/json" ~ttl_s:0.0
+      ~content_type:"application/json" ~ttl_s:0.0 ()
   in
   Unix.sleepf 0.01;
   Teams.cleanup_pending_consents ();
@@ -786,7 +861,7 @@ let test_file_consent_invoke_returns_immediately () =
   (* Store a pending consent so handle_file_consent_invoke finds it *)
   let consent_id =
     Teams.store_pending_consent ~content:"file data" ~filename:"test.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
   let invoke_json =
@@ -847,10 +922,27 @@ let test_file_consent_invoke_expired_returns_200 () =
   check_ok_invoke_response ~msg:"expired consent returns 200"
     (Teams.invoke_response_body response)
 
+let test_file_consent_context_roundtrips_from_invoke () =
+  let context =
+    `Assoc
+      [
+        ("consentId", `String "abc123");
+        ("roomId", `String "conv-bound");
+        ("sessionKey", `String "teams:conv-bound");
+        ("roomProfileName", `String "incident-room");
+      ]
+  in
+  match Teams.consent_room_context_of_json context with
+  | None -> Alcotest.fail "expected room context"
+  | Some ctx ->
+      Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
+      Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
+      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
+
 let test_file_consent_invoke_decline () =
   let consent_id =
     Teams.store_pending_consent ~content:"data" ~filename:"d.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
   let invoke_json =
@@ -882,7 +974,7 @@ let test_file_consent_invoke_decline () =
 let test_handle_invoke_file_consent_decline () =
   let consent_id =
     Teams.store_pending_consent ~content:"data" ~filename:"d.json"
-      ~content_type:"application/json" ~ttl_s:60.0
+      ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
   let body =
@@ -1370,6 +1462,8 @@ let suite =
       test_resolve_session_key_uses_room_binding;
     Alcotest.test_case "resolve_session_key falls back to team conversation"
       `Quick test_resolve_session_key_falls_back_to_team_conversation;
+    Alcotest.test_case "consent room context uses room binding" `Quick
+      test_consent_room_context_uses_room_binding;
     Alcotest.test_case "normalize /clawq known subcommand" `Quick
       test_normalize_clawq_slash_known_subcommand;
     Alcotest.test_case "normalize /clawq unknown subcommand" `Quick
@@ -1464,9 +1558,13 @@ let suite =
       test_temp_downloads_cleanup;
     Alcotest.test_case "file consent card JSON" `Quick
       test_build_file_consent_card;
+    Alcotest.test_case "file consent card room context" `Quick
+      test_build_file_consent_card_includes_room_profile_context;
     Alcotest.test_case "file info card JSON" `Quick test_build_file_info_card;
     Alcotest.test_case "pending consent store and get" `Quick
       test_pending_consent_store_and_get;
+    Alcotest.test_case "pending consent room context" `Quick
+      test_pending_consent_preserves_room_context;
     Alcotest.test_case "pending consent expired" `Quick
       test_pending_consent_expired;
     Alcotest.test_case "pending consent consumed on get" `Quick
@@ -1477,6 +1575,8 @@ let suite =
       test_file_consent_invoke_returns_immediately;
     Alcotest.test_case "file consent invoke expired returns 200" `Quick
       test_file_consent_invoke_expired_returns_200;
+    Alcotest.test_case "file consent invoke room context" `Quick
+      test_file_consent_context_roundtrips_from_invoke;
     Alcotest.test_case "file consent invoke decline" `Quick
       test_file_consent_invoke_decline;
     Alcotest.test_case "handle_invoke file consent decline" `Quick
