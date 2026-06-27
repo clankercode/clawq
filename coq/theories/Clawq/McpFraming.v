@@ -382,7 +382,7 @@ Inductive dispatch_result : Type :=
   | DispatchParseError : dispatch_result.
 
 Definition dispatch_initialize : string :=
-  "{""protocolVersion"":""2024-11-05"",""serverInfo"":{""name"":""clawq"",""version"":""0.3.0""},""capabilities"":{}}".
+  "{""protocolVersion"":""2024-11-05"",""serverInfo"":{""name"":""clawq"",""version"":""0.4.0""},""capabilities"":{}}".
 
 Definition dispatch_tools_list (tools : list string) : string :=
   string_append "{""tools"":[" (string_append (String.concat "," tools) "]}").

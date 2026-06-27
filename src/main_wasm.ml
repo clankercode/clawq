@@ -1,7 +1,7 @@
 (* main_wasm.ml - Minimal WASM/WASI runtime entry point.
    No Lwt, no SQLite, no network. Pure OCaml stdlib only. *)
 
-let version = "0.3.0-wasm"
+let version = "0.4.0-wasm"
 
 let get_workspace () =
   match Sys.getenv_opt "CLAWQ_WORKSPACE" with

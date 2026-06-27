@@ -67,7 +67,7 @@ Definition dispatch (args : list string) : string :=
       | CmdWorkspace => "workspace: TODO (MVP command skeleton wired)"
       | CmdCapabilities => "capabilities: TODO (MVP command skeleton wired)"
       | CmdAuth => "auth: TODO (MVP command skeleton wired)"
-      | CmdVersion => "clawq 0.3.0-dev"
+      | CmdVersion => "clawq 0.4.0-dev"
       | CmdHelp => usage
       | CmdUnknown => "unknown command\n" ++ usage
       end
