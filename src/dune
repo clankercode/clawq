@@ -167,6 +167,7 @@
   room_workspace
   room_activity_ledger
   room_budget
+  room_request_classifier
   daemon_status
   benchmark
   debate

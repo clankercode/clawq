@@ -122,6 +122,7 @@ let () =
        ("memory", Test_memory.suite);
        ("room_profile_reconcile", Test_room_profile_reconcile.suite);
        ("room_budget", Test_room_budget.suite);
+       ("room_request_classifier", Test_room_request_classifier.suite);
        ("chat_ui", Test_chat_ui.suite);
        ("ui_server", Test_ui_server.suite);
        ("channel_formats", Test_channel_formats.suite);
