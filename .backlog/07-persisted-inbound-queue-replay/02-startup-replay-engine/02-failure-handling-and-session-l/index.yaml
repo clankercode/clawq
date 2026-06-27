@@ -31,7 +31,7 @@ tasks:
       file: T002-ensure-session-reset-and-low-l.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Ensure session reset and low-level clear_session paths clear pending inbound rows and log the cleanup
     - complexity: medium
