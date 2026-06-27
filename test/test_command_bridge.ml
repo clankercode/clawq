@@ -4285,7 +4285,270 @@ let test_rooms_routine_usage () =
     (Test_helpers.string_contains result "list");
   Alcotest.(check bool)
     "routine usage mentions show" true
-    (Test_helpers.string_contains result "show")
+    (Test_helpers.string_contains result "show");
+  Alcotest.(check bool)
+    "routine usage mentions edit" true
+    (Test_helpers.string_contains result "edit");
+  Alcotest.(check bool)
+    "routine usage mentions remove" true
+    (Test_helpers.string_contains result "remove");
+  Alcotest.(check bool)
+    "routine usage mentions enable" true
+    (Test_helpers.string_contains result "enable");
+  Alcotest.(check bool)
+    "routine usage mentions disable" true
+    (Test_helpers.string_contains result "disable")
+
+let test_rooms_routine_edit_schedule () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "routine";
+            "edit";
+            "routine-coding";
+            "--schedule";
+            "every 2h";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "edit success mentions new schedule" true
+        (Test_helpers.string_contains result "every 2h");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after edit"
+      | Some job ->
+          Alcotest.(check string) "updated schedule" "every 2h" job.schedule_str)
+
+let test_rooms_routine_edit_message () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "routine";
+            "edit";
+            "routine-coding";
+            "--message";
+            "Review open PRs";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after edit"
+      | Some job ->
+          Alcotest.(check string)
+            "updated message" "Review open PRs" job.message)
+
+let test_rooms_routine_edit_not_found () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle
+          [
+            "rooms"; "routine"; "edit"; "nonexistent"; "--schedule"; "every 1h";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit not found mentions name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_edit_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle
+          [
+            "rooms";
+            "routine";
+            "edit";
+            "routine-coding";
+            "--schedule";
+            "every 2h";
+          ]
+      in
+      Alcotest.(check bool)
+        "edit without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_remove_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "remove"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "remove success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      Alcotest.(check bool)
+        "routine removed from scheduler" true
+        (Scheduler.get_job ~db ~name:"routine-coding" = None))
+
+let test_rooms_routine_remove_not_found () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "remove"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "remove not found mentions name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_remove_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "remove"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "remove without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_enable_disable () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      (* Disable *)
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "disable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "disable success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      let db = session_db home in
+      Scheduler.init_schema db;
+      (match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after disable"
+      | Some job -> Alcotest.(check bool) "job disabled" false job.enabled);
+      (* Enable *)
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "enable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "enable success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found after enable"
+      | Some job -> Alcotest.(check bool) "job enabled" true job.enabled)
+
+let test_rooms_routine_disable_already_disabled () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "disable"; "routine-coding" ]);
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "disable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "already disabled mentions already disabled" true
+        (Test_helpers.string_contains result "already disabled"))
+
+let test_rooms_routine_enable_already_enabled () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "enable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "already enabled mentions already enabled" true
+        (Test_helpers.string_contains result "already enabled"))
 
 let suite =
   [
@@ -4569,4 +4832,24 @@ let suite =
     Alcotest.test_case "rooms routine create rejected without admin" `Quick
       test_rooms_routine_create_rejected_without_admin;
     Alcotest.test_case "rooms routine usage" `Quick test_rooms_routine_usage;
+    Alcotest.test_case "rooms routine edit schedule" `Quick
+      test_rooms_routine_edit_schedule;
+    Alcotest.test_case "rooms routine edit message" `Quick
+      test_rooms_routine_edit_message;
+    Alcotest.test_case "rooms routine edit not found" `Quick
+      test_rooms_routine_edit_not_found;
+    Alcotest.test_case "rooms routine edit rejected without admin" `Quick
+      test_rooms_routine_edit_rejected_without_admin;
+    Alcotest.test_case "rooms routine remove basic" `Quick
+      test_rooms_routine_remove_basic;
+    Alcotest.test_case "rooms routine remove not found" `Quick
+      test_rooms_routine_remove_not_found;
+    Alcotest.test_case "rooms routine remove rejected without admin" `Quick
+      test_rooms_routine_remove_rejected_without_admin;
+    Alcotest.test_case "rooms routine enable/disable" `Quick
+      test_rooms_routine_enable_disable;
+    Alcotest.test_case "rooms routine disable already disabled" `Quick
+      test_rooms_routine_disable_already_disabled;
+    Alcotest.test_case "rooms routine enable already enabled" `Quick
+      test_rooms_routine_enable_already_enabled;
   ]

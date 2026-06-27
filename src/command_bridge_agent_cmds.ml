@@ -901,13 +901,129 @@ let cmd_rooms_routine cfg args =
   | [ "show" ] ->
       "Error: rooms routine show requires a routine name. Usage: clawq rooms \
        routine show <name>"
+  | "edit" :: name :: edit_parts -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let db = get_db () in
+          Scheduler.init_schema db;
+          match Scheduler.get_job ~db ~name with
+          | None -> Printf.sprintf "No room routine found with name '%s'." name
+          | Some job when job.profile_id = None ->
+              Printf.sprintf
+                "Job '%s' exists but is not a room routine (no profile_id \
+                 set). Use 'clawq cron show %s' instead."
+                name name
+          | Some _ -> (
+              let schedule = ref None in
+              let message = ref None in
+              let rec parse_flags = function
+                | "--schedule" :: s :: rest ->
+                    schedule := Some s;
+                    parse_flags rest
+                | "--message" :: m :: rest ->
+                    message := Some m;
+                    parse_flags rest
+                | [] -> ()
+                | unknown :: _ ->
+                    ignore
+                      (Printf.printf "Warning: unknown flag '%s'\n" unknown)
+              in
+              parse_flags edit_parts;
+              match
+                Scheduler.update_job ~db ~name ?schedule:!schedule
+                  ?message:!message ()
+              with
+              | Ok () ->
+                  let changes =
+                    List.filter_map
+                      (fun (label, v) ->
+                        match v with Some x -> Some (label, x) | None -> None)
+                      [ ("schedule", !schedule); ("message", !message) ]
+                  in
+                  let change_str =
+                    String.concat ", "
+                      (List.map
+                         (fun (l, v) -> Printf.sprintf "%s=%s" l v)
+                         changes)
+                  in
+                  Printf.sprintf "Updated room routine '%s' (%s)." name
+                    change_str
+              | Error e -> Printf.sprintf "Error: %s" e)))
+  | [ "edit" ] ->
+      "Error: rooms routine edit requires a routine name. Usage: clawq rooms \
+       routine edit <name> [--schedule S] [--message M]"
+  | [ "remove"; name ] -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let db = get_db () in
+          Scheduler.init_schema db;
+          match Scheduler.get_job ~db ~name with
+          | None -> Printf.sprintf "No room routine found with name '%s'." name
+          | Some job when job.profile_id = None ->
+              Printf.sprintf
+                "Job '%s' exists but is not a room routine (no profile_id \
+                 set). Use 'clawq cron remove %s' instead."
+                name name
+          | Some _ ->
+              if Scheduler.remove_job ~db ~name then
+                Printf.sprintf "Removed room routine '%s'." name
+              else Printf.sprintf "Failed to remove room routine '%s'." name))
+  | [ "remove" ] ->
+      "Error: rooms routine remove requires a routine name. Usage: clawq rooms \
+       routine remove <name>"
+  | [ "enable"; name ] -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let db = get_db () in
+          Scheduler.init_schema db;
+          match Scheduler.get_job ~db ~name with
+          | None -> Printf.sprintf "No room routine found with name '%s'." name
+          | Some job when job.profile_id = None ->
+              Printf.sprintf
+                "Job '%s' exists but is not a room routine (no profile_id set)."
+                name
+          | Some j when j.enabled ->
+              Printf.sprintf "Room routine '%s' is already enabled." name
+          | Some _ -> (
+              match Scheduler.toggle_job ~db ~name with
+              | Ok () -> Printf.sprintf "Enabled room routine '%s'." name
+              | Error e -> Printf.sprintf "Error: %s" e)))
+  | [ "enable" ] -> "Error: rooms routine enable requires a routine name."
+  | [ "disable"; name ] -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let db = get_db () in
+          Scheduler.init_schema db;
+          match Scheduler.get_job ~db ~name with
+          | None -> Printf.sprintf "No room routine found with name '%s'." name
+          | Some job when job.profile_id = None ->
+              Printf.sprintf
+                "Job '%s' exists but is not a room routine (no profile_id set)."
+                name
+          | Some j when not j.enabled ->
+              Printf.sprintf "Room routine '%s' is already disabled." name
+          | Some _ -> (
+              match Scheduler.toggle_job ~db ~name with
+              | Ok () -> Printf.sprintf "Disabled room routine '%s'." name
+              | Error e -> Printf.sprintf "Error: %s" e)))
+  | [ "disable" ] -> "Error: rooms routine disable requires a routine name."
   | _ ->
-      "Usage: clawq rooms routine <create|list|show>\n\n\
+      "Usage: clawq rooms routine \
+       <create|list|show|edit|remove|enable|disable>\n\n\
        Subcommands:\n\
       \  create <profile> <schedule> <message> [--thread-id ID]\n\
       \                              Create a room routine (admin-only)\n\
       \  list                        List all room routines\n\
-      \  show <name>                 Show room routine details"
+      \  show <name>                 Show room routine details\n\
+      \  edit <name> [--schedule S] [--message M]\n\
+      \                              Edit a room routine (admin-only)\n\
+      \  remove <name>               Remove a room routine (admin-only)\n\
+      \  enable <name>               Enable a room routine (admin-only)\n\
+      \  disable <name>              Disable a room routine (admin-only)"
 
 let cmd_rooms args =
   let cfg = get_config () in
@@ -1263,7 +1379,8 @@ let cmd_rooms args =
       \                              Soft-delete profile and remove bindings \
        (admin-only)\n\
       \  unbind <room_id>            Remove room binding (preserves profile)\n\
-      \  routine <create|list|show>   Manage room routines (admin-only)"
+      \  routine <create|list|show|edit|remove|enable|disable>   Manage room \
+       routines (admin-only)"
 
 let cmd_rig args =
   match args with

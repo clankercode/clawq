@@ -47,8 +47,7 @@ let rec title_of_async_cmd (result : Slash_commands.result) : string option =
   | Debate _ -> Some "Debate"
   | BashRun cmd ->
       let short =
-        if String.length cmd > 60 then String.sub cmd 0 57 ^ "..."
-        else cmd
+        if String.length cmd > 60 then String.sub cmd 0 57 ^ "..." else cmd
       in
       Some (Printf.sprintf "Bash: %s" short)
   | Rig RigList -> Some "Rig: list"
