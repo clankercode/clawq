@@ -1672,6 +1672,38 @@ let foreign_key_exists db table_name ~from_col ~to_table ~on_delete =
 let exec_succeeds db sql = Sqlite3.exec db sql = Sqlite3.Rc.OK
 let exec_fails db sql = not (exec_succeeds db sql)
 
+let insert_memory_grant ?expires_at ?revoked_at ~db ~scope_id ~principal_kind
+    ~principal_id ~capability () =
+  let has_revoked_at = column_exists db "memory_grants" "revoked_at" in
+  let sql =
+    "INSERT INTO memory_grants (scope_id, principal_kind, principal_id, \
+     capability, expires_at"
+    ^ (if has_revoked_at then ", revoked_at" else "")
+    ^ ") VALUES (?, ?, ?, ?, ?"
+    ^ (if has_revoked_at then ", ?" else "")
+    ^ ")"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+      ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT capability));
+      (match expires_at with
+      | Some value -> ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT value))
+      | None -> ignore (Sqlite3.bind stmt 5 Sqlite3.Data.NULL));
+      (if has_revoked_at then
+         match revoked_at with
+         | Some value -> ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT value))
+         | None -> ignore (Sqlite3.bind stmt 6 Sqlite3.Data.NULL));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          Alcotest.failf "insert_memory_grant failed: %s"
+            (Sqlite3.Rc.to_string rc))
+
 let test_init_creates_scoped_memory_tables () =
   let db = Memory.init ~db_path:":memory:" () in
   List.iter
@@ -2073,6 +2105,72 @@ let test_scoped_memory_delete_and_boundaries () =
     "zero limit returns no rows" 0
     (List.length (Memory.query_scoped_memories ~db ~limit:0 ()))
 
+let test_resolve_grants_single_grant () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  Alcotest.(check (list string))
+    "single direct grant" [ "read" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_merges_matching_direct_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  let other_scope = Memory.create_scope ~db ~kind:"room" ~key:"r2" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"write" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p2" ~capability:"admin" ();
+  insert_memory_grant ~db ~scope_id:other_scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"delete" ();
+  Alcotest.(check (list string))
+    "matching capabilities only" [ "read"; "write" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_excludes_expired_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ~expires_at:"2999-01-01 00:00:00" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"write" ~expires_at:"1970-01-01 00:00:00" ();
+  Alcotest.(check (list string))
+    "active capabilities only" [ "read" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_excludes_revoked_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  exec_exn db "ALTER TABLE memory_grants ADD COLUMN revoked_at TEXT";
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  insert_memory_grant ~db ~scope_id:scope.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"write" ~revoked_at:"2026-01-01 00:00:00" ();
+  Alcotest.(check (list string))
+    "non-revoked capabilities only" [ "read" ]
+    (Memory.resolve_grants ~db ~scope_id:scope.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
+let test_resolve_grants_no_match_denies_access () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let parent = Memory.create_scope ~db ~kind:"room" ~key:"parent" () in
+  let child =
+    Memory.create_scope ~db ~kind:"thread" ~key:"child"
+      ~parent_scope_id:parent.id ()
+  in
+  insert_memory_grant ~db ~scope_id:parent.id ~principal_kind:"profile"
+    ~principal_id:"p1" ~capability:"read" ();
+  Alcotest.(check (list string))
+    "no direct child grant" []
+    (Memory.resolve_grants ~db ~scope_id:child.id ~principal_kind:"profile"
+       ~principal_id:"p1")
+
 (* --- room profile API tests --- *)
 
 let test_insert_and_get_room_profile () =
@@ -2437,6 +2535,16 @@ let suite =
       test_scoped_memory_query_filters_and_pagination;
     Alcotest.test_case "scoped memory delete and boundaries" `Quick
       test_scoped_memory_delete_and_boundaries;
+    Alcotest.test_case "resolve grants single grant" `Quick
+      test_resolve_grants_single_grant;
+    Alcotest.test_case "resolve grants merges matching direct grants" `Quick
+      test_resolve_grants_merges_matching_direct_grants;
+    Alcotest.test_case "resolve grants excludes expired grants" `Quick
+      test_resolve_grants_excludes_expired_grants;
+    Alcotest.test_case "resolve grants excludes revoked grants" `Quick
+      test_resolve_grants_excludes_revoked_grants;
+    Alcotest.test_case "resolve grants no match denies access" `Quick
+      test_resolve_grants_no_match_denies_access;
     Alcotest.test_case "insert and get room profile" `Quick
       test_insert_and_get_room_profile;
     Alcotest.test_case "insert room profile unique constraint" `Quick

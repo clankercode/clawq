@@ -30,6 +30,21 @@ let bind_int_option stmt index = function
       ignore (Sqlite3.bind stmt index (Sqlite3.Data.INT (Int64.of_int value)))
   | None -> ignore (Sqlite3.bind stmt index Sqlite3.Data.NULL)
 
+let sqlite_column_exists ~db ~table_name ~column_name =
+  let stmt =
+    Sqlite3.prepare db (Printf.sprintf "PRAGMA table_info(%s)" table_name)
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let found = ref false in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        match Sqlite3.column stmt 1 with
+        | Sqlite3.Data.TEXT s when s = column_name -> found := true
+        | _ -> ()
+      done;
+      !found)
+
 let memory_scope_of_stmt stmt =
   {
     id = int_col stmt 0;
@@ -316,3 +331,32 @@ let delete_scoped_memory ~db ~id =
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
       | _ -> false)
+
+let resolve_grants ~db ~scope_id ~principal_kind ~principal_id =
+  let revoked_clause =
+    if
+      sqlite_column_exists ~db ~table_name:"memory_grants"
+        ~column_name:"revoked_at"
+    then " AND revoked_at IS NULL"
+    else ""
+  in
+  let sql =
+    "SELECT DISTINCT capability FROM memory_grants WHERE scope_id = ? AND \
+     principal_kind = ? AND principal_id = ? AND (expires_at IS NULL OR \
+     datetime(expires_at) > datetime('now'))" ^ revoked_clause
+    ^ " ORDER BY capability"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let capabilities = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        match Sqlite3.column stmt 0 with
+        | Sqlite3.Data.TEXT s -> capabilities := s :: !capabilities
+        | _ -> ()
+      done;
+      List.rev !capabilities)
