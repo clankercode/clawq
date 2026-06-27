@@ -39,6 +39,6 @@ tasks:
       file: T003-deliver-ambient-follow-ups-saf.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Deliver ambient follow-ups safely
