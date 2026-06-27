@@ -1270,6 +1270,20 @@ let parse_config ?(resolve_secrets = true) json =
               }
                : Runtime_config.room_profile))
        with _ -> []);
+    room_profile_codebase_grants =
+      (try
+         json
+         |> member "room_profile_codebase_grants"
+         |> to_list
+         |> List.map (fun g ->
+             let profile_id = g |> member "profile_id" |> to_string in
+             let patterns =
+               try g |> member "patterns" |> to_list |> List.map to_string
+               with _ ->
+                 g |> member "codebase_grants" |> to_list |> List.map to_string
+             in
+             (profile_id, patterns))
+       with _ -> []);
     room_profile_bindings =
       (try
          json

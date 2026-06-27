@@ -278,6 +278,7 @@ let default =
     debate = default_debate_config;
     postmortem = default_postmortem_config;
     room_profiles = [];
+    room_profile_codebase_grants = [];
     room_profile_bindings = [];
   }
 
@@ -441,6 +442,11 @@ let resolve_room_profile_model (cfg : t) ~session_key : string option =
   match resolve_room_profile cfg ~session_key with
   | Some p when p.model <> "" -> Some p.model
   | _ -> None
+
+let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =
+  match List.assoc_opt profile_id cfg.room_profile_codebase_grants with
+  | Some grants -> grants
+  | None -> []
 
 let room_profile_tool_denial (profile : room_profile) ~tool_name =
   if List.mem tool_name profile.denied_tools then

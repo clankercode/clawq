@@ -928,6 +928,24 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
         ]
   in
   let fields =
+    if cfg.room_profile_codebase_grants = [] then fields
+    else
+      fields
+      @ [
+          ( "room_profile_codebase_grants",
+            `List
+              (List.map
+                 (fun (profile_id, patterns) ->
+                   `Assoc
+                     [
+                       ("profile_id", `String profile_id);
+                       ( "patterns",
+                         `List (List.map (fun p -> `String p) patterns) );
+                     ])
+                 cfg.room_profile_codebase_grants) );
+        ]
+  in
+  let fields =
     if cfg.room_profile_bindings = [] then fields
     else
       fields
