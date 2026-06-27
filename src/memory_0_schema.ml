@@ -1,4 +1,4 @@
-let schema_version = 33
+let schema_version = 34
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -401,6 +401,80 @@ let init_room_profile_bindings_schema db =
      CASCADE\n\
     \   )"
 
+let init_scoped_memory_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS memory_scopes (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     kind TEXT NOT NULL CHECK (kind IN ('personal', 'room', 'thread', \n\
+     'workspace', 'legacy')),\n\
+    \     key TEXT NOT NULL,\n\
+    \     profile_id INTEGER,\n\
+    \     parent_scope_id INTEGER,\n\
+    \     provenance TEXT NOT NULL DEFAULT 'unknown',\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     UNIQUE(kind, key),\n\
+    \     CHECK (parent_scope_id IS NULL OR parent_scope_id <> id),\n\
+    \     FOREIGN KEY (profile_id) REFERENCES room_profiles(id) ON DELETE SET \n\
+     NULL,\n\
+    \     FOREIGN KEY (parent_scope_id) REFERENCES memory_scopes(id) ON DELETE \n\
+     SET NULL\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_scopes_profile ON \n\
+    \     memory_scopes(profile_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_scopes_parent ON \n\
+    \     memory_scopes(parent_scope_id)";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS scoped_memories (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     scope_id INTEGER NOT NULL,\n\
+    \     content TEXT,\n\
+    \     reference TEXT,\n\
+    \     provenance TEXT NOT NULL DEFAULT 'unknown',\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     redacted_at TEXT,\n\
+    \     redaction_reason TEXT,\n\
+    \     redaction_metadata TEXT,\n\
+    \     CHECK (content IS NOT NULL OR reference IS NOT NULL),\n\
+    \     FOREIGN KEY (scope_id) REFERENCES memory_scopes(id) ON DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_scoped_memories_scope_created ON \n\
+    \     scoped_memories(scope_id, created_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_scoped_memories_reference ON \n\
+    \     scoped_memories(reference)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_scoped_memories_redacted ON \n\
+    \     scoped_memories(redacted_at)";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS memory_grants (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     scope_id INTEGER NOT NULL,\n\
+    \     principal_kind TEXT NOT NULL,\n\
+    \     principal_id TEXT NOT NULL,\n\
+    \     capability TEXT NOT NULL,\n\
+    \     grantor_kind TEXT,\n\
+    \     grantor_id TEXT,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     expires_at TEXT,\n\
+    \     is_transitive INTEGER NOT NULL DEFAULT 0 CHECK (is_transitive = 0),\n\
+    \     UNIQUE(scope_id, principal_kind, principal_id, capability),\n\
+    \     FOREIGN KEY (scope_id) REFERENCES memory_scopes(id) ON DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_grants_scope ON \n\
+    \     memory_grants(scope_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_grants_principal ON \n\
+    \     memory_grants(principal_kind, principal_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_grants_capability ON \n\
+    \     memory_grants(scope_id, capability)"
+
 let init_session_repos_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS session_repos (\n\
@@ -450,7 +524,8 @@ let ensure_all_tables db =
   init_debate_rounds_schema db;
   init_session_repos_schema db;
   init_room_profiles_schema db;
-  init_room_profile_bindings_schema db
+  init_room_profile_bindings_schema db;
+  init_scoped_memory_schema db
 
 (* Each step migrates from version [v] to [v + 1].
    All ALTER TABLE operations use try/catch for idempotency.
@@ -613,6 +688,7 @@ let migrate_step db v =
       try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
       try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
       try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
+  | 33 -> init_scoped_memory_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -648,7 +724,8 @@ let repair_missing_columns db =
   try_add "ALTER TABLE background_tasks ADD COLUMN profile_id INTEGER";
   try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
   try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
-  try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
+  try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
+  init_scoped_memory_schema db
 
 let migrate_schema db current_version =
   match current_version with
