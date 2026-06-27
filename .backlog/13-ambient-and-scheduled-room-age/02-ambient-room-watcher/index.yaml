@@ -27,9 +27,9 @@ epics:
       locked: false
       name: Ambient Safety Controls
       path: 03-ambient-safety-controls
-      status: pending
+      status: done
 estimate_hours: 24
 id: P13.M2
 locked: false
 name: Ambient Room Watcher
-status: pending
+status: done

@@ -4,7 +4,7 @@ estimate_hours: 6
 id: P13.M2.E3
 locked: false
 name: Ambient Safety Controls
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -24,5 +24,6 @@ tasks:
       file: T002-add-ambient-admin-inspection-s.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add ambient admin inspection surface
