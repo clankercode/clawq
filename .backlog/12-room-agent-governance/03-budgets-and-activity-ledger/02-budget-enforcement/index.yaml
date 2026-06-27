@@ -4,6 +4,12 @@ estimate_hours: 10
 id: P12.M3.E2
 locked: false
 name: Budget Enforcement
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
 status: pending
 tasks:
     - complexity: high

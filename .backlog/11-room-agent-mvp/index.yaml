@@ -41,5 +41,11 @@ milestones:
       path: 04-mention-to-task-mvp
       status: pending
 name: Room Agent MVP
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 28
+    total_tasks: 28
 status: pending
 weeks: 4

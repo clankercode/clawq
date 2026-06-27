@@ -41,4 +41,10 @@ estimate_hours: 28
 id: P11.M1
 locked: false
 name: Room Profile Foundation
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 9
+    total_tasks: 9
 status: pending

@@ -41,4 +41,10 @@ estimate_hours: 28
 id: P11.M4
 locked: false
 name: Mention-to-Task MVP
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 9
+    total_tasks: 9
 status: pending

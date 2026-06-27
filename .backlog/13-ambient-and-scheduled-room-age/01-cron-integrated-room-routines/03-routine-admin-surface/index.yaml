@@ -4,6 +4,12 @@ estimate_hours: 6
 id: P13.M1.E3
 locked: false
 name: Routine Admin Surface
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: medium

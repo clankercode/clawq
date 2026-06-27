@@ -4,6 +4,12 @@ estimate_hours: 10
 id: P13.M1.E2
 locked: false
 name: Routine Execution
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 1
+    total: 1
 status: pending
 tasks:
     - complexity: high

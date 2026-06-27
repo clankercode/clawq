@@ -32,5 +32,11 @@ milestones:
       path: 03-multi-connector-polish
       status: pending
 name: Ambient and Scheduled Room Agents
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 19
+    total_tasks: 19
 status: pending
 weeks: 4

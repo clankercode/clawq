@@ -32,5 +32,11 @@ milestones:
       path: 03-budgets-and-activity-ledger
       status: pending
 name: Room Agent Governance
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 20
+    total_tasks: 20
 status: pending
 weeks: 4

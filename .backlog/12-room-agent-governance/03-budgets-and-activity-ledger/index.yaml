@@ -32,4 +32,10 @@ estimate_hours: 36
 id: P12.M3
 locked: false
 name: Budgets and Activity Ledger
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 9
+    total_tasks: 9
 status: pending

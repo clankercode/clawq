@@ -32,4 +32,10 @@ estimate_hours: 22
 id: P11.M2
 locked: false
 name: Profile Resolution in Connectors
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total_tasks: 4
 status: pending

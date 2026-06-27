@@ -32,4 +32,10 @@ estimate_hours: 36
 id: P12.M1
 locked: false
 name: Scoped Memory Tables
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 8
+    total_tasks: 8
 status: pending

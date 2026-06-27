@@ -4,6 +4,12 @@ estimate_hours: 8
 id: P11.M2.E2
 locked: false
 name: Room CWD and Model Precedence
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 2
+    total: 2
 status: pending
 tasks:
     - complexity: high

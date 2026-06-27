@@ -32,4 +32,10 @@ estimate_hours: 24
 id: P12.M2
 locked: false
 name: Profile Policy and Grants
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total_tasks: 3
 status: pending

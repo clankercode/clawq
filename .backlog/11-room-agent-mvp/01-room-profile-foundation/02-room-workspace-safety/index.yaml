@@ -4,6 +4,12 @@ estimate_hours: 6
 id: P11.M1.E2
 locked: false
 name: Room Workspace Safety
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 1
+    total: 1
 status: pending
 tasks:
     - complexity: high

@@ -32,4 +32,10 @@ estimate_hours: 24
 id: P13.M3
 locked: false
 name: Multi-Connector Polish
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total_tasks: 5
 status: pending

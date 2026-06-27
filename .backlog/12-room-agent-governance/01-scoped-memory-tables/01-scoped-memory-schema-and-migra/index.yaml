@@ -4,6 +4,12 @@ estimate_hours: 12
 id: P12.M1.E1
 locked: false
 name: Scoped Memory Schema and Migration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 2
+    total: 2
 status: pending
 tasks:
     - complexity: high

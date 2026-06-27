@@ -4,6 +4,12 @@ estimate_hours: 6
 id: P13.M2.E3
 locked: false
 name: Ambient Safety Controls
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 2
+    total: 2
 status: pending
 tasks:
     - complexity: high

@@ -41,4 +41,10 @@ estimate_hours: 18
 id: P11.M3
 locked: false
 name: Thread-Bound Work Sessions
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 6
+    total_tasks: 6
 status: pending

@@ -4,6 +4,12 @@ estimate_hours: 16
 id: P12.M3.E3
 locked: false
 name: Room Activity Ledger
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high
