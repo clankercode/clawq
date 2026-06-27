@@ -2677,7 +2677,8 @@ let test_replay_history_saved_before_queue_deleted () =
     (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
        ~payload_json:
          (Yojson.Safe.to_string
-            (`Assoc [ ("message", `String "save my history"); ("bang", `Bool false) ])));
+            (`Assoc
+               [ ("message", `String "save my history"); ("bang", `Bool false) ])));
   let replay_turn _mgr ~key ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
     Memory.store_message ~db ~session_key:key
       (Provider.make_message ~role:"assistant" ~content:"history saved");
@@ -2693,7 +2694,9 @@ let test_replay_history_saved_before_queue_deleted () =
   let found = Memory.search ~db ~query:"history saved" ~limit:5 () in
   Alcotest.(check bool)
     "history persisted before queue deletion" true
-    (List.exists (fun (m : Provider.message) -> m.content = "history saved") found)
+    (List.exists
+       (fun (m : Provider.message) -> m.content = "history saved")
+       found)
 
 (* P7.M2.E2.T003: history NOT saved when turn errors before flush *)
 let test_replay_history_not_saved_on_turn_error () =
@@ -2717,9 +2720,7 @@ let test_replay_history_not_saved_on_turn_error () =
     "queue row still present after error" 1
     (Memory.queue_count ~db ~session_key:key);
   let found = Memory.search ~db ~query:"will fail" ~limit:5 () in
-  Alcotest.(check int)
-    "no history persisted on error" 0
-    (List.length found)
+  Alcotest.(check int) "no history persisted on error" 0 (List.length found)
 
 let test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload () =
   let registry = Tool_registry.create () in
@@ -3077,6 +3078,78 @@ let test_notify_discord_dispatches_channel_notification () =
         (Test_helpers.string_contains t "Background task #9 finished: SUCCEEDED")
   | [] -> Alcotest.fail "expected at least one dispatch"
 
+let test_replay_history_saved_before_queue_row_deleted () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:100:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("message", `String "saved-before-delete");
+                 ("bang", `Bool false);
+               ])));
+  let replay_turn _mgr ~key:_ ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
+    Memory.store_message ~db ~session_key:key
+      (Provider.make_message ~role:"user" ~content:"saved-before-delete");
+    Memory.store_message ~db ~session_key:key
+      (Provider.make_message ~role:"assistant" ~content:"replayed");
+    Lwt.return "ok"
+  in
+  let summary =
+    Lwt_main.run
+      (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+         ())
+  in
+  Alcotest.(check int) "summary replayed" 1 summary.replayed_count;
+  Alcotest.(check int) "summary failed" 0 summary.failed_count;
+  Alcotest.(check int)
+    "queue drained" 0
+    (Memory.queue_count ~db ~session_key:key);
+  let history = Memory.load_history ~db ~session_key:key in
+  Alcotest.(check int) "history persisted" 2 (List.length history);
+  Alcotest.(check string)
+    "user message persisted" "saved-before-delete"
+    (List.nth history 0).Provider.content;
+  Alcotest.(check string)
+    "assistant response persisted" "replayed"
+    (List.nth history 1).Provider.content
+
+let test_replay_history_not_saved_when_turn_errors () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:101:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "turn-fails"); ("bang", `Bool false) ])));
+  let replay_turn _mgr ~key:_ ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
+    Lwt.fail_with "turn exploded"
+  in
+  let summary =
+    Lwt_main.run
+      (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+         ())
+  in
+  Alcotest.(check int) "summary replayed" 0 summary.replayed_count;
+  Alcotest.(check int) "summary failed" 1 summary.failed_count;
+  Alcotest.(check int)
+    "queue row still present" 1
+    (Memory.queue_count ~db ~session_key:key);
+  let rows = Memory.queue_list ~db ~session_key:key in
+  let row = List.hd rows in
+  Alcotest.(check int) "attempt_count incremented" 1 row.attempt_count;
+  Alcotest.(check bool)
+    "last_error set" true
+    (match row.last_error with Some e -> String.length e > 0 | None -> false);
+  let history = Memory.load_history ~db ~session_key:key in
+  Alcotest.(check int) "no history saved on failed turn" 0 (List.length history)
+
 (* B673: restart-resume history sanitization. Stuck/watchdog/circuit-breaker
    noise messages from a prior session epoch should be dropped before the
    resume turn so they don't bias the LLM. *)
@@ -3290,4 +3363,8 @@ let suite =
       test_notify_records_skipped_when_no_channel;
     Alcotest.test_case "notify discord dispatches channel notification" `Quick
       test_notify_discord_dispatches_channel_notification;
+    Alcotest.test_case "replay history saved before queue row deleted" `Quick
+      test_replay_history_saved_before_queue_row_deleted;
+    Alcotest.test_case "replay history not saved when turn errors before flush"
+      `Quick test_replay_history_not_saved_when_turn_errors;
   ]

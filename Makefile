@@ -3,6 +3,9 @@ SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 .SHELLFLAGS := -c
 export OPAM_SWITCH := $(SHELL_SWITCH)
 
+# Cap OCaml GC compaction threshold to prevent dune/ocamlopt from consuming 20-30GB RAM
+export OCAMLRUNPARAM ?= o=120,O=120
+
 .PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 benchmark benchmark-quick test test-nocontainer test-all test-all-nocontainer test-docker test-run docker-test-image docker-test-clean fmt fmt-check ui ui-dev ui-check sync-version sync-version-check gen-agents gen-agents-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
 
 LOCAL_DUNE_BUILD_DIRS := _build _build_opt_speed _build_opt_size _build_opt_min
