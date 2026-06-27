@@ -66,6 +66,7 @@ let fake_task ?(runner = Background_task.Codex)
     origin_json = None;
     thread_id = None;
     requester = None;
+    progress_state = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -105,6 +106,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     origin_json = None;
     thread_id = None;
     requester = None;
+    progress_state = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -379,6 +381,7 @@ let test_command_of_task_codex () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -429,6 +432,7 @@ let test_command_of_task_claude () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -473,6 +477,7 @@ let test_command_of_task_kimi () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -517,6 +522,7 @@ let test_command_of_task_kimi_with_model () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -561,6 +567,7 @@ let test_command_of_task_gemini () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -605,6 +612,7 @@ let test_command_of_task_gemini_with_model () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -649,6 +657,7 @@ let test_command_of_task_opencode () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -693,6 +702,7 @@ let test_command_of_task_opencode_with_model () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -737,6 +747,7 @@ let test_command_of_task_cursor () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -781,6 +792,7 @@ let test_command_of_task_cursor_with_model () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -1707,6 +1719,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     origin_json = None;
     thread_id = None;
     requester = None;
+    progress_state = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1916,6 +1929,7 @@ let test_command_of_task_codex_with_model () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -1968,6 +1982,7 @@ let test_command_of_task_claude_with_model () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   Alcotest.(check (array string))
@@ -3652,6 +3667,7 @@ let test_terse_message_dirty_worktree () =
       origin_json = None;
       thread_id = None;
       requester = None;
+      progress_state = None;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -5041,6 +5057,216 @@ let test_transcript_tool_filters_session_history () =
     "tool applies regex before render" false
     (Test_helpers.string_contains output "alpha plain")
 
+let test_progress_state_string_roundtrip () =
+  let states =
+    Background_task.
+      [
+        Accepted;
+        Planned;
+        Working;
+        Blocked;
+        Completed;
+        Progress_failed;
+        Needs_input;
+      ]
+  in
+  List.iter
+    (fun ps ->
+      let s = Background_task.string_of_progress_state ps in
+      match Background_task.progress_state_of_string s with
+      | Some ps' ->
+          Alcotest.(check bool) (Printf.sprintf "roundtrip %s" s) true (ps = ps')
+      | None ->
+          Alcotest.fail (Printf.sprintf "failed to parse progress state %s" s))
+    states;
+  (* needs-input also parses as needs_input *)
+  match Background_task.progress_state_of_string "needs_input" with
+  | Some Needs_input -> ()
+  | _ -> Alcotest.fail "needs_input variant should parse"
+
+let test_progress_state_of_status_derivation () =
+  let open Background_task in
+  let opt = Alcotest.option Alcotest.string in
+  Alcotest.(check opt)
+    "queued -> accepted" (Some "accepted")
+    (Option.map string_of_progress_state (progress_state_of_status Queued));
+  Alcotest.(check opt)
+    "running -> working" (Some "working")
+    (Option.map string_of_progress_state (progress_state_of_status Running));
+  Alcotest.(check opt)
+    "succeeded -> completed" (Some "completed")
+    (Option.map string_of_progress_state (progress_state_of_status Succeeded));
+  Alcotest.(check opt)
+    "failed -> failed" (Some "failed")
+    (Option.map string_of_progress_state (progress_state_of_status Failed));
+  Alcotest.(check opt)
+    "dirty_worktree -> failed" (Some "failed")
+    (Option.map string_of_progress_state
+       (progress_state_of_status DirtyWorktree));
+  Alcotest.(check opt)
+    "cancelled -> none" None
+    (Option.map string_of_progress_state (progress_state_of_status Cancelled))
+
+let test_effective_progress_state_room_origin () =
+  let open Background_task in
+  let task =
+    {
+      id = 1;
+      runner = Codex;
+      model = None;
+      repo_path = "/tmp";
+      prompt = "test";
+      branch = "";
+      worktree_path = None;
+      log_path = None;
+      status = Running;
+      runner_session_id = None;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "2026-01-01 00:00:00";
+      started_at = None;
+      finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
+      retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
+      acp = false;
+      agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
+      follow_up_prompt = None;
+      profile_id = None;
+      origin_json = Some "{\"room_id\":\"C123\"}";
+      thread_id = None;
+      requester = None;
+      progress_state = None;
+    }
+  in
+  let opt = Alcotest.option Alcotest.string in
+  (* Room-origin task derives from status when no explicit state *)
+  Alcotest.(check opt)
+    "room origin derives working" (Some "working")
+    (Option.map string_of_progress_state (effective_progress_state task));
+  (* With explicit state, returns that *)
+  let with_explicit = { task with progress_state = Some Blocked } in
+  Alcotest.(check opt)
+    "room origin explicit blocked" (Some "blocked")
+    (Option.map string_of_progress_state
+       (effective_progress_state with_explicit))
+
+let test_effective_progress_state_non_room () =
+  let open Background_task in
+  let task =
+    {
+      id = 1;
+      runner = Codex;
+      model = None;
+      repo_path = "/tmp";
+      prompt = "test";
+      branch = "";
+      worktree_path = None;
+      log_path = None;
+      status = Running;
+      runner_session_id = None;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "2026-01-01 00:00:00";
+      started_at = None;
+      finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
+      retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
+      acp = false;
+      agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
+      follow_up_prompt = None;
+      profile_id = None;
+      origin_json = None;
+      thread_id = None;
+      requester = None;
+      progress_state = None;
+    }
+  in
+  let opt = Alcotest.option Alcotest.string in
+  (* Non-room task without explicit state returns None *)
+  Alcotest.(check opt)
+    "non-room no explicit" None
+    (Option.map string_of_progress_state (effective_progress_state task));
+  (* Non-room task with explicit state returns it *)
+  let with_explicit = { task with progress_state = Some Needs_input } in
+  Alcotest.(check opt)
+    "non-room explicit needs-input" (Some "needs-input")
+    (Option.map string_of_progress_state
+       (effective_progress_state with_explicit))
+
+let test_set_progress_state_persists () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Codex ~require_git:false
+        ~repo_path:"/tmp" ~prompt:"test" ()
+    with
+    | Ok id -> id
+    | Error e -> Alcotest.fail ("enqueue failed: " ^ e)
+  in
+  Background_task.set_progress_state ~db ~id ~state:Working;
+  match Background_task.get_task ~db ~id with
+  | None -> Alcotest.fail "task not found"
+  | Some task -> (
+      Alcotest.(check (option string))
+        "progress_state is working" (Some "working")
+        (Option.map Background_task.string_of_progress_state task.progress_state);
+      (* Set to blocked *)
+      Background_task.set_progress_state ~db ~id ~state:Blocked;
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found after update"
+      | Some task2 ->
+          Alcotest.(check (option string))
+            "progress_state is blocked" (Some "blocked")
+            (Option.map Background_task.string_of_progress_state
+               task2.progress_state))
+
+let test_clear_progress_state () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Codex ~require_git:false
+        ~repo_path:"/tmp" ~prompt:"test" ()
+    with
+    | Ok id -> id
+    | Error e -> Alcotest.fail ("enqueue failed: " ^ e)
+  in
+  Background_task.set_progress_state ~db ~id ~state:Needs_input;
+  (match Background_task.get_task ~db ~id with
+  | None -> Alcotest.fail "task not found"
+  | Some task ->
+      Alcotest.(check (option string))
+        "progress_state is needs-input" (Some "needs-input")
+        (Option.map Background_task.string_of_progress_state task.progress_state));
+  Background_task.clear_progress_state ~db ~id;
+  match Background_task.get_task ~db ~id with
+  | None -> Alcotest.fail "task not found after clear"
+  | Some task ->
+      Alcotest.(check (option string))
+        "progress_state is None" None
+        (Option.map Background_task.string_of_progress_state task.progress_state)
+
 let test_command_to_log_string () =
   let exec_result =
     Background_task.command_to_log_string
@@ -5700,4 +5926,15 @@ let suite =
       test_health_local_task_log_fresh_is_active;
     Alcotest.test_case "health local task stale log is stalled" `Quick
       test_health_local_task_stale_log_is_stalled;
+    Alcotest.test_case "progress state string roundtrip" `Quick
+      test_progress_state_string_roundtrip;
+    Alcotest.test_case "progress state of status derivation" `Quick
+      test_progress_state_of_status_derivation;
+    Alcotest.test_case "effective progress state room origin" `Quick
+      test_effective_progress_state_room_origin;
+    Alcotest.test_case "effective progress state non-room" `Quick
+      test_effective_progress_state_non_room;
+    Alcotest.test_case "set progress state persists" `Quick
+      test_set_progress_state_persists;
+    Alcotest.test_case "clear progress state" `Quick test_clear_progress_state;
   ]

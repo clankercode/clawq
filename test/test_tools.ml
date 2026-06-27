@@ -2080,6 +2080,7 @@ let test_background_task_logs_truncates_large_output () =
           origin_json = None;
           thread_id = None;
           requester = None;
+          progress_state = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -2147,6 +2148,7 @@ let test_background_task_logs_truncates_pathological_long_line () =
           origin_json = None;
           thread_id = None;
           requester = None;
+          progress_state = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -2223,6 +2225,7 @@ let test_background_task_logs_clamps_excessive_lines () =
           origin_json = None;
           thread_id = None;
           requester = None;
+          progress_state = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
