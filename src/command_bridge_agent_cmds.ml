@@ -315,6 +315,9 @@ let room_profile_to_json (p : Runtime_config.room_profile) =
          [
            ("denied_tools", `List (List.map (fun t -> `String t) p.denied_tools));
          ])
+    @ (if not p.ambient_enabled then [] else [ ("ambient_enabled", `Bool true) ])
+    @ (if p.ambient_rate_limit_rph = 0 then []
+       else [ ("ambient_rate_limit_rph", `Int p.ambient_rate_limit_rph) ])
     @
     match p.display_name with
     | Some name -> [ ("display_name", `String name) ]

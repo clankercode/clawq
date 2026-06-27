@@ -28,6 +28,10 @@ let test_reconcile_syncs_config_profiles () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -63,6 +67,10 @@ let test_reconcile_removes_stale_binding () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -109,6 +117,10 @@ let test_reconcile_removes_orphan_profile () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
           {
             id = "p2";
@@ -119,6 +131,10 @@ let test_reconcile_removes_orphan_profile () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -144,6 +160,10 @@ let test_reconcile_removes_orphan_profile () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
     }
@@ -176,6 +196,10 @@ let test_reconcile_removes_stale_binding_and_orphan_profile () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -219,6 +243,10 @@ let test_reconcile_deterministic () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
           {
             id = "p2";
@@ -229,6 +257,10 @@ let test_reconcile_deterministic () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -266,6 +298,10 @@ let test_reconcile_ignores_inactive_bindings () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -306,6 +342,10 @@ let test_reconcile_reports_duplicate_room_bindings () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
           {
             id = "p2";
@@ -316,6 +356,10 @@ let test_reconcile_reports_duplicate_room_bindings () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -356,6 +400,10 @@ let test_reconcile_reports_duplicate_profile_bindings () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -397,6 +445,10 @@ let test_reconcile_reload_helper_updates_db () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -453,6 +505,10 @@ let test_reconcile_detects_profile_mismatch () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
           {
             id = "p2";
@@ -463,6 +519,10 @@ let test_reconcile_detects_profile_mismatch () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =

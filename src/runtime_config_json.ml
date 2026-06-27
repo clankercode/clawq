@@ -920,6 +920,25 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                                 (List.map (fun t -> `String t) p.denied_tools)
                             );
                           ])
+                     @ (if not p.ambient_enabled then []
+                        else [ ("ambient_enabled", `Bool true) ])
+                     @ (let qs = p.ambient_quiet_start in
+                        let qe = p.ambient_quiet_end in
+                        if
+                          qs = Ambient_policy.default_ambient_quiet_start
+                          && qe = Ambient_policy.default_ambient_quiet_end
+                        then []
+                        else
+                          [
+                            ("ambient_quiet_start", `Int qs);
+                            ("ambient_quiet_end", `Int qe);
+                          ])
+                     @ (if p.ambient_rate_limit_rph = 0 then []
+                        else
+                          [
+                            ( "ambient_rate_limit_rph",
+                              `Int p.ambient_rate_limit_rph );
+                          ])
                      @
                      match p.display_name with
                      | Some name -> [ ("display_name", `String name) ]
