@@ -1011,9 +1011,35 @@ let cmd_rooms_routine cfg args =
               | Ok () -> Printf.sprintf "Disabled room routine '%s'." name
               | Error e -> Printf.sprintf "Error: %s" e)))
   | [ "disable" ] -> "Error: rooms routine disable requires a routine name."
+  | [ "trigger"; name ] -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let db = get_db () in
+          Scheduler.init_schema db;
+          Background_task.init_schema db;
+          match Scheduler.get_job ~db ~name with
+          | None -> Printf.sprintf "No room routine found with name '%s'." name
+          | Some job when job.profile_id = None ->
+              Printf.sprintf
+                "Job '%s' exists but is not a room routine (no profile_id \
+                 set). Use 'clawq cron trigger %s' instead."
+                name name
+          | Some _ -> (
+              match Scheduler.trigger_job ~db ~name with
+              | Ok task_id ->
+                  Printf.sprintf
+                    "Triggered room routine '%s' — enqueued as background task \
+                     %d.\n\
+                     Use 'clawq background show %d' to check progress."
+                    name task_id task_id
+              | Error e -> Printf.sprintf "Error: %s" e)))
+  | [ "trigger" ] ->
+      "Error: rooms routine trigger requires a routine name. Usage: clawq \
+       rooms routine trigger <name>"
   | _ ->
       "Usage: clawq rooms routine \
-       <create|list|show|edit|remove|enable|disable>\n\n\
+       <create|list|show|edit|remove|enable|disable|trigger>\n\n\
        Subcommands:\n\
       \  create <profile> <schedule> <message> [--thread-id ID]\n\
       \                              Create a room routine (admin-only)\n\
@@ -1023,7 +1049,8 @@ let cmd_rooms_routine cfg args =
       \                              Edit a room routine (admin-only)\n\
       \  remove <name>               Remove a room routine (admin-only)\n\
       \  enable <name>               Enable a room routine (admin-only)\n\
-      \  disable <name>              Disable a room routine (admin-only)"
+      \  disable <name>              Disable a room routine (admin-only)\n\
+      \  trigger <name>              Trigger a room routine now (admin-only)"
 
 let cmd_rooms args =
   let cfg = get_config () in
@@ -1387,8 +1414,8 @@ let cmd_rooms args =
       \                              Soft-delete profile and remove bindings \
        (admin-only)\n\
       \  unbind <room_id>            Remove room binding (preserves profile)\n\
-      \  routine <create|list|show|edit|remove|enable|disable>   Manage room \
-       routines (admin-only)"
+      \  routine <create|list|show|edit|remove|enable|disable|trigger>   \
+       Manage room routines (admin-only)"
 
 let cmd_rig args =
   match args with

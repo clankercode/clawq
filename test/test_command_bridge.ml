@@ -4297,7 +4297,10 @@ let test_rooms_routine_usage () =
     (Test_helpers.string_contains result "enable");
   Alcotest.(check bool)
     "routine usage mentions disable" true
-    (Test_helpers.string_contains result "disable")
+    (Test_helpers.string_contains result "disable");
+  Alcotest.(check bool)
+    "routine usage mentions trigger" true
+    (Test_helpers.string_contains result "trigger")
 
 let test_rooms_routine_edit_schedule () =
   with_temp_home (fun home ->
@@ -4549,6 +4552,85 @@ let test_rooms_routine_enable_already_enabled () =
       Alcotest.(check bool)
         "already enabled mentions already enabled" true
         (Test_helpers.string_contains result "already enabled"))
+
+let test_rooms_routine_trigger_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "trigger"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "trigger success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "trigger success mentions Triggered" true
+        (Test_helpers.string_contains result "Triggered");
+      Alcotest.(check bool)
+        "trigger success mentions background task" true
+        (Test_helpers.string_contains result "background task"))
+
+let test_rooms_routine_trigger_not_found () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "trigger"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "trigger not found mentions routine name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_trigger_not_a_routine () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let _ =
+        Command_bridge.handle
+          [ "cron"; "add"; "plain-job"; "sess1"; "every 1h"; "hello" ]
+      in
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "trigger"; "plain-job" ]
+      in
+      Alcotest.(check bool)
+        "trigger non-routine mentions not a room routine" true
+        (Test_helpers.string_contains result "not a room routine"))
+
+let test_rooms_routine_trigger_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "trigger"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "trigger without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_trigger_no_name () =
+  let result = Command_bridge.handle [ "rooms"; "routine"; "trigger" ] in
+  Alcotest.(check bool)
+    "trigger no name shows usage" true
+    (Test_helpers.string_contains result "routine trigger <name>")
 
 let suite =
   [
@@ -4852,4 +4934,14 @@ let suite =
       test_rooms_routine_disable_already_disabled;
     Alcotest.test_case "rooms routine enable already enabled" `Quick
       test_rooms_routine_enable_already_enabled;
+    Alcotest.test_case "rooms routine trigger basic" `Quick
+      test_rooms_routine_trigger_basic;
+    Alcotest.test_case "rooms routine trigger not found" `Quick
+      test_rooms_routine_trigger_not_found;
+    Alcotest.test_case "rooms routine trigger not a routine" `Quick
+      test_rooms_routine_trigger_not_a_routine;
+    Alcotest.test_case "rooms routine trigger rejected without admin" `Quick
+      test_rooms_routine_trigger_rejected_without_admin;
+    Alcotest.test_case "rooms routine trigger no name" `Quick
+      test_rooms_routine_trigger_no_name;
   ]
