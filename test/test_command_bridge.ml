@@ -41,11 +41,14 @@ let with_temp_home f =
   Unix.mkdir dir 0o755;
   let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
   let old_clawq_home = Sys.getenv_opt Dot_dir.env_var in
+  let old_admin = Sys.getenv_opt "CLAWQ_ADMIN" in
   Unix.putenv "HOME" dir;
   (* Clear CLAWQ_HOME so Dot_dir.path () falls back to $HOME/.clawq *)
   (match old_clawq_home with
   | Some _ -> Unix.putenv Dot_dir.env_var ""
   | None -> ());
+  (* Clear CLAWQ_ADMIN so tests default to non-admin *)
+  Unix.putenv "CLAWQ_ADMIN" "";
   Fun.protect
     (fun () -> f dir)
     ~finally:(fun () ->
@@ -55,6 +58,9 @@ let with_temp_home f =
       (match old_clawq_home with
       | Some v -> Unix.putenv Dot_dir.env_var v
       | None -> Unix.putenv Dot_dir.env_var "");
+      (match old_admin with
+      | Some v -> Unix.putenv "CLAWQ_ADMIN" v
+      | None -> Unix.putenv "CLAWQ_ADMIN" "");
       (try
          let clawq_dir = Filename.concat dir ".clawq" in
          if Sys.file_exists clawq_dir then begin
@@ -3253,6 +3259,242 @@ let test_models_set_usage_excludes_session_only_set_without_live_session () =
         "still advertises persistent path" true
         (Test_helpers.string_contains result "set-default MODEL"))
 
+let test_rooms_list_empty () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "rooms"; "list" ] in
+      Alcotest.(check bool)
+        "rooms list empty mentions no profiles" true
+        (Test_helpers.string_contains result "No room profiles"))
+
+let test_rooms_bind_and_list () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "You are a coder.", "max_tool_iterations": 10}
+  ]
+}|});
+      (* Bind a room *)
+      let bind_result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C123"; "coding" ]
+      in
+      Alcotest.(check bool)
+        "bind success mentions room" true
+        (Test_helpers.string_contains bind_result "slack:C123");
+      Alcotest.(check bool)
+        "bind success mentions profile" true
+        (Test_helpers.string_contains bind_result "coding");
+      (* List should now show the binding *)
+      let list_result = Command_bridge.handle [ "rooms"; "list" ] in
+      Alcotest.(check bool)
+        "list shows room" true
+        (Test_helpers.string_contains list_result "slack:C123");
+      Alcotest.(check bool)
+        "list shows profile" true
+        (Test_helpers.string_contains list_result "coding"))
+
+let test_rooms_bind_unknown_profile_errors () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C999"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "error mentions profile not found" true
+        (Test_helpers.string_contains result "not found");
+      Alcotest.(check bool)
+        "error lists available profiles" true
+        (Test_helpers.string_contains result "coding"))
+
+let test_rooms_bind_no_profiles_configured () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home (Yojson.Safe.from_string {|{}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C1"; "any" ]
+      in
+      Alcotest.(check bool)
+        "error mentions no profiles configured" true
+        (Test_helpers.string_contains result "no room profiles"))
+
+let test_rooms_bind_already_bound () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C1"; "coding" ]
+      in
+      Alcotest.(check bool)
+        "already bound message" true
+        (Test_helpers.string_contains result "already bound"))
+
+let test_rooms_bind_rebinds_different_profile () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10},
+    {"id": "review", "model": "claude", "system_prompt": "", "max_tool_iterations": 5}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C1"; "review" ]
+      in
+      Alcotest.(check bool)
+        "rebind success mentions room" true
+        (Test_helpers.string_contains result "slack:C1");
+      Alcotest.(check bool)
+        "rebind success mentions new profile" true
+        (Test_helpers.string_contains result "review"))
+
+let test_rooms_unbind () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let unbind_result =
+        Command_bridge.handle [ "rooms"; "unbind"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "unbind success mentions room" true
+        (Test_helpers.string_contains unbind_result "slack:C1");
+      Alcotest.(check bool)
+        "unbind preserves profile" true
+        (Test_helpers.string_contains unbind_result "preserved");
+      (* Verify binding removed but profile preserved *)
+      let list_result = Command_bridge.handle [ "rooms"; "list" ] in
+      Alcotest.(check bool)
+        "list still shows profile after unbind" true
+        (Test_helpers.string_contains list_result "coding"))
+
+let test_rooms_unbind_no_binding () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "unbind"; "slack:MISSING" ]
+      in
+      Alcotest.(check bool)
+        "no binding error mentions room" true
+        (Test_helpers.string_contains result "slack:MISSING"))
+
+let test_rooms_show_bound () =
+  with_temp_home (fun home ->
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "You are a coder.", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result = Command_bridge.handle [ "rooms"; "show"; "slack:C1" ] in
+      Alcotest.(check bool)
+        "show mentions room" true
+        (Test_helpers.string_contains result "slack:C1");
+      Alcotest.(check bool)
+        "show mentions profile" true
+        (Test_helpers.string_contains result "coding");
+      Alcotest.(check bool)
+        "show mentions model" true
+        (Test_helpers.string_contains result "gpt-5"))
+
+let test_rooms_show_unbound () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "rooms"; "show"; "slack:UNKNOWN" ] in
+      Alcotest.(check bool)
+        "show unbound mentions not bound" true
+        (Test_helpers.string_contains result "not bound"))
+
+let test_rooms_usage () =
+  let result = Command_bridge.handle [ "rooms"; "help" ] in
+  Alcotest.(check bool)
+    "rooms usage mentions list" true
+    (Test_helpers.string_contains result "list");
+  Alcotest.(check bool)
+    "rooms usage mentions bind" true
+    (Test_helpers.string_contains result "bind");
+  Alcotest.(check bool)
+    "rooms usage mentions unbind" true
+    (Test_helpers.string_contains result "unbind")
+
+let test_rooms_bind_rejected_without_admin () =
+  with_temp_home (fun home ->
+      (* CLAWQ_ADMIN is cleared by with_temp_home *)
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      (* bind is rejected without admin *)
+      let bind_result =
+        Command_bridge.handle [ "rooms"; "bind"; "slack:C999"; "coding" ]
+      in
+      Alcotest.(check bool)
+        "bind rejected mentions admin" true
+        (Test_helpers.string_contains bind_result "admin");
+      Alcotest.(check bool)
+        "bind rejected mentions CLAWQ_ADMIN" true
+        (Test_helpers.string_contains bind_result "CLAWQ_ADMIN");
+      (* Config must not have bindings after rejected bind *)
+      let cfg = Config_loader.load () in
+      Alcotest.(check int)
+        "no bindings after rejected bind" 0
+        (List.length cfg.room_profile_bindings);
+      (* unbind is also rejected without admin *)
+      let unbind_result =
+        Command_bridge.handle [ "rooms"; "unbind"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "unbind rejected mentions admin" true
+        (Test_helpers.string_contains unbind_result "admin");
+      (* Still no bindings *)
+      let cfg2 = Config_loader.load () in
+      Alcotest.(check int)
+        "no bindings after rejected unbind" 0
+        (List.length cfg2.room_profile_bindings))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -3464,4 +3706,22 @@ let suite =
       test_debug_usage_mentions_context;
     Alcotest.test_case "debug prompt includes workspace file content" `Quick
       test_debug_prompt_includes_workspace_file_content;
+    Alcotest.test_case "rooms list empty" `Quick test_rooms_list_empty;
+    Alcotest.test_case "rooms bind and list" `Quick test_rooms_bind_and_list;
+    Alcotest.test_case "rooms bind unknown profile errors" `Quick
+      test_rooms_bind_unknown_profile_errors;
+    Alcotest.test_case "rooms bind no profiles configured" `Quick
+      test_rooms_bind_no_profiles_configured;
+    Alcotest.test_case "rooms bind already bound" `Quick
+      test_rooms_bind_already_bound;
+    Alcotest.test_case "rooms bind rebinds different profile" `Quick
+      test_rooms_bind_rebinds_different_profile;
+    Alcotest.test_case "rooms unbind" `Quick test_rooms_unbind;
+    Alcotest.test_case "rooms unbind no binding" `Quick
+      test_rooms_unbind_no_binding;
+    Alcotest.test_case "rooms show bound" `Quick test_rooms_show_bound;
+    Alcotest.test_case "rooms show unbound" `Quick test_rooms_show_unbound;
+    Alcotest.test_case "rooms usage" `Quick test_rooms_usage;
+    Alcotest.test_case "rooms bind rejected without admin" `Quick
+      test_rooms_bind_rejected_without_admin;
   ]

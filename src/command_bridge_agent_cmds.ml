@@ -278,6 +278,245 @@ let cmd_agents args =
       \  setup                    Launch interactive setup wizard\n\
       \  path                     Show template search directories"
 
+let admin_env_var = "CLAWQ_ADMIN"
+
+let is_admin_cli () =
+  match Sys.getenv_opt admin_env_var with
+  | Some v -> v = "1" || v = "true"
+  | None -> false
+
+let require_admin () =
+  if is_admin_cli () then None
+  else
+    Some
+      "Error: this command requires admin privileges. Set CLAWQ_ADMIN=1 in \
+       your environment."
+
+let cmd_rooms args =
+  let cfg = get_config () in
+  match args with
+  | [] | [ "list" ] ->
+      let profiles = cfg.room_profiles in
+      let bindings = cfg.room_profile_bindings in
+      if profiles = [] && bindings = [] then
+        "No room profiles or bindings configured."
+      else
+        let columns =
+          Table_format.
+            [
+              { header = "PROFILE"; align = Left; min_width = 8; flex = false };
+              { header = "MODEL"; align = Left; min_width = 10; flex = false };
+              { header = "ROOM"; align = Left; min_width = 8; flex = false };
+              { header = "ACTIVE"; align = Left; min_width = 6; flex = false };
+            ]
+        in
+        let rows =
+          List.map
+            (fun (p : Runtime_config.room_profile) ->
+              let bound =
+                List.filter
+                  (fun (b : Runtime_config.room_profile_binding) ->
+                    b.profile_id = p.id)
+                  bindings
+              in
+              if bound = [] then [ p.id; p.model; "(none)"; "-" ]
+              else
+                List.map
+                  (fun (b : Runtime_config.room_profile_binding) ->
+                    [
+                      p.id; p.model; b.room; (if b.active then "yes" else "no");
+                    ])
+                  bound
+                |> List.concat)
+            profiles
+        in
+        let unbound_bindings =
+          List.filter_map
+            (fun (b : Runtime_config.room_profile_binding) ->
+              if
+                List.exists
+                  (fun (p : Runtime_config.room_profile) -> p.id = b.profile_id)
+                  profiles
+              then None
+              else
+                Some
+                  [
+                    b.profile_id;
+                    "(missing)";
+                    b.room;
+                    (if b.active then "yes" else "no");
+                  ])
+            bindings
+        in
+        let all_rows = rows @ unbound_bindings in
+        Format_adapter.bold Format_adapter.Plain "Room Profiles"
+        ^ "\n\n"
+        ^ Format_adapter.render_table Format_adapter.Plain ~max_width:80 columns
+            all_rows
+  | [ "show"; room_id ] ->
+      let binding =
+        List.find_opt
+          (fun (b : Runtime_config.room_profile_binding) -> b.room = room_id)
+          cfg.room_profile_bindings
+      in
+      let profile =
+        match binding with
+        | Some b ->
+            List.find_opt
+              (fun (p : Runtime_config.room_profile) -> p.id = b.profile_id)
+              cfg.room_profiles
+        | None -> None
+      in
+      let lines = ref [] in
+      let add s = lines := s :: !lines in
+      add (Printf.sprintf "Room:      %s" room_id);
+      (match binding with
+      | Some b ->
+          add (Printf.sprintf "Profile:   %s" b.profile_id);
+          add
+            (Printf.sprintf "Active:    %s" (if b.active then "yes" else "no"))
+      | None -> add "Profile:   (not bound)");
+      (match profile with
+      | Some p ->
+          add (Printf.sprintf "Model:     %s" p.model);
+          add (Printf.sprintf "Max iters: %d" p.max_tool_iterations);
+          if p.system_prompt <> "" then begin
+            add "";
+            add "--- System Prompt ---";
+            let preview =
+              if String.length p.system_prompt > 500 then
+                String.sub p.system_prompt 0 500 ^ "\n[...truncated]"
+              else p.system_prompt
+            in
+            add preview
+          end
+      | None -> (
+          match binding with
+          | Some b ->
+              add
+                (Printf.sprintf "Warning: profile '%s' not found in config."
+                   b.profile_id)
+          | None -> ()));
+      String.concat "\n" (List.rev !lines)
+  | "bind" :: room_id :: profile_id :: _rest -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let profile_exists =
+            List.exists
+              (fun (p : Runtime_config.room_profile) -> p.id = profile_id)
+              cfg.room_profiles
+          in
+          if not profile_exists then
+            let available =
+              List.map
+                (fun (p : Runtime_config.room_profile) -> p.id)
+                cfg.room_profiles
+            in
+            if available = [] then
+              Printf.sprintf
+                "Error: no room profiles configured. Add a room_profiles entry \
+                 to config.json first."
+            else
+              Printf.sprintf
+                "Error: profile '%s' not found. Available profiles: %s"
+                profile_id
+                (String.concat ", " available)
+          else
+            let already_bound =
+              List.exists
+                (fun (b : Runtime_config.room_profile_binding) ->
+                  b.room = room_id && b.profile_id = profile_id)
+                cfg.room_profile_bindings
+            in
+            if already_bound then
+              Printf.sprintf "Room '%s' is already bound to profile '%s'."
+                room_id profile_id
+            else
+              let remaining =
+                List.filter
+                  (fun (b : Runtime_config.room_profile_binding) ->
+                    b.room <> room_id)
+                  cfg.room_profile_bindings
+              in
+              let new_binding : Runtime_config.room_profile_binding =
+                { profile_id; room = room_id; active = true }
+              in
+              let bindings = new_binding :: remaining in
+              let bindings_json =
+                `Assoc
+                  [
+                    ( "room_profile_bindings",
+                      `List
+                        (List.map
+                           (fun (b : Runtime_config.room_profile_binding) ->
+                             `Assoc
+                               [
+                                 ("profile_id", `String b.profile_id);
+                                 ("room", `String b.room);
+                                 ("active", `Bool b.active);
+                               ])
+                           bindings) );
+                  ]
+              in
+              match Setup_common.merge_and_write_config bindings_json with
+              | Ok path ->
+                  Printf.sprintf "Bound room '%s' to profile '%s'.\n%s" room_id
+                    profile_id path
+              | Error e -> Printf.sprintf "Failed to write config: %s" e))
+  | [ "unbind"; room_id ] -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let existing =
+            List.find_opt
+              (fun (b : Runtime_config.room_profile_binding) ->
+                b.room = room_id)
+              cfg.room_profile_bindings
+          in
+          match existing with
+          | None -> Printf.sprintf "No binding found for room '%s'." room_id
+          | Some _ -> (
+              let remaining =
+                List.filter
+                  (fun (b : Runtime_config.room_profile_binding) ->
+                    b.room <> room_id)
+                  cfg.room_profile_bindings
+              in
+              let bindings_json =
+                `Assoc
+                  [
+                    ( "room_profile_bindings",
+                      `List
+                        (List.map
+                           (fun (b : Runtime_config.room_profile_binding) ->
+                             `Assoc
+                               [
+                                 ("profile_id", `String b.profile_id);
+                                 ("room", `String b.room);
+                                 ("active", `Bool b.active);
+                               ])
+                           remaining) );
+                  ]
+              in
+              match Setup_common.merge_and_write_config bindings_json with
+              | Ok path ->
+                  Printf.sprintf
+                    "Unbound room '%s'. The profile is preserved; rebind with: \
+                     clawq rooms bind ROOM_ID PROFILE_ID\n\n\
+                     Note: changes take effect after daemon restart or config \
+                     reload.\n\
+                     %s"
+                    room_id path
+              | Error e -> Printf.sprintf "Failed to write config: %s" e)))
+  | _ ->
+      "Usage: clawq rooms <list|show|bind|unbind>\n\n\
+       Subcommands:\n\
+      \  list                        List all room profiles and bindings\n\
+      \  show <room_id>              Show room binding and profile details\n\
+      \  bind <room_id> <profile_id> Bind a room to a profile (admin-only)\n\
+      \  unbind <room_id>            Remove room binding (preserves profile)"
+
 let cmd_rig args =
   match args with
   | [ "install"; name ] | [ "add"; name ] -> (

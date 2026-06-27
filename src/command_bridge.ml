@@ -934,6 +934,7 @@ let handle args =
   | "skills" :: rest -> Command_bridge_agent_cmds.cmd_skills rest
   | "pair" :: rest -> Command_bridge_pair.cmd_pair rest
   | "agents" :: rest -> Command_bridge_agent_cmds.cmd_agents rest
+  | "rooms" :: rest -> Command_bridge_agent_cmds.cmd_rooms rest
   | "rig" :: rest -> Command_bridge_agent_cmds.cmd_rig rest
   | "rigging" :: _ -> Command_bridge_agent_cmds.cmd_rig [ "list" ]
   | "audit" :: rest -> cmd_audit rest

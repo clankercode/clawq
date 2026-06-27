@@ -1480,6 +1480,23 @@ let rig_cmd =
       `I ("list", "List available rigs and their install status.");
     ]
 
+let rooms_cmd =
+  with_args "rooms"
+    "Manage room profiles and bindings (list, show, bind, unbind)."
+    [
+      `S "SUBCOMMANDS";
+      `I ("list", "List all room profiles and their bindings.");
+      `I ("show ROOM_ID", "Show a room's binding and profile details.");
+      `I
+        ("bind ROOM_ID PROFILE_ID", "Bind a room to a profile (requires admin).");
+      `I ("unbind ROOM_ID", "Remove a room binding (profile is preserved).");
+      `S "NOTES";
+      `P
+        "Room profiles and bindings are stored in config.json and reconciled \
+         to the database at daemon startup. After bind/unbind, restart the \
+         daemon or reload config for changes to take effect.";
+    ]
+
 let reset_agent_cmd =
   simple "reset-agent"
     "Wipe all session history, cron jobs, and workspace files, then redeploy \
@@ -1744,6 +1761,7 @@ let () =
       skills_cmd;
       agents_cmd;
       rig_cmd;
+      rooms_cmd;
       service_cmd;
       update_cmd;
       runtime_cmd;
