@@ -232,6 +232,72 @@ let table_exists ~db ~name =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
       Sqlite3.step stmt = Sqlite3.Rc.ROW)
 
+let nonblank_opt = function
+  | Some value when String.trim value <> "" -> Some value
+  | _ -> None
+
+let first_nonblank values = List.find_map nonblank_opt values
+
+let room_id_from_origin_json = function
+  | Some raw -> (
+      match Room_origin.of_json_string_opt raw with
+      | Some origin -> nonblank_opt origin.Room_origin.room_id
+      | None -> None)
+  | None -> None
+
+let room_id_from_session_key = function
+  | Some session_key -> (
+      match Room_session.parse session_key with
+      | Some session -> nonblank_opt (Some session.Room_session.channel_id)
+      | None -> None)
+  | None -> None
+
+let background_task_actor ~runner ?agent_name ?requester ?session_key () =
+  first_nonblank [ agent_name; requester; session_key ]
+  |> Option.value ~default:(string_of_runner runner)
+
+let record_background_task_event ~db ~event_type ~task_id ~runner ?session_key
+    ?channel ?channel_id ?origin_json ?agent_name ?requester metadata_fields =
+  match
+    first_nonblank
+      [
+        room_id_from_origin_json origin_json;
+        channel_id;
+        room_id_from_session_key session_key;
+      ]
+  with
+  | None -> ()
+  | Some room_id -> (
+      let actor =
+        background_task_actor ~runner ?agent_name ?requester ?session_key ()
+      in
+      let metadata =
+        `Assoc
+          ([
+             ("task_id", `Int task_id);
+             ("runner", `String (string_of_runner runner));
+           ]
+          @ (match channel with
+            | Some value -> [ ("channel", `String value) ]
+            | None -> [])
+          @ metadata_fields)
+      in
+      try
+        ignore
+          (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor
+             ~metadata)
+      with exn ->
+        Logs.warn (fun m ->
+            m "room_activity_ledger background task event failed: %s"
+              (Printexc.to_string exn)))
+
+let record_background_task_event_for_task ~db ~event_type metadata_fields
+    (task : task) =
+  record_background_task_event ~db ~event_type ~task_id:task.id
+    ~runner:task.runner ?session_key:task.session_key ?channel:task.channel
+    ?channel_id:task.channel_id ?origin_json:task.origin_json
+    ?agent_name:task.agent_name ?requester:task.requester metadata_fields
+
 let record_notification_result ~db ~id ~status ?error () =
   if table_exists ~db ~name:"background_tasks" then
     let sql =
@@ -335,7 +401,13 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             bind_opt 18 requester;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
-                Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
+                let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
+                record_background_task_event ~db
+                  ~event_type:"background_task_create" ~task_id:id ~runner
+                  ?session_key ?channel ?channel_id ?origin_json ?agent_name
+                  ?requester
+                  [ ("status", `String "queued") ];
+                Ok id
             | rc ->
                 Error
                   (Printf.sprintf "Failed to enqueue background task: %s"
@@ -421,7 +493,22 @@ let set_running ~db ~id ~branch ~worktree_path ~log_path ~pid =
       ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.INT (Int64.of_int pid)));
       ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.INT (Int64.of_int id)));
       ignore (Sqlite3.step stmt);
-      Sqlite3.changes db > 0)
+      let changed = Sqlite3.changes db > 0 in
+      (if changed then
+         match get_task ~db ~id with
+         | Some task ->
+             record_background_task_event_for_task ~db
+               ~event_type:"background_task_start"
+               [
+                 ("status", `String "running");
+                 ("branch", `String branch);
+                 ("worktree_path", `String worktree_path);
+                 ("log_path", `String log_path);
+                 ("pid", `Int pid);
+               ]
+               task
+         | None -> ());
+      changed)
 
 let set_runner_session_id ~db ~id ~runner_session_id =
   let sql = "UPDATE background_tasks SET runner_session_id = ? WHERE id = ?" in
@@ -446,7 +533,28 @@ let finish ~db ~id ~status ~result_preview =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (string_of_status status)));
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT preview));
       ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
-      ignore (Sqlite3.step stmt))
+      ignore (Sqlite3.step stmt);
+      match get_task ~db ~id with
+      | Some task -> (
+          match status with
+          | Succeeded ->
+              record_background_task_event_for_task ~db
+                ~event_type:"background_task_complete"
+                [
+                  ("status", `String (string_of_status status));
+                  ("result_preview", `String preview);
+                ]
+                task
+          | Failed | DirtyWorktree | Cancelled ->
+              record_background_task_event_for_task ~db
+                ~event_type:"background_task_fail"
+                [
+                  ("status", `String (string_of_status status));
+                  ("result_preview", `String preview);
+                ]
+                task
+          | Queued | Running -> ())
+      | None -> ())
 
 let queued_resume_message_count ~db ~id = queued_message_count ~db ~task_id:id
 

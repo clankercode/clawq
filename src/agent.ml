@@ -82,6 +82,80 @@ let scoped_memory_room_key_for_turn ~db ?session_key ?room_id () =
   | Some room_id -> Some room_id
   | None -> List.find_opt (fun s -> String.trim s <> "") candidates
 
+let ledger_room_id_for_session ~db session_key =
+  try
+    match Memory.get_session_channel ~db ~session_key with
+    | Some (_channel, channel_id) when String.trim channel_id <> "" ->
+        Some channel_id
+    | _ -> (
+        match Room_session.parse session_key with
+        | Some session when String.trim session.Room_session.channel_id <> "" ->
+            Some session.Room_session.channel_id
+        | _ -> None)
+  with _ -> None
+
+let metadata_optional_int key = function
+  | Some value -> [ (key, `Int value) ]
+  | None -> []
+
+let record_provider_ledger_event ?db ?session_key ~event_type ~provider ~model
+    metadata_fields =
+  match (db, session_key) with
+  | Some db, Some session_key -> (
+      match ledger_room_id_for_session ~db session_key with
+      | None -> ()
+      | Some room_id -> (
+          let metadata =
+            `Assoc
+              ([ ("provider", `String provider); ("model", `String model) ]
+              @ metadata_fields)
+          in
+          try
+            ignore
+              (Room_activity_ledger.append_now ~db ~room_id ~event_type
+                 ~actor:provider ~metadata)
+          with exn ->
+            Logs.warn (fun m ->
+                m "room_activity_ledger provider event failed: %s"
+                  (Printexc.to_string exn))))
+  | _ -> ()
+
+let record_provider_request_event ?db ?session_key ~provider ~model ~messages ()
+    =
+  record_provider_ledger_event ?db ?session_key ~event_type:"provider_request"
+    ~provider ~model
+    [
+      ("message_count", `Int (List.length messages));
+      ( "estimated_prompt_tokens",
+        `Int (Provider.estimate_messages_tokens messages) );
+    ]
+
+let record_provider_error_event ?db ?session_key ~provider ~model exn =
+  record_provider_ledger_event ?db ?session_key ~event_type:"provider_error"
+    ~provider ~model
+    [ ("error", `String (Printexc.to_string exn)) ]
+
+let record_provider_response_event ?db ?session_key ~provider ~model ?usage
+    ?cost_usd ?latency_ms () =
+  let usage_fields =
+    match usage with
+    | Some (prompt_tokens, completion_tokens, cached_tokens) ->
+        [
+          ("prompt_tokens", `Int prompt_tokens);
+          ("completion_tokens", `Int completion_tokens);
+          ("cached_tokens", `Int cached_tokens);
+        ]
+    | None -> []
+  in
+  let cost_field =
+    match cost_usd with Some value -> `Float value | None -> `Null
+  in
+  record_provider_ledger_event ?db ?session_key ~event_type:"provider_response"
+    ~provider ~model
+    (usage_fields
+    @ [ ("cost_usd", cost_field) ]
+    @ metadata_optional_int "latency_ms" latency_ms)
+
 let refresh_profiled_room_flag agent ?db ?session_key ?room_id () =
   let has_binding =
     match (db, session_key, room_id) with
@@ -247,6 +321,20 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
+  let complete_with_ledger messages =
+    let provider_name, _, model =
+      Provider.select_provider ~config:agent.config
+        ?quota_states:quota_states_opt ()
+    in
+    record_provider_request_event ?db ?session_key ~provider:provider_name
+      ~model ~messages ();
+    Lwt.catch
+      (fun () -> resilient_complete agent.config messages tools)
+      (fun exn ->
+        record_provider_error_event ?db ?session_key ~provider:provider_name
+          ~model exn;
+        Lwt.fail exn)
+  in
   let track_cost ~current_request_history_len ~latency_ms response =
     let usage, model =
       match response with
@@ -327,7 +415,19 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             in
             Request_stats.record ~db ~session_key:sid ~provider:pname ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
-              ~added_prompt_tokens:added ?cached_tokens ~latency_ms ()
+              ~added_prompt_tokens:added ?cached_tokens ~latency_ms ();
+            record_provider_response_event ~db ?session_key ~provider:pname
+              ~model ~usage:(pt, ct, api_cached) ?cost_usd:cost_usd_opt
+              ~latency_ms ()
+        | None -> ())
+    | None, Some _ -> (
+        match db with
+        | Some db ->
+            let pname, _, _ =
+              Provider.select_provider ~config:agent.config ()
+            in
+            record_provider_response_event ~db ?session_key ~provider:pname
+              ~model ~latency_ms ()
         | None -> ())
     | _ -> ()
   in
@@ -369,7 +469,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
       Lwt.catch
         (fun () ->
           let messages = build_messages ?runtime_context agent in
-          resilient_complete agent.config messages tools)
+          complete_with_ledger messages)
         (fun exn ->
           if
             is_context_exhaustion_error (Printexc.to_string exn)
@@ -380,7 +480,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
                   "Context exhaustion detected; force-compressed history, \
                    retrying turn");
             let messages = build_messages ?runtime_context agent in
-            resilient_complete agent.config messages tools
+            complete_with_ledger messages
           end
           else Lwt.fail exn)
     in
@@ -705,6 +805,20 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
+  let stream_with_ledger messages =
+    let provider_name, _, model =
+      Provider.select_provider ~config:agent.config
+        ?quota_states:quota_states_opt ()
+    in
+    record_provider_request_event ?db ?session_key ~provider:provider_name
+      ~model ~messages ();
+    Lwt.catch
+      (fun () -> resilient_stream agent.config messages tools wrapped_on_chunk)
+      (fun exn ->
+        record_provider_error_event ?db ?session_key ~provider:provider_name
+          ~model exn;
+        Lwt.fail exn)
+  in
   let track_cost ~current_request_history_len ~latency_ms response =
     let usage, model =
       match response with
@@ -785,7 +899,19 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             in
             Request_stats.record ~db ~session_key:sid ~provider:pname ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
-              ~added_prompt_tokens:added ?cached_tokens ~latency_ms ()
+              ~added_prompt_tokens:added ?cached_tokens ~latency_ms ();
+            record_provider_response_event ~db ?session_key ~provider:pname
+              ~model ~usage:(pt, ct, api_cached) ?cost_usd:cost_usd_opt
+              ~latency_ms ()
+        | None -> ())
+    | None, Some _ -> (
+        match db with
+        | Some db ->
+            let pname, _, _ =
+              Provider.select_provider ~config:agent.config ()
+            in
+            record_provider_response_event ~db ?session_key ~provider:pname
+              ~model ~latency_ms ()
         | None -> ())
     | _ -> ()
   in
@@ -829,7 +955,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           Lwt.catch
             (fun () ->
               let messages = build_messages ?runtime_context agent in
-              resilient_stream agent.config messages tools wrapped_on_chunk)
+              stream_with_ledger messages)
             (fun exn ->
               if
                 is_context_exhaustion_error (Printexc.to_string exn)
@@ -840,7 +966,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                       "Context exhaustion detected; force-compressed history, \
                        retrying turn");
                 let messages = build_messages ?runtime_context agent in
-                resilient_stream agent.config messages tools wrapped_on_chunk
+                stream_with_ledger messages
               end
               else Lwt.fail exn)
         in
