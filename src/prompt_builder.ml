@@ -503,24 +503,42 @@ let attachment_syntax_block attachments =
 
 let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     ?(channel_type = "dm") ?(workspace = None) ?(scheduled_jobs = [])
-    ?agent_template () =
+    ?agent_template ?room_profile_system_prompt () =
+  (* Determine the effective system prompt source. Room profile overrides
+     agent_template per the acceptance chain:
+     session override > room profile > channel default > global. *)
+  let effective_system_prompt () =
+    match room_profile_system_prompt with
+    | Some s when s <> "" -> Some s
+    | _ -> (
+        match agent_template with
+        | Some (tmpl : Agent_template.t) when tmpl.system_prompt <> "" ->
+            Some tmpl.system_prompt
+        | _ ->
+            if config.agent_defaults.system_prompt <> "" then
+              Some config.agent_defaults.system_prompt
+            else None)
+  in
   if not config.prompt.dynamic_enabled then
-    match agent_template with
-    | Some (tmpl : Agent_template.t) when tmpl.system_prompt <> "" ->
-        tmpl.system_prompt
-    | _ ->
-        if config.agent_defaults.system_prompt <> "" then
-          config.agent_defaults.system_prompt
-        else base_prompt
+    match effective_system_prompt () with Some s -> s | None -> base_prompt
   else
     let lines = ref [] in
     let add s = lines := s :: !lines in
     let ws = Runtime_config.effective_workspace config in
-    (* Agent template system prompt takes precedence *)
-    (match agent_template with
-    | Some (tmpl : Agent_template.t) when tmpl.system_prompt <> "" ->
-        add tmpl.system_prompt;
-        add "";
+    (* Room profile system prompt > agent template system prompt >
+       agent_defaults system prompt > base_prompt *)
+    (match effective_system_prompt () with
+    | Some prompt ->
+        add prompt;
+        add ""
+    | None ->
+        add base_prompt;
+        add "");
+    (* Add agent template goal/backstory when the template is present and
+       the effective prompt came from the template or base_prompt (not room
+       profile override — room profile provides its own complete prompt). *)
+    (match (room_profile_system_prompt, agent_template) with
+    | None, Some (tmpl : Agent_template.t) -> begin
         if tmpl.goal <> "" then begin
           add "## Agent Goal";
           add tmpl.goal;
@@ -531,15 +549,8 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
           add tmpl.backstory;
           add ""
         end
-    | _ ->
-        if config.agent_defaults.system_prompt <> "" then begin
-          add config.agent_defaults.system_prompt;
-          add ""
-        end
-        else begin
-          add base_prompt;
-          add ""
-        end);
+      end
+    | _ -> ());
     if config.prompt.include_autonomy_section then begin
       add "## Autonomous Operation";
       add

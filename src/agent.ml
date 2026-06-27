@@ -38,6 +38,7 @@ let create ~config ?tool_registry ?agent_template ?cwd () =
     last_missing_required_key = None;
     last_missing_required_count = 0;
     hard_abort_reason = None;
+    room_profile_system_prompt = None;
   }
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages

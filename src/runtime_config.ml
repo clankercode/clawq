@@ -405,6 +405,42 @@ let all_channel_types =
     "teams";
   ]
 
+(** [resolve_room_profile cfg ~session_key] resolves the active room profile
+    bound to the given session key. Matching tries the full session key first,
+    then the channel_id portion (everything after the first colon, matching
+    [Restart_notify.parse_channel_from_key] semantics). Only [active = true]
+    bindings are considered. *)
+let resolve_room_profile (cfg : t) ~session_key : room_profile option =
+  if cfg.room_profiles = [] || cfg.room_profile_bindings = [] then None
+  else
+    let channel_id =
+      match String.index_opt session_key ':' with
+      | Some i ->
+          String.sub session_key (i + 1) (String.length session_key - i - 1)
+      | None -> ""
+    in
+    let find_binding () =
+      List.find_opt
+        (fun (b : room_profile_binding) ->
+          b.active
+          && (b.room = session_key || (channel_id <> "" && b.room = channel_id)))
+        cfg.room_profile_bindings
+    in
+    match find_binding () with
+    | None -> None
+    | Some b ->
+        List.find_opt
+          (fun (p : room_profile) -> p.id = b.profile_id)
+          cfg.room_profiles
+
+(** [resolve_room_profile_model cfg ~session_key] resolves the model from the
+    room profile bound to the given session key. Only the model field is
+    returned; use [resolve_room_profile] for full profile access. *)
+let resolve_room_profile_model (cfg : t) ~session_key : string option =
+  match resolve_room_profile cfg ~session_key with
+  | Some p when p.model <> "" -> Some p.model
+  | _ -> None
+
 let effective_compaction_threshold_percent (memory : memory_config) =
   let p = memory.compaction_threshold_percent in
   if p <= 0 || p >= 100 then default.memory.compaction_threshold_percent else p

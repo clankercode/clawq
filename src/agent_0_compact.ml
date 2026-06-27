@@ -26,6 +26,10 @@ type t = {
      terminates the turn with a clear user-facing message. Reset on any
      successful tool call. *)
   mutable hard_abort_reason : string option;
+  (* Room profile system_prompt override. When [Some s] and [s <> ""],
+     Prompt_builder.build uses this instead of agent_template.system_prompt.
+     Set by apply_room_profile_template_fields in session_core. *)
+  mutable room_profile_system_prompt : string option;
 }
 
 exception Interrupted of string

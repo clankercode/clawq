@@ -1018,6 +1018,77 @@ let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
       | Some _ as r -> r
       | None -> cwd_from_template ())
 
+(** [apply_room_profile_template_fields mgr ~key agent] resolves the active room
+    profile and applies its template fields ([system_prompt] and
+    [max_tool_iterations]) to the agent's config when they are non-empty /
+    non-default. The room profile tier sits between agent_template (higher) and
+    global agent_defaults (lower) for [system_prompt], and overrides global for
+    [max_tool_iterations]. *)
+let apply_room_profile_template_fields mgr ~key agent =
+  match Runtime_config.resolve_room_profile mgr.config ~session_key:key with
+  | None -> agent.Agent.room_profile_system_prompt <- None
+  | Some profile ->
+      let cfg = agent.Agent.config in
+      let ad = cfg.agent_defaults in
+      let ad =
+        if profile.system_prompt <> "" then
+          { ad with Runtime_config.system_prompt = profile.system_prompt }
+        else ad
+      in
+      let ad =
+        if profile.max_tool_iterations > 0 then
+          {
+            ad with
+            Runtime_config.max_tool_iterations = profile.max_tool_iterations;
+          }
+        else ad
+      in
+      agent.Agent.config <- { cfg with agent_defaults = ad };
+      agent.Agent.room_profile_system_prompt <-
+        (if profile.system_prompt <> "" then Some profile.system_prompt
+         else None)
+
+(** [resolve_model_for_session mgr ~key] resolves the effective model using the
+    precedence chain: session DB override > room profile > channel default.
+    Security gates (e.g. Anthropic OAuth opt-in) are checked on inherited tiers
+    (room profile, channel default) — if a gate denies the model, the next tier
+    is tried. Session DB overrides set by the user bypass security gates since
+    they represent an explicit choice. Returns [Some model] or [None] if all
+    tiers are empty or denied. Global fallback is handled by the caller. *)
+let resolve_model_for_session mgr ~key : string option =
+  let check_gate model =
+    match
+      Agent_template.check_model_security_gates ~config:mgr.config ~model
+    with
+    | Ok () -> true
+    | Error msg ->
+        Logs.warn (fun m ->
+            m "[session] Model %S for %s denied by security gate: %s" model key
+              msg);
+        false
+  in
+  let try_model = function Some m when check_gate m -> Some m | _ -> None in
+  (* Tier 1: session DB override — bypasses security gate (explicit user
+     choice via /model or slash command). *)
+  let tier1 =
+    match mgr.db with
+    | Some db -> Memory.get_session_model_override ~db ~session_key:key
+    | None -> None
+  in
+  match tier1 with
+  | Some _ -> tier1
+  | None -> (
+      (* Tier 2: room profile *)
+      let tier2 =
+        Runtime_config.resolve_room_profile_model mgr.config ~session_key:key
+      in
+      match try_model tier2 with
+      | Some _ -> tier2
+      | None ->
+          (* Tier 3: channel default *)
+          let channel_type = Runtime_config.channel_type_of_session_key key in
+          Runtime_config.channel_default_model mgr.config ~channel_type)
+
 let get_or_create_locked mgr ~key =
   let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
@@ -1066,29 +1137,18 @@ let get_or_create_locked mgr ~key =
           | None -> Agent.sync_observed_active_workspace_files agent)
       | None -> ());
       (* effective_cwd already set via Agent.create ~cwd:initial_cwd above *)
-      (* Model resolution: session DB override > channel default > global *)
-      (let db_override =
-         match mgr.db with
-         | Some db -> Memory.get_session_model_override ~db ~session_key:key
-         | None -> None
-       in
-       let effective_model =
-         match db_override with
-         | Some _ -> db_override
-         | None ->
-             let channel_type =
-               Runtime_config.channel_type_of_session_key key
-             in
-             Runtime_config.channel_default_model mgr.config ~channel_type
-       in
-       match effective_model with
-       | Some model ->
-           let cfg = agent.Agent.config in
-           let agent_defaults =
-             { cfg.agent_defaults with primary_model = model }
-           in
-           agent.Agent.config <- { cfg with agent_defaults }
-       | None -> ());
+      (* Model resolution:
+         session DB override > room profile > channel default > global *)
+      (match resolve_model_for_session mgr ~key with
+      | Some model ->
+          let cfg = agent.Agent.config in
+          let agent_defaults =
+            { cfg.agent_defaults with primary_model = model }
+          in
+          agent.Agent.config <- { cfg with agent_defaults }
+      | None -> ());
+      (* Template fields: room profile system_prompt / max_tool_iterations *)
+      apply_room_profile_template_fields mgr ~key agent;
       let mutex = Lwt_mutex.create () in
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
@@ -1557,27 +1617,15 @@ let update_config ?(source = "") mgr config =
   List.iter
     (fun (key, (agent, _, _)) ->
       agent.Agent.config <- config;
-      (* Re-apply session model override or channel default *)
-      (let db_override =
-         match mgr.db with
-         | Some db -> Memory.get_session_model_override ~db ~session_key:key
-         | None -> None
-       in
-       let effective_model =
-         match db_override with
-         | Some _ -> db_override
-         | None ->
-             let channel_type =
-               Runtime_config.channel_type_of_session_key key
-             in
-             Runtime_config.channel_default_model config ~channel_type
-       in
-       match effective_model with
-       | Some model ->
-           let cfg = agent.Agent.config in
-           let ad = { cfg.agent_defaults with primary_model = model } in
-           agent.Agent.config <- { cfg with agent_defaults = ad }
-       | None -> ());
+      (* Re-apply session model override, room profile, or channel default *)
+      (match resolve_model_for_session mgr ~key with
+      | Some model ->
+          let cfg = agent.Agent.config in
+          let ad = { cfg.agent_defaults with primary_model = model } in
+          agent.Agent.config <- { cfg with agent_defaults = ad }
+      | None -> ());
+      (* Re-apply room profile template fields *)
+      apply_room_profile_template_fields mgr ~key agent;
       Agent.sync_observed_active_workspace_files agent;
       persist_session_workspace_state mgr ~key agent)
     (Hashtbl.to_seq mgr.sessions |> List.of_seq)
@@ -1597,35 +1645,60 @@ let get_session_effective_model mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) -> agent.Agent.config.agent_defaults.primary_model
   | None -> (
-      let db_override =
-        match mgr.db with
-        | Some db -> Memory.get_session_model_override ~db ~session_key:key
-        | None -> None
-      in
-      match db_override with
+      match resolve_model_for_session mgr ~key with
       | Some model -> model
-      | None -> (
-          let channel_type = Runtime_config.channel_type_of_session_key key in
-          match
-            Runtime_config.channel_default_model mgr.config ~channel_type
-          with
-          | Some model -> model
-          | None -> mgr.config.agent_defaults.primary_model))
+      | None -> mgr.config.agent_defaults.primary_model)
+
+(** [get_session_agent_defaults mgr ~key] returns the effective agent_defaults
+    for the given session, reading from the in-memory agent if the session is
+    loaded, or from the resolved config otherwise. Exposed for testing room
+    profile template field application. *)
+let get_session_agent_defaults mgr ~key : Runtime_config.agent_defaults =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> agent.Agent.config.agent_defaults
+  | None -> mgr.config.agent_defaults
+
+(** [get_session_system_prompt mgr ~key] returns the effective built
+    system_prompt for the given session, triggering a prompt rebuild with
+    current room profile overrides. Returns "" if session not loaded. *)
+let get_session_system_prompt mgr ~key : string =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) ->
+      let prompt =
+        Prompt_builder.build ~config:agent.Agent.config
+          ~tool_registry:agent.Agent.tool_registry
+          ?agent_template:agent.Agent.agent_template
+          ?room_profile_system_prompt:agent.Agent.room_profile_system_prompt ()
+      in
+      agent.Agent.system_prompt <- prompt;
+      prompt
+  | None -> ""
 
 let clear_session_model mgr ~key =
-  (match Hashtbl.find_opt mgr.sessions key with
-  | Some (agent, _, _) ->
-      let cfg = agent.Agent.config in
-      let agent_defaults =
-        {
-          cfg.agent_defaults with
-          primary_model = mgr.config.agent_defaults.primary_model;
-        }
-      in
-      agent.Agent.config <- { cfg with agent_defaults }
-  | None -> ());
-  match mgr.db with
+  (* Clear DB override first so resolve_model_for_session sees the correct
+     fallback chain (room profile > channel default > global). *)
+  (match mgr.db with
   | Some db -> Memory.clear_session_model_override ~db ~session_key:key
+  | None -> ());
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) ->
+      (match resolve_model_for_session mgr ~key with
+      | Some model ->
+          let cfg = agent.Agent.config in
+          let agent_defaults =
+            { cfg.agent_defaults with primary_model = model }
+          in
+          agent.Agent.config <- { cfg with agent_defaults }
+      | None ->
+          let cfg = agent.Agent.config in
+          let agent_defaults =
+            {
+              cfg.agent_defaults with
+              primary_model = mgr.config.agent_defaults.primary_model;
+            }
+          in
+          agent.Agent.config <- { cfg with agent_defaults });
+      apply_room_profile_template_fields mgr ~key agent
   | None -> ()
 
 let reset mgr ~key =

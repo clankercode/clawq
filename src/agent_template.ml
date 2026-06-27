@@ -422,3 +422,33 @@ let filter_tool_registry registry (tmpl : t) =
   let new_reg = Tool_registry.create () in
   List.iter (Tool_registry.register new_reg) filtered;
   new_reg
+
+(* Security gate checks for model resolution *)
+
+(** [model_is_anthropic model] returns [true] if the model's provider is
+    "anthropic" (canonical format [provider:model]). *)
+let model_is_anthropic (model : string) : bool =
+  match Pmodel.parse model with
+  | Ok pm -> String.lowercase_ascii pm.Pmodel.provider = "anthropic"
+  | Error _ -> false
+
+(** [check_model_security_gates ~config ~model] validates a resolved model
+    against active security gates. Returns [Ok ()] if the model is allowed, or
+    [Error msg] if a gate denies it. Currently checks:
+    - Anthropic OAuth opt-in: Anthropic models require
+      [security.allow_anthropic_oauth_inference = true]. Security gates are
+      stronger than profile/template choices — a gate can deny a model even if
+      the precedence chain selected it. *)
+let check_model_security_gates ~(config : Runtime_config.t) ~model :
+    (unit, string) result =
+  if
+    model_is_anthropic model
+    && not config.security.allow_anthropic_oauth_inference
+  then
+    Error
+      (Printf.sprintf
+         "Error: model %S requires Anthropic OAuth opt-in. Set \
+          security.allow_anthropic_oauth_inference = true in your config to \
+          enable Anthropic model usage."
+         model)
+  else Ok ()

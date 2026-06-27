@@ -180,6 +180,769 @@ let test_model_override_applied_on_session_load () =
     "model override applied when session loaded from DB"
     "anthropic:claude-sonnet-4-6" effective
 
+let make_config_with_room_profile ?(global_model = "openai:gpt-5.4")
+    ?(channel_default = (None : string option))
+    ?(room_profiles : Runtime_config.room_profile list = [])
+    ?(room_profile_bindings : Runtime_config.room_profile_binding list = []) ()
+    : Runtime_config.t =
+  let channels = Runtime_config.default.channels in
+  let channels =
+    match channel_default with
+    | Some m ->
+        let tg : Runtime_config.telegram_config =
+          { accounts = []; text_coalesce_ms = 100; default_model = Some m }
+        in
+        { channels with telegram = Some tg }
+    | None -> channels
+  in
+  {
+    Runtime_config.default with
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = global_model;
+      };
+    channels;
+    room_profiles;
+    room_profile_bindings;
+  }
+
+let test_room_profile_model_overrides_channel_default () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let config =
+    make_config_with_room_profile ~channel_default:(Some "openai:gpt-4")
+      ~room_profiles:profiles ~room_profile_bindings:bindings ()
+  in
+  let result =
+    Runtime_config.resolve_room_profile_model config
+      ~session_key:"telegram:123:456"
+  in
+  Alcotest.(check (option string))
+    "room profile model overrides channel default"
+    (Some "anthropic:claude-sonnet-4-6") result
+
+let test_room_profile_model_overrides_global () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let config =
+    make_config_with_room_profile ~global_model:"openai:gpt-5.4"
+      ~room_profiles:profiles ~room_profile_bindings:bindings ()
+  in
+  let result =
+    Runtime_config.resolve_room_profile_model config
+      ~session_key:"telegram:123:456"
+  in
+  Alcotest.(check (option string))
+    "room profile model overrides global" (Some "anthropic:claude-sonnet-4-6")
+    result
+
+let test_session_override_takes_precedence_over_room_profile () =
+  let db = make_db () in
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  Session.set_session_model mgr ~key ~model:"openai:gpt-4";
+  let effective = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "session override beats room profile" "openai:gpt-4" effective
+
+let test_inactive_room_profile_binding_skipped () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = false } ]
+  in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let result =
+    Runtime_config.resolve_room_profile_model config
+      ~session_key:"telegram:123:456"
+  in
+  Alcotest.(check (option string)) "inactive binding skipped" None result
+
+let test_missing_room_profile_returns_none () =
+  let bindings =
+    [
+      {
+        Runtime_config.profile_id = "nonexistent";
+        room = "123:456";
+        active = true;
+      };
+    ]
+  in
+  let config =
+    make_config_with_room_profile ~room_profile_bindings:bindings ()
+  in
+  let result =
+    Runtime_config.resolve_room_profile_model config
+      ~session_key:"telegram:123:456"
+  in
+  Alcotest.(check (option string)) "missing profile returns None" None result
+
+let test_room_profile_full_precedence_chain () =
+  (* session override > room profile > channel default > global *)
+  let db = make_db () in
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  (* 1. Room profile > channel default > global *)
+  let config =
+    make_config_with_room_profile ~global_model:"openai:gpt-5.4"
+      ~channel_default:(Some "openai:gpt-4") ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  (* Enable Anthropic OAuth so room profile model passes the security gate *)
+  let config =
+    {
+      config with
+      security = { config.security with allow_anthropic_oauth_inference = true };
+    }
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  let effective_no_override = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "room profile beats channel default and global"
+    "anthropic:claude-sonnet-4-6" effective_no_override;
+  (* 2. Session override > room profile *)
+  Session.set_session_model mgr ~key ~model:"openai:gpt-4";
+  let effective_with_override = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "session override beats room profile" "openai:gpt-4" effective_with_override;
+  (* 3. After clearing override, room profile resumes *)
+  Session.clear_session_model mgr ~key;
+  let effective_after_clear = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "room profile resumes after clear" "anthropic:claude-sonnet-4-6"
+    effective_after_clear
+
+let test_clear_session_model_restores_room_profile_on_active_session () =
+  (* Regression test: clear_session_model must follow the precedence chain
+     (room profile > channel default > global) when the session is already
+     loaded into memory, not reset directly to the global default. *)
+  let db = make_db () in
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let config =
+    make_config_with_room_profile ~global_model:"openai:gpt-5.4"
+      ~room_profiles:profiles ~room_profile_bindings:bindings ()
+  in
+  (* Enable Anthropic OAuth so room profile model passes the security gate *)
+  let config =
+    {
+      config with
+      security = { config.security with allow_anthropic_oauth_inference = true };
+    }
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  (* Force session creation so it is loaded into memory *)
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  (* Verify room profile model is in effect *)
+  let before = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "room profile active before override" "anthropic:claude-sonnet-4-6" before;
+  (* Set session override, then clear it *)
+  Session.set_session_model mgr ~key ~model:"openai:gpt-4";
+  Session.clear_session_model mgr ~key;
+  let after = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "room profile resumes after clear on active session"
+    "anthropic:claude-sonnet-4-6" after
+
+let test_room_profile_model_applied_on_session_load () =
+  let db = make_db () in
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  (* Enable Anthropic OAuth so room profile model passes the security gate *)
+  let config =
+    {
+      config with
+      security = { config.security with allow_anthropic_oauth_inference = true };
+    }
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  (* Force session creation via runtime_context_block *)
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  let effective = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "room profile model applied on session load" "anthropic:claude-sonnet-4-6"
+    effective
+
+let test_room_profile_binding_matches_full_session_key () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [
+      {
+        Runtime_config.profile_id = "vip";
+        room = "telegram:123:456";
+        active = true;
+      };
+    ]
+  in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let result =
+    Runtime_config.resolve_room_profile_model config
+      ~session_key:"telegram:123:456"
+  in
+  Alcotest.(check (option string))
+    "full session key match works" (Some "anthropic:claude-sonnet-4-6") result
+
+let test_no_room_profile_returns_none () =
+  let config = make_config () in
+  let result =
+    Runtime_config.resolve_room_profile_model config
+      ~session_key:"telegram:123:456"
+  in
+  Alcotest.(check (option string)) "no room profiles returns None" None result
+
+(* B606: Even when a room profile sets an Anthropic model, the OAuth security
+   gate must still block the 'claude' runner when the opt-in flag is off. *)
+let test_oauth_gate_denies_claude_even_with_room_profile () =
+  match
+    Background_task.resolve_runner ~check_available:false ~allow_claude:false
+      ~preferred:Background_task.Claude ()
+  with
+  | Ok _ -> Alcotest.fail "expected claude runner to be denied"
+  | Error msg ->
+      Alcotest.(check bool)
+        "denial mentions opt-in flag" true
+        (String_util.contains msg "allow_anthropic_oauth_inference")
+
+(* --- Agent template model precedence --- *)
+
+let make_template_config ?(global_model = "openai:gpt-5.4")
+    ?(allow_anthropic_oauth = false)
+    ?(room_profiles : Runtime_config.room_profile list = [])
+    ?(room_profile_bindings : Runtime_config.room_profile_binding list = []) ()
+    : Runtime_config.t =
+  {
+    Runtime_config.default with
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = global_model;
+      };
+    security =
+      {
+        Runtime_config.default.security with
+        allow_anthropic_oauth_inference = allow_anthropic_oauth;
+      };
+    room_profiles;
+    room_profile_bindings;
+  }
+
+let with_test_template ?(system_prompt = "") name model f =
+  let tmpl : Agent_template.t =
+    {
+      name;
+      description = "test template";
+      role = Agent_template.Coder;
+      goal = "";
+      backstory = "";
+      system_prompt;
+      model = Some model;
+      max_tool_iterations = None;
+      allowed_tools = [];
+      disallowed_tools = [];
+      tool_search_enabled = None;
+      reasoning_effort = None;
+      cwd = None;
+      source = Agent_template.Builtin;
+      metadata = [];
+    }
+  in
+  let prev = !Agent_template.builtins_ref in
+  Agent_template.builtins_ref := [ tmpl ];
+  Fun.protect ~finally:(fun () -> Agent_template.builtins_ref := prev) f
+
+let test_channel_default_used_when_no_room_profile () =
+  with_test_template "test-agent" "openai:gpt-4" (fun () ->
+      let config = make_template_config ~allow_anthropic_oauth:true () in
+      let config =
+        {
+          config with
+          agent_bindings =
+            [
+              {
+                Agent_router.pattern = "default";
+                agent_name = "test-agent";
+                priority = 0;
+              };
+            ];
+          channels =
+            (let tg =
+               match Runtime_config.default.channels.telegram with
+               | Some tg ->
+                   {
+                     tg with
+                     Runtime_config.default_model = Some "openai:gpt-3.5-turbo";
+                   }
+               | None ->
+                   {
+                     Runtime_config.accounts = [];
+                     text_coalesce_ms = 100;
+                     default_model = Some "openai:gpt-3.5-turbo";
+                   }
+             in
+             { Runtime_config.default.channels with telegram = Some tg });
+        }
+      in
+      let mgr = Session.create ~config () in
+      let effective =
+        Session.get_session_effective_model mgr ~key:"telegram:999:888"
+      in
+      Alcotest.(check string)
+        "channel default used when no room profile" "openai:gpt-3.5-turbo"
+        effective)
+
+let test_room_profile_beats_template () =
+  with_test_template "test-agent" "openai:gpt-4" (fun () ->
+      let profiles =
+        [
+          {
+            Runtime_config.id = "vip";
+            model = "openai:gpt-3.5-turbo";
+            system_prompt = "";
+            max_tool_iterations = 10;
+          };
+        ]
+      in
+      let room_bindings =
+        [
+          { Runtime_config.profile_id = "vip"; room = "123:456"; active = true };
+        ]
+      in
+      let config =
+        make_template_config ~allow_anthropic_oauth:true ~room_profiles:profiles
+          ~room_profile_bindings:room_bindings ()
+      in
+      let config =
+        {
+          config with
+          agent_bindings =
+            [
+              {
+                Agent_router.pattern = "default";
+                agent_name = "test-agent";
+                priority = 0;
+              };
+            ];
+        }
+      in
+      let mgr = Session.create ~config () in
+      let effective =
+        Session.get_session_effective_model mgr ~key:"telegram:123:456"
+      in
+      Alcotest.(check string)
+        "room profile beats template" "openai:gpt-3.5-turbo" effective)
+
+let test_security_gate_denies_anthropic_from_profile () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let room_bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  (* allow_anthropic_oauth = false (default) *)
+  let config =
+    make_template_config ~allow_anthropic_oauth:false ~room_profiles:profiles
+      ~room_profile_bindings:room_bindings ()
+  in
+  let mgr = Session.create ~config () in
+  let effective =
+    Session.get_session_effective_model mgr ~key:"telegram:123:456"
+  in
+  (* Gate denies the Anthropic model; falls through to global *)
+  Alcotest.(check string)
+    "security gate denies anthropic model, falls to global" "openai:gpt-5.4"
+    effective
+
+let test_security_gate_allows_anthropic_when_enabled () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let room_bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let config =
+    make_template_config ~allow_anthropic_oauth:true ~room_profiles:profiles
+      ~room_profile_bindings:room_bindings ()
+  in
+  let mgr = Session.create ~config () in
+  let effective =
+    Session.get_session_effective_model mgr ~key:"telegram:123:456"
+  in
+  Alcotest.(check string)
+    "oauth enabled allows anthropic model" "anthropic:claude-sonnet-4-6"
+    effective
+
+let test_security_gate_allows_non_anthropic () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "openai:gpt-4";
+        system_prompt = "";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let room_bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  (* OAuth off, but model is not Anthropic — should pass *)
+  let config =
+    make_template_config ~allow_anthropic_oauth:false ~room_profiles:profiles
+      ~room_profile_bindings:room_bindings ()
+  in
+  let mgr = Session.create ~config () in
+  let effective =
+    Session.get_session_effective_model mgr ~key:"telegram:123:456"
+  in
+  Alcotest.(check string)
+    "non-anthropic model unaffected by oauth gate" "openai:gpt-4" effective
+
+let test_security_gate_denial_message_format () =
+  let result =
+    Agent_template.check_model_security_gates
+      ~config:(make_template_config ~allow_anthropic_oauth:false ())
+      ~model:"anthropic:claude-sonnet-4-6"
+  in
+  match result with
+  | Ok () -> Alcotest.fail "expected security gate to deny anthropic model"
+  | Error msg ->
+      Alcotest.(check bool)
+        "denial mentions model name" true
+        (String_util.contains msg "anthropic:claude-sonnet-4-6");
+      Alcotest.(check bool)
+        "denial mentions opt-in flag" true
+        (String_util.contains msg "allow_anthropic_oauth_inference")
+
+let test_session_override_bypasses_security_gate () =
+  (* Session override sets an Anthropic model. Even with OAuth off, the
+     explicit user choice bypasses the security gate. *)
+  let db = make_db () in
+  let config = make_template_config ~allow_anthropic_oauth:false () in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  Session.set_session_model mgr ~key ~model:"anthropic:claude-sonnet-4-6";
+  let effective = Session.get_session_effective_model mgr ~key in
+  Alcotest.(check string)
+    "session override bypasses security gate" "anthropic:claude-sonnet-4-6"
+    effective
+
+(* --- Template field precedence tests --- *)
+
+let test_room_profile_system_prompt_applied () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "room profile prompt";
+        max_tool_iterations = 10;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let db = make_db () in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  (* Force session creation so room profile template fields are applied *)
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  let ad = Session.get_session_agent_defaults mgr ~key in
+  Alcotest.(check string)
+    "room profile system_prompt applied" "room profile prompt" ad.system_prompt
+
+let test_room_profile_max_tool_iterations_applied () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "";
+        max_tool_iterations = 25;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let db = make_db () in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  let ad = Session.get_session_agent_defaults mgr ~key in
+  Alcotest.(check int)
+    "room profile max_tool_iterations applied" 25 ad.max_tool_iterations
+
+let test_room_profile_template_overrides_global () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "room profile prompt";
+        max_tool_iterations = 30;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let db = make_db () in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  let ad = Session.get_session_agent_defaults mgr ~key in
+  Alcotest.(check string)
+    "system_prompt overrides global" "room profile prompt" ad.system_prompt;
+  Alcotest.(check int)
+    "max_tool_iterations overrides global" 30 ad.max_tool_iterations
+
+let test_session_model_override_does_not_affect_template () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "room profile prompt";
+        max_tool_iterations = 20;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = true } ]
+  in
+  let db = make_db () in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  Session.set_session_model mgr ~key ~model:"openai:gpt-4";
+  let ad = Session.get_session_agent_defaults mgr ~key in
+  Alcotest.(check string)
+    "system_prompt preserved" "room profile prompt" ad.system_prompt;
+  Alcotest.(check int) "max_tool_iterations preserved" 20 ad.max_tool_iterations
+
+let test_inactive_room_profile_skips_template () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        model = "anthropic:claude-sonnet-4-6";
+        system_prompt = "inactive prompt";
+        max_tool_iterations = 99;
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "123:456"; active = false } ]
+  in
+  let db = make_db () in
+  let config =
+    make_config_with_room_profile ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:123:456" in
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  let ad = Session.get_session_agent_defaults mgr ~key in
+  Alcotest.(check string) "system_prompt not applied" "" ad.system_prompt;
+  Alcotest.(check int)
+    "max_tool_iterations unchanged"
+    Runtime_config.default.agent_defaults.max_tool_iterations
+    ad.max_tool_iterations
+
+(* --- Test: room profile system_prompt reaches actual built prompt --- *)
+
+let test_room_profile_prompt_out_ranks_template_in_built_prompt () =
+  (* When a room profile has a system_prompt and an agent template also has a
+     system_prompt, the room profile's prompt must appear in the actual built
+     system_prompt (agent.system_prompt), not only in agent_defaults. *)
+  with_test_template ~system_prompt:"template system prompt" "test-agent"
+    "openai:gpt-4" (fun () ->
+      let profiles =
+        [
+          {
+            Runtime_config.id = "vip";
+            model = "openai:gpt-3.5-turbo";
+            system_prompt = "room profile system prompt";
+            max_tool_iterations = 10;
+          };
+        ]
+      in
+      let room_bindings =
+        [
+          { Runtime_config.profile_id = "vip"; room = "123:456"; active = true };
+        ]
+      in
+      let config =
+        make_template_config ~allow_anthropic_oauth:true ~room_profiles:profiles
+          ~room_profile_bindings:room_bindings ()
+      in
+      let config =
+        {
+          config with
+          agent_bindings =
+            [
+              {
+                Agent_router.pattern = "default";
+                agent_name = "test-agent";
+                priority = 0;
+              };
+            ];
+        }
+      in
+      let mgr = Session.create ~config () in
+      let key = "telegram:123:456" in
+      (* Force session creation so room profile template fields are applied *)
+      ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+      (* The agent_defaults should have the room profile prompt *)
+      let ad = Session.get_session_agent_defaults mgr ~key in
+      Alcotest.(check string)
+        "agent_defaults has room profile prompt" "room profile system prompt"
+        ad.system_prompt;
+      (* The actual built prompt must contain the room profile prompt, NOT
+         the agent template's system_prompt. *)
+      let built = Session.get_session_system_prompt mgr ~key in
+      Alcotest.(check bool)
+        "built prompt contains room profile prompt" true
+        (String_util.contains built "room profile system prompt");
+      Alcotest.(check bool)
+        "built prompt does NOT contain template prompt" false
+        (String_util.contains built "template system prompt"))
+
 let suite =
   [
     Alcotest.test_case "set and get model override" `Quick
@@ -212,4 +975,54 @@ let suite =
       test_clear_session_model_restores_global;
     Alcotest.test_case "clear_session_model clears DB" `Quick
       test_clear_session_model_clears_db;
+    Alcotest.test_case "room profile model overrides channel default" `Quick
+      test_room_profile_model_overrides_channel_default;
+    Alcotest.test_case "room profile model overrides global" `Quick
+      test_room_profile_model_overrides_global;
+    Alcotest.test_case "session override takes precedence over room profile"
+      `Quick test_session_override_takes_precedence_over_room_profile;
+    Alcotest.test_case "inactive room profile binding skipped" `Quick
+      test_inactive_room_profile_binding_skipped;
+    Alcotest.test_case "missing room profile returns none" `Quick
+      test_missing_room_profile_returns_none;
+    Alcotest.test_case
+      "full precedence chain: session > room > channel > global" `Quick
+      test_room_profile_full_precedence_chain;
+    Alcotest.test_case
+      "clear_session_model restores room profile on active session" `Quick
+      test_clear_session_model_restores_room_profile_on_active_session;
+    Alcotest.test_case "room profile model applied on session load" `Quick
+      test_room_profile_model_applied_on_session_load;
+    Alcotest.test_case "room profile binding matches full session key" `Quick
+      test_room_profile_binding_matches_full_session_key;
+    Alcotest.test_case "no room profiles returns none" `Quick
+      test_no_room_profile_returns_none;
+    Alcotest.test_case "oauth gate denies claude even with room profile" `Quick
+      test_oauth_gate_denies_claude_even_with_room_profile;
+    Alcotest.test_case "room profile system_prompt applied" `Quick
+      test_room_profile_system_prompt_applied;
+    Alcotest.test_case "room profile max_tool_iterations applied" `Quick
+      test_room_profile_max_tool_iterations_applied;
+    Alcotest.test_case "room profile template overrides global" `Quick
+      test_room_profile_template_overrides_global;
+    Alcotest.test_case "session model override does not affect template" `Quick
+      test_session_model_override_does_not_affect_template;
+    Alcotest.test_case "inactive room profile skips template" `Quick
+      test_inactive_room_profile_skips_template;
+    Alcotest.test_case "channel default used when no room profile" `Quick
+      test_channel_default_used_when_no_room_profile;
+    Alcotest.test_case "room profile beats template model" `Quick
+      test_room_profile_beats_template;
+    Alcotest.test_case "security gate denies anthropic model from profile"
+      `Quick test_security_gate_denies_anthropic_from_profile;
+    Alcotest.test_case "security gate allows anthropic when oauth enabled"
+      `Quick test_security_gate_allows_anthropic_when_enabled;
+    Alcotest.test_case "security gate allows non-anthropic model" `Quick
+      test_security_gate_allows_non_anthropic;
+    Alcotest.test_case "security gate denial message format" `Quick
+      test_security_gate_denial_message_format;
+    Alcotest.test_case "session override bypasses security gate" `Quick
+      test_session_override_bypasses_security_gate;
+    Alcotest.test_case "room profile prompt outranks template in built prompt"
+      `Quick test_room_profile_prompt_out_ranks_template_in_built_prompt;
   ]
