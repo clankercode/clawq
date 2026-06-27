@@ -27,9 +27,9 @@ epics:
       locked: false
       name: P11 Privacy Guard
       path: 03-p11-privacy-guard
-      status: pending
+      status: done
 estimate_hours: 22
 id: P11.M2
 locked: false
 name: Profile Resolution in Connectors
-status: pending
+status: done

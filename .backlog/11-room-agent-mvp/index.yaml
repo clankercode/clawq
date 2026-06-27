@@ -21,7 +21,7 @@ milestones:
       locked: false
       name: Profile Resolution in Connectors
       path: 02-profile-resolution-in-connecto
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Preserve thread/source metadata, add Slack thread support, audit Teams reply-chain support, and create child work sessions under room profiles.

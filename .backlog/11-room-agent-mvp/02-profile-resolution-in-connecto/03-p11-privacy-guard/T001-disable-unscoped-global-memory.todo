@@ -6,9 +6,8 @@ depends_on:
 estimate_hours: 4
 id: P11.M2.E3.T001
 priority: high
-reason: 'integration: BUILD FAILED: -> required by alias src/all -> required by alias default Error: open(/tmp/dune_a01642_stderr): No such fi'
 started_at: null
-status: blocked
+status: done
 tags: []
 title: Disable unscoped global memory/search in profiled rooms
 ---
