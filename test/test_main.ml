@@ -56,6 +56,7 @@ let () =
        ("room_watcher_decision", Test_room_watcher_decision.suite);
        ("room_ambient_delivery", Test_room_ambient_delivery.suite);
        ("ambient_inspection", Test_ambient_inspection.suite);
+       ("room_progress", Test_room_progress.suite);
        ("session", Test_session.suite);
        ("session_observer", Test_session_observer.suite);
        ("session_persistence", Test_session_persistence.suite);
