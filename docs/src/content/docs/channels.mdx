@@ -25,6 +25,12 @@ webhook-driven integrations such as GitHub and MS Teams.
   follow-up message; <code>!stop</code> keeps the interrupt-plus-follow-up
   semantics.
 
+  To send something only after the agent finishes its current turn, use
+  <code>/followup MESSAGE</code>. Use <code>/followup-append MESSAGE</code> to
+  append to the latest queued follow-up. Follow-ups are delivered one at a time
+  when the session becomes idle; if the session is already idle, the message is
+  sent immediately as a normal chat message.
+
   If a <code>shell_exec</code> tool call is running when interrupted, the
   process is moved to a background shell instead of being killed. Use
   <code>bg_shell_status</code>, <code>bg_shell_wait</code>, and

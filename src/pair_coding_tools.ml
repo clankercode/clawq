@@ -33,6 +33,7 @@ let enqueue_to_role ctx ~(target_role : Pair_coding_types.role) ~message =
       message_id = None;
       inbound_queue_id = None;
       bang = false;
+      deferred_followup = false;
     }
   in
   let open Lwt.Syntax in

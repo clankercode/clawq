@@ -199,6 +199,14 @@ let dispatch_common ~session_manager ~key ~emit cmd_result =
                    Slash_commands_fmt.format_debug_set
                      ~connector:Format_adapter.Plain enabled key
                | Error err -> err)))
+  | Slash_commands.Followup action ->
+      Some
+        (let* response =
+           Connector_dispatch.dispatch_followup_collect
+             ~session_mgr:session_manager ~key ~connector_name:"web"
+             ~channel_id:key ~user_id:"web" ~is_admin:true action
+         in
+         emit response)
   | Slash_commands.AgentMenu page ->
       Some
         (emit

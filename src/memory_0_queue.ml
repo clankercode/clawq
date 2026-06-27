@@ -126,6 +126,17 @@ let queue_delete ~db ~queue_id =
       ignore (Sqlite3.step stmt);
       Sqlite3.changes db > 0)
 
+let queue_update_payload ~db ~queue_id ~payload_json =
+  let sql = "UPDATE inbound_queue SET payload_json = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT payload_json));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int queue_id)));
+      ignore (Sqlite3.step stmt);
+      Sqlite3.changes db > 0)
+
 let queue_record_failure ~db ~queue_id ~error =
   let sql =
     "UPDATE inbound_queue SET state = 'failed', attempt_count = attempt_count \

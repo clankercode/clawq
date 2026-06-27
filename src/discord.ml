@@ -650,6 +650,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
         in
+        let discord_channel_type =
+          match msg.guild_id with Some _ -> "group" | None -> "dm"
+        in
         let env : Connector_dispatch.dispatch_env =
           {
             connector = Format_adapter.Discord;
@@ -662,6 +665,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             session_mgr;
             key;
             channel_id = msg.channel_id;
+            channel_name = Some msg.channel_id;
+            channel_type = Some discord_channel_type;
+            sender_name = None;
+            message_id = Some msg.id;
             user_id = msg.author_id;
             is_admin;
             send_plain = send_reply;
@@ -1080,9 +1087,6 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                        "Sorry, an error occurred processing your message: %s"
                        err))
         | NotACommand -> (
-            let discord_channel_type =
-              match msg.guild_id with Some _ -> "group" | None -> "dm"
-            in
             let agent_defaults =
               (Session.get_config session_mgr).agent_defaults
             in
@@ -1477,7 +1481,8 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           | ShowThinking _ | Heartbeat _ | Debug _ | AgentMenu _ | ModelMenu _
           | ThinkingMenu | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu
           | Tools | Tasks | TasksFull | Costs _ | Session _ | Usage _ | Active
-          | Bg _ | Cron _ | Bl _ | HeldItems _ | Memories _ | Repo _ ) as r ->
+          | Bg _ | Cron _ | Bl _ | HeldItems _ | Memories _ | Repo _
+          | Followup _ ) as r ->
             Connector_dispatch.dispatch env r
 
 (* Close code classification for reconnect behavior *)

@@ -10,6 +10,7 @@ type thinking_action = ShowThinking | SetThinking of string option
 type show_thinking_action = ShowThinkingStatus | ToggleShowThinking
 type heartbeat_action = HeartbeatStatus | SetHeartbeat of bool
 type debug_action = DebugStatus | SetDebug of bool
+type followup_action = FollowupQueue of string | FollowupAppend of string
 
 type model_action =
   | ModelShow
@@ -97,6 +98,7 @@ type result =
   | Repo of repo_action
   | HeldItems of held_items_action
   | Memories of memories_action
+  | Followup of followup_action
   | DebugDumpChat
   | BashRun of string
   | AgentInvoke of string * string
@@ -257,6 +259,16 @@ let commands =
       priority = 28;
     };
     {
+      name = "followup";
+      description = "Send after current turn: /followup <message>";
+      priority = 27;
+    };
+    {
+      name = "followup-append";
+      description = "Append to queued follow-up: /followup-append <message>";
+      priority = 26;
+    };
+    {
       name = "config";
       description = "View or modify config: /config [show/tree/get/set/keys]";
       priority = 25;
@@ -369,6 +381,12 @@ let format_heartbeat_usage ~connector =
 
 let format_debug_usage ~connector =
   "Usage: " ^ Format_adapter.code connector "/debug" ^ " [on/off/status]"
+
+let format_followup_usage ~connector =
+  "Usage: " ^ Format_adapter.code connector "/followup <message>"
+
+let format_followup_append_usage ~connector =
+  "Usage: " ^ Format_adapter.code connector "/followup-append <message>"
 
 let format_delegate_usage ~connector =
   "Usage: "

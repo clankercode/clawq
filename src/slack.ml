@@ -404,6 +404,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                 session_mgr = session_manager;
                 key;
                 channel_id;
+                channel_name = Some channel_id;
+                channel_type = Some "group";
+                sender_name = None;
+                message_id = Some ts;
                 user_id;
                 is_admin;
                 send_plain = send_reply;
@@ -1200,7 +1204,7 @@ let handle_event ~(config : Runtime_config.slack_config)
               | AgentMenu _ | ModelMenu _ | ThinkingMenu | ConfigMenu _
               | SkillsMenu _ | CostsMenu | BgMenu | Tools | Tasks | TasksFull
               | Costs _ | Session _ | Usage _ | Active | Bg _ | Cron _ | Bl _
-              | HeldItems _ | Memories _ | Repo _ ) as r ->
+              | HeldItems _ | Memories _ | Repo _ | Followup _ ) as r ->
                 let* () = Connector_dispatch.dispatch env r in
                 Lwt.return "ok"
       end

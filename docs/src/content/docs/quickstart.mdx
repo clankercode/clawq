@@ -210,6 +210,10 @@ The bot maintains conversation history per chat, so follow-up questions work nat
   <code>Stopped by admin.</code> and without enqueueing a follow-up message.
   Use <code>!stop</code> when you want the older interrupt-plus-follow-up
   behavior.
+
+  To send a non-interrupting note after the current turn finishes, use
+  <code>/followup MESSAGE</code>. Use <code>/followup-append MESSAGE</code> to
+  extend the latest queued follow-up.
 </Callout>
 
 Open the browser UI at `http://127.0.0.1:13451/`:

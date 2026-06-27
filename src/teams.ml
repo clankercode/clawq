@@ -964,6 +964,18 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       Lwt.return_unit (* unreachable: preprocessed above *)
                   | SkillInvoke _ ->
                       Lwt.return_unit (* unreachable: preprocessed above *)
+                  | Followup action ->
+                      let followup_channel_id =
+                        encode_channel_id ~service_url:effective_service_url
+                          ~conversation_id
+                      in
+                      Connector_dispatch.dispatch_followup
+                        ~session_mgr:session_manager ~key
+                        ~connector_name:"teams" ~channel_id:followup_channel_id
+                        ~channel_name:"teams"
+                        ~channel_type:(if is_group then "group" else "dm")
+                        ?sender_name ~message_id:activity_id ~user_id ~is_admin
+                        ~send_reply:send_text action
                   | NotACommand -> (
                       (* Register status message factory and capabilities *)
                       if

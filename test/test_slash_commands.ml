@@ -180,6 +180,11 @@ let rec result_to_string = function
   | Slash_commands.Debate prompt -> "Debate(" ^ prompt ^ ")"
   | Slash_commands.Memories { oldest; page } ->
       Printf.sprintf "Memories(oldest=%b page=%d)" oldest page
+  | Slash_commands.Followup action -> (
+      match action with
+      | Slash_commands.FollowupQueue message -> "Followup(" ^ message ^ ")"
+      | Slash_commands.FollowupAppend message ->
+          "FollowupAppend(" ^ message ^ ")")
   | Slash_commands.NotACommand -> "NotACommand"
 
 let rec result_eq a b =
@@ -244,6 +249,7 @@ let rec result_eq a b =
   | Slash_commands.HeldItems a, Slash_commands.HeldItems b -> a = b
   | Slash_commands.Debate a, Slash_commands.Debate b -> a = b
   | Slash_commands.Memories a, Slash_commands.Memories b -> a = b
+  | Slash_commands.Followup a, Slash_commands.Followup b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -424,6 +430,26 @@ let test_empty_message () =
   Alcotest.check result_testable "empty msg" Slash_commands.NotACommand
     (Slash_commands.handle "")
 
+let test_followup_commands () =
+  Alcotest.check result_testable "/followup queues message"
+    (Slash_commands.Followup (Slash_commands.FollowupQueue "please check tests"))
+    (Slash_commands.handle "/followup please check tests");
+  Alcotest.check result_testable "/followup-append appends message"
+    (Slash_commands.Followup (Slash_commands.FollowupAppend "and update docs"))
+    (Slash_commands.handle "/followup-append and update docs");
+  (match extract_text (Slash_commands.handle "/followup") with
+  | Some text ->
+      Alcotest.(check bool)
+        "empty followup shows usage" true
+        (Test_helpers.string_contains text "/followup <message>")
+  | None -> Alcotest.fail "expected usage reply for empty /followup");
+  match extract_text (Slash_commands.handle "/followup-append") with
+  | Some text ->
+      Alcotest.(check bool)
+        "empty append shows usage" true
+        (Test_helpers.string_contains text "/followup-append <message>")
+  | None -> Alcotest.fail "expected usage reply for empty /followup-append"
+
 let test_commands_list () =
   let names =
     List.map
@@ -434,6 +460,10 @@ let test_commands_list () =
   Alcotest.(check bool) "has help" true (List.mem "help" names);
   Alcotest.(check bool) "has new" true (List.mem "new" names);
   Alcotest.(check bool) "has status" true (List.mem "status" names);
+  Alcotest.(check bool) "has followup" true (List.mem "followup" names);
+  Alcotest.(check bool)
+    "has followup-append" true
+    (List.mem "followup-append" names);
   Alcotest.(check bool) "has thinking" true (List.mem "thinking" names);
   Alcotest.(check bool) "has compact" true (List.mem "compact" names);
   Alcotest.(check bool) "has runtime_ctx" true (List.mem "runtime_ctx" names);
@@ -3008,6 +3038,7 @@ let suite =
     Alcotest.test_case "unknown command" `Quick test_unknown_command;
     Alcotest.test_case "regular message" `Quick test_regular_message;
     Alcotest.test_case "empty message" `Quick test_empty_message;
+    Alcotest.test_case "/followup commands" `Quick test_followup_commands;
     Alcotest.test_case "commands list" `Quick test_commands_list;
     Alcotest.test_case "case insensitive" `Quick test_case_insensitive;
     Alcotest.test_case "bare slash" `Quick test_bare_slash;

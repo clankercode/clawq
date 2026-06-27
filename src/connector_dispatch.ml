@@ -32,11 +32,110 @@ type dispatch_env = {
   session_mgr : Session.t;
   key : string;
   channel_id : string;
+  channel_name : string option;
+  channel_type : string option;
+  sender_name : string option;
+  message_id : string option;
   user_id : string;
   is_admin : bool;
   send_plain : string -> unit Lwt.t;
   send_formatted : string -> unit Lwt.t;
 }
+
+let followup_queue_ack = "Follow-up queued for after this turn."
+let followup_append_ack = "Queued follow-up updated."
+
+let followup_message = function
+  | Slash_commands.FollowupQueue message -> message
+  | Slash_commands.FollowupAppend message -> message
+
+let queued_followup ?channel_name ?channel_type ?sender_name ?message_id
+    ~connector_name ~channel_id ~user_id ~is_admin message :
+    Session.queued_message =
+  {
+    message;
+    content_parts = [];
+    attachments = [];
+    channel_name = Some (Option.value channel_name ~default:connector_name);
+    channel_type;
+    sender_id = Some user_id;
+    sender_name;
+    user_group = Some (if is_admin then "admin" else "guest");
+    channel = Some connector_name;
+    channel_id = Some channel_id;
+    message_id;
+    inbound_queue_id = None;
+    bang = false;
+    deferred_followup = true;
+  }
+
+let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
+    ?channel_name ?channel_type ?sender_name ?message_id ~is_admin ~send_reply
+    action =
+  let open Lwt.Syntax in
+  let message = followup_message action in
+  let queued =
+    queued_followup ?channel_name ?channel_type ?sender_name ?message_id
+      ~connector_name ~channel_id ~user_id ~is_admin message
+  in
+  let* outcome =
+    match action with
+    | Slash_commands.FollowupQueue _ ->
+        Session.enqueue_followup_if_busy session_mgr ~key queued
+    | Slash_commands.FollowupAppend _ ->
+        Session.append_followup_if_busy session_mgr ~key queued
+  in
+  match outcome with
+  | `Queued -> send_reply followup_queue_ack
+  | `Appended -> send_reply followup_append_ack
+  | `Idle ->
+      let response_sent = ref false in
+      let before_drain response =
+        if
+          Session.is_queued_message_response response
+          || Session.should_suppress_response response
+        then Lwt.return_unit
+        else
+          let* () = send_reply response in
+          if not (Session.take_response_deferred session_mgr ~key) then
+            Session.mark_response_sent session_mgr ~key;
+          response_sent := true;
+          Lwt.return_unit
+      in
+      let* response =
+        Session.with_registered_notifier session_mgr ~key ~notify:send_reply
+          (fun () ->
+            Session.turn session_mgr ~key ~message ~channel:connector_name
+              ?channel_name ?channel_type ~channel_id ~sender_id:user_id
+              ?sender_name ?message_id
+              ~user_group:(if is_admin then "admin" else "guest")
+              ~deferred_if_busy:true ~before_drain ())
+      in
+      if Session.is_queued_message_response response then
+        send_reply followup_queue_ack
+      else if Session.should_suppress_response response then Lwt.return_unit
+      else if !response_sent then Lwt.return_unit
+      else begin
+        if not (Session.take_response_deferred session_mgr ~key) then
+          Session.mark_response_sent session_mgr ~key;
+        send_reply response
+      end
+
+let dispatch_followup_collect ~session_mgr ~key ~connector_name ~channel_id
+    ~user_id ?channel_name ?channel_type ?sender_name ?message_id ~is_admin
+    action =
+  let open Lwt.Syntax in
+  let replies = ref [] in
+  let send_reply text =
+    replies := text :: !replies;
+    Lwt.return_unit
+  in
+  let* () =
+    dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
+      ?channel_name ?channel_type ?sender_name ?message_id ~is_admin ~send_reply
+      action
+  in
+  Lwt.return (String.concat "\n\n" (List.rev !replies))
 
 (* Shared implementation of the per-connector [set_thinking_level] helpers.
    The user-facing string is identical across connectors. [connector_name]
@@ -189,6 +288,12 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
             | Error err -> err)
       in
       env.send_formatted text
+  | Followup action ->
+      dispatch_followup ~session_mgr ~key ~connector_name:env.connector_name
+        ~channel_id:env.channel_id ?channel_name:env.channel_name
+        ?channel_type:env.channel_type ?sender_name:env.sender_name
+        ?message_id:env.message_id ~user_id:env.user_id ~is_admin:env.is_admin
+        ~send_reply:env.send_formatted action
   | AgentMenu page ->
       env.send_formatted (Slash_commands_fmt.format_agent_menu ~connector ~page)
   | ModelMenu page ->

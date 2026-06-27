@@ -1183,6 +1183,7 @@ let test_drain_queued_messages_marks_live_activity () =
                    message_id = None;
                    inbound_queue_id = None;
                    bang = false;
+                   deferred_followup = false;
                  }
              in
              Alcotest.(check bool) "message queued" true queued;
@@ -1209,7 +1210,8 @@ let test_drain_queued_messages_marks_live_activity () =
         "drain progress sees live activity" true !active_during_progress)
 
 let queued_message ?channel_name ?channel_type ?sender_id ?sender_name
-    ?user_group ?channel ?channel_id ?message_id message =
+    ?user_group ?channel ?channel_id ?message_id ?(deferred_followup = false)
+    message =
   {
     Session.message;
     content_parts = [];
@@ -1224,6 +1226,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name
     message_id;
     inbound_queue_id = None;
     bang = false;
+    deferred_followup;
   }
 
 let stop_interrupt_token_for_test = Agent.stop_interrupt_token
@@ -1329,6 +1332,127 @@ let test_enqueue_message_if_busy_marks_interrupt_and_preserves_message () =
         (Option.map
            (fun msg -> msg.Session.message)
            (Session.take_next_queued_message mgr ~key:"telegram:1:u"))
+
+let test_midturn_injection_pulls_steering_before_followups () =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let key = "telegram:1:u" in
+  Hashtbl.replace mgr.queued_messages key
+    [
+      queued_message "x";
+      queued_message ~deferred_followup:true "y";
+      queued_message "z";
+      queued_message ~deferred_followup:true "w";
+    ];
+  let injected = Session.take_all_queued_messages_for_injection mgr ~key in
+  Alcotest.(check (list string))
+    "only steering messages are injected" [ "x"; "z" ]
+    (List.map (fun (msg : Session.queued_message) -> msg.message) injected);
+  Alcotest.(check (list string))
+    "followups remain queued in order" [ "y"; "w" ]
+    (List.filter_map
+       (fun _ ->
+         Option.map
+           (fun (msg : Session.queued_message) -> msg.message)
+           (Session.take_next_queued_message mgr ~key))
+       [ (); () ])
+
+let test_append_followup_updates_last_queued_followup () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* first =
+       Session.enqueue_followup_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" "first")
+     in
+     (match first with
+     | `Queued -> ()
+     | `Idle -> Alcotest.fail "expected first followup to queue");
+     let* appended =
+       Session.append_followup_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" "second")
+     in
+     (match appended with
+     | `Appended -> ()
+     | `Queued | `Idle -> Alcotest.fail "expected append to update followup");
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key with
+  | None -> Alcotest.fail "expected queued followup"
+  | Some queued ->
+      Alcotest.(check bool)
+        "queued item is deferred followup" true queued.deferred_followup;
+      Alcotest.(check string)
+        "append separated by blank line" "first\n\nsecond" queued.message
+
+let test_append_followup_without_existing_queues_new_followup () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* result =
+       Session.append_followup_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" "first")
+     in
+     (match result with
+     | `Queued -> ()
+     | `Appended | `Idle ->
+         Alcotest.fail "expected append fallback to queue followup");
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key with
+  | None -> Alcotest.fail "expected queued followup"
+  | Some queued ->
+      Alcotest.(check bool)
+        "fallback queued item is deferred followup" true
+        queued.deferred_followup;
+      Alcotest.(check string) "content preserved" "first" queued.message
+
+let test_append_followup_updates_sqlite_payload () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:1:u" in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* first =
+       Session.enqueue_followup_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" "first")
+     in
+     (match first with
+     | `Queued -> ()
+     | `Idle -> Alcotest.fail "expected first followup to queue");
+     let* appended =
+       Session.append_followup_if_busy mgr ~key
+         (queued_message ~channel:"telegram" ~channel_id:"1" "second")
+     in
+     (match appended with
+     | `Appended -> ()
+     | `Queued | `Idle -> Alcotest.fail "expected sqlite append");
+     Lwt.return_unit);
+  match Memory.queue_list ~db ~session_key:key with
+  | [ row ] ->
+      let json = Yojson.Safe.from_string row.Memory.payload_json in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "sqlite payload updated" "first\n\nsecond"
+        (json |> member "message" |> to_string);
+      Alcotest.(check bool)
+        "sqlite payload marks deferred followup" true
+        (json |> member "deferred_followup" |> to_bool)
+  | rows -> Alcotest.failf "expected one queued row, got %d" (List.length rows)
 
 let test_enqueue_message_if_busy_queues_without_channel_notifier () =
   let config = Runtime_config.default in
@@ -1636,6 +1760,99 @@ let test_drain_queued_messages_sends_followup_response () =
       Alcotest.(check bool)
         "queue drained" true
         (Session.take_next_queued_message mgr ~key:"telegram:1:u" = None))
+
+let test_drain_deferred_followup_sends_plain_message () =
+  let seen_user_message = ref None in
+  let response_for_user message =
+    seen_user_message := Some message;
+    "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:1:u" in
+      let sent = ref [] in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key
+           ~notify:(fun text ->
+             sent := text :: !sent;
+             Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key (fun agent interrupt ->
+                 Hashtbl.replace mgr.queued_messages key
+                   [ queued_message ~deferred_followup:true "please continue" ];
+                 Session.drain_queued_messages mgr ~key agent interrupt ())));
+      Alcotest.(check (option string))
+        "deferred followup delivered as plain user message"
+        (Some "please continue") !seen_user_message;
+      Alcotest.(check int) "followup sent once" 1 (List.length !sent))
+
+let test_deferred_turn_queues_if_lock_lost () =
+  with_fake_chat_provider (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:1:u" in
+      let response =
+        Lwt_main.run
+          (Session.with_session_lock mgr ~key (fun _agent _interrupt ->
+               Session.turn mgr ~key ~message:"after this turn"
+                 ~deferred_if_busy:true ()))
+      in
+      Alcotest.(check string)
+        "busy fallback suppresses immediate response"
+        Session.queued_message_response response;
+      match Session.take_next_queued_message mgr ~key with
+      | Some queued ->
+          Alcotest.(check string)
+            "queued message" "after this turn" queued.message;
+          Alcotest.(check bool)
+            "queued as deferred followup" true queued.deferred_followup
+      | None -> Alcotest.fail "expected deferred followup to be queued")
+
+let test_idle_followup_drains_later_busy_followup () =
+  let mgr_ref = ref None in
+  let queued_second = ref false in
+  let response_for_user message =
+    if
+      Test_helpers.string_contains message "first followup"
+      && not !queued_second
+    then begin
+      queued_second := true;
+      match !mgr_ref with
+      | Some (mgr : Session.t) ->
+          Hashtbl.replace mgr.queued_messages "test:c:u"
+            [ queued_message ~deferred_followup:true "second followup" ]
+      | None -> Alcotest.fail "session manager not initialized"
+    end;
+    "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let mgr = Session.create ~config () in
+      mgr_ref := Some mgr;
+      let sent = ref [] in
+      Lwt_main.run
+        (Connector_dispatch.dispatch_followup ~session_mgr:mgr ~key:"test:c:u"
+           ~connector_name:"test" ~channel_id:"c" ~user_id:"u" ~is_admin:true
+           ~send_reply:(fun text ->
+             sent := text :: !sent;
+             Lwt.return_unit)
+           (Slash_commands.FollowupQueue "first followup"));
+      Alcotest.(check bool)
+        "second followup queued during turn" true !queued_second;
+      let sent = List.rev !sent in
+      Alcotest.(check int) "two followup responses sent" 2 (List.length sent);
+      let find_idx needle =
+        List.find_index
+          (fun text -> Test_helpers.string_contains text needle)
+          sent
+      in
+      Alcotest.(check (option int))
+        "first followup response index" (Some 0)
+        (find_idx "first followup");
+      Alcotest.(check (option int))
+        "second followup response index" (Some 1)
+        (find_idx "second followup");
+      Alcotest.(check bool)
+        "queue empty after drain" true
+        (Session.take_next_queued_message mgr ~key:"test:c:u" = None))
 
 let test_turn_uses_special_command_handler () =
   let config = Runtime_config.default in
@@ -3785,6 +4002,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       message_id = None;
       inbound_queue_id = None;
       bang = false;
+      deferred_followup = false;
     }
   in
   ignore
@@ -4657,6 +4875,15 @@ let suite =
     Alcotest.test_case
       "enqueue message if busy marks interrupt and preserves message" `Quick
       test_enqueue_message_if_busy_marks_interrupt_and_preserves_message;
+    Alcotest.test_case
+      "mid-turn injection pulls steering before deferred followups" `Quick
+      test_midturn_injection_pulls_steering_before_followups;
+    Alcotest.test_case "append followup updates last queued followup" `Quick
+      test_append_followup_updates_last_queued_followup;
+    Alcotest.test_case "append followup without existing queues new followup"
+      `Quick test_append_followup_without_existing_queues_new_followup;
+    Alcotest.test_case "append followup updates sqlite payload" `Quick
+      test_append_followup_updates_sqlite_payload;
     Alcotest.test_case "enqueue message if busy queues without channel notifier"
       `Quick test_enqueue_message_if_busy_queues_without_channel_notifier;
     Alcotest.test_case
@@ -4691,6 +4918,12 @@ let suite =
       test_drain_queued_messages_preserves_admin_bang_followup;
     Alcotest.test_case "drain queued messages sends followup response" `Quick
       test_drain_queued_messages_sends_followup_response;
+    Alcotest.test_case "deferred followup drains as plain message" `Quick
+      test_drain_deferred_followup_sends_plain_message;
+    Alcotest.test_case "deferred turn queues if idle lock race is lost" `Quick
+      test_deferred_turn_queues_if_lock_lost;
+    Alcotest.test_case "idle followup drains later busy followup" `Quick
+      test_idle_followup_drains_later_busy_followup;
     Alcotest.test_case "turn uses special command handler" `Quick
       test_turn_uses_special_command_handler;
     Alcotest.test_case "turn stream uses special command handler" `Quick

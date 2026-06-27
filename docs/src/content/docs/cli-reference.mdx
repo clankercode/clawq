@@ -427,11 +427,17 @@ Options for `plan start`:
   session is busy to stop the active turn cleanly with
   <code>Stopped by admin.</code>. This clean stop does not enqueue a follow-up;
   use <code>!stop</code> for the interrupt-plus-follow-up behavior.
+
+  Use <code>/followup MESSAGE</code> to defer a message until the current turn
+  finishes. Use <code>/followup-append MESSAGE</code> to append to the most
+  recent queued follow-up.
 </Callout>
 
 - `!stop` — interrupts the in-flight turn and sends "stop" as the next message
 - `!` (bare) — interrupts and sends "[interrupted]"
 - Admin `stop` or `/stop` while busy — terminates the active turn cleanly and replies `Stopped by admin.` without enqueueing a follow-up message
+- `/followup MESSAGE` — queues a non-interrupting follow-up for delivery when the session next becomes idle; if the session is idle, sends immediately
+- `/followup-append MESSAGE` — appends to the latest queued follow-up, or queues/sends a new one when none exists
 
 When `shell_exec` is interrupted, the running process is moved to a background shell instead of being killed. Use `/tools` to see `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result` for tracking background shell jobs.
 
@@ -450,6 +456,8 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/thinking menu` | Interactive thinking level selection menu |
 | `/show_thinking` | Toggle display of model thinking in responses |
 | `/heartbeat [on\|off\|status]` | Toggle heartbeat routing for this session |
+| `/followup <message>` | Send a follow-up after the current turn finishes; idle sessions send immediately |
+| `/followup-append <message>` | Append to the most recent queued follow-up |
 | `/compact` | Compact session history by summarizing older messages |
 | `/model` | Show current model, favorites, and usage ranking |
 | `/model help` | Show model command usage text |

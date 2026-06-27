@@ -67,6 +67,18 @@ let handle ?(skill_names = []) text =
             | [ "off" ] -> Debug (SetDebug false)
             | _ ->
                 FormattedReply (fun connector -> format_debug_usage ~connector))
+        | "followup" -> (
+            match args with
+            | [] ->
+                FormattedReply
+                  (fun connector -> format_followup_usage ~connector)
+            | _ -> Followup (FollowupQueue (String.concat " " args)))
+        | "followup-append" -> (
+            match args with
+            | [] ->
+                FormattedReply
+                  (fun connector -> format_followup_append_usage ~connector)
+            | _ -> Followup (FollowupAppend (String.concat " " args)))
         | "agent" -> (
             match args with
             | [] ->

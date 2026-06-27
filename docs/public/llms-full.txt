@@ -217,6 +217,8 @@ Available in chat-integrated channels that support slash commands. Admin-only co
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
 - `/thinking menu` — interactive thinking level selection menu
 - `/heartbeat [on|off|status]` — show or toggle heartbeat routing for the current Telegram/Slack/Discord/Teams session; web sessions return an unsupported message
+- `/followup <message>` — queue a non-interrupting follow-up for the current session; if the session is idle, send the message immediately as a normal turn
+- `/followup-append <message>` — append to the most recent queued follow-up for the session; if no follow-up is queued, behaves like `/followup <message>`
 - `/agent <name> <prompt>` — invoke a named agent template for a one-off turn; the agent runs with the template's system prompt, tool restrictions, and model override; `/agent list` shows available templates
 - `/agent menu [page]` — interactive paginated agent template menu (8 per page); shows template names with descriptions and next/prev navigation; Teams uses Adaptive Card buttons
 - `/delegate [@agent_name] <prompt>` — delegate a prompt to a temporary subagent session; optionally prefix with `@agent_name` to use a specific agent template's system prompt, tool restrictions, and model override; the subagent runs the prompt, returns the result, and is discarded; the caller's main session history is not affected
@@ -268,6 +270,8 @@ Available in chat-integrated channels that support slash commands. Admin-only co
 - Any incoming message whose first character is `!` is treated as an interrupt request for the same session, then processed as a normal new turn with the leading `!` removed.
 - Example: `!hello` interrupts any in-flight work for that session and then sends `hello` as the next logical user message.
 - A bare `!` becomes the normalized user message `[interrupted]`.
+- While a session is busy, normal messages queue as steering and may be injected before the turn fully idles. `/followup <message>` queues an explicit deferred follow-up instead: it is not injected mid-turn and is delivered one at a time after the session becomes idle.
+- `/followup-append <message>` appends to the latest queued deferred follow-up. If there is no prior queued follow-up, it queues a new deferred follow-up; if the session is idle, it sends immediately as a normal message.
 - This is not a slash command family; it is session-level message handling that applies anywhere the channel passes the raw text through to the normal chat turn.
 - In practice this works for the web chat/gateway and normal text channels such as Telegram, Discord, Slack, WhatsApp, LINE, Signal, IRC, Nostr, Lark, Matrix, OneBot, Teams, and WebChannel.
 

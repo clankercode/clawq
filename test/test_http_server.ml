@@ -225,11 +225,33 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
     default_model = Some "fake-model";
   }
 
-let with_text_provider f =
+let with_text_provider ?response_for_user f =
   let port = Test_helpers.free_port () in
   let callback _conn _req body =
     let open Lwt.Syntax in
-    let* _ = Cohttp_lwt.Body.to_string body in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    let latest_user_message =
+      try
+        let json = Yojson.Safe.from_string body_text in
+        let open Yojson.Safe.Util in
+        json |> member "messages" |> to_list
+        |> List.filter_map (fun msg ->
+            try
+              if msg |> member "role" |> to_string = "user" then
+                Some (msg |> member "content" |> to_string)
+              else None
+            with _ -> None)
+        |> List.rev
+        |> function
+        | message :: _ -> message
+        | [] -> ""
+      with _ -> ""
+    in
+    let response_text =
+      match response_for_user with
+      | Some f -> f latest_user_message
+      | None -> "Summary of conversation."
+    in
     let response_body =
       Yojson.Safe.to_string
         (`Assoc
@@ -247,7 +269,7 @@ let with_text_provider f =
                          `Assoc
                            [
                              ("role", `String "assistant");
-                             ("content", `String "Summary of conversation.");
+                             ("content", `String response_text);
                            ] );
                        ("finish_reason", `String "stop");
                      ];
@@ -601,6 +623,76 @@ let test_chat_usage_returns_usage_summary () =
       Alcotest.(check bool)
         "has all time row" true
         (Test_helpers.string_contains response "All time"))
+
+let find_substring_index haystack needle =
+  let haystack_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop idx =
+    if idx + needle_len > haystack_len then None
+    else if String.sub haystack idx needle_len = needle then Some idx
+    else loop (idx + 1)
+  in
+  if needle_len = 0 then Some 0 else loop 0
+
+let test_chat_followup_drains_later_busy_followup () =
+  let mgr_ref = ref None in
+  let queued_second = ref false in
+  let response_for_user message =
+    if
+      Test_helpers.string_contains message "first followup"
+      && not !queued_second
+    then begin
+      queued_second := true;
+      match !mgr_ref with
+      | Some (mgr : Session.t) ->
+          Hashtbl.replace mgr.queued_messages "web:s"
+            [
+              Connector_dispatch.queued_followup ~connector_name:"web"
+                ~channel_id:"web:s" ~user_id:"web" ~is_admin:true
+                "second followup";
+            ]
+      | None -> Alcotest.fail "session manager not initialized"
+    end;
+    "reply:" ^ message
+  in
+  with_text_provider ~response_for_user (fun config ->
+      let session_manager = Session.create ~config () in
+      mgr_ref := Some session_manager;
+      let req =
+        Cohttp.Request.make ~meth:`POST (Uri.of_string "http://127.0.0.1/chat")
+      in
+      let body =
+        Cohttp_lwt.Body.of_string
+          {|{"session_id":"s","message":"/followup first followup"}|}
+      in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      Alcotest.(check bool)
+        "second followup queued during turn" true !queued_second;
+      let payload = Yojson.Safe.from_string (body_string body) in
+      let open Yojson.Safe.Util in
+      let response = payload |> member "response" |> to_string in
+      let first_idx = find_substring_index response "first followup" in
+      let second_idx = find_substring_index response "second followup" in
+      Alcotest.(check bool)
+        "first followup response present" true (Option.is_some first_idx);
+      Alcotest.(check bool)
+        "second followup response present" true
+        (Option.is_some second_idx);
+      Alcotest.(check bool)
+        "first response appears before second" true
+        (match (first_idx, second_idx) with
+        | Some first, Some second -> first < second
+        | _ -> false);
+      Alcotest.(check bool)
+        "queue empty after drain" true
+        (Session.take_next_queued_message session_manager ~key:"web:s" = None))
 
 let test_session_inject_rejects_missing_auth_token () =
   let config = Runtime_config.default in
@@ -1722,6 +1814,8 @@ let suite =
       test_chat_model_show_returns_formatted_model_summary;
     Alcotest.test_case "chat usage returns usage summary" `Quick
       test_chat_usage_returns_usage_summary;
+    Alcotest.test_case "chat followup drains later busy followup" `Quick
+      test_chat_followup_drains_later_busy_followup;
     Alcotest.test_case "session inject rejects missing auth token" `Quick
       test_session_inject_rejects_missing_auth_token;
     Alcotest.test_case "session inject uses session turn" `Quick

@@ -361,7 +361,7 @@ let test_boot_startup_stage_sequence_without_full_daemon () =
         resumed := (session_key, channel, channel_id) :: !resumed;
         Lwt.return_unit
       in
-      let replay_turn _mgr ~key ~message ?cwd:_ () =
+      let replay_turn _mgr ~key ~message ?deferred_if_busy:_ ?cwd:_ () =
         replayed := (key, message) :: !replayed;
         Lwt.return "ok"
       in
@@ -448,7 +448,7 @@ let test_boot_startup_stage_sequence_continues_after_mcp_failure () =
         resumed := (session_key, channel, channel_id) :: !resumed;
         Lwt.return_unit
       in
-      let replay_turn _mgr ~key ~message ?cwd:_ () =
+      let replay_turn _mgr ~key ~message ?deferred_if_busy:_ ?cwd:_ () =
         replayed := (key, message) :: !replayed;
         Lwt.return "ok"
       in
@@ -2464,7 +2464,7 @@ let test_replay_durable_inbound_drains_and_deletes () =
     "1 pending before replay" 1
     (Memory.queue_count ~db ~session_key:key);
   let replayed = ref [] in
-  let replay_turn _mgr ~key ~message ?cwd:_ () =
+  let replay_turn _mgr ~key ~message ?deferred_if_busy:_ ?cwd:_ () =
     replayed := (key, message) :: !replayed;
     Lwt.return "ok"
   in
@@ -2507,7 +2507,7 @@ let test_replay_durable_inbound_summary_counts () =
   let summary =
     Lwt_main.run
       (Daemon.replay_durable_inbound_queue
-         ~replay_turn:(fun _mgr ~key:_ ~message ?cwd:_ () ->
+         ~replay_turn:(fun _mgr ~key:_ ~message ?deferred_if_busy:_ ?cwd:_ () ->
            if message = "boom" then Lwt.fail_with "boom" else Lwt.return "ok")
          ~session_manager ~config ())
   in
@@ -2536,7 +2536,7 @@ let test_replay_durable_inbound_fifo_ordering () =
   enq "second";
   enq "third";
   let replayed = ref [] in
-  let replay_turn _mgr ~key:_ ~message ?cwd:_ () =
+  let replay_turn _mgr ~key:_ ~message ?deferred_if_busy:_ ?cwd:_ () =
     replayed := message :: !replayed;
     Lwt.return "ok"
   in
@@ -2560,7 +2560,7 @@ let test_replay_records_failure_on_error () =
        ~payload_json:
          (Yojson.Safe.to_string
             (`Assoc [ ("message", `String "fail me"); ("bang", `Bool false) ])));
-  let replay_turn _mgr ~key:_ ~message:_ ?cwd:_ () =
+  let replay_turn _mgr ~key:_ ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
     Lwt.fail_with "test error"
   in
   ignore
@@ -2585,7 +2585,7 @@ let test_replay_skips_empty_message () =
          (Yojson.Safe.to_string
             (`Assoc [ ("message", `String ""); ("bang", `Bool false) ])));
   let replayed = ref 0 in
-  let replay_turn _mgr ~key:_ ~message:_ ?cwd:_ () =
+  let replay_turn _mgr ~key:_ ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
     incr replayed;
     Lwt.return "ok"
   in
@@ -2610,7 +2610,7 @@ let test_replay_preserves_bang_prefix () =
          (Yojson.Safe.to_string
             (`Assoc [ ("message", `String "urgent"); ("bang", `Bool true) ])));
   let replayed = ref [] in
-  let replay_turn _mgr ~key:_ ~message ?cwd:_ () =
+  let replay_turn _mgr ~key:_ ~message ?deferred_if_busy:_ ?cwd:_ () =
     replayed := message :: !replayed;
     Lwt.return "ok"
   in
@@ -2619,6 +2619,35 @@ let test_replay_preserves_bang_prefix () =
        (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
           ~config ()));
   Alcotest.(check (list string)) "bang prefix added" [ "!urgent" ] !replayed
+
+let test_replay_preserves_deferred_followup_flag () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:7:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("message", `String "after you finish");
+                 ("bang", `Bool false);
+                 ("deferred_followup", `Bool true);
+               ])));
+  let replayed = ref [] in
+  let replay_turn _mgr ~key:_ ~message ?(deferred_if_busy = false) ?cwd:_ () =
+    replayed := (message, deferred_if_busy) :: !replayed;
+    Lwt.return "ok"
+  in
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
+  Alcotest.(check (list (pair string bool)))
+    "deferred flag forwarded"
+    [ ("after you finish", true) ]
+    !replayed
 
 let test_session_reset_clears_pending_queue () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3180,6 +3209,8 @@ let suite =
       test_replay_skips_empty_message;
     Alcotest.test_case "replay preserves bang prefix" `Quick
       test_replay_preserves_bang_prefix;
+    Alcotest.test_case "replay preserves deferred follow-up flag" `Quick
+      test_replay_preserves_deferred_followup_flag;
     Alcotest.test_case "session reset clears pending queue" `Quick
       test_session_reset_clears_pending_queue;
     Alcotest.test_case "refresh runtime-bound tools replaces shell_exec" `Quick

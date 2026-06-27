@@ -1,16 +1,54 @@
 ---
 claimed_at: "2026-06-27T07:46:42Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-27T08:41:00Z"
 complexity: medium
 depends_on: []
+duration_minutes: 54.30891869678333
 estimate_hours: 1
 id: B713
 priority: high
 started_at: "2026-06-27T07:46:42Z"
-status: in_progress
+status: done
 tags: []
-title: 'Add a way to send a follow up prompt/chat msg that is held for delivery to the agent/session until the end of that agents turn. follow-ups are sent one at a time. We need to decide on what/how to do it: we could use a ''~'' prefix or something, or `/followup <blah>` slash command, or maybe something else. need to think and figure out whats best. also, need a way to append to last-queued followup: either ''~+'' prefix, or ''/followup+'' maybe.'
+title: Add explicit deferred follow-up chat commands
 ---
 
-Add a way to send a follow up prompt/chat msg that is held for delivery to the agent/session until the end of that agents turn. follow-ups are sent one at a time. We need to decide on what/how to do it: we could use a '~' prefix or something, or `/followup <blah>` slash command, or maybe something else. need to think and figure out whats best. also, need a way to append to last-queued followup: either '~+' prefix, or '/followup+' maybe.
+Add explicit chat commands for deferred follow-up messages:
+
+- `/followup <message>` queues a follow-up for the current session.
+- `/followup-append <message>` appends to the most recent queued follow-up for
+  the current session. Do not use `/followup append` because it is ambiguous.
+- Do not add a `~` shorthand in this task.
+
+Semantics:
+
+- Busy-session normal messages remain steering messages. They may be injected
+  into the active agent turn at the next tool-call/checkpoint.
+- Explicit follow-ups are held until the agent would otherwise go idle. They
+  must not be injected mid-turn.
+- If queued messages are:
+  - steer: x
+  - followup: y
+  - steer: z
+  - followup: w
+  then x and z should both be delivered at the next steering-message injection
+  opportunity, while y and w remain deferred.
+- Deferred follow-ups are delivered one at a time. When the active work goes
+  idle, y is delivered. After y is fully processed and the agent would go idle
+  again, w is delivered.
+- If `/followup <message>` is used while the agent is idle, send it as a normal
+  message immediately.
+- If `/followup-append <message>` is used and there is no prior queued
+  follow-up, treat it like `/followup <message>`; if the agent is idle, send it
+  normally.
+
+Implementation notes:
+
+- Reuse the existing session queued-message machinery where possible, but add a
+  distinct marker for deferred follow-ups so injection can pull steering
+  messages before follow-ups.
+- Preserve connector/session metadata on follow-ups just like normal queued
+  messages.
+- Keep user-facing acknowledgements clear; do not expose the internal queued
+  sentinel.

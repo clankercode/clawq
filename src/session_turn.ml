@@ -547,7 +547,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
     ~drained_any () =
-  match Session_core.take_next_queued_message mgr ~key with
+  match Session_core.take_next_queued_message_for_drain mgr ~key with
   | Some queued when Session_core.is_queued_admin_stop_message queued ->
       Session_core.handle_queued_admin_stop mgr ~key interrupt queued;
       Lwt.return_unit
@@ -562,16 +562,18 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
             | Some dp -> dp.Session_core.before_turn queued.message_id
             | None -> Lwt.return_unit
           in
-          let injected_message =
-            Session_core.queued_message_prompt
-              (Session_core.effective_message_for_turn ~message:queued.message
-                 ?channel_name:queued.channel_name
-                 ?channel_type:queued.channel_type ?sender_id:queued.sender_id
-                 ?sender_name:queued.sender_name ?user_group:queued.user_group
-                 ())
+          let turn_message =
+            if queued.deferred_followup then queued.message
+            else
+              Session_core.queued_message_prompt
+                (Session_core.effective_message_for_turn ~message:queued.message
+                   ?channel_name:queued.channel_name
+                   ?channel_type:queued.channel_type ?sender_id:queued.sender_id
+                   ?sender_name:queued.sender_name ?user_group:queued.user_group
+                   ())
           in
           let* response =
-            run_locked_turn mgr ~key agent interrupt ~message:injected_message
+            run_locked_turn mgr ~key agent interrupt ~message:turn_message
               ~content_parts:queued.content_parts
               ?channel_name:queued.channel_name
               ?channel_type:queued.channel_type ?sender_id:queued.sender_id
@@ -623,7 +625,8 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
 
 let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?user_group ?channel ?channel_id ?message_id ?cwd ?before_drain () =
+    ?user_group ?channel ?channel_id ?message_id ?cwd
+    ?(deferred_if_busy = false) ?before_drain () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -653,67 +656,92 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               message_id;
               inbound_queue_id = None;
               bang = false;
+              deferred_followup = deferred_if_busy;
             }
           in
-          let* queued =
-            Session_core.enqueue_message_if_busy mgr ~key ~raw_message
-              queued_message
+          let on_draining () =
+            let* draining_response = Session_core.respond_if_draining mgr in
+            match draining_response with
+            | Some response -> Lwt.return response
+            | None -> Lwt.return Session_core.draining_message
           in
-          if queued then Lwt.return Session_core.queued_message_response
-          else
-            Session_core.with_session_lock_unless_draining mgr ~key
-              ~on_draining:(fun () ->
-                let* draining_response = Session_core.respond_if_draining mgr in
-                match draining_response with
-                | Some response -> Lwt.return response
-                | None -> Lwt.return Session_core.draining_message)
-              (fun agent interrupt ->
-                Session_core.with_in_flight mgr (fun () ->
-                    (match cwd with
-                    | Some c -> (
-                        let old_cwd = agent.Agent.effective_cwd in
-                        agent.Agent.effective_cwd <- Some c;
-                        (match old_cwd with
-                        | Some prev when prev <> c ->
-                            let event_msg =
-                              Provider.make_message ~role:"event"
-                                ~content:
-                                  (Printf.sprintf
-                                     "[system] Working directory changed from \
-                                      %s to %s"
-                                     prev c)
-                            in
-                            agent.Agent.history <-
-                              agent.Agent.history @ [ event_msg ]
-                        | _ -> ());
-                        match mgr.Session_core.db with
-                        | Some db ->
-                            Memory.set_session_cwd ~db ~session_key:key
-                              ~cwd:(Some c)
-                        | None -> ())
-                    | None -> ());
-                    let* response =
-                      run_locked_turn mgr ~key agent interrupt ~message
-                        ~content_parts ~attachments ~skill_injections
-                        ?channel_name ?channel_type ?sender_id ?sender_name
-                        ?user_group ?channel ?channel_id ()
-                    in
-                    (* Persist effective_cwd after turn (may have changed via
-                       change_working_dir tool) *)
-                    (match mgr.Session_core.db with
+          let run_with_lock agent interrupt =
+            Session_core.with_in_flight mgr (fun () ->
+                (match cwd with
+                | Some c -> (
+                    let old_cwd = agent.Agent.effective_cwd in
+                    agent.Agent.effective_cwd <- Some c;
+                    (match old_cwd with
+                    | Some prev when prev <> c ->
+                        let event_msg =
+                          Provider.make_message ~role:"event"
+                            ~content:
+                              (Printf.sprintf
+                                 "[system] Working directory changed from %s \
+                                  to %s"
+                                 prev c)
+                        in
+                        agent.Agent.history <-
+                          agent.Agent.history @ [ event_msg ]
+                    | _ -> ());
+                    match mgr.Session_core.db with
                     | Some db ->
                         Memory.set_session_cwd ~db ~session_key:key
-                          ~cwd:agent.Agent.effective_cwd
-                    | None -> ());
-                    let* () =
-                      match before_drain with
-                      | Some f -> f response
-                      | None -> Lwt.return_unit
+                          ~cwd:(Some c)
+                    | None -> ())
+                | None -> ());
+                let* response =
+                  run_locked_turn mgr ~key agent interrupt ~message
+                    ~content_parts ~attachments ~skill_injections ?channel_name
+                    ?channel_type ?sender_id ?sender_name ?user_group ?channel
+                    ?channel_id ()
+                in
+                (* Persist effective_cwd after turn (may have changed via
+                   change_working_dir tool) *)
+                (match mgr.Session_core.db with
+                | Some db ->
+                    Memory.set_session_cwd ~db ~session_key:key
+                      ~cwd:agent.Agent.effective_cwd
+                | None -> ());
+                let* () =
+                  match before_drain with
+                  | Some f -> f response
+                  | None -> Lwt.return_unit
+                in
+                let* () = drain_queued_messages mgr ~key agent interrupt () in
+                Lwt.return response)
+          in
+          if deferred_if_busy then
+            let rec send_now_or_queue () =
+              if mgr.Session_core.draining then on_draining ()
+              else
+                let* locked =
+                  Session_core.try_session_lock mgr ~key run_with_lock
+                in
+                match locked with
+                | Some response -> Lwt.return response
+                | None -> (
+                    let* outcome =
+                      Session_core.enqueue_followup_if_busy mgr ~key
+                        queued_message
                     in
-                    let* () =
-                      drain_queued_messages mgr ~key agent interrupt ()
-                    in
-                    Lwt.return response)))
+                    match outcome with
+                    | `Queued | `Appended ->
+                        Lwt.return Session_core.queued_message_response
+                    | `Idle ->
+                        let* () = Lwt.pause () in
+                        send_now_or_queue ())
+            in
+            send_now_or_queue ()
+          else
+            let* queued =
+              Session_core.enqueue_message_if_busy mgr ~key ~raw_message
+                queued_message
+            in
+            if queued then Lwt.return Session_core.queued_message_response
+            else
+              Session_core.with_session_lock_unless_draining mgr ~key
+                ~on_draining run_with_lock)
 
 let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
@@ -1101,6 +1129,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               message_id;
               inbound_queue_id = None;
               bang = false;
+              deferred_followup = false;
             }
           in
           let* queued =

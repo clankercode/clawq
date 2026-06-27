@@ -20,6 +20,7 @@ type queued_message = {
   inbound_queue_id : int option;
       (** SQLite inbound_queue row id if persisted for crash recovery. *)
   bang : bool;
+  deferred_followup : bool;
 }
 
 type continuation_state = {
@@ -121,6 +122,37 @@ let is_queued_admin_stop_message (msg : queued_message) =
 let delete_queued_message_row mgr (msg : queued_message) =
   match (msg.inbound_queue_id, mgr.db) with
   | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
+  | _ -> ()
+
+let queued_message_payload_json (msg : queued_message) =
+  Yojson.Safe.to_string
+    (`Assoc
+       [
+         ("message", `String msg.message);
+         ("bang", `Bool msg.bang);
+         ("deferred_followup", `Bool msg.deferred_followup);
+       ])
+
+let persist_queued_message mgr ~key ~source (msg : queued_message) =
+  match mgr.db with
+  | Some db -> (
+      try
+        Some
+          (Memory.queue_enqueue ~db ~session_key:key ~source
+             ~payload_json:(queued_message_payload_json msg))
+      with exn ->
+        Logs.warn (fun m ->
+            m "[%s] Failed to persist queued message to SQLite: %s" key
+              (Printexc.to_string exn));
+        None)
+  | None -> None
+
+let update_queued_message_row mgr (msg : queued_message) =
+  match (msg.inbound_queue_id, mgr.db) with
+  | Some qid, Some db ->
+      ignore
+        (Memory.queue_update_payload ~db ~queue_id:qid
+           ~payload_json:(queued_message_payload_json msg))
   | _ -> ()
 
 (* STAY_IDLE remains a valid hidden control response for runtime logic, but do
@@ -580,30 +612,15 @@ let enqueue_message_if_busy mgr ~key ?raw_message queued_message =
               | Some msgs -> msgs
               | None -> []
             in
-            let inbound_queue_id =
-              match mgr.db with
-              | Some db -> (
-                  let payload_json =
-                    Yojson.Safe.to_string
-                      (`Assoc
-                         [
-                           ("message", `String queued_message.message);
-                           ("bang", `Bool is_bang);
-                         ])
-                  in
-                  try
-                    Some
-                      (Memory.queue_enqueue ~db ~session_key:key ~source:"live"
-                         ~payload_json)
-                  with exn ->
-                    Logs.warn (fun m ->
-                        m "[%s] Failed to persist queued message to SQLite: %s"
-                          key (Printexc.to_string exn));
-                    None)
-              | None -> None
+            let msg =
+              { queued_message with bang = is_bang; deferred_followup = false }
             in
             let msg =
-              { queued_message with inbound_queue_id; bang = is_bang }
+              {
+                msg with
+                inbound_queue_id =
+                  persist_queued_message mgr ~key ~source:"live" msg;
+              }
             in
             Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
             Logs.info (fun m ->
@@ -623,6 +640,85 @@ let enqueue_message_if_busy mgr ~key ?raw_message queued_message =
             run_interrupt_finalizer mgr ~key;
             Lwt.return_true
         | _ -> Lwt.return_false)
+
+let append_followup_text existing addition =
+  match String.trim existing with
+  | "" -> addition
+  | _ -> existing ^ "\n\n" ^ addition
+
+let replace_last_deferred_followup msgs addition =
+  let last_idx = ref None in
+  List.iteri
+    (fun idx (msg : queued_message) ->
+      if msg.deferred_followup then last_idx := Some idx)
+    msgs;
+  match !last_idx with
+  | None -> None
+  | Some target_idx ->
+      let updated_msg = ref None in
+      let updated =
+        List.mapi
+          (fun idx (msg : queued_message) ->
+            if idx = target_idx then (
+              let msg =
+                {
+                  msg with
+                  message = append_followup_text msg.message addition.message;
+                }
+              in
+              updated_msg := Some msg;
+              msg)
+            else msg)
+          msgs
+      in
+      Option.map (fun msg -> (updated, msg)) !updated_msg
+
+let enqueue_followup_locked mgr ~key queued_message existing =
+  let msg = { queued_message with bang = false; deferred_followup = true } in
+  let msg =
+    {
+      msg with
+      inbound_queue_id = persist_queued_message mgr ~key ~source:"live" msg;
+    }
+  in
+  Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
+  Logs.info (fun m ->
+      m "[%s] Queued deferred follow-up (queue depth: %d)" key
+        (List.length existing + 1));
+  `Queued
+
+let enqueue_followup_if_busy mgr ~key queued_message =
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+      match Hashtbl.find_opt mgr.sessions key with
+      | Some (_, mutex, _) when Lwt_mutex.is_locked mutex ->
+          let existing =
+            match Hashtbl.find_opt mgr.queued_messages key with
+            | Some msgs -> msgs
+            | None -> []
+          in
+          Lwt.return (enqueue_followup_locked mgr ~key queued_message existing)
+      | _ -> Lwt.return `Idle)
+
+let append_followup_if_busy mgr ~key queued_message =
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+      match Hashtbl.find_opt mgr.sessions key with
+      | Some (_, mutex, _) when Lwt_mutex.is_locked mutex -> (
+          let existing =
+            match Hashtbl.find_opt mgr.queued_messages key with
+            | Some msgs -> msgs
+            | None -> []
+          in
+          match replace_last_deferred_followup existing queued_message with
+          | Some (updated, updated_msg) ->
+              Hashtbl.replace mgr.queued_messages key updated;
+              update_queued_message_row mgr updated_msg;
+              Lwt.return `Appended
+          | None ->
+              Lwt.return
+                (enqueue_followup_locked mgr ~key queued_message existing))
+      | _ -> Lwt.return `Idle)
 
 let take_next_queued_message mgr ~key =
   match Hashtbl.find_opt mgr.queued_messages key with
@@ -649,25 +745,57 @@ let take_all_queued_messages mgr ~key =
   | None -> []
 
 let take_all_queued_messages_for_injection ?interrupt mgr ~key =
-  let msgs = take_all_queued_messages mgr ~key in
-  let msgs =
-    match interrupt with
-    | None -> msgs
-    | Some interrupt ->
-        List.filter
-          (fun msg ->
-            if is_queued_admin_stop_message msg then begin
-              handle_queued_admin_stop mgr ~key interrupt msg;
-              false
-            end
-            else true)
-          msgs
+  let existing =
+    match Hashtbl.find_opt mgr.queued_messages key with
+    | Some msgs -> msgs
+    | None -> []
   in
+  let injected_rev, remaining_rev =
+    List.fold_left
+      (fun (injected, remaining) (msg : queued_message) ->
+        if msg.deferred_followup then (injected, msg :: remaining)
+        else
+          match interrupt with
+          | Some interrupt when is_queued_admin_stop_message msg ->
+              handle_queued_admin_stop mgr ~key interrupt msg;
+              (injected, remaining)
+          | _ ->
+              delete_queued_message_row mgr msg;
+              (msg :: injected, remaining))
+      ([], []) existing
+  in
+  let remaining = List.rev remaining_rev in
+  if remaining = [] then Hashtbl.remove mgr.queued_messages key
+  else Hashtbl.replace mgr.queued_messages key remaining;
+  let msgs = List.rev injected_rev in
   let count = List.length msgs in
   if count > 0 then
     Logs.info (fun m ->
         m "[%s] Injecting %d queued message(s) into session" key count);
   msgs
+
+let take_next_queued_message_for_drain mgr ~key =
+  match Hashtbl.find_opt mgr.queued_messages key with
+  | Some msgs -> (
+      let rec select_steering prefix = function
+        | [] -> None
+        | msg :: rest when not msg.deferred_followup ->
+            Some (msg, List.rev_append prefix rest)
+        | msg :: rest -> select_steering (msg :: prefix) rest
+      in
+      let selected =
+        match select_steering [] msgs with
+        | Some item -> Some item
+        | None -> (
+            match msgs with msg :: rest -> Some (msg, rest) | [] -> None)
+      in
+      match selected with
+      | Some (msg, rest) ->
+          if rest = [] then Hashtbl.remove mgr.queued_messages key
+          else Hashtbl.replace mgr.queued_messages key rest;
+          Some msg
+      | None -> None)
+  | None -> None
 
 let queued_message_prompt message =
   "A new message arrived while you were working. Treat it as steering "
