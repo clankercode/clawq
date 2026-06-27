@@ -721,757 +721,607 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             send_formatted = send_reply;
           }
         in
-        (* Create task-tree record for async commands from profiled rooms *)
-        (if
-           Room_request_classifier.classify cmd_result = AsyncCommand
-        then
-          match Session.get_db session_mgr with
-          | Some db -> (
-              Task_tree.init_schema db;
-              match
-                Memory.get_room_profile_binding ~db
-                  ~room_id:msg.channel_id
-              with
-              | Some binding ->
-                  let origin =
-                    Room_origin.make ~connector:"discord"
-                      ~room_id:msg.channel_id
-                      ~requester_id:msg.author_id
-                      ~profile_id:binding.profile_id ()
-                  in
-                  let title =
-                    Room_request_classifier.title_of_async_cmd cmd_result
-                    |> Option.value ~default:""
-                  in
-                  ignore
-                    (Task_tree_ops.create_async_cmd_task ~db
-                       ~session_key:key ~title ~origin
-                       ?thread_id:None
-                       ~requester:msg.author_id
-                       ~profile_id:binding.profile_id ())
-              | None -> ())
-          | None -> ());
-        match cmd_result with
-        | AdminRequired _ -> assert false
-        | InjectConnectorHistory _ ->
-            Lwt.return_unit (* unreachable: preprocessed above *)
-        | Compact -> (
-            let notifier =
-              make_status_notifier ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id
-            in
-            let* compact_result =
-              Session.compact session_mgr ~key ~notifier ()
-            in
-            match compact_result with
-            | Ok _ ->
-                (* Progress/result message handled by session.compact via notifier *)
-                Lwt.return_unit
-            | Error err ->
-                send_message ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-                  ~text:(Printf.sprintf "Compaction failed: %s" err))
-        | Delegate (agent_name, prompt) ->
-            let* () =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id
-                ~text:"Delegating to a temporary session..."
-            in
-            let send_agent_reply text =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text
-            in
-            Session.delegate_turn session_mgr ?agent_name ~prompt
-              ~parent_key:key ~debug_notify:send_agent_reply
-              ~send_reply:send_agent_reply ();
-            Lwt.return_unit
-        | AgentInvoke (agent_name, prompt) ->
-            let* () =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id
-                ~text:(Printf.sprintf "Invoking agent '%s'..." agent_name)
-            in
-            let send_agent_reply text =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text
-            in
-            Session.agent_invoke_turn session_mgr ~agent_name ~prompt
-              ~parent_key:key ~debug_notify:send_agent_reply
-              ~send_reply:send_agent_reply ();
-            Lwt.return_unit
-        | Rig action -> (
-            match action with
-            | RigList ->
-                let text = Rig.list_text () in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text
-            | RigInstall name | RigAdjust name | RigRemove name -> (
-                let act =
-                  match action with
-                  | RigInstall _ -> `Install
-                  | RigAdjust _ -> `Adjust
-                  | _ -> `Remove
-                in
-                let act_str =
-                  match act with
-                  | `Install -> "install"
-                  | `Adjust -> "adjust"
-                  | `Remove -> "remove"
-                in
-                match Rig.prompt_for ~name ~action:act with
-                | Error err_msg ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text:err_msg
-                | Ok prompt ->
-                    let* () =
-                      send_message_fn ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id
-                        ~text:
-                          (Printf.sprintf "Running rig %s for '%s'..." act_str
-                             name)
+        (* For profiled rooms: create task-tree record and try background
+           launch for async commands that spawn work. *)
+        let bg_handled =
+          if Room_request_classifier.classify cmd_result = AsyncCommand then
+            match Session.get_db session_mgr with
+            | Some db -> (
+                Task_tree.init_schema db;
+                match
+                  Memory.get_room_profile_binding ~db ~room_id:msg.channel_id
+                with
+                | Some binding -> (
+                    let origin =
+                      Room_origin.make ~connector:"discord"
+                        ~room_id:msg.channel_id ~requester_id:msg.author_id
+                        ~profile_id:binding.profile_id ()
                     in
-                    let send_agent_reply text =
-                      send_message_fn ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~text
+                    let title =
+                      Room_request_classifier.title_of_async_cmd cmd_result
+                      |> Option.value ~default:""
                     in
-                    Session.delegate_turn session_mgr ~prompt ~parent_key:key
-                      ~debug_notify:send_agent_reply
-                      ~send_reply:send_agent_reply ();
-                    (match act with
-                    | `Install -> (
-                        match Rig.find_rig name with
-                        | Some rig ->
-                            Rig.mark_installed ~name ~version:rig.version
-                        | None -> ())
-                    | `Remove -> Rig.mark_removed ~name
-                    | `Adjust -> ());
-                    Lwt.return_unit))
-        | Model action -> (
-            let open Slash_commands in
-            match action with
-            | ModelShow ->
-                let current =
-                  Session.get_session_effective_model session_mgr ~key
-                in
-                let prefs = Model_preferences.load () in
-                let usage_ranked =
-                  List.filter_map
-                    (fun (m, c) ->
-                      if List.mem m prefs.favorites then None else Some (m, c))
-                    prefs.usage_counts
-                in
-                let text =
-                  format_model_show ~connector:Format_adapter.Discord ~current
-                    ~favorites:prefs.favorites ~usage_ranked
-                in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text
-            | ModelSet name | ModelSetForce name -> (
-                let force =
-                  match action with ModelSetForce _ -> true | _ -> false
-                in
-                let cfg = Session.get_config session_mgr in
-                let configured_providers = List.map fst cfg.providers in
-                let validation_error =
-                  if force then None
-                  else
-                    Models_catalog.validate_model_name ~configured_providers
-                      name
-                in
-                match validation_error with
-                | Some err ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text:err
-                | None -> (
+                    let _task_tree_id =
+                      Task_tree_ops.create_async_cmd_task ~db ~session_key:key
+                        ~title ~origin ?thread_id:None ~requester:msg.author_id
+                        ~profile_id:binding.profile_id ()
+                    in
+                    (* Try launching as a background task under profile
+                       policy. Returns Ok (Some id) if launched, Ok None if
+                       the command should stay inline, Error msg on
+                       failure. *)
                     match
-                      Model_discovery.validate_cached_model_allowed_opt
-                        (Session.get_db session_mgr)
-                        name
+                      Room_request_classifier.launch_room_async_bg ~db
+                        ~session_key:key ~connector:"discord"
+                        ~room_id:msg.channel_id ~requester_id:msg.author_id
+                        cmd_result
                     with
-                    | Some err ->
+                    | Ok (Some bg_id) ->
+                        Lwt.async (fun () ->
+                            send_message_fn ~bot_token:discord_config.bot_token
+                              ~channel_id:msg.channel_id
+                              ~text:
+                                (Printf.sprintf
+                                   "Launched as background task %d." bg_id));
+                        true
+                    | Ok None -> false
+                    | Error err_msg ->
+                        Lwt.async (fun () ->
+                            send_message_fn ~bot_token:discord_config.bot_token
+                              ~channel_id:msg.channel_id
+                              ~text:
+                                (Printf.sprintf "Background launch failed: %s"
+                                   err_msg));
+                        true)
+                | None -> false)
+            | None -> false
+          else false
+        in
+        if bg_handled then Lwt.return_unit
+        else
+          match cmd_result with
+          | AdminRequired _ -> assert false
+          | InjectConnectorHistory _ ->
+              Lwt.return_unit (* unreachable: preprocessed above *)
+          | Compact -> (
+              let notifier =
+                make_status_notifier ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id
+              in
+              let* compact_result =
+                Session.compact session_mgr ~key ~notifier ()
+              in
+              match compact_result with
+              | Ok _ ->
+                  (* Progress/result message handled by session.compact via notifier *)
+                  Lwt.return_unit
+              | Error err ->
+                  send_message ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:(Printf.sprintf "Compaction failed: %s" err))
+          | Delegate (agent_name, prompt) ->
+              let* () =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id
+                  ~text:"Delegating to a temporary session..."
+              in
+              let send_agent_reply text =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text
+              in
+              Session.delegate_turn session_mgr ?agent_name ~prompt
+                ~parent_key:key ~debug_notify:send_agent_reply
+                ~send_reply:send_agent_reply ();
+              Lwt.return_unit
+          | AgentInvoke (agent_name, prompt) ->
+              let* () =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id
+                  ~text:(Printf.sprintf "Invoking agent '%s'..." agent_name)
+              in
+              let send_agent_reply text =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text
+              in
+              Session.agent_invoke_turn session_mgr ~agent_name ~prompt
+                ~parent_key:key ~debug_notify:send_agent_reply
+                ~send_reply:send_agent_reply ();
+              Lwt.return_unit
+          | Rig action -> (
+              match action with
+              | RigList ->
+                  let text = Rig.list_text () in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text
+              | RigInstall name | RigAdjust name | RigRemove name -> (
+                  let act =
+                    match action with
+                    | RigInstall _ -> `Install
+                    | RigAdjust _ -> `Adjust
+                    | _ -> `Remove
+                  in
+                  let act_str =
+                    match act with
+                    | `Install -> "install"
+                    | `Adjust -> "adjust"
+                    | `Remove -> "remove"
+                  in
+                  match Rig.prompt_for ~name ~action:act with
+                  | Error err_msg ->
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text:err_msg
+                  | Ok prompt ->
+                      let* () =
                         send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text:err
-                    | None ->
-                        let provider, model_id, fmt =
-                          Models_catalog.split_name name
-                        in
-                        let hint =
-                          match fmt with
-                          | Models_catalog.Legacy ->
-                              Printf.sprintf
-                                "\nHint: use %s:%s format instead of %s/%s."
-                                provider model_id provider model_id
-                          | _ -> ""
-                        in
-                        let warn =
-                          match fmt with
-                          | Models_catalog.Canonical | Models_catalog.Legacy ->
-                              let provider_in_config =
-                                List.mem_assoc provider cfg.providers
-                              in
-                              if not provider_in_config then
+                          ~channel_id:msg.channel_id
+                          ~text:
+                            (Printf.sprintf "Running rig %s for '%s'..." act_str
+                               name)
+                      in
+                      let send_agent_reply text =
+                        send_message_fn ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id ~text
+                      in
+                      Session.delegate_turn session_mgr ~prompt ~parent_key:key
+                        ~debug_notify:send_agent_reply
+                        ~send_reply:send_agent_reply ();
+                      (match act with
+                      | `Install -> (
+                          match Rig.find_rig name with
+                          | Some rig ->
+                              Rig.mark_installed ~name ~version:rig.version
+                          | None -> ())
+                      | `Remove -> Rig.mark_removed ~name
+                      | `Adjust -> ());
+                      Lwt.return_unit))
+          | Model action -> (
+              let open Slash_commands in
+              match action with
+              | ModelShow ->
+                  let current =
+                    Session.get_session_effective_model session_mgr ~key
+                  in
+                  let prefs = Model_preferences.load () in
+                  let usage_ranked =
+                    List.filter_map
+                      (fun (m, c) ->
+                        if List.mem m prefs.favorites then None else Some (m, c))
+                      prefs.usage_counts
+                  in
+                  let text =
+                    format_model_show ~connector:Format_adapter.Discord ~current
+                      ~favorites:prefs.favorites ~usage_ranked
+                  in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text
+              | ModelSet name | ModelSetForce name -> (
+                  let force =
+                    match action with ModelSetForce _ -> true | _ -> false
+                  in
+                  let cfg = Session.get_config session_mgr in
+                  let configured_providers = List.map fst cfg.providers in
+                  let validation_error =
+                    if force then None
+                    else
+                      Models_catalog.validate_model_name ~configured_providers
+                        name
+                  in
+                  match validation_error with
+                  | Some err ->
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text:err
+                  | None -> (
+                      match
+                        Model_discovery.validate_cached_model_allowed_opt
+                          (Session.get_db session_mgr)
+                          name
+                      with
+                      | Some err ->
+                          send_message_fn ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id ~text:err
+                      | None ->
+                          let provider, model_id, fmt =
+                            Models_catalog.split_name name
+                          in
+                          let hint =
+                            match fmt with
+                            | Models_catalog.Legacy ->
                                 Printf.sprintf
-                                  "\n\
-                                   Warning: provider '%s' not found in config. \
-                                   Add it to your config.json to use this \
-                                   model."
-                                  provider
-                              else ""
-                          | Models_catalog.Plain -> ""
-                        in
-                        Session.set_session_model session_mgr ~key ~model:name;
-                        let model_info =
-                          Models_catalog.find_by_full_name name
-                        in
-                        let display =
-                          match (fmt, model_info) with
-                          | ( (Models_catalog.Canonical | Models_catalog.Legacy),
-                              _ ) ->
-                              Printf.sprintf
-                                "Model set to: %s (provider: %s)%s%s\n\
-                                 Persisted for this session across restarts. \
-                                 Use /model set-default to change the global \
-                                 default."
-                                model_id provider hint warn
-                          | Models_catalog.Plain, None ->
-                              Printf.sprintf
-                                "Warning: '%s' not found in model catalog. \
-                                 Setting anyway.\n\
-                                 Persisted for this session across restarts. \
-                                 Use /model set-default to change the global \
-                                 default."
-                                name
-                          | Models_catalog.Plain, Some m ->
-                              if m.Models_catalog.provider <> "" then
+                                  "\nHint: use %s:%s format instead of %s/%s."
+                                  provider model_id provider model_id
+                            | _ -> ""
+                          in
+                          let warn =
+                            match fmt with
+                            | Models_catalog.Canonical | Models_catalog.Legacy
+                              ->
+                                let provider_in_config =
+                                  List.mem_assoc provider cfg.providers
+                                in
+                                if not provider_in_config then
+                                  Printf.sprintf
+                                    "\n\
+                                     Warning: provider '%s' not found in \
+                                     config. Add it to your config.json to use \
+                                     this model."
+                                    provider
+                                else ""
+                            | Models_catalog.Plain -> ""
+                          in
+                          Session.set_session_model session_mgr ~key ~model:name;
+                          let model_info =
+                            Models_catalog.find_by_full_name name
+                          in
+                          let display =
+                            match (fmt, model_info) with
+                            | ( ( Models_catalog.Canonical
+                                | Models_catalog.Legacy ),
+                                _ ) ->
                                 Printf.sprintf
-                                  "Model set to: %s (provider: %s)\n\
+                                  "Model set to: %s (provider: %s)%s%s\n\
                                    Persisted for this session across restarts. \
                                    Use /model set-default to change the global \
                                    default."
-                                  m.Models_catalog.id m.Models_catalog.provider
-                              else
+                                  model_id provider hint warn
+                            | Models_catalog.Plain, None ->
                                 Printf.sprintf
-                                  "Model set to: %s\n\
+                                  "Warning: '%s' not found in model catalog. \
+                                   Setting anyway.\n\
                                    Persisted for this session across restarts. \
                                    Use /model set-default to change the global \
                                    default."
                                   name
-                        in
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text:display))
-            | ModelSetDefault name -> (
-                let provider, model_id, fmt = Models_catalog.split_name name in
-                let hint =
-                  match fmt with
-                  | Models_catalog.Legacy ->
-                      Printf.sprintf "\nHint: use %s:%s format instead."
-                        provider model_id
-                  | _ -> ""
-                in
-                match
-                  Model_discovery.validate_cached_model_allowed_opt
-                    (Session.get_db session_mgr)
-                    name
-                with
-                | Some err ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text:err
-                | None -> (
-                    let result =
-                      Config_set.set_json_value "agent_defaults.primary_model"
-                        (`String name)
-                    in
-                    match result with
-                    | Error e ->
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id
-                          ~text:(Printf.sprintf "Error writing config: %s" e)
-                    | Ok () ->
-                        let reply_text =
-                          match fmt with
-                          | Models_catalog.Canonical | Models_catalog.Legacy ->
-                              Printf.sprintf
-                                "Default model set to: %s (provider: %s)%s\n\
-                                 Applies to new sessions."
-                                model_id provider hint
-                          | Models_catalog.Plain ->
-                              Printf.sprintf
-                                "Default model set to: %s\n\
-                                 Applies to new sessions."
-                                name
-                        in
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text:reply_text))
-            | ModelFav name ->
-                let prefs = Model_preferences.toggle_favorite name in
-                let status =
-                  if List.mem name prefs.favorites then "added to"
-                  else "removed from"
-                in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-                  ~text:(Printf.sprintf "%s %s favorites" name status)
-            | ModelUnfav name ->
-                let _ = Model_preferences.remove_favorite name in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-                  ~text:(Printf.sprintf "Removed from favorites: %s" name)
-            | ModelList (provider, availability) ->
-                let db_extras =
-                  match Session.get_db session_mgr with
-                  | None -> []
-                  | Some db ->
-                      Model_discovery.get_db_only_model_infos ~db
-                        ~provider_filter:provider ~availability ()
-                in
-                let models =
-                  Models_catalog.to_plain_list ~provider_filter:provider
-                    ~availability ~db_extras ()
-                  |> String.split_on_char '\n'
-                  |> List.filter (fun s -> s <> "")
-                in
-                let text =
-                  format_model_list ~connector:Format_adapter.Discord ~models
-                    ~provider
-                in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text
-            | ModelUsage ->
-                let cfg = Session.get_config session_mgr in
-                Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
-                let results =
-                  Provider_quota.get_all_cached ()
-                  |> List.map (fun (_name, pq) -> pq)
-                in
-                let text =
-                  Slash_commands.format_model_usage
-                    ~connector:Format_adapter.Discord ~config:cfg results
-                in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text)
-        | ForkAnd (agent_name, prompt) ->
-            let* () =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text:"Forking session..."
-            in
-            let send_agent_reply text =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text
-            in
-            Session.fork_and_run session_mgr ~parent_key:key ?agent_name ~prompt
-              ~debug_notify:send_agent_reply ~send_reply:send_agent_reply ();
-            Lwt.return_unit
-        | Debate prompt -> (
-            match Session.get_db session_mgr with
-            | Some db ->
-                let config = Session.get_config session_mgr in
-                let send_agent_reply text =
+                            | Models_catalog.Plain, Some m ->
+                                if m.Models_catalog.provider <> "" then
+                                  Printf.sprintf
+                                    "Model set to: %s (provider: %s)\n\
+                                     Persisted for this session across \
+                                     restarts. Use /model set-default to \
+                                     change the global default."
+                                    m.Models_catalog.id
+                                    m.Models_catalog.provider
+                                else
+                                  Printf.sprintf
+                                    "Model set to: %s\n\
+                                     Persisted for this session across \
+                                     restarts. Use /model set-default to \
+                                     change the global default."
+                                    name
+                          in
+                          send_message_fn ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id ~text:display))
+              | ModelSetDefault name -> (
+                  let provider, model_id, fmt =
+                    Models_catalog.split_name name
+                  in
+                  let hint =
+                    match fmt with
+                    | Models_catalog.Legacy ->
+                        Printf.sprintf "\nHint: use %s:%s format instead."
+                          provider model_id
+                    | _ -> ""
+                  in
+                  match
+                    Model_discovery.validate_cached_model_allowed_opt
+                      (Session.get_db session_mgr)
+                      name
+                  with
+                  | Some err ->
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text:err
+                  | None -> (
+                      let result =
+                        Config_set.set_json_value "agent_defaults.primary_model"
+                          (`String name)
+                      in
+                      match result with
+                      | Error e ->
+                          send_message_fn ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id
+                            ~text:(Printf.sprintf "Error writing config: %s" e)
+                      | Ok () ->
+                          let reply_text =
+                            match fmt with
+                            | Models_catalog.Canonical | Models_catalog.Legacy
+                              ->
+                                Printf.sprintf
+                                  "Default model set to: %s (provider: %s)%s\n\
+                                   Applies to new sessions."
+                                  model_id provider hint
+                            | Models_catalog.Plain ->
+                                Printf.sprintf
+                                  "Default model set to: %s\n\
+                                   Applies to new sessions."
+                                  name
+                          in
+                          send_message_fn ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id ~text:reply_text))
+              | ModelFav name ->
+                  let prefs = Model_preferences.toggle_favorite name in
+                  let status =
+                    if List.mem name prefs.favorites then "added to"
+                    else "removed from"
+                  in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:(Printf.sprintf "%s %s favorites" name status)
+              | ModelUnfav name ->
+                  let _ = Model_preferences.remove_favorite name in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:(Printf.sprintf "Removed from favorites: %s" name)
+              | ModelList (provider, availability) ->
+                  let db_extras =
+                    match Session.get_db session_mgr with
+                    | None -> []
+                    | Some db ->
+                        Model_discovery.get_db_only_model_infos ~db
+                          ~provider_filter:provider ~availability ()
+                  in
+                  let models =
+                    Models_catalog.to_plain_list ~provider_filter:provider
+                      ~availability ~db_extras ()
+                    |> String.split_on_char '\n'
+                    |> List.filter (fun s -> s <> "")
+                  in
+                  let text =
+                    format_model_list ~connector:Format_adapter.Discord ~models
+                      ~provider
+                  in
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text
-                in
-                let on_llm_call_debug =
-                  Session.debug_callback_for session_mgr ~key
-                    (Some send_agent_reply)
-                in
-                let* text =
-                  Debate.run_for_prompt ?on_llm_call_debug ~config ~db ~prompt
-                    ()
-                in
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text
-            | None ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text:"Debate requires a database."
-            )
-        | BashRun cmd ->
-            let config = Session.get_config session_mgr in
-            let* result =
-              Slash_commands_bash.run_bash_command ~config ~session_key:key cmd
-            in
-            let full_text = Slash_commands_bash.format_result cmd result in
-            let max_len = 1800 in
-            let text =
-              if String.length full_text <= max_len then full_text
-              else String.sub full_text 0 max_len ^ "\n...[truncated]"
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | DebugDumpChat ->
-            let content = Session.dump_json session_mgr ~key in
-            let max_len = 1800 in
-            let text =
-              if String.length content <= max_len then content
-              else
-                "Session dump (truncated — full dump not yet supported for \
-                 this connector):\n"
-                ^ String.sub content 0 max_len
-                ^ "\n..."
-            in
-            send_message_fn ~bot_token:discord_config.bot_token
-              ~channel_id:msg.channel_id ~text
-        | SkillInvoke _ -> Lwt.return_unit (* unreachable: preprocessed above *)
-        | NotACommand when Update_tool.is_update_command msg.content -> (
-            let send_first text =
-              send_message_with_id ~suppress_notifications:true
-                ~bot_token:discord_config.bot_token ~channel_id:msg.channel_id
-                ~text ()
-            in
-            let edit_msg msg_id text =
-              edit_message ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~message_id:msg_id ~text
-            in
-            let send_progress, _get_final =
-              Update_tool.make_progress_sender ~send_first ~edit:edit_msg
-                ~mode:Update_tool.Auto ()
-            in
-            let notify text =
-              send_message_fn ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text
-            in
-            let* result =
-              Session.with_registered_notifier session_mgr ~key ~notify
-                (fun () ->
-                  Lwt.catch
-                    (fun () ->
-                      let* _response =
-                        Update_tool.run_update
-                          ~prepare_restart:(fun () ->
-                            Restart_notify.write ~channel:"discord"
-                              ~channel_id:msg.channel_id;
-                            Lwt.return (Ok ()))
-                          ~is_draining:(fun () ->
-                            Session.is_draining session_mgr)
-                          ~send_progress ()
-                      in
-                      Lwt.return (Ok ()))
-                    (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
-            in
-            match result with
-            | Ok () -> Lwt.return_unit
-            | Error err ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-                  ~text:
-                    (Printf.sprintf
-                       "Sorry, an error occurred processing your message: %s"
-                       err))
-        | NotACommand -> (
-            let discord_channel_type =
-              match msg.guild_id with Some _ -> "group" | None -> "dm"
-            in
-            let agent_defaults =
-              (Session.get_config session_mgr).agent_defaults
-            in
-            let use_consolidated =
-              agent_defaults.show_tool_calls
-              && agent_defaults.tool_status_mode = "consolidated"
-            in
-            let tool_reaction_set = ref false in
-            let peers =
-              Reaction_tracker.get_or_create_peers reactions ~key
-                ~initial:msg.id
-            in
-            Reaction_tracker.add_peer reactions ~key ~message_id:msg.id;
-            let set_reaction_on_single mid emoji =
-              Reaction_tracker.set_reaction_on_single reactions ~message_id:mid
-                ~remove_previous:(fun mid prev ->
-                  delete_own_reaction ~bot_token:discord_config.bot_token
-                    ~channel_id:msg.channel_id ~message_id:mid ~emoji:prev)
-                ~add:(fun mid emoji ->
-                  add_reaction ~bot_token:discord_config.bot_token
-                    ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                ~emoji
-            in
-            let set_reaction emoji =
-              Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
-                ~set_one:(fun mid emoji -> set_reaction_on_single mid emoji)
-                ~emoji
-            in
-            let notifier_factory =
-              if use_consolidated then
-                Some
-                  (fun () ->
-                    let status_notifier =
-                      make_status_notifier ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id
-                    in
-                    Status_message.create ~notifier:status_notifier
-                      ~parse_mode:"Markdown" ())
-              else None
-            in
-            let strategy =
-              Status_update.select_strategy ~agent_defaults
-                ~capabilities:(Some Connector_capabilities.discord)
-            in
-            let handler =
-              Status_update.make_handler ~strategy ~notifier_factory
-                ~notify:(fun text ->
+              | ModelUsage ->
+                  let cfg = Session.get_config session_mgr in
+                  Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+                  let results =
+                    Provider_quota.get_all_cached ()
+                    |> List.map (fun (_name, pq) -> pq)
+                  in
+                  let text =
+                    Slash_commands.format_model_usage
+                      ~connector:Format_adapter.Discord ~config:cfg results
+                  in
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text)
-                ~agent_defaults ~parse_mode:"Markdown"
-            in
-            let on_chunk chunk =
-              (match chunk with
-              | Provider.ToolStart _ ->
-                  if not !tool_reaction_set then begin
-                    tool_reaction_set := true;
-                    Lwt.async (fun () ->
-                        set_reaction
-                          (Connector_status.Discord.phase_emoji Processing))
-                  end
-              | _ -> ());
-              handler.on_chunk chunk
-            in
-            let* () =
-              set_reaction (Connector_status.Discord.phase_emoji Received)
-            in
-            let drain_progress_msg_id = ref None in
-            let on_drain_progress : Session.drain_progress =
-              {
-                before_turn =
-                  (fun queued_msg_id ->
-                    let* () =
+          | ForkAnd (agent_name, prompt) ->
+              let* () =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text:"Forking session..."
+              in
+              let send_agent_reply text =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text
+              in
+              Session.fork_and_run session_mgr ~parent_key:key ?agent_name
+                ~prompt ~debug_notify:send_agent_reply
+                ~send_reply:send_agent_reply ();
+              Lwt.return_unit
+          | Debate prompt -> (
+              match Session.get_db session_mgr with
+              | Some db ->
+                  let config = Session.get_config session_mgr in
+                  let send_agent_reply text =
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text
+                  in
+                  let on_llm_call_debug =
+                    Session.debug_callback_for session_mgr ~key
+                      (Some send_agent_reply)
+                  in
+                  let* text =
+                    Debate.run_for_prompt ?on_llm_call_debug ~config ~db ~prompt
+                      ()
+                  in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text
+              | None ->
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:"Debate requires a database.")
+          | BashRun cmd ->
+              let config = Session.get_config session_mgr in
+              let* result =
+                Slash_commands_bash.run_bash_command ~config ~session_key:key
+                  cmd
+              in
+              let full_text = Slash_commands_bash.format_result cmd result in
+              let max_len = 1800 in
+              let text =
+                if String.length full_text <= max_len then full_text
+                else String.sub full_text 0 max_len ^ "\n...[truncated]"
+              in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text
+          | DebugDumpChat ->
+              let content = Session.dump_json session_mgr ~key in
+              let max_len = 1800 in
+              let text =
+                if String.length content <= max_len then content
+                else
+                  "Session dump (truncated — full dump not yet supported for \
+                   this connector):\n"
+                  ^ String.sub content 0 max_len
+                  ^ "\n..."
+              in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text
+          | SkillInvoke _ ->
+              Lwt.return_unit (* unreachable: preprocessed above *)
+          | NotACommand when Update_tool.is_update_command msg.content -> (
+              let send_first text =
+                send_message_with_id ~suppress_notifications:true
+                  ~bot_token:discord_config.bot_token ~channel_id:msg.channel_id
+                  ~text ()
+              in
+              let edit_msg msg_id text =
+                edit_message ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~message_id:msg_id ~text
+              in
+              let send_progress, _get_final =
+                Update_tool.make_progress_sender ~send_first ~edit:edit_msg
+                  ~mode:Update_tool.Auto ()
+              in
+              let notify text =
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text
+              in
+              let* result =
+                Session.with_registered_notifier session_mgr ~key ~notify
+                  (fun () ->
+                    Lwt.catch
+                      (fun () ->
+                        let* _response =
+                          Update_tool.run_update
+                            ~prepare_restart:(fun () ->
+                              Restart_notify.write ~channel:"discord"
+                                ~channel_id:msg.channel_id;
+                              Lwt.return (Ok ()))
+                            ~is_draining:(fun () ->
+                              Session.is_draining session_mgr)
+                            ~send_progress ()
+                        in
+                        Lwt.return (Ok ()))
+                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+              in
+              match result with
+              | Ok () -> Lwt.return_unit
+              | Error err ->
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:
+                      (Printf.sprintf
+                         "Sorry, an error occurred processing your message: %s"
+                         err))
+          | NotACommand -> (
+              let discord_channel_type =
+                match msg.guild_id with Some _ -> "group" | None -> "dm"
+              in
+              let agent_defaults =
+                (Session.get_config session_mgr).agent_defaults
+              in
+              let use_consolidated =
+                agent_defaults.show_tool_calls
+                && agent_defaults.tool_status_mode = "consolidated"
+              in
+              let tool_reaction_set = ref false in
+              let peers =
+                Reaction_tracker.get_or_create_peers reactions ~key
+                  ~initial:msg.id
+              in
+              Reaction_tracker.add_peer reactions ~key ~message_id:msg.id;
+              let set_reaction_on_single mid emoji =
+                Reaction_tracker.set_reaction_on_single reactions
+                  ~message_id:mid
+                  ~remove_previous:(fun mid prev ->
+                    delete_own_reaction ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~message_id:mid ~emoji:prev)
+                  ~add:(fun mid emoji ->
+                    add_reaction ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                  ~emoji
+              in
+              let set_reaction emoji =
+                Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
+                  ~set_one:(fun mid emoji -> set_reaction_on_single mid emoji)
+                  ~emoji
+              in
+              let notifier_factory =
+                if use_consolidated then
+                  Some
+                    (fun () ->
+                      let status_notifier =
+                        make_status_notifier ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id
+                      in
+                      Status_message.create ~notifier:status_notifier
+                        ~parse_mode:"Markdown" ())
+                else None
+              in
+              let strategy =
+                Status_update.select_strategy ~agent_defaults
+                  ~capabilities:(Some Connector_capabilities.discord)
+              in
+              let handler =
+                Status_update.make_handler ~strategy ~notifier_factory
+                  ~notify:(fun text ->
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text)
+                  ~agent_defaults ~parse_mode:"Markdown"
+              in
+              let on_chunk chunk =
+                (match chunk with
+                | Provider.ToolStart _ ->
+                    if not !tool_reaction_set then begin
+                      tool_reaction_set := true;
+                      Lwt.async (fun () ->
+                          set_reaction
+                            (Connector_status.Discord.phase_emoji Processing))
+                    end
+                | _ -> ());
+                handler.on_chunk chunk
+              in
+              let* () =
+                set_reaction (Connector_status.Discord.phase_emoji Received)
+              in
+              let drain_progress_msg_id = ref None in
+              let on_drain_progress : Session.drain_progress =
+                {
+                  before_turn =
+                    (fun queued_msg_id ->
+                      let* () =
+                        match queued_msg_id with
+                        | Some mid ->
+                            set_reaction_on_single mid
+                              (Connector_status.Discord.phase_emoji Received)
+                        | None -> Lwt.return_unit
+                      in
+                      let* () =
+                        match !drain_progress_msg_id with
+                        | Some mid ->
+                            Lwt.catch
+                              (fun () ->
+                                delete_message
+                                  ~bot_token:discord_config.bot_token
+                                  ~channel_id:msg.channel_id ~message_id:mid)
+                              (fun _exn -> Lwt.return_unit)
+                        | None -> Lwt.return_unit
+                      in
+                      let* mid =
+                        send_message_with_id ~suppress_notifications:true
+                          ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id
+                          ~text:
+                            "\xe2\x8f\xb3 Processing queued message\xe2\x80\xa6"
+                          ()
+                      in
+                      drain_progress_msg_id := Some mid;
+                      Lwt.return_unit);
+                  after_turn =
+                    (fun queued_msg_id ->
                       match queued_msg_id with
                       | Some mid ->
                           set_reaction_on_single mid
-                            (Connector_status.Discord.phase_emoji Received)
-                      | None -> Lwt.return_unit
-                    in
-                    let* () =
+                            (Connector_status.Discord.phase_emoji Completed)
+                      | None -> Lwt.return_unit);
+                  after_all =
+                    (fun () ->
                       match !drain_progress_msg_id with
                       | Some mid ->
+                          drain_progress_msg_id := None;
                           Lwt.catch
                             (fun () ->
                               delete_message ~bot_token:discord_config.bot_token
                                 ~channel_id:msg.channel_id ~message_id:mid)
                             (fun _exn -> Lwt.return_unit)
-                      | None -> Lwt.return_unit
-                    in
-                    let* mid =
-                      send_message_with_id ~suppress_notifications:true
-                        ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id
-                        ~text:
-                          "\xe2\x8f\xb3 Processing queued message\xe2\x80\xa6"
-                        ()
-                    in
-                    drain_progress_msg_id := Some mid;
-                    Lwt.return_unit);
-                after_turn =
-                  (fun queued_msg_id ->
-                    match queued_msg_id with
-                    | Some mid ->
-                        set_reaction_on_single mid
-                          (Connector_status.Discord.phase_emoji Completed)
-                    | None -> Lwt.return_unit);
-                after_all =
-                  (fun () ->
-                    match !drain_progress_msg_id with
-                    | Some mid ->
-                        drain_progress_msg_id := None;
-                        Lwt.catch
-                          (fun () ->
-                            delete_message ~bot_token:discord_config.bot_token
-                              ~channel_id:msg.channel_id ~message_id:mid)
-                          (fun _exn -> Lwt.return_unit)
-                    | None -> Lwt.return_unit);
-              }
-            in
-            let response_sent = ref false in
-            let before_drain response =
-              if Session.should_suppress_response response then Lwt.return_unit
-              else
-                let open Lwt.Syntax in
-                let* () = handler.finalize () in
-                let thinking = handler.get_thinking () in
-                let* () =
-                  if thinking <> "" then
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id
-                      ~text:("_" ^ thinking ^ "_")
-                  else Lwt.return_unit
-                in
-                let* () =
-                  send_message_fn ~bot_token:discord_config.bot_token
-                    ~channel_id:msg.channel_id ~text:response
-                in
-                let* () =
-                  set_reaction (Connector_status.Discord.phase_emoji Completed)
-                in
-                if not (Session.take_response_deferred session_mgr ~key) then
-                  Session.mark_response_sent session_mgr ~key;
-                response_sent := true;
-                Lwt.return_unit
-            in
-            let* result =
-              Session.with_registered_notifier session_mgr ~key
-                ~notify:(fun text ->
-                  send_message_fn ~bot_token:discord_config.bot_token
-                    ~channel_id:msg.channel_id ~text)
-                (fun () ->
-                  Lwt.catch
-                    (fun () ->
-                      let config = Session.get_config session_mgr in
-                      (* Partition audio attachments for transcription *)
-                      let is_audio_att (a : discord_attachment) =
-                        match a.att_content_type with
-                        | Some ct -> Voice_transcription.is_audio_mime ct
-                        | None ->
-                            Voice_transcription.is_audio_filename a.att_filename
-                      in
-                      let audio_atts, non_audio_atts =
-                        List.partition is_audio_att msg.attachments
-                      in
-                      let* transcription_prefix =
-                        if
-                          audio_atts <> []
-                          && config.security.attachment_downloads_enabled
-                        then
-                          let* texts =
-                            Lwt_list.map_s
-                              (fun (a : discord_attachment) ->
-                                match
-                                  Voice_transcription.validate ~config
-                                    ~filename:a.att_filename
-                                    ~mime_type:a.att_content_type
-                                    ~size:(Some a.att_size)
-                                    ~duration_seconds:None
-                                with
-                                | Error reason ->
-                                    Logs.info (fun m ->
-                                        m "Discord voice skipped %s: %s"
-                                          a.att_filename
-                                          (Voice_transcription
-                                           .skip_reason_to_string reason));
-                                    Lwt.return ""
-                                | Ok () ->
-                                    Lwt.catch
-                                      (fun () ->
-                                        let* _status, audio_data =
-                                          Http_client.get ~uri:a.att_url
-                                            ~headers:[]
-                                        in
-                                        let notifier =
-                                          make_status_notifier
-                                            ~bot_token:discord_config.bot_token
-                                            ~channel_id:msg.channel_id
-                                        in
-                                        Voice_transcription
-                                        .transcribe_with_progress ~config
-                                          ~notifier ~audio_data
-                                          ~filename:a.att_filename ())
-                                      (fun exn ->
-                                        Logs.err (fun m ->
-                                            m
-                                              "Discord voice transcription \
-                                               failed %s: %s"
-                                              a.att_filename
-                                              (Printexc.to_string exn));
-                                        Lwt.return ""))
-                              audio_atts
-                          in
-                          Lwt.return
-                            (String.concat ""
-                               (List.filter (fun s -> s <> "") texts))
-                        else Lwt.return ""
-                      in
-                      let effective_content =
-                        if transcription_prefix <> "" then
-                          transcription_prefix ^ "\n" ^ msg.content
-                        else msg.content
-                      in
-                      let* content_parts, att_list, message =
-                        if
-                          non_audio_atts <> []
-                          && config.security.attachment_downloads_enabled
-                        then
-                          let workspace =
-                            Runtime_config.effective_workspace config
-                          in
-                          let metas =
-                            List.map
-                              (fun (a : discord_attachment) ->
-                                Attachment_download.
-                                  {
-                                    url = a.att_url;
-                                    filename = a.att_filename;
-                                    mime_type = a.att_content_type;
-                                    size = Some a.att_size;
-                                  })
-                              non_audio_atts
-                          in
-                          Attachment_download.process_attachments metas
-                            ~headers:[] ~workspace
-                            ~db:(Session.get_db session_mgr)
-                            ~session_key:key ~source:"discord" ~content_parts:[]
-                            ~attachments:[] ~message:effective_content
-                        else
-                          let placeholder =
-                            if non_audio_atts <> [] then
-                              let names =
-                                List.map
-                                  (fun (a : discord_attachment) ->
-                                    Printf.sprintf
-                                      "\n[Attachment: %s (download disabled)]"
-                                      a.att_filename)
-                                  non_audio_atts
-                              in
-                              effective_content ^ String.concat "" names
-                            else effective_content
-                          in
-                          Lwt.return ([], [], placeholder)
-                      in
-                      let* response =
-                        Session.turn_stream session_mgr ~key ~message
-                          ~content_parts ~attachments:att_list ~skill_injections
-                          ~channel_name:msg.channel_id
-                          ~channel_type:discord_channel_type
-                          ~sender_id:msg.author_id ~user_group
-                          ~channel:"discord" ~channel_id:msg.channel_id
-                          ~message_id:msg.id ~on_drain_progress ~before_drain
-                          ~on_chunk ()
-                      in
-                      Lwt.return (Ok response))
-                    (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
-            in
-            match result with
-            | Ok response ->
+                      | None -> Lwt.return_unit);
+                }
+              in
+              let response_sent = ref false in
+              let before_drain response =
                 if Session.should_suppress_response response then
                   Lwt.return_unit
-                else if !response_sent then (
-                  let* () =
-                    Reaction_tracker.cleanup_with_remove reactions ~key
-                      ~remove:(fun mid emoji ->
-                        delete_own_reaction ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                  in
-                  let send_to_channel text =
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text
-                  in
-                  if
-                    Option.is_none
-                      (Session.find_registered_notifier session_mgr ~key)
-                  then begin
-                    Session.register_channel_notifier session_mgr ~key
-                      send_to_channel;
-                    Session.register_status_message_factory session_mgr ~key
-                      (fun () ->
-                        let notifier =
-                          make_status_notifier
-                            ~bot_token:discord_config.bot_token
-                            ~channel_id:msg.channel_id
-                        in
-                        Status_message.create ~notifier ~parse_mode:"Markdown"
-                          ());
-                    Session.register_connector_capabilities session_mgr ~key
-                      Connector_capabilities.discord
-                  end;
-                  Lwt.async (fun () ->
-                      Session.process_autonomous_turn_result
-                        ~on_response:send_to_channel session_mgr ~key ~response);
-                  Lwt.return_unit)
                 else
+                  let open Lwt.Syntax in
                   let* () = handler.finalize () in
                   let thinking = handler.get_thinking () in
                   let* () =
@@ -1489,6 +1339,255 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     set_reaction
                       (Connector_status.Discord.phase_emoji Completed)
                   in
+                  if not (Session.take_response_deferred session_mgr ~key) then
+                    Session.mark_response_sent session_mgr ~key;
+                  response_sent := true;
+                  Lwt.return_unit
+              in
+              let* result =
+                Session.with_registered_notifier session_mgr ~key
+                  ~notify:(fun text ->
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text)
+                  (fun () ->
+                    Lwt.catch
+                      (fun () ->
+                        let config = Session.get_config session_mgr in
+                        (* Partition audio attachments for transcription *)
+                        let is_audio_att (a : discord_attachment) =
+                          match a.att_content_type with
+                          | Some ct -> Voice_transcription.is_audio_mime ct
+                          | None ->
+                              Voice_transcription.is_audio_filename
+                                a.att_filename
+                        in
+                        let audio_atts, non_audio_atts =
+                          List.partition is_audio_att msg.attachments
+                        in
+                        let* transcription_prefix =
+                          if
+                            audio_atts <> []
+                            && config.security.attachment_downloads_enabled
+                          then
+                            let* texts =
+                              Lwt_list.map_s
+                                (fun (a : discord_attachment) ->
+                                  match
+                                    Voice_transcription.validate ~config
+                                      ~filename:a.att_filename
+                                      ~mime_type:a.att_content_type
+                                      ~size:(Some a.att_size)
+                                      ~duration_seconds:None
+                                  with
+                                  | Error reason ->
+                                      Logs.info (fun m ->
+                                          m "Discord voice skipped %s: %s"
+                                            a.att_filename
+                                            (Voice_transcription
+                                             .skip_reason_to_string reason));
+                                      Lwt.return ""
+                                  | Ok () ->
+                                      Lwt.catch
+                                        (fun () ->
+                                          let* _status, audio_data =
+                                            Http_client.get ~uri:a.att_url
+                                              ~headers:[]
+                                          in
+                                          let notifier =
+                                            make_status_notifier
+                                              ~bot_token:
+                                                discord_config.bot_token
+                                              ~channel_id:msg.channel_id
+                                          in
+                                          Voice_transcription
+                                          .transcribe_with_progress ~config
+                                            ~notifier ~audio_data
+                                            ~filename:a.att_filename ())
+                                        (fun exn ->
+                                          Logs.err (fun m ->
+                                              m
+                                                "Discord voice transcription \
+                                                 failed %s: %s"
+                                                a.att_filename
+                                                (Printexc.to_string exn));
+                                          Lwt.return ""))
+                                audio_atts
+                            in
+                            Lwt.return
+                              (String.concat ""
+                                 (List.filter (fun s -> s <> "") texts))
+                          else Lwt.return ""
+                        in
+                        let effective_content =
+                          if transcription_prefix <> "" then
+                            transcription_prefix ^ "\n" ^ msg.content
+                          else msg.content
+                        in
+                        let* content_parts, att_list, message =
+                          if
+                            non_audio_atts <> []
+                            && config.security.attachment_downloads_enabled
+                          then
+                            let workspace =
+                              Runtime_config.effective_workspace config
+                            in
+                            let metas =
+                              List.map
+                                (fun (a : discord_attachment) ->
+                                  Attachment_download.
+                                    {
+                                      url = a.att_url;
+                                      filename = a.att_filename;
+                                      mime_type = a.att_content_type;
+                                      size = Some a.att_size;
+                                    })
+                                non_audio_atts
+                            in
+                            Attachment_download.process_attachments metas
+                              ~headers:[] ~workspace
+                              ~db:(Session.get_db session_mgr)
+                              ~session_key:key ~source:"discord"
+                              ~content_parts:[] ~attachments:[]
+                              ~message:effective_content
+                          else
+                            let placeholder =
+                              if non_audio_atts <> [] then
+                                let names =
+                                  List.map
+                                    (fun (a : discord_attachment) ->
+                                      Printf.sprintf
+                                        "\n[Attachment: %s (download disabled)]"
+                                        a.att_filename)
+                                    non_audio_atts
+                                in
+                                effective_content ^ String.concat "" names
+                              else effective_content
+                            in
+                            Lwt.return ([], [], placeholder)
+                        in
+                        let* response =
+                          Session.turn_stream session_mgr ~key ~message
+                            ~content_parts ~attachments:att_list
+                            ~skill_injections ~channel_name:msg.channel_id
+                            ~channel_type:discord_channel_type
+                            ~sender_id:msg.author_id ~user_group
+                            ~channel:"discord" ~channel_id:msg.channel_id
+                            ~message_id:msg.id ~on_drain_progress ~before_drain
+                            ~on_chunk ()
+                        in
+                        Lwt.return (Ok response))
+                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+              in
+              match result with
+              | Ok response ->
+                  if Session.should_suppress_response response then
+                    Lwt.return_unit
+                  else if !response_sent then (
+                    let* () =
+                      Reaction_tracker.cleanup_with_remove reactions ~key
+                        ~remove:(fun mid emoji ->
+                          delete_own_reaction
+                            ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                    in
+                    let send_to_channel text =
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text
+                    in
+                    if
+                      Option.is_none
+                        (Session.find_registered_notifier session_mgr ~key)
+                    then begin
+                      Session.register_channel_notifier session_mgr ~key
+                        send_to_channel;
+                      Session.register_status_message_factory session_mgr ~key
+                        (fun () ->
+                          let notifier =
+                            make_status_notifier
+                              ~bot_token:discord_config.bot_token
+                              ~channel_id:msg.channel_id
+                          in
+                          Status_message.create ~notifier ~parse_mode:"Markdown"
+                            ());
+                      Session.register_connector_capabilities session_mgr ~key
+                        Connector_capabilities.discord
+                    end;
+                    Lwt.async (fun () ->
+                        Session.process_autonomous_turn_result
+                          ~on_response:send_to_channel session_mgr ~key
+                          ~response);
+                    Lwt.return_unit)
+                  else
+                    let* () = handler.finalize () in
+                    let thinking = handler.get_thinking () in
+                    let* () =
+                      if thinking <> "" then
+                        send_message_fn ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id
+                          ~text:("_" ^ thinking ^ "_")
+                      else Lwt.return_unit
+                    in
+                    let* () =
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text:response
+                    in
+                    let* () =
+                      set_reaction
+                        (Connector_status.Discord.phase_emoji Completed)
+                    in
+                    let* () =
+                      Reaction_tracker.cleanup_with_remove reactions ~key
+                        ~remove:(fun mid emoji ->
+                          delete_own_reaction
+                            ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                    in
+                    if not (Session.take_response_deferred session_mgr ~key)
+                    then Session.mark_response_sent session_mgr ~key;
+                    let send_to_channel text =
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text
+                    in
+                    if
+                      Option.is_none
+                        (Session.find_registered_notifier session_mgr ~key)
+                    then begin
+                      Session.register_channel_notifier session_mgr ~key
+                        send_to_channel;
+                      Session.register_status_message_factory session_mgr ~key
+                        (fun () ->
+                          let notifier =
+                            make_status_notifier
+                              ~bot_token:discord_config.bot_token
+                              ~channel_id:msg.channel_id
+                          in
+                          Status_message.create ~notifier ~parse_mode:"Markdown"
+                            ());
+                      Session.register_connector_capabilities session_mgr ~key
+                        Connector_capabilities.discord
+                    end;
+                    Lwt.async (fun () ->
+                        Session.process_autonomous_turn_result
+                          ~on_response:send_to_channel session_mgr ~key
+                          ~response);
+                    Lwt.return_unit
+              | Error err ->
+                  Logs.err (fun m ->
+                      m "Discord agent error for channel=%s user=%s: %s"
+                        msg.channel_id msg.author_id err);
+                  let* () = handler.finalize () in
+                  let* () =
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id
+                      ~text:
+                        (Printf.sprintf
+                           "Sorry, an error occurred processing your message: \
+                            %s"
+                           err)
+                  in
+                  let* () =
+                    set_reaction (Connector_status.Discord.phase_emoji Failed)
+                  in
                   let* () =
                     Reaction_tracker.cleanup_with_remove reactions ~key
                       ~remove:(fun mid emoji ->
@@ -1497,64 +1596,14 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   in
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
-                  let send_to_channel text =
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text
-                  in
-                  if
-                    Option.is_none
-                      (Session.find_registered_notifier session_mgr ~key)
-                  then begin
-                    Session.register_channel_notifier session_mgr ~key
-                      send_to_channel;
-                    Session.register_status_message_factory session_mgr ~key
-                      (fun () ->
-                        let notifier =
-                          make_status_notifier
-                            ~bot_token:discord_config.bot_token
-                            ~channel_id:msg.channel_id
-                        in
-                        Status_message.create ~notifier ~parse_mode:"Markdown"
-                          ());
-                    Session.register_connector_capabilities session_mgr ~key
-                      Connector_capabilities.discord
-                  end;
-                  Lwt.async (fun () ->
-                      Session.process_autonomous_turn_result
-                        ~on_response:send_to_channel session_mgr ~key ~response);
-                  Lwt.return_unit
-            | Error err ->
-                Logs.err (fun m ->
-                    m "Discord agent error for channel=%s user=%s: %s"
-                      msg.channel_id msg.author_id err);
-                let* () = handler.finalize () in
-                let* () =
-                  send_message_fn ~bot_token:discord_config.bot_token
-                    ~channel_id:msg.channel_id
-                    ~text:
-                      (Printf.sprintf
-                         "Sorry, an error occurred processing your message: %s"
-                         err)
-                in
-                let* () =
-                  set_reaction (Connector_status.Discord.phase_emoji Failed)
-                in
-                let* () =
-                  Reaction_tracker.cleanup_with_remove reactions ~key
-                    ~remove:(fun mid emoji ->
-                      delete_own_reaction ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                in
-                if not (Session.take_response_deferred session_mgr ~key) then
-                  Session.mark_response_sent session_mgr ~key;
-                Lwt.return_unit)
-        | ( RegisterAsAdminOtc _ | Reply _ | FormattedReply _ | Help | Menu _
-          | Reset | RuntimeCtx | Uptime | Status | Thinking _ | ShowThinking _
-          | Heartbeat _ | Debug _ | AgentMenu _ | ModelMenu _ | ThinkingMenu
-          | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu | Tools | Tasks
-          | TasksFull | Costs _ | Session _ | Usage _ | Active | Bg _ | Cron _
-          | Bl _ | HeldItems _ | Memories _ | Repo _ ) as r ->
-            Connector_dispatch.dispatch env r
+                  Lwt.return_unit)
+          | ( RegisterAsAdminOtc _ | Reply _ | FormattedReply _ | Help | Menu _
+            | Reset | RuntimeCtx | Uptime | Status | Thinking _ | ShowThinking _
+            | Heartbeat _ | Debug _ | AgentMenu _ | ModelMenu _ | ThinkingMenu
+            | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu | Tools | Tasks
+            | TasksFull | Costs _ | Session _ | Usage _ | Active | Bg _ | Cron _
+            | Bl _ | HeldItems _ | Memories _ | Repo _ ) as r ->
+              Connector_dispatch.dispatch env r
 
 (* Close code classification for reconnect behavior *)
 let is_fatal_close_code code =

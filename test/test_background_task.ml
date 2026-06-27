@@ -5213,6 +5213,102 @@ let test_effective_progress_state_non_room () =
     (Option.map string_of_progress_state
        (effective_progress_state with_explicit))
 
+let test_async_cmd_to_bg_launch_delegate () =
+  let open Room_request_classifier in
+  let result = Slash_commands.Delegate (Some "coder", "implement feature") in
+  match async_cmd_to_bg_launch result with
+  | None -> Alcotest.fail "expected Some for Delegate"
+  | Some (goal, runner, agent_name) ->
+      Alcotest.(check string) "goal" "implement feature" goal;
+      Alcotest.(check (option string)) "runner" None runner;
+      Alcotest.(check (option string)) "agent_name" (Some "coder") agent_name
+
+let test_async_cmd_to_bg_launch_agent_invoke () =
+  let open Room_request_classifier in
+  let result = Slash_commands.AgentInvoke ("reviewer", "review this") in
+  match async_cmd_to_bg_launch result with
+  | None -> Alcotest.fail "expected Some for AgentInvoke"
+  | Some (goal, runner, agent_name) ->
+      Alcotest.(check string) "goal" "review this" goal;
+      Alcotest.(check (option string)) "runner" (Some "local") runner;
+      Alcotest.(check (option string)) "agent_name" (Some "reviewer") agent_name
+
+let test_async_cmd_to_bg_launch_compact_none () =
+  let open Room_request_classifier in
+  let result = Slash_commands.Compact in
+  match async_cmd_to_bg_launch result with
+  | None -> () (* expected *)
+  | Some _ -> Alcotest.fail "expected None for Compact"
+
+let test_launch_room_bg_task_local () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let room_id = "C-TEST-ROOM" in
+  match
+    Background_task.launch_room_bg_task ~db
+      ~session_key:"slack:C-TEST-ROOM:U123" ~connector:"slack" ~room_id
+      ~requester_id:"U123" ~goal:"do something"
+      ~preferred_runner:Background_task.Local ()
+  with
+  | Error msg -> Alcotest.failf "enqueue failed: %s" msg
+  | Ok id -> (
+      Alcotest.(check bool) "id > 0" true (id > 0);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found"
+      | Some task ->
+          Alcotest.(check string)
+            "runner" "local"
+            (Background_task.string_of_runner task.runner);
+          Alcotest.(check string) "prompt" "do something" task.prompt;
+          Alcotest.(check (option string))
+            "session_key" (Some "slack:C-TEST-ROOM:U123") task.session_key;
+          Alcotest.(check (option int)) "profile_id" None task.profile_id;
+          Alcotest.(check bool) "origin_json set" true (task.origin_json <> None)
+      )
+
+let test_launch_room_async_bg_delegate () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let room_id = "C-ASYNC-ROOM" in
+  let result = Slash_commands.Delegate (None, "build feature") in
+  match
+    Room_request_classifier.launch_room_async_bg ~db
+      ~session_key:"slack:C-ASYNC-ROOM:U456" ~connector:"slack" ~room_id
+      ~requester_id:"U456" result
+  with
+  | Error msg -> Alcotest.failf "launch failed: %s" msg
+  | Ok None -> Alcotest.fail "expected Some for Delegate"
+  | Ok (Some id) -> (
+      Alcotest.(check bool) "id > 0" true (id > 0);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found"
+      | Some task ->
+          (* delegate_enqueue wraps the goal in a full prompt *)
+          Alcotest.(check bool)
+            "prompt contains goal" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "build feature")
+                    task.prompt 0);
+               true
+             with Not_found -> false);
+          Alcotest.(check (option string))
+            "session_key" (Some "slack:C-ASYNC-ROOM:U456") task.session_key)
+
+let test_launch_room_async_bg_compact_none () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let result = Slash_commands.Compact in
+  match
+    Room_request_classifier.launch_room_async_bg ~db
+      ~session_key:"slack:C-ROOM:U789" ~connector:"slack" ~room_id:"C-ROOM"
+      ~requester_id:"U789" result
+  with
+  | Error msg -> Alcotest.failf "unexpected error: %s" msg
+  | Ok None -> () (* expected *)
+  | Ok (Some _) -> Alcotest.fail "expected None for Compact"
+
 let test_set_progress_state_persists () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -5937,4 +6033,16 @@ let suite =
     Alcotest.test_case "set progress state persists" `Quick
       test_set_progress_state_persists;
     Alcotest.test_case "clear progress state" `Quick test_clear_progress_state;
+    Alcotest.test_case "async_cmd_to_bg_launch delegate" `Quick
+      test_async_cmd_to_bg_launch_delegate;
+    Alcotest.test_case "async_cmd_to_bg_launch agent invoke" `Quick
+      test_async_cmd_to_bg_launch_agent_invoke;
+    Alcotest.test_case "async_cmd_to_bg_launch compact is none" `Quick
+      test_async_cmd_to_bg_launch_compact_none;
+    Alcotest.test_case "launch_room_bg_task local runner" `Quick
+      test_launch_room_bg_task_local;
+    Alcotest.test_case "launch_room_async_bg delegate" `Quick
+      test_launch_room_async_bg_delegate;
+    Alcotest.test_case "launch_room_async_bg compact returns none" `Quick
+      test_launch_room_async_bg_compact_none;
   ]

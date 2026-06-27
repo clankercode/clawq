@@ -47,8 +47,7 @@ let rec title_of_async_cmd (result : Slash_commands.result) : string option =
   | Debate _ -> Some "Debate"
   | BashRun cmd ->
       let short =
-        if String.length cmd > 60 then String.sub cmd 0 57 ^ "..."
-        else cmd
+        if String.length cmd > 60 then String.sub cmd 0 57 ^ "..." else cmd
       in
       Some (Printf.sprintf "Bash: %s" short)
   | Rig RigList -> Some "Rig: list"
@@ -65,3 +64,68 @@ let rec title_of_async_cmd (result : Slash_commands.result) : string option =
   | Model ModelUsage -> Some "Model: usage"
   | AdminRequired inner -> title_of_async_cmd inner
   | _ -> None
+
+(** Map an [AsyncCommand] result to background-task launch parameters. Returns
+    [Some (goal, preferred_runner, agent_name)] for commands that should be
+    launched as background tasks, or [None] for commands that should remain
+    inline (Compact, Model, RigList).
+
+    The caller passes [preferred_runner] as a string option:
+    - [Some "local"] for native/in-process execution
+    - [None] for auto-runner selection via [delegate_enqueue]
+
+    @param goal is the prompt/goal text for the background task.
+    @param runner is ["local"] for native runner or [None] for auto.
+    @param agent_name is the agent template name when applicable. *)
+let rec async_cmd_to_bg_launch (result : Slash_commands.result) :
+    (string * string option * string option) option =
+  let open Slash_commands in
+  match result with
+  | Delegate (agent_name, prompt) -> Some (prompt, None, agent_name)
+  | AgentInvoke (agent_name, prompt) ->
+      Some (prompt, Some "local", Some agent_name)
+  | ForkAnd (agent_name, prompt) -> Some (prompt, None, agent_name)
+  | Debate prompt -> Some (prompt, None, None)
+  | BashRun cmd ->
+      let goal = Printf.sprintf "Run the following bash command:\n\n%s" cmd in
+      Some (goal, None, None)
+  | Rig RigList -> None
+  | Rig (RigInstall name) -> (
+      match Rig.prompt_for ~name ~action:`Install with
+      | Ok prompt -> Some (prompt, None, None)
+      | Error _ -> None)
+  | Rig (RigAdjust name) -> (
+      match Rig.prompt_for ~name ~action:`Adjust with
+      | Ok prompt -> Some (prompt, None, None)
+      | Error _ -> None)
+  | Rig (RigRemove name) -> (
+      match Rig.prompt_for ~name ~action:`Remove with
+      | Ok prompt -> Some (prompt, None, None)
+      | Error _ -> None)
+  | AdminRequired inner -> async_cmd_to_bg_launch inner
+  | Compact | Model _ -> None
+  | _ -> None
+
+(** Launch an async room command as a background task using the room's profile
+    policy. Combines [async_cmd_to_bg_launch] with
+    [Background_task.launch_room_bg_task].
+
+    Returns [Ok (Some bg_task_id)] if a background task was launched, [Ok None]
+    if the command should remain inline, or [Error msg] on launch failure. *)
+let launch_room_async_bg ~db ~session_key ~connector ~room_id ~requester_id
+    ?thread_id ?model_override ?notify_cfg (result : Slash_commands.result) =
+  match async_cmd_to_bg_launch result with
+  | None -> Ok None
+  | Some (goal, runner_s, agent_name) -> (
+      let preferred_runner =
+        match runner_s with
+        | Some "local" -> Some Background_task.Local
+        | _ -> None
+      in
+      match
+        Background_task.launch_room_bg_task ~db ~session_key ~connector ~room_id
+          ~requester_id ~goal ?preferred_runner ?agent_name ?thread_id
+          ?model_override ?notify_cfg ()
+      with
+      | Ok id -> Ok (Some id)
+      | Error msg -> Error msg)
