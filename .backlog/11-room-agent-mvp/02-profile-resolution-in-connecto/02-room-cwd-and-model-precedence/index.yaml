@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P11.M2.E2
 locked: false
 name: Room CWD and Model Precedence
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -24,6 +24,6 @@ tasks:
       file: T002-apply-room-profile-model-templ.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Apply room profile model template and OAuth precedence

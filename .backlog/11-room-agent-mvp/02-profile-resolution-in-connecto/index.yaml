@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Room CWD and Model Precedence
       path: 02-room-cwd-and-model-precedence
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Disable unscoped global memory/search injection for profiled rooms until scoped memory lands.
