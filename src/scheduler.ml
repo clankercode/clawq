@@ -18,6 +18,9 @@ type job = {
   agent_name : string option;
   ephemeral : bool;
   expires_at : string option;
+  profile_id : int option;
+  thread_id : string option;
+  routine_workspace_id : string option;
 }
 
 type run = {
@@ -27,7 +30,49 @@ type run = {
   finished_at : string option;
   status : string;
   result_preview : string option;
+  profile_id : int option;
+  thread_id : string option;
+  routine_workspace_id : string option;
 }
+
+let column_text_opt stmt idx =
+  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> Some s | _ -> None
+
+let column_int_opt stmt idx =
+  match Sqlite3.column stmt idx with
+  | Sqlite3.Data.INT i -> Some (Int64.to_int i)
+  | _ -> None
+
+let bind_text_opt stmt idx = function
+  | Some s -> ignore (Sqlite3.bind stmt idx (Sqlite3.Data.TEXT s))
+  | None -> ignore (Sqlite3.bind stmt idx Sqlite3.Data.NULL)
+
+let bind_int_opt stmt idx = function
+  | Some i -> ignore (Sqlite3.bind stmt idx (Sqlite3.Data.INT (Int64.of_int i)))
+  | None -> ignore (Sqlite3.bind stmt idx Sqlite3.Data.NULL)
+
+let format_routine_target ?profile_id ?thread_id ?routine_workspace_id () =
+  let parts = ref [] in
+  (match profile_id with
+  | Some id -> parts := Printf.sprintf "profile=%d" id :: !parts
+  | None -> ());
+  (match thread_id with
+  | Some id -> parts := ("thread=" ^ id) :: !parts
+  | None -> ());
+  (match routine_workspace_id with
+  | Some id -> parts := ("workspace=" ^ id) :: !parts
+  | None -> ());
+  match List.rev !parts with
+  | [] -> None
+  | parts -> Some (String.concat " " parts)
+
+let job_routine_target (job : job) =
+  format_routine_target ?profile_id:job.profile_id ?thread_id:job.thread_id
+    ?routine_workspace_id:job.routine_workspace_id ()
+
+let run_routine_target (run : run) =
+  format_routine_target ?profile_id:run.profile_id ?thread_id:run.thread_id
+    ?routine_workspace_id:run.routine_workspace_id ()
 
 let init_schema db =
   let exec sql =
@@ -47,9 +92,16 @@ let init_schema db =
     \  schedule TEXT NOT NULL,\n\
     \  enabled INTEGER NOT NULL DEFAULT 1,\n\
     \  agent_name TEXT,\n\
+    \  profile_id INTEGER,\n\
+    \  thread_id TEXT,\n\
+    \  routine_workspace_id TEXT,\n\
     \  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
      )";
   (try exec "ALTER TABLE cron_jobs ADD COLUMN agent_name TEXT" with _ -> ());
+  (try exec "ALTER TABLE cron_jobs ADD COLUMN profile_id INTEGER" with _ -> ());
+  (try exec "ALTER TABLE cron_jobs ADD COLUMN thread_id TEXT" with _ -> ());
+  (try exec "ALTER TABLE cron_jobs ADD COLUMN routine_workspace_id TEXT"
+   with _ -> ());
   (try
      exec
        "ALTER TABLE cron_jobs ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0"
@@ -154,7 +206,8 @@ let should_run schedule ~last_run ~now =
 let list_jobs ~db =
   let sql =
     "SELECT id, name, session_key, message, schedule, enabled, agent_name, \
-     COALESCE(ephemeral, 0), expires_at FROM cron_jobs ORDER BY id"
+     COALESCE(ephemeral, 0), expires_at, profile_id, thread_id, \
+     routine_workspace_id FROM cron_jobs ORDER BY id"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -194,11 +247,10 @@ let list_jobs ~db =
           | Sqlite3.Data.INT i -> i <> 0L
           | _ -> false
         in
-        let expires_at =
-          match Sqlite3.column stmt 8 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let expires_at = column_text_opt stmt 8 in
+        let profile_id = column_int_opt stmt 9 in
+        let thread_id = column_text_opt stmt 10 in
+        let routine_workspace_id = column_text_opt stmt 11 in
         jobs :=
           {
             id;
@@ -210,13 +262,16 @@ let list_jobs ~db =
             agent_name;
             ephemeral;
             expires_at;
+            profile_id;
+            thread_id;
+            routine_workspace_id;
           }
           :: !jobs
       done;
       List.rev !jobs)
 
 let add_job ~db ~name ~session_key ~message ~schedule ?(ephemeral = false) ?ttl
-    () =
+    ?profile_id ?thread_id ?routine_workspace_id () =
   match parse_schedule schedule with
   | Error e -> Error ("Invalid schedule: " ^ e)
   | Ok _ -> (
@@ -234,11 +289,13 @@ let add_job ~db ~name ~session_key ~message ~schedule ?(ephemeral = false) ?ttl
             match ttl_secs with
             | None ->
                 "INSERT INTO cron_jobs (name, session_key, message, schedule, \
-                 ephemeral) VALUES (?, ?, ?, ?, ?)"
+                 ephemeral, profile_id, thread_id, routine_workspace_id) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             | Some _ ->
                 "INSERT INTO cron_jobs (name, session_key, message, schedule, \
-                 ephemeral, expires_at) VALUES (?, ?, ?, ?, ?, datetime('now', \
-                 '+' || ? || ' seconds'))"
+                 ephemeral, expires_at, profile_id, thread_id, \
+                 routine_workspace_id) VALUES (?, ?, ?, ?, ?, datetime('now', \
+                 '+' || ? || ' seconds'), ?, ?, ?)"
           in
           let stmt = Sqlite3.prepare db sql in
           Fun.protect
@@ -251,11 +308,18 @@ let add_job ~db ~name ~session_key ~message ~schedule ?(ephemeral = false) ?ttl
               ignore
                 (Sqlite3.bind stmt 5
                    (Sqlite3.Data.INT (if ephemeral then 1L else 0L)));
-              (match ttl_secs with
-              | Some n ->
-                  ignore
-                    (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT (string_of_int n)))
-              | None -> ());
+              let metadata_start =
+                match ttl_secs with
+                | Some n ->
+                    ignore
+                      (Sqlite3.bind stmt 6
+                         (Sqlite3.Data.TEXT (string_of_int n)));
+                    7
+                | None -> 6
+              in
+              bind_int_opt stmt metadata_start profile_id;
+              bind_text_opt stmt (metadata_start + 1) thread_id;
+              bind_text_opt stmt (metadata_start + 2) routine_workspace_id;
               match Sqlite3.step stmt with
               | Sqlite3.Rc.DONE -> Ok ()
               | rc ->
@@ -267,13 +331,16 @@ let list_runs ~db ?job_name ~limit () =
   let sql, bindings =
     match job_name with
     | Some name ->
-        ( "SELECT id, job_name, started_at, finished_at, status, \
-           result_preview FROM cron_runs WHERE job_name = ? ORDER BY id DESC \
-           LIMIT ?",
+        ( "SELECT r.id, r.job_name, r.started_at, r.finished_at, r.status, \
+           r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id \
+           FROM cron_runs r LEFT JOIN cron_jobs j ON j.name = r.job_name WHERE \
+           r.job_name = ? ORDER BY r.id DESC LIMIT ?",
           [ Sqlite3.Data.TEXT name; Sqlite3.Data.INT (Int64.of_int limit) ] )
     | None ->
-        ( "SELECT id, job_name, started_at, finished_at, status, \
-           result_preview FROM cron_runs ORDER BY id DESC LIMIT ?",
+        ( "SELECT r.id, r.job_name, r.started_at, r.finished_at, r.status, \
+           r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id \
+           FROM cron_runs r LEFT JOIN cron_jobs j ON j.name = r.job_name ORDER \
+           BY r.id DESC LIMIT ?",
           [ Sqlite3.Data.INT (Int64.of_int limit) ] )
   in
   let stmt = Sqlite3.prepare db sql in
@@ -294,21 +361,26 @@ let list_runs ~db ?job_name ~limit () =
         let started_at =
           match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
         in
-        let finished_at =
-          match Sqlite3.column stmt 3 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let finished_at = column_text_opt stmt 3 in
         let status =
           match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
         in
-        let result_preview =
-          match Sqlite3.column stmt 5 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let result_preview = column_text_opt stmt 5 in
+        let profile_id = column_int_opt stmt 6 in
+        let thread_id = column_text_opt stmt 7 in
+        let routine_workspace_id = column_text_opt stmt 8 in
         runs :=
-          { run_id; job_name; started_at; finished_at; status; result_preview }
+          {
+            run_id;
+            job_name;
+            started_at;
+            finished_at;
+            status;
+            result_preview;
+            profile_id;
+            thread_id;
+            routine_workspace_id;
+          }
           :: !runs
       done;
       List.rev !runs)
@@ -361,7 +433,8 @@ let update_job ~db ~name ?schedule ?message ?ttl () =
 let get_job ~db ~name =
   let sql =
     "SELECT id, name, session_key, message, schedule, enabled, agent_name, \
-     COALESCE(ephemeral, 0), expires_at FROM cron_jobs WHERE name = ?"
+     COALESCE(ephemeral, 0), expires_at, profile_id, thread_id, \
+     routine_workspace_id FROM cron_jobs WHERE name = ?"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -401,11 +474,10 @@ let get_job ~db ~name =
           | Sqlite3.Data.INT i -> i <> 0L
           | _ -> false
         in
-        let expires_at =
-          match Sqlite3.column stmt 8 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let expires_at = column_text_opt stmt 8 in
+        let profile_id = column_int_opt stmt 9 in
+        let thread_id = column_text_opt stmt 10 in
+        let routine_workspace_id = column_text_opt stmt 11 in
         Some
           {
             id;
@@ -417,6 +489,9 @@ let get_job ~db ~name =
             agent_name;
             ephemeral;
             expires_at;
+            profile_id;
+            thread_id;
+            routine_workspace_id;
           }
       else None)
 
@@ -449,8 +524,10 @@ let toggle_job ~db ~name =
 
 let get_history ~db ~name ~limit =
   let sql =
-    "SELECT id, job_name, started_at, finished_at, status, result_preview FROM \
-     cron_runs WHERE job_name = ? ORDER BY id DESC LIMIT ?"
+    "SELECT r.id, r.job_name, r.started_at, r.finished_at, r.status, \
+     r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id FROM \
+     cron_runs r LEFT JOIN cron_jobs j ON j.name = r.job_name WHERE r.job_name \
+     = ? ORDER BY r.id DESC LIMIT ?"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -471,21 +548,26 @@ let get_history ~db ~name ~limit =
         let started_at =
           match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
         in
-        let finished_at =
-          match Sqlite3.column stmt 3 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let finished_at = column_text_opt stmt 3 in
         let status =
           match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
         in
-        let result_preview =
-          match Sqlite3.column stmt 5 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
+        let result_preview = column_text_opt stmt 5 in
+        let profile_id = column_int_opt stmt 6 in
+        let thread_id = column_text_opt stmt 7 in
+        let routine_workspace_id = column_text_opt stmt 8 in
         runs :=
-          { run_id; job_name; started_at; finished_at; status; result_preview }
+          {
+            run_id;
+            job_name;
+            started_at;
+            finished_at;
+            status;
+            result_preview;
+            profile_id;
+            thread_id;
+            routine_workspace_id;
+          }
           :: !runs
       done;
       List.rev !runs)

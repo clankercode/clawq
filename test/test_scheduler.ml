@@ -114,6 +114,56 @@ let test_crud_jobs () =
     "remove nonexistent" false
     (Scheduler.remove_job ~db ~name:"nope")
 
+let test_job_routine_metadata_defaults_to_none () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"plain" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  match Scheduler.get_job ~db ~name:"plain" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      Alcotest.(check (option int)) "profile_id" None j.profile_id;
+      Alcotest.(check (option string)) "thread_id" None j.thread_id;
+      Alcotest.(check (option string))
+        "routine_workspace_id" None j.routine_workspace_id;
+      Alcotest.(check (option string))
+        "routine target" None
+        (Scheduler.job_routine_target j)
+
+let test_job_routine_metadata_round_trips () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"routine" ~session_key:"room:abc" ~message:"m"
+       ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
+       ~routine_workspace_id:"workspace-1" ());
+  let jobs = Scheduler.list_jobs ~db in
+  let j = List.find (fun (j : Scheduler.job) -> j.name = "routine") jobs in
+  Alcotest.(check (option int)) "profile_id" (Some 42) j.profile_id;
+  Alcotest.(check (option string)) "thread_id" (Some "thread-1") j.thread_id;
+  Alcotest.(check (option string))
+    "routine_workspace_id" (Some "workspace-1") j.routine_workspace_id;
+  Alcotest.(check (option string))
+    "routine target" (Some "profile=42 thread=thread-1 workspace=workspace-1")
+    (Scheduler.job_routine_target j)
+
+let test_run_history_includes_routine_target () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"routine_hist" ~session_key:"room:abc"
+       ~message:"m" ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
+       ~routine_workspace_id:"workspace-1" ());
+  let run_id = Scheduler.record_run_start ~db ~job_name:"routine_hist" in
+  Scheduler.record_run_finish ~db ~run_id ~status:"ok" ~result_preview:"done";
+  let runs = Scheduler.get_history ~db ~name:"routine_hist" ~limit:10 in
+  let r = List.hd runs in
+  Alcotest.(check (option int)) "profile_id" (Some 42) r.profile_id;
+  Alcotest.(check (option string))
+    "routine target" (Some "profile=42 thread=thread-1 workspace=workspace-1")
+    (Scheduler.run_routine_target r)
+
 let test_add_invalid_schedule () =
   let db = Memory.init ~db_path:":memory:" () in
   Scheduler.init_schema db;
@@ -792,6 +842,12 @@ let suite =
     Alcotest.test_case "should_run cron uses localtime" `Quick
       test_should_run_cron_uses_localtime;
     Alcotest.test_case "CRUD jobs" `Quick test_crud_jobs;
+    Alcotest.test_case "job routine metadata defaults to none" `Quick
+      test_job_routine_metadata_defaults_to_none;
+    Alcotest.test_case "job routine metadata round trips" `Quick
+      test_job_routine_metadata_round_trips;
+    Alcotest.test_case "run history includes routine target" `Quick
+      test_run_history_includes_routine_target;
     Alcotest.test_case "add invalid schedule" `Quick test_add_invalid_schedule;
     Alcotest.test_case "run history" `Quick test_run_history;
     Alcotest.test_case "get_last_run_time parses timestamp" `Quick

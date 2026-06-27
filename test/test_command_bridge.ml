@@ -1319,6 +1319,56 @@ let test_handle_cron_list_with_jobs () =
            true
          with Not_found -> false))
 
+let routine_target_text = "profile=42 thread=thread-1 workspace=workspace-1"
+
+let check_contains label expected output =
+  Alcotest.(check bool)
+    label true
+    (Test_helpers.string_contains output expected)
+
+let add_routine_cron_job db ~name =
+  Scheduler.init_schema db;
+  match
+    Scheduler.add_job ~db ~name ~session_key:"room:abc" ~message:"routine msg"
+      ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
+      ~routine_workspace_id:"workspace-1" ()
+  with
+  | Ok () -> ()
+  | Error e -> Alcotest.failf "failed to add routine cron job: %s" e
+
+let test_handle_cron_list_shows_routine_target () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_routine_cron_job db ~name:"routine-list";
+      let result = Command_bridge.handle [ "cron"; "list" ] in
+      check_contains "cron list contains job" "routine-list" result;
+      check_contains "cron list contains routine target" routine_target_text
+        result)
+
+let test_handle_cron_show_shows_routine_target () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_routine_cron_job db ~name:"routine-show";
+      let result = Command_bridge.handle [ "cron"; "show"; "routine-show" ] in
+      check_contains "cron show contains routine target label" "Routine target:"
+        result;
+      check_contains "cron show contains routine target" routine_target_text
+        result)
+
+let test_handle_cron_history_shows_routine_target () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      add_routine_cron_job db ~name:"routine-history";
+      let run_id = Scheduler.record_run_start ~db ~job_name:"routine-history" in
+      Scheduler.record_run_finish ~db ~run_id ~status:"ok"
+        ~result_preview:"done";
+      let result =
+        Command_bridge.handle [ "cron"; "history"; "routine-history" ]
+      in
+      check_contains "cron history contains target column" "TARGET" result;
+      check_contains "cron history contains routine target" routine_target_text
+        result)
+
 let test_handle_cron_runs () =
   with_temp_home (fun _home ->
       let result = Command_bridge.handle [ "cron"; "runs" ] in
@@ -3588,6 +3638,8 @@ let suite =
       test_handle_cron_list_prompt_short;
     Alcotest.test_case "handle cron list with jobs" `Quick
       test_handle_cron_list_with_jobs;
+    Alcotest.test_case "handle cron list shows routine target" `Quick
+      test_handle_cron_list_shows_routine_target;
     Alcotest.test_case "handle cron runs" `Quick test_handle_cron_runs;
     Alcotest.test_case "handle cron history missing job" `Quick
       test_handle_cron_history_missing_job;
@@ -3595,6 +3647,10 @@ let suite =
       test_handle_cron_show_missing;
     Alcotest.test_case "handle cron show existing" `Quick
       test_handle_cron_show_existing;
+    Alcotest.test_case "handle cron show shows routine target" `Quick
+      test_handle_cron_show_shows_routine_target;
+    Alcotest.test_case "handle cron history shows routine target" `Quick
+      test_handle_cron_history_shows_routine_target;
     Alcotest.test_case "handle cron trigger missing" `Quick
       test_handle_cron_trigger_missing;
     Alcotest.test_case "handle cron trigger existing" `Quick
