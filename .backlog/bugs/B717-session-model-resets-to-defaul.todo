@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B717
+priority: high
+status: pending
+tags: []
+title: Session model resets to default after /update
+---
+When a session's model is updated (e.g. via models set or inline model switch), running /update causes the model selection to reset back to the default model. The session-specific model override is lost during the update/restart cycle. Steps to reproduce: 1) Switch model for a session, 2) Run /update, 3) Observe model has reverted to default.
