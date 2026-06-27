@@ -2,7 +2,8 @@ open Background_task_0_format
 
 let make_task ?(id = 1) ?(status = Running) ?(progress_state = None)
     ?(origin_json = None) ?(thread_id = None) ?(channel_id = None)
-    ?(prompt = "Fix the bug in auth module") () =
+    ?(prompt = "Fix the bug in auth module") ?(result_preview = None)
+    ?(log_path = None) () =
   {
     id;
     runner = Codex;
@@ -11,14 +12,14 @@ let make_task ?(id = 1) ?(status = Running) ?(progress_state = None)
     prompt;
     branch = "main";
     worktree_path = None;
-    log_path = None;
+    log_path;
     status;
     runner_session_id = None;
     session_key = None;
     channel = None;
     channel_id;
     pid = None;
-    result_preview = None;
+    result_preview;
     created_at = "2026-06-28T00:00:00Z";
     started_at = None;
     finished_at = None;
@@ -203,6 +204,193 @@ let test_short_prompt_label_multiline () =
   let label = Room_progress.short_prompt_label task in
   Alcotest.(check string) "first line only" "First line" label
 
+let test_format_final_message_succeeded () =
+  let task =
+    make_task ~status:Succeeded ~result_preview:(Some "All tests pass") ()
+  in
+  let msg = Room_progress.format_final_message task in
+  Alcotest.(check bool)
+    "contains Succeeded" true
+    (Test_helpers.string_contains msg "Succeeded");
+  Alcotest.(check bool)
+    "contains prompt label" true
+    (Test_helpers.string_contains msg "Fix the bug");
+  Alcotest.(check bool)
+    "contains result" true
+    (Test_helpers.string_contains msg "All tests pass")
+
+let test_format_final_message_failed () =
+  let task =
+    make_task ~status:Failed ~result_preview:(Some "Syntax error in main.ml") ()
+  in
+  let msg = Room_progress.format_final_message task in
+  Alcotest.(check bool)
+    "contains Failed" true
+    (Test_helpers.string_contains msg "Failed");
+  Alcotest.(check bool)
+    "contains retry hint" true
+    (Test_helpers.string_contains msg "background retry");
+  Alcotest.(check bool)
+    "contains logs hint" true
+    (Test_helpers.string_contains msg "background logs")
+
+let test_format_final_message_succeeded_no_preview () =
+  let task = make_task ~status:Succeeded () in
+  let msg = Room_progress.format_final_message task in
+  Alcotest.(check bool)
+    "contains Succeeded" true
+    (Test_helpers.string_contains msg "Succeeded");
+  Alcotest.(check bool)
+    "no Result line when no preview" false
+    (Test_helpers.string_contains msg "Result:")
+
+let test_format_final_message_with_summary () =
+  let task = make_task ~status:Succeeded () in
+  let msg = Room_progress.format_final_message ~summary:"Fixed auth bug" task in
+  Alcotest.(check bool)
+    "contains summary" true
+    (Test_helpers.string_contains msg "Fixed auth bug");
+  Alcotest.(check bool)
+    "uses Summary label" true
+    (Test_helpers.string_contains msg "Summary:")
+
+let test_format_final_message_no_raw_logs () =
+  let task = make_task ~status:Failed ~log_path:(Some "/tmp/task-1.log") () in
+  let msg = Room_progress.format_final_message task in
+  Alcotest.(check bool)
+    "no log path leaked" false
+    (Test_helpers.string_contains msg "/tmp/task-1.log")
+
+let test_deliver_final_message_edits_existing () =
+  Hashtbl.replace Room_progress.progress_msg_ids 200 "existing_final";
+  let edited = ref [] in
+  let send ~room_id:_ ?thread_id:_ ~text:_ () = Lwt.return "new" in
+  let edit ~room_id:_ ~msg_id ~text =
+    edited := (msg_id, text) :: !edited;
+    Lwt.return_unit
+  in
+  let origin =
+    Room_origin.to_compact_json_string
+      (Room_origin.make ~connector:"slack" ~room_id:"C100" ())
+  in
+  let task =
+    make_task ~id:200 ~status:Succeeded ~origin_json:(Some origin)
+      ~result_preview:(Some "done") ()
+  in
+  let result =
+    Lwt_main.run (Room_progress.deliver_final_message ~send ~edit ~task ())
+  in
+  Alcotest.(check int) "one edit" 1 (List.length !edited);
+  (match result with
+  | Room_progress.Delivered -> ()
+  | other ->
+      Alcotest.failf "expected Delivered, got %s"
+        (match other with
+        | Room_progress.Delivered -> "Delivered"
+        | Room_progress.Delivery_failed e -> "Delivery_failed: " ^ e
+        | Room_progress.Skipped -> "Skipped"));
+  Alcotest.(check bool)
+    "msg_id cleaned up" false
+    (Hashtbl.mem Room_progress.progress_msg_ids 200)
+
+let test_deliver_final_message_send_when_no_existing () =
+  Room_progress.clear_progress_msg_id ~task_id:201;
+  let sent = ref [] in
+  let send ~room_id:_ ?thread_id:_ ~text () =
+    sent := text :: !sent;
+    Lwt.return "new_ts"
+  in
+  let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+  let origin =
+    Room_origin.to_compact_json_string
+      (Room_origin.make ~connector:"slack" ~room_id:"C200" ())
+  in
+  let task =
+    make_task ~id:201 ~status:Succeeded ~origin_json:(Some origin) ()
+  in
+  let result =
+    Lwt_main.run (Room_progress.deliver_final_message ~send ~edit ~task ())
+  in
+  Alcotest.(check int) "one message sent" 1 (List.length !sent);
+  match result with
+  | Room_progress.Delivered -> ()
+  | other ->
+      Alcotest.failf "expected Delivered, got %s"
+        (match other with
+        | Room_progress.Delivered -> "Delivered"
+        | Room_progress.Delivery_failed e -> "Delivery_failed: " ^ e
+        | Room_progress.Skipped -> "Skipped")
+
+let test_deliver_final_message_skips_empty_room () =
+  Room_progress.clear_progress_msg_id ~task_id:202;
+  let sent = ref [] in
+  let send ~room_id:_ ?thread_id:_ ~text () =
+    sent := text :: !sent;
+    Lwt.return "ts"
+  in
+  let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+  let task = make_task ~id:202 ~status:Succeeded () in
+  let result =
+    Lwt_main.run (Room_progress.deliver_final_message ~send ~edit ~task ())
+  in
+  Alcotest.(check int) "no message sent" 0 (List.length !sent);
+  match result with
+  | Room_progress.Skipped -> ()
+  | other ->
+      Alcotest.failf "expected Skipped, got %s"
+        (match other with
+        | Room_progress.Delivered -> "Delivered"
+        | Room_progress.Delivery_failed e -> "Delivery_failed: " ^ e
+        | Room_progress.Skipped -> "Skipped")
+
+let test_deliver_final_message_delivery_failure () =
+  Room_progress.clear_progress_msg_id ~task_id:203;
+  let send ~room_id:_ ?thread_id:_ ~text:_ () =
+    Lwt.fail (Failure "network error")
+  in
+  let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+  let origin =
+    Room_origin.to_compact_json_string
+      (Room_origin.make ~connector:"slack" ~room_id:"C300" ())
+  in
+  let task = make_task ~id:203 ~status:Failed ~origin_json:(Some origin) () in
+  let result =
+    Lwt_main.run (Room_progress.deliver_final_message ~send ~edit ~task ())
+  in
+  (match result with
+  | Room_progress.Delivery_failed _ -> ()
+  | other ->
+      Alcotest.failf "expected Delivery_failed, got %s"
+        (match other with
+        | Room_progress.Delivered -> "Delivered"
+        | Room_progress.Delivery_failed e -> "Delivery_failed: " ^ e
+        | Room_progress.Skipped -> "Skipped"));
+  Alcotest.(check bool)
+    "msg_id cleaned up even on failure" false
+    (Hashtbl.mem Room_progress.progress_msg_ids 203)
+
+let test_deliver_final_message_thread_passthrough () =
+  Room_progress.clear_progress_msg_id ~task_id:204;
+  let captured_thread = ref None in
+  let send ~room_id:_ ?thread_id ~text:_ () =
+    captured_thread := thread_id;
+    Lwt.return "ts"
+  in
+  let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+  let origin =
+    Room_origin.to_compact_json_string
+      (Room_origin.make ~connector:"slack" ~room_id:"C400"
+         ~thread_id:"9999.0000" ())
+  in
+  let task =
+    make_task ~id:204 ~status:Succeeded ~origin_json:(Some origin) ()
+  in
+  let _result =
+    Lwt_main.run (Room_progress.deliver_final_message ~send ~edit ~task ())
+  in
+  Alcotest.(check (option string))
+    "thread_id passed" (Some "9999.0000") !captured_thread
+
 let suite =
   [
     Alcotest.test_case "format progress message working" `Quick
@@ -232,4 +420,24 @@ let suite =
       test_short_prompt_label_empty;
     Alcotest.test_case "short prompt label multiline" `Quick
       test_short_prompt_label_multiline;
+    Alcotest.test_case "format final message succeeded" `Quick
+      test_format_final_message_succeeded;
+    Alcotest.test_case "format final message failed" `Quick
+      test_format_final_message_failed;
+    Alcotest.test_case "format final message succeeded no preview" `Quick
+      test_format_final_message_succeeded_no_preview;
+    Alcotest.test_case "format final message with summary" `Quick
+      test_format_final_message_with_summary;
+    Alcotest.test_case "format final message no raw logs" `Quick
+      test_format_final_message_no_raw_logs;
+    Alcotest.test_case "deliver final message edits existing" `Quick
+      test_deliver_final_message_edits_existing;
+    Alcotest.test_case "deliver final message send when no existing" `Quick
+      test_deliver_final_message_send_when_no_existing;
+    Alcotest.test_case "deliver final message skips empty room" `Quick
+      test_deliver_final_message_skips_empty_room;
+    Alcotest.test_case "deliver final message delivery failure" `Quick
+      test_deliver_final_message_delivery_failure;
+    Alcotest.test_case "deliver final message thread passthrough" `Quick
+      test_deliver_final_message_thread_passthrough;
   ]

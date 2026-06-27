@@ -53,6 +53,40 @@ let format_progress_message (task : task) =
     - [~edit] edit an existing message in place. Should raise on failure so the
       fallback path can send a fresh message.
     - [~task] the background task with origin metadata *)
+let extract_room_id_and_thread (task : task) =
+  let origin = Option.bind task.origin_json Room_origin.of_json_string_opt in
+  let room_id =
+    match origin with
+    | Some o -> Option.value o.room_id ~default:""
+    | None -> Option.value task.channel_id ~default:""
+  in
+  let thread_id =
+    match origin with Some o -> o.thread_id | None -> task.thread_id
+  in
+  (room_id, thread_id)
+
+(** Result of a room delivery attempt. *)
+type delivery_result = Delivered | Delivery_failed of string | Skipped
+
+let send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id () =
+  let open Lwt.Syntax in
+  match Hashtbl.find_opt progress_msg_ids task_id with
+  | Some msg_id ->
+      Lwt.catch
+        (fun () ->
+          let* () = edit ~room_id ~msg_id ~text in
+          Lwt.return Delivered)
+        (fun _exn ->
+          let* new_id = send ~room_id ?thread_id ~text () in
+          if new_id <> "" && new_id <> "0" then
+            Hashtbl.replace progress_msg_ids task_id new_id;
+          Lwt.return Delivered)
+  | None ->
+      let* msg_id = send ~room_id ?thread_id ~text () in
+      if msg_id <> "" && msg_id <> "0" then
+        Hashtbl.replace progress_msg_ids task_id msg_id;
+      Lwt.return Delivered
+
 let deliver_progress_update
     ~(send :
        room_id:string ->
@@ -64,33 +98,88 @@ let deliver_progress_update
     ~(task : task) () =
   let open Lwt.Syntax in
   let text = format_progress_message task in
-  let origin = Option.bind task.origin_json Room_origin.of_json_string_opt in
-  let room_id =
-    match origin with
-    | Some o -> Option.value o.room_id ~default:""
-    | None -> Option.value task.channel_id ~default:""
-  in
-  let thread_id =
-    match origin with Some o -> o.thread_id | None -> task.thread_id
-  in
+  let room_id, thread_id = extract_room_id_and_thread task in
   if room_id = "" then Lwt.return_unit
   else
-    match Hashtbl.find_opt progress_msg_ids task.id with
-    | Some msg_id ->
-        (* Edit existing progress message in place *)
-        Lwt.catch
-          (fun () ->
-            let* () = edit ~room_id ~msg_id ~text in
-            Lwt.return_unit)
-          (fun _exn ->
-            (* Edit failed — message may have been deleted. Send a new one. *)
-            let* new_id = send ~room_id ?thread_id ~text () in
-            if new_id <> "" && new_id <> "0" then
-              Hashtbl.replace progress_msg_ids task.id new_id;
-            Lwt.return_unit)
-    | None ->
-        (* First progress message — send and record the ID *)
-        let* msg_id = send ~room_id ?thread_id ~text () in
-        if msg_id <> "" && msg_id <> "0" then
-          Hashtbl.replace progress_msg_ids task.id msg_id;
-        Lwt.return_unit
+    let* _result =
+      send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
+    in
+    Lwt.return_unit
+
+(** Format a concise final message for a terminal room-origin task. Unlike
+    [format_progress_message], this includes the result preview, merge status,
+    and actionable hints. Intended for edit-in-place on the last progress
+    message so the room sees a single self-contained final state.
+
+    Never includes raw logs or full task output — only truncated previews. *)
+let format_final_message ?summary (task : task) =
+  let status_word =
+    match task.status with
+    | Succeeded -> "Succeeded"
+    | Failed -> "Failed"
+    | DirtyWorktree -> "Dirty worktree"
+    | Cancelled -> "Cancelled"
+    | Queued -> "Queued"
+    | Running -> "Running"
+  in
+  let label = short_prompt_label task in
+  let elapsed = elapsed_string task in
+  let merge_suffix = merge_status_suffix task in
+  let lines = ref [] in
+  let add s = lines := s :: !lines in
+  add (Printf.sprintf "[%s%s] %s" status_word merge_suffix label);
+  add (Printf.sprintf "%s (%s)" (task_label task) elapsed);
+  (* Summary: prefer caller-provided, then result_preview *)
+  (match summary with
+  | Some s -> add (Printf.sprintf "Summary: %s" (preview_text_n 120 s))
+  | None -> (
+      match task.result_preview with
+      | Some text when String.trim text <> "" ->
+          add (Printf.sprintf "Result: %s" (preview_text_n 120 text))
+      | _ -> ()));
+  (* Hints — concise, actionable *)
+  (match task.status with
+  | Failed ->
+      add
+        (Printf.sprintf "Hint: `background retry %d` or `background logs %d`"
+           task.id task.id)
+  | DirtyWorktree ->
+      add (Printf.sprintf "Hint: `background finalize %d`" task.id)
+  | Succeeded -> ( match finalize_hint task with Some h -> add h | None -> ())
+  | _ -> ());
+  String.concat "\n" (List.rev !lines)
+
+(** Deliver a final completion/failure message to the origin room for a terminal
+    task. Edits the existing progress message in place when possible, then
+    clears the tracked message ID.
+
+    Returns [Delivered] on success, [Delivery_failed reason] on send/edit
+    failure, or [Skipped] when no room_id is available. Callers should record
+    the result durably. *)
+let deliver_final_message ?summary
+    ~(send :
+       room_id:string ->
+       ?thread_id:string ->
+       text:string ->
+       unit ->
+       string Lwt.t)
+    ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
+    ~(task : task) () : delivery_result Lwt.t =
+  let open Lwt.Syntax in
+  let room_id, thread_id = extract_room_id_and_thread task in
+  if room_id = "" then begin
+    clear_progress_msg_id ~task_id:task.id;
+    Lwt.return Skipped
+  end
+  else
+    let text = format_final_message ?summary task in
+    Lwt.catch
+      (fun () ->
+        let* result =
+          send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
+        in
+        clear_progress_msg_id ~task_id:task.id;
+        Lwt.return result)
+      (fun exn ->
+        clear_progress_msg_id ~task_id:task.id;
+        Lwt.return (Delivery_failed (Printexc.to_string exn)))

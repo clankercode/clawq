@@ -679,9 +679,16 @@ let record_notification ~db ~task_id ~status ?error () =
         ()
   | None -> ()
 
-let deliver_room_progress ~(config : Runtime_config.t)
-    (task : Background_task.task) =
-  let open Lwt.Syntax in
+let with_slack_room_callbacks ~(config : Runtime_config.t) ~(default : 'a)
+    (f :
+      send:
+        (room_id:string ->
+        ?thread_id:string ->
+        text:string ->
+        unit ->
+        string Lwt.t) ->
+      edit:(room_id:string -> msg_id:string -> text:string -> unit Lwt.t) ->
+      'a Lwt.t) : 'a Lwt.t =
   match config.channels.slack with
   | Some slack_config ->
       let send ~room_id ?thread_id ~text () =
@@ -700,6 +707,7 @@ let deliver_room_progress ~(config : Runtime_config.t)
                 ]
               |> Yojson.Safe.to_string
             in
+            let open Lwt.Syntax in
             let* _status, resp_body =
               Http_client.post_json ~uri ~headers ~body
             in
@@ -720,8 +728,20 @@ let deliver_room_progress ~(config : Runtime_config.t)
         Slack.edit_message ~bot_token:slack_config.bot_token ~channel_id:room_id
           ~ts:msg_id ~text
       in
-      Room_progress.deliver_progress_update ~send ~edit ~task ()
-  | None -> Lwt.return_unit
+      f ~send ~edit
+  | None -> Lwt.return default
+
+let deliver_room_progress ~(config : Runtime_config.t)
+    (task : Background_task.task) =
+  let open Lwt.Syntax in
+  with_slack_room_callbacks ~config ~default:() (fun ~send ~edit ->
+      Room_progress.deliver_progress_update ~send ~edit ~task ())
+
+let deliver_room_final ~(config : Runtime_config.t) ?summary
+    (task : Background_task.task) : Room_progress.delivery_result Lwt.t =
+  with_slack_room_callbacks ~config ~default:Room_progress.Skipped
+    (fun ~send ~edit ->
+      Room_progress.deliver_final_message ?summary ~send ~edit ~task ())
 
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
@@ -787,8 +807,17 @@ let notify_background_task_finished ?continuation_delay
   | _ -> ());
   if skip_notification then Lwt.return_unit
   else
-    let* () = deliver_room_progress ~config task in
+    let* final_delivery = deliver_room_final ~config task in
     let* summary = summarize_for_notification ~config task in
+    (* Record room delivery outcome durably *)
+    (match final_delivery with
+    | Room_progress.Delivered ->
+        record_notification ~db ~task_id:task.Background_task.id
+          ~status:"room_delivered" ()
+    | Room_progress.Delivery_failed err ->
+        record_notification ~db ~task_id:task.Background_task.id
+          ~status:"room_failed" ~error:err ()
+    | Room_progress.Skipped -> ());
     let git_info = Background_task.gather_git_status task in
     let channel_text =
       Background_task.channel_notification_message ?summary ?git_info task
