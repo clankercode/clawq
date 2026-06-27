@@ -57,6 +57,14 @@ let event_of_stmt stmt =
     metadata = metadata_of_string (text_column stmt 5);
   }
 
+let timestamp_now () =
+  let now = Unix.gettimeofday () in
+  let tm = Unix.gmtime now in
+  let micros = int_of_float ((now -. floor now) *. 1_000_000.0) in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%06dZ" (tm.Unix.tm_year + 1900)
+    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+    tm.Unix.tm_sec micros
+
 let bind_params stmt params =
   List.iteri
     (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
@@ -110,6 +118,9 @@ let append ~db ~room_id ~event_type ~timestamp ~actor ~metadata =
             (Printf.sprintf "room_activity_ledger append failed: %s"
                (Sqlite3.Rc.to_string rc)));
   select_one ~db ~room_id ~event_type ~timestamp
+
+let append_now ~db ~room_id ~event_type ~actor ~metadata =
+  append ~db ~room_id ~event_type ~timestamp:(timestamp_now ()) ~actor ~metadata
 
 let query ?room_id ?event_type ?from_timestamp ?to_timestamp ~db () =
   let filters = ref [] in
