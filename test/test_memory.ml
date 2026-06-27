@@ -1885,6 +1885,102 @@ let test_scoped_memory_double_init_is_idempotent () =
         "schema version current after second init" Memory.schema_version
         (Test_helpers.query_single_int db2 "SELECT version FROM schema_version"))
 
+let test_scoped_memory_scope_crud_roundtrip () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope =
+    Memory.create_scope ~db ~kind:"personal" ~key:"u1" ~provenance:"test" ()
+  in
+  Alcotest.(check bool) "scope id set" true (scope.id > 0);
+  Alcotest.(check string) "scope kind" "personal" scope.kind;
+  Alcotest.(check string) "scope key" "u1" scope.key;
+  (match Memory.get_scope ~db ~id:scope.id with
+  | None -> Alcotest.fail "expected scope by id"
+  | Some found -> Alcotest.(check string) "found key" "u1" found.key);
+  let same =
+    Memory.create_scope ~db ~kind:"personal" ~key:"u1" ~provenance:"again" ()
+  in
+  Alcotest.(check int) "double create returns existing" scope.id same.id;
+  let room = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  let all = Memory.list_scopes ~db () in
+  Alcotest.(check int) "two scopes listed" 2 (List.length all);
+  let personal = Memory.list_scopes ~db ~kind:"personal" () in
+  Alcotest.(check int) "one personal scope" 1 (List.length personal);
+  Alcotest.(check int)
+    "room scope created" room.id
+    (List.hd (Memory.list_scopes ~db ~kind:"room" ())).id
+
+let test_scoped_memory_upsert_is_idempotent () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"thread" ~key:"t1" () in
+  let first =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"msg:1"
+      ~content:"first content" ~provenance:"tool" ()
+  in
+  let second =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"msg:1"
+      ~content:"updated content" ~provenance:"manual" ()
+  in
+  Alcotest.(check int) "same row reused" first.id second.id;
+  Alcotest.(check string)
+    "content updated" "updated content"
+    (Option.get second.content);
+  Alcotest.(check string) "provenance updated" "manual" second.provenance;
+  let rows = Memory.query_scoped_memories ~db ~limit:10 () in
+  Alcotest.(check int) "still one row" 1 (List.length rows)
+
+let test_scoped_memory_query_filters_and_pagination () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let personal = Memory.create_scope ~db ~kind:"personal" ~key:"u1" () in
+  let room = Memory.create_scope ~db ~kind:"room" ~key:"r1" () in
+  let other_personal = Memory.create_scope ~db ~kind:"personal" ~key:"u2" () in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:personal.id ~reference:"a"
+       ~content:"alpha fish" ~provenance:"tool" ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:personal.id ~reference:"b"
+       ~content:"beta fish" ~provenance:"manual" ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:room.id ~reference:"c"
+       ~content:"alpha bird" ~provenance:"tool" ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:other_personal.id ~reference:"d"
+       ~content:"fish only" ~provenance:"tool" ());
+  let filtered =
+    Memory.query_scoped_memories ~db ~scope_kind:"personal"
+      ~content_search:"alpha" ~provenance:"tool" ~limit:10 ()
+  in
+  Alcotest.(check int) "one filtered row" 1 (List.length filtered);
+  Alcotest.(check string) "filtered reference" "a" (List.hd filtered).reference;
+  let paged =
+    Memory.query_scoped_memories ~db ~content_search:"fish" ~limit:1 ~offset:1
+      ()
+  in
+  Alcotest.(check int) "one paged row" 1 (List.length paged);
+  Alcotest.(check string) "second fish row" "b" (List.hd paged).reference
+
+let test_scoped_memory_delete_and_boundaries () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"workspace" ~key:"/repo" () in
+  let row =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"file:1"
+      ~content:"path data" ()
+  in
+  Alcotest.(check bool)
+    "deleted existing row" true
+    (Memory.delete_scoped_memory ~db ~id:row.id);
+  Alcotest.(check bool)
+    "delete missing row is false" false
+    (Memory.delete_scoped_memory ~db ~id:row.id);
+  Alcotest.(check int)
+    "deleted row not queried" 0
+    (List.length (Memory.query_scoped_memories ~db ~limit:10 ()));
+  Alcotest.(check int)
+    "unknown kind has no scopes" 0
+    (List.length (Memory.list_scopes ~db ~kind:"room" ()));
+  Alcotest.(check int)
+    "zero limit returns no rows" 0
+    (List.length (Memory.query_scoped_memories ~db ~limit:0 ()))
+
 (* --- room profile API tests --- *)
 
 let test_insert_and_get_room_profile () =
@@ -2235,6 +2331,14 @@ let suite =
       test_scoped_memory_schema_migration_and_repair_paths;
     Alcotest.test_case "scoped memory double init idempotent" `Quick
       test_scoped_memory_double_init_is_idempotent;
+    Alcotest.test_case "scoped memory scope CRUD roundtrip" `Quick
+      test_scoped_memory_scope_crud_roundtrip;
+    Alcotest.test_case "scoped memory upsert is idempotent" `Quick
+      test_scoped_memory_upsert_is_idempotent;
+    Alcotest.test_case "scoped memory query filters and pagination" `Quick
+      test_scoped_memory_query_filters_and_pagination;
+    Alcotest.test_case "scoped memory delete and boundaries" `Quick
+      test_scoped_memory_delete_and_boundaries;
     Alcotest.test_case "insert and get room profile" `Quick
       test_insert_and_get_room_profile;
     Alcotest.test_case "insert room profile unique constraint" `Quick

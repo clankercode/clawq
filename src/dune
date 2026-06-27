@@ -80,6 +80,7 @@
   memory_0_queue
   memory_0_postmortem
   memory_types
+  memory_scoped
   memory_core
   memory_session
   memory_search
