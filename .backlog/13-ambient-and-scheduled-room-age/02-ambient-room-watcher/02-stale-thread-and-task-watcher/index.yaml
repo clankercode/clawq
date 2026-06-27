@@ -28,7 +28,8 @@ tasks:
       file: T002-persist-watcher-decisions-and.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Persist watcher decisions and material-change checks
     - complexity: high
       depends_on:
