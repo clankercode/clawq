@@ -15,7 +15,7 @@ tasks:
       file: T001-add-admin-only-room-profile-cl.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add admin rooms list show bind and unbind CLI
     - complexity: medium
