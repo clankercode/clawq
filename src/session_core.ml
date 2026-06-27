@@ -976,6 +976,36 @@ let resolve_agent_template_for_key mgr ~key =
     allowed) 4. global fallback ([None] — tools use [effective_workspace])
 
     At turn time, /repo explicit overrides via [set_effective_cwd]. *)
+let child_thread_parent_session_key key =
+  match Room_session.parse_child_thread_key key with
+  | Some child -> Some (child.connector ^ ":" ^ child.room_id)
+  | None -> None
+
+let room_profile_binding_matches_child (cfg : Runtime_config.t)
+    (child : Room_session.child_thread) =
+  List.exists
+    (fun (b : Runtime_config.room_profile_binding) ->
+      b.active
+      && b.profile_id = child.profile_id
+      && (b.room = child.room_id
+         || b.room = child.connector ^ ":" ^ child.room_id))
+    cfg.room_profile_bindings
+
+let resolve_room_profile_for_session mgr ~key =
+  match Runtime_config.resolve_room_profile mgr.config ~session_key:key with
+  | Some _ as profile -> profile
+  | None -> (
+      match Room_session.parse_child_thread_key key with
+      | None -> None
+      | Some child ->
+          if not (room_profile_binding_matches_child mgr.config child) then None
+          else
+            List.find_opt
+              (fun (p : Runtime_config.room_profile) ->
+                p.id = child.profile_id
+                && String.lowercase_ascii p.status <> "deleted")
+              mgr.config.room_profiles)
+
 let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
   let cfg = mgr.config in
   (* Layer 3: template CWD — lowest priority among explicit layers *)
@@ -1002,14 +1032,24 @@ let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
       then Some expanded
       else None
   in
-  (* Layer 1: DB room workspace — highest priority at session creation *)
-  let cwd_from_db () =
+  (* Layer 1: DB room workspace — highest priority at session creation.
+     Child thread sessions first check their own stored CWD, then inherit the
+     parent room session CWD for the P11 subset. *)
+  let cwd_from_db_key key =
     match db with
     | Some db -> (
-        match Memory.get_session_cwd ~db ~session_key with
+        match Memory.get_session_cwd ~db ~session_key:key with
         | Some cwd when is_cwd_allowed mgr ~cwd -> Some cwd
         | _ -> None)
     | None -> None
+  in
+  let cwd_from_db () =
+    match cwd_from_db_key session_key with
+    | Some _ as r -> r
+    | None -> (
+        match child_thread_parent_session_key session_key with
+        | Some parent_key -> cwd_from_db_key parent_key
+        | None -> None)
   in
   match cwd_from_db () with
   | Some _ as r -> r
@@ -1025,9 +1065,10 @@ let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
     global agent_defaults (lower) for [system_prompt], and overrides global for
     [max_tool_iterations]. *)
 let apply_room_profile_template_fields mgr ~key agent =
-  match Runtime_config.resolve_room_profile mgr.config ~session_key:key with
+  match resolve_room_profile_for_session mgr ~key with
   | None -> agent.Agent.room_profile_system_prompt <- None
   | Some profile ->
+      agent.Agent.profiled_room <- true;
       let cfg = agent.Agent.config in
       let ad = cfg.agent_defaults in
       let ad =
@@ -1080,7 +1121,9 @@ let resolve_model_for_session mgr ~key : string option =
   | None -> (
       (* Tier 2: room profile *)
       let tier2 =
-        Runtime_config.resolve_room_profile_model mgr.config ~session_key:key
+        match resolve_room_profile_for_session mgr ~key with
+        | Some p when p.model <> "" -> Some p.model
+        | _ -> None
       in
       match try_model tier2 with
       | Some _ -> tier2
@@ -1673,6 +1716,16 @@ let get_session_system_prompt mgr ~key : string =
       agent.Agent.system_prompt <- prompt;
       prompt
   | None -> ""
+
+let get_session_profiled_room mgr ~key =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> Agent.profiled_room_active agent
+  | None -> false
+
+let get_session_effective_cwd mgr ~key =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> agent.Agent.effective_cwd
+  | None -> None
 
 let clear_session_model mgr ~key =
   (* Clear DB override first so resolve_model_for_session sees the correct

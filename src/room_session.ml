@@ -147,3 +147,102 @@ let channel_and_id key =
   match parse key with
   | Some s -> Some (channel_to_string s.channel, s.sender_id)
   | None -> None
+
+let child_thread_prefix = "__room_child_thread"
+
+type child_thread = {
+  connector : string;
+  profile_id : string;
+  room_id : string;
+  thread_id : string option;
+  source_message_id : string option;
+}
+
+let is_unreserved = function
+  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '_' | '.' | '~' -> true
+  | _ -> false
+
+let percent_encode value =
+  let buf = Buffer.create (String.length value) in
+  String.iter
+    (fun c ->
+      if is_unreserved c then Buffer.add_char buf c
+      else Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c)))
+    value;
+  Buffer.contents buf
+
+let hex_value = function
+  | '0' .. '9' as c -> Some (Char.code c - Char.code '0')
+  | 'a' .. 'f' as c -> Some (10 + Char.code c - Char.code 'a')
+  | 'A' .. 'F' as c -> Some (10 + Char.code c - Char.code 'A')
+  | _ -> None
+
+let percent_decode value =
+  let len = String.length value in
+  let buf = Buffer.create len in
+  let rec loop i =
+    if i >= len then Some (Buffer.contents buf)
+    else
+      match value.[i] with
+      | '%' when i + 2 < len -> (
+          match (hex_value value.[i + 1], hex_value value.[i + 2]) with
+          | Some hi, Some lo ->
+              Buffer.add_char buf (Char.chr ((hi * 16) + lo));
+              loop (i + 3)
+          | _ -> None)
+      | '%' -> None
+      | c ->
+          Buffer.add_char buf c;
+          loop (i + 1)
+  in
+  loop 0
+
+let nonempty_option = function
+  | Some "" | None -> None
+  | Some _ as value -> value
+
+let option_to_key_part = function
+  | None -> ""
+  | Some value -> percent_encode value
+
+let key_part_to_option value =
+  if value = "" then Some None
+  else Option.map Option.some (percent_decode value)
+
+let child_thread_key ?thread_id ?source_message_id ~profile_id ~connector
+    ~room_id () =
+  let thread_id = nonempty_option thread_id in
+  let source_message_id = nonempty_option source_message_id in
+  if thread_id = None && source_message_id = None then
+    invalid_arg "child_thread_key: thread_id or source_message_id is required";
+  String.concat ":"
+    [
+      child_thread_prefix;
+      percent_encode connector;
+      percent_encode profile_id;
+      percent_encode room_id;
+      option_to_key_part thread_id;
+      option_to_key_part source_message_id;
+    ]
+
+let make_child_thread_key = child_thread_key
+
+let parse_child_thread_key key =
+  match String.split_on_char ':' key with
+  | [ prefix; connector; profile_id; room_id; thread_id; source_message_id ]
+    when prefix = child_thread_prefix -> (
+      match
+        ( percent_decode connector,
+          percent_decode profile_id,
+          percent_decode room_id,
+          key_part_to_option thread_id,
+          key_part_to_option source_message_id )
+      with
+      | ( Some connector,
+          Some profile_id,
+          Some room_id,
+          Some thread_id,
+          Some source_message_id ) ->
+          Some { connector; profile_id; room_id; thread_id; source_message_id }
+      | _ -> None)
+  | _ -> None

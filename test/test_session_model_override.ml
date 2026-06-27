@@ -979,6 +979,90 @@ let test_room_profile_prompt_out_ranks_template_in_built_prompt () =
         "built prompt does NOT contain template prompt" false
         (String_util.contains built "template system prompt"))
 
+let test_child_thread_session_inherits_profile_model_template_and_privacy () =
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        display_name = None;
+        model = "openai:gpt-4";
+        system_prompt = "child room profile prompt";
+        max_tool_iterations = 17;
+        status = "active";
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "C01"; active = true } ]
+  in
+  let config =
+    make_template_config ~allow_anthropic_oauth:true ~room_profiles:profiles
+      ~room_profile_bindings:bindings ()
+  in
+  let mgr = Session.create ~config () in
+  let key =
+    Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+      ~room_id:"C01" ~thread_id:"1719000000.000100" ()
+  in
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  Alcotest.(check string)
+    "child inherits profile model" "openai:gpt-4"
+    (Session.get_session_effective_model mgr ~key);
+  let defaults = Session.get_session_agent_defaults mgr ~key in
+  Alcotest.(check string)
+    "child inherits profile template" "child room profile prompt"
+    defaults.system_prompt;
+  Alcotest.(check int)
+    "child inherits max iterations" 17 defaults.max_tool_iterations;
+  Alcotest.(check bool)
+    "child privacy guard active" true
+    (Session.get_session_profiled_room mgr ~key)
+
+let test_child_thread_session_inherits_parent_room_cwd () =
+  let db = make_db () in
+  let cwd = Filename.concat (Filename.get_temp_dir_name ()) "clawq-child-cwd" in
+  if not (Sys.file_exists cwd) then Unix.mkdir cwd 0o755;
+  let profiles =
+    [
+      {
+        Runtime_config.id = "vip";
+        display_name = None;
+        model = "openai:gpt-4";
+        system_prompt = "";
+        max_tool_iterations = 10;
+        status = "active";
+      };
+    ]
+  in
+  let bindings =
+    [ { Runtime_config.profile_id = "vip"; room = "C01"; active = true } ]
+  in
+  let config =
+    make_template_config ~room_profiles:profiles ~room_profile_bindings:bindings
+      ()
+  in
+  let config =
+    {
+      config with
+      security =
+        {
+          config.security with
+          workspace_only = false;
+          allowed_cwd_patterns = [];
+        };
+    }
+  in
+  Memory.set_session_cwd ~db ~session_key:"slack:C01" ~cwd:(Some cwd);
+  let mgr = Session.create ~config ~db () in
+  let key =
+    Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+      ~room_id:"C01" ~source_message_id:"1719000000.000100" ()
+  in
+  ignore (Lwt_main.run (Session.runtime_context_block mgr ~key));
+  Alcotest.(check (option string))
+    "child cwd" (Some cwd)
+    (Session.get_session_effective_cwd mgr ~key)
+
 let suite =
   [
     Alcotest.test_case "set and get model override" `Quick
@@ -1061,4 +1145,9 @@ let suite =
       test_session_override_bypasses_security_gate;
     Alcotest.test_case "room profile prompt outranks template in built prompt"
       `Quick test_room_profile_prompt_out_ranks_template_in_built_prompt;
+    Alcotest.test_case
+      "child thread inherits profile model template and privacy" `Quick
+      test_child_thread_session_inherits_profile_model_template_and_privacy;
+    Alcotest.test_case "child thread inherits parent room cwd" `Quick
+      test_child_thread_session_inherits_parent_room_cwd;
   ]

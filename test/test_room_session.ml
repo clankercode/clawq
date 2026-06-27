@@ -317,6 +317,59 @@ let test_slack_extra_segments_preserved () =
         "sender_id preserves extra segments" "U01:extra1:extra2" s.sender_id
   | None -> Alcotest.fail "expected Some for multi-segment slack key"
 
+(* --- Child thread session keys --- *)
+
+let test_slack_child_thread_key_deterministic () =
+  let key1 =
+    Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+      ~room_id:"C01" ~thread_id:"1719000000.000100"
+      ~source_message_id:"1719000000.000100" ()
+  in
+  let key2 =
+    Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+      ~room_id:"C01" ~thread_id:"1719000000.000100"
+      ~source_message_id:"1719000000.000100" ()
+  in
+  Alcotest.(check string) "same metadata gives same key" key1 key2;
+  match Room_session.parse_child_thread_key key1 with
+  | None -> Alcotest.fail "expected child thread key to parse"
+  | Some child ->
+      Alcotest.(check string) "connector" "slack" child.connector;
+      Alcotest.(check string) "profile_id" "vip" child.profile_id;
+      Alcotest.(check string) "room_id" "C01" child.room_id
+
+let test_slack_child_thread_key_changes_with_thread () =
+  let key1 =
+    Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+      ~room_id:"C01" ~thread_id:"1719000000.000100" ()
+  in
+  let key2 =
+    Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+      ~room_id:"C01" ~thread_id:"1719000000.000200" ()
+  in
+  Alcotest.(check bool) "different thread changes key" true (key1 <> key2)
+
+let test_teams_child_thread_key_preserves_encoded_room () =
+  let key =
+    Room_session.child_thread_key ~profile_id:"ops" ~connector:"teams"
+      ~room_id:"team-1:19:abc@thread.v2" ~thread_id:"activity-1" ()
+  in
+  match Room_session.parse_child_thread_key key with
+  | None -> Alcotest.fail "expected teams child key to parse"
+  | Some child ->
+      Alcotest.(check string) "connector" "teams" child.connector;
+      Alcotest.(check string) "profile_id" "ops" child.profile_id;
+      Alcotest.(check string) "room_id" "team-1:19:abc@thread.v2" child.room_id
+
+let test_child_thread_key_rejects_missing_source () =
+  Alcotest.check_raises "missing thread/source metadata"
+    (Invalid_argument
+       "child_thread_key: thread_id or source_message_id is required")
+    (fun () ->
+      ignore
+        (Room_session.child_thread_key ~profile_id:"vip" ~connector:"slack"
+           ~room_id:"C01" ()))
+
 let suite =
   [
     Alcotest.test_case "slack room" `Quick test_slack_room;
@@ -359,4 +412,12 @@ let suite =
       test_teams_thread_segments_not_truncated;
     Alcotest.test_case "slack extra segments preserved" `Quick
       test_slack_extra_segments_preserved;
+    Alcotest.test_case "slack child thread key deterministic" `Quick
+      test_slack_child_thread_key_deterministic;
+    Alcotest.test_case "slack child thread key changes with thread" `Quick
+      test_slack_child_thread_key_changes_with_thread;
+    Alcotest.test_case "teams child thread key preserves encoded room" `Quick
+      test_teams_child_thread_key_preserves_encoded_room;
+    Alcotest.test_case "child thread key rejects missing source" `Quick
+      test_child_thread_key_rejects_missing_source;
   ]
