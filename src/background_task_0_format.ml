@@ -54,6 +54,10 @@ type task = {
           review-and-fix, commit and rebase against master" — a checklist the
           resumed session should execute. *)
   description : string option;
+  context_snapshot : string option;
+      (** B720: JSON-serialized parent conversation history injected into the
+          child session before its first turn, giving the subagent context about
+          what was discussed. *)
 }
 
 type queued_message = {

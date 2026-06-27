@@ -331,6 +331,7 @@ let test_local_runner_lifecycle () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -393,6 +394,7 @@ let test_local_runner_callback () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -450,6 +452,7 @@ let test_local_runner_timeout () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()

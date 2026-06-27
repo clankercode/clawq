@@ -156,6 +156,17 @@ let spawn_tool ~db =
                       ( "description",
                         `String "Optional short label for status display." );
                     ] );
+                ( "fork_context",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "When true, the parent session's conversation \
+                           history is captured and injected into the child \
+                           session before its first turn, giving the subagent \
+                           context about what was discussed. Default: false." );
+                    ] );
               ] );
           ("required", `List [ `String "goal" ]);
           ("additionalProperties", `Bool false);
@@ -185,6 +196,9 @@ let spawn_tool ~db =
             | _ -> None
           with _ -> None
         in
+        let fork_context =
+          try args |> member "fork_context" |> to_bool with _ -> false
+        in
         if String.trim goal = "" then Lwt.return "Error: goal is required"
         else
           let parent_session_key =
@@ -213,11 +227,25 @@ let spawn_tool ~db =
                     ~session_key:key
               | None -> None
             in
+            let context_snapshot =
+              if fork_context then
+                match parent_session_key with
+                | Some key ->
+                    let history = Memory.load_history ~db ~session_key:key in
+                    if history = [] then None
+                    else
+                      Some
+                        (Yojson.Safe.to_string
+                           (Provider.messages_to_json history))
+                | None -> None
+              else None
+            in
             match
               Background_task.enqueue ~db ~runner:Background_task.Local
                 ~use_worktree:false ~automerge:false ~repo_path ~prompt:goal
                 ?model ?agent_name:agent_template
-                ?session_key:parent_session_key ?parent_task_id ?description ()
+                ?session_key:parent_session_key ?parent_task_id ?description
+                ?context_snapshot ()
             with
             | Ok id ->
                 let session_key = Printf.sprintf "__bg_task:%d" id in
@@ -454,8 +482,7 @@ let format_subagent_status agents =
         agents
     in
     Some
-      (Printf.sprintf "Running subagents (%d):\n%s"
-         (List.length agents)
+      (Printf.sprintf "Running subagents (%d):\n%s" (List.length agents)
          (String.concat "\n" lines))
 
 let run_subagent_status_loop ~db () =
@@ -464,8 +491,7 @@ let run_subagent_status_loop ~db () =
     let* () = Lwt_unix.sleep 1800.0 in
     let running = list_running_subagents ~db in
     (match format_subagent_status running with
-    | Some summary ->
-        Logs.info (fun m -> m "Subagent status: %s" summary)
+    | Some summary -> Logs.info (fun m -> m "Subagent status: %s" summary)
     | None -> ());
     loop ()
   in

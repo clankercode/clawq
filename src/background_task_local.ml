@@ -6,6 +6,7 @@ type run_turn =
   ?model:string ->
   ?agent_name:string ->
   ?cwd:string ->
+  ?context_snapshot:string ->
   interrupt_check:(unit -> string option) ->
   on_history_update:(Provider.message list -> unit Lwt.t) ->
   unit ->
@@ -105,6 +106,7 @@ let spawn ?(timeout_seconds = timeout_seconds_default) (deps : deps) ~run_turn
                           (fun () ->
                             run_turn ~key:session_key ~message:effective_prompt
                               ?model:task.model ?agent_name:task.agent_name ?cwd
+                              ?context_snapshot:task.context_snapshot
                               ~interrupt_check ~on_history_update ())
                       in
                       match timed_result with

@@ -62,6 +62,7 @@ let task_of_stmt stmt : task =
       | _ -> 0);
     follow_up_prompt = (try Sqlite3.column stmt 29 |> sql_text with _ -> None);
     description = (try Sqlite3.column stmt 30 |> sql_text with _ -> None);
+    context_snapshot = (try Sqlite3.column stmt 31 |> sql_text with _ -> None);
   }
 
 let init_schema db =
@@ -138,6 +139,7 @@ let init_schema db =
      NULL DEFAULT 0";
   try_alter "ALTER TABLE background_tasks ADD COLUMN follow_up_prompt TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN description TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN context_snapshot TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -264,7 +266,7 @@ let signal_enqueue () = Lwt_condition.signal enqueue_condition ()
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
     ?session_key ?channel ?channel_id ?parent_task_id ?agent_name
-    ?follow_up_prompt ?description () =
+    ?follow_up_prompt ?description ?context_snapshot () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -274,8 +276,9 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
         let sql =
           "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
            branch, session_key, channel, channel_id, automerge, use_worktree, \
-           parent_task_id, acp, agent_name, follow_up_prompt, description) \
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+           parent_task_id, acp, agent_name, follow_up_prompt, description, \
+           context_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+           ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -312,6 +315,7 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             bind_opt 13 agent_name;
             bind_opt 14 follow_up_prompt;
             bind_opt 15 description;
+            bind_opt 16 context_snapshot;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 signal_enqueue ();
@@ -328,7 +332,8 @@ let select_columns =
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
    parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0), \
    agent_name, notification_status, notification_error, \
-   COALESCE(notification_attempts, 0), follow_up_prompt, description"
+   COALESCE(notification_attempts, 0), follow_up_prompt, description, \
+   context_snapshot"
 
 let list_tasks ~db : task list =
   let sql =

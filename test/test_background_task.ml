@@ -63,6 +63,7 @@ let fake_task ?(runner = Background_task.Codex)
     notification_attempts = 0;
     follow_up_prompt = None;
     description = None;
+    context_snapshot = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -99,6 +100,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     notification_attempts = 0;
     follow_up_prompt = None;
     description = None;
+    context_snapshot = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -345,6 +347,7 @@ let test_command_of_task_codex () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -392,6 +395,7 @@ let test_command_of_task_claude () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -433,6 +437,7 @@ let test_command_of_task_kimi () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -474,6 +479,7 @@ let test_command_of_task_kimi_with_model () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -515,6 +521,7 @@ let test_command_of_task_gemini () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -556,6 +563,7 @@ let test_command_of_task_gemini_with_model () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -597,6 +605,7 @@ let test_command_of_task_opencode () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -638,6 +647,7 @@ let test_command_of_task_opencode_with_model () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -679,6 +689,7 @@ let test_command_of_task_cursor () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -720,6 +731,7 @@ let test_command_of_task_cursor_with_model () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -1643,6 +1655,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     notification_attempts = 0;
     follow_up_prompt = None;
     description = None;
+    context_snapshot = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1849,6 +1862,7 @@ let test_command_of_task_codex_with_model () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -1898,6 +1912,7 @@ let test_command_of_task_claude_with_model () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   Alcotest.(check (array string))
@@ -3579,6 +3594,7 @@ let test_terse_message_dirty_worktree () =
       notification_attempts = 0;
       follow_up_prompt = None;
       description = None;
+    context_snapshot = None;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -4441,6 +4457,7 @@ let test_spawn_local_task_timeout () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -4493,6 +4510,7 @@ let test_spawn_local_task_success () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -4552,6 +4570,7 @@ let test_spawn_local_task_run_turn_failure_marks_failed () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -4615,6 +4634,7 @@ let test_spawn_local_task_uses_stable_session_key_and_started_row () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -4682,6 +4702,7 @@ let test_spawn_local_task_replays_queued_messages_fifo () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -4748,6 +4769,7 @@ let test_spawn_local_task_passes_explicit_model () =
                ?model
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -4802,6 +4824,7 @@ let test_resume_running_local_task_keeps_followup_queued () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check
                ~on_history_update:_
                ()
@@ -5113,6 +5136,7 @@ let test_spawn_local_task_creates_log () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check:_
                ~on_history_update:_
                ()
@@ -5184,6 +5208,7 @@ let test_spawn_local_task_cancel () =
                ?model:_
                ?agent_name:_
                ?cwd:_
+               ?context_snapshot:_
                ~interrupt_check
                ~on_history_update:_
                ()

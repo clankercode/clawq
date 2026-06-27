@@ -2077,6 +2077,7 @@ let test_background_task_logs_truncates_large_output () =
           notification_attempts = 0;
           follow_up_prompt = None;
           description = None;
+    context_snapshot = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -2141,6 +2142,7 @@ let test_background_task_logs_truncates_pathological_long_line () =
           notification_attempts = 0;
           follow_up_prompt = None;
           description = None;
+    context_snapshot = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -2214,6 +2216,7 @@ let test_background_task_logs_clamps_excessive_lines () =
           notification_attempts = 0;
           follow_up_prompt = None;
           description = None;
+    context_snapshot = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
