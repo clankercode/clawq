@@ -444,6 +444,104 @@ let test_resolve_session_key_no_db () =
   Alcotest.(check string)
     "no db falls back to per-user key" "slack:C123:U456" key
 
+let runtime_config_with_connector_history () =
+  {
+    Runtime_config.default with
+    connector_history =
+      {
+        Runtime_config.default.connector_history with
+        enabled = true;
+        persist_to_db = true;
+      };
+  }
+
+let slack_message_body ~channel_id ~user_id ~text ~ts =
+  `Assoc
+    [
+      ("type", `String "event_callback");
+      ( "event",
+        `Assoc
+          [
+            ("type", `String "message");
+            ("channel", `String channel_id);
+            ("user", `String user_id);
+            ("text", `String text);
+            ("ts", `String ts);
+          ] );
+    ]
+  |> Yojson.Safe.to_string
+
+let bind_room_profile ~db ~room_id =
+  let profile_id =
+    Memory.insert_room_profile ~db ~name:("profile-" ^ room_id)
+  in
+  Memory.upsert_room_profile_binding ~db ~room_id ~profile_id
+
+let handle_slack_test_message ~db ~channel_id ~user_id ~text ~ts =
+  let session_manager =
+    Session.create ~config:(runtime_config_with_connector_history ()) ~db ()
+  in
+  let body = slack_message_body ~channel_id ~user_id ~text ~ts in
+  Lwt_main.run
+    (Slack.handle_event ~config:(make_config ()) ~session_manager
+       ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text:_ ->
+         Lwt.return_unit)
+       body)
+
+let test_room_history_capture_for_bound_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"C-bound";
+  let result =
+    handle_slack_test_message ~db ~channel_id:"C-bound" ~user_id:"U-capture"
+      ~text:"/status capture-me" ~ts:"1234.500000"
+  in
+  Alcotest.(check string) "handled" "ok" result;
+  match
+    Connector_history.query ~db ~room_id:"C-bound" ~connector_type:"slack" ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "room_id" "C-bound" entry.room_id;
+      Alcotest.(check string) "sender_id" "U-capture" entry.sender_id;
+      Alcotest.(check string) "sender_name" "U-capture" entry.sender_name;
+      Alcotest.(check string) "text" "/status capture-me" entry.text;
+      Alcotest.(check (float 0.0001)) "timestamp" 1234.0 entry.timestamp
+  | entries ->
+      Alcotest.failf "expected one history entry, got %d" (List.length entries)
+
+let test_room_history_privacy_guard_requires_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let result =
+    handle_slack_test_message ~db ~channel_id:"C-unbound" ~user_id:"U-private"
+      ~text:"/status do-not-capture" ~ts:"2234.000000"
+  in
+  Alcotest.(check string) "handled" "ok" result;
+  let entries =
+    Connector_history.query ~db ~room_id:"C-unbound" ~connector_type:"slack" ()
+  in
+  Alcotest.(check int) "unbound room history entries" 0 (List.length entries)
+
+let test_room_history_query_is_scoped_to_room () =
+  let db = Memory.init ~db_path:":memory:" () in
+  bind_room_profile ~db ~room_id:"C-alpha";
+  bind_room_profile ~db ~room_id:"C-beta";
+  ignore
+    (handle_slack_test_message ~db ~channel_id:"C-alpha" ~user_id:"U-alpha"
+       ~text:"/status alpha" ~ts:"3234.000000"
+      : string);
+  ignore
+    (handle_slack_test_message ~db ~channel_id:"C-beta" ~user_id:"U-beta"
+       ~text:"/status beta" ~ts:"3235.000000"
+      : string);
+  match
+    Connector_history.query ~db ~room_id:"C-alpha" ~connector_type:"slack" ()
+  with
+  | [ entry ] ->
+      Alcotest.(check string) "alpha room" "C-alpha" entry.room_id;
+      Alcotest.(check string) "alpha text" "/status alpha" entry.text
+  | entries ->
+      Alcotest.failf "expected one scoped history entry, got %d"
+        (List.length entries)
+
 let test_suite_with_profiles =
   [
     Alcotest.test_case "resolve_session_key unprofiled" `Quick
@@ -452,4 +550,10 @@ let test_suite_with_profiles =
       test_resolve_session_key_profiled;
     Alcotest.test_case "resolve_session_key no db" `Quick
       test_resolve_session_key_no_db;
+    Alcotest.test_case "room history captures bound room messages" `Quick
+      test_room_history_capture_for_bound_room;
+    Alcotest.test_case "room history requires room binding" `Quick
+      test_room_history_privacy_guard_requires_binding;
+    Alcotest.test_case "room history query is scoped to room" `Quick
+      test_room_history_query_is_scoped_to_room;
   ]

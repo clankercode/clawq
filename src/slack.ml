@@ -36,21 +36,46 @@ let is_allowed_allowlist ~kind ~id allowlist =
 (** Resolve the session key for a Slack channel+user pair. If the channel has an
     active room profile binding (shared room session), returns "slack:CHANNEL".
     Otherwise returns the per-user key "slack:CHANNEL:USER". *)
+let room_has_profile_binding ~(session_manager : Session.t) ~channel_id =
+  match Session.get_db session_manager with
+  | Some db -> (
+      match Memory.get_room_profile_binding ~db ~room_id:channel_id with
+      | Some _ -> true
+      | None -> false)
+  | None -> false
+
 let resolve_session_key ~(session_manager : Session.t) ~channel_id ~user_id =
-  let has_profile =
-    match Session.get_db session_manager with
-    | Some db -> (
-        match Memory.get_room_profile_binding ~db ~room_id:channel_id with
-        | Some _ -> true
-        | None -> false)
-    | None -> false
-  in
+  let has_profile = room_has_profile_binding ~session_manager ~channel_id in
   if has_profile then "slack:" ^ Session.sanitize_session_key channel_id
   else
     "slack:"
     ^ Session.sanitize_session_key channel_id
     ^ ":"
     ^ Session.sanitize_session_key user_id
+
+let timestamp_of_slack_ts ts =
+  match float_of_string_opt ts with Some t -> Some t | None -> None
+
+let record_scoped_room_history_if_bound ~(session_manager : Session.t)
+    ~channel_id ~user_id ~text ~ts =
+  let cfg = Session.get_config session_manager in
+  if
+    String.trim text <> ""
+    && room_has_profile_binding ~session_manager ~channel_id
+    && Connector_capabilities.should_capture_history
+         ~enabled:cfg.connector_history.enabled Connector_capabilities.slack
+  then
+    let key = "slack:" ^ Session.sanitize_session_key channel_id in
+    let db =
+      if cfg.connector_history.persist_to_db then Session.get_db session_manager
+      else None
+    in
+    let timestamp = timestamp_of_slack_ts ts in
+    Connector_history.record ?db ?timestamp
+      ~persist:cfg.connector_history.persist_to_db ~key ~room_id:channel_id
+      ~connector_type:"slack" ~channel_type:"slack"
+      ~max:cfg.connector_history.max_messages ~sender_name:user_id
+      ~sender_id:user_id ~text ()
 
 let is_allowed ~(config : Runtime_config.slack_config) ~channel_id ~user_id =
   let ch_ok =
@@ -424,6 +449,11 @@ let handle_event ~(config : Runtime_config.slack_config)
             in
             let user_group = if is_admin then "admin" else "guest" in
             let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
+            (match cmd_result with
+            | InjectConnectorHistory _ -> ()
+            | _ ->
+                record_scoped_room_history_if_bound ~session_manager ~channel_id
+                  ~user_id ~text ~ts);
             let send_reply text =
               send_message_fn ~bot_token:config.bot_token ~channel_id ~text
             in

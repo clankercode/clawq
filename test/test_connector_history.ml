@@ -251,9 +251,9 @@ let test_inject_tool_respects_capability_matrix () =
     }
   in
   let mgr = Session.create ~config ~db () in
-  let key = "slack:C1:U1" in
-  Session.register_connector_capabilities mgr ~key Connector_capabilities.slack;
-  Connector_history.record ~persist:false ~key ~channel_type:"slack" ~max:50
+  let key = "telegram:chat1:user1" in
+  Session.register_connector_capabilities mgr ~key Connector_capabilities.telegram;
+  Connector_history.record ~persist:false ~key ~channel_type:"telegram" ~max:50
     ~sender_name:"Alice" ~sender_id:"u1" ~text:"not injectable" ();
   let tool =
     Tools_builtin.inject_connector_history ~config ~db ~session_mgr:mgr ()
@@ -261,7 +261,7 @@ let test_inject_tool_respects_capability_matrix () =
   let context = { Tool.default_context with session_key = Some key } in
   let out = Lwt_main.run (tool.invoke ~context (`Assoc [])) in
   Alcotest.(check bool)
-    "slack capability blocks injection" true
+    "telegram capability blocks injection" true
     (Test_helpers.string_contains out "does not support connector history");
   ignore (Sqlite3.db_close db)
 

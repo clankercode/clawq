@@ -76,8 +76,9 @@ let discord =
 let slack =
   make ~can_edit:Edit_in_place ~can_delete:true ~can_react:true
     ~can_show_status:true ~thread_replies:Native_thread_replies
-    ~max_message_length:4000 ~connector:Format_adapter.Slack
-    ~parse_mode:"mrkdwn" ~debounce_interval:0.5 ()
+    ~history_capture:Ambient_history_capture ~max_message_length:4000
+    ~connector:Format_adapter.Slack ~parse_mode:"mrkdwn" ~debounce_interval:0.5
+    ()
 
 let teams =
   make ~can_edit:Edit_in_place ~can_delete:true ~can_type:true

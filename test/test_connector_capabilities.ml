@@ -232,10 +232,10 @@ let test_card_button_strategies () =
 
 let test_history_capture_strategies () =
   Alcotest.(check bool)
-    "slack skips ambient history until implemented" true
+    "slack captures scoped room history" true
     (Connector_capabilities.history_capture_strategy
        Connector_capabilities.slack
-    = Connector_capabilities.Skip_history_capture);
+    = Connector_capabilities.Capture_ambient_history);
   Alcotest.(check bool)
     "teams captures ambient history" true
     (Connector_capabilities.history_capture_strategy
