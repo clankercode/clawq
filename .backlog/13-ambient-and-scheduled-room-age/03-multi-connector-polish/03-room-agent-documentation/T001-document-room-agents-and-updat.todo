@@ -11,7 +11,7 @@ estimate_hours: 4
 id: P13.M3.E3.T001
 priority: medium
 started_at: null
-status: pending
+status: done
 tags: []
 title: Document room agents and update llms-full
 ---

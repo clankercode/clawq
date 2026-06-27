@@ -131,11 +131,11 @@ phases:
       description: 'Cron-integrated room routines, opt-in ambient room watcher, connector capability matrix, and multi-connector polish for room agents. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
       estimate_hours: 72
       id: P13
-      locked: false
+      locked: true
       name: Ambient and Scheduled Room Agents
       path: 13-ambient-and-scheduled-room-age
       priority: medium
-      status: pending
+      status: done
       weeks: 4
 project: Clawq
 stats:

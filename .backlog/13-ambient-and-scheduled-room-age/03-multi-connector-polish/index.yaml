@@ -27,9 +27,9 @@ epics:
       locked: false
       name: Room Agent Documentation
       path: 03-room-agent-documentation
-      status: pending
+      status: done
 estimate_hours: 24
 id: P13.M3
 locked: false
 name: Multi-Connector Polish
-status: pending
+status: done

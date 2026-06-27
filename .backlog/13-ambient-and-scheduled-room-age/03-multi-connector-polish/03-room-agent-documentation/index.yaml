@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P13.M3.E3
 locked: false
 name: Room Agent Documentation
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -17,6 +17,6 @@ tasks:
       file: T001-document-room-agents-and-updat.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: Document room agents and update llms-full
