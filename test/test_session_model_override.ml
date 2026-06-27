@@ -637,8 +637,8 @@ let test_room_profile_beats_template () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
-        allowed_tools = [];
-        denied_tools = [];
+            allowed_tools = [];
+            denied_tools = [];
           };
         ]
       in
@@ -969,8 +969,8 @@ let test_room_profile_prompt_out_ranks_template_in_built_prompt () =
             system_prompt = "room profile system prompt";
             max_tool_iterations = 10;
             status = "active";
-        allowed_tools = [];
-        denied_tools = [];
+            allowed_tools = [];
+            denied_tools = [];
           };
         ]
       in

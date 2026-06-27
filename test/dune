@@ -6,6 +6,7 @@
   test_plan_pipeline
   test_agent_loop_conformance
   test_agent_router
+  test_agent_scoped_memory
   test_agent_template
   test_audit
   test_background_task
