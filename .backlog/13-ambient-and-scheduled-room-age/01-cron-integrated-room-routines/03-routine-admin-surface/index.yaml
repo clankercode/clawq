@@ -23,7 +23,8 @@ tasks:
       file: T002-add-room-routine-edit-and-remo.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add room routine edit and remove commands
     - complexity: medium
       depends_on:
