@@ -3,6 +3,21 @@
 
 let max_result_chars = 20_000
 let max_peek_lines = 200
+let max_subagent_depth = 4
+
+let subagent_depth ~db ~session_key =
+  match Background_task.find_task_id_by_session_key ~db ~session_key with
+  | None -> 0
+  | Some task_id ->
+      let rec count_depth id acc =
+        match Background_task.get_task ~db ~id with
+        | None -> acc
+        | Some task -> (
+            match task.parent_task_id with
+            | Some parent_id -> count_depth parent_id (acc + 1)
+            | None -> acc + 1)
+      in
+      count_depth task_id 0
 
 let truncate_with_guidance ~max text =
   let len = String.length text in
@@ -10,8 +25,9 @@ let truncate_with_guidance ~max text =
   else
     let prefix = String.sub text 0 max in
     Printf.sprintf
-      "%s\n\n[Truncated at %d chars — %d chars total. Use peek.lines or the \
-       output log file for the full content.]"
+      "%s\n\n\
+       [Truncated at %d chars — %d chars total. Use peek.lines or the output \
+       log file for the full content.]"
       prefix max len
 
 let read_file_lines path =
@@ -41,11 +57,7 @@ let apply_peek ~lines ?regex ?after all_lines =
         with _ -> all_lines)
   in
   (* Step 2: apply 'after' offset (1-based) *)
-  let after_offset =
-    match after with
-    | Some n when n > 0 -> n
-    | _ -> 0
-  in
+  let after_offset = match after with Some n when n > 0 -> n | _ -> 0 in
   let after_lines =
     if after_offset > 0 then
       let len = List.length filtered in
@@ -63,9 +75,7 @@ let apply_peek ~lines ?regex ?after all_lines =
     if n <= 0 then lst
     else match lst with _ :: rest -> drop (n - 1) rest | [] -> []
   in
-  let tailed =
-    if len > n then drop (len - n) after_lines else after_lines
-  in
+  let tailed = if len > n then drop (len - n) after_lines else after_lines in
   String.concat "\n" tailed
 
 let format_result (task : Background_task.task) ~verbose =
@@ -182,23 +192,43 @@ let spawn_tool ~db =
             | Some (c : Tool.invoke_context) -> c.session_key
             | None -> None
           in
-          let repo_path = Sys.getcwd () in
-          match
-            Background_task.enqueue ~db ~runner:Background_task.Local
-              ~use_worktree:false ~automerge:false ~repo_path ~prompt:goal
-              ?model ?agent_name:agent_template ?session_key:parent_session_key
-              ()
-          with
-          | Ok id ->
-              let session_key = Printf.sprintf "__bg_task:%d" id in
-              Lwt.return
-                (Printf.sprintf
-                   "Spawned subagent task %d.\n\
-                    Session key: %s\n\n\
-                    Use subagent_result with {\"id\": %d} to poll status, or \
-                    {\"id\": %d, \"wait\": true} to block until completion."
-                   id session_key id id)
-          | Error msg -> Lwt.return ("Error: " ^ msg));
+          (* Check subagent depth limit *)
+          let depth =
+            match parent_session_key with
+            | Some key -> subagent_depth ~db ~session_key:key
+            | None -> 0
+          in
+          if depth >= max_subagent_depth then
+            Lwt.return
+              (Printf.sprintf
+                 "Error: maximum subagent depth (%d) reached. Subagents cannot \
+                  spawn further subagents at this depth."
+                 max_subagent_depth)
+          else
+            let repo_path = Sys.getcwd () in
+            let parent_task_id =
+              match parent_session_key with
+              | Some key ->
+                  Background_task.find_task_id_by_session_key ~db
+                    ~session_key:key
+              | None -> None
+            in
+            match
+              Background_task.enqueue ~db ~runner:Background_task.Local
+                ~use_worktree:false ~automerge:false ~repo_path ~prompt:goal
+                ?model ?agent_name:agent_template
+                ?session_key:parent_session_key ?parent_task_id ()
+            with
+            | Ok id ->
+                let session_key = Printf.sprintf "__bg_task:%d" id in
+                Lwt.return
+                  (Printf.sprintf
+                     "Spawned subagent task %d.\n\
+                      Session key: %s\n\n\
+                      Use subagent_result with {\"id\": %d} to poll status, or \
+                      {\"id\": %d, \"wait\": true} to block until completion."
+                     id session_key id id)
+            | Error msg -> Lwt.return ("Error: " ^ msg));
     invoke_stream = None;
     risk_level = Medium;
     deferred = false;
@@ -255,8 +285,8 @@ let result_tool ~db =
                                   ("type", `String "integer");
                                   ( "description",
                                     `String
-                                      "Last N lines to return (default 20, \
-                                       max 200)." );
+                                      "Last N lines to return (default 20, max \
+                                       200)." );
                                 ] );
                             ( "regex",
                               `Assoc
@@ -291,13 +321,14 @@ let result_tool ~db =
         let open Yojson.Safe.Util in
         let id = try args |> member "id" |> to_int with _ -> -1 in
         let wait = try args |> member "wait" |> to_bool with _ -> false in
-        let verbose = try args |> member "verbose" |> to_bool with _ -> false in
+        let verbose =
+          try args |> member "verbose" |> to_bool with _ -> false
+        in
         let peek_lines, peek_regex, peek_after =
           match args |> member "peek" with
           | `Assoc _ as obj ->
               let lines =
-                try
-                  min (obj |> member "lines" |> to_int) max_peek_lines
+                try min (obj |> member "lines" |> to_int) max_peek_lines
                 with _ -> 20
               in
               let regex =
@@ -345,24 +376,27 @@ let result_tool ~db =
                   | None ->
                       Lwt.return
                         (Printf.sprintf
-                           "Error: Task %d has no log file yet (status: %s)"
-                           id
+                           "Error: Task %d has no log file yet (status: %s)" id
                            (Background_task.string_of_status task.status))
                   | Some path when not (Sys.file_exists path) ->
                       Lwt.return
-                        (Printf.sprintf
-                           "Error: Log file does not exist yet: %s" path)
+                        (Printf.sprintf "Error: Log file does not exist yet: %s"
+                           path)
                   | Some path ->
                       let all_lines = read_file_lines path in
                       let text =
-                        apply_peek ~lines:n ?regex:peek_regex
-                          ?after:peek_after all_lines
+                        apply_peek ~lines:n ?regex:peek_regex ?after:peek_after
+                          all_lines
                       in
-                      let capped = truncate_with_guidance ~max:max_result_chars text in
+                      let capped =
+                        truncate_with_guidance ~max:max_result_chars text
+                      in
                       Lwt.return capped)
               | None ->
                   let text = format_result task ~verbose in
-                  let capped = truncate_with_guidance ~max:max_result_chars text in
+                  let capped =
+                    truncate_with_guidance ~max:max_result_chars text
+                  in
                   Lwt.return capped));
     invoke_stream = None;
     risk_level = Medium;
