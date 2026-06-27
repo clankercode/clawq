@@ -429,6 +429,8 @@ let init_room_profile_bindings_schema db =
      CASCADE\n\
     \   )"
 
+let init_room_activity_ledger_schema db = Room_activity_ledger.init_schema db
+
 let init_scoped_memory_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS memory_scopes (\n\
@@ -581,6 +583,7 @@ let ensure_all_tables db =
   init_session_repos_schema db;
   init_room_profiles_schema db;
   init_room_profile_bindings_schema db;
+init_room_activity_ledger_schema db;
   Room_budget.init_schema db;
   init_scoped_memory_schema db
 
@@ -754,6 +757,7 @@ let migrate_step db v =
       exec_exn db
         "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
          request_stats(profile_id, requested_at)"
+| 37 -> init_room_activity_ledger_schema db
   | 36 -> Room_budget.init_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
@@ -797,6 +801,7 @@ let repair_missing_columns db =
     "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
      request_stats(profile_id, requested_at)";
   init_connector_history_schema db;
+init_room_activity_ledger_schema db;
   Room_budget.init_schema db;
   init_scoped_memory_schema db
 
