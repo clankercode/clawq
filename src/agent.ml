@@ -95,6 +95,36 @@ let refresh_profiled_room_flag agent ?db ?session_key ?room_id () =
 
 let unscoped_memory_context_allowed agent = not agent.profiled_room
 
+let room_budget_profile_id_for_turn ~db ?session_key () =
+  match session_key with
+  | None -> None
+  | Some session_key ->
+      profiled_room_candidates ~db ~session_key ()
+      |> List.find_map (fun room_id ->
+          match Memory.get_room_profile_binding ~db ~room_id with
+          | Some binding -> Some binding.profile_id
+          | None -> None)
+
+let format_room_budget_exceeded (state : Room_budget.state) =
+  Printf.sprintf
+    "budget exceeded for room profile %d: current usage is %d tokens, %.6f \
+     USD, %d turn(s); limits are %d tokens and %.6f USD; period started at %s"
+    state.profile_id state.current_usage.total_tokens
+    state.current_usage.cost_usd state.current_usage.turns state.token_limit
+    state.cost_limit_usd state.period_started_at
+
+let check_room_budget_before_provider_call ?db ?session_key () =
+  match db with
+  | None -> ()
+  | Some db -> (
+      match room_budget_profile_id_for_turn ~db ?session_key () with
+      | None -> ()
+      | Some profile_id -> (
+          match Room_budget.get_profile_budget ~db ~profile_id with
+          | Some state when state.limit_exceeded ->
+              raise (Budget_exceeded (format_room_budget_exceeded state))
+          | Some _ | None -> ()))
+
 let prepare_turn_history agent ~user_message ?(content_parts = [])
     ?(workspace_refresh_checked = false) ?db ?session_key ?room_id
     ?on_llm_call_debug:_on_llm_call_debug () =
@@ -189,6 +219,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     let res = config.Runtime_config.resilience in
     let open Lwt.Syntax in
     let primary () =
+      check_room_budget_before_provider_call ?db ?session_key ();
       Provider.complete ~config ~messages ?tools ?session_key
         ?quota_states:quota_states_opt ()
     in
@@ -204,6 +235,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
+                check_room_budget_before_provider_call ?db ?session_key ();
                 Provider.complete ~config ~messages ?tools ?session_key
                   ~preferred_provider:fb_name ())
       | None -> primary ()
@@ -645,6 +677,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let open Lwt.Syntax in
     Buffer.clear partial_buf;
     let primary () =
+      check_room_budget_before_provider_call ?db ?session_key ();
       Provider.complete_stream ~config ~messages ?tools ?session_key
         ?quota_states:quota_states_opt ~on_chunk ()
     in
@@ -660,6 +693,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
+                check_room_budget_before_provider_call ?db ?session_key ();
                 Provider.complete_stream ~config ~messages ?tools ?session_key
                   ~preferred_provider:fb_name ~on_chunk ())
       | None -> primary ()

@@ -36,6 +36,7 @@ type t = {
 exception Interrupted of string
 exception Restart_requested
 exception Stop_requested
+exception Budget_exceeded of string
 
 type compaction_info = {
   pre_tokens : int;
@@ -76,7 +77,8 @@ let string_contains_ci_small s sub =
 
 let () =
   Resilience.register_non_retriable (function
-    | Restart_requested | Stop_requested | Interrupted _ -> true
+    | Restart_requested | Stop_requested | Interrupted _ | Budget_exceeded _ ->
+        true
     | Failure msg ->
         string_contains_ci_small msg
           "no tool call found for function call output"
