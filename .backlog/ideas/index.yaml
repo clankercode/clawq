@@ -379,3 +379,5 @@ ideas:
       title: Implement rendering for ACP logs with nice formatting via connector -- use format_adapter and DSL
     - file: I057-per-room-thread-skills-load-sk.todo
       id: I057
+    - file: I058-add-a-tui-that-can-remotely-co.todo
+      id: I058
