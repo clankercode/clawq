@@ -39,7 +39,7 @@ tasks:
       file: T003-launch-room-background-work-un.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Launch room background work under profile policy
     - complexity: medium
