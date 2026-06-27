@@ -1670,6 +1670,90 @@ let test_routing_from_context_prefers_context_over_env () =
       | Some v -> Unix.putenv "CLAWQ_SESSION_ID" v
       | None -> ( try Unix.putenv "CLAWQ_SESSION_ID" "" with _ -> ()))
 
+let make_tool_context session_key =
+  {
+    Tool.session_key = Some session_key;
+    send_progress = None;
+    interrupt_check = None;
+    inject_system_messages = None;
+    effective_cwd = None;
+    request_cwd_change = None;
+  }
+
+let test_origin_fields_from_context_resolves_teams_profiled_room_key () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      let profile_id = Memory.insert_room_profile ~db ~name:"teams-profile" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+      let context = make_tool_context "teams:conv-bound" in
+      let actual_profile_id, origin_json, thread_id, requester =
+        Background_task.origin_fields_from_context ~db ~context ()
+      in
+      Alcotest.(check (option int))
+        "profile id from bound conversation" (Some profile_id) actual_profile_id;
+      Alcotest.(check (option string)) "no thread id" None thread_id;
+      Alcotest.(check bool) "requester captured" true (Option.is_some requester);
+      match Option.bind origin_json Room_origin.of_json_string_opt with
+      | None -> Alcotest.fail "expected origin_json"
+      | Some origin ->
+          Alcotest.(check (option string))
+            "connector" (Some "teams") origin.connector;
+          Alcotest.(check (option string))
+            "room id" (Some "conv-bound") origin.room_id;
+          Alcotest.(check (option int))
+            "origin profile_id" (Some profile_id) origin.profile_id)
+
+let test_origin_fields_from_context_resolves_slack_profiled_room_key () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      let profile_id = Memory.insert_room_profile ~db ~name:"slack-profile" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"C123" ~profile_id;
+      let context = make_tool_context "slack:C123" in
+      let actual_profile_id, origin_json, _thread_id, _requester =
+        Background_task.origin_fields_from_context ~db ~context ()
+      in
+      Alcotest.(check (option int))
+        "profile id from bound channel" (Some profile_id) actual_profile_id;
+      match Option.bind origin_json Room_origin.of_json_string_opt with
+      | None -> Alcotest.fail "expected origin_json"
+      | Some origin ->
+          Alcotest.(check (option string))
+            "connector" (Some "slack") origin.connector;
+          Alcotest.(check (option string))
+            "room id" (Some "C123") origin.room_id)
+
+let test_run_simple_command_reads_stdout_and_stderr_concurrently () =
+  let cwd = Filename.temp_dir "clawq-run-simple" "" in
+  Fun.protect
+    ~finally:(fun () -> try Unix.rmdir cwd with _ -> ())
+    (fun () ->
+      let result =
+        Lwt_main.run
+          (Lwt.catch
+             (fun () ->
+               Lwt_unix.with_timeout 0.5 (fun () ->
+                   Background_task.run_simple_command ~cwd
+                     [|
+                       "python3";
+                       "-c";
+                       "import sys; sys.stderr.write('x' * 200000); \
+                        sys.stderr.flush(); print('done')";
+                     |]
+                   |> Lwt.map Option.some))
+             (function
+               | Lwt_unix.Timeout -> Lwt.return_none | exn -> Lwt.fail exn))
+      in
+      match result with
+      | None -> Alcotest.fail "run_simple_command timed out on large stderr"
+      | Some (exit_code, stdout, stderr) ->
+          Alcotest.(check int) "exit code" 0 exit_code;
+          Alcotest.(check string) "stdout" "done\n" stdout;
+          Alcotest.(check int) "stderr size" 200000 (String.length stderr))
+
 let test_cmd_background_add_picks_up_session_env () =
   with_temp_git_repo (fun repo_path ->
       let old_val =
@@ -5751,6 +5835,12 @@ let suite =
       test_routing_from_context_reads_env;
     Alcotest.test_case "routing_from_context prefers context over env" `Quick
       test_routing_from_context_prefers_context_over_env;
+    Alcotest.test_case "origin fields resolve Teams profiled room key" `Quick
+      test_origin_fields_from_context_resolves_teams_profiled_room_key;
+    Alcotest.test_case "origin fields resolve Slack profiled room key" `Quick
+      test_origin_fields_from_context_resolves_slack_profiled_room_key;
+    Alcotest.test_case "run_simple_command reads stdout/stderr concurrently"
+      `Quick test_run_simple_command_reads_stdout_and_stderr_concurrently;
     Alcotest.test_case "cmd_background add picks up session env" `Quick
       test_cmd_background_add_picks_up_session_env;
     Alcotest.test_case "list_tasks_for_display filters inactive" `Quick

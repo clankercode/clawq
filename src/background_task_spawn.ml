@@ -1,5 +1,75 @@
 include Background_task_control
 
+type context_origin = {
+  connector : string option;
+  workspace_id : string option;
+  room_id : string option;
+  requester_id : string option;
+  source_message_id : string option;
+  thread_id : string option;
+}
+
+let nonempty = function Some "" | None -> None | Some _ as value -> value
+
+let make_context_origin ?connector ?workspace_id ?room_id ?requester_id
+    ?source_message_id ?thread_id () =
+  {
+    connector;
+    workspace_id;
+    room_id;
+    requester_id;
+    source_message_id;
+    thread_id;
+  }
+
+let context_origin_of_session_key key =
+  let parts = String.split_on_char ':' key in
+  match Room_session.parse_child_thread_key key with
+  | Some child ->
+      make_context_origin ~connector:child.connector ~room_id:child.room_id
+        ?source_message_id:child.source_message_id ?thread_id:child.thread_id ()
+  | None -> (
+      match parts with
+      | [ (("slack" | "discord" | "telegram") as connector); room_id ] ->
+          make_context_origin ~connector ~room_id ()
+      | (("slack" | "discord" | "telegram") as connector)
+        :: room_id :: requester_parts ->
+          make_context_origin ~connector ~room_id
+            ?requester_id:(nonempty (Some (String.concat ":" requester_parts)))
+            ()
+      | [ "teams"; room_id ] ->
+          make_context_origin ~connector:"teams" ~room_id ()
+      | "teams" :: team_id :: conversation_parts when conversation_parts <> []
+        ->
+          make_context_origin ~connector:"teams" ~workspace_id:team_id
+            ~room_id:(String.concat ":" conversation_parts)
+            ()
+      | _ -> (
+          match Room_session.parse key with
+          | None -> make_context_origin ()
+          | Some session ->
+              make_context_origin
+                ~connector:(Room_session.channel_to_string session.channel)
+                ~room_id:session.channel_id
+                ?requester_id:(nonempty (Some session.sender_id))
+                ()))
+
+let room_binding_candidates ~session_key origin =
+  let add seen value =
+    match value with
+    | None | Some "" -> seen
+    | Some value when List.mem value seen -> seen
+    | Some value -> value :: seen
+  in
+  let seen = add [] origin.room_id in
+  let seen =
+    match (origin.connector, origin.room_id) with
+    | Some connector, Some room_id ->
+        add seen (Some (connector ^ ":" ^ room_id))
+    | _ -> seen
+  in
+  List.rev (add seen (Some session_key))
+
 (** Derive room-origin fields from a tool invoke context's session key and the
     DB room-profile binding when available. Returns
     [(profile_id, origin_json, thread_id, requester)] suitable for passing to
@@ -12,27 +82,33 @@ let origin_fields_from_context ~db ?context () =
   in
   match session_key with
   | None -> (None, None, None, None)
-  | Some key -> (
-      match Room_session.parse key with
-      | None -> (None, None, None, None)
-      | Some session ->
-          let room_id = session.channel_id in
-          let profile_id =
+  | Some key ->
+      let origin_fields = context_origin_of_session_key key in
+      let profile_id =
+        room_binding_candidates ~session_key:key origin_fields
+        |> List.find_map (fun room_id ->
             match Memory.get_room_profile_binding ~db ~room_id with
             | Some b -> Some b.profile_id
-            | None -> None
-          in
-          let origin = Room_origin.from_room_session ?profile_id session in
-          let origin_json =
-            if Room_origin.is_empty origin then None
-            else Some (Room_origin.to_compact_json_string origin)
-          in
-          let requester =
-            match Room_origin.display_summary origin with
-            | s when s <> "CLI room=- requester=-" -> Some s
-            | _ -> None
-          in
-          (profile_id, origin_json, None, requester))
+            | None -> None)
+      in
+      let origin =
+        Room_origin.make ?connector:origin_fields.connector
+          ?workspace_id:origin_fields.workspace_id
+          ?room_id:origin_fields.room_id
+          ?requester_id:origin_fields.requester_id
+          ?source_message_id:origin_fields.source_message_id
+          ?thread_id:origin_fields.thread_id ?profile_id ()
+      in
+      let origin_json =
+        if Room_origin.is_empty origin then None
+        else Some (Room_origin.to_compact_json_string origin)
+      in
+      let requester =
+        match Room_origin.display_summary origin with
+        | s when s <> "CLI room=- requester=-" -> Some s
+        | _ -> None
+      in
+      (profile_id, origin_json, origin_fields.thread_id, requester)
 
 let ensure_roots () =
   ensure_dir (clawq_dir ());
@@ -246,8 +322,11 @@ let run_simple_command ~cwd argv =
   let open Lwt.Syntax in
   Lwt.finalize
     (fun () ->
-      let* stdout = Lwt_io.read proc.Process_group.stdout in
-      let* stderr = Lwt_io.read proc.Process_group.stderr in
+      let* stdout, stderr =
+        Lwt.both
+          (Lwt_io.read proc.Process_group.stdout)
+          (Lwt_io.read proc.Process_group.stderr)
+      in
       let* status = Process_group.wait proc.pid in
       Lwt.return (exit_code_of_status status, stdout, stderr))
     (fun () -> Process_group.close proc)

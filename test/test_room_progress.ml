@@ -182,6 +182,26 @@ let test_deliver_passes_thread_id () =
   Alcotest.(check (option string))
     "thread_id passed" (Some "1234.0000") !captured_thread
 
+let test_room_progress_connector_filter_fails_closed_for_non_slack () =
+  let origin =
+    Room_origin.to_compact_json_string
+      (Room_origin.make ~connector:"discord" ~room_id:"D123" ())
+  in
+  let task = make_task ~origin_json:(Some origin) () in
+  Alcotest.(check bool)
+    "discord task is not delivered through slack" false
+    (Daemon_util.room_progress_connector_supported ~connector:"slack" task)
+
+let test_room_progress_connector_filter_allows_slack () =
+  let origin =
+    Room_origin.to_compact_json_string
+      (Room_origin.make ~connector:"slack" ~room_id:"C123" ())
+  in
+  let task = make_task ~origin_json:(Some origin) () in
+  Alcotest.(check bool)
+    "slack task delivered through slack" true
+    (Daemon_util.room_progress_connector_supported ~connector:"slack" task)
+
 let test_clear_progress_msg_id () =
   Hashtbl.replace Room_progress.progress_msg_ids 88 "some_msg";
   Room_progress.clear_progress_msg_id ~task_id:88;
@@ -227,6 +247,10 @@ let suite =
       test_deliver_empty_room_id_skips;
     Alcotest.test_case "deliver passes thread_id" `Quick
       test_deliver_passes_thread_id;
+    Alcotest.test_case "connector filter fails closed for non-slack" `Quick
+      test_room_progress_connector_filter_fails_closed_for_non_slack;
+    Alcotest.test_case "connector filter allows slack" `Quick
+      test_room_progress_connector_filter_allows_slack;
     Alcotest.test_case "clear progress msg_id" `Quick test_clear_progress_msg_id;
     Alcotest.test_case "short prompt label normal" `Quick
       test_short_prompt_label_normal;

@@ -681,11 +681,18 @@ let record_notification ~db ~task_id ~status ?error () =
         ()
   | None -> ()
 
+let room_progress_connector_supported ~connector (task : Background_task.task) =
+  match Option.bind task.origin_json Room_origin.of_json_string_opt with
+  | Some { connector = Some origin_connector; _ } ->
+      String.lowercase_ascii origin_connector = String.lowercase_ascii connector
+  | _ -> true
+
 let deliver_room_progress ~(config : Runtime_config.t)
     (task : Background_task.task) =
   let open Lwt.Syntax in
   match config.channels.slack with
-  | Some slack_config ->
+  | Some slack_config
+    when room_progress_connector_supported ~connector:"slack" task ->
       let send ~room_id ?thread_id ~text () =
         match thread_id with
         | Some thread_ts ->
@@ -723,7 +730,7 @@ let deliver_room_progress ~(config : Runtime_config.t)
           ~ts:msg_id ~text
       in
       Room_progress.deliver_progress_update ~send ~edit ~task ()
-  | None -> Lwt.return_unit
+  | Some _ | None -> Lwt.return_unit
 
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
