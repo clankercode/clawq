@@ -24,7 +24,8 @@ tasks:
       file: T002-instrument-room-task-backgroun.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Instrument room task background and provider events into ledger
     - complexity: medium
       depends_on:
