@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Request Classification and Async Launch
       path: 02-request-classification-and-asy
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Sparse room/thread progress states and restart-safe completion delivery.

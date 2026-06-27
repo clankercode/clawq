@@ -4,7 +4,7 @@ estimate_hours: 8
 id: P11.M4.E2
 locked: false
 name: Request Classification and Async Launch
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -49,5 +49,6 @@ tasks:
       file: T004-enforce-guest-policy-for-room.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Enforce guest policy for room async requests
