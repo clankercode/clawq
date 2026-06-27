@@ -403,16 +403,13 @@ let test_profiled_room_budget_blocks_provider_call () =
             "mentions budget exceeded" true
             (Test_helpers.string_contains msg "budget exceeded");
           Alcotest.(check bool)
-            "includes current usage" true
-            (Test_helpers.string_contains msg "current usage");
+            "mentions contact admin" true
+            (Test_helpers.string_contains msg "administrator");
           Alcotest.(check bool)
-            "includes limits" true
-            (Test_helpers.string_contains msg "limits");
-          Alcotest.(check bool)
-            "includes usage value" true
+            "redacted: no raw token count" false
             (Test_helpers.string_contains msg "120");
           Alcotest.(check bool)
-            "includes limit value" true
+            "redacted: no raw limit" false
             (Test_helpers.string_contains msg "100"))
 
 let test_unprofiled_room_budget_guard_is_skipped () =
