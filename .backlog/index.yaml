@@ -88,11 +88,11 @@ phases:
       description: Add a durable inbound queue for offline session injection, replay it safely on daemon startup through the real session runtime, expose strong operator/debug visibility, and keep docs plus verification follow-through aligned with the final architecture plan.
       estimate_hours: 40
       id: P7
-      locked: false
+      locked: true
       name: Persisted Inbound Queue & Replay
       path: 07-persisted-inbound-queue-replay
       priority: high
-      status: pending
+      status: done
       weeks: 3
     - depends_on: []
       description: 'I019: Proactive error watcher with separate EC process, multi-model diagnosis/voting pipeline, and auto-fix capability'

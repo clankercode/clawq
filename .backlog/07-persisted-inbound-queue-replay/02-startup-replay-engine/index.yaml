@@ -20,7 +20,7 @@ epics:
       locked: false
       name: Failure Handling and Session Lifecycle
       path: 02-failure-handling-and-session-l
-      status: pending
+      status: done
 estimate_hours: 16
 id: P7.M2
 locked: false
@@ -31,4 +31,4 @@ stats:
     in_progress: 6
     pending: 0
     total_tasks: 6
-status: pending
+status: done

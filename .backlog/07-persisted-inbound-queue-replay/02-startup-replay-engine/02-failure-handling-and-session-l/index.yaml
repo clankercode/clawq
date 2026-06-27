@@ -11,7 +11,7 @@ stats:
     in_progress: 3
     pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -42,6 +42,6 @@ tasks:
       file: T003-add-tests-for-retry-metadata-c.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add tests for retry metadata, cleanup semantics, and history insertion only after successful processing
