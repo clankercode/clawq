@@ -4078,6 +4078,12 @@ let test_min_rooms_mutation_paths_disabled () =
       [ "rooms"; "ledger"; "list" ];
       [ "rooms"; "ledger"; "export" ];
       [ "rooms"; "ledger"; "retention-cleanup" ];
+      [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "msg" ];
+      [ "rooms"; "routine"; "edit"; "routine-coding"; "--schedule"; "every 2h" ];
+      [ "rooms"; "routine"; "remove"; "routine-coding" ];
+      [ "rooms"; "routine"; "enable"; "routine-coding" ];
+      [ "rooms"; "routine"; "disable"; "routine-coding" ];
+      [ "rooms"; "routine"; "trigger"; "routine-coding" ];
     ]
   in
   List.iter
@@ -4651,6 +4657,66 @@ let test_rooms_routine_trigger_no_name () =
     "trigger no name shows usage" true
     (Test_helpers.string_contains result "routine trigger <name>")
 
+let test_rooms_routine_enable_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "enable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "enable without admin mentions admin" true
+        (Test_helpers.string_contains result "admin");
+      (* Verify audit event was recorded *)
+      let db = session_db home in
+      Room_activity_ledger.init_schema db;
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"routine-coding"
+          ~event_type:"admin_denied" ()
+      in
+      Alcotest.(check bool) "enable denial audited to ledger" true (events <> []))
+
+let test_rooms_routine_disable_rejected_without_admin () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      Unix.putenv "CLAWQ_ADMIN" "0";
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "disable"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "disable without admin mentions admin" true
+        (Test_helpers.string_contains result "admin");
+      (* Verify audit event was recorded *)
+      let db = session_db home in
+      Room_activity_ledger.init_schema db;
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"routine-coding"
+          ~event_type:"admin_denied" ()
+      in
+      Alcotest.(check bool)
+        "disable denial audited to ledger" true (events <> []))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -4965,4 +5031,8 @@ let suite =
       test_rooms_routine_trigger_rejected_without_admin;
     Alcotest.test_case "rooms routine trigger no name" `Quick
       test_rooms_routine_trigger_no_name;
+    Alcotest.test_case "rooms routine enable rejected without admin" `Quick
+      test_rooms_routine_enable_rejected_without_admin;
+    Alcotest.test_case "rooms routine disable rejected without admin" `Quick
+      test_rooms_routine_disable_rejected_without_admin;
   ]

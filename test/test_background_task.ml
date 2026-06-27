@@ -5340,6 +5340,184 @@ let test_effective_progress_state_non_room () =
     (Option.map string_of_progress_state
        (effective_progress_state with_explicit))
 
+let test_async_cmd_to_bg_launch_delegate () =
+  let open Room_request_classifier in
+  let result = Slash_commands.Delegate (Some "coder", "implement feature") in
+  match async_cmd_to_bg_launch result with
+  | None -> Alcotest.fail "expected Some for Delegate"
+  | Some (goal, runner, agent_name) ->
+      Alcotest.(check string) "goal" "implement feature" goal;
+      Alcotest.(check (option string)) "runner" None runner;
+      Alcotest.(check (option string)) "agent_name" (Some "coder") agent_name
+
+let test_async_cmd_to_bg_launch_agent_invoke () =
+  let open Room_request_classifier in
+  let result = Slash_commands.AgentInvoke ("reviewer", "review this") in
+  match async_cmd_to_bg_launch result with
+  | None -> Alcotest.fail "expected Some for AgentInvoke"
+  | Some (goal, runner, agent_name) ->
+      Alcotest.(check string) "goal" "review this" goal;
+      Alcotest.(check (option string)) "runner" (Some "local") runner;
+      Alcotest.(check (option string)) "agent_name" (Some "reviewer") agent_name
+
+let test_async_cmd_to_bg_launch_compact_none () =
+  let open Room_request_classifier in
+  let result = Slash_commands.Compact in
+  match async_cmd_to_bg_launch result with
+  | None -> () (* expected *)
+  | Some _ -> Alcotest.fail "expected None for Compact"
+
+let test_launch_room_bg_task_local () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let room_id = "C-TEST-ROOM" in
+  match
+    Background_task.launch_room_bg_task ~db
+      ~session_key:"slack:C-TEST-ROOM:U123" ~connector:"slack" ~room_id
+      ~requester_id:"U123" ~goal:"do something"
+      ~preferred_runner:Background_task.Local ()
+  with
+  | Error msg -> Alcotest.failf "enqueue failed: %s" msg
+  | Ok id -> (
+      Alcotest.(check bool) "id > 0" true (id > 0);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found"
+      | Some task ->
+          Alcotest.(check string)
+            "runner" "local"
+            (Background_task.string_of_runner task.runner);
+          Alcotest.(check string) "prompt" "do something" task.prompt;
+          Alcotest.(check (option string))
+            "session_key" (Some "slack:C-TEST-ROOM:U123") task.session_key;
+          Alcotest.(check (option int)) "profile_id" None task.profile_id;
+          Alcotest.(check bool) "origin_json set" true (task.origin_json <> None)
+      )
+
+let test_launch_room_async_bg_delegate () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let room_id = "C-ASYNC-ROOM" in
+  let result = Slash_commands.Delegate (None, "build feature") in
+  match
+    Room_request_classifier.launch_room_async_bg ~db
+      ~session_key:"slack:C-ASYNC-ROOM:U456" ~connector:"slack" ~room_id
+      ~requester_id:"U456" ~is_admin:true result
+  with
+  | Error msg -> Alcotest.failf "launch failed: %s" msg
+  | Ok None -> Alcotest.fail "expected Some for Delegate"
+  | Ok (Some id) -> (
+      Alcotest.(check bool) "id > 0" true (id > 0);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found"
+      | Some task ->
+          (* delegate_enqueue wraps the goal in a full prompt *)
+          Alcotest.(check bool)
+            "prompt contains goal" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "build feature")
+                    task.prompt 0);
+               true
+             with Not_found -> false);
+          Alcotest.(check (option string))
+            "session_key" (Some "slack:C-ASYNC-ROOM:U456") task.session_key)
+
+let test_launch_room_async_bg_compact_none () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let result = Slash_commands.Compact in
+  match
+    Room_request_classifier.launch_room_async_bg ~db
+      ~session_key:"slack:C-ROOM:U789" ~connector:"slack" ~room_id:"C-ROOM"
+      ~requester_id:"U789" ~is_admin:true result
+  with
+  | Error msg -> Alcotest.failf "unexpected error: %s" msg
+  | Ok None -> () (* expected *)
+  | Ok (Some _) -> Alcotest.fail "expected None for Compact"
+
+(** P11.M4.E4.T001: Two concurrent profiled room tasks preserve distinct origin
+    attribution. Each task's origin_json and profile_id must reflect its own
+    room binding, not a shared/corrupted value. *)
+let test_concurrent_room_bg_tasks_preserve_origin_attribution () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  (* Set up two distinct room profiles *)
+  let profile_a = Memory.insert_room_profile ~db ~name:"room-a-profile" in
+  let profile_b = Memory.insert_room_profile ~db ~name:"room-b-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"C-ROOM-A"
+    ~profile_id:profile_a;
+  Memory.upsert_room_profile_binding ~db ~room_id:"C-ROOM-B"
+    ~profile_id:profile_b;
+  (* Launch both tasks concurrently — since they run synchronously in this
+     test, we just call them sequentially to verify DB writes are uncorrelated *)
+  let id_a =
+    match
+      Background_task.launch_room_bg_task ~db ~session_key:"slack:C-ROOM-A:UA1"
+        ~connector:"slack" ~room_id:"C-ROOM-A" ~requester_id:"UA1"
+        ~goal:"task A" ~preferred_runner:Background_task.Local ()
+    with
+    | Ok id -> id
+    | Error msg -> Alcotest.failf "launch A failed: %s" msg
+  in
+  let id_b =
+    match
+      Background_task.launch_room_bg_task ~db ~session_key:"slack:C-ROOM-B:UB1"
+        ~connector:"slack" ~room_id:"C-ROOM-B" ~requester_id:"UB1"
+        ~goal:"task B" ~preferred_runner:Background_task.Local ()
+    with
+    | Ok id -> id
+    | Error msg -> Alcotest.failf "launch B failed: %s" msg
+  in
+  (* Verify distinct IDs *)
+  Alcotest.(check bool) "distinct task ids" true (id_a <> id_b);
+  let task_a =
+    match Background_task.get_task ~db ~id:id_a with
+    | Some t -> t
+    | None -> Alcotest.fail "task A not found"
+  in
+  let task_b =
+    match Background_task.get_task ~db ~id:id_b with
+    | Some t -> t
+    | None -> Alcotest.fail "task B not found"
+  in
+  (* Verify profile_id is correct and uncorrelated *)
+  Alcotest.(check (option int))
+    "task A profile_id" (Some profile_a) task_a.profile_id;
+  Alcotest.(check (option int))
+    "task B profile_id" (Some profile_b) task_b.profile_id;
+  (* Verify origin_json contains the correct room_id *)
+  (match task_a.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task A origin has room C-ROOM-A" true
+        (Test_helpers.string_contains json "C-ROOM-A")
+  | None -> Alcotest.fail "task A missing origin_json");
+  (match task_b.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task B origin has room C-ROOM-B" true
+        (Test_helpers.string_contains json "C-ROOM-B")
+  | None -> Alcotest.fail "task B missing origin_json");
+  (* Verify session_key is uncorrelated *)
+  Alcotest.(check (option string))
+    "task A session_key" (Some "slack:C-ROOM-A:UA1") task_a.session_key;
+  Alcotest.(check (option string))
+    "task B session_key" (Some "slack:C-ROOM-B:UB1") task_b.session_key;
+  (* Verify cross-contamination: A's origin must not mention B's room *)
+  (match task_a.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task A origin clean of B" false
+        (Test_helpers.string_contains json "C-ROOM-B")
+  | None -> ());
+  match task_b.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task B origin clean of A" false
+        (Test_helpers.string_contains json "C-ROOM-A")
+  | None -> ()
+
 let test_set_progress_state_persists () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -6072,4 +6250,18 @@ let suite =
     Alcotest.test_case "set progress state persists" `Quick
       test_set_progress_state_persists;
     Alcotest.test_case "clear progress state" `Quick test_clear_progress_state;
+    Alcotest.test_case "async_cmd_to_bg_launch delegate" `Quick
+      test_async_cmd_to_bg_launch_delegate;
+    Alcotest.test_case "async_cmd_to_bg_launch agent invoke" `Quick
+      test_async_cmd_to_bg_launch_agent_invoke;
+    Alcotest.test_case "async_cmd_to_bg_launch compact is none" `Quick
+      test_async_cmd_to_bg_launch_compact_none;
+    Alcotest.test_case "launch_room_bg_task local runner" `Quick
+      test_launch_room_bg_task_local;
+    Alcotest.test_case "launch_room_async_bg delegate" `Quick
+      test_launch_room_async_bg_delegate;
+    Alcotest.test_case "launch_room_async_bg compact returns none" `Quick
+      test_launch_room_async_bg_compact_none;
+    Alcotest.test_case "concurrent room bg tasks preserve origin attribution"
+      `Quick test_concurrent_room_bg_tasks_preserve_origin_attribution;
   ]

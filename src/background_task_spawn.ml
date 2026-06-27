@@ -760,6 +760,66 @@ let reap_dead_running_tasks ~db ~on_task_finished =
     running_in_db;
   !count
 
+(** Derive the default repo path for room-launched background tasks. Uses the
+    room workspace directory when available, falling back to the configured
+    workspace root. *)
+let room_default_repo_path room_id =
+  Room_workspace.workspace_path ~create:true room_id
+
+(** Launch a room background task under the room's profile policy. Uses child
+    room session context, room CWD, profile_id, origin metadata, and durable
+    queue semantics. Launch errors are returned so the caller can record them as
+    task-visible failures.
+
+    @param goal The prompt/goal for the background task.
+    @param preferred_runner Optional runner preference (e.g. [Some Local]).
+    @param agent_name Optional agent template name.
+    @param use_worktree
+      Whether to create a git worktree (default false for room workspaces which
+      are plain directories).
+
+    Returns [Ok bg_task_id] on success or [Error msg] on failure. *)
+let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
+    ?preferred_runner ?agent_name ?thread_id ?model_override ?notify_cfg
+    ?(use_worktree = false) () =
+  let profile_id =
+    match Memory.get_room_profile_binding ~db ~room_id with
+    | Some b -> Some b.profile_id
+    | None -> None
+  in
+  let origin =
+    Room_origin.make ~connector ~room_id ~requester_id ?profile_id ()
+  in
+  let origin_json =
+    if Room_origin.is_empty origin then None
+    else Some (Room_origin.to_compact_json_string origin)
+  in
+  let requester = Some requester_id in
+  let default_repo_path = room_default_repo_path room_id in
+  match preferred_runner with
+  | Some Local -> (
+      (* Native/local runner: enqueue directly with runner=Local *)
+      match
+        enqueue ~db ~runner:Local ~use_worktree ~require_git:false
+          ~automerge:false ~repo_path:default_repo_path ~prompt:goal ?agent_name
+          ?model:model_override ~session_key ?profile_id ?origin_json ?thread_id
+          ?requester ()
+      with
+      | Ok id -> Ok id
+      | Error msg -> Error msg)
+  | _ -> (
+      (* External runner: use delegate_enqueue for auto runner selection *)
+      let context : Tool.invoke_context =
+        { Tool.default_context with session_key = Some session_key }
+      in
+      match
+        delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
+          ~check_available:true ?preferred_runner ?model:model_override
+          ~default_repo_path ~goal ()
+      with
+      | Ok (id, _runner, _repo) -> Ok id
+      | Error msg -> Error msg)
+
 let readopt_running_tasks ~db ~on_task_finished =
   let pid_or_group_alive pid =
     Process_group.group_alive pid
