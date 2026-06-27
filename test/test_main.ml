@@ -40,6 +40,7 @@ let () =
        ("postmortem", Test_postmortem.suite);
        ("scheduler", Test_scheduler.suite);
        ("background_task", Test_background_task.suite);
+       ("subagent_context", Test_subagent_context.suite);
        ("bg_shell", Test_bg_shell.suite);
        ("migrate", Test_migrate.suite);
        ("audit", Test_audit.suite);
