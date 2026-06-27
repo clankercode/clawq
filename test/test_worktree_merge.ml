@@ -50,6 +50,10 @@ let fake_task ?(automerge = false) ?(use_worktree = true) ?(merge_status = None)
     notification_error = None;
     notification_attempts = 0;
     follow_up_prompt = None;
+    profile_id = None;
+    origin_json = None;
+    thread_id = None;
+    requester = None;
   }
 
 let test_schema_migration () =

@@ -27,7 +27,9 @@ let enqueue_agent_for_task ~db ~session_key ~repo_path ?(use_worktree = true)
           match
             Background_task.enqueue ~db ~runner:Background_task.Local
               ?model:task.agent_model ~repo_path ~prompt ~use_worktree
-              ?agent_name:task.agent_type ~session_key ()
+              ?agent_name:task.agent_type ~session_key
+              ?profile_id:task.profile_id ?origin_json:task.origin_json
+              ?thread_id:task.thread_id ?requester:task.requester ()
           with
           | Error e -> Error e
           | Ok bg_id -> (
@@ -563,6 +565,13 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                         string_member op_json "agent_details"
                       in
                       let autostart = bool_member op_json "autostart" in
+                      let profile_id =
+                        try Some (op_json |> member "profile_id" |> to_int)
+                        with _ -> None
+                      in
+                      let origin_json = string_member op_json "origin_json" in
+                      let thread_id = string_member op_json "thread_id" in
+                      let requester = string_member op_json "requester" in
                       match title with
                       | None ->
                           Error
@@ -607,6 +616,7 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                               ~agent_model ~agent_type ~agent_prompt
                               ~agent_details
                               ~autostart:(Option.value autostart ~default:false)
+                              ?profile_id ?origin_json ?thread_id ?requester ()
                           in
                           match add_result with
                           | Ok actual_id ->

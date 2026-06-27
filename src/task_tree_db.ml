@@ -18,6 +18,10 @@ let init_schema db =
     \  agent_task_id INTEGER,\n\
     \  sort_order INTEGER NOT NULL DEFAULT 0,\n\
     \  deleted_at TEXT,\n\
+    \  profile_id INTEGER,\n\
+    \  origin_json TEXT,\n\
+    \  thread_id TEXT,\n\
+    \  requester TEXT,\n\
     \  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \  updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \  PRIMARY KEY (session_key, id)\n\
@@ -62,7 +66,11 @@ let init_schema db =
   try_alter "ALTER TABLE task_tree ADD COLUMN agent_details TEXT";
   try_alter
     "ALTER TABLE task_tree ADD COLUMN autostart INTEGER NOT NULL DEFAULT 0";
-  try_alter "ALTER TABLE task_tree ADD COLUMN agent_task_id INTEGER"
+  try_alter "ALTER TABLE task_tree ADD COLUMN agent_task_id INTEGER";
+  try_alter "ALTER TABLE task_tree ADD COLUMN profile_id INTEGER";
+  try_alter "ALTER TABLE task_tree ADD COLUMN origin_json TEXT";
+  try_alter "ALTER TABLE task_tree ADD COLUMN thread_id TEXT";
+  try_alter "ALTER TABLE task_tree ADD COLUMN requester TEXT"
 
 let load_tasks ?(include_deleted = false) ~db ~session_key () =
   let deleted_filter =
@@ -72,8 +80,9 @@ let load_tasks ?(include_deleted = false) ~db ~session_key () =
     Printf.sprintf
       "SELECT id, session_key, parent_id, title, status, note, sort_order, \
        deleted_at, depends_on, agent_model, agent_type, agent_prompt, \
-       agent_details, autostart, agent_task_id FROM task_tree WHERE \
-       session_key = ?%s ORDER BY sort_order ASC, id ASC"
+       agent_details, autostart, agent_task_id, profile_id, origin_json, \
+       thread_id, requester FROM task_tree WHERE session_key = ?%s ORDER BY \
+       sort_order ASC, id ASC"
       deleted_filter
   in
   let stmt = Sqlite3.prepare db sql in
@@ -119,6 +128,10 @@ let load_tasks ?(include_deleted = false) ~db ~session_key () =
         let agent_details = Sqlite3.column stmt 12 |> sql_text in
         let autostart = Sqlite3.column stmt 13 |> sql_bool in
         let agent_task_id = Sqlite3.column stmt 14 |> sql_int in
+        let profile_id = Sqlite3.column stmt 15 |> sql_int in
+        let origin_json = Sqlite3.column stmt 16 |> sql_text in
+        let thread_id = Sqlite3.column stmt 17 |> sql_text in
+        let requester = Sqlite3.column stmt 18 |> sql_text in
         results :=
           {
             id;
@@ -136,6 +149,10 @@ let load_tasks ?(include_deleted = false) ~db ~session_key () =
             agent_task_id;
             sort_order;
             deleted_at;
+            profile_id;
+            origin_json;
+            thread_id;
+            requester;
           }
           :: !results
       done;
@@ -319,12 +336,14 @@ let next_sort_order ~db ~session_key =
     [ Sqlite3.Data.TEXT session_key ]
 
 let insert_task ~db ~session_key ~id ~parent_id ~title ~status ~note ~depends_on
-    ~agent_model ~agent_type ~agent_prompt ~agent_details ~autostart =
+    ~agent_model ~agent_type ~agent_prompt ~agent_details ~autostart ?profile_id
+    ?origin_json ?thread_id ?requester () =
   let sort_order = next_sort_order ~db ~session_key in
   let sql =
     "INSERT INTO task_tree (id, session_key, parent_id, title, status, note, \
      depends_on, agent_model, agent_type, agent_prompt, agent_details, \
-     autostart, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+     autostart, sort_order, profile_id, origin_json, thread_id, requester) \
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -369,6 +388,16 @@ let insert_task ~db ~session_key ~id ~parent_id ~title ~status ~note ~depends_on
       ignore
         (Sqlite3.bind stmt 13 (Sqlite3.Data.INT (Int64.of_int sort_order))
           : Sqlite3.Rc.t);
+      (* profile_id *)
+      (match profile_id with
+      | Some pid ->
+          ignore
+            (Sqlite3.bind stmt 14 (Sqlite3.Data.INT (Int64.of_int pid))
+              : Sqlite3.Rc.t)
+      | None -> ignore (Sqlite3.bind stmt 14 Sqlite3.Data.NULL : Sqlite3.Rc.t));
+      bind_opt 15 origin_json;
+      bind_opt 16 thread_id;
+      bind_opt 17 requester;
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> Ok ()
       | rc ->

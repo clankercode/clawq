@@ -53,6 +53,10 @@ type task = {
           once the task succeeds. Use cases: "make sure tests pass, run
           review-and-fix, commit and rebase against master" — a checklist the
           resumed session should execute. *)
+  profile_id : int option;
+  origin_json : string option;
+  thread_id : string option;
+  requester : string option;
 }
 
 type queued_message = {
@@ -409,6 +413,9 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   (match task.agent_name with
   | Some name -> add (Printf.sprintf "agent: %s" name)
   | None -> ());
+  (match task.requester with
+  | Some r when String.trim r <> "" -> add (Printf.sprintf "requester: %s" r)
+  | _ -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
   if task.retry_count > 0 then
     add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
