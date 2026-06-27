@@ -27,7 +27,7 @@ tasks:
       file: T002-deliver-room-progress-updates.todo
       id: T002
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Deliver Slack/current room progress updates
     - complexity: high
