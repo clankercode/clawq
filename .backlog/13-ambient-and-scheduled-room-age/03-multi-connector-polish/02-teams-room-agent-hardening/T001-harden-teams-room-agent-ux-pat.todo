@@ -8,7 +8,7 @@ estimate_hours: 2
 id: P13.M3.E2.T001
 priority: medium
 started_at: null
-status: pending
+status: done
 tags: []
 title: Harden Teams room-agent slash commands
 ---

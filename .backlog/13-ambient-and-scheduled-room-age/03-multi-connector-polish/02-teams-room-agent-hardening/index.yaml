@@ -14,7 +14,7 @@ tasks:
       file: T001-harden-teams-room-agent-ux-pat.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: Harden Teams room-agent slash commands
     - complexity: medium
