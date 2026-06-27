@@ -1811,6 +1811,19 @@ let run ~(config : Runtime_config.t) =
           Logs.err (fun m ->
               m "Heartbeat loop error: %s" (Printexc.to_string exn));
           Lwt.return_unit));
+  (* B719: Periodic status emitter for running subagents *)
+  (match db with
+  | Some db ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Subagent_tool.run_subagent_status_loop ~db ())
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Subagent status loop error: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit));
+      Logs.info (fun m -> m "Subagent status loop started")
+  | None -> Logs.info (fun m -> m "Subagent status loop disabled (no database)"));
   let* picked_intent =
     Lwt.pick
       [

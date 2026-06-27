@@ -407,3 +407,66 @@ let result_tool ~db =
     risk_level = Medium;
     deferred = false;
   }
+
+(* B719: Periodic status emitter for running subagents *)
+
+let list_running_subagents ~db =
+  let all = Background_task.list_tasks ~db in
+  List.filter_map
+    (fun (t : Background_task.task) ->
+      match (t.status, t.runner, t.use_worktree) with
+      | Background_task.Running, Background_task.Local, false ->
+          Some
+            ( t.id,
+              t.session_key,
+              t.agent_name,
+              t.description,
+              t.started_at,
+              t.prompt )
+      | _ -> None)
+    all
+
+let format_subagent_status agents =
+  if agents = [] then None
+  else
+    let lines =
+      List.map
+        (fun (id, _session_key, agent_name, description, started_at, _prompt) ->
+          let runtime =
+            match started_at with
+            | Some started ->
+                let start_time =
+                  Background_task.parse_sqlite_datetime started
+                in
+                if start_time <= 0.0 then "-"
+                else
+                  Background_task.format_elapsed_seconds
+                    (Unix.gettimeofday () -. start_time)
+            | None -> "-"
+          in
+          let label =
+            match (description, agent_name) with
+            | Some d, _ when String.trim d <> "" -> String.trim d
+            | _, Some a when String.trim a <> "" -> String.trim a
+            | _ -> "(unnamed)"
+          in
+          Printf.sprintf "  - Task %d (%s): %s" id label runtime)
+        agents
+    in
+    Some
+      (Printf.sprintf "Running subagents (%d):\n%s"
+         (List.length agents)
+         (String.concat "\n" lines))
+
+let run_subagent_status_loop ~db () =
+  let open Lwt.Syntax in
+  let rec loop () =
+    let* () = Lwt_unix.sleep 1800.0 in
+    let running = list_running_subagents ~db in
+    (match format_subagent_status running with
+    | Some summary ->
+        Logs.info (fun m -> m "Subagent status: %s" summary)
+    | None -> ());
+    loop ()
+  in
+  loop ()
