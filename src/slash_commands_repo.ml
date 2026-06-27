@@ -65,9 +65,17 @@ let handle_repo_action ~db ~session_key ~connector ~send_reply ~set_cwd action =
       let* result = Repo_manager.associate ~db ~session_key ~url_or_path in
       match result with
       | Ok (local_path, msg) ->
-          set_cwd local_path;
-          send_reply
-            (format_repo_associated ~connector ~path:local_path ~message:msg)
+          if not (set_cwd local_path) then
+            send_reply
+              (format_repo_error ~connector
+                 ~error:
+                   (Printf.sprintf
+                      "Repository associated but CWD %s rejected by security \
+                       policy"
+                      local_path))
+          else
+            send_reply
+              (format_repo_associated ~connector ~path:local_path ~message:msg)
       | Error e -> send_reply (format_repo_error ~connector ~error:e))
   | RepoForget ->
       Repo_manager.forget_repo ~db ~session_key;

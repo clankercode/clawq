@@ -439,13 +439,102 @@ let is_queued_message_response response = response = queued_message_response
 let should_suppress_response response =
   is_queued_message_response response || Group_chat_filter.is_no_reply response
 
+(** [is_cwd_allowed mgr ~cwd] checks whether [cwd] is permitted under the
+    current security policy. When [workspace_only] is [true], the path must live
+    inside the workspace root or [extra_allowed_paths]. When
+    [allowed_cwd_patterns] are configured, the path must additionally match at
+    least one pattern (using glob semantics). Both constraints apply when both
+    are active — sandbox/global workspace constraints remain stronger than
+    profile choices. *)
+let is_cwd_allowed mgr ~cwd =
+  let cfg = mgr.config in
+  let is_prefix_of ~prefix path =
+    let plen = String.length prefix in
+    let pathlen = String.length path in
+    if pathlen = plen then path = prefix
+    else if pathlen > plen then
+      String.sub path 0 plen = prefix && path.[plen] = '/'
+    else false
+  in
+  let resolve p =
+    try Unix.realpath p
+    with Unix.Unix_error _ ->
+      let dir = Filename.dirname p in
+      let base = Filename.basename p in
+      let real_dir = try Unix.realpath dir with Unix.Unix_error _ -> dir in
+      Filename.concat real_dir base
+  in
+  let under_workspace_roots () =
+    let workspace = Runtime_config.effective_workspace cfg in
+    let real_workspace = resolve workspace in
+    let real_cwd = resolve cwd in
+    is_prefix_of ~prefix:real_workspace real_cwd
+    || List.exists
+         (fun extra ->
+           let expanded = Runtime_config.expand_home extra in
+           is_prefix_of ~prefix:(resolve expanded) real_cwd)
+         cfg.security.extra_allowed_paths
+  in
+  let matches_patterns () =
+    let patterns = cfg.security.allowed_cwd_patterns in
+    if patterns = [] then false
+    else
+      List.exists
+        (fun pat ->
+          let expanded = Runtime_config.expand_cwd_pattern ~config:cfg pat in
+          if expanded = "" then false
+          else Path_util.glob_matches_path ~pattern:expanded cwd)
+        patterns
+  in
+  (* workspace_only containment is always enforced when active. *)
+  let ws_ok = (not cfg.security.workspace_only) || under_workspace_roots () in
+  (* allowed_cwd_patterns are enforced when configured. *)
+  let pat_ok = cfg.security.allowed_cwd_patterns = [] || matches_patterns () in
+  ws_ok && pat_ok
+
 let set_effective_cwd mgr ~key ~cwd =
-  (match Hashtbl.find_opt mgr.sessions key with
-  | Some (agent, _, _) -> agent.Agent.effective_cwd <- Some cwd
-  | None -> ());
-  match mgr.db with
-  | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
-  | None -> ()
+  if not (is_cwd_allowed mgr ~cwd) then begin
+    Logs.warn (fun m ->
+        m "[%s] Refusing to set CWD to %s: outside allowed CWD policy" key cwd);
+    false
+  end
+  else begin
+    (match Hashtbl.find_opt mgr.sessions key with
+    | Some (agent, _, _) -> agent.Agent.effective_cwd <- Some cwd
+    | None -> ());
+    (match mgr.db with
+    | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
+    | None -> ());
+    true
+  end
+
+(** [apply_cwd_change_for_turn mgr ~key agent ~cwd] applies a CWD change
+    requested at the start of a turn. Sets [agent.effective_cwd], injects an
+    event message if the CWD actually changed, and persists to the DB. *)
+let apply_cwd_change_for_turn mgr ~key agent ~cwd =
+  if is_cwd_allowed mgr ~cwd then begin
+    let old_cwd = agent.Agent.effective_cwd in
+    agent.Agent.effective_cwd <- Some cwd;
+    (match old_cwd with
+    | Some prev when prev <> cwd ->
+        let event_msg =
+          Provider.make_message ~role:"event"
+            ~content:
+              (Printf.sprintf "[system] Working directory changed from %s to %s"
+                 prev cwd)
+        in
+        agent.Agent.history <- agent.Agent.history @ [ event_msg ]
+    | _ -> ());
+    match mgr.db with
+    | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
+    | None -> ()
+  end
+  else
+    Logs.warn (fun m ->
+        m
+          "[%s] Ignoring CWD change to %s at turn start: outside allowed CWD \
+           policy"
+          key cwd)
 
 let queueable_channel_key key =
   match Restart_notify.parse_channel_from_key key with
@@ -880,6 +969,55 @@ let resolve_agent_template_for_key mgr ~key =
     in
     if agent_name = "default" then None else Agent_template.resolve agent_name
 
+(** [resolve_initial_cwd mgr ~session_key ~db ~agent_template] resolves the
+    initial effective CWD at session creation time. Precedence: 1. DB room
+    workspace (if persisted and allowed) 2. Config workspace default (if
+    explicitly set by user and allowed) 3. agent_template.cwd (if valid and
+    allowed) 4. global fallback ([None] — tools use [effective_workspace])
+
+    At turn time, /repo explicit overrides via [set_effective_cwd]. *)
+let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
+  let cfg = mgr.config in
+  (* Layer 3: template CWD — lowest priority among explicit layers *)
+  let cwd_from_template () =
+    match agent_template with
+    | Some (tmpl : Agent_template.t) -> (
+        match tmpl.cwd with
+        | Some cwd
+          when Sys.file_exists cwd && Sys.is_directory cwd
+               && is_cwd_allowed mgr ~cwd ->
+            Some cwd
+        | _ -> None)
+    | None -> None
+  in
+  (* Layer 2: config workspace — beats template when user set it explicitly *)
+  let cwd_from_config () =
+    let ws = cfg.workspace in
+    if ws = Runtime_config.default_workspace () then None
+    else
+      let expanded = Runtime_config.expand_home ws in
+      if
+        expanded <> "" && Sys.file_exists expanded && Sys.is_directory expanded
+        && is_cwd_allowed mgr ~cwd:expanded
+      then Some expanded
+      else None
+  in
+  (* Layer 1: DB room workspace — highest priority at session creation *)
+  let cwd_from_db () =
+    match db with
+    | Some db -> (
+        match Memory.get_session_cwd ~db ~session_key with
+        | Some cwd when is_cwd_allowed mgr ~cwd -> Some cwd
+        | _ -> None)
+    | None -> None
+  in
+  match cwd_from_db () with
+  | Some _ as r -> r
+  | None -> (
+      match cwd_from_config () with
+      | Some _ as r -> r
+      | None -> cwd_from_template ())
+
 let get_or_create_locked mgr ~key =
   let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
@@ -892,8 +1030,17 @@ let get_or_create_locked mgr ~key =
             Some (Agent_template.filter_tool_registry reg tmpl)
         | _ -> mgr.tool_registry
       in
+      (* CWD precedence: /repo explicit (set at turn time via set_effective_cwd)
+         > DB room workspace > config workspace default > agent_template.cwd >
+         global. At session creation, /repo explicit hasn't fired yet, so we
+         resolve the remaining layers.  Resolve before Agent.create so that
+         project_docs_digests are computed with the correct effective_cwd. *)
+      let initial_cwd =
+        resolve_initial_cwd mgr ~session_key:key ~db:mgr.db ~agent_template
+      in
       let agent =
-        Agent.create ~config:mgr.config ?tool_registry ?agent_template ()
+        Agent.create ~config:mgr.config ?tool_registry ?agent_template
+          ?cwd:initial_cwd ()
       in
       let history = load_restorable_history mgr ~key in
       if history <> [] then begin
@@ -918,19 +1065,7 @@ let get_or_create_locked mgr ~key =
                 observed_active_workspace_files
           | None -> Agent.sync_observed_active_workspace_files agent)
       | None -> ());
-      (match agent_template with
-      | Some tmpl -> (
-          match tmpl.Agent_template.cwd with
-          | Some cwd when Sys.file_exists cwd && Sys.is_directory cwd ->
-              agent.Agent.effective_cwd <- Some cwd
-          | _ -> ())
-      | None -> ());
-      (match mgr.db with
-      | Some db -> (
-          match Memory.get_session_cwd ~db ~session_key:key with
-          | Some cwd -> agent.Agent.effective_cwd <- Some cwd
-          | None -> ())
-      | None -> ());
+      (* effective_cwd already set via Agent.create ~cwd:initial_cwd above *)
       (* Model resolution: session DB override > channel default > global *)
       (let db_override =
          match mgr.db with
