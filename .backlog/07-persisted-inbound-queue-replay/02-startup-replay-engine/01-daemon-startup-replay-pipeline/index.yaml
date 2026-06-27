@@ -10,7 +10,7 @@ stats:
     in_progress: 3
     pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -40,6 +40,6 @@ tasks:
       file: T003-add-daemon-and-session-tests-f.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add daemon and session tests for startup replay ordering and successful row deletion

@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Daemon Startup Replay Pipeline
       path: 01-daemon-startup-replay-pipeline
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P7.M2.E1
