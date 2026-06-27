@@ -384,6 +384,38 @@ let test_cwd_precedence_rejected_template_falls_back () =
       Alcotest.(check (option string))
         "rejected template falls to global" None result)
 
+(** P11.M4.E4.T001: Two concurrent room sessions must resolve independent CWD
+    values without cross-contamination. When each room has a different CWD
+    stored in the DB, resolve_initial_cwd returns the correct value for each
+    session key independently. *)
+let test_room_sessions_resolve_independent_cwd () =
+  let db = make_db () in
+  let config = make_config ~workspace_only:false "/tmp/ws" in
+  let mgr = make_mgr ~config ~db () in
+  (* Store distinct CWDs for two room sessions *)
+  Memory.set_session_cwd ~db ~session_key:"slack:C-ROOM-A:UA"
+    ~cwd:(Some "/workspace/room-a");
+  Memory.set_session_cwd ~db ~session_key:"slack:C-ROOM-B:UB"
+    ~cwd:(Some "/workspace/room-b");
+  (* Resolve each and verify no cross-contamination *)
+  let cwd_a =
+    Session_core.resolve_initial_cwd mgr ~session_key:"slack:C-ROOM-A:UA"
+      ~db:(Some db) ~agent_template:None
+  in
+  let cwd_b =
+    Session_core.resolve_initial_cwd mgr ~session_key:"slack:C-ROOM-B:UB"
+      ~db:(Some db) ~agent_template:None
+  in
+  Alcotest.(check (option string)) "room A CWD" (Some "/workspace/room-a") cwd_a;
+  Alcotest.(check (option string)) "room B CWD" (Some "/workspace/room-b") cwd_b;
+  (* Verify that resolving A again still returns A's CWD, not B's *)
+  let cwd_a_again =
+    Session_core.resolve_initial_cwd mgr ~session_key:"slack:C-ROOM-A:UA"
+      ~db:(Some db) ~agent_template:None
+  in
+  Alcotest.(check (option string))
+    "room A CWD stable" (Some "/workspace/room-a") cwd_a_again
+
 let suite : unit Alcotest.test_case list =
   [
     Alcotest.test_case "discord resume state round trip" `Quick
@@ -431,4 +463,7 @@ let suite : unit Alcotest.test_case list =
       test_cwd_precedence_fallback_global;
     Alcotest.test_case "precedence: rejected template falls to global" `Quick
       test_cwd_precedence_rejected_template_falls_back;
+    Alcotest.test_case
+      "room sessions resolve independent CWD without cross-contamination" `Quick
+      test_room_sessions_resolve_independent_cwd;
   ]

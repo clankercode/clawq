@@ -5309,6 +5309,88 @@ let test_launch_room_async_bg_compact_none () =
   | Ok None -> () (* expected *)
   | Ok (Some _) -> Alcotest.fail "expected None for Compact"
 
+(** P11.M4.E4.T001: Two concurrent profiled room tasks preserve distinct origin
+    attribution. Each task's origin_json and profile_id must reflect its own
+    room binding, not a shared/corrupted value. *)
+let test_concurrent_room_bg_tasks_preserve_origin_attribution () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  (* Set up two distinct room profiles *)
+  let profile_a = Memory.insert_room_profile ~db ~name:"room-a-profile" in
+  let profile_b = Memory.insert_room_profile ~db ~name:"room-b-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"C-ROOM-A"
+    ~profile_id:profile_a;
+  Memory.upsert_room_profile_binding ~db ~room_id:"C-ROOM-B"
+    ~profile_id:profile_b;
+  (* Launch both tasks concurrently — since they run synchronously in this
+     test, we just call them sequentially to verify DB writes are uncorrelated *)
+  let id_a =
+    match
+      Background_task.launch_room_bg_task ~db ~session_key:"slack:C-ROOM-A:UA1"
+        ~connector:"slack" ~room_id:"C-ROOM-A" ~requester_id:"UA1"
+        ~goal:"task A" ~preferred_runner:Background_task.Local ()
+    with
+    | Ok id -> id
+    | Error msg -> Alcotest.failf "launch A failed: %s" msg
+  in
+  let id_b =
+    match
+      Background_task.launch_room_bg_task ~db ~session_key:"slack:C-ROOM-B:UB1"
+        ~connector:"slack" ~room_id:"C-ROOM-B" ~requester_id:"UB1"
+        ~goal:"task B" ~preferred_runner:Background_task.Local ()
+    with
+    | Ok id -> id
+    | Error msg -> Alcotest.failf "launch B failed: %s" msg
+  in
+  (* Verify distinct IDs *)
+  Alcotest.(check bool) "distinct task ids" true (id_a <> id_b);
+  let task_a =
+    match Background_task.get_task ~db ~id:id_a with
+    | Some t -> t
+    | None -> Alcotest.fail "task A not found"
+  in
+  let task_b =
+    match Background_task.get_task ~db ~id:id_b with
+    | Some t -> t
+    | None -> Alcotest.fail "task B not found"
+  in
+  (* Verify profile_id is correct and uncorrelated *)
+  Alcotest.(check (option int))
+    "task A profile_id" (Some profile_a) task_a.profile_id;
+  Alcotest.(check (option int))
+    "task B profile_id" (Some profile_b) task_b.profile_id;
+  (* Verify origin_json contains the correct room_id *)
+  (match task_a.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task A origin has room C-ROOM-A" true
+        (Test_helpers.string_contains json "C-ROOM-A")
+  | None -> Alcotest.fail "task A missing origin_json");
+  (match task_b.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task B origin has room C-ROOM-B" true
+        (Test_helpers.string_contains json "C-ROOM-B")
+  | None -> Alcotest.fail "task B missing origin_json");
+  (* Verify session_key is uncorrelated *)
+  Alcotest.(check (option string))
+    "task A session_key" (Some "slack:C-ROOM-A:UA1") task_a.session_key;
+  Alcotest.(check (option string))
+    "task B session_key" (Some "slack:C-ROOM-B:UB1") task_b.session_key;
+  (* Verify cross-contamination: A's origin must not mention B's room *)
+  (match task_a.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task A origin clean of B" false
+        (Test_helpers.string_contains json "C-ROOM-B")
+  | None -> ());
+  match task_b.origin_json with
+  | Some json ->
+      Alcotest.(check bool)
+        "task B origin clean of A" false
+        (Test_helpers.string_contains json "C-ROOM-A")
+  | None -> ()
+
 let test_set_progress_state_persists () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -6045,4 +6127,6 @@ let suite =
       test_launch_room_async_bg_delegate;
     Alcotest.test_case "launch_room_async_bg compact returns none" `Quick
       test_launch_room_async_bg_compact_none;
+    Alcotest.test_case "concurrent room bg tasks preserve origin attribution"
+      `Quick test_concurrent_room_bg_tasks_preserve_origin_attribution;
   ]

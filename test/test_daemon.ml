@@ -3066,6 +3066,89 @@ let test_b673_sanitize_history_preserves_normal_messages () =
   Alcotest.(check int) "no noise dropped" 0 dropped;
   Alcotest.(check int) "both messages preserved" 2 (List.length cleaned)
 
+(** P11.M4.E4.T001: A room task enqueued via the durable inbound queue is
+    replayed exactly once during daemon restart replay. *)
+let test_replay_room_task_enqueued_exactly_once () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let room_key = "slack:C-REPLAY-ROOM:U100" in
+  (* Enqueue two room messages that succeed *)
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:room_key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc
+               [ ("message", `String "room task alpha"); ("bang", `Bool false) ])));
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:room_key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc
+               [ ("message", `String "room task beta"); ("bang", `Bool false) ])));
+  Alcotest.(check int)
+    "2 pending before replay" 2
+    (Memory.queue_count ~db ~session_key:room_key);
+  let replayed = ref [] in
+  let replay_turn _mgr ~key ~message ?cwd:_ () =
+    replayed := (key, message) :: !replayed;
+    Lwt.return "ok"
+  in
+  let summary =
+    Lwt_main.run
+      (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+         ())
+  in
+  (* Both messages should be replayed exactly once *)
+  Alcotest.(check int) "summary replayed count" 2 summary.replayed_count;
+  Alcotest.(check int) "summary failed count" 0 summary.failed_count;
+  Alcotest.(check int)
+    "0 pending after replay" 0
+    (Memory.queue_count ~db ~session_key:room_key);
+  (* Verify both messages were delivered, in FIFO order *)
+  let ordered = List.rev !replayed in
+  Alcotest.(check int) "2 messages replayed" 2 (List.length ordered);
+  match ordered with
+  | [ (k1, m1); (k2, m2) ] ->
+      Alcotest.(check string) "first key" room_key k1;
+      Alcotest.(check string) "first message" "room task alpha" m1;
+      Alcotest.(check string) "second key" room_key k2;
+      Alcotest.(check string) "second message" "room task beta" m2
+  | _ -> Alcotest.fail "expected exactly 2 replayed messages"
+
+(** P11.M4.E4.T001: A background task that has session_key set but no registered
+    notifier and no channel/channel_id records "skipped" in the notification
+    ledger. *)
+let test_missing_delivery_target_records_skipped () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  Scheduler.init_schema db;
+  let task_id = insert_test_task db in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  (* Session key is set but we deliberately do NOT register a notifier
+     and the task has no channel/channel_id. This simulates a missing
+     delivery target. *)
+  let task =
+    {
+      (make_test_task ~id:task_id ~session_key:(Some "slack:C-MISSING:UX")
+         ~channel:None ~channel_id:None ())
+      with
+      Background_task.status = Succeeded;
+    }
+  in
+  Lwt_main.run
+    (Daemon.notify_background_task_finished ~continuation_delay:100.0
+       ~session_manager ~config ~db task);
+  let t =
+    match Background_task.get_task ~db ~id:task_id with
+    | Some t -> t
+    | None -> Alcotest.fail "task not found"
+  in
+  Alcotest.(check (option string))
+    "notification status skipped" (Some "skipped") t.notification_status;
+  Alcotest.(check int) "notification attempts" 1 t.notification_attempts
+
 let suite =
   [
     Alcotest.test_case "B673: sanitize history drops noise messages" `Quick
@@ -3222,4 +3305,8 @@ let suite =
       test_notify_records_skipped_when_no_channel;
     Alcotest.test_case "notify discord dispatches channel notification" `Quick
       test_notify_discord_dispatches_channel_notification;
+    Alcotest.test_case "replay room task enqueued exactly once after restart"
+      `Quick test_replay_room_task_enqueued_exactly_once;
+    Alcotest.test_case "missing delivery target records skipped in ledger"
+      `Quick test_missing_delivery_target_records_skipped;
   ]
