@@ -29,6 +29,26 @@ let with_temp_git_repo f =
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote repo))))
 
+let with_fake_supported_runner f =
+  let dir = Filename.temp_file "clawq-fake-runner" "" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o755;
+  let runner = Filename.concat dir "kimi" in
+  let oc = open_out runner in
+  output_string oc "#!/bin/sh\nexit 0\n";
+  close_out oc;
+  Unix.chmod runner 0o755;
+  let old_path = try Some (Sys.getenv "PATH") with Not_found -> None in
+  Fun.protect
+    (fun () ->
+      Unix.putenv "PATH" (dir ^ ":" ^ Option.value old_path ~default:"");
+      f ())
+    ~finally:(fun () ->
+      (match old_path with
+      | Some path -> Unix.putenv "PATH" path
+      | None -> Unix.putenv "PATH" "");
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
 let fake_task ?(runner = Background_task.Codex)
     ?(status = Background_task.Queued) id =
   {
@@ -5394,34 +5414,35 @@ let test_launch_room_bg_task_local () =
       )
 
 let test_launch_room_async_bg_delegate () =
-  let db = Memory.init ~db_path:":memory:" () in
-  Background_task.init_schema db;
-  let room_id = "C-ASYNC-ROOM" in
-  let result = Slash_commands.Delegate (None, "build feature") in
-  match
-    Room_request_classifier.launch_room_async_bg ~db
-      ~session_key:"slack:C-ASYNC-ROOM:U456" ~connector:"slack" ~room_id
-      ~requester_id:"U456" ~is_admin:true result
-  with
-  | Error msg -> Alcotest.failf "launch failed: %s" msg
-  | Ok None -> Alcotest.fail "expected Some for Delegate"
-  | Ok (Some id) -> (
-      Alcotest.(check bool) "id > 0" true (id > 0);
-      match Background_task.get_task ~db ~id with
-      | None -> Alcotest.fail "task not found"
-      | Some task ->
-          (* delegate_enqueue wraps the goal in a full prompt *)
-          Alcotest.(check bool)
-            "prompt contains goal" true
-            (try
-               ignore
-                 (Str.search_forward
-                    (Str.regexp_string "build feature")
-                    task.prompt 0);
-               true
-             with Not_found -> false);
-          Alcotest.(check (option string))
-            "session_key" (Some "slack:C-ASYNC-ROOM:U456") task.session_key)
+  with_fake_supported_runner (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let room_id = "C-ASYNC-ROOM" in
+      let result = Slash_commands.Delegate (None, "build feature") in
+      match
+        Room_request_classifier.launch_room_async_bg ~db
+          ~session_key:"slack:C-ASYNC-ROOM:U456" ~connector:"slack" ~room_id
+          ~requester_id:"U456" ~is_admin:true result
+      with
+      | Error msg -> Alcotest.failf "launch failed: %s" msg
+      | Ok None -> Alcotest.fail "expected Some for Delegate"
+      | Ok (Some id) -> (
+          Alcotest.(check bool) "id > 0" true (id > 0);
+          match Background_task.get_task ~db ~id with
+          | None -> Alcotest.fail "task not found"
+          | Some task ->
+              (* delegate_enqueue wraps the goal in a full prompt *)
+              Alcotest.(check bool)
+                "prompt contains goal" true
+                (try
+                   ignore
+                     (Str.search_forward
+                        (Str.regexp_string "build feature")
+                        task.prompt 0);
+                   true
+                 with Not_found -> false);
+              Alcotest.(check (option string))
+                "session_key" (Some "slack:C-ASYNC-ROOM:U456") task.session_key))
 
 let test_launch_room_async_bg_compact_none () =
   let db = Memory.init ~db_path:":memory:" () in
