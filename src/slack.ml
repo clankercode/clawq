@@ -820,7 +820,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                     in
                     Lwt.return "ok")
             | BashRun cmd ->
-                let* result = Slash_commands_bash.run_bash_command cmd in
+                let cfg = Session.get_config session_manager in
+                let* result =
+                  Slash_commands_bash.run_bash_command ~config:cfg
+                    ~session_key:key cmd
+                in
                 let full_text = Slash_commands_bash.format_result cmd result in
                 let max_len = 3000 in
                 let text =

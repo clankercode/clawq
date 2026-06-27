@@ -217,6 +217,8 @@ let test_room_profile_model_overrides_channel_default () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -245,6 +247,8 @@ let test_room_profile_model_overrides_global () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -274,6 +278,8 @@ let test_session_override_takes_precedence_over_room_profile () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -301,6 +307,8 @@ let test_inactive_room_profile_binding_skipped () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -348,6 +356,8 @@ let test_room_profile_full_precedence_chain () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -399,6 +409,8 @@ let test_clear_session_model_restores_room_profile_on_active_session () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -443,6 +455,8 @@ let test_room_profile_model_applied_on_session_load () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -479,6 +493,8 @@ let test_room_profile_binding_matches_full_session_key () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -621,6 +637,8 @@ let test_room_profile_beats_template () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ]
       in
@@ -663,6 +681,8 @@ let test_security_gate_denies_anthropic_from_profile () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -693,6 +713,8 @@ let test_security_gate_allows_anthropic_when_enabled () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -721,6 +743,8 @@ let test_security_gate_allows_non_anthropic () =
         system_prompt = "";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -780,6 +804,8 @@ let test_room_profile_system_prompt_applied () =
         system_prompt = "room profile prompt";
         max_tool_iterations = 10;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -809,6 +835,8 @@ let test_room_profile_max_tool_iterations_applied () =
         system_prompt = "";
         max_tool_iterations = 25;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -837,6 +865,8 @@ let test_room_profile_template_overrides_global () =
         system_prompt = "room profile prompt";
         max_tool_iterations = 30;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -867,6 +897,8 @@ let test_session_model_override_does_not_affect_template () =
         system_prompt = "room profile prompt";
         max_tool_iterations = 20;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -897,6 +929,8 @@ let test_inactive_room_profile_skips_template () =
         system_prompt = "inactive prompt";
         max_tool_iterations = 99;
         status = "active";
+        allowed_tools = [];
+        denied_tools = [];
       };
     ]
   in
@@ -935,6 +969,8 @@ let test_room_profile_prompt_out_ranks_template_in_built_prompt () =
             system_prompt = "room profile system prompt";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ]
       in

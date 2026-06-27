@@ -2225,6 +2225,103 @@ let make_fake_tool name invocations =
 let make_tool_call ~id ~name =
   { Provider.id; function_name = name; arguments = "{}" }
 
+let room_profile_tool_config ?(allowed_tools = []) ?(denied_tools = []) () =
+  {
+    Runtime_config.default with
+    room_profiles =
+      [
+        {
+          Runtime_config.id = "profile-a";
+          display_name = None;
+          model = "openai:gpt-5.4";
+          system_prompt = "";
+          max_tool_iterations = 10;
+          status = "active";
+          allowed_tools;
+          denied_tools;
+        };
+      ];
+    room_profile_bindings =
+      [
+        { Runtime_config.profile_id = "profile-a"; room = "C_A"; active = true };
+      ];
+  }
+
+let test_room_profile_tool_allowlist_allows_listed_tool () =
+  let config = room_profile_tool_config ~allowed_tools:[ "tool_a" ] () in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:(Some "web:C_A")
+       [ make_tool_call ~id:"tc1" ~name:"tool_a" ]);
+  Alcotest.(check (list string))
+    "allowed tool invoked" [ "tool_a" ] (List.rev !invocations);
+  Alcotest.(check (list string))
+    "allowed tool result" [ "result:tool_a" ]
+    (List.map (fun (msg : Provider.message) -> msg.content) agent.history)
+
+let test_room_profile_tool_denylist_blocks_denied_tool () =
+  let config = room_profile_tool_config ~denied_tools:[ "tool_b" ] () in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:(Some "web:C_A")
+       [ make_tool_call ~id:"tc1" ~name:"tool_b" ]);
+  Alcotest.(check (list string)) "denied tool not invoked" [] !invocations;
+  match agent.history with
+  | [ msg ] ->
+      Alcotest.(check bool)
+        "denied result is not permitted" true
+        (Test_helpers.string_contains msg.content "not permitted")
+  | _ -> Alcotest.fail "expected one denied tool result"
+
+let test_room_profile_tool_allowlist_blocks_unlisted_tool () =
+  let config = room_profile_tool_config ~allowed_tools:[ "tool_a" ] () in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:(Some "web:C_A")
+       [ make_tool_call ~id:"tc1" ~name:"tool_b" ]);
+  Alcotest.(check (list string)) "unlisted tool not invoked" [] !invocations;
+  match agent.history with
+  | [ msg ] ->
+      Alcotest.(check bool)
+        "unlisted result is not permitted" true
+        (Test_helpers.string_contains msg.content "not permitted");
+      Alcotest.(check bool)
+        "unlisted result explains allowlist" true
+        (Test_helpers.string_contains msg.content "allowed_tools")
+  | _ -> Alcotest.fail "expected one unlisted tool result"
+
+let test_room_profile_tool_grants_block_user_bash_command () =
+  let config = room_profile_tool_config ~denied_tools:[ "shell_exec" ] () in
+  let result =
+    Lwt_main.run
+      (Slash_commands_bash.run_bash_command ~config ~session_key:"web:C_A"
+         "echo should-not-run")
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "user slash bash denied as not permitted" true
+        (Test_helpers.string_contains msg "not permitted")
+  | Ok _ -> Alcotest.fail "expected denied user-initiated shell_exec"
+
 let test_interrupt_skips_tool_calls_in_batch () =
   let config = Runtime_config.default in
   let invocations = ref [] in
@@ -4743,6 +4840,14 @@ let suite =
     Alcotest.test_case
       "profiled room session turn skips unscoped memory context" `Quick
       test_profiled_room_session_turn_skips_unscoped_memory_context;
+    Alcotest.test_case "room profile tool allowlist allows listed tool" `Quick
+      test_room_profile_tool_allowlist_allows_listed_tool;
+    Alcotest.test_case "room profile tool denylist blocks denied tool" `Quick
+      test_room_profile_tool_denylist_blocks_denied_tool;
+    Alcotest.test_case "room profile tool allowlist blocks unlisted tool" `Quick
+      test_room_profile_tool_allowlist_blocks_unlisted_tool;
+    Alcotest.test_case "room profile tool grants block user bash command" `Quick
+      test_room_profile_tool_grants_block_user_bash_command;
     Alcotest.test_case "turn returns restart message while draining" `Quick
       test_turn_returns_restart_message_while_draining;
     Alcotest.test_case "registered notifier sends warning" `Quick

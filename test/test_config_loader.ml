@@ -1139,6 +1139,8 @@ let test_room_profiles_roundtrip () =
             system_prompt = "hello";
             max_tool_iterations = 7;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =

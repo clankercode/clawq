@@ -904,6 +904,22 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                         ("max_tool_iterations", `Int p.max_tool_iterations);
                         ("status", `String p.status);
                       ]
+                     @ (if p.allowed_tools = [] then []
+                        else
+                          [
+                            ( "allowed_tools",
+                              `List
+                                (List.map (fun t -> `String t) p.allowed_tools)
+                            );
+                          ])
+                     @ (if p.denied_tools = [] then []
+                        else
+                          [
+                            ( "denied_tools",
+                              `List
+                                (List.map (fun t -> `String t) p.denied_tools)
+                            );
+                          ])
                      @
                      match p.display_name with
                      | Some name -> [ ("display_name", `String name) ]

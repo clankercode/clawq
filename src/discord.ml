@@ -1004,7 +1004,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   ~channel_id:msg.channel_id ~text:"Debate requires a database."
             )
         | BashRun cmd ->
-            let* result = Slash_commands_bash.run_bash_command cmd in
+            let config = Session.get_config session_mgr in
+            let* result =
+              Slash_commands_bash.run_bash_command ~config ~session_key:key cmd
+            in
             let full_text = Slash_commands_bash.format_result cmd result in
             let max_len = 1800 in
             let text =

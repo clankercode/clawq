@@ -442,6 +442,31 @@ let resolve_room_profile_model (cfg : t) ~session_key : string option =
   | Some p when p.model <> "" -> Some p.model
   | _ -> None
 
+let room_profile_tool_denial (profile : room_profile) ~tool_name =
+  if List.mem tool_name profile.denied_tools then
+    Some
+      (Printf.sprintf
+         "Error: tool '%s' is not permitted in room profile '%s': it is listed \
+          in denied_tools. Ask an administrator to remove it from denied_tools \
+          or use a permitted tool."
+         tool_name profile.id)
+  else
+    match profile.allowed_tools with
+    | [] -> None
+    | allowed when List.mem tool_name allowed -> None
+    | _ ->
+        Some
+          (Printf.sprintf
+             "Error: tool '%s' is not permitted in room profile '%s': it is \
+              not listed in allowed_tools. Ask an administrator to add it to \
+              allowed_tools or use a permitted tool."
+             tool_name profile.id)
+
+let room_profile_tool_denial_for_session cfg ~session_key ~tool_name =
+  match resolve_room_profile cfg ~session_key with
+  | None -> None
+  | Some profile -> room_profile_tool_denial profile ~tool_name
+
 let effective_compaction_threshold_percent (memory : memory_config) =
   let p = memory.compaction_threshold_percent in
   if p <= 0 || p >= 100 then default.memory.compaction_threshold_percent else p
