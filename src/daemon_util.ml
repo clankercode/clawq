@@ -679,6 +679,50 @@ let record_notification ~db ~task_id ~status ?error () =
         ()
   | None -> ()
 
+let deliver_room_progress ~(config : Runtime_config.t)
+    (task : Background_task.task) =
+  let open Lwt.Syntax in
+  match config.channels.slack with
+  | Some slack_config ->
+      let send ~room_id ?thread_id ~text () =
+        match thread_id with
+        | Some thread_ts ->
+            let uri = "https://slack.com/api/chat.postMessage" in
+            let headers =
+              [ ("Authorization", "Bearer " ^ slack_config.bot_token) ]
+            in
+            let body =
+              `Assoc
+                [
+                  ("channel", `String room_id);
+                  ("text", `String text);
+                  ("thread_ts", `String thread_ts);
+                ]
+              |> Yojson.Safe.to_string
+            in
+            let* _status, resp_body =
+              Http_client.post_json ~uri ~headers ~body
+            in
+            let ts =
+              try
+                let json = Yojson.Safe.from_string resp_body in
+                json
+                |> Yojson.Safe.Util.member "ts"
+                |> Yojson.Safe.Util.to_string
+              with _ -> "0"
+            in
+            Lwt.return ts
+        | None ->
+            Slack.send_message_with_id ~bot_token:slack_config.bot_token
+              ~channel_id:room_id ~text
+      in
+      let edit ~room_id ~msg_id ~text =
+        Slack.edit_message ~bot_token:slack_config.bot_token ~channel_id:room_id
+          ~ts:msg_id ~text
+      in
+      Room_progress.deliver_progress_update ~send ~edit ~task ()
+  | None -> Lwt.return_unit
+
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
     ?db task =
@@ -743,6 +787,7 @@ let notify_background_task_finished ?continuation_delay
   | _ -> ());
   if skip_notification then Lwt.return_unit
   else
+    let* () = deliver_room_progress ~config task in
     let* summary = summarize_for_notification ~config task in
     let git_info = Background_task.gather_git_status task in
     let channel_text =
@@ -820,11 +865,12 @@ let notify_background_task_finished ?continuation_delay
     | None -> Lwt.return_unit
 
 let notify_background_task_started ~(session_manager : Session.t)
-    ~config:(_config : Runtime_config.t) task =
+    ~(config : Runtime_config.t) task =
+  let open Lwt.Syntax in
   let message = Background_task.terse_started_message task in
+  let* () = deliver_room_progress ~config task in
   match task.Background_task.session_key with
   | Some key ->
-      let open Lwt.Syntax in
       let* _queued =
         Session.enqueue_message_if_busy session_manager ~key
           {

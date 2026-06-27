@@ -87,6 +87,7 @@
   test_room_watcher_decision
   test_room_ambient_delivery
   test_ambient_inspection
+  test_room_progress
   test_sandbox
   test_scheduler
   test_secret_store
