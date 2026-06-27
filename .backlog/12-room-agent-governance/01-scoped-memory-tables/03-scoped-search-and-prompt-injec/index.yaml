@@ -24,7 +24,8 @@ tasks:
       file: T002-wire-scoped-memory-into-agent.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Wire scoped memory into agent prompt injection and compaction
     - complexity: medium
       depends_on:

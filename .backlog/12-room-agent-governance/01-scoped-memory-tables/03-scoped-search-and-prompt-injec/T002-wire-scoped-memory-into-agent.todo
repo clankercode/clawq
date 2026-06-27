@@ -1,15 +1,14 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P12.M1.E3.T001
 estimate_hours: 4
 id: P12.M1.E3.T002
 priority: high
-status: pending
-tags:
-    - room-agent
-    - memory
-    - privacy
+started_at: null
+status: done
+tags: []
 title: Wire scoped memory into agent prompt injection and compaction
 ---
 Acceptance: agent prompt injection and compaction use scoped APIs; profiled room prompts and summaries omit unauthorized memory. Files: src/agent.ml, src/agent_0_compact.ml, test/test_agent*.ml.
