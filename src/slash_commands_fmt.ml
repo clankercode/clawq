@@ -305,6 +305,11 @@ let commands =
       priority = 93;
     };
     {
+      name = "version";
+      description = "Show version and build info";
+      priority = 88;
+    };
+    {
       name = "debug_dump_chat";
       description = "Dump session to file and send as attachment";
       priority = 3;
@@ -350,6 +355,14 @@ let read_daemon_state_json () =
   with _ -> None
 
 (* ── New format functions for FormattedReply closures ─────────────────── *)
+
+let format_version ~connector =
+  Format_adapter.bold connector "clawq"
+  ^ " "
+  ^ Format_adapter.code connector Build_info.version_dev
+  ^ "\ngit "
+  ^ Format_adapter.code connector Build_info.git_shorthash
+  ^ "\nbuilt " ^ Build_info.build_date
 
 let format_start ~connector =
   Format_adapter.bold connector "clawq"
