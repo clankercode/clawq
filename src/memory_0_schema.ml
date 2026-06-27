@@ -1,4 +1,4 @@
-let schema_version = 35
+let schema_version = 36
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -182,6 +182,7 @@ let init_request_stats_schema db =
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     session_key TEXT NOT NULL,\n\
     \     message_id INTEGER,\n\
+    \     profile_id INTEGER,\n\
     \     provider TEXT NOT NULL,\n\
     \     model TEXT NOT NULL,\n\
     \     prompt_tokens INTEGER NOT NULL,\n\
@@ -189,6 +190,7 @@ let init_request_stats_schema db =
     \     cost_usd REAL,\n\
     \     added_prompt_tokens INTEGER,\n\
     \     cached_tokens INTEGER,\n\
+    \     latency_ms INTEGER,\n\
     \     requested_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )";
   exec_exn db
@@ -196,7 +198,10 @@ let init_request_stats_schema db =
      request_stats(session_key)";
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_request_stats_model ON \
-     request_stats(model, requested_at)"
+     request_stats(model, requested_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+     request_stats(profile_id, requested_at)"
 
 let init_epoch_schema db =
   exec_exn db
@@ -741,6 +746,13 @@ let migrate_step db v =
       try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
   | 33 -> init_scoped_memory_schema db
   | 34 -> init_connector_history_schema db
+  | 35 ->
+      let try_add sql = try exec_exn db sql with _ -> () in
+      try_add "ALTER TABLE request_stats ADD COLUMN profile_id INTEGER";
+      try_add "ALTER TABLE request_stats ADD COLUMN latency_ms INTEGER";
+      exec_exn db
+        "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+         request_stats(profile_id, requested_at)"
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -763,6 +775,8 @@ let repair_missing_columns db =
     "ALTER TABLE session_state ADD COLUMN debug_enabled INTEGER NOT NULL \
      DEFAULT 0";
   try_add "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER";
+  try_add "ALTER TABLE request_stats ADD COLUMN profile_id INTEGER";
+  try_add "ALTER TABLE request_stats ADD COLUMN latency_ms INTEGER";
   try_add "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL";
   try_add "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL";
   try_add
@@ -777,6 +791,9 @@ let repair_missing_columns db =
   try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
   try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
   try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
+     request_stats(profile_id, requested_at)";
   init_connector_history_schema db;
   init_scoped_memory_schema db
 

@@ -215,7 +215,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost ~current_request_history_len response =
+  let track_cost ~current_request_history_len ~latency_ms response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -295,7 +295,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             in
             Request_stats.record ~db ~session_key:sid ~provider:pname ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
-              ~added_prompt_tokens:added ?cached_tokens ()
+              ~added_prompt_tokens:added ?cached_tokens ~latency_ms ()
         | None -> ())
     | _ -> ()
   in
@@ -352,7 +352,10 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           end
           else Lwt.fail exn)
     in
-    track_cost ~current_request_history_len response;
+    let latency_ms =
+      int_of_float ((Unix.gettimeofday () -. llm_start) *. 1000.0)
+    in
+    track_cost ~current_request_history_len ~latency_ms response;
     agent.last_request_history_len <- Some current_request_history_len;
     (* Invoke debug callback if provided *)
     (match on_llm_call_debug with
@@ -668,7 +671,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost ~current_request_history_len response =
+  let track_cost ~current_request_history_len ~latency_ms response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -748,7 +751,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             in
             Request_stats.record ~db ~session_key:sid ~provider:pname ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
-              ~added_prompt_tokens:added ?cached_tokens ()
+              ~added_prompt_tokens:added ?cached_tokens ~latency_ms ()
         | None -> ())
     | _ -> ()
   in
@@ -807,7 +810,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               end
               else Lwt.fail exn)
         in
-        track_cost ~current_request_history_len response;
+        let latency_ms =
+          int_of_float ((Unix.gettimeofday () -. llm_start) *. 1000.0)
+        in
+        track_cost ~current_request_history_len ~latency_ms response;
         agent.last_request_history_len <- Some current_request_history_len;
         (* Invoke debug callback if provided *)
         (match on_llm_call_debug with

@@ -26,12 +26,102 @@ let zero_summary =
     total_turns = 0;
   }
 
-let record ~db ~session_key ?message_id ~provider ~model ~prompt_tokens
-    ~completion_tokens ?cost_usd ?added_prompt_tokens ?cached_tokens () =
+let unique_strings values =
+  List.fold_left
+    (fun acc value ->
+      if String.trim value = "" || List.mem value acc then acc else value :: acc)
+    [] values
+  |> List.rev
+
+let channel_id_from_session_key session_key =
+  match String.index_opt session_key ':' with
+  | None -> None
+  | Some idx when idx + 1 < String.length session_key ->
+      Some
+        (String.sub session_key (idx + 1) (String.length session_key - idx - 1))
+  | Some _ -> None
+
+let room_profile_binding_profile_id ~db room_id =
+  try
+    Option.map
+      (fun (b : Memory.room_profile_binding) -> b.profile_id)
+      (Memory.get_room_profile_binding ~db ~room_id)
+  with _ -> None
+
+let profile_id_by_name ~db name =
+  try
+    Option.map
+      (fun (p : Memory.room_profile) -> p.id)
+      (Memory.get_room_profile_by_name ~db ~name)
+  with _ -> None
+
+let profile_has_binding ~db profile_id =
+  try
+    Memory.list_room_profile_bindings_all ~db
+    |> List.exists (fun (b : Memory.room_profile_binding) ->
+        b.profile_id = profile_id)
+  with _ -> false
+
+let direct_room_candidates ~db ~session_key =
+  let channel_candidates =
+    try
+      match Memory.get_session_channel ~db ~session_key with
+      | Some (channel, channel_id) -> [ channel ^ ":" ^ channel_id; channel_id ]
+      | None -> []
+    with _ -> []
+  in
+  unique_strings
+    ((session_key :: channel_candidates)
+    @
+    match channel_id_from_session_key session_key with
+    | Some channel_id -> [ channel_id ]
+    | None -> [])
+
+let infer_profile_id ~db ~session_key =
+  let direct =
+    direct_room_candidates ~db ~session_key
+    |> List.find_map (room_profile_binding_profile_id ~db)
+  in
+  match direct with
+  | Some _ as found -> found
+  | None -> (
+      match Room_session.parse_child_thread_key session_key with
+      | Some child -> (
+          match profile_id_by_name ~db child.profile_id with
+          | None -> None
+          | Some profile_id ->
+              let room_candidates =
+                unique_strings
+                  [ child.connector ^ ":" ^ child.room_id; child.room_id ]
+              in
+              let matches =
+                room_candidates
+                |> List.exists (fun room_id ->
+                    room_profile_binding_profile_id ~db room_id
+                    = Some profile_id)
+              in
+              if matches then Some profile_id else None)
+      | None -> (
+          match Room_session.parse_routine_key session_key with
+          | Some routine -> (
+              match profile_id_by_name ~db routine.profile_id with
+              | Some profile_id when profile_has_binding ~db profile_id ->
+                  Some profile_id
+              | _ -> None)
+          | None -> None))
+
+let record ~db ~session_key ?message_id ?profile_id ~provider ~model
+    ~prompt_tokens ~completion_tokens ?cost_usd ?added_prompt_tokens
+    ?cached_tokens ?latency_ms () =
+  let profile_id =
+    match profile_id with
+    | Some _ -> profile_id
+    | None -> infer_profile_id ~db ~session_key
+  in
   let sql =
-    "INSERT INTO request_stats (session_key, message_id, provider, model, \
-     prompt_tokens, completion_tokens, cost_usd, added_prompt_tokens, \
-     cached_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO request_stats (session_key, message_id, profile_id, provider, \
+     model, prompt_tokens, completion_tokens, cost_usd, added_prompt_tokens, \
+     cached_tokens, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   in
   try
     let stmt = Sqlite3.prepare db sql in
@@ -44,27 +134,37 @@ let record ~db ~session_key ?message_id ~provider ~model ~prompt_tokens
              (match message_id with
              | Some id -> Sqlite3.Data.INT (Int64.of_int id)
              | None -> Sqlite3.Data.NULL));
-        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT provider));
-        ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT model));
         ignore
-          (Sqlite3.bind stmt 5 (Sqlite3.Data.INT (Int64.of_int prompt_tokens)));
+          (Sqlite3.bind stmt 3
+             (match profile_id with
+             | Some id -> Sqlite3.Data.INT (Int64.of_int id)
+             | None -> Sqlite3.Data.NULL));
+        ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT provider));
+        ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT model));
         ignore
-          (Sqlite3.bind stmt 6
-             (Sqlite3.Data.INT (Int64.of_int completion_tokens)));
+          (Sqlite3.bind stmt 6 (Sqlite3.Data.INT (Int64.of_int prompt_tokens)));
         ignore
           (Sqlite3.bind stmt 7
+             (Sqlite3.Data.INT (Int64.of_int completion_tokens)));
+        ignore
+          (Sqlite3.bind stmt 8
              (match cost_usd with
              | Some c -> Sqlite3.Data.FLOAT c
              | None -> Sqlite3.Data.NULL));
         ignore
-          (Sqlite3.bind stmt 8
+          (Sqlite3.bind stmt 9
              (match added_prompt_tokens with
              | Some a -> Sqlite3.Data.INT (Int64.of_int a)
              | None -> Sqlite3.Data.NULL));
         ignore
-          (Sqlite3.bind stmt 9
+          (Sqlite3.bind stmt 10
              (match cached_tokens with
              | Some c -> Sqlite3.Data.INT (Int64.of_int c)
+             | None -> Sqlite3.Data.NULL));
+        ignore
+          (Sqlite3.bind stmt 11
+             (match latency_ms with
+             | Some ms -> Sqlite3.Data.INT (Int64.of_int ms)
              | None -> Sqlite3.Data.NULL));
         match Sqlite3.step stmt with
         | Sqlite3.Rc.DONE ->
@@ -224,21 +324,47 @@ let resolve_since ~db since =
           | _ -> since)
     with _ -> since
 
-let summary_for_period ~db ~since =
-  let resolved_since = resolve_since ~db since in
+let summary_query ~db ?profile_id ?since ?until () =
+  let filters = ref [] in
+  let params = ref [] in
+  let add_filter sql data =
+    filters := sql :: !filters;
+    params := data :: !params
+  in
+  (match profile_id with
+  | Some id -> add_filter "profile_id = ?" (Sqlite3.Data.INT (Int64.of_int id))
+  | None -> ());
+  (match since with
+  | Some since ->
+      add_filter "requested_at >= ?"
+        (Sqlite3.Data.TEXT (resolve_since ~db since))
+  | None -> ());
+  (match until with
+  | Some until ->
+      add_filter "requested_at < ?"
+        (Sqlite3.Data.TEXT (resolve_since ~db until))
+  | None -> ());
+  let where_clause =
+    match List.rev !filters with
+    | [] -> ""
+    | filters -> " WHERE " ^ String.concat " AND " filters
+  in
   let sql =
-    "SELECT " ^ summary_sql_cols ^ " FROM request_stats WHERE requested_at >= ?"
+    "SELECT " ^ summary_sql_cols ^ " FROM request_stats" ^ where_clause
   in
   try
     let stmt = Sqlite3.prepare db sql in
     Fun.protect
       ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
       (fun () ->
-        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT resolved_since));
+        List.rev !params
+        |> List.iteri (fun i data -> ignore (Sqlite3.bind stmt (i + 1) data));
         match Sqlite3.step stmt with
         | Sqlite3.Rc.ROW -> read_summary_row stmt
         | _ -> zero_summary)
   with _ -> zero_summary
+
+let summary_for_period ~db ~since = summary_query ~db ~since ()
 
 let summary_by_session ~db =
   let sql =
