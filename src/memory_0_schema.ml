@@ -1,4 +1,4 @@
-let schema_version = 34
+let schema_version = 35
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -326,6 +326,8 @@ let init_connector_history_schema db =
     "CREATE TABLE IF NOT EXISTS connector_history (\n\
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     session_key TEXT NOT NULL,\n\
+    \     room_id TEXT NOT NULL DEFAULT '',\n\
+    \     connector_type TEXT NOT NULL DEFAULT '',\n\
     \     channel_type TEXT NOT NULL,\n\
     \     sender_name TEXT NOT NULL,\n\
     \     sender_id TEXT NOT NULL,\n\
@@ -333,12 +335,33 @@ let init_connector_history_schema db =
     \     metadata_json TEXT,\n\
     \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )";
+  (try
+     exec_exn db
+       "ALTER TABLE connector_history ADD COLUMN room_id TEXT NOT NULL DEFAULT \
+        ''"
+   with _ -> ());
+  (try
+     exec_exn db
+       "ALTER TABLE connector_history ADD COLUMN connector_type TEXT NOT NULL \
+        DEFAULT ''"
+   with _ -> ());
+  exec_exn db
+    "UPDATE connector_history SET room_id = session_key WHERE room_id = ''";
+  exec_exn db
+    "UPDATE connector_history SET connector_type = channel_type WHERE \
+     connector_type = ''";
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_connector_history_session ON \
      connector_history (session_key, id ASC)";
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_connector_history_created ON \
-     connector_history (created_at)"
+     connector_history (created_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_connector_history_room_connector_created \
+     ON connector_history (room_id, connector_type, created_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_connector_history_connector_created ON \
+     connector_history (connector_type, created_at)"
 
 let init_attachment_log_schema db =
   exec_exn db
@@ -717,6 +740,7 @@ let migrate_step db v =
       try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
       try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT"
   | 33 -> init_scoped_memory_schema db
+  | 34 -> init_connector_history_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -753,6 +777,7 @@ let repair_missing_columns db =
   try_add "ALTER TABLE background_tasks ADD COLUMN origin_json TEXT";
   try_add "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
   try_add "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
+  init_connector_history_schema db;
   init_scoped_memory_schema db
 
 let migrate_schema db current_version =

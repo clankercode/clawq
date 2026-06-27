@@ -588,43 +588,45 @@ let cleanup_all ~db ~max_messages ~max_age_days =
     sessions
 
 let cleanup_connector_history ~db ~max_age_days ~max_messages =
-  exec_exn db
-    (Printf.sprintf
-       "DELETE FROM connector_history WHERE created_at < datetime('now', '-%d \
-        days')"
-       max_age_days);
+  ignore (Connector_history.delete_older_than ~db ~max_age_days ());
   let stmt =
-    Sqlite3.prepare db "SELECT DISTINCT session_key FROM connector_history"
+    Sqlite3.prepare db
+      "SELECT DISTINCT room_id, connector_type FROM connector_history"
   in
-  let keys = ref [] in
+  let scopes = ref [] in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-        match Sqlite3.column stmt 0 with
-        | Sqlite3.Data.TEXT k -> keys := k :: !keys
+        match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
+        | Sqlite3.Data.TEXT room_id, Sqlite3.Data.TEXT connector_type ->
+            scopes := (room_id, connector_type) :: !scopes
         | _ -> ()
       done);
   List.iter
-    (fun sk ->
+    (fun (room_id, connector_type) ->
       let trim_sql =
         Printf.sprintf
-          "DELETE FROM connector_history WHERE session_key = ? AND id NOT IN \
-           (SELECT id FROM connector_history WHERE session_key = ? ORDER BY id \
-           DESC LIMIT %d)"
+          "DELETE FROM connector_history WHERE room_id = ? AND connector_type \
+           = ? AND id NOT IN (SELECT id FROM connector_history WHERE room_id = \
+           ? AND connector_type = ? ORDER BY id DESC LIMIT %d)"
           max_messages
       in
       let trim_stmt = Sqlite3.prepare db trim_sql in
-      ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT sk));
-      ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT sk));
+      ignore (Sqlite3.bind trim_stmt 1 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.bind trim_stmt 2 (Sqlite3.Data.TEXT connector_type));
+      ignore (Sqlite3.bind trim_stmt 3 (Sqlite3.Data.TEXT room_id));
+      ignore (Sqlite3.bind trim_stmt 4 (Sqlite3.Data.TEXT connector_type));
       (match Sqlite3.step trim_stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
           Logs.warn (fun m ->
-              m "cleanup_connector_history: trim failed for key=%s: %s" sk
-                (Sqlite3.Rc.to_string rc)));
+              m
+                "cleanup_connector_history: trim failed for room=%s \
+                 connector=%s: %s"
+                room_id connector_type (Sqlite3.Rc.to_string rc)));
       ignore (Sqlite3.finalize trim_stmt))
-    !keys
+    !scopes
 
 (* --- room_profiles --- *)
 

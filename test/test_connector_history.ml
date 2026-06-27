@@ -101,14 +101,15 @@ let test_clear () =
 let test_db_persistence () =
   reset_buffers ();
   let db = fresh_db () in
-  Connector_history.record ~db ~persist:true ~key:"test:db"
-    ~channel_type:"teams" ~max:50 ~sender_name:"Alice" ~sender_id:"u1"
-    ~text:"Persisted" ();
-  (* Verify row exists in DB *)
+  let timestamp = 1_751_000_000.0 in
+  Connector_history.record ~db ~persist:true ~key:"test:db" ~room_id:"room-a"
+    ~connector_type:"teams" ~channel_type:"teams" ~max:50 ~sender_name:"Alice"
+    ~sender_id:"u1" ~text:"Persisted" ~timestamp ();
+  (* Verify row exists in DB with room scope, connector type, and timestamp. *)
   let stmt =
     Sqlite3.prepare db
-      "SELECT sender_name, text FROM connector_history WHERE session_key = \
-       'test:db'"
+      "SELECT sender_name, text, room_id, connector_type, created_at FROM \
+       connector_history WHERE session_key = 'test:db'"
   in
   let found = ref false in
   (match Sqlite3.step stmt with
@@ -119,8 +120,23 @@ let test_db_persistence () =
       let text =
         match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
       in
+      let room_id =
+        match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
+      let connector_type =
+        match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
+      let created_at =
+        match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
       Alcotest.(check string) "db sender" "Alice" name;
       Alcotest.(check string) "db text" "Persisted" text;
+      Alcotest.(check string) "room scope" "room-a" room_id;
+      Alcotest.(check string) "connector type" "teams" connector_type;
+      Alcotest.(check string)
+        "created_at timestamp"
+        (Connector_history.utc_datetime_of_epoch timestamp)
+        created_at;
       found := true
   | _ -> ());
   ignore (Sqlite3.finalize stmt);
@@ -145,6 +161,50 @@ let test_db_backfill () =
   let e = List.hd entries in
   Alcotest.(check string) "from DB" "From DB" e.text;
   Alcotest.(check string) "from DB sender" "DBUser" e.sender_name;
+  ignore (Sqlite3.db_close db)
+
+let test_query_filters_room_connector_time_range () =
+  reset_buffers ();
+  let db = fresh_db () in
+  let add ?(room_id = "room-a") ?(connector_type = "teams") text timestamp =
+    Connector_history.record ~db ~persist:true ~key:(room_id ^ ":session")
+      ~room_id ~connector_type ~channel_type:connector_type ~max:50
+      ~sender_name:"user" ~sender_id:"u1" ~text ~timestamp ()
+  in
+  add "too-old" 100.0;
+  add "match-1" 200.0;
+  add "match-2" 300.0;
+  add ~room_id:"room-b" "wrong-room" 250.0;
+  add ~connector_type:"discord" "wrong-connector" 250.0;
+  let entries =
+    Connector_history.query ~db ~room_id:"room-a" ~connector_type:"teams"
+      ~since_ts:150.0 ~until_ts:350.0 ()
+  in
+  Alcotest.(check int) "two matching entries" 2 (List.length entries);
+  Alcotest.(check (list string))
+    "filtered in chronological order" [ "match-1"; "match-2" ]
+    (List.map (fun (e : Connector_history.entry) -> e.text) entries);
+  ignore (Sqlite3.db_close db)
+
+let test_retention_cleanup_deletes_old_entries () =
+  reset_buffers ();
+  let db = fresh_db () in
+  let now = Unix.gettimeofday () in
+  Connector_history.record ~db ~persist:true ~key:"retention" ~room_id:"room-a"
+    ~connector_type:"teams" ~channel_type:"teams" ~max:50 ~sender_name:"Old"
+    ~sender_id:"u1" ~text:"old"
+    ~timestamp:(now -. (3.0 *. 86_400.0))
+    ();
+  Connector_history.record ~db ~persist:true ~key:"retention" ~room_id:"room-a"
+    ~connector_type:"teams" ~channel_type:"teams" ~max:50 ~sender_name:"New"
+    ~sender_id:"u2" ~text:"new"
+    ~timestamp:(now -. (0.5 *. 86_400.0))
+    ();
+  Memory.cleanup_connector_history ~db ~max_age_days:1 ~max_messages:50;
+  let entries = Connector_history.query ~db ~room_id:"room-a" () in
+  Alcotest.(check (list string))
+    "only retained entry" [ "new" ]
+    (List.map (fun (e : Connector_history.entry) -> e.text) entries);
   ignore (Sqlite3.db_close db)
 
 let test_nullable_text () =
@@ -260,6 +320,10 @@ let tests =
     Alcotest.test_case "format with metadata" `Quick test_format_with_metadata;
     Alcotest.test_case "clear empties buffer" `Quick test_clear;
     Alcotest.test_case "DB persistence" `Quick test_db_persistence;
+    Alcotest.test_case "query filters room connector time" `Quick
+      test_query_filters_room_connector_time_range;
+    Alcotest.test_case "retention cleanup deletes old entries" `Quick
+      test_retention_cleanup_deletes_old_entries;
     Alcotest.test_case "DB backfill" `Quick test_db_backfill;
     Alcotest.test_case "nullable text" `Quick test_nullable_text;
     Alcotest.test_case "clear with DB" `Quick test_clear_with_db;
