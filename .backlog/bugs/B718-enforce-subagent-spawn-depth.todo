@@ -1,13 +1,16 @@
 ---
-completed_at: null
+claimed_at: "2026-06-27T08:09:21Z"
+claimed_by: cli-user
+completed_at: "2026-06-27T08:09:34Z"
 complexity: low
 depends_on:
     - B712
+duration_minutes: 0.21986140568333334
 estimate_hours: 1
 id: B718
 priority: medium
-started_at: null
-status: pending
+started_at: "2026-06-27T08:09:21Z"
+status: done
 tags: []
 title: Enforce subagent spawn depth limit (max 4)
 ---
