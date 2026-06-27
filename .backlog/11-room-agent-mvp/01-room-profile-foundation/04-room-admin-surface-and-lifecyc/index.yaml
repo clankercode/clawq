@@ -36,7 +36,8 @@ tasks:
       file: T003-add-room-profile-rebind-rename.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add room profile rebind rename and delete lifecycle
     - complexity: medium
       depends_on:
