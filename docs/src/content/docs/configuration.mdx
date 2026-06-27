@@ -299,6 +299,36 @@ not counted against this native-only cap.
 
 All 17 channel types are supported: `telegram`, `discord`, `slack`, `github`, `teams`, `matrix`, `mattermost`, `dingtalk`, `imessage`, `signal`, `irc`, `email`, `whatsapp`, `nostr`, `lark`, `line`, `onebot`.
 
+### connector_history
+
+Optional capture of unaddressed group-chat messages for connectors that support
+ambient history capture. The capture and injection paths are gated by both this
+configuration and the connector capability matrix. Teams and Discord currently
+support ambient capture; Slack does not, because Slack messages are already
+delivered through the normal channel flow and no separate ambient-history
+capture path is implemented.
+
+```json
+{
+  "connector_history": {
+    "enabled": false,
+    "persist_to_db": false,
+    "max_messages": 50,
+    "max_age_days": 7
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Enable/disable capture of unaddressed group messages for capable connectors |
+| `persist_to_db` | Persist captured history in SQLite instead of relying only on in-memory buffers |
+| `max_messages` | Maximum retained messages per connector-history key (1-128) |
+| `max_age_days` | Retention window used by DB cleanup when persistence is enabled |
+
+Use `/inject_connector_history [N]` or the `inject_connector_history` tool from a
+Teams or Discord group session to load recent captured messages into context.
+
 ### security
 
 ```json

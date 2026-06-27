@@ -767,7 +767,17 @@ let transcribe ~(config : Runtime_config.t) =
 
 let bg_shell_tools = Tools_bg_shell.tools
 
-let inject_connector_history ~(config : Runtime_config.t) ~db =
+let inject_connector_history ~(config : Runtime_config.t) ~db ?session_mgr () =
+  let connector_history_allowed ~key =
+    match session_mgr with
+    | Some mgr -> (
+        match Session.find_connector_capabilities mgr ~key with
+        | Some caps ->
+            Connector_capabilities.should_capture_history
+              ~enabled:config.connector_history.enabled caps
+        | None -> false)
+    | None -> false
+  in
   {
     Tool.name = "inject_connector_history";
     description =
@@ -809,6 +819,11 @@ let inject_connector_history ~(config : Runtime_config.t) ~db =
               Lwt.return
                 "Error: connector_history.enabled is false. Enable it in \
                  config to capture unaddressed group messages."
+            else if not (connector_history_allowed ~key) then
+              Lwt.return
+                "Error: this connector does not support connector history \
+                 capture. Use /inject_connector_history in Teams or Discord \
+                 group chats."
             else
               let db_opt =
                 if config.connector_history.persist_to_db then Some db else None

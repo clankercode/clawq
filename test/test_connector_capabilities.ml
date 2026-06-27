@@ -174,6 +174,84 @@ let test_supports_rich_questions () =
     "irc not rich" false
     (Connector_capabilities.supports_rich_questions Connector_capabilities.irc)
 
+let test_thread_reply_strategies () =
+  Alcotest.(check bool)
+    "slack uses native threads" true
+    (Connector_capabilities.thread_reply_strategy Connector_capabilities.slack
+    = Connector_capabilities.Use_native_thread);
+  Alcotest.(check bool)
+    "teams uses thread-like replies" true
+    (Connector_capabilities.thread_reply_strategy Connector_capabilities.teams
+    = Connector_capabilities.Use_thread_like_reply);
+  Alcotest.(check bool)
+    "thread-less plain falls back" true
+    (Connector_capabilities.thread_reply_strategy Connector_capabilities.plain
+    = Connector_capabilities.Use_room_fallback);
+  Alcotest.(check bool)
+    "thread-less irc falls back" true
+    (Connector_capabilities.thread_reply_strategy Connector_capabilities.irc
+    = Connector_capabilities.Use_room_fallback)
+
+let test_progress_delivery_strategies () =
+  let resend_caps =
+    {
+      Connector_capabilities.plain with
+      can_edit = Connector_capabilities.Delete_and_resend;
+    }
+  in
+  Alcotest.(check bool)
+    "editable connector edits progress" true
+    (Connector_capabilities.progress_delivery Connector_capabilities.slack
+    = Connector_capabilities.Edit_progress_in_place);
+  Alcotest.(check bool)
+    "delete/resend connector resends progress" true
+    (Connector_capabilities.progress_delivery resend_caps
+    = Connector_capabilities.Delete_and_resend_progress);
+  Alcotest.(check bool)
+    "non-editable connector buffers progress" true
+    (Connector_capabilities.progress_delivery Connector_capabilities.plain
+    = Connector_capabilities.Buffered_progress)
+
+let test_card_button_strategies () =
+  Alcotest.(check bool)
+    "teams uses cards" true
+    (Connector_capabilities.card_strategy Connector_capabilities.teams
+    = Connector_capabilities.Use_cards);
+  Alcotest.(check bool)
+    "telegram uses buttons" true
+    (Connector_capabilities.card_strategy Connector_capabilities.telegram
+    = Connector_capabilities.Use_buttons);
+  Alcotest.(check bool)
+    "discord cards fall back to text" true
+    (Connector_capabilities.card_strategy Connector_capabilities.discord
+    = Connector_capabilities.Use_text_fallback);
+  Alcotest.(check bool)
+    "plain cards fall back to text" true
+    (Connector_capabilities.card_strategy Connector_capabilities.plain
+    = Connector_capabilities.Use_text_fallback)
+
+let test_history_capture_strategies () =
+  Alcotest.(check bool)
+    "slack skips ambient history until implemented" true
+    (Connector_capabilities.history_capture_strategy
+       Connector_capabilities.slack
+    = Connector_capabilities.Skip_history_capture);
+  Alcotest.(check bool)
+    "teams captures ambient history" true
+    (Connector_capabilities.history_capture_strategy
+       Connector_capabilities.teams
+    = Connector_capabilities.Capture_ambient_history);
+  Alcotest.(check bool)
+    "discord captures ambient history" true
+    (Connector_capabilities.history_capture_strategy
+       Connector_capabilities.discord
+    = Connector_capabilities.Capture_ambient_history);
+  Alcotest.(check bool)
+    "plain history capture is skipped" true
+    (Connector_capabilities.history_capture_strategy
+       Connector_capabilities.plain
+    = Connector_capabilities.Skip_history_capture)
+
 let tests =
   [
     Alcotest.test_case "telegram profile" `Quick test_telegram_profile;
@@ -197,4 +275,12 @@ let tests =
     Alcotest.test_case "web_channel profile" `Quick test_web_channel_profile;
     Alcotest.test_case "supports_rich_questions" `Quick
       test_supports_rich_questions;
+    Alcotest.test_case "thread reply strategies" `Quick
+      test_thread_reply_strategies;
+    Alcotest.test_case "progress delivery strategies" `Quick
+      test_progress_delivery_strategies;
+    Alcotest.test_case "card button strategies" `Quick
+      test_card_button_strategies;
+    Alcotest.test_case "history capture strategies" `Quick
+      test_history_capture_strategies;
   ]

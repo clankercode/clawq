@@ -142,12 +142,31 @@ type edit_support =
   | Delete_and_resend (** Cannot edit; delete old + send new *)
   | No_edit           (** Send-only, no update possible (IRC, Signal) *)
 
+type thread_reply_support =
+  | Native_thread_replies
+  | Thread_like_replies
+  | No_thread_replies
+
+type progress_delivery =
+  | Edit_progress_in_place
+  | Delete_and_resend_progress
+  | Buffered_progress
+
+type card_strategy = Use_cards | Use_buttons | Use_text_fallback
+type history_capture_support = Ambient_history_capture | No_history_capture
+
 (** Connector capability profile *)
 type t = {
   can_edit : edit_support;
   can_delete : bool;
   can_react : bool;
   can_type : bool;              (** Typing indicator support *)
+  can_show_status : bool;       (** Status/progress update support *)
+  can_send_files : bool;
+  can_send_cards : bool;
+  can_send_buttons : bool;
+  thread_replies : thread_reply_support;
+  history_capture : history_capture_support;
   max_message_length : int;     (** Platform's message size limit *)
   connector : Format_adapter.connector;
   parse_mode : string;          (** Parse mode string for Status_message *)
@@ -157,73 +176,23 @@ type t = {
 
 ### Predefined Profiles
 
-```ocaml
-let telegram : t = {
-  can_edit = Edit_in_place;
-  can_delete = true;
-  can_react = true;
-  can_type = true;
-  max_message_length = 4096;
-  connector = Format_adapter.Telegram_html;
-  parse_mode = "HTML";
-  debounce_interval = 0.5;
-}
+Profiles are centralized in `src/connector_capabilities.ml` and built with a
+`make` helper so unsupported capabilities default to `false`, `No_edit`,
+`No_thread_replies`, or `No_history_capture`. Current highlights:
 
-let discord : t = {
-  can_edit = Edit_in_place;
-  can_delete = true;
-  can_react = true;
-  can_type = true;
-  max_message_length = 2000;
-  connector = Format_adapter.Discord;
-  parse_mode = "Markdown";
-  debounce_interval = 0.5;
-}
+- Telegram: edit/delete/type/status/files/buttons, thread-like replies, HTML.
+- Discord: edit/delete/react/status, native threads, ambient history capture.
+- Slack: edit/delete/react/status, native threads, no ambient history capture
+  until a Slack capture implementation is added.
+- Teams: edit/delete/type/status/files/cards/buttons, thread-like replies,
+  ambient history capture.
+- Matrix: edit/delete/status, native threads.
+- Plain/IRC-style connectors: send-only defaults unless explicitly overridden.
 
-let slack : t = {
-  can_edit = Edit_in_place;
-  can_delete = true;
-  can_react = true;
-  can_type = true;
-  max_message_length = 4000;
-  connector = Format_adapter.Slack;
-  parse_mode = "mrkdwn";
-  debounce_interval = 0.5;
-}
-
-let teams : t = {
-  can_edit = Edit_in_place;
-  can_delete = true;
-  can_react = false;  (* bot cannot set reactions *)
-  can_type = true;
-  max_message_length = 28672;
-  connector = Format_adapter.Teams;
-  parse_mode = "Teams";
-  debounce_interval = 1.0;  (* higher to avoid rate limits *)
-}
-
-let matrix : t = {
-  can_edit = Edit_in_place;
-  can_delete = true;
-  can_react = true;
-  can_type = false;  (* typing requires repeated PUT, not yet implemented *)
-  max_message_length = 65536;
-  connector = Format_adapter.Plain;  (* upgrade to a Matrix connector later *)
-  parse_mode = "Markdown";
-  debounce_interval = 1.0;
-}
-
-let plain : t = {
-  can_edit = No_edit;
-  can_delete = false;
-  can_react = false;
-  can_type = false;
-  max_message_length = 4096;
-  connector = Format_adapter.Plain;
-  parse_mode = "Markdown";
-  debounce_interval = 0.0;
-}
-```
+Strategy helpers (`thread_reply_strategy`, `progress_delivery`,
+`card_strategy`, `history_capture_strategy`, and `should_capture_history`) map
+raw capabilities to runtime behavior. Connector history capture must pass both
+configuration (`connector_history.enabled`) and the connector capability matrix.
 
 ### Registration
 

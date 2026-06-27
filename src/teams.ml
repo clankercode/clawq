@@ -761,7 +761,11 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                        user=%s"
                       conversation_id user_id);
                 let cfg = Session.get_config session_manager in
-                if cfg.connector_history.enabled then begin
+                if
+                  Connector_capabilities.should_capture_history
+                    ~enabled:cfg.connector_history.enabled
+                    Connector_capabilities.teams
+                then begin
                   let eff_tid = if team_id = "" then "personal" else team_id in
                   let hist_key =
                     session_key ~team_id:eff_tid ~conversation_id

@@ -180,6 +180,56 @@ let test_clear_with_db () =
   Alcotest.(check int) "empty after clear" 0 (List.length entries);
   ignore (Sqlite3.db_close db)
 
+let test_inject_tool_respects_capability_matrix () =
+  reset_buffers ();
+  let db = fresh_db () in
+  let config : Runtime_config.t =
+    {
+      Runtime_config.default with
+      connector_history =
+        { Runtime_config.default.connector_history with enabled = true };
+    }
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "slack:C1:U1" in
+  Session.register_connector_capabilities mgr ~key Connector_capabilities.slack;
+  Connector_history.record ~persist:false ~key ~channel_type:"slack" ~max:50
+    ~sender_name:"Alice" ~sender_id:"u1" ~text:"not injectable" ();
+  let tool =
+    Tools_builtin.inject_connector_history ~config ~db ~session_mgr:mgr ()
+  in
+  let context = { Tool.default_context with session_key = Some key } in
+  let out = Lwt_main.run (tool.invoke ~context (`Assoc [])) in
+  Alcotest.(check bool)
+    "slack capability blocks injection" true
+    (Test_helpers.string_contains out "does not support connector history");
+  ignore (Sqlite3.db_close db)
+
+let test_inject_tool_allows_capture_capable_connector () =
+  reset_buffers ();
+  let db = fresh_db () in
+  let config : Runtime_config.t =
+    {
+      Runtime_config.default with
+      connector_history =
+        { Runtime_config.default.connector_history with enabled = true };
+    }
+  in
+  let mgr = Session.create ~config ~db () in
+  let key = "teams:T1:C1" in
+  Session.register_connector_capabilities mgr ~key Connector_capabilities.teams;
+  Connector_history.record ~persist:false ~key ~channel_type:"teams" ~max:50
+    ~sender_name:"Alice" ~sender_id:"u1" ~text:"injectable" ();
+  let tool =
+    Tools_builtin.inject_connector_history ~config ~db ~session_mgr:mgr ()
+  in
+  let context = { Tool.default_context with session_key = Some key } in
+  let out = Lwt_main.run (tool.invoke ~context (`Assoc [])) in
+  Alcotest.(check bool)
+    "teams capability allows injection" true
+    (Test_helpers.string_contains out "injectable");
+  ignore (Sqlite3.db_close db)
+
 let test_parse_utc_datetime_roundtrip () =
   (* Format a known epoch as the UTC string sqlite's datetime('now') would emit,
      parse it back, and require an exact round-trip.  This is independent of the
@@ -213,4 +263,8 @@ let tests =
     Alcotest.test_case "DB backfill" `Quick test_db_backfill;
     Alcotest.test_case "nullable text" `Quick test_nullable_text;
     Alcotest.test_case "clear with DB" `Quick test_clear_with_db;
+    Alcotest.test_case "inject tool respects capability matrix" `Quick
+      test_inject_tool_respects_capability_matrix;
+    Alcotest.test_case "inject tool allows capture-capable connector" `Quick
+      test_inject_tool_allows_capture_capable_connector;
   ]
