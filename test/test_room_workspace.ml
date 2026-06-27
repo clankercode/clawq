@@ -26,7 +26,9 @@ let with_temp_dir f =
            Array.iter
              (fun entry ->
                let fp = Filename.concat p entry in
-               if Sys.is_directory fp then rmrf fp else Unix.unlink fp)
+               match (Unix.lstat fp).Unix.st_kind with
+               | Unix.S_DIR -> rmrf fp
+               | _ -> Unix.unlink fp)
              (Sys.readdir p)
          with _ -> ());
         try Unix.rmdir p with _ -> ()
@@ -44,6 +46,8 @@ let with_clawq_home dir f =
       | Some v -> Unix.putenv "CLAWQ_HOME" v
       | None -> Unix.putenv "CLAWQ_HOME" "")
     f
+
+let touch_mtime path mtime = Unix.utimes path mtime mtime
 
 (* -- tests ----------------------------------------------------------------- *)
 
@@ -349,6 +353,50 @@ let test_override_unicode_homoglyphs () =
   | Ok _ -> Alcotest.fail "expected containment error"
   | Error _ -> ()
 
+let test_gc_purges_only_expired_paths () =
+  with_temp_dir (fun home ->
+      with_clawq_home home (fun () ->
+          let now = 1_000_000.0 in
+          let old_path = Room_workspace.workspace_path "old-room" in
+          let recent_path = Room_workspace.workspace_path "recent-room" in
+          touch_mtime old_path (now -. 7200.0);
+          touch_mtime recent_path (now -. 60.0);
+          let result = Room_workspace.gc ~now ~retention_seconds:3600.0 () in
+          Alcotest.(check bool)
+            "old path purged" false (Sys.file_exists old_path);
+          Alcotest.(check bool)
+            "recent path preserved" true
+            (Sys.file_exists recent_path);
+          Alcotest.(check int) "one purged" 1 (List.length result.purged);
+          Alcotest.(check int) "one preserved" 1 (List.length result.preserved)))
+
+let test_gc_preserves_active_reference () =
+  with_temp_dir (fun home ->
+      with_clawq_home home (fun () ->
+          let now = 1_000_000.0 in
+          let active_path = Room_workspace.workspace_path "active-room" in
+          let stale_path = Room_workspace.workspace_path "stale-room" in
+          touch_mtime active_path (now -. 7200.0);
+          touch_mtime stale_path (now -. 7200.0);
+          let result =
+            Room_workspace.gc ~now ~retention_seconds:3600.0
+              ~protected_paths:[ active_path ] ()
+          in
+          Alcotest.(check bool)
+            "active path preserved" true
+            (Sys.file_exists active_path);
+          Alcotest.(check bool)
+            "stale path purged" false
+            (Sys.file_exists stale_path);
+          Alcotest.(check int) "one purged" 1 (List.length result.purged);
+          Alcotest.(check int) "one preserved" 1 (List.length result.preserved)))
+
+let test_room_ids_for_reference_derives_channel_room () =
+  Alcotest.(check (list string))
+    "room ids"
+    [ "slack:C1:U1"; "C1"; "slack:C1" ]
+    (Room_workspace.room_ids_for_reference ~channel_id:"C1" "slack:C1:U1")
+
 (* -- suite ----------------------------------------------------------------- *)
 
 let suite =
@@ -389,4 +437,10 @@ let suite =
       test_resolve_non_admin_no_override;
     Alcotest.test_case "override unicode homoglyphs" `Quick
       test_override_unicode_homoglyphs;
+    Alcotest.test_case "gc purges only expired paths" `Quick
+      test_gc_purges_only_expired_paths;
+    Alcotest.test_case "gc preserves active reference" `Quick
+      test_gc_preserves_active_reference;
+    Alcotest.test_case "reference derives channel room" `Quick
+      test_room_ids_for_reference_derives_channel_room;
   ]
