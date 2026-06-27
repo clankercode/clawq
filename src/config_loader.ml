@@ -1258,6 +1258,20 @@ let parse_config ?(resolve_secrets = true) json =
                try p |> member "denied_tools" |> to_list |> List.map to_string
                with _ -> []
              in
+             let ambient_enabled =
+               try p |> member "ambient_enabled" |> to_bool with _ -> false
+             in
+             let ambient_quiet_start =
+               try p |> member "ambient_quiet_start" |> to_int
+               with _ -> Ambient_policy.default_ambient_quiet_start
+             in
+             let ambient_quiet_end =
+               try p |> member "ambient_quiet_end" |> to_int
+               with _ -> Ambient_policy.default_ambient_quiet_end
+             in
+             let ambient_rate_limit_rph =
+               try p |> member "ambient_rate_limit_rph" |> to_int with _ -> 0
+             in
              ({
                 id;
                 display_name;
@@ -1267,6 +1281,10 @@ let parse_config ?(resolve_secrets = true) json =
                 status;
                 allowed_tools;
                 denied_tools;
+                ambient_enabled;
+                ambient_quiet_start;
+                ambient_quiet_end;
+                ambient_rate_limit_rph;
               }
                : Runtime_config.room_profile))
        with _ -> []);

@@ -2953,6 +2953,10 @@ let make_room_profile_codebase_config ?(workspace_only = false) ~workspace
           status = "active";
           allowed_tools = [];
           denied_tools = [];
+          ambient_enabled = false;
+          ambient_quiet_start = 23;
+          ambient_quiet_end = 8;
+          ambient_rate_limit_rph = 0;
         };
       ];
     room_profile_bindings =

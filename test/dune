@@ -3,6 +3,7 @@
  (deps ../src/main.exe)
  (modules
   test_main
+  test_ambient_policy
   test_plan_pipeline
   test_agent_loop_conformance
   test_agent_router

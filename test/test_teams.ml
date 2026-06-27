@@ -378,6 +378,10 @@ let test_teams_menu_filters_room_profile_tools () =
             status = "active";
             allowed_tools = [ "background_task_list" ];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =
@@ -411,6 +415,10 @@ let test_teams_bg_card_filters_room_profile_tools () =
             status = "active";
             allowed_tools = [ "background_task_list" ];
             denied_tools = [];
+            ambient_enabled = false;
+            ambient_quiet_start = 23;
+            ambient_quiet_end = 8;
+            ambient_rate_limit_rph = 0;
           };
         ];
       room_profile_bindings =

@@ -38,6 +38,7 @@
   reaction_tracker
   status_message
   connector_capabilities
+  ambient_policy
   status_update
   content_dsl
   workspace_scaffold

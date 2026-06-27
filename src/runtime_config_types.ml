@@ -533,6 +533,10 @@ type room_profile = {
   status : string;
   allowed_tools : string list;
   denied_tools : string list;
+  ambient_enabled : bool;
+  ambient_quiet_start : int;
+  ambient_quiet_end : int;
+  ambient_rate_limit_rph : int;
 }
 
 type room_profile_binding = {

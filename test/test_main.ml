@@ -32,6 +32,7 @@ let () =
   Unix.putenv Service.test_disable_live_signal_restart_env "1";
   Alcotest.run "clawq"
     ([
+       ("ambient_policy", Test_ambient_policy.suite);
        ("clawq_core", Test_clawq_core.suite);
        ("agent_loop_conformance", Test_agent_loop_conformance.suite);
        ("agent_scoped_memory", Test_agent_scoped_memory.suite);
