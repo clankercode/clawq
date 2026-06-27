@@ -1859,6 +1859,49 @@ let test_scoped_memory_constraints_and_cascade () =
     (Test_helpers.query_single_int db
        "SELECT COUNT(*) FROM memory_grants WHERE principal_id = 'u1'")
 
+let test_memory_grants_require_admin_for_create_and_revoke () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let scope = Memory.create_scope ~db ~kind:"room" ~key:"room-1" () in
+  let grant_count () =
+    Test_helpers.query_single_int db
+      "SELECT COUNT(*) FROM memory_grants WHERE scope_id = (SELECT id FROM \
+       memory_scopes WHERE kind = 'room' AND key = 'room-1')"
+  in
+  (match
+     Memory.grant_access ~db ~is_admin:false ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "non-admin create error mentions admin" true
+        (Test_helpers.string_contains msg "admin")
+  | Ok () -> Alcotest.fail "non-admin grant create should fail");
+  Alcotest.(check int) "non-admin create leaves no grants" 0 (grant_count ());
+  (match
+     Memory.grant_access ~db ~is_admin:true ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Ok () -> ()
+  | Error msg -> Alcotest.fail msg);
+  Alcotest.(check int) "admin create stores grant" 1 (grant_count ());
+  (match
+     Memory.revoke_access ~db ~is_admin:false ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "non-admin revoke error mentions admin" true
+        (Test_helpers.string_contains msg "admin")
+  | Ok _ -> Alcotest.fail "non-admin grant revoke should fail");
+  Alcotest.(check int) "non-admin revoke leaves grant" 1 (grant_count ());
+  (match
+     Memory.revoke_access ~db ~is_admin:true ~scope_id:scope.id
+       ~principal_kind:"user" ~principal_id:"u1" ~capability:"read" ()
+   with
+  | Ok removed -> Alcotest.(check int) "admin revoke removes one" 1 removed
+  | Error msg -> Alcotest.fail msg);
+  Alcotest.(check int) "admin revoke clears grant" 0 (grant_count ())
+
 let test_scoped_memory_schema_migration_and_repair_paths () =
   with_temp_db (fun db_path ->
       let db = Sqlite3.db_open db_path in
@@ -2517,6 +2560,8 @@ let suite =
       test_scoped_memory_schema_shape;
     Alcotest.test_case "scoped memory constraints and cascade" `Quick
       test_scoped_memory_constraints_and_cascade;
+    Alcotest.test_case "memory grants require admin" `Quick
+      test_memory_grants_require_admin_for_create_and_revoke;
     Alcotest.test_case "scoped memory migration and repair paths" `Quick
       test_scoped_memory_schema_migration_and_repair_paths;
     Alcotest.test_case "scoped memory double init idempotent" `Quick

@@ -692,6 +692,24 @@ let cmd_memory args =
     Printf.sprintf "Memory backend: %s\nSearch enabled: %b" cfg.memory.backend
       cfg.memory.search_enabled
   in
+  let grant_usage =
+    "Usage: clawq memory grant <create|revoke> <scope_id> <principal_kind> \
+     <principal_id> <capability>"
+  in
+  let admin_grant_error =
+    "Error: memory grant mutation requires admin privileges. Set CLAWQ_ADMIN=1 \
+     in your environment."
+  in
+  let is_admin =
+    match Sys.getenv_opt "CLAWQ_ADMIN" with
+    | Some v -> v = "1" || v = "true"
+    | None -> false
+  in
+  let parse_scope_id value =
+    match int_of_string_opt value with
+    | Some id -> Ok id
+    | None -> Error grant_usage
+  in
   match args with
   | [] | [ "status" ] ->
       let db = get_db () in
@@ -701,6 +719,37 @@ let cmd_memory args =
       let db = get_db () in
       let count = Memory.count_core ~db in
       base_status () ^ Printf.sprintf "\nCore memories: %d" count
+  | [
+   "grant"; "create"; scope_id_arg; principal_kind; principal_id; capability;
+  ] -> (
+      if not is_admin then admin_grant_error
+      else
+        match parse_scope_id scope_id_arg with
+        | Error msg -> msg
+        | Ok scope_id -> (
+            let db = get_db () in
+            match
+              Memory.grant_access ~db ~is_admin ~scope_id ~principal_kind
+                ~principal_id ~capability ()
+            with
+            | Ok () -> "Created memory grant"
+            | Error msg -> "Error: " ^ msg))
+  | [
+   "grant"; "revoke"; scope_id_arg; principal_kind; principal_id; capability;
+  ] -> (
+      if not is_admin then admin_grant_error
+      else
+        match parse_scope_id scope_id_arg with
+        | Error msg -> msg
+        | Ok scope_id -> (
+            let db = get_db () in
+            match
+              Memory.revoke_access ~db ~is_admin ~scope_id ~principal_kind
+                ~principal_id ~capability ()
+            with
+            | Ok removed -> Printf.sprintf "Revoked %d memory grant(s)" removed
+            | Error msg -> "Error: " ^ msg))
+  | "grant" :: _ -> grant_usage
   | "export" :: rest -> (
       let path =
         match rest with [ p ] -> p | _ -> Dot_dir.sub "memory_snapshot.json"
@@ -762,6 +811,10 @@ let cmd_memory args =
       \  memory list [--category <cat>]                   - List core memories\n\
       \  memory store <key> <content> [--category <cat>]  - Store a memory\n\
       \  memory forget <key>                              - Delete a memory\n\
+      \  memory grant <create|revoke> <scope_id> <principal_kind> \
+       <principal_id> <capability>\n\
+      \                                                   - Admin-only grant \
+       management\n\
       \  memory export [path]                             - Export to JSON\n\
       \  memory import <path>                             - Import from JSON"
 

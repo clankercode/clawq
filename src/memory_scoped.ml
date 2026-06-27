@@ -130,6 +130,70 @@ let create_scope ~db ~kind ~key ?profile_id ?parent_scope_id
       | Some scope -> scope
       | None -> failwith "create_scope failed: inserted scope was not found")
 
+let memory_grant_admin_error = "memory grant mutations require admin privileges"
+
+let require_memory_grant_admin ~is_admin =
+  if is_admin then Ok () else Error memory_grant_admin_error
+
+let grant_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
+    ~capability ?(grantor_kind = "admin") ?(grantor_id = "cli") () =
+  match require_memory_grant_admin ~is_admin with
+  | Error _ as err -> err
+  | Ok () -> (
+      let sql =
+        "INSERT OR IGNORE INTO memory_grants (scope_id, principal_kind, \
+         principal_id, capability, grantor_kind, grantor_id) VALUES (?, ?, ?, \
+         ?, ?, ?)"
+      in
+      let stmt = Sqlite3.prepare db sql in
+      try
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore
+              (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope_id)));
+            ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+            ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT capability));
+            ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT grantor_kind));
+            ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT grantor_id));
+            match Sqlite3.step stmt with
+            | Sqlite3.Rc.DONE -> Ok ()
+            | rc ->
+                Error
+                  (Printf.sprintf "failed to create memory grant: %s"
+                     (Sqlite3.Rc.to_string rc)))
+      with exn ->
+        Error ("failed to create memory grant: " ^ Printexc.to_string exn))
+
+let revoke_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
+    ~capability () =
+  match require_memory_grant_admin ~is_admin with
+  | Error _ as err -> err
+  | Ok () -> (
+      let sql =
+        "DELETE FROM memory_grants WHERE scope_id = ? AND principal_kind = ? \
+         AND principal_id = ? AND capability = ?"
+      in
+      let stmt = Sqlite3.prepare db sql in
+      try
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore
+              (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope_id)));
+            ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+            ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT capability));
+            match Sqlite3.step stmt with
+            | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+            | rc ->
+                Error
+                  (Printf.sprintf "failed to revoke memory grant: %s"
+                     (Sqlite3.Rc.to_string rc)))
+      with exn ->
+        Error ("failed to revoke memory grant: " ^ Printexc.to_string exn))
+
 let list_scopes ~db ?kind ?limit ?(offset = 0) () =
   match limit with
   | Some n when n <= 0 -> []
