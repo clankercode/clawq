@@ -493,6 +493,20 @@ let count_active ~db =
           | _ -> 0)
       | _ -> 0)
 
+let find_task_id_by_session_key ~db ~session_key =
+  let sql =
+    "SELECT id FROM background_tasks WHERE session_key = ? ORDER BY id DESC \
+     LIMIT 1"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> Sqlite3.column stmt 0 |> sql_int
+      | _ -> None)
+
 let count_active_for_session ~db ~session_key =
   let sql =
     "SELECT COUNT(*) FROM background_tasks WHERE status IN ('queued', \
