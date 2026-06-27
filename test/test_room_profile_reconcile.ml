@@ -26,6 +26,8 @@ let test_reconcile_syncs_config_profiles () =
             system_prompt = "be helpful";
             max_tool_iterations = 5;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -59,6 +61,8 @@ let test_reconcile_removes_stale_binding () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -103,6 +107,8 @@ let test_reconcile_removes_orphan_profile () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
           {
             id = "p2";
@@ -111,6 +117,8 @@ let test_reconcile_removes_orphan_profile () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -134,6 +142,8 @@ let test_reconcile_removes_orphan_profile () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
     }
@@ -164,6 +174,8 @@ let test_reconcile_removes_stale_binding_and_orphan_profile () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -205,6 +217,8 @@ let test_reconcile_deterministic () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
           {
             id = "p2";
@@ -213,6 +227,8 @@ let test_reconcile_deterministic () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -248,6 +264,8 @@ let test_reconcile_ignores_inactive_bindings () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -286,6 +304,8 @@ let test_reconcile_reports_duplicate_room_bindings () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
           {
             id = "p2";
@@ -294,6 +314,8 @@ let test_reconcile_reports_duplicate_room_bindings () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -332,6 +354,8 @@ let test_reconcile_reports_duplicate_profile_bindings () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -371,6 +395,8 @@ let test_reconcile_reload_helper_updates_db () =
             system_prompt = "be helpful";
             max_tool_iterations = 5;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =
@@ -425,6 +451,8 @@ let test_reconcile_detects_profile_mismatch () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
           {
             id = "p2";
@@ -433,6 +461,8 @@ let test_reconcile_detects_profile_mismatch () =
             system_prompt = "";
             max_tool_iterations = 10;
             status = "active";
+            allowed_tools = [];
+            denied_tools = [];
           };
         ];
       room_profile_bindings =

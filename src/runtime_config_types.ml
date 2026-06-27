@@ -531,6 +531,8 @@ type room_profile = {
   system_prompt : string;
   max_tool_iterations : int;
   status : string;
+  allowed_tools : string list;
+  denied_tools : string list;
 }
 
 type room_profile_binding = {

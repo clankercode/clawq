@@ -1250,6 +1250,14 @@ let parse_config ?(resolve_secrets = true) json =
              let status =
                try p |> member "status" |> to_string with _ -> "active"
              in
+             let allowed_tools =
+               try p |> member "allowed_tools" |> to_list |> List.map to_string
+               with _ -> []
+             in
+             let denied_tools =
+               try p |> member "denied_tools" |> to_list |> List.map to_string
+               with _ -> []
+             in
              ({
                 id;
                 display_name;
@@ -1257,6 +1265,8 @@ let parse_config ?(resolve_secrets = true) json =
                 system_prompt;
                 max_tool_iterations;
                 status;
+                allowed_tools;
+                denied_tools;
               }
                : Runtime_config.room_profile))
        with _ -> []);

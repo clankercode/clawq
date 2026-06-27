@@ -865,7 +865,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 send_message ~bot_token ~chat_id:update.chat_id
                   ~text:"Debate requires a database." ())
         | BashRun cmd ->
-            let* result = Slash_commands_bash.run_bash_command cmd in
+            let config = Session.get_config session_mgr in
+            let* result =
+              Slash_commands_bash.run_bash_command ~config ~session_key:key cmd
+            in
             let text = Slash_commands_bash.format_result cmd result in
             if String.length text > 4000 then
               let timestamp =

@@ -236,7 +236,10 @@ let dispatch_common ~session_manager ~key ~emit cmd_result =
             group chats.")
   | Slash_commands.BashRun cmd ->
       Some
-        (let* result = Slash_commands_bash.run_bash_command cmd in
+        (let config = Session.get_config session_manager in
+         let* result =
+           Slash_commands_bash.run_bash_command ~config ~session_key:key cmd
+         in
          reply_json (Slash_commands_bash.format_result cmd result))
   | Slash_commands.DebugDumpChat ->
       Some (reply_json (Session.dump_json session_manager ~key))

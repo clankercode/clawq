@@ -1649,8 +1649,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               send_text text
                           | None -> send_text "Debate requires a database.")
                       | BashRun cmd ->
+                          let config = Session.get_config session_manager in
                           let* result =
-                            Slash_commands_bash.run_bash_command cmd
+                            Slash_commands_bash.run_bash_command ~config
+                              ~session_key:key cmd
                           in
                           let full_text =
                             Slash_commands_bash.format_result cmd result
