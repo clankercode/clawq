@@ -1,0 +1,388 @@
+---
+title: "Room Agents"
+description: "Shared room profiles, scoped memory, persistent workspaces, routines, and ambient follow-up"
+section: "runtime"
+order: 5
+---
+
+import Callout from '../../components/Callout.astro';
+
+Room agents turn a connector conversation (Slack channel, Teams chat, Discord
+channel, etc.) into a persistent, profiled AI workspace. A room-agent profile
+owns identity, model, system prompt, tool grants, persistent workspace, budgets,
+scheduled routines, and ambient follow-up policy. Everyone allowed in the room
+steers the same shared room session; substantial work can spawn child
+thread-bound work sessions so the shared identity remains stable.
+
+## Core Concepts
+
+| Term | Meaning |
+|------|---------|
+| **Room** | A shared connector conversation — Slack channel, Teams conversation, Discord channel, Matrix room, Telegram group, etc. |
+| **Profiled room** | A room with an explicit room-agent profile bound to it. |
+| **Room-agent profile** | A durable config/state object defining identity, model, template, tools, budget, routines, and ambient policy for one room. |
+| **Shared room session** | The persistent session key used by the room agent itself (e.g. `slack:C456:room`). |
+| **Thread-bound work session** | A child session created for one thread or task beneath the room profile. |
+| **Routine session** | A session key for a scheduled recurring job under the room profile (e.g. `__room_routine:<profile>:<routine_id>`). |
+| **Room workspace** | A persistent filesystem directory for the room agent's local work products and state. |
+
+## Session Key Model
+
+Room agents use typed session keys with a known suffix:
+
+| Key Shape | Purpose |
+|-----------|---------|
+| `slack:C456:U789` | Personal (DM) session |
+| `slack:C456:room` | Shared room session for channel `C456` |
+| `__room_child_thread:slack:profile:C456:thread_id:msg_id` | Thread-bound work session |
+| `__room_child_fallback:slack:profile:C456` | Thread session fallback (no thread ID available) |
+| `__room_routine:<profile_id>:<routine_id>` | Scheduled routine session |
+
+Teams keys use the format `teams:<team_id>:<conversation_id>` with automatic
+kind detection: `@thread.v2` suffixes are recognized as threads, and
+`personal` as the team ID denotes a DM session.
+
+All key construction and parsing is centralized in `room_session.ml` to avoid
+ad-hoc string formatting across connectors.
+
+## Configuration
+
+Room profiles and bindings live in `~/.clawq/config.json`:
+
+```json
+{
+  "room_profiles": [
+    {
+      "id": "engineering",
+      "display_name": "Engineering Room Agent",
+      "model": "openrouter:claude-sonnet-4-6",
+      "system_prompt": "You are the engineering team's AI assistant.",
+      "max_tool_iterations": 15,
+      "status": "active",
+      "allowed_tools": ["shell_exec", "file_read", "file_write", "git_operations"],
+      "denied_tools": [],
+      "ambient_enabled": true,
+      "ambient_quiet_start": 23,
+      "ambient_quiet_end": 8,
+      "ambient_rate_limit_rph": 5
+    }
+  ],
+  "room_profile_bindings": [
+    {
+      "profile_id": "engineering",
+      "room": "slack:C0123456789",
+      "active": true
+    }
+  ],
+  "room_profile_codebase_grants": []
+}
+```
+
+### Profile Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | required | Unique profile identifier |
+| `display_name` | string | `null` | Human-readable name |
+| `model` | string | required | `provider:model` for room sessions |
+| `system_prompt` | string | required | Injected as the room's system prompt |
+| `max_tool_iterations` | int | `10` | Max tool calls per turn |
+| `status` | string | `"active"` | `"active"` or `"disabled"` |
+| `allowed_tools` | string list | `[]` | Tool allowlist (empty = all allowed) |
+| `denied_tools` | string list | `[]` | Tool denylist |
+| `ambient_enabled` | bool | `false` | Opt in to ambient watcher follow-ups |
+| `ambient_quiet_start` | int | `23` | Hour (UTC, 0-23) when quiet hours begin |
+| `ambient_quiet_end` | int | `8` | Hour (UTC, 0-23) when quiet hours end |
+| `ambient_rate_limit_rph` | int | `0` | Max ambient deliveries per hour (0 = unlimited) |
+
+### Binding Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `profile_id` | string | References a room profile `id` |
+| `room` | string | Connector-prefixed room key (e.g. `slack:C0123456789`) |
+| `active` | bool | Whether this binding is active |
+
+V1 constraint: **1 room binds to 1 profile**. Multi-room profiles are deferred
+to avoid per-room workspace, budget, and memory state collisions.
+
+## Persistent Workspaces
+
+Each profiled room gets a deterministic filesystem workspace:
+
+```
+~/.clawq/workspace/rooms/<slug>-<hash>/
+```
+
+The slug is a URL-safe transformation of the room identifier; the hash is the
+first 12 hex characters of SHA-256 over the full room identity. This
+guarantees uniqueness while keeping paths human-readable.
+
+Thread work sessions get optional subdirectories under the room workspace:
+
+```
+~/.clawq/workspace/rooms/<slug>-<hash>/threads/<thread-slug>-<hash>/
+~/.clawq/workspace/rooms/<slug>-<hash>/routines/<routine-id>/
+```
+
+Directories are created lazily on profile bind or first use.
+
+### Workspace Validation
+
+Explicit `workspace_dir` overrides are admin-only and must pass containment
+validation:
+
+- The resolved real path must live under `~/.clawq/workspace/rooms/` or
+  one of `security.extra_allowed_paths`.
+- Traversal components (`..`), control characters, null bytes, and symlink
+  escapes are rejected.
+- The check runs both a static string analysis and a `realpath` resolution.
+
+### Workspace Retention
+
+Room workspaces are garbage-collected by `clawq rooms gc`:
+
+```bash
+clawq rooms gc                          # Use default 30-day retention
+clawq rooms gc --retention-days 60      # Custom retention
+```
+
+Active references (bound profiles, running tasks/routines, recent ledger
+entries) protect a workspace from purging.
+
+## Scoped Memory
+
+Room agents use scoped memory that is isolated per profile. The scoped memory
+tables (`memory_scopes`, `scoped_memories`, `memory_grants`) are separate from
+the global memory, so a room agent's memories do not leak into other rooms or
+personal sessions.
+
+Global unscoped memory/search injection is disabled for profiled rooms until
+scoped memory is fully integrated. The privacy guard prevents cross-room
+information leakage.
+
+## Room Budgets
+
+Each room profile can have a per-period budget enforced at the database level:
+
+| Budget Field | Description |
+|--------------|-------------|
+| `token_limit` | Maximum tokens per budget period |
+| `cost_limit_usd` | Maximum cost in USD per budget period |
+| `soft_warn_threshold_pct` | Fraction (0.0-1.0) of limit at which a warning fires (default 0.8) |
+| `reset_period` | Budget period (e.g. `"daily"`, `"weekly"`) |
+
+Budget enforcement uses a two-tier approach:
+
+1. **Pre-call reservation**: before each provider call, the runtime reserves
+   estimated tokens/cost. If the reservation would exceed limits, the call is
+   blocked.
+2. **In-memory reservation slots**: concurrent provider calls within the same
+   process are serialized through mutex-protected reservation slots to prevent
+   time-of-check-to-time-of-use races.
+
+When the budget is exceeded, the agent receives a redacted error message
+("usage has exceeded the configured thresholds") rather than raw usage numbers.
+A soft warning fires once per budget period when usage crosses the threshold
+percentage.
+
+## Routines
+
+Room routines are scheduled recurring jobs that run as the room profile through
+the existing cron machinery. Each routine gets its own session key and optional
+persistent workspace.
+
+### Managing Routines
+
+```bash
+clawq rooms routine create <profile_id> "<schedule>" "<message>"
+clawq rooms routine list
+clawq rooms routine show <name>
+clawq rooms routine edit <name> "<new_schedule>" "<new_message>"
+clawq rooms routine remove <name>
+clawq rooms routine enable <name>
+clawq rooms routine disable <name>
+clawq rooms routine trigger <name>   # Manual trigger (admin-only)
+```
+
+Schedule format: `"every 5m"` (interval) or standard 5-field cron expression.
+All routine management commands require admin privileges.
+
+## Ambient Watcher
+
+The ambient watcher periodically checks for stale tasks (background tasks and
+task-tree items) and delivers follow-up messages to profiled rooms. This is
+opt-in per profile via `ambient_enabled: true`.
+
+### How It Works
+
+1. **Stale query**: finds background tasks and task-tree items that have been
+   `queued`/`running`/`pending`/`in_progress` beyond a configurable duration,
+   scoped by room origin data.
+2. **Policy gate**: checks five conditions before delivering:
+   - Ambient mode enabled for the profile
+   - Not in quiet hours (configurable UTC hour range)
+   - Rate limit not exceeded (deliveries per hour)
+   - Budget not exceeded
+   - Connector supports ambient history capture
+3. **Material-change suppression**: fingerprints each stale item and suppresses
+   delivery if the item has not materially changed since the last delivery.
+4. **Delivery**: sends a concise follow-up message to the room (e.g.
+   "Heads up: background task \"Implement feature X\" (id 42) has been running
+   for 3.5h.").
+5. **Ledger recording**: every delivery attempt (success or failure) is
+   recorded in the room activity ledger.
+
+### Quiet Hours
+
+Quiet hours suppress all ambient deliveries during a configurable UTC hour
+range. The default is 23:00-08:00 UTC. Set `ambient_quiet_start` and
+`ambient_quiet_end` on the room profile. Setting both to the same value
+disables quiet hours.
+
+### Rate Limits
+
+`ambient_rate_limit_rph` caps the number of ambient deliveries per room per
+hour. Set to 0 for unlimited (default). The rate is tracked via the activity
+ledger.
+
+## Connector Capability Fallbacks
+
+Not all connectors support the same features. The connector capability matrix
+drives behavior selection:
+
+| Capability | Slack | Discord | Teams | Telegram | Matrix |
+|------------|-------|---------|-------|----------|--------|
+| Edit in place | Yes | Yes | Yes | Yes | Yes |
+| Thread replies | Native | Native | Thread-like | Thread-like | Native |
+| Ambient history capture | Yes | Yes | Yes | No | No |
+| Send cards | No | No | Yes | No | No |
+| Send buttons | No | No | Yes | Yes | No |
+| Send files | No | No | Yes | Yes | No |
+| Max message length | 4000 | 2000 | 28672 | 4096 | 4000 |
+
+When a connector lacks a capability, the system falls back gracefully:
+
+- **No thread replies**: messages are sent to the room directly (no threading).
+- **No ambient history capture**: the ambient watcher skips that connector
+  (the policy gate returns `Connector_unsupported`).
+- **No cards/buttons**: interactive prompts fall back to plain text.
+- **No edit in place**: progress updates are buffered or delete-and-resend.
+
+### Teams Known-Behavior Notes
+
+Teams uses the Bot Framework reply model with URI-path routing for threading.
+Key differences from Slack:
+
+- Threading uses `reply_to_id` in the REST URI path, not a `thread_ts` field.
+- In group chats, the bot only responds when @mentioned.
+- File consent cards are supported in DMs but fall back to temp download URLs
+  in group chats.
+- Session keys use `teams:<team_id>:<conversation_id>` with automatic kind
+  detection from the conversation ID format.
+
+## Room Activity Ledger
+
+Every significant room event is recorded in the activity ledger:
+
+- Ambient delivery attempts (success and failure)
+- Routine executions
+- Budget warnings
+- Policy denials
+
+### Ledger CLI
+
+```bash
+clawq rooms ledger list                           # All events
+clawq rooms ledger list --room-id slack:C0123     # Filter by room
+clawq rooms ledger list --event-type ambient_delivery  # Filter by event type
+clawq rooms ledger list --from "2026-06-01" --to "2026-06-28"
+clawq rooms ledger export                         # Export as JSON
+clawq rooms ledger export --format jsonl          # Export as JSONL
+clawq rooms ledger retention-cleanup --retention-days 30  # Clean old entries
+```
+
+All ledger commands are admin-only.
+
+## Admin Controls
+
+Room agent management requires admin privileges (`CLAWQ_ADMIN=1`):
+
+```bash
+# Profile management
+clawq rooms list                          # List profiles and bindings
+clawq rooms show <room_id>                # Show binding and profile details
+clawq rooms workspace <room_id>           # Show/create workspace path
+clawq rooms bind <room_id> <profile_id>   # Bind a room to a profile
+clawq rooms unbind <room_id>              # Remove binding
+clawq rooms rename <profile_id> <name>    # Update display name
+clawq rooms delete <profile_id> [--force] # Soft-delete profile
+
+# Routine management (see Routines section above)
+clawq rooms routine ...
+
+# Budget management (via config)
+clawq config set room_profile_codebase_grants '...'
+
+# Garbage collection
+clawq rooms gc [--retention-days N]
+```
+
+Mutation commands (`bind`, `unbind`, `rename`, `delete`, `gc`, ledger
+operations, routine management) are admin-only and not exposed as agent tools
+or slash commands.
+
+## Minimal-Build Behavior
+
+In the minimal build (`clawq-min`), room agent commands return
+`"disabled in minimal build"`. The room agent subsystem requires the full
+`clawq_runtime_integrations` library for connector integrations and the
+daemon session manager. The core room profile types and workspace path
+generation live in `clawq_runtime_core` so they are available to all builds.
+
+## Troubleshooting
+
+**Room agent not responding**: verify `clawq rooms list` shows the binding is
+active, check the profile `status` is `"active"`, and confirm the bot token
+allows messages from the room.
+
+**Ambient watcher not delivering**: confirm `ambient_enabled: true` on the
+profile, verify the current UTC hour is outside quiet hours, check
+`clawq rooms ledger list --event-type ambient_delivery` for recent deliveries
+and policy denials.
+
+**Budget exceeded errors**: check current usage with `clawq rooms ledger list`
+and compare against the profile budget. Increase the budget or reset the
+period with CLI admin commands.
+
+**Workspace path conflicts**: each room gets a deterministic path based on its
+room identifier. If two bindings point to the same room, the reconciliation
+process reports a "duplicate config binding" issue. Check `clawq rooms list`
+and the daemon log for reconciliation warnings.
+
+**Config reload**: room profiles and bindings are reconciled from config on
+daemon startup, SIGHUP, and file-mtime polling (every 10 seconds). The
+reconciliation process detects stale bindings, orphan profiles, and duplicate
+config entries, logging issues at INFO level.
+
+**Teams threading issues**: see the
+[Teams Reply/Threading Support Matrix](/design/teams-reply-matrix) for
+detailed reply routing behavior by room type (DM, group chat, team channel).
+
+## Implementation Modules
+
+| Module | Responsibility |
+|--------|---------------|
+| `room_session.ml` | Typed session key construction and parsing |
+| `room_workspace.ml` | Workspace path generation, validation, and GC |
+| `room_origin.ml` | Typed origin metadata for task/ledger rows |
+| `room_profile_reconcile.ml` | Config-to-DB reconciliation on startup/reload |
+| `room_budget.ml` | Per-profile budget tracking and reservation |
+| `room_activity_ledger.ml` | Event recording and querying |
+| `room_stale_query.ml` | Stale task/thread detection engine |
+| `room_ambient_delivery.ml` | Ambient follow-up delivery pipeline |
+| `room_watcher_decision.ml` | Watcher decision persistence and fingerprinting |
+| `ambient_policy.ml` | Ambient delivery policy gate |
+| `room_request_classifier.ml` | Request classification for room contexts |
+| `room_progress.ml` | Progress delivery in room contexts |
+| `connector_capabilities.ml` | Connector feature matrix and fallback strategies |
