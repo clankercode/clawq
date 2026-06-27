@@ -29,8 +29,10 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
   | Some "vertex" -> Vertex
   | Some "cohere" -> Cohere
   | Some "minimax" -> MiniMax
-  (* B697: Xiaomi MiMo (public + token-plan regions) is OpenAI-compatible. *)
-  | Some "xiaomi" -> OpenAICompat
+  (* B713: Xiaomi MiMo Anthropic-compatible endpoint. The OpenAI-compat
+     endpoint has broken multi-turn tool calling (xiaomi/MiMo#44); the
+     Anthropic endpoint handles tool_use/tool_result blocks correctly. *)
+  | Some "xiaomi" -> Anthropic
   | Some "openai" -> OpenAICompat
   | Some _ | None ->
       let key = p.api_key in

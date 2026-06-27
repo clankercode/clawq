@@ -182,7 +182,12 @@ let complete ~(config : Runtime_config.t)
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers =
     [
-      ("x-api-key", provider.api_key); ("anthropic-version", anthropic_version);
+      ("x-api-key", provider.api_key);
+      (* B713: MiMo's Anthropic-compat endpoint expects "api-key" rather than
+         the standard Anthropic "x-api-key" header.  Sending both is harmless
+         for real Anthropic and covers MiMo transparently. *)
+      ("api-key", provider.api_key);
+      ("anthropic-version", anthropic_version);
     ]
   in
   Logs.info (fun m ->
@@ -250,7 +255,9 @@ let complete_streaming ~(config : Runtime_config.t)
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers =
     [
-      ("x-api-key", provider.api_key); ("anthropic-version", anthropic_version);
+      ("x-api-key", provider.api_key);
+      ("api-key", provider.api_key);
+      ("anthropic-version", anthropic_version);
     ]
   in
   Logs.info (fun m ->

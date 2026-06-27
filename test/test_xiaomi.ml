@@ -105,12 +105,12 @@ let test_provider_defs () =
       "xiaomi-token-plan-sgp";
     ]
     Xiaomi.provider_names;
-  check "xiaomi" "https://api.xiaomimimo.com/v1" "XIAOMI_API_KEY";
-  check "xiaomi-token-plan-cn" "https://token-plan-cn.xiaomimimo.com/v1"
+  check "xiaomi" "https://api.xiaomimimo.com/anthropic" "XIAOMI_API_KEY";
+  check "xiaomi-token-plan-cn" "https://token-plan-cn.xiaomimimo.com/anthropic"
     "XIAOMI_TOKEN_PLAN_CN_API_KEY";
-  check "xiaomi-token-plan-ams" "https://token-plan-ams.xiaomimimo.com/v1"
+  check "xiaomi-token-plan-ams" "https://token-plan-ams.xiaomimimo.com/anthropic"
     "XIAOMI_TOKEN_PLAN_AMS_API_KEY";
-  check "xiaomi-token-plan-sgp" "https://token-plan-sgp.xiaomimimo.com/v1"
+  check "xiaomi-token-plan-sgp" "https://token-plan-sgp.xiaomimimo.com/anthropic"
     "XIAOMI_TOKEN_PLAN_SGP_API_KEY"
 
 let test_resolve_no_cross_region_bleed () =
@@ -205,10 +205,11 @@ let test_augment_synthesizes_sgp () =
               Alcotest.(check string) "api_key" "sgp-key" pc.api_key;
               Alcotest.(check (option string)) "kind" (Some "xiaomi") pc.kind;
               Alcotest.(check (option string))
-                "base_url" (Some "https://token-plan-sgp.xiaomimimo.com/v1")
+                "base_url"
+                (Some "https://token-plan-sgp.xiaomimimo.com/anthropic")
                 pc.base_url;
-              Alcotest.(check string)
-                "thinking style" "reasoning_content" pc.oai_thinking_style;
+              (* B713: Anthropic path uses native thinking blocks, not
+                 reasoning_content. oai_thinking_style is not set. *)
               (* Providers without a discoverable key are not synthesized. *)
               Alcotest.(check bool)
                 "cn not synthesized" true
@@ -236,11 +237,10 @@ let test_augment_backfills_declared () =
               Alcotest.(check string) "backfilled key" "sgp-key" pc.api_key;
               Alcotest.(check (option string))
                 "backfilled base_url"
-                (Some "https://token-plan-sgp.xiaomimimo.com/v1") pc.base_url;
+                (Some "https://token-plan-sgp.xiaomimimo.com/anthropic")
+                pc.base_url;
               Alcotest.(check (option string))
-                "backfilled kind" (Some "xiaomi") pc.kind;
-              Alcotest.(check string)
-                "backfilled thinking" "reasoning_content" pc.oai_thinking_style))
+                "backfilled kind" (Some "xiaomi") pc.kind))
 
 let test_augment_preserves_explicit_key () =
   Test_helpers.with_temp_home (fun _home ->
@@ -370,7 +370,7 @@ let test_requires_reasoning_content () =
     "non-mimo does not" false
     (Provider.model_requires_reasoning_content "gpt-5.4")
 
-let test_detect_kind_xiaomi_openai_compat () =
+let test_detect_kind_xiaomi_anthropic () =
   let pc =
     {
       Runtime_config.default_provider_config with
@@ -378,9 +378,10 @@ let test_detect_kind_xiaomi_openai_compat () =
       kind = Some "xiaomi";
     }
   in
+  (* B713: xiaomi now routes through Anthropic-compatible endpoint. *)
   Alcotest.(check bool)
-    "xiaomi kind routes OpenAICompat" true
-    (Provider.detect_kind pc = Provider.OpenAICompat)
+    "xiaomi kind routes Anthropic" true
+    (Provider.detect_kind pc = Provider.Anthropic)
 
 let test_model_specs_match_reference () =
   let public = Xiaomi.models_for "xiaomi" in
@@ -500,8 +501,8 @@ let suite =
       test_load_readonly_zero_config;
     Alcotest.test_case "requires reasoning_content" `Quick
       test_requires_reasoning_content;
-    Alcotest.test_case "detect kind xiaomi is OpenAI-compatible" `Quick
-      test_detect_kind_xiaomi_openai_compat;
+    Alcotest.test_case "detect kind xiaomi is Anthropic" `Quick
+      test_detect_kind_xiaomi_anthropic;
     Alcotest.test_case "model specs match reference" `Quick
       test_model_specs_match_reference;
     Alcotest.test_case "catalog all xiaomi models" `Quick
