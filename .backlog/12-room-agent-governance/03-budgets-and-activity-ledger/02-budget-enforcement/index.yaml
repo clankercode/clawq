@@ -43,7 +43,8 @@ tasks:
       file: T004-add-room-budget-soft-warnings.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add room budget soft warnings and admin notification
     - complexity: medium
       depends_on:
