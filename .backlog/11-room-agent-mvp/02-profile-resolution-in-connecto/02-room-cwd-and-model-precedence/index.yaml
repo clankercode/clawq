@@ -14,7 +14,7 @@ tasks:
       file: T001-apply-room-cwd-and-profile-mod.todo
       id: T001
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Apply room CWD precedence and repo policy
     - complexity: high

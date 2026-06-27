@@ -8,7 +8,7 @@ estimate_hours: 3
 id: P11.M2.E2.T001
 priority: high
 started_at: null
-status: pending
+status: done
 tags: []
 title: Apply room CWD precedence and repo policy
 ---
