@@ -1,0 +1,30 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B712
+priority: high
+status: pending
+tags: []
+title: Add native child-session subagent tool (spawn subagent in native session, return final message as result)
+---
+Add a tool that spawns a clawq-native subagent in an isolated child session, runs it to completion, and returns the final assistant message as the tool result.
+
+Design reference: ~/src/pi-subagents (clankercode/pi-subagents on GitHub). The pi-subagents extension exposes:
+- 'Agent' tool: spawn a subagent with goal, model, system prompt, max turns
+- 'get_subagent_result': poll for background agent status/result
+- 'steer_subagent': send mid-run steering messages
+
+The clawq equivalent should:
+1. Create a native child session (stable session key, isolated from parent)
+2. Accept: goal prompt, optional model override, optional system prompt/agent template, optional max turns
+3. Run the child session to completion (or timeout)
+4. Return the final assistant message as the tool result to the parent
+5. Optionally support background mode (fire-and-forget with later poll/result retrieval)
+
+This fills the gap between:
+- 'delegate' (external CLI runners, worktree-bound, not native sessions)
+- 'background_task_enqueue runner=local' (lower-level, task-oriented, not conversational)
+- The new tool: native session, conversational, returns final message, clean parent-child contract
+
+Consider integrating with agent templates (src/agent_template.ml) for role/system prompt configuration.
