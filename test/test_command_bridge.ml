@@ -331,6 +331,80 @@ let test_handle_memory () =
         "memory contains 'Memory backend'" true
         (String.length result > 0 && String.sub result 0 14 = "Memory backend"))
 
+let memory_grant_count db =
+  Test_helpers.query_single_int db
+    "SELECT COUNT(*) FROM memory_grants WHERE principal_kind = 'user' AND \
+     principal_id = 'u1' AND capability = 'read'"
+
+let test_memory_grant_cli_requires_admin () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      let scope = Memory.create_scope ~db ~kind:"room" ~key:"room-1" () in
+      let scope_id = string_of_int scope.id in
+      let create_args =
+        [ "memory"; "grant"; "create"; scope_id; "user"; "u1"; "read" ]
+      in
+      let revoke_args =
+        [ "memory"; "grant"; "revoke"; scope_id; "user"; "u1"; "read" ]
+      in
+      let denied = Command_bridge.handle create_args in
+      Alcotest.(check bool)
+        "create rejected mentions admin" true
+        (Test_helpers.string_contains denied "admin");
+      Alcotest.(check bool)
+        "create rejected mentions CLAWQ_ADMIN" true
+        (Test_helpers.string_contains denied "CLAWQ_ADMIN");
+      Alcotest.(check int)
+        "rejected create leaves no grant" 0 (memory_grant_count db);
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let created = Command_bridge.handle create_args in
+      Alcotest.(check bool)
+        "admin create succeeds" true
+        (Test_helpers.string_contains created "Created memory grant");
+      Alcotest.(check int) "admin create stores grant" 1 (memory_grant_count db);
+      Unix.putenv "CLAWQ_ADMIN" "";
+      let revoke_denied = Command_bridge.handle revoke_args in
+      Alcotest.(check bool)
+        "revoke rejected mentions admin" true
+        (Test_helpers.string_contains revoke_denied "admin");
+      Alcotest.(check int)
+        "rejected revoke leaves grant" 1 (memory_grant_count db);
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let revoked = Command_bridge.handle revoke_args in
+      Alcotest.(check bool)
+        "admin revoke succeeds" true
+        (Test_helpers.string_contains revoked "Revoked 1 memory grant");
+      Alcotest.(check int)
+        "admin revoke removes grant" 0 (memory_grant_count db))
+
+let test_memory_grants_not_exposed_to_slash_or_agent_tools () =
+  let slash_result =
+    Slash_commands.handle "/memory grant create 1 user u1 read"
+  in
+  (match slash_result with
+  | Slash_commands.Memories _ -> ()
+  | Slash_commands.FormattedReply _ -> ()
+  | Slash_commands.AdminRequired _ ->
+      Alcotest.fail "slash memory grant must not expose admin grant mutation"
+  | _ -> ());
+  let db = Memory.init ~db_path:":memory:" () in
+  let registry = Tool_registry.create () in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None ~workspace:"/tmp"
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  Tools_builtin.register_all ~config:Runtime_config.default ~sandbox
+    ~db:(Some db) registry;
+  let tool_names =
+    List.map (fun (tool : Tool.t) -> tool.name) (Tool_registry.list registry)
+  in
+  Alcotest.(check bool)
+    "no memory grant tool" true
+    (not
+       (List.exists
+          (fun name -> Test_helpers.string_contains name "grant")
+          tool_names))
+
 let test_handle_workspace () =
   let result = Command_bridge.handle [ "workspace" ] in
   Alcotest.(check bool)
@@ -3955,6 +4029,10 @@ let suite =
     Alcotest.test_case "handle channel test teams" `Quick
       test_handle_channel_test_teams;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;
+    Alcotest.test_case "memory grant CLI requires admin" `Quick
+      test_memory_grant_cli_requires_admin;
+    Alcotest.test_case "memory grants not exposed to slash or tools" `Quick
+      test_memory_grants_not_exposed_to_slash_or_agent_tools;
     Alcotest.test_case "handle workspace" `Quick test_handle_workspace;
     Alcotest.test_case "handle workspace uses effective workspace" `Quick
       test_handle_workspace_uses_effective_workspace;
