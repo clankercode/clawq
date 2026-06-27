@@ -83,6 +83,7 @@
   test_room_origin
   test_room_workspace
   test_room_activity_ledger
+  test_room_stale_query
   test_sandbox
   test_scheduler
   test_secret_store
