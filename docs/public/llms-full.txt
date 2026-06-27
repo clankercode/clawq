@@ -226,9 +226,9 @@ Available in chat-integrated channels that support slash commands. Admin-only co
 - `/tasks` — display the agent's current task tree for this session (user-facing visibility into what the agent is tracking)
 - `/model` — show current model, favorites, and usage ranking
 - `/model help` — show model command usage text
-- `/model set <name>` — set model for this session; validates against known models; supports `provider:model` (canonical) or `provider/model` (legacy, accepted with a format hint); e.g. `/model set anthropic:claude-sonnet-4-6`
+- `/model set <name>` — set model for this session; validates against known models; supports `provider:model` (canonical), `provider/model` (legacy, accepted with a format hint), or an unambiguous bare catalog name; ambiguous bare names return candidate `provider:model` values instead of choosing silently; e.g. `/model set anthropic:claude-sonnet-4-6`
 - `/model set-force <name>` — set model bypassing validation (for custom or local models not in the catalog)
-- `/model set-default <name>` — write model to `~/.clawq/config.json` as the new default; applies to new sessions (not the current one); auto-normalizes legacy `provider/model` format to canonical `provider:model`
+- `/model set-default <name>` — write model to `~/.clawq/config.json` as the new default; applies to new sessions (not the current one); auto-normalizes legacy `provider/model` format to canonical `provider:model`; bare names must resolve unambiguously or ClawQ lists candidates
 - `/model fav <name>` — toggle a model as favorite
 - `/model unfav <name>` — remove a model from favorites
 - `/model list [provider] [available|unavailable|all]` — list models, optionally filtered by provider and availability; defaults to available only
@@ -359,7 +359,7 @@ The legacy `provider/model` slash format is still accepted but deprecated. Depre
 - **`status` command**: a warning is shown when the effective model uses the legacy format.
 - **`config set agent_defaults.primary_model`**: a warning is shown if the value uses the legacy format.
 - **`/model set`**: accepts both formats but prints a format hint when the legacy format is used.
-- **`models set-default` / `/model set-default`**: auto-normalizes the legacy format to canonical before writing to config.
+- **`models set-default` / `/model set-default`**: auto-normalizes the legacy format to canonical before writing to config. Bare model names are accepted only when they resolve to one catalog entry; ambiguous bare names print candidate `provider:model` values.
 
 Note: `providers.*.default_model` is the model identifier as understood by that provider's API (e.g. `openai/gpt-4o` on OpenRouter). This is a provider-specific model name, not a `provider:model` reference, and is not subject to the format deprecation.
 

@@ -3155,6 +3155,25 @@ let test_models_set_default_rejects_unknown_plain () =
         "hint about provider format" true
         (Test_helpers.string_contains result "provider:model"))
 
+let test_models_set_default_shows_candidates_on_ambiguous_plain () =
+  with_temp_home (fun _dir ->
+      let result =
+        Command_bridge.handle
+          [ "models"; "set-default"; "gpt-5.4"; "--skip-validation" ]
+      in
+      Alcotest.(check bool)
+        "reports ambiguity" true
+        (Test_helpers.string_contains result "ambiguous");
+      Alcotest.(check bool)
+        "shows openai candidate" true
+        (Test_helpers.string_contains result "openai:gpt-5.4");
+      Alcotest.(check bool)
+        "shows codex candidate" true
+        (Test_helpers.string_contains result "openai-codex:gpt-5.4");
+      Alcotest.(check bool)
+        "does not commit ambiguous model" true
+        (not (Test_helpers.string_contains result "Default model set to:")))
+
 let test_models_set_default_accepts_known_plain () =
   with_temp_home (fun _dir ->
       (* --skip-validation: test exercises the catalog/parsing path, not the
@@ -3276,6 +3295,8 @@ let suite =
       test_models_list_availability_filters_db_rows;
     Alcotest.test_case "models set-default rejects unknown plain model" `Quick
       test_models_set_default_rejects_unknown_plain;
+    Alcotest.test_case "models set-default shows ambiguous plain candidates"
+      `Quick test_models_set_default_shows_candidates_on_ambiguous_plain;
     Alcotest.test_case "models set-default accepts known plain model" `Quick
       test_models_set_default_accepts_known_plain;
     Alcotest.test_case "models set-default validation aborts on bad model"

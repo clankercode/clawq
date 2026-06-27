@@ -170,6 +170,45 @@ let test_min_models_list_accepts_availability_flags () =
     "available flag accepted" false
     (Test_helpers.string_contains available "Usage: clawq-min models")
 
+let test_min_models_set_default_shows_candidates_on_ambiguous_plain () =
+  Test_helpers.with_temp_home (fun _home ->
+      let out =
+        Command_bridge_min.handle [ "models"; "set-default"; "gpt-5.4" ]
+      in
+      Alcotest.(check bool)
+        "reports ambiguity" true
+        (Test_helpers.string_contains out "Ambiguous model");
+      Alcotest.(check bool)
+        "shows openai candidate" true
+        (Test_helpers.string_contains out "openai:gpt-5.4");
+      Alcotest.(check bool)
+        "shows codex candidate" true
+        (Test_helpers.string_contains out "openai-codex:gpt-5.4");
+      Alcotest.(check bool)
+        "does not set ambiguous default" false
+        (Test_helpers.string_contains out "Set agent_defaults.primary_model"))
+
+let test_min_models_set_default_rejects_unknown_plain () =
+  Test_helpers.with_temp_home (fun _home ->
+      let out =
+        Command_bridge_min.handle
+          [ "models"; "set-default"; "nonexistent-model-xyz" ]
+      in
+      let cfg = Config_loader.load () in
+      Alcotest.(check bool)
+        "reports unknown plain model" true
+        (Test_helpers.string_contains out "Unknown model");
+      Alcotest.(check bool)
+        "gives provider format hint" true
+        (Test_helpers.string_contains out "provider:model");
+      Alcotest.(check bool)
+        "does not set unknown default" false
+        (Test_helpers.string_contains out "Set agent_defaults.primary_model");
+      Alcotest.(check string)
+        "preserves existing default"
+        Runtime_config.default.agent_defaults.primary_model
+        cfg.agent_defaults.primary_model)
+
 let test_real_models_list_accepts_availability_flags () =
   if not (main_exe_available_and_fresh ()) then Alcotest.skip ();
   with_temp_home (fun home ->
@@ -535,6 +574,10 @@ let suite =
       test_min_delegate_disabled_message;
     Alcotest.test_case "minimal models list accepts availability flags" `Quick
       test_min_models_list_accepts_availability_flags;
+    Alcotest.test_case "minimal models set-default ambiguous shows candidates"
+      `Quick test_min_models_set_default_shows_candidates_on_ambiguous_plain;
+    Alcotest.test_case "minimal models set-default rejects unknown plain" `Quick
+      test_min_models_set_default_rejects_unknown_plain;
     Alcotest.test_case "real models list accepts availability flags" `Quick
       test_real_models_list_accepts_availability_flags;
     Alcotest.test_case "config default model" `Quick test_config_default_model;

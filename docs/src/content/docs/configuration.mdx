@@ -522,6 +522,8 @@ Deprecation warnings appear:
 - In `/model set` (prints a format hint)
 - `models set-default` and `/model set-default` auto-normalize to canonical format
 
+`/model set`, `/model set-default`, and `models set-default` also accept bare model names when the catalog can resolve them unambiguously. If a bare name matches multiple providers, ClawQ rejects the change and prints candidate `provider:model` values to choose from.
+
 Note: `providers.*.default_model` is the model identifier as understood by that provider's API (e.g. `openai/gpt-4o` on OpenRouter) — this is not subject to the format deprecation.
 
 ### model_context_limits

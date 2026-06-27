@@ -445,6 +445,8 @@ When `shell_exec` is interrupted, the running process is moved to a background s
 
 Slash commands are available in chat-integrated channels (Telegram, Discord, Slack, Teams, web UI). Type `/help` in any channel to see the full list.
 
+Model-setting commands accept canonical `provider:model`, legacy `provider/model`, or a bare model name. Bare names are matched against the model catalog; if more than one provider matches, the command fails with candidate `provider:model` values instead of choosing one silently. In the web UI, slash-command errors are also written to the session history so the next LLM turn can see what failed.
+
 | Command | Description |
 |---------|-------------|
 | `/start` | Show the ready message |
@@ -461,9 +463,9 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/compact` | Compact session history by summarizing older messages |
 | `/model` | Show current model, favorites, and usage ranking |
 | `/model help` | Show model command usage text |
-| `/model set <name>` | Set model for this session (validates against known models) |
+| `/model set <name>` | Set model for this session (validates against known models; ambiguous bare names list `provider:model` candidates) |
 | `/model set-force <name>` | Set model bypassing validation (for custom/local models) |
-| `/model set-default <name>` | Set default model in config (persistent, auto-normalizes format) |
+| `/model set-default <name>` | Set default model in config (persistent, auto-normalizes format; ambiguous bare names list candidates) |
 | `/model fav <name>` | Toggle a model as favorite |
 | `/model unfav <name>` | Remove from favorites |
 | `/model list [provider]` | List available models |

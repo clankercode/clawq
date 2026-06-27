@@ -202,12 +202,30 @@ let cmd_models args =
       | Ok (provider_filter, availability) ->
           Models_catalog.to_plain_list ~provider_filter ~availability ()
       | Error msg -> msg)
-  | [ "set-default"; model ] -> (
-      match Models_catalog.find_by_full_name model with
-      | Some _ -> Config_set.set_value "agent_defaults.primary_model" model
-      | None ->
-          Printf.sprintf "Warning: model '%s' not found in catalog.\n%s" model
-            (Config_set.set_value "agent_defaults.primary_model" model))
+  | [ "set-default"; raw_model ] -> (
+      let cfg = get_config () in
+      let configured_providers = List.map fst cfg.providers in
+      match
+        Models_catalog.resolve_model_name_for_set
+          ~require_configured_provider:false ~configured_providers raw_model
+      with
+      | Error msg -> "Error: " ^ msg
+      | Ok resolved ->
+          let canonical_value, hint =
+            ( resolved.Models_catalog.canonical_value,
+              resolved.Models_catalog.hint )
+          in
+          let set_result =
+            Config_set.set_value "agent_defaults.primary_model" canonical_value
+          in
+          let warning =
+            match resolved.Models_catalog.catalog_match with
+            | Some _ -> ""
+            | None ->
+                Printf.sprintf "Warning: model '%s' not found in catalog.\n"
+                  canonical_value
+          in
+          warning ^ set_result ^ hint)
   | _ ->
       "Usage: clawq-min models <subcommand>\n\n\
        Subcommands:\n\

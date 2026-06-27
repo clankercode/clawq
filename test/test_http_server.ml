@@ -136,6 +136,26 @@ let chat_stream_response ~session_manager message =
   if status <> 200 then Alcotest.failf "expected 200, got %d: %s" status body;
   body
 
+let chat_json_response ~session_manager message =
+  let req =
+    Cohttp.Request.make ~meth:`POST (Uri.of_string "http://127.0.0.1/chat")
+  in
+  let body =
+    Cohttp_lwt.Body.of_string
+      (Printf.sprintf {|{"session_id":"s","message":%s}|}
+         (Yojson.Safe.to_string (`String message)))
+  in
+  let resp, body =
+    Lwt_main.run
+      (Http_server.handler ~session_manager ~require_pairing:false
+         ~auth_token:None (Obj.magic ()) req body)
+  in
+  let body = body_string body in
+  let status = Cohttp.Code.code_of_status (Cohttp.Response.status resp) in
+  if status <> 200 then Alcotest.failf "expected 200, got %d: %s" status body;
+  let payload = Yojson.Safe.from_string body in
+  Yojson.Safe.Util.(payload |> member "response" |> to_string)
+
 let test_chat_model_set_force_rejects_unavailable_cached_model () =
   let db = Memory.init ~db_path:":memory:" () in
   insert_cached_model ~unavailable:true db ~provider:"dbprov"
@@ -150,6 +170,82 @@ let test_chat_model_set_force_rejects_unavailable_cached_model () =
     (Test_helpers.string_contains response "marked unavailable");
   Alcotest.(check (option string))
     "does not persist session override" None
+    (Memory.get_session_model_override ~db ~session_key:"web:s")
+
+let test_chat_model_set_error_is_stored_in_session_history () =
+  let db = Memory.init ~db_path:":memory:" () in
+  insert_cached_model ~unavailable:true db ~provider:"dbprov"
+    ~model_id:"disabled-model";
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let response =
+    chat_stream_response ~session_manager
+      "/model set-force dbprov:disabled-model"
+  in
+  Alcotest.(check bool)
+    "response reports unavailable model" true
+    (Test_helpers.string_contains response "marked unavailable");
+  let history = Memory.load_history ~db ~session_key:"web:s" in
+  Alcotest.(check bool)
+    "history includes slash command" true
+    (List.exists
+       (fun (msg : Provider.message) ->
+         msg.role = "user"
+         && Test_helpers.string_contains msg.content "/model set-force")
+       history);
+  Alcotest.(check bool)
+    "history includes command error" true
+    (List.exists
+       (fun (msg : Provider.message) ->
+         msg.role = "assistant"
+         && Test_helpers.string_contains msg.content "marked unavailable")
+       history)
+
+let test_chat_json_model_set_error_is_stored_in_session_history () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let response = chat_json_response ~session_manager "/model set gpt-5.4" in
+  Alcotest.(check bool)
+    "response reports ambiguity" true
+    (Test_helpers.string_contains response "Ambiguous model");
+  Alcotest.(check bool)
+    "response includes openai candidate" true
+    (Test_helpers.string_contains response "openai:gpt-5.4");
+  Alcotest.(check bool)
+    "response includes codex candidate" true
+    (Test_helpers.string_contains response "openai-codex:gpt-5.4");
+  let history = Memory.load_history ~db ~session_key:"web:s" in
+  Alcotest.(check bool)
+    "history includes slash command" true
+    (List.exists
+       (fun (msg : Provider.message) ->
+         msg.role = "user"
+         && Test_helpers.string_contains msg.content "/model set gpt-5.4")
+       history);
+  Alcotest.(check bool)
+    "history includes command error" true
+    (List.exists
+       (fun (msg : Provider.message) ->
+         msg.role = "assistant"
+         && Test_helpers.string_contains msg.content "Ambiguous model")
+       history)
+
+let test_chat_stream_model_set_bare_match_persists_canonical () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config =
+    {
+      Runtime_config.default with
+      providers = [ ("openai-codex", Runtime_config.default_provider_config) ];
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let response =
+    chat_stream_response ~session_manager "/model set gpt-5.4-mini"
+  in
+  Alcotest.(check bool)
+    "response reports codex provider" true
+    (Test_helpers.string_contains response "provider: openai-codex");
+  Alcotest.(check (option string))
+    "persists canonical model" (Some "openai-codex:gpt-5.4-mini")
     (Memory.get_session_model_override ~db ~session_key:"web:s")
 
 let with_temp_clawq_home_for_model_test f =
@@ -184,6 +280,48 @@ let test_chat_model_set_default_rejects_deprecated_cached_model () =
       Alcotest.(check bool)
         "does not report default update" false
         (Test_helpers.string_contains response "Default model set to:"))
+
+let test_chat_stream_model_set_default_ambiguous_preserves_config () =
+  with_temp_clawq_home_for_model_test (fun home ->
+      let config_path = Filename.concat home "config.json" in
+      let initial_model = "openai:gpt-5.2" in
+      let config_json =
+        `Assoc
+          [
+            ( "agent_defaults",
+              `Assoc [ ("primary_model", `String initial_model) ] );
+          ]
+      in
+      let oc = open_out config_path in
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true config_json);
+      close_out oc;
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager =
+        Session.create
+          ~config:
+            {
+              Runtime_config.default with
+              agent_defaults =
+                {
+                  Runtime_config.default.agent_defaults with
+                  primary_model = initial_model;
+                };
+            }
+          ~db ()
+      in
+      let response =
+        chat_stream_response ~session_manager "/model set-default gpt-5.4"
+      in
+      Alcotest.(check bool)
+        "response reports ambiguity" true
+        (Test_helpers.string_contains response "Ambiguous model");
+      let stored =
+        Yojson.Safe.from_file config_path
+        |> Yojson.Safe.Util.member "agent_defaults"
+        |> Yojson.Safe.Util.member "primary_model"
+        |> Yojson.Safe.Util.to_string
+      in
+      Alcotest.(check string) "config unchanged" initial_model stored)
 
 let debug_lines payload =
   match Yojson.Safe.Util.member "debug" payload with
@@ -1796,8 +1934,18 @@ let suite =
       test_models_route_includes_db_only_models_and_filters_availability;
     Alcotest.test_case "chat model set-force rejects unavailable cached model"
       `Quick test_chat_model_set_force_rejects_unavailable_cached_model;
+    Alcotest.test_case "chat model set errors are stored in session history"
+      `Quick test_chat_model_set_error_is_stored_in_session_history;
+    Alcotest.test_case
+      "chat json model set errors are stored in session history" `Quick
+      test_chat_json_model_set_error_is_stored_in_session_history;
+    Alcotest.test_case "chat stream model set bare match persists canonical"
+      `Quick test_chat_stream_model_set_bare_match_persists_canonical;
     Alcotest.test_case "chat model set-default rejects deprecated cached model"
       `Quick test_chat_model_set_default_rejects_deprecated_cached_model;
+    Alcotest.test_case
+      "chat stream model set-default ambiguity preserves config" `Quick
+      test_chat_stream_model_set_default_ambiguous_preserves_config;
     Alcotest.test_case "chat runtime ctx returns runtime context" `Quick
       test_chat_runtime_ctx_returns_runtime_context;
     Alcotest.test_case "chat help returns plain help" `Quick

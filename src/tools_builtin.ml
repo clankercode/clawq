@@ -194,80 +194,88 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
   in
   let set_model_lwt ?session_key ?(skip_validation = false) raw_model =
     let open Lwt.Syntax in
-    let model = Models_catalog.resolve_alias_or_name raw_model in
     let db =
       match session_mgr with Some mgr -> Session.get_db mgr | None -> None
     in
-    let db_model_exists =
-      match (db, Models_catalog.split_name model) with
-      | Some db, (_, _, (Models_catalog.Canonical | Models_catalog.Legacy)) ->
-          Model_discovery.cached_model_exists ~db model
-      | _ -> false
-    in
-    let catalog_model_exists =
-      Option.is_some (Models_catalog.find_by_full_name model)
-    in
-    match (catalog_model_exists, db_model_exists) with
-    | false, false ->
+    match session_mgr with
+    | None ->
         Lwt.return
-          (Printf.sprintf
-             "Error: model '%s' not found in catalog. Use 'models list' to see \
-              available models. Format: provider:model-name (e.g., \
-              openai:gpt-5.4)"
-             model)
-    | _ -> (
-        match session_mgr with
-        | None ->
-            Lwt.return
-              "Error: no active session available; session-scoped model \
-               changes require a live session. Use the CLI 'models \
-               set-default' command to change the persistent default."
-        | Some mgr -> (
-            let provider, model_id, fmt = Models_catalog.split_name model in
-            let cfg = Session.get_config mgr in
-            let previous_model =
-              match session_key with
-              | Some key -> Session.get_session_effective_model mgr ~key
-              | None ->
-                  Runtime_config.effective_primary_model cfg.agent_defaults
-            in
-            match
+          "Error: no active session available; session-scoped model changes \
+           require a live session. Use the CLI 'models set-default' command to \
+           change the persistent default."
+    | Some mgr -> (
+        let cfg = Session.get_config mgr in
+        let configured_providers = List.map fst cfg.Runtime_config.providers in
+        match
+          Models_catalog.resolve_model_name_for_set
+            ~require_configured_provider:false ~configured_providers raw_model
+        with
+        | Error msg -> Lwt.return ("Error: " ^ msg)
+        | Ok resolved -> (
+            let model = resolved.Models_catalog.canonical_value in
+            let db_model_exists =
               match db with
-              | Some db ->
-                  Model_discovery.validate_cached_model_allowed ~db model
-              | None -> None
-            with
-            | Some msg -> Lwt.return ("Error: " ^ msg)
-            | None -> (
-                if skip_validation then
-                  Lwt.return
-                    (do_set ~cfg ~session_key ~model ~provider ~model_id ~fmt
-                       ~previous_model
-                    ^ "\nNote: validation skipped (skip_validation=true).")
-                else
-                  let* result =
-                    Model_validation.validate ~config:cfg ~model ()
-                  in
-                  match result with
-                  | Model_validation.Ok_validated ->
+              | Some db -> Model_discovery.cached_model_exists ~db model
+              | None -> false
+            in
+            let catalog_model_exists =
+              Option.is_some resolved.Models_catalog.catalog_match
+            in
+            match (catalog_model_exists, db_model_exists) with
+            | false, false ->
+                Lwt.return
+                  (Printf.sprintf
+                     "Error: model '%s' not found in catalog. Use 'models \
+                      list' to see available models. Format: \
+                      provider:model-name (e.g., openai:gpt-5.4)"
+                     model)
+            | _ -> (
+                let provider = resolved.Models_catalog.canonical_provider in
+                let model_id = resolved.Models_catalog.canonical_model_id in
+                let fmt = resolved.Models_catalog.fmt in
+                let previous_model =
+                  match session_key with
+                  | Some key -> Session.get_session_effective_model mgr ~key
+                  | None ->
+                      Runtime_config.effective_primary_model cfg.agent_defaults
+                in
+                match
+                  match db with
+                  | Some db ->
+                      Model_discovery.validate_cached_model_allowed ~db model
+                  | None -> None
+                with
+                | Some msg -> Lwt.return ("Error: " ^ msg)
+                | None -> (
+                    if skip_validation then
                       Lwt.return
                         (do_set ~cfg ~session_key ~model ~provider ~model_id
-                           ~fmt ~previous_model)
-                  | Model_validation.Error_msg msg ->
-                      let rollback_cmd =
-                        Printf.sprintf
-                          "models set %s (previous model still active)"
-                          previous_model
+                           ~fmt ~previous_model
+                        ^ "\nNote: validation skipped (skip_validation=true).")
+                    else
+                      let* result =
+                        Model_validation.validate ~config:cfg ~model ()
                       in
-                      Lwt.return
-                        (Printf.sprintf
-                           "Error: model validation failed for '%s' — %s\n\
-                            Previous model '%s' remains active. To re-attempt \
-                            or rollback explicitly:\n\
-                           \  %s\n\
-                            To bypass validation (not recommended), call this \
-                            tool again with skip_validation=true."
-                           model msg previous_model rollback_cmd))))
+                      match result with
+                      | Model_validation.Ok_validated ->
+                          Lwt.return
+                            (do_set ~cfg ~session_key ~model ~provider ~model_id
+                               ~fmt ~previous_model)
+                      | Model_validation.Error_msg msg ->
+                          let rollback_cmd =
+                            Printf.sprintf
+                              "models set %s (previous model still active)"
+                              previous_model
+                          in
+                          Lwt.return
+                            (Printf.sprintf
+                               "Error: model validation failed for '%s' — %s\n\
+                                Previous model '%s' remains active. To \
+                                re-attempt or rollback explicitly:\n\
+                               \  %s\n\
+                                To bypass validation (not recommended), call \
+                                this tool again with skip_validation=true."
+                               model msg previous_model rollback_cmd)))))
   in
   {
     Tool.name = "models";

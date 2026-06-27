@@ -527,6 +527,35 @@ let model_id_matches (m : model_info) id =
   m.id = id || String.lowercase_ascii m.id = String.lowercase_ascii id
 
 let find_by_id id = List.find_opt (fun m -> model_id_matches m id) known_models
+let full_name m = m.provider ^ ":" ^ m.id
+
+let find_all_by_id id =
+  List.filter (fun m -> model_id_matches m id) known_models
+
+let contains_case_insensitive ~needle haystack =
+  let needle = String.lowercase_ascii (String.trim needle) in
+  let haystack = String.lowercase_ascii haystack in
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop i =
+    i + needle_len <= haystack_len
+    && (String.sub haystack i needle_len = needle || loop (i + 1))
+  in
+  needle <> "" && loop 0
+
+let fuzzy_plain_matches name =
+  let exact = find_all_by_id name in
+  if exact <> [] then exact
+  else
+    List.filter
+      (fun m ->
+        contains_case_insensitive ~needle:name m.id
+        || contains_case_insensitive ~needle:name (full_name m)
+        ||
+        match m.display_name with
+        | Some display -> contains_case_insensitive ~needle:name display
+        | None -> false)
+      known_models
 
 (* Returns the catalog's canonical id when a case-insensitive match exists
    for (provider, id). Returns None when the model isn't in the catalog at all,
@@ -627,14 +656,131 @@ let validate_model_name ~configured_providers name =
               add '%s' to your config.json providers."
              provider name provider)
   | Plain -> (
-      match find_by_full_name name with
-      | Some _ -> None
-      | None ->
+      match fuzzy_plain_matches name with
+      | [ _ ] -> None
+      | _ :: _ as matches ->
+          let candidates =
+            matches |> List.map full_name
+            |> List.sort_uniq String.compare
+            |> String.concat ", "
+          in
+          Some
+            (Printf.sprintf
+               "Ambiguous model '%s'. Use provider:model format. Candidates: %s"
+               name candidates)
+      | [] ->
           Some
             (Printf.sprintf
                "Unknown model '%s'. Use /model set-force %s to set anyway, or \
                 use provider:model format (e.g., openai:%s)."
                name name name))
+
+type resolved_model_name = {
+  canonical_value : string;
+  canonical_provider : string;
+  canonical_model_id : string;
+  fmt : name_format;
+  display_provider : string;
+  display_model : string;
+  hint : string;
+  catalog_match : model_info option;
+}
+
+let ambiguous_plain_error name matches =
+  let candidates =
+    matches |> List.map full_name
+    |> List.sort_uniq String.compare
+    |> String.concat ", "
+  in
+  Printf.sprintf
+    "Ambiguous model '%s'. Use provider:model format. Candidates: %s" name
+    candidates
+
+let unknown_plain_error name =
+  Printf.sprintf
+    "Unknown model '%s'. Use /model set-force %s to set anyway, or use \
+     provider:model format (e.g., openai:%s)."
+    name name name
+
+let resolve_model_name_for_set ?(force = false)
+    ?(require_configured_provider = true) ~configured_providers raw_name =
+  let name = resolve_alias_or_name raw_name in
+  let provider, model_id, fmt = split_name name in
+  let resolve_provider_model () =
+    let canonical_id =
+      Option.value ~default:model_id (canonical_id ~provider model_id)
+    in
+    let canonical_value = provider ^ ":" ^ canonical_id in
+    let hint =
+      match fmt with
+      | Legacy ->
+          Printf.sprintf "\nHint: use %s:%s format instead." provider
+            canonical_id
+      | Canonical when canonical_id <> model_id ->
+          Printf.sprintf "\nNote: corrected model casing \"%s\" -> \"%s\"." name
+            canonical_value
+      | Canonical | Plain -> ""
+    in
+    Ok
+      {
+        canonical_value;
+        canonical_provider = provider;
+        canonical_model_id = canonical_id;
+        fmt;
+        display_provider = provider;
+        display_model = canonical_id;
+        hint;
+        catalog_match = find_by_full_name canonical_value;
+      }
+  in
+  match fmt with
+  | Canonical | Legacy ->
+      if
+        (not force) && require_configured_provider
+        && not (List.mem provider configured_providers)
+      then
+        Error
+          (Printf.sprintf
+             "Unknown provider '%s'. Use /model set-force %s to set anyway, or \
+              add '%s' to your config.json providers."
+             provider name provider)
+      else resolve_provider_model ()
+  | Plain -> (
+      let matches = fuzzy_plain_matches name in
+      match matches with
+      | [ m ] when m.provider <> "" ->
+          let canonical_value = full_name m in
+          let hint =
+            if canonical_value <> raw_name then
+              Printf.sprintf "\nNote: resolved bare model name to \"%s\"."
+                canonical_value
+            else ""
+          in
+          Ok
+            {
+              canonical_value;
+              canonical_provider = m.provider;
+              canonical_model_id = m.id;
+              fmt = Plain;
+              display_provider = m.provider;
+              display_model = m.id;
+              hint;
+              catalog_match = Some m;
+            }
+      | [] when force ->
+          Ok
+            {
+              canonical_value = name;
+              canonical_provider = "";
+              canonical_model_id = name;
+              fmt = Plain;
+              display_provider = "";
+              display_model = name;
+              hint = "";
+              catalog_match = None;
+            }
+      | [] -> Error (unknown_plain_error name)
+      | _ :: _ -> Error (ambiguous_plain_error name matches))
 
 let format_context_window = function
   | None -> ""

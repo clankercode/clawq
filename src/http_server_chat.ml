@@ -7,6 +7,93 @@ let reply_json text =
   Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
     ~body:resp_json ()
 
+let raw_reply_json = reply_json
+let raw_sse_reply = sse_reply
+
+let starts_with ~prefix text =
+  let prefix_len = String.length prefix in
+  String.length text >= prefix_len && String.sub text 0 prefix_len = prefix
+
+let contains_case_insensitive ~needle text =
+  let needle = String.lowercase_ascii needle in
+  let text = String.lowercase_ascii text in
+  let needle_len = String.length needle in
+  let text_len = String.length text in
+  let rec loop i =
+    i + needle_len <= text_len
+    && (String.sub text i needle_len = needle || loop (i + 1))
+  in
+  needle <> "" && loop 0
+
+let slash_command_error_text text =
+  let text = String.trim text in
+  starts_with ~prefix:"Error:" text
+  || starts_with ~prefix:"Unknown " text
+  || starts_with ~prefix:"Unhandled command" text
+  || contains_case_insensitive ~needle:"not found" text
+  || contains_case_insensitive ~needle:"marked unavailable" text
+  || contains_case_insensitive ~needle:"marked deprecated" text
+  || contains_case_insensitive ~needle:"validation failed" text
+  || contains_case_insensitive ~needle:"ambiguous model" text
+
+let persist_slash_command_error session_manager ~key ~message ~response =
+  match Session.get_db session_manager with
+  | Some db
+    when starts_with ~prefix:"/" (String.trim message)
+         && slash_command_error_text response ->
+      Memory.store_message ~db ~session_key:key
+        (Provider.make_message ~role:"user" ~content:message);
+      Memory.store_message ~db ~session_key:key
+        (Provider.make_message ~role:"assistant" ~content:response);
+      Lwt.return_unit
+  | _ -> Lwt.return_unit
+
+let handle_model_action ~session_manager ~key ~emit action =
+  let open Lwt.Syntax in
+  let open Slash_commands in
+  match action with
+  | ModelShow ->
+      let current = Session.get_session_effective_model session_manager ~key in
+      let prefs = Model_preferences.load () in
+      let usage_ranked =
+        List.filter_map
+          (fun (m, c) ->
+            if List.mem m prefs.favorites then None else Some (m, c))
+          prefs.usage_counts
+      in
+      emit
+        (Slash_commands.format_model_show ~connector:Format_adapter.Plain
+           ~current ~favorites:prefs.favorites ~usage_ranked)
+  | ModelSet _ | ModelSetForce _ | ModelSetDefault _ ->
+      emit
+        (Slash_commands_model.handle_model_set_action
+           ~config_source:"gateway_api" ~session_manager ~key action)
+  | ModelFav name ->
+      let prefs = Model_preferences.toggle_favorite name in
+      let status =
+        if List.mem name prefs.favorites then "added to" else "removed from"
+      in
+      emit (Printf.sprintf "%s %s favorites" name status)
+  | ModelUnfav name ->
+      let _ = Model_preferences.remove_favorite name in
+      emit (Printf.sprintf "Removed from favorites: %s" name)
+  | ModelList (provider, availability) ->
+      emit
+        (Http_server_models.model_list_text ~session_manager ~provider
+           ~availability)
+  | ModelUsage ->
+      let cfg = Session.get_config session_manager in
+      Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+      let* results =
+        Lwt_list.map_s
+          (fun (name, pc) ->
+            Provider_quota.fetch_for_provider ~config:pc ~name ())
+          cfg.providers
+      in
+      emit
+        (Slash_commands.format_model_usage ~connector:Format_adapter.Plain
+           ~config:cfg results)
+
 (* Slash-command results that resolve to a single text reply, shared between the
    streaming and non-streaming chat endpoints. [emit] renders the text for the
    active endpoint (JSON body vs SSE stream). Returns [None] for results the
@@ -160,24 +247,8 @@ let dispatch_common ~session_manager ~key ~emit cmd_result =
                  skills
                  (Agent_template.available_templates ())
            | None -> "Tools are not enabled."))
-  | Slash_commands.Model Slash_commands.ModelShow ->
-      let current = Session.get_session_effective_model session_manager ~key in
-      let prefs = Model_preferences.load () in
-      let usage_ranked =
-        List.filter_map
-          (fun (m, c) ->
-            if List.mem m prefs.favorites then None else Some (m, c))
-          prefs.usage_counts
-      in
-      Some
-        (emit
-           (Slash_commands.format_model_show ~connector:Format_adapter.Plain
-              ~current ~favorites:prefs.favorites ~usage_ranked))
-  | Slash_commands.Model (Slash_commands.ModelList (provider, availability)) ->
-      Some
-        (emit
-           (Http_server_models.model_list_text ~session_manager ~provider
-              ~availability))
+  | Slash_commands.Model action ->
+      Some (handle_model_action ~session_manager ~key ~emit action)
   | Slash_commands.Heartbeat _ ->
       Some
         (emit
@@ -311,6 +382,13 @@ let handle_chat ~session_manager ~require_pairing ~auth_token ?ip_limiter
           if not sess_ok then rate_limit_response ()
           else
             let key = "web:" ^ session_id in
+            let reply_json text =
+              let* () =
+                persist_slash_command_error session_manager ~key ~message
+                  ~response:text
+              in
+              raw_reply_json text
+            in
             let skill_names =
               List.map
                 (fun (s : Skills.skill_md_meta) -> s.md_name)
@@ -504,6 +582,13 @@ let handle_chat_stream ~session_manager ~require_pairing ~auth_token ?ip_limiter
           if not sess_ok then rate_limit_response ()
           else
             let key = "web:" ^ session_id in
+            let sse_reply text =
+              let* () =
+                persist_slash_command_error session_manager ~key ~message
+                  ~response:text
+              in
+              raw_sse_reply text
+            in
             let skill_names =
               List.map
                 (fun (s : Skills.skill_md_meta) -> s.md_name)
@@ -835,193 +920,8 @@ let handle_chat_stream ~session_manager ~require_pairing ~auth_token ?ip_limiter
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
                 | None -> sse_reply "Debate requires a database.")
-            | Slash_commands.Model action -> (
-                let open Slash_commands in
-                match action with
-                | ModelShow ->
-                    let key = "web:" ^ session_id in
-                    let current =
-                      Session.get_session_effective_model session_manager ~key
-                    in
-                    let prefs = Model_preferences.load () in
-                    let usage_ranked =
-                      List.filter_map
-                        (fun (m, c) ->
-                          if List.mem m prefs.favorites then None
-                          else Some (m, c))
-                        prefs.usage_counts
-                    in
-                    let text =
-                      Slash_commands.format_model_show
-                        ~connector:Format_adapter.Plain ~current
-                        ~favorites:prefs.favorites ~usage_ranked
-                    in
-                    sse_reply text
-                | ModelSet name | ModelSetForce name -> (
-                    let force =
-                      match action with ModelSetForce _ -> true | _ -> false
-                    in
-                    let cfg = Session.get_config session_manager in
-                    let configured_providers = List.map fst cfg.providers in
-                    let validation_error =
-                      if force then None
-                      else
-                        Models_catalog.validate_model_name ~configured_providers
-                          name
-                    in
-                    match validation_error with
-                    | Some err -> sse_reply err
-                    | None -> (
-                        match
-                          Model_discovery.validate_cached_model_allowed_opt
-                            (Session.get_db session_manager)
-                            name
-                        with
-                        | Some err -> sse_reply err
-                        | None ->
-                            let key = "web:" ^ session_id in
-                            let provider, model_id, fmt =
-                              Models_catalog.split_name name
-                            in
-                            let hint =
-                              match fmt with
-                              | Models_catalog.Legacy ->
-                                  Printf.sprintf
-                                    "\nHint: use %s:%s format instead of %s/%s."
-                                    provider model_id provider model_id
-                              | _ -> ""
-                            in
-                            let warn =
-                              match fmt with
-                              | Models_catalog.Canonical | Models_catalog.Legacy
-                                ->
-                                  let provider_in_config =
-                                    List.mem_assoc provider cfg.providers
-                                  in
-                                  if not provider_in_config then
-                                    Printf.sprintf
-                                      "\n\
-                                       Warning: provider '%s' not found in \
-                                       config. Add it to your config.json to \
-                                       use this model."
-                                      provider
-                                  else ""
-                              | Models_catalog.Plain -> ""
-                            in
-                            Session.set_session_model session_manager ~key
-                              ~model:name;
-                            let model_info =
-                              Models_catalog.find_by_full_name name
-                            in
-                            let display =
-                              match (fmt, model_info) with
-                              | ( ( Models_catalog.Canonical
-                                  | Models_catalog.Legacy ),
-                                  _ ) ->
-                                  Printf.sprintf
-                                    "Model set to: %s (provider: %s)%s%s\n\
-                                     Persisted for this session across \
-                                     restarts. Use /model set-default to \
-                                     change the global default."
-                                    model_id provider hint warn
-                              | Models_catalog.Plain, None ->
-                                  Printf.sprintf
-                                    "Warning: '%s' not found in model catalog. \
-                                     Setting anyway.\n\
-                                     Persisted for this session across \
-                                     restarts. Use /model set-default to \
-                                     change the global default."
-                                    name
-                              | Models_catalog.Plain, Some m ->
-                                  if m.Models_catalog.provider <> "" then
-                                    Printf.sprintf
-                                      "Model set to: %s (provider: %s)\n\
-                                       Persisted for this session across \
-                                       restarts. Use /model set-default to \
-                                       change the global default."
-                                      m.Models_catalog.id
-                                      m.Models_catalog.provider
-                                  else
-                                    Printf.sprintf
-                                      "Model set to: %s\n\
-                                       Persisted for this session across \
-                                       restarts. Use /model set-default to \
-                                       change the global default."
-                                      name
-                            in
-                            sse_reply display))
-                | ModelSetDefault name -> (
-                    let provider, model_id, fmt =
-                      Models_catalog.split_name name
-                    in
-                    let hint =
-                      match fmt with
-                      | Models_catalog.Legacy ->
-                          Printf.sprintf "\nHint: use %s:%s format instead."
-                            provider model_id
-                      | _ -> ""
-                    in
-                    match
-                      Model_discovery.validate_cached_model_allowed_opt
-                        (Session.get_db session_manager)
-                        name
-                    with
-                    | Some err -> sse_reply err
-                    | None -> (
-                        let result =
-                          Config_set.set_json_value
-                            "agent_defaults.primary_model" (`String name)
-                        in
-                        match result with
-                        | Error e ->
-                            sse_reply
-                              (Printf.sprintf "Error writing config: %s" e)
-                        | Ok () ->
-                            let msg =
-                              match fmt with
-                              | Models_catalog.Canonical | Models_catalog.Legacy
-                                ->
-                                  Printf.sprintf
-                                    "Default model set to: %s (provider: %s)%s\n\
-                                     Applies to new sessions."
-                                    model_id provider hint
-                              | Models_catalog.Plain ->
-                                  Printf.sprintf
-                                    "Default model set to: %s\n\
-                                     Applies to new sessions."
-                                    name
-                            in
-                            sse_reply msg))
-                | ModelFav name ->
-                    let prefs = Model_preferences.toggle_favorite name in
-                    let status =
-                      if List.mem name prefs.favorites then "added to"
-                      else "removed from"
-                    in
-                    sse_reply (Printf.sprintf "%s %s favorites" name status)
-                | ModelUnfav name ->
-                    let _ = Model_preferences.remove_favorite name in
-                    sse_reply (Printf.sprintf "Removed from favorites: %s" name)
-                | ModelList (provider, availability) ->
-                    let text =
-                      Http_server_models.model_list_text ~session_manager
-                        ~provider ~availability
-                    in
-                    sse_reply text
-                | ModelUsage ->
-                    let cfg = Session.get_config session_manager in
-                    Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
-                    let* results =
-                      Lwt_list.map_s
-                        (fun (name, pc) ->
-                          Provider_quota.fetch_for_provider ~config:pc ~name ())
-                        cfg.providers
-                    in
-                    let text =
-                      Slash_commands.format_model_usage
-                        ~connector:Format_adapter.Plain ~config:cfg results
-                    in
-                    sse_reply text)
+            | Slash_commands.Model action ->
+                handle_model_action ~session_manager ~key ~emit:sse_reply action
             | Slash_commands.SkillInvoke _ ->
                 sse_reply "Error: unexpected SkillInvoke"
             | Slash_commands.NotACommand ->

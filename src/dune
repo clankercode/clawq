@@ -125,6 +125,7 @@
   slash_commands_fmt_extra
   slash_commands_stats_fmt
   slash_commands
+  slash_commands_model
   slash_commands_bash
   slash_commands_repo
   repo_manager

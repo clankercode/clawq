@@ -3323,6 +3323,82 @@ let test_models_tool_set_rejects_unavailable_cached_model () =
     "set rejects unavailable cached model" true
     (Test_helpers.string_contains result "marked unavailable")
 
+let test_models_tool_set_rejects_ambiguous_plain_with_skip_validation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let session_key = "telegram:42:test" in
+  let previous_model = "anthropic:claude-sonnet-4-6" in
+  Session.set_session_model mgr ~key:session_key ~model:previous_model;
+  let context =
+    {
+      Tool.session_key = Some session_key;
+      send_progress = None;
+      interrupt_check = None;
+      inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
+    }
+  in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke ~context
+         (`Assoc
+            [
+              ("action", `String "set");
+              ("model", `String "gpt-5.4");
+              ("skip_validation", `Bool true);
+            ]))
+  in
+  Alcotest.(check bool)
+    "reports ambiguity" true
+    (Test_helpers.string_contains result "Ambiguous model");
+  Alcotest.(check bool)
+    "shows openai candidate" true
+    (Test_helpers.string_contains result "openai:gpt-5.4");
+  Alcotest.(check bool)
+    "shows codex candidate" true
+    (Test_helpers.string_contains result "openai-codex:gpt-5.4");
+  Alcotest.(check string)
+    "preserves session model" previous_model
+    (Session.get_session_effective_model mgr ~key:session_key)
+
+let test_models_tool_set_canonicalizes_unique_plain_with_skip_validation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let tool =
+    Tools_builtin.models_tool ~config:Runtime_config.default ~session_mgr:mgr ()
+  in
+  let session_key = "telegram:42:test" in
+  let context =
+    {
+      Tool.session_key = Some session_key;
+      send_progress = None;
+      interrupt_check = None;
+      inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
+    }
+  in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke ~context
+         (`Assoc
+            [
+              ("action", `String "set");
+              ("model", `String "claude-sonnet-4-6");
+              ("skip_validation", `Bool true);
+            ]))
+  in
+  Alcotest.(check bool)
+    "set accepts unique bare model" true
+    (Test_helpers.string_contains result "Model set to: claude-sonnet-4-6");
+  Alcotest.(check string)
+    "stores canonical model" "anthropic:claude-sonnet-4-6"
+    (Session.get_session_effective_model mgr ~key:session_key)
+
 let test_models_tool_set_rejects_plain_catalog_deprecated_cached_model () =
   let db = Memory.init ~db_path:":memory:" () in
   insert_cached_model ~deprecated:true db ~provider:"openai" ~model_id:"gpt-4";
@@ -3955,6 +4031,12 @@ let suite =
       test_models_tool_set_accepts_db_only_provider_qualified_model;
     Alcotest.test_case "models tool set rejects unavailable cached model" `Quick
       test_models_tool_set_rejects_unavailable_cached_model;
+    Alcotest.test_case
+      "models tool set rejects ambiguous plain with skip_validation" `Quick
+      test_models_tool_set_rejects_ambiguous_plain_with_skip_validation;
+    Alcotest.test_case
+      "models tool set canonicalizes unique plain with skip_validation" `Quick
+      test_models_tool_set_canonicalizes_unique_plain_with_skip_validation;
     Alcotest.test_case
       "models tool set rejects plain catalog deprecated cached model" `Quick
       test_models_tool_set_rejects_plain_catalog_deprecated_cached_model;

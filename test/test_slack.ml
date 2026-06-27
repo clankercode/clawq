@@ -282,6 +282,151 @@ let test_handle_event_debate_sends_debug_summary () =
              Test_helpers.string_contains text "debug: llm provider=fake")
            sent))
 
+let with_temp_clawq_home f =
+  let base = Filename.temp_file "clawq-home" ".tmp" in
+  Sys.remove base;
+  Unix.mkdir base 0o755;
+  let previous = Sys.getenv_opt "CLAWQ_HOME" in
+  Unix.putenv "CLAWQ_HOME" base;
+  Fun.protect
+    ~finally:(fun () ->
+      (match previous with
+      | Some v -> Unix.putenv "CLAWQ_HOME" v
+      | None -> Unix.putenv "CLAWQ_HOME" "");
+      ignore (Sys.command (Printf.sprintf "rm -rf %S" base)))
+    (fun () -> f base)
+
+let slack_slash_event text =
+  `Assoc
+    [
+      ("type", `String "event_callback");
+      ( "event",
+        `Assoc
+          [
+            ("type", `String "message");
+            ("channel", `String "C123");
+            ("user", `String "U456");
+            ("text", `String text);
+          ] );
+    ]
+  |> Yojson.Safe.to_string
+
+let test_model_set_default_ambiguous_preserves_config () =
+  with_temp_clawq_home (fun home ->
+      let config_path = Filename.concat home "config.json" in
+      let initial_model = "openai:gpt-5.2" in
+      let config_json =
+        `Assoc
+          [
+            ( "agent_defaults",
+              `Assoc [ ("primary_model", `String initial_model) ] );
+          ]
+      in
+      let oc = open_out config_path in
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true config_json);
+      close_out oc;
+      let runtime_config =
+        {
+          Runtime_config.default with
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = initial_model;
+            };
+        }
+      in
+      let session_manager = Session.create ~config:runtime_config () in
+      let sent = ref [] in
+      let result =
+        Lwt_main.run
+          (Slack.handle_event ~config:(make_config ()) ~session_manager
+             ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
+               sent := text :: !sent;
+               Lwt.return_unit)
+             (slack_slash_event "/model set-default gpt-5.4"))
+      in
+      Alcotest.(check string) "returns ok" "ok" result;
+      let replies = List.rev !sent in
+      Alcotest.(check bool)
+        "reports ambiguity" true
+        (List.exists
+           (fun text -> Test_helpers.string_contains text "Ambiguous model")
+           replies);
+      let stored =
+        Yojson.Safe.from_file config_path
+        |> Yojson.Safe.Util.member "agent_defaults"
+        |> Yojson.Safe.Util.member "primary_model"
+        |> Yojson.Safe.Util.to_string
+      in
+      Alcotest.(check string) "config file unchanged" initial_model stored;
+      Alcotest.(check string)
+        "in-memory config unchanged" initial_model
+        (Session.get_config session_manager).Runtime_config.agent_defaults
+          .primary_model)
+
+let test_model_set_bare_match_persists_canonical () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let runtime_config =
+    {
+      Runtime_config.default with
+      providers = [ ("openai-codex", Runtime_config.default_provider_config) ];
+    }
+  in
+  let session_manager = Session.create ~config:runtime_config ~db () in
+  let sent = ref [] in
+  let result =
+    Lwt_main.run
+      (Slack.handle_event ~config:(make_config ()) ~session_manager
+         ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
+           sent := text :: !sent;
+           Lwt.return_unit)
+         (slack_slash_event "/model set gpt-5.4-mini"))
+  in
+  Alcotest.(check string) "returns ok" "ok" result;
+  Alcotest.(check bool)
+    "reply reports canonical provider" true
+    (List.exists
+       (fun text -> Test_helpers.string_contains text "provider: openai-codex")
+       !sent);
+  Alcotest.(check (option string))
+    "persists canonical session model" (Some "openai-codex:gpt-5.4-mini")
+    (Memory.get_session_model_override ~db ~session_key:"slack:C123:U456")
+
+let test_model_set_force_ambiguous_preserves_session_model () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let initial_model = "openai:gpt-5.2" in
+  Memory.set_session_model_override ~db ~session_key:"slack:C123:U456"
+    ~model:initial_model;
+  let runtime_config =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ("openai", Runtime_config.default_provider_config);
+          ("openai-codex", Runtime_config.default_provider_config);
+        ];
+    }
+  in
+  let session_manager = Session.create ~config:runtime_config ~db () in
+  let sent = ref [] in
+  let result =
+    Lwt_main.run
+      (Slack.handle_event ~config:(make_config ()) ~session_manager
+         ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
+           sent := text :: !sent;
+           Lwt.return_unit)
+         (slack_slash_event "/model set-force gpt-5.4"))
+  in
+  Alcotest.(check string) "returns ok" "ok" result;
+  Alcotest.(check bool)
+    "reply reports ambiguity" true
+    (List.exists
+       (fun text -> Test_helpers.string_contains text "Ambiguous model")
+       !sent);
+  Alcotest.(check (option string))
+    "keeps existing session model" (Some initial_model)
+    (Memory.get_session_model_override ~db ~session_key:"slack:C123:U456")
+
 let test_parse_event_with_files () =
   let body =
     {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"see file","ts":"1234.5","files":[{"url_private_download":"https://files.slack.com/f1","name":"data.csv","mimetype":"text/csv","size":1024}]}}|}
@@ -333,6 +478,12 @@ let suite =
       `Quick test_handle_event_update_returns_before_restart_finishes;
     Alcotest.test_case "handle event debate sends debug summary" `Quick
       test_handle_event_debate_sends_debug_summary;
+    Alcotest.test_case "model set-default ambiguity preserves config" `Quick
+      test_model_set_default_ambiguous_preserves_config;
+    Alcotest.test_case "model set bare match persists canonical" `Quick
+      test_model_set_bare_match_persists_canonical;
+    Alcotest.test_case "model set-force ambiguity preserves session model"
+      `Quick test_model_set_force_ambiguous_preserves_session_model;
     Alcotest.test_case "parse event with files" `Quick
       test_parse_event_with_files;
     Alcotest.test_case "parse event no files" `Quick test_parse_event_no_files;
