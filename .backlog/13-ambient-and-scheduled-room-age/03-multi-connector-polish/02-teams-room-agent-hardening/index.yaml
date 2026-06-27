@@ -24,7 +24,8 @@ tasks:
       file: T002-harden-teams-consent-card-acti.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Harden Teams consent card actions for room agents
     - complexity: medium
       depends_on:
