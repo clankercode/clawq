@@ -23,7 +23,8 @@ tasks:
       file: T002-implement-scoped-memory-grant.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement scoped memory grant resolution
     - complexity: high
       depends_on:
