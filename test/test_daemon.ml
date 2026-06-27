@@ -2667,6 +2667,60 @@ let test_session_reset_clears_pending_queue () =
     "0 pending after reset" 0
     (Memory.queue_count ~db ~session_key:key)
 
+(* P7.M2.E2.T003: history saved to message_log BEFORE queue row deleted *)
+let test_replay_history_saved_before_queue_deleted () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:8:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "save my history"); ("bang", `Bool false) ])));
+  let replay_turn _mgr ~key ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
+    Memory.store_message ~db ~session_key:key
+      (Provider.make_message ~role:"assistant" ~content:"history saved");
+    Lwt.return "ok"
+  in
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
+  Alcotest.(check int)
+    "queue empty after successful replay" 0
+    (Memory.queue_count ~db ~session_key:key);
+  let found = Memory.search ~db ~query:"history saved" ~limit:5 () in
+  Alcotest.(check bool)
+    "history persisted before queue deletion" true
+    (List.exists (fun (m : Provider.message) -> m.content = "history saved") found)
+
+(* P7.M2.E2.T003: history NOT saved when turn errors before flush *)
+let test_replay_history_not_saved_on_turn_error () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:9:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "will fail"); ("bang", `Bool false) ])));
+  let replay_turn _mgr ~key:_ ~message:_ ?deferred_if_busy:_ ?cwd:_ () =
+    Lwt.fail_with "turn error"
+  in
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
+  Alcotest.(check int)
+    "queue row still present after error" 1
+    (Memory.queue_count ~db ~session_key:key);
+  let found = Memory.search ~db ~query:"will fail" ~limit:5 () in
+  Alcotest.(check int)
+    "no history persisted on error" 0
+    (List.length found)
+
 let test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload () =
   let registry = Tool_registry.create () in
   let config1 = Runtime_config.default in
@@ -3213,6 +3267,10 @@ let suite =
       test_replay_preserves_deferred_followup_flag;
     Alcotest.test_case "session reset clears pending queue" `Quick
       test_session_reset_clears_pending_queue;
+    Alcotest.test_case "replay history saved before queue deleted" `Quick
+      test_replay_history_saved_before_queue_deleted;
+    Alcotest.test_case "replay history not saved on turn error" `Quick
+      test_replay_history_not_saved_on_turn_error;
     Alcotest.test_case "refresh runtime-bound tools replaces shell_exec" `Quick
       test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload;
     Alcotest.test_case "refresh runtime-bound tools replaces models" `Quick
