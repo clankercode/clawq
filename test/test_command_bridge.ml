@@ -4112,6 +4112,181 @@ let test_rooms_admin_surfaces_not_agent_or_tool_exposed () =
             (List.mem forbidden tool_names))
         [ "rooms"; "room_admin"; "admin" ])
 
+let test_rooms_routine_create_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let db = session_db home in
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]
+      in
+      Alcotest.(check bool)
+        "create success mentions routine name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "create success mentions profile" true
+        (Test_helpers.string_contains result "coding");
+      Alcotest.(check bool)
+        "create success mentions schedule" true
+        (Test_helpers.string_contains result "every 1h");
+      (* Verify the job exists in the scheduler *)
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name:"routine-coding" with
+      | None -> Alcotest.fail "routine job not found in scheduler"
+      | Some job ->
+          Alcotest.(check bool)
+            "job has profile_id" true (job.profile_id <> None);
+          Alcotest.(check string) "job message" "Check PRs" job.message)
+
+let test_rooms_routine_list_empty () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "rooms"; "routine"; "list" ] in
+      Alcotest.(check bool)
+        "routine list empty mentions no routines" true
+        (Test_helpers.string_contains result "No room routines"))
+
+let test_rooms_routine_list_shows_created () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result = Command_bridge.handle [ "rooms"; "routine"; "list" ] in
+      Alcotest.(check bool)
+        "routine list shows routine-coding" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "routine list shows schedule" true
+        (Test_helpers.string_contains result "every 1h"))
+
+let test_rooms_routine_show_basic () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      ignore
+        (Command_bridge.handle
+           [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check PRs" ]);
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "show"; "routine-coding" ]
+      in
+      Alcotest.(check bool)
+        "show mentions name" true
+        (Test_helpers.string_contains result "routine-coding");
+      Alcotest.(check bool)
+        "show mentions message" true
+        (Test_helpers.string_contains result "Check PRs");
+      Alcotest.(check bool)
+        "show mentions schedule" true
+        (Test_helpers.string_contains result "every 1h");
+      Alcotest.(check bool)
+        "show mentions enabled" true
+        (Test_helpers.string_contains result "yes"))
+
+let test_rooms_routine_show_not_found () =
+  with_temp_home (fun _home ->
+      let result =
+        Command_bridge.handle [ "rooms"; "routine"; "show"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "show not found mentions routine name" true
+        (Test_helpers.string_contains result "nonexistent"))
+
+let test_rooms_routine_show_no_name () =
+  let result = Command_bridge.handle [ "rooms"; "routine"; "show" ] in
+  Alcotest.(check bool)
+    "show no name shows usage" true
+    (Test_helpers.string_contains result "routine show <name>")
+
+let test_rooms_routine_create_no_message () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "create"; "coding"; "every 1h" ]
+      in
+      Alcotest.(check bool)
+        "no message error is actionable" true
+        (Test_helpers.string_contains result "cannot be empty"))
+
+let test_rooms_routine_create_invalid_profile () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [
+            "rooms"; "routine"; "create"; "nonexistent"; "every 1h"; "Check PRs";
+          ]
+      in
+      Alcotest.(check bool)
+        "invalid profile error mentions profile" true
+        (Test_helpers.string_contains result "nonexistent");
+      Alcotest.(check bool)
+        "invalid profile error lists available" true
+        (Test_helpers.string_contains result "coding"))
+
+let test_rooms_routine_create_rejected_without_admin () =
+  with_temp_home (fun home ->
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "routine"; "create"; "coding"; "every 1h"; "Check" ]
+      in
+      Alcotest.(check bool)
+        "create rejected mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_routine_usage () =
+  let result = Command_bridge.handle [ "rooms"; "routine" ] in
+  Alcotest.(check bool)
+    "routine usage mentions create" true
+    (Test_helpers.string_contains result "create");
+  Alcotest.(check bool)
+    "routine usage mentions list" true
+    (Test_helpers.string_contains result "list");
+  Alcotest.(check bool)
+    "routine usage mentions show" true
+    (Test_helpers.string_contains result "show")
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -4375,4 +4550,23 @@ let suite =
       test_min_rooms_mutation_paths_disabled;
     Alcotest.test_case "rooms admin surfaces not agent/tool exposed" `Quick
       test_rooms_admin_surfaces_not_agent_or_tool_exposed;
+    Alcotest.test_case "rooms routine create basic" `Quick
+      test_rooms_routine_create_basic;
+    Alcotest.test_case "rooms routine list empty" `Quick
+      test_rooms_routine_list_empty;
+    Alcotest.test_case "rooms routine list shows created" `Quick
+      test_rooms_routine_list_shows_created;
+    Alcotest.test_case "rooms routine show basic" `Quick
+      test_rooms_routine_show_basic;
+    Alcotest.test_case "rooms routine show not found" `Quick
+      test_rooms_routine_show_not_found;
+    Alcotest.test_case "rooms routine show no name" `Quick
+      test_rooms_routine_show_no_name;
+    Alcotest.test_case "rooms routine create no message" `Quick
+      test_rooms_routine_create_no_message;
+    Alcotest.test_case "rooms routine create invalid profile" `Quick
+      test_rooms_routine_create_invalid_profile;
+    Alcotest.test_case "rooms routine create rejected without admin" `Quick
+      test_rooms_routine_create_rejected_without_admin;
+    Alcotest.test_case "rooms routine usage" `Quick test_rooms_routine_usage;
   ]
