@@ -85,6 +85,7 @@
   test_room_activity_ledger
   test_room_stale_query
   test_room_watcher_decision
+  test_room_ambient_delivery
   test_sandbox
   test_scheduler
   test_secret_store

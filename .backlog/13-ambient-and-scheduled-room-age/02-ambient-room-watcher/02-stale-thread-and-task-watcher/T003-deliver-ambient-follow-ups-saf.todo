@@ -1,14 +1,17 @@
 ---
-completed_at: null
+claimed_at: "2026-06-27T14:49:36Z"
+claimed_by: cli-user
+completed_at: "2026-06-27T14:49:36Z"
 complexity: high
 depends_on:
     - P13.M2.E2.T002
     - P13.M2.E3.T001
+duration_minutes: 0.008590516916666667
 estimate_hours: 3
 id: P13.M2.E2.T003
 priority: high
-started_at: null
-status: pending
+started_at: "2026-06-27T14:49:36Z"
+status: done
 tags: []
 title: Deliver ambient follow-ups safely
 ---

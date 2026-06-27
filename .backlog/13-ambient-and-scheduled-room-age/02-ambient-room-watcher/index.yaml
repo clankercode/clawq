@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Stale Thread and Task Watcher
       path: 02-stale-thread-and-task-watcher
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Quiet hours, rate limits, inspection, and default-off ambient policy.
