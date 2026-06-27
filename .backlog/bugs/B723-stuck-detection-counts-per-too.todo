@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B723
+priority: high
+status: pending
+tags: []
+title: Stuck detection counts per tool call in batch, triggering abort too aggressively
+---
+The STOP / ABORT stuck detection mechanism increments its error counter for each individual tool call in a batch, rather than once per batch or turn. This means when multiple tool calls in a single batch hit the same parameter-validation error (e.g. missing required parameter), the threshold is reached much faster than intended — a batch of 3 calls with the same error triggers the abort after just one batch, whereas with individual calls the model would get 3 chances to self-correct. The stuck detection should count per batch or per turn, not per individual tool call within a batch.
