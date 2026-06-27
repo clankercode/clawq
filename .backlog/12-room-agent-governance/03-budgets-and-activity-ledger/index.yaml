@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Room Activity Ledger
       path: 03-room-activity-ledger
-      status: pending
+      status: done
 estimate_hours: 36
 id: P12.M3
 locked: false

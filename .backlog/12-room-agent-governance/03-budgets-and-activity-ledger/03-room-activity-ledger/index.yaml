@@ -4,7 +4,7 @@ estimate_hours: 16
 id: P12.M3.E3
 locked: false
 name: Room Activity Ledger
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -35,6 +35,6 @@ tasks:
       file: T003-add-room-ledger-admin-filters.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add room ledger admin filters export and retention
