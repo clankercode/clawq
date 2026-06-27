@@ -430,7 +430,8 @@ let resolve_room_profile (cfg : t) ~session_key : room_profile option =
     | None -> None
     | Some b ->
         List.find_opt
-          (fun (p : room_profile) -> p.id = b.profile_id)
+          (fun (p : room_profile) ->
+            p.id = b.profile_id && String.lowercase_ascii p.status <> "deleted")
           cfg.room_profiles
 
 (** [resolve_room_profile_model cfg ~session_key] resolves the model from the

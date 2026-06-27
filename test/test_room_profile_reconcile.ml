@@ -21,9 +21,11 @@ let test_reconcile_syncs_config_profiles () =
         [
           {
             id = "work";
+            display_name = None;
             model = "openai:gpt-4o";
             system_prompt = "be helpful";
             max_tool_iterations = 5;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -52,9 +54,11 @@ let test_reconcile_removes_stale_binding () =
         [
           {
             id = "work";
+            display_name = None;
             model = "openai:gpt-4o";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -94,15 +98,19 @@ let test_reconcile_removes_orphan_profile () =
         [
           {
             id = "p1";
+            display_name = None;
             model = "m1";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
           {
             id = "p2";
+            display_name = None;
             model = "m2";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -121,9 +129,11 @@ let test_reconcile_removes_orphan_profile () =
         [
           {
             id = "p1";
+            display_name = None;
             model = "m1";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
     }
@@ -149,9 +159,11 @@ let test_reconcile_removes_stale_binding_and_orphan_profile () =
         [
           {
             id = "old";
+            display_name = None;
             model = "m";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -188,15 +200,19 @@ let test_reconcile_deterministic () =
         [
           {
             id = "p1";
+            display_name = None;
             model = "m1";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
           {
             id = "p2";
+            display_name = None;
             model = "m2";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -227,9 +243,11 @@ let test_reconcile_ignores_inactive_bindings () =
         [
           {
             id = "p1";
+            display_name = None;
             model = "m1";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -263,15 +281,19 @@ let test_reconcile_reports_duplicate_room_bindings () =
         [
           {
             id = "p1";
+            display_name = None;
             model = "m1";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
           {
             id = "p2";
+            display_name = None;
             model = "m2";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -305,9 +327,11 @@ let test_reconcile_reports_duplicate_profile_bindings () =
         [
           {
             id = "shared-profile";
+            display_name = None;
             model = "m";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -342,9 +366,11 @@ let test_reconcile_reload_helper_updates_db () =
         [
           {
             id = "work";
+            display_name = None;
             model = "openai:gpt-4o";
             system_prompt = "be helpful";
             max_tool_iterations = 5;
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -394,15 +420,19 @@ let test_reconcile_detects_profile_mismatch () =
         [
           {
             id = "p1";
+            display_name = None;
             model = "m1";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
           {
             id = "p2";
+            display_name = None;
             model = "m2";
             system_prompt = "";
             max_tool_iterations = 10;
+            status = "active";
           };
         ];
       room_profile_bindings =

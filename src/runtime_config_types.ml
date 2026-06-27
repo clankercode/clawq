@@ -526,9 +526,11 @@ type postmortem_config = {
 
 type room_profile = {
   id : string;
+  display_name : string option;
   model : string;
   system_prompt : string;
   max_tool_iterations : int;
+  status : string;
 }
 
 type room_profile_binding = {

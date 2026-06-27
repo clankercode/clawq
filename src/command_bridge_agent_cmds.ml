@@ -292,6 +292,61 @@ let require_admin () =
       "Error: this command requires admin privileges. Set CLAWQ_ADMIN=1 in \
        your environment."
 
+let room_profile_deleted (p : Runtime_config.room_profile) =
+  String.lowercase_ascii p.status = "deleted"
+
+let room_profile_to_json (p : Runtime_config.room_profile) =
+  `Assoc
+    ([
+       ("id", `String p.id);
+       ("model", `String p.model);
+       ("system_prompt", `String p.system_prompt);
+       ("max_tool_iterations", `Int p.max_tool_iterations);
+       ("status", `String p.status);
+     ]
+    @
+    match p.display_name with
+    | Some name -> [ ("display_name", `String name) ]
+    | None -> [])
+
+let room_profile_binding_to_json (b : Runtime_config.room_profile_binding) =
+  `Assoc
+    [
+      ("profile_id", `String b.profile_id);
+      ("room", `String b.room);
+      ("active", `Bool b.active);
+    ]
+
+let write_room_config ~profiles ~bindings =
+  Setup_common.merge_and_write_config
+    (`Assoc
+       [
+         ("room_profiles", `List (List.map room_profile_to_json profiles));
+         ( "room_profile_bindings",
+           `List (List.map room_profile_binding_to_json bindings) );
+       ])
+
+let room_matches rooms = function
+  | Some room -> List.mem room rooms
+  | None -> false
+
+let active_background_count_for_rooms ~db rooms =
+  Background_task.init_schema db;
+  Background_task.list_tasks ~db
+  |> List.filter (fun (t : Background_task.task) ->
+      (match t.status with
+        | Background_task.Queued | Background_task.Running -> true
+        | _ -> false)
+      && (room_matches rooms t.session_key || room_matches rooms t.channel_id))
+  |> List.length
+
+let active_cron_count_for_rooms ~db rooms =
+  Scheduler.init_schema db;
+  Scheduler.list_jobs ~db
+  |> List.filter (fun (j : Scheduler.job) ->
+      j.enabled && List.mem j.session_key rooms)
+  |> List.length
+
 let cmd_rooms args =
   let cfg = get_config () in
   match args with
@@ -398,72 +453,169 @@ let cmd_rooms args =
                    b.profile_id)
           | None -> ()));
       String.concat "\n" (List.rev !lines)
-  | "bind" :: room_id :: profile_id :: _rest -> (
+  | "bind" :: room_id :: profile_id :: rest -> (
       match require_admin () with
       | Some err -> err
       | None -> (
-          let profile_exists =
-            List.exists
-              (fun (p : Runtime_config.room_profile) -> p.id = profile_id)
-              cfg.room_profiles
-          in
-          if not profile_exists then
-            let available =
-              List.map
-                (fun (p : Runtime_config.room_profile) -> p.id)
+          let preserve = List.mem "--preserve" rest in
+          let reset = List.mem "--reset" rest in
+          if preserve && reset then
+            "Error: choose only one of --preserve or --reset when rebinding."
+          else
+            let active_profiles =
+              List.filter
+                (fun (p : Runtime_config.room_profile) ->
+                  not (room_profile_deleted p))
                 cfg.room_profiles
             in
-            if available = [] then
-              Printf.sprintf
-                "Error: no room profiles configured. Add a room_profiles entry \
-                 to config.json first."
-            else
-              Printf.sprintf
-                "Error: profile '%s' not found. Available profiles: %s"
-                profile_id
-                (String.concat ", " available)
-          else
-            let already_bound =
+            let profile_exists =
               List.exists
-                (fun (b : Runtime_config.room_profile_binding) ->
-                  b.room = room_id && b.profile_id = profile_id)
-                cfg.room_profile_bindings
+                (fun (p : Runtime_config.room_profile) -> p.id = profile_id)
+                active_profiles
             in
-            if already_bound then
-              Printf.sprintf "Room '%s' is already bound to profile '%s'."
-                room_id profile_id
+            if not profile_exists then
+              let available =
+                List.map
+                  (fun (p : Runtime_config.room_profile) -> p.id)
+                  active_profiles
+              in
+              if available = [] then
+                Printf.sprintf
+                  "Error: no room profiles configured. Add a room_profiles \
+                   entry to config.json first."
+              else
+                Printf.sprintf
+                  "Error: profile '%s' not found. Available profiles: %s"
+                  profile_id
+                  (String.concat ", " available)
             else
-              let remaining =
-                List.filter
+              let existing =
+                List.find_opt
                   (fun (b : Runtime_config.room_profile_binding) ->
-                    b.room <> room_id)
+                    b.room = room_id)
                   cfg.room_profile_bindings
               in
-              let new_binding : Runtime_config.room_profile_binding =
-                { profile_id; room = room_id; active = true }
+              match existing with
+              | Some b when b.profile_id = profile_id ->
+                  Printf.sprintf "Room '%s' is already bound to profile '%s'."
+                    room_id profile_id
+              | Some b when not (preserve || reset) ->
+                  Printf.sprintf
+                    "Error: room '%s' is already bound to profile '%s'. Rebind \
+                     requires an explicit choice: pass --preserve to keep room \
+                     history/state or --reset to start fresh."
+                    room_id b.profile_id
+              | _ -> (
+                  let remaining =
+                    List.filter
+                      (fun (b : Runtime_config.room_profile_binding) ->
+                        b.room <> room_id)
+                      cfg.room_profile_bindings
+                  in
+                  let new_binding : Runtime_config.room_profile_binding =
+                    { profile_id; room = room_id; active = true }
+                  in
+                  let bindings = new_binding :: remaining in
+                  let bindings_json =
+                    `Assoc
+                      [
+                        ( "room_profile_bindings",
+                          `List (List.map room_profile_binding_to_json bindings)
+                        );
+                      ]
+                  in
+                  match Setup_common.merge_and_write_config bindings_json with
+                  | Ok path ->
+                      let choice = if reset then "reset" else "preserve" in
+                      Printf.sprintf "Bound room '%s' to profile '%s' (%s).\n%s"
+                        room_id profile_id choice path
+                  | Error e -> Printf.sprintf "Failed to write config: %s" e)))
+  | "rename" :: profile_id :: name_parts -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let display_name = String.trim (String.concat " " name_parts) in
+          if display_name = "" then
+            "Error: rooms rename requires a non-empty display name."
+          else
+            let found =
+              List.exists
+                (fun (p : Runtime_config.room_profile) ->
+                  p.id = profile_id && not (room_profile_deleted p))
+                cfg.room_profiles
+            in
+            if not found then
+              Printf.sprintf "Error: active profile '%s' not found." profile_id
+            else
+              let profiles =
+                List.map
+                  (fun (p : Runtime_config.room_profile) ->
+                    if p.id = profile_id then
+                      { p with display_name = Some display_name }
+                    else p)
+                  cfg.room_profiles
               in
-              let bindings = new_binding :: remaining in
-              let bindings_json =
-                `Assoc
-                  [
-                    ( "room_profile_bindings",
-                      `List
-                        (List.map
-                           (fun (b : Runtime_config.room_profile_binding) ->
-                             `Assoc
-                               [
-                                 ("profile_id", `String b.profile_id);
-                                 ("room", `String b.room);
-                                 ("active", `Bool b.active);
-                               ])
-                           bindings) );
-                  ]
-              in
-              match Setup_common.merge_and_write_config bindings_json with
+              match
+                write_room_config ~profiles ~bindings:cfg.room_profile_bindings
+              with
               | Ok path ->
-                  Printf.sprintf "Bound room '%s' to profile '%s'.\n%s" room_id
-                    profile_id path
+                  Printf.sprintf
+                    "Profile '%s' renamed to '%s'. Stable identity is unchanged.\n\
+                     %s"
+                    profile_id display_name path
               | Error e -> Printf.sprintf "Failed to write config: %s" e))
+  | "delete" :: profile_id :: flags -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let force = List.mem "--force" flags in
+          match
+            List.find_opt
+              (fun (p : Runtime_config.room_profile) -> p.id = profile_id)
+              cfg.room_profiles
+          with
+          | None -> Printf.sprintf "Error: profile '%s' not found." profile_id
+          | Some profile when room_profile_deleted profile ->
+              Printf.sprintf "Profile '%s' is already deleted." profile_id
+          | Some _ -> (
+              let bound_rooms =
+                cfg.room_profile_bindings
+                |> List.filter (fun (b : Runtime_config.room_profile_binding) ->
+                    b.profile_id = profile_id)
+                |> List.map (fun (b : Runtime_config.room_profile_binding) ->
+                    b.room)
+              in
+              let db = get_db () in
+              let active_tasks =
+                active_background_count_for_rooms ~db bound_rooms
+              in
+              let active_cron = active_cron_count_for_rooms ~db bound_rooms in
+              if (not force) && (active_tasks > 0 || active_cron > 0) then
+                Printf.sprintf
+                  "Error: profile '%s' has active work (%d background task(s), \
+                   %d active routine/cron job(s)). Stop or move that work, or \
+                   pass --force to delete anyway."
+                  profile_id active_tasks active_cron
+              else
+                let profiles =
+                  List.map
+                    (fun (p : Runtime_config.room_profile) ->
+                      if p.id = profile_id then { p with status = "deleted" }
+                      else p)
+                    cfg.room_profiles
+                in
+                let bindings =
+                  List.filter
+                    (fun (b : Runtime_config.room_profile_binding) ->
+                      b.profile_id <> profile_id)
+                    cfg.room_profile_bindings
+                in
+                match write_room_config ~profiles ~bindings with
+                | Ok path ->
+                    Printf.sprintf
+                      "Profile '%s' soft-deleted; removed %d binding(s).\n%s"
+                      profile_id (List.length bound_rooms) path
+                | Error e -> Printf.sprintf "Failed to write config: %s" e)))
   | [ "unbind"; room_id ] -> (
       match require_admin () with
       | Some err -> err
@@ -510,11 +662,17 @@ let cmd_rooms args =
                     room_id path
               | Error e -> Printf.sprintf "Failed to write config: %s" e)))
   | _ ->
-      "Usage: clawq rooms <list|show|bind|unbind>\n\n\
+      "Usage: clawq rooms <list|show|bind|rename|delete|unbind>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
-      \  bind <room_id> <profile_id> Bind a room to a profile (admin-only)\n\
+      \  bind <room_id> <profile_id> [--preserve|--reset]\n\
+      \                              Bind or explicitly rebind a room \
+       (admin-only)\n\
+      \  rename <profile_id> <name>  Update profile display name (admin-only)\n\
+      \  delete <profile_id> [--force]\n\
+      \                              Soft-delete profile and remove bindings \
+       (admin-only)\n\
       \  unbind <room_id>            Remove room binding (preserves profile)"
 
 let cmd_rig args =

@@ -897,12 +897,17 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
               (List.map
                  (fun (p : room_profile) ->
                    `Assoc
-                     [
-                       ("id", `String p.id);
-                       ("model", `String p.model);
-                       ("system_prompt", `String p.system_prompt);
-                       ("max_tool_iterations", `Int p.max_tool_iterations);
-                     ])
+                     ([
+                        ("id", `String p.id);
+                        ("model", `String p.model);
+                        ("system_prompt", `String p.system_prompt);
+                        ("max_tool_iterations", `Int p.max_tool_iterations);
+                        ("status", `String p.status);
+                      ]
+                     @
+                     match p.display_name with
+                     | Some name -> [ ("display_name", `String name) ]
+                     | None -> []))
                  cfg.room_profiles) );
         ]
   in

@@ -1236,6 +1236,10 @@ let parse_config ?(resolve_secrets = true) json =
          json |> member "room_profiles" |> to_list
          |> List.map (fun p ->
              let id = p |> member "id" |> to_string in
+             let display_name =
+               try Some (p |> member "display_name" |> to_string)
+               with _ -> None
+             in
              let model = p |> member "model" |> to_string in
              let system_prompt =
                try p |> member "system_prompt" |> to_string with _ -> ""
@@ -1243,7 +1247,17 @@ let parse_config ?(resolve_secrets = true) json =
              let max_tool_iterations =
                try p |> member "max_tool_iterations" |> to_int with _ -> 10
              in
-             ({ id; model; system_prompt; max_tool_iterations }
+             let status =
+               try p |> member "status" |> to_string with _ -> "active"
+             in
+             ({
+                id;
+                display_name;
+                model;
+                system_prompt;
+                max_tool_iterations;
+                status;
+              }
                : Runtime_config.room_profile))
        with _ -> []);
     room_profile_bindings =

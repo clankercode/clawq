@@ -1134,9 +1134,11 @@ let test_room_profiles_roundtrip () =
         [
           {
             Runtime_config.id = "test-p";
+            display_name = None;
             model = "openai:gpt-4o";
             system_prompt = "hello";
             max_tool_iterations = 7;
+            status = "active";
           };
         ];
       room_profile_bindings =
