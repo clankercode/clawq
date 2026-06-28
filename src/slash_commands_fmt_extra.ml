@@ -26,6 +26,13 @@ type cron_action =
 
 type memories_action = { oldest : bool; page : int }
 
+type room_memory_action =
+  | RoomMemoryList
+  | RoomMemoryShow of string
+  | RoomMemorySave of string * string
+  | RoomMemoryCorrect of string * string
+  | RoomMemoryForget of string * string list
+
 let risk_level_string (r : Tool.risk_level) =
   match r with Low -> "Low" | Medium -> "Medium" | High -> "High"
 
@@ -303,7 +310,16 @@ let format_memories_usage ~connector =
   ^ Format_adapter.code connector "/memories oldest"
   ^ "   \xe2\x80\x94 List memories, oldest first\n  "
   ^ Format_adapter.code connector "/memories 2"
-  ^ "        \xe2\x80\x94 Show page 2"
+  ^ "        \xe2\x80\x94 Show page 2\n\nRoom memory (current channel):\n  "
+  ^ Format_adapter.code connector "/memory list"
+  ^ "            \xe2\x80\x94 List room memories\n  "
+  ^ Format_adapter.code connector "/memory show <id>"
+  ^ "       \xe2\x80\x94 Show room memory details\n  "
+  ^ Format_adapter.code connector "/memory save <ref> <content>"
+  ^ "\n  "
+  ^ Format_adapter.code connector "/memory correct <id> <content>"
+  ^ "\n  "
+  ^ Format_adapter.code connector "/memory forget <id> [reason]"
 
 (* Collapse whitespace/newlines to a single line, then truncate for preview. *)
 let memory_preview content =
@@ -356,6 +372,334 @@ let format_memories ~connector ~db { oldest; page } =
     let cmd = if oldest then "/memories oldest" else "/memories" in
     header ^ order_label ^ "\n\n" ^ String.concat "\n\n" lines
     ^ pagination_footer ~connector ~cmd page total_pages
+
+(* ── Room Memory ───────────────────────────────────────────────────────── *)
+
+(** Resolve room_id from channel_id, ensuring it has a memory scope. *)
+let resolve_room_scope ~db ~cfg ~channel_id ~is_admin () =
+  let reconcile_error =
+    try
+      ignore (Memory.reconcile_room_profiles ~db ~config:cfg);
+      None
+    with exn ->
+      Some
+        (Printf.sprintf "Error reconciling room profile bindings: %s"
+           (Printexc.to_string exn))
+  in
+  match reconcile_error with
+  | Some msg -> Error msg
+  | None -> (
+      let binding = Memory.get_room_profile_binding ~db ~room_id:channel_id in
+      match binding with
+      | None ->
+          Error
+            "No room profile binding found for this channel. Bind a room \
+             profile first."
+      | Some b -> (
+          match
+            Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:channel_id
+          with
+          | Some scope ->
+              (* Update scope profile_id if it's missing or differs from \
+                 current binding *)
+              let needs_update =
+                match scope.profile_id with
+                | None -> true
+                | Some existing_pid -> existing_pid <> b.profile_id
+              in
+              if needs_update then begin
+                let stmt =
+                  Sqlite3.prepare db
+                    "UPDATE memory_scopes SET profile_id = ?, updated_at = \
+                     datetime('now') WHERE id = ?"
+                in
+                Fun.protect
+                  ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+                  (fun () ->
+                    ignore
+                      (Sqlite3.bind stmt 1
+                         (Sqlite3.Data.INT (Int64.of_int b.profile_id)));
+                    ignore
+                      (Sqlite3.bind stmt 2
+                         (Sqlite3.Data.INT (Int64.of_int scope.id)));
+                    match Sqlite3.step stmt with
+                    | Sqlite3.Rc.DONE -> ()
+                    | rc ->
+                        failwith
+                          (Printf.sprintf
+                             "update room memory scope owner failed: %s"
+                             (Sqlite3.Rc.to_string rc)));
+                Ok
+                  (Option.value ~default:scope
+                     (Memory.get_scope ~db ~id:scope.id))
+              end
+              else Ok scope
+          | None ->
+              Ok
+                (Memory.create_scope ~db ~kind:"room" ~key:channel_id
+                   ~profile_id:b.profile_id ~provenance:"channel" ())))
+
+(** Check if the user has the required capability for the room scope. *)
+let check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability () =
+  match resolve_room_scope ~db ~cfg ~channel_id ~is_admin () with
+  | Error _ as err -> err
+  | Ok scope -> (
+      if is_admin then Ok scope
+      else
+        let binding = Memory.get_room_profile_binding ~db ~room_id:channel_id in
+        match binding with
+        | Some b ->
+            let is_owner =
+              match scope.profile_id with
+              | Some pid -> pid = b.profile_id
+              | None -> false
+            in
+            if is_owner then Ok scope
+            else
+              let grants =
+                Memory.resolve_grants ~db ~scope_id:scope.id
+                  ~principal_kind:"profile"
+                  ~principal_id:(string_of_int b.profile_id)
+              in
+              if List.mem capability grants then Ok scope
+              else
+                Error
+                  (Printf.sprintf
+                     "Access denied: you do not have '%s' capability for this \
+                      channel."
+                     capability)
+        | None ->
+            let grants =
+              Memory.resolve_grants ~db ~scope_id:scope.id
+                ~principal_kind:"room" ~principal_id:channel_id
+            in
+            if List.mem capability grants then Ok scope
+            else
+              Error
+                (Printf.sprintf
+                   "Access denied: you do not have '%s' capability for this \
+                    channel."
+                   capability))
+
+let format_room_memory_list ~connector ~db ~channel_id =
+  let memories =
+    Memory.query_scoped_memories ~db ~scope_kind:"room" ~scope_key:channel_id
+      ~limit:100 ()
+  in
+  if memories = [] then Printf.sprintf "No memories found for this channel."
+  else
+    let columns =
+      Table_format.
+        [
+          { header = "ID"; align = Right; min_width = 4; flex = false };
+          { header = "REFERENCE"; align = Left; min_width = 12; flex = false };
+          { header = "CONTENT"; align = Left; min_width = 20; flex = true };
+          { header = "PROVENANCE"; align = Left; min_width = 8; flex = false };
+          { header = "UPDATED"; align = Left; min_width = 16; flex = false };
+        ]
+    in
+    let rows =
+      List.map
+        (fun (m : Memory.scoped_memory) ->
+          let content_preview =
+            match m.content with
+            | Some c when String.length c > 60 -> String.sub c 0 57 ^ "..."
+            | Some c -> c
+            | None -> "(empty)"
+          in
+          [
+            string_of_int m.id;
+            Format_adapter.escape connector m.reference;
+            Format_adapter.escape connector content_preview;
+            Format_adapter.escape connector m.provenance;
+            m.updated_at;
+          ])
+        memories
+    in
+    Format_adapter.bold connector "Channel Memories"
+    ^ "\n\n"
+    ^ Format_adapter.render_table connector ~max_width:100 columns rows
+
+let format_room_memory_show ~connector ~db ~channel_id memory_id_str =
+  match int_of_string_opt memory_id_str with
+  | None ->
+      Printf.sprintf "Error: '%s' is not a valid memory ID."
+        (Format_adapter.escape connector memory_id_str)
+  | Some memory_id -> (
+      match Memory.get_scoped_memory ~db ~id:memory_id with
+      | None -> Printf.sprintf "Memory #%d not found." memory_id
+      | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id ->
+          Printf.sprintf "Memory #%d does not belong to this channel." memory_id
+      | Some m ->
+          let lines = ref [] in
+          let add s = lines := s :: !lines in
+          add (Printf.sprintf "Channel:    %s" channel_id);
+          add (Printf.sprintf "ID:         %d" m.id);
+          add
+            (Printf.sprintf "Reference:  %s"
+               (Format_adapter.escape connector m.reference));
+          add
+            (Printf.sprintf "Provenance: %s"
+               (Format_adapter.escape connector m.provenance));
+          add (Printf.sprintf "Created:    %s" m.created_at);
+          add (Printf.sprintf "Updated:    %s" m.updated_at);
+          (match m.content with
+          | Some c ->
+              add "";
+              add "--- Content ---";
+              add (Format_adapter.escape connector c)
+          | None -> add "Content:    (empty)");
+          (match m.redacted_at with
+          | Some ts ->
+              add "";
+              add (Printf.sprintf "Redacted:   %s" ts);
+              Option.iter
+                (fun r ->
+                  add
+                    (Printf.sprintf "Reason:     %s"
+                       (Format_adapter.escape connector r)))
+                m.redaction_reason
+          | None -> ());
+          String.concat "\n" (List.rev !lines))
+
+let format_room_memory_save ~connector ~db ~cfg ~channel_id ~is_admin ~reference
+    ~content =
+  if reference = "" then "Error: memory reference is required."
+  else if content = "" then "Error: memory content is required."
+  else
+    match
+      check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
+    with
+    | Error msg -> msg
+    | Ok scope -> (
+        let provenance = if is_admin then "admin-channel" else "channel" in
+        try
+          let m =
+            Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference
+              ~content ~provenance ()
+          in
+          Printf.sprintf "Saved memory '%s' (ID: %d) for this channel."
+            (Format_adapter.escape connector m.reference)
+            m.id
+        with exn ->
+          Printf.sprintf "Error saving memory: %s" (Printexc.to_string exn))
+
+let format_room_memory_correct ~connector ~db ~cfg ~channel_id ~is_admin
+    ~memory_id_str ~content =
+  match int_of_string_opt memory_id_str with
+  | None ->
+      Printf.sprintf "Error: '%s' is not a valid memory ID."
+        (Format_adapter.escape connector memory_id_str)
+  | Some memory_id -> (
+      match
+        check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
+      with
+      | Error msg -> msg
+      | Ok _scope -> (
+          match Memory.get_scoped_memory ~db ~id:memory_id with
+          | None -> Printf.sprintf "Memory #%d not found." memory_id
+          | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id ->
+              Printf.sprintf "Memory #%d does not belong to this channel."
+                memory_id
+          | Some m when m.redacted_at <> None ->
+              Printf.sprintf "Memory #%d is redacted and cannot be corrected."
+                memory_id
+          | Some _ -> (
+              if content = "" then "Error: new memory content is required."
+              else
+                let provenance =
+                  if is_admin then "corrected:admin-channel"
+                  else "corrected:channel"
+                in
+                match
+                  Memory.correct_scoped_memory ~db ~id:memory_id ~content
+                    ~provenance ()
+                with
+                | None ->
+                    Printf.sprintf "Error: failed to correct memory #%d."
+                      memory_id
+                | Some updated ->
+                    Printf.sprintf
+                      "Corrected memory #%d '%s' for this channel.\n\
+                       Old provenance preserved in correction trail."
+                      updated.id
+                      (Format_adapter.escape connector updated.reference))))
+
+let format_room_memory_forget ~connector ~db ~cfg ~channel_id ~is_admin
+    ~memory_id_str ~flags =
+  match int_of_string_opt memory_id_str with
+  | None ->
+      Printf.sprintf "Error: '%s' is not a valid memory ID."
+        (Format_adapter.escape connector memory_id_str)
+  | Some memory_id -> (
+      match
+        check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
+      with
+      | Error msg -> msg
+      | Ok _scope -> (
+          match Memory.get_scoped_memory ~db ~id:memory_id with
+          | None -> Printf.sprintf "Memory #%d not found." memory_id
+          | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id ->
+              Printf.sprintf "Memory #%d does not belong to this channel."
+                memory_id
+          | Some m ->
+              let hard_purge = List.mem "--hard" flags in
+              let reason =
+                let non_flags =
+                  List.filter
+                    (fun s -> not (String.starts_with ~prefix:"--" s))
+                    flags
+                in
+                match non_flags with
+                | [] -> "user request"
+                | parts -> String.concat " " parts
+              in
+              if hard_purge then
+                if is_admin then
+                  if Memory.delete_scoped_memory ~db ~id:memory_id then
+                    Printf.sprintf
+                      "Hard-purged memory #%d '%s' for this channel." memory_id
+                      (Format_adapter.escape connector m.reference)
+                  else
+                    Printf.sprintf "Error: failed to hard-purge memory #%d."
+                      memory_id
+                else "Error: hard purge requires admin privileges."
+              else if m.redacted_at <> None then
+                Printf.sprintf
+                  "Memory #%d is already redacted. Use --hard to purge."
+                  memory_id
+              else if Memory.redact_scoped_memory ~db ~id:memory_id ~reason ()
+              then
+                Printf.sprintf
+                  "Forgot (redacted) memory #%d '%s' for this channel."
+                  memory_id
+                  (Format_adapter.escape connector m.reference)
+              else
+                Printf.sprintf "Error: failed to redact memory #%d." memory_id))
+
+let format_room_memories ~connector ~db ~cfg ~channel_id ~is_admin action =
+  match action with
+  | RoomMemoryList -> (
+      match
+        check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"list" ()
+      with
+      | Error msg -> msg
+      | Ok _ -> format_room_memory_list ~connector ~db ~channel_id)
+  | RoomMemoryShow id -> (
+      match
+        check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"read" ()
+      with
+      | Error msg -> msg
+      | Ok _ -> format_room_memory_show ~connector ~db ~channel_id id)
+  | RoomMemorySave (reference, content) ->
+      format_room_memory_save ~connector ~db ~cfg ~channel_id ~is_admin
+        ~reference ~content
+  | RoomMemoryCorrect (id, content) ->
+      format_room_memory_correct ~connector ~db ~cfg ~channel_id ~is_admin
+        ~memory_id_str:id ~content
+  | RoomMemoryForget (id, flags) ->
+      format_room_memory_forget ~connector ~db ~cfg ~channel_id ~is_admin
+        ~memory_id_str:id ~flags
 
 (* ── Existing format: cron ─────────────────────────────────────────────── *)
 

@@ -1976,23 +1976,17 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                 "Memories are not available (no database)."
                           in
                           send_text text
-                      | RoomsMemory _args ->
-                          send_text
-                            "Room memory commands are available via CLI: clawq \
-                             rooms memory <list|show|save|correct|forget> \
-                             <room_id>"
-                      | ExplainAccess ->
-                          let cfg = Session.get_config session_manager in
-                          let access_key =
-                            Connector_dispatch.room_access_key cfg key
+                      | RoomsMemory action ->
+                          let text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                let cfg = Session.get_config session_manager in
+                                Slash_commands.format_room_memories
+                                  ~connector:Format_adapter.Teams ~db ~cfg
+                                  ~channel_id:conversation_id ~is_admin action
+                            | None -> "Room memory commands require a database."
                           in
-                          let explanation =
-                            Access_explanation.create ~config:cfg
-                              ~session_key:access_key ()
-                          in
-                          let text = Access_explanation.to_text explanation in
-                          send_text
-                            (Format_adapter.code_block Format_adapter.Teams text)
+                          send_text text
                       | Rig action -> (
                           match action with
                           | RigList ->

@@ -449,18 +449,16 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       | None ->
           env.send_plain "Repository management is not available (no database)."
       )
-  | RoomsMemory _args ->
-      env.send_plain
-        "Room memory commands are available via CLI: clawq rooms memory \
-         <list|show|save> <room_id>"
-  | ExplainAccess ->
-      let cfg = Session.get_config session_mgr in
-      let access_key = room_access_key cfg key in
-      let explanation =
-        Access_explanation.create ~config:cfg ~session_key:access_key ()
+  | RoomsMemory action ->
+      let text =
+        match Session.get_db session_mgr with
+        | Some db ->
+            let cfg = Session.get_config session_mgr in
+            Slash_commands.format_room_memories ~connector ~db ~cfg
+              ~channel_id:env.channel_id ~is_admin:env.is_admin action
+        | None -> "Room memory commands require a database."
       in
-      let text = Access_explanation.to_text explanation in
-      env.send_formatted (Format_adapter.code_block connector text)
+      env.send_formatted text
   (* Commands with per-connector behaviour are handled by each connector's own
      match and never routed here; treat as a no-op for totality. *)
   | Compact | Delegate _ | ForkAnd _ | AgentInvoke _ | Debate _ | BashRun _

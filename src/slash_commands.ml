@@ -281,7 +281,7 @@ let handle ?(skill_names = []) text =
                 else ForkAnd (Some name, prompt)
             | _ -> ForkAnd (None, String.concat " " args))
         | "tools" -> Tools
-        | "memories" | "memory" ->
+        | "memories" ->
             let oldest = ref false and page = ref 1 and ok = ref true in
             List.iter
               (fun a ->
@@ -296,7 +296,24 @@ let handle ?(skill_names = []) text =
             if !ok then Memories { oldest = !oldest; page = !page }
             else
               FormattedReply (fun connector -> format_memories_usage ~connector)
-        | "access" -> ExplainAccess
+        | "memory" -> (
+            match args with
+            | [] ->
+                FormattedReply
+                  (fun connector -> format_memories_usage ~connector)
+            | "list" :: _rest -> RoomsMemory RoomMemoryList
+            | [ "show"; id ] -> RoomsMemory (RoomMemoryShow id)
+            | "save" :: ref_str :: content_parts when content_parts <> [] ->
+                RoomsMemory
+                  (RoomMemorySave (ref_str, String.concat " " content_parts))
+            | "correct" :: id :: content_parts when content_parts <> [] ->
+                RoomsMemory
+                  (RoomMemoryCorrect (id, String.concat " " content_parts))
+            | "forget" :: id :: rest ->
+                RoomsMemory (RoomMemoryForget (id, rest))
+            | _ ->
+                FormattedReply
+                  (fun connector -> format_memories_usage ~connector))
         | "tasks" -> (
             match args with
             | [ "full" ] -> TasksFull

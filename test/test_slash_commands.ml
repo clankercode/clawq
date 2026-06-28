@@ -185,9 +185,18 @@ let rec result_to_string = function
       | Slash_commands.FollowupQueue message -> "Followup(" ^ message ^ ")"
       | Slash_commands.FollowupAppend message ->
           "FollowupAppend(" ^ message ^ ")")
-  | Slash_commands.RoomsMemory args ->
-      "RoomsMemory(" ^ String.concat "," args ^ ")"
-  | Slash_commands.ExplainAccess -> "ExplainAccess"
+  | Slash_commands.RoomsMemory action -> (
+      match action with
+      | Slash_commands.RoomMemoryList -> "RoomsMemory(list)"
+      | Slash_commands.RoomMemoryShow id -> "RoomsMemory(show," ^ id ^ ")"
+      | Slash_commands.RoomMemorySave (ref_str, content) ->
+          "RoomsMemory(save," ^ ref_str ^ "," ^ content ^ ")"
+      | Slash_commands.RoomMemoryCorrect (id, content) ->
+          "RoomsMemory(correct," ^ id ^ "," ^ content ^ ")"
+      | Slash_commands.RoomMemoryForget (id, flags) ->
+          "RoomsMemory(forget," ^ id
+          ^ (if flags <> [] then "," ^ String.concat "," flags else "")
+          ^ ")")
   | Slash_commands.NotACommand -> "NotACommand"
 
 let rec result_eq a b =
@@ -252,6 +261,7 @@ let rec result_eq a b =
   | Slash_commands.HeldItems a, Slash_commands.HeldItems b -> a = b
   | Slash_commands.Debate a, Slash_commands.Debate b -> a = b
   | Slash_commands.Memories a, Slash_commands.Memories b -> a = b
+  | Slash_commands.RoomsMemory a, Slash_commands.RoomsMemory b -> a = b
   | Slash_commands.Followup a, Slash_commands.Followup b -> a = b
   | Slash_commands.ExplainAccess, Slash_commands.ExplainAccess -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
@@ -3078,19 +3088,78 @@ let test_repo_in_commands_list () =
   in
   Alcotest.(check bool) "repo in commands" true (List.mem "repo" names)
 
-(* ── /access tests ──────────────────────────────────────────────────────── *)
+let test_memory_list_produces_rooms_memory () =
+  match Slash_commands.handle "/memory list" with
+  | Slash_commands.RoomsMemory Slash_commands.RoomMemoryList -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "Expected RoomsMemory(RoomMemoryList), got %s"
+           (result_to_string other))
 
-let test_access_handle () =
-  Alcotest.check result_testable "/access" Slash_commands.ExplainAccess
-    (Slash_commands.handle "/access")
+let test_memory_show_produces_rooms_memory () =
+  match Slash_commands.handle "/memory show 42" with
+  | Slash_commands.RoomsMemory (Slash_commands.RoomMemoryShow "42") -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "Expected RoomsMemory(RoomMemoryShow 42), got %s"
+           (result_to_string other))
 
-let test_access_in_commands_list () =
+let test_memory_save_produces_rooms_memory () =
+  match Slash_commands.handle "/memory save ref content here" with
+  | Slash_commands.RoomsMemory
+      (Slash_commands.RoomMemorySave ("ref", "content here")) ->
+      ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf
+           "Expected RoomsMemory(RoomMemorySave(ref, content here)), got %s"
+           (result_to_string other))
+
+let test_memory_correct_produces_rooms_memory () =
+  match Slash_commands.handle "/memory correct 5 new content" with
+  | Slash_commands.RoomsMemory
+      (Slash_commands.RoomMemoryCorrect ("5", "new content")) ->
+      ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf
+           "Expected RoomsMemory(RoomMemoryCorrect(5, new content)), got %s"
+           (result_to_string other))
+
+let test_memory_forget_produces_rooms_memory () =
+  match Slash_commands.handle "/memory forget 3 reason text" with
+  | Slash_commands.RoomsMemory
+      (Slash_commands.RoomMemoryForget ("3", [ "reason"; "text" ])) ->
+      ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf
+           "Expected RoomsMemory(RoomMemoryForget(3, [reason; text])), got %s"
+           (result_to_string other))
+
+let test_memory_no_args_shows_usage () =
+  match Slash_commands.handle "/memory" with
+  | Slash_commands.FormattedReply _ -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "Expected FormattedReply (usage), got %s"
+           (result_to_string other))
+
+let test_memory_in_commands_list () =
   let names =
     List.map
       (fun (cmd : Slash_commands.command) -> cmd.name)
       Slash_commands.commands
   in
-  Alcotest.(check bool) "/access in commands" true (List.mem "access" names)
+  Alcotest.(check bool) "memory in commands" true (List.mem "memory" names)
+
+let test_memories_still_workspace () =
+  match Slash_commands.handle "/memories" with
+  | Slash_commands.Memories { oldest = false; page = 1 } -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "Expected Memories(oldest=false page=1), got %s"
+           (result_to_string other))
 
 let suite =
   [
@@ -3468,7 +3537,20 @@ let suite =
     Alcotest.test_case "/repo associate path" `Quick test_repo_associate_path;
     Alcotest.test_case "/repo in commands list" `Quick
       test_repo_in_commands_list;
-    Alcotest.test_case "/access handle" `Quick test_access_handle;
-    Alcotest.test_case "/access in commands list" `Quick
-      test_access_in_commands_list;
+    Alcotest.test_case "/memory list produces RoomsMemory" `Quick
+      test_memory_list_produces_rooms_memory;
+    Alcotest.test_case "/memory show produces RoomsMemory" `Quick
+      test_memory_show_produces_rooms_memory;
+    Alcotest.test_case "/memory save produces RoomsMemory" `Quick
+      test_memory_save_produces_rooms_memory;
+    Alcotest.test_case "/memory correct produces RoomsMemory" `Quick
+      test_memory_correct_produces_rooms_memory;
+    Alcotest.test_case "/memory forget produces RoomsMemory" `Quick
+      test_memory_forget_produces_rooms_memory;
+    Alcotest.test_case "/memory no args shows usage" `Quick
+      test_memory_no_args_shows_usage;
+    Alcotest.test_case "/memory in commands list" `Quick
+      test_memory_in_commands_list;
+    Alcotest.test_case "/memories still workspace" `Quick
+      test_memories_still_workspace;
   ]
