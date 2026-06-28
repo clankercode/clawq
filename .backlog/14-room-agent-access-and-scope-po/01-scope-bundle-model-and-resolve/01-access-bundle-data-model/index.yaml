@@ -28,6 +28,7 @@ tasks:
     - complexity: medium
       depends_on:
         - P14.M1.E1.T001
+        - P14.M1.E1.T002
       estimate_hours: 2
       file: T003-fail-closed-on-invalid-bundle.todo
       id: T003
