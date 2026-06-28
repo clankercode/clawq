@@ -94,6 +94,7 @@
   test_sandbox
   test_scheduler
   test_secret_store
+  test_scope_resolver
   test_service
   test_session
   test_session_observer

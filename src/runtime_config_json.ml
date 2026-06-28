@@ -8,6 +8,12 @@ open Runtime_config_types
 let default_model_json_fields (dm : string option) =
   match dm with Some m -> [ ("default_model", `String m) ] | None -> []
 
+let access_scope_level_string = function
+  | Default -> "default"
+  | Workspace -> "workspace"
+  | Channel -> "channel"
+  | Room -> "room"
+
 let provider_json (p : provider_config) : Yojson.Safe.t =
   let fields = [ ("api_key", `String p.api_key) ] in
   let fields =
@@ -1004,6 +1010,43 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                          );
                        ]))
                  cfg.access_bundles) );
+        ]
+  in
+  let fields =
+    if cfg.access_scopes = [] then fields
+    else
+      fields
+      @ [
+          ( "access_scopes",
+            `List
+              (List.map
+                 (fun (scope : access_scope) ->
+                   `Assoc
+                     ([
+                        ("id", `String scope.id);
+                        ("level", `String (access_scope_level_string scope.level));
+                        ("status", `String scope.status);
+                      ]
+                     @ (match scope.workspace with
+                       | Some workspace -> [ ("workspace", `String workspace) ]
+                       | None -> [])
+                     @ (match scope.channel with
+                       | Some channel -> [ ("channel", `String channel) ]
+                       | None -> [])
+                     @ (match scope.room with
+                       | Some room -> [ ("room", `String room) ]
+                       | None -> [])
+                     @
+                     if scope.access_bundle_ids = [] then []
+                     else
+                       [
+                         ( "access_bundle_ids",
+                           `List
+                             (List.map
+                                (fun id -> `String id)
+                                scope.access_bundle_ids) );
+                       ]))
+                 cfg.access_scopes) );
         ]
   in
   let fields =

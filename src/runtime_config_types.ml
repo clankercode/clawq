@@ -542,6 +542,44 @@ type access_bundle = {
   status : string;
 }
 
+type access_scope_level = Default | Workspace | Channel | Room
+
+type access_scope = {
+  id : string;
+  level : access_scope_level;
+  workspace : string option;
+  channel : string option;
+  room : string option;
+  access_bundle_ids : string list;
+  status : string;
+}
+
+type access_provenance = {
+  layer : string;
+  source_id : string;
+  field : string;
+}
+
+type effective_access_item = {
+  value : string;
+  provenance : access_provenance list;
+}
+
+type effective_access = {
+  allowed_tools : effective_access_item list;
+  denied_tools : effective_access_item list;
+  codebase_grants : effective_access_item list;
+  blocked_codebase_grants : effective_access_item list;
+  mcp_servers : effective_access_item list;
+  skills : effective_access_item list;
+  repositories : effective_access_item list;
+  domains : effective_access_item list;
+  credential_handles : effective_access_item list;
+  instructions : effective_access_item list;
+  memory_grants : effective_access_item list;
+  budget_refs : effective_access_item list;
+}
+
 type room_profile = {
   id : string;
   display_name : string option;
@@ -601,6 +639,7 @@ type t = {
   debate : debate_config;
   postmortem : postmortem_config;
   access_bundles : access_bundle list;
+  access_scopes : access_scope list;
   room_profiles : room_profile list;
   room_profile_codebase_grants : (string * string list) list;
   room_profile_bindings : room_profile_binding list;

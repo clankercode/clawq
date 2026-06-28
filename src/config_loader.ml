@@ -1010,6 +1010,47 @@ let parse_config ?(resolve_secrets = true) json =
             : Runtime_config.access_bundle))
     with _ -> []
   in
+  let access_scope_level_of_string = function
+    | "default" -> Runtime_config.Default
+    | "workspace" -> Runtime_config.Workspace
+    | "channel" -> Runtime_config.Channel
+    | "room" -> Runtime_config.Room
+    | _ -> Runtime_config.Default
+  in
+  let access_scopes =
+    let string_list node key =
+      try node |> member key |> to_list |> List.map to_string with _ -> []
+    in
+    try
+      json |> member "access_scopes" |> to_list
+      |> List.map (fun s ->
+          let id = s |> member "id" |> to_string in
+          let level =
+            try s |> member "level" |> to_string |> access_scope_level_of_string
+            with _ -> Runtime_config.Default
+          in
+          let workspace =
+            try Some (s |> member "workspace" |> to_string) with _ -> None
+          in
+          let channel =
+            try Some (s |> member "channel" |> to_string) with _ -> None
+          in
+          let room = try Some (s |> member "room" |> to_string) with _ -> None in
+          let status =
+            try s |> member "status" |> to_string with _ -> "active"
+          in
+          ({
+             id;
+             level;
+             workspace;
+             channel;
+             room;
+             access_bundle_ids = string_list s "access_bundle_ids";
+             status;
+           }
+            : Runtime_config.access_scope))
+    with _ -> []
+  in
   {
     workspace;
     Runtime_config.default_temperature;
@@ -1269,6 +1310,7 @@ let parse_config ?(resolve_secrets = true) json =
          ({ enabled; model; delay_s } : Runtime_config.postmortem_config)
        with _ -> Runtime_config.default_postmortem_config);
     access_bundles;
+    access_scopes;
     room_profiles =
       (try
          json |> member "room_profiles" |> to_list

@@ -278,6 +278,7 @@ let default =
     debate = default_debate_config;
     postmortem = default_postmortem_config;
     access_bundles = [];
+    access_scopes = [];
     room_profiles = [];
     room_profile_codebase_grants = [];
     room_profile_bindings = [];
@@ -407,6 +408,34 @@ let all_channel_types =
     "teams";
   ]
 
+let home_dir () = try Sys.getenv "HOME" with Not_found -> "/tmp"
+
+let expand_home path =
+  if String.length path >= 2 && String.sub path 0 2 = "~/" then
+    Filename.concat (home_dir ()) (String.sub path 2 (String.length path - 2))
+  else if path = "~" then home_dir ()
+  else path
+
+let effective_workspace (cfg : t) =
+  let path = expand_home cfg.workspace in
+  if path = "" then default_workspace () else path
+
+let expand_cwd_pattern ~(config : t) pattern =
+  let home =
+    match Sys.getenv_opt "HOME" with
+    | Some h -> h
+    | None ->
+        let ts = int_of_float (Unix.gettimeofday ()) in
+        let fallback = Printf.sprintf "/tmp/clawq-home-%d" ts in
+        Printf.eprintf "ERROR: HOME environment variable not set, using %s\n%!"
+          fallback;
+        fallback
+  in
+  let ws = effective_workspace config in
+  pattern
+  |> Str.global_replace (Str.regexp_string "$CLAWQ_WORKSPACE") ws
+  |> Str.global_replace (Str.regexp_string "$USER_HOME") home
+
 (** [resolve_room_profile cfg ~session_key] resolves the active room profile
     bound to the given session key. Matching tries the full session key first,
     then the channel_id portion (everything after the first colon, matching
@@ -509,6 +538,197 @@ let access_bundles_for_profile (cfg : t) (profile : room_profile) :
   match legacy_access_bundle_for_profile cfg profile with
   | None -> explicit
   | Some legacy -> explicit @ [ legacy ]
+
+let access_scope_level_rank = function
+  | Default -> 0
+  | Workspace -> 1
+  | Channel -> 2
+  | Room -> 3
+
+let access_scope_level_label = function
+  | Default -> "default"
+  | Workspace -> "workspace"
+  | Channel -> "channel"
+  | Room -> "room"
+
+let scope_active (scope : access_scope) =
+  String.lowercase_ascii scope.status <> "deleted"
+
+let string_option_matches value = function
+  | None -> true
+  | Some expected -> expected = value
+
+let scope_matches (cfg : t) ~session_key (scope : access_scope) =
+  let channel_type = channel_type_of_session_key session_key in
+  let room =
+    match String.index_opt session_key ':' with
+    | Some i -> String.sub session_key (i + 1) (String.length session_key - i - 1)
+    | None -> session_key
+  in
+  let workspace = effective_workspace cfg in
+  scope_active scope
+  &&
+  match scope.level with
+  | Default -> true
+  | Workspace -> string_option_matches workspace scope.workspace
+  | Channel -> string_option_matches channel_type scope.channel
+  | Room ->
+      string_option_matches session_key scope.room
+      || string_option_matches room scope.room
+
+let sort_scopes scopes =
+  List.sort
+    (fun (a : access_scope) (b : access_scope) ->
+      match
+        compare (access_scope_level_rank a.level) (access_scope_level_rank b.level)
+      with
+      | 0 -> compare a.id b.id
+      | n -> n)
+    scopes
+
+let merge_effective_items items =
+  let table = Hashtbl.create (List.length items) in
+  let order = ref [] in
+  List.iter
+    (fun (item : effective_access_item) ->
+      match Hashtbl.find_opt table item.value with
+      | None ->
+          order := !order @ [ item.value ];
+          Hashtbl.add table item.value item.provenance
+      | Some existing ->
+          Hashtbl.replace table item.value (existing @ item.provenance))
+    items;
+  !order
+  |> List.filter_map (fun value ->
+         Hashtbl.find_opt table value
+         |> Option.map (fun provenance -> { value; provenance }))
+
+let add_bundle_items ~layer ~source_id ~bundle_id ~field values =
+  List.map
+    (fun value ->
+      {
+        value;
+        provenance =
+          [
+            { layer; source_id; field };
+            {
+              layer;
+              source_id = source_id ^ ":access_bundle_ids:" ^ bundle_id;
+              field;
+            };
+          ];
+      })
+    values
+
+let blocked_by_global_security (cfg : t) pattern =
+  let expanded = expand_cwd_pattern ~config:cfg pattern in
+  let glob_prefix pattern =
+    let len = String.length pattern in
+    let rec first_glob i =
+      if i >= len then len
+      else
+        match pattern.[i] with
+        | '*' | '?' -> i
+        | _ -> first_glob (i + 1)
+    in
+    let prefix = String.sub pattern 0 (first_glob 0) in
+    let trimmed =
+      if prefix = "" then "/"
+      else if String.ends_with ~suffix:"/" prefix then
+        String.sub prefix 0 (String.length prefix - 1)
+      else prefix
+    in
+    if trimmed = "" then "/" else Path_util.normalize_path trimmed
+  in
+  let is_prefix_of ~prefix path =
+    let plen = String.length prefix in
+    let pathlen = String.length path in
+    path = prefix
+    || (pathlen > plen && String.sub path 0 plen = prefix && path.[plen] = '/')
+  in
+  let grant_prefix = glob_prefix expanded in
+  let ws_ok =
+    if not cfg.security.workspace_only then true
+    else
+      let workspace = Path_util.normalize_path (effective_workspace cfg) in
+      is_prefix_of ~prefix:workspace grant_prefix
+      || List.exists
+           (fun extra ->
+             let expanded_extra = expand_home extra |> Path_util.normalize_path in
+             is_prefix_of ~prefix:expanded_extra grant_prefix)
+           cfg.security.extra_allowed_paths
+  in
+  let pattern_ok =
+    cfg.security.allowed_cwd_patterns = []
+    || List.exists
+         (fun allowed ->
+           let allowed = expand_cwd_pattern ~config:cfg allowed in
+           allowed <> "" && Path_util.glob_matches_path ~pattern:allowed grant_prefix)
+         cfg.security.allowed_cwd_patterns
+  in
+  not (ws_ok && pattern_ok)
+
+let resolve_effective_access (cfg : t) ~session_key : effective_access =
+  let selected_scopes =
+    cfg.access_scopes |> List.filter (scope_matches cfg ~session_key) |> sort_scopes
+  in
+  let profile_bundles =
+    match resolve_room_profile cfg ~session_key with
+    | None -> []
+    | Some profile ->
+        access_bundles_for_profile cfg profile
+        |> List.map (fun bundle -> ("room", "room_profile:" ^ profile.id, bundle))
+  in
+  let scope_bundles =
+    selected_scopes
+    |> List.concat_map (fun scope ->
+           let layer = access_scope_level_label scope.level in
+           scope.access_bundle_ids
+           |> List.filter_map (fun bundle_id ->
+                  find_access_bundle cfg bundle_id
+                  |> Option.map (fun bundle -> (layer, scope.id, bundle))))
+  in
+  let bundles = scope_bundles @ profile_bundles in
+  let collect field get =
+    bundles
+    |> List.concat_map (fun (layer, source_id, bundle) ->
+           add_bundle_items ~layer ~source_id ~bundle_id:bundle.id ~field
+             (get bundle))
+    |> merge_effective_items
+  in
+  let denied_tools = collect "denied_tools" (fun b -> b.denied_tools) in
+  let denied_tool_values = List.map (fun item -> item.value) denied_tools in
+  let allowed_tools =
+    collect "allowed_tools" (fun b -> b.allowed_tools)
+    |> List.filter (fun item -> not (List.mem item.value denied_tool_values))
+  in
+  let codebase_items = collect "codebase_grants" (fun b -> b.codebase_grants) in
+  let codebase_items =
+    List.map
+      (fun item ->
+        { item with value = expand_cwd_pattern ~config:cfg item.value })
+      codebase_items
+  in
+  let codebase_grants, blocked_codebase_grants =
+    List.partition
+      (fun item -> not (blocked_by_global_security cfg item.value))
+      codebase_items
+  in
+  {
+    allowed_tools;
+    denied_tools;
+    codebase_grants;
+    blocked_codebase_grants;
+    mcp_servers = collect "mcp_servers" (fun b -> b.mcp_servers);
+    skills = collect "skills" (fun b -> b.skills);
+    repositories = collect "repositories" (fun b -> b.repositories);
+    domains = collect "domains" (fun b -> b.domains);
+    credential_handles =
+      collect "credential_handles" (fun b -> b.credential_handles);
+    instructions = collect "instructions" (fun b -> b.instructions);
+    memory_grants = collect "memory_grants" (fun b -> b.memory_grants);
+    budget_refs = collect "budget_refs" (fun b -> b.budget_refs);
+  }
 
 let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =
   match
@@ -723,14 +943,6 @@ let default_provider_deprecation_warning (cfg : t) =
             config.json."
            p)
 
-let home_dir () = try Sys.getenv "HOME" with Not_found -> "/tmp"
-
-let expand_home path =
-  if String.length path >= 2 && String.sub path 0 2 = "~/" then
-    Filename.concat (home_dir ()) (String.sub path 2 (String.length path - 2))
-  else if path = "~" then home_dir ()
-  else path
-
 let is_existing_dir path =
   try Sys.file_exists path && Sys.is_directory path with _ -> false
 
@@ -804,26 +1016,6 @@ let augment_env_path env =
         ^ augment_path_with_user_bins
             (try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
       |]
-
-let effective_workspace (cfg : t) =
-  let path = expand_home cfg.workspace in
-  if path = "" then default_workspace () else path
-
-let expand_cwd_pattern ~(config : t) pattern =
-  let home =
-    match Sys.getenv_opt "HOME" with
-    | Some h -> h
-    | None ->
-        let ts = int_of_float (Unix.gettimeofday ()) in
-        let fallback = Printf.sprintf "/tmp/clawq-home-%d" ts in
-        Printf.eprintf "ERROR: HOME environment variable not set, using %s\n%!"
-          fallback;
-        fallback
-  in
-  let ws = effective_workspace config in
-  pattern
-  |> Str.global_replace (Str.regexp_string "$CLAWQ_WORKSPACE") ws
-  |> Str.global_replace (Str.regexp_string "$USER_HOME") home
 
 let default_model_json_fields = Runtime_config_json.default_model_json_fields
 
