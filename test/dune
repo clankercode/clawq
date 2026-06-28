@@ -100,6 +100,7 @@
   test_secret_store
   test_scope_resolver
   test_access_snapshot
+  test_access_explanation
   test_service
   test_session
   test_session_observer
