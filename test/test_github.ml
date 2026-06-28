@@ -1,3 +1,10 @@
+let test_config_with_github (github_config : Runtime_config.github_config) =
+  {
+    Runtime_config.default with
+    channels =
+      { Runtime_config.default.channels with github = Some github_config };
+  }
+
 let compute_signature ~secret ~body =
   "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
 
@@ -580,6 +587,7 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
           auth = Runtime_config.GithubPat "ghp_test12345";
           repos = [ repo_config ];
           default_model = None;
+          auth_credential_handle = None;
         }
       in
       let session_manager = Session.create ~config:Runtime_config.default () in
@@ -604,8 +612,10 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
       in
       match
         Lwt_main.run
-          (Github.handle_webhook ~repo_config ~github_config ~session_manager
-             ~api_limiter ~event_type:"workflow_run" ~body ~headers)
+          (Github.handle_webhook ~repo_config ~github_config
+             ~config:(test_config_with_github github_config)
+             ~session_manager ~api_limiter ~event_type:"workflow_run" ~body
+             ~headers)
       with
       | Github.Ok response ->
           Alcotest.(check bool) "special command handler called" true !called;
@@ -795,6 +805,7 @@ let hook_post_back_to_github_posts_comment () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      auth_credential_handle = None;
     }
   in
   let api_limiter =
@@ -822,7 +833,7 @@ let hook_post_back_to_github_posts_comment () =
      let* () = Lwt_unix.sleep 0.05 in
      let* () =
        Github_hooks.post_hook_response_to_github ~github_config ~api_limiter
-         ~context_json:context ~response:"Review complete."
+         ~context_json:context ~response:"Review complete." ()
      in
      let* () = Lwt_unix.sleep 0.1 in
      Lwt.return_unit);
@@ -856,6 +867,7 @@ let hook_post_back_skips_without_issue_number () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      auth_credential_handle = None;
     }
   in
   let api_limiter =
@@ -872,7 +884,7 @@ let hook_post_back_skips_without_issue_number () =
     (fun () ->
       Lwt_main.run
         (Github_hooks.post_hook_response_to_github ~github_config ~api_limiter
-           ~context_json:context ~response:"no PR number here");
+           ~context_json:context ~response:"no PR number here" ());
       Alcotest.(check bool) "completed without error" true true)
 
 let hook_post_back_skips_without_repo () =
@@ -882,6 +894,7 @@ let hook_post_back_skips_without_repo () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      auth_credential_handle = None;
     }
   in
   let api_limiter =
@@ -897,7 +910,7 @@ let hook_post_back_skips_without_repo () =
     (fun () ->
       Lwt_main.run
         (Github_hooks.post_hook_response_to_github ~github_config ~api_limiter
-           ~context_json:context ~response:"no repo here");
+           ~context_json:context ~response:"no repo here" ());
       Alcotest.(check bool) "completed without error" true true)
 
 (* Integration test: run_matching_hooks with post_back_to_github=true triggers
@@ -936,6 +949,7 @@ let run_matching_hooks_post_back_integration () =
           auth = Runtime_config.GithubPat "ghp_test";
           repos = [];
           default_model = None;
+          auth_credential_handle = None;
         }
       in
       let session_manager = Session.create ~config:Runtime_config.default () in
@@ -970,7 +984,7 @@ let run_matching_hooks_post_back_integration () =
          let* () = Lwt_unix.sleep 0.05 in
          let* count =
            Github_hooks.run_matching_hooks ~session_manager
-             ~github_config:(Some github_config) ~api_limiter ~prepared
+             ~github_config:(Some github_config) ~api_limiter ~prepared ()
          in
          Alcotest.(check int) "one hook ran" 1 count;
          let* () = Lwt_unix.sleep 0.1 in
@@ -1022,6 +1036,7 @@ let run_matching_hooks_no_post_back_when_false () =
           auth = Runtime_config.GithubPat "ghp_test";
           repos = [];
           default_model = None;
+          auth_credential_handle = None;
         }
       in
       let session_manager = Session.create ~config:Runtime_config.default () in
@@ -1052,7 +1067,7 @@ let run_matching_hooks_no_post_back_when_false () =
          let* () = Lwt_unix.sleep 0.05 in
          let* count =
            Github_hooks.run_matching_hooks ~session_manager
-             ~github_config:(Some github_config) ~api_limiter ~prepared
+             ~github_config:(Some github_config) ~api_limiter ~prepared ()
          in
          Alcotest.(check int) "one hook ran" 1 count;
          let* () = Lwt_unix.sleep 0.1 in
@@ -1161,6 +1176,7 @@ let make_webhook_env ~secret ~body ~allow_users =
       auth = Runtime_config.GithubPat "ghp_test12345";
       repos = [ repo_config ];
       default_model = None;
+      auth_credential_handle = None;
     }
   in
   let session_manager = Session.create ~config:Runtime_config.default () in
@@ -1204,6 +1220,7 @@ let handle_webhook_clawq_pr_comment_session_key () =
           match
             Lwt_main.run
               (Github.handle_webhook ~repo_config ~github_config
+                 ~config:(test_config_with_github github_config)
                  ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
                  ~headers)
           with
@@ -1239,6 +1256,7 @@ let handle_webhook_clawq_issue_comment_session_key () =
           match
             Lwt_main.run
               (Github.handle_webhook ~repo_config ~github_config
+                 ~config:(test_config_with_github github_config)
                  ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
                  ~headers)
           with
@@ -1274,6 +1292,7 @@ let handle_webhook_clawq_review_comment_session_key () =
           match
             Lwt_main.run
               (Github.handle_webhook ~repo_config ~github_config
+                 ~config:(test_config_with_github github_config)
                  ~session_manager ~api_limiter
                  ~event_type:"pull_request_review_comment" ~body ~headers)
           with
@@ -1313,6 +1332,7 @@ let handle_webhook_repeated_clawq_same_session () =
             in
             Lwt_main.run
               (Github.handle_webhook ~repo_config ~github_config
+                 ~config:(test_config_with_github github_config)
                  ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
                  ~headers)
           in
@@ -1345,8 +1365,10 @@ let handle_webhook_bot_self_loop_protection () =
             Lwt.return (Some "should not reach"));
       match
         Lwt_main.run
-          (Github.handle_webhook ~repo_config ~github_config ~session_manager
-             ~api_limiter ~event_type:"issue_comment" ~body:bot_reply ~headers)
+          (Github.handle_webhook ~repo_config ~github_config
+             ~config:(test_config_with_github github_config)
+             ~session_manager ~api_limiter ~event_type:"issue_comment"
+             ~body:bot_reply ~headers)
       with
       | Github.Ok msg ->
           Alcotest.(check bool) "handler not called" false !called;
@@ -1405,6 +1427,7 @@ let handle_webhook_dedup_delivery_id () =
                 auth = Runtime_config.GithubPat "ghp_test12345";
                 repos = [ repo_config ];
                 default_model = None;
+                auth_credential_handle = None;
               }
             in
             let api_limiter =
@@ -1412,6 +1435,7 @@ let handle_webhook_dedup_delivery_id () =
             in
             Lwt_main.run
               (Github.handle_webhook ~repo_config ~github_config
+                 ~config:(test_config_with_github github_config)
                  ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
                  ~headers)
           in
@@ -1445,6 +1469,185 @@ let lifecycle_suite =
     Alcotest.test_case "delivery dedup" `Quick handle_webhook_dedup_delivery_id;
   ]
 
+(* ---- Credential lease integration tests ---- *)
+
+let resolve_headers_uses_lease_when_handle_set () =
+  Test_helpers.with_temp_home (fun _home ->
+      let github_config : Runtime_config.github_config =
+        {
+          auth = Runtime_config.GithubPat "ghp_legacy_token_12345";
+          repos = [];
+          default_model = None;
+          auth_credential_handle = Some "github-pat:main";
+        }
+      in
+      (* Create a config with a credential handle that resolves to a token *)
+      let handle : Runtime_config.credential_handle =
+        {
+          id = "github-pat:main";
+          provider = Runtime_config.Env_var { name = "TEST_GH_TOKEN" };
+          description = Some "GitHub PAT";
+          status = "active";
+        }
+      in
+      let config =
+        { Runtime_config.default with credential_handles = [ handle ] }
+      in
+      let snapshot =
+        Access_snapshot.create ~config ~work_type:Access_snapshot.GitHub_trigger
+          ~session_key:"github:test/repo" ()
+      in
+      (* Add the handle to the snapshot's allowed list to simulate an access
+       scope that grants this credential handle *)
+      let snapshot =
+        {
+          snapshot with
+          Access_snapshot.credential_handles = [ "github-pat:main" ];
+        }
+      in
+      (* Set the env var with the actual token *)
+      Unix.putenv "TEST_GH_TOKEN" "ghp_lease_resolved_token_abc";
+      let result =
+        Lwt_main.run
+          (Github_api.resolve_github_auth_headers ~config ~snapshot
+             ~app_token:None ~repo_full_name:"test/repo" github_config)
+      in
+      (* The resolved headers should use the lease token, not the legacy one *)
+      (match result with
+      | Some headers -> (
+          let auth_header =
+            List.find_opt (fun (name, _) -> name = "Authorization") headers
+          in
+          match auth_header with
+          | Some (_, value) ->
+              Alcotest.(check string)
+                "uses lease token not legacy"
+                "Bearer ghp_lease_resolved_token_abc" value
+          | None -> Alcotest.fail "no Authorization header")
+      | None -> Alcotest.fail "lease resolution returned None");
+      Unix.putenv "TEST_GH_TOKEN" "")
+
+let resolve_headers_denies_unauthorized_handle () =
+  Test_helpers.with_temp_home (fun _home ->
+      let github_config : Runtime_config.github_config =
+        {
+          auth = Runtime_config.GithubPat "ghp_legacy_token_12345";
+          repos = [];
+          default_model = None;
+          auth_credential_handle = Some "github-pat:main";
+        }
+      in
+      let handle : Runtime_config.credential_handle =
+        {
+          id = "github-pat:main";
+          provider = Runtime_config.Env_var { name = "TEST_GH_TOKEN" };
+          description = Some "GitHub PAT";
+          status = "active";
+        }
+      in
+      let config =
+        { Runtime_config.default with credential_handles = [ handle ] }
+      in
+      (* Create a snapshot that does NOT include the handle *)
+      let snapshot =
+        Access_snapshot.create ~config ~work_type:Access_snapshot.GitHub_trigger
+          ~session_key:"github:test/repo" ()
+      in
+      (* Override snapshot to have empty credential_handles *)
+      let snapshot =
+        { snapshot with Access_snapshot.credential_handles = [] }
+      in
+      Unix.putenv "TEST_GH_TOKEN" "ghp_lease_resolved_token_abc";
+      let result =
+        Lwt_main.run
+          (Github_api.resolve_github_auth_headers ~config ~snapshot
+             ~app_token:None ~repo_full_name:"test/repo" github_config)
+      in
+      (* Should return None because handle is not in snapshot *)
+      Alcotest.(check bool)
+        "denied unauthorized handle returns None" true (result = None);
+      Unix.putenv "TEST_GH_TOKEN" "")
+
+let resolve_headers_falls_back_to_legacy_when_no_handle () =
+  let github_config : Runtime_config.github_config =
+    {
+      auth = Runtime_config.GithubPat "ghp_legacy_token_12345";
+      repos = [];
+      default_model = None;
+      auth_credential_handle = None;
+    }
+  in
+  let config = Runtime_config.default in
+  let snapshot =
+    Access_snapshot.create ~config ~work_type:Access_snapshot.GitHub_trigger
+      ~session_key:"github:test/repo" ()
+  in
+  let result =
+    Lwt_main.run
+      (Github_api.resolve_github_auth_headers ~config ~snapshot ~app_token:None
+         ~repo_full_name:"test/repo" github_config)
+  in
+  (* Should use legacy auth path *)
+  match result with
+  | Some headers -> (
+      let auth_header =
+        List.find_opt (fun (name, _) -> name = "Authorization") headers
+      in
+      match auth_header with
+      | Some (_, value) ->
+          Alcotest.(check string)
+            "uses legacy token" "Bearer ghp_legacy_token_12345" value
+      | None -> Alcotest.fail "no Authorization header")
+  | None -> Alcotest.fail "legacy auth returned None"
+
+let denied_lease_makes_no_http_request () =
+  (* When credential lease is denied, API functions should abort without
+     making any HTTP request. We route the GitHub API to a local server
+     and verify zero requests arrive. *)
+  let request_count = ref 0 in
+  let callback _conn _req _body =
+    incr request_count;
+    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:{|{}|} ()
+  in
+  let port = Test_helpers.free_port () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> server);
+  Unix.putenv "CLAWQ_GITHUB_API_BASE"
+    (Printf.sprintf "http://127.0.0.1:%d" port);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_unix.sleep 0.05 in
+     (* Use a resolver that always denies *)
+     let denied_resolver : Github_api.resolve_headers_fn =
+      fun _repo -> Lwt.return None
+     in
+     let* () =
+       Github_api.post_comment ~app_token:None
+         ~auth:(Runtime_config.GithubPat "ghp_test")
+         ~resolve_headers:(Some denied_resolver) ~owner:"acme" ~repo:"backend"
+         ~issue_number:42 ~body:"should not be sent" ()
+     in
+     let* () = Lwt_unix.sleep 0.1 in
+     Alcotest.(check int) "no HTTP request on denial" 0 !request_count;
+     Lwt.return_unit);
+  Unix.putenv "CLAWQ_GITHUB_API_BASE" ""
+
+let credential_lease_suite =
+  [
+    Alcotest.test_case "resolve uses lease when handle set" `Quick
+      resolve_headers_uses_lease_when_handle_set;
+    Alcotest.test_case "resolve denies unauthorized handle" `Quick
+      resolve_headers_denies_unauthorized_handle;
+    Alcotest.test_case "resolve falls back to legacy when no handle" `Quick
+      resolve_headers_falls_back_to_legacy_when_no_handle;
+    Alcotest.test_case "denied lease makes no HTTP request" `Quick
+      denied_lease_makes_no_http_request;
+  ]
+
 let suites =
   [
     ("github_webhook_sig", sig_suite);
@@ -1457,4 +1660,5 @@ let suites =
     ("cf_tunnel", tunnel_suite);
     ("github_session_integration", session_integration_suite);
     ("github_lifecycle", lifecycle_suite);
+    ("github_credential_lease", credential_lease_suite);
   ]

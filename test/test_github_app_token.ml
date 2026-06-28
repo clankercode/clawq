@@ -571,7 +571,7 @@ let github_api_with_app_auth_posts_comment () =
              let* () =
                Github_api.post_comment ~app_token:(Some tok)
                  ~auth:(GithubApp config) ~owner:"acme" ~repo:"app"
-                 ~issue_number:42 ~body:"test comment"
+                 ~issue_number:42 ~body:"test comment" ()
              in
              let* () = Lwt_unix.sleep 0.1 in
              (match previous_api_base with
@@ -649,6 +649,7 @@ let init_from_config_pat_sets_none () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      auth_credential_handle = None;
     }
   in
   Github_app_token.init_from_config config;
@@ -674,6 +675,7 @@ let init_from_config_app_sets_token () =
           auth = Runtime_config.GithubApp app_config;
           repos = [];
           default_model = None;
+          auth_credential_handle = None;
         }
       in
       Github_app_token.init_from_config config;
@@ -696,6 +698,7 @@ let init_from_config_invalid_key_sets_none () =
       auth = Runtime_config.GithubApp app_config;
       repos = [];
       default_model = None;
+      auth_credential_handle = None;
     }
   in
   Github_app_token.init_from_config config;
@@ -721,6 +724,7 @@ let invalidate_all_clears_token () =
           auth = Runtime_config.GithubApp app_config;
           repos = [];
           default_model = None;
+          auth_credential_handle = None;
         }
       in
       Github_app_token.init_from_config config;

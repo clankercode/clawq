@@ -1,3 +1,9 @@
+(* Disable warning 16 (unerasable-optional-argument) for this module. The
+   optional [resolve_headers] parameter on API functions is intentionally
+   placed before required labeled arguments — it is always explicitly passed
+   by callers that need lease-based auth, and defaults to [None] otherwise. *)
+[@@@warning "-16"]
+
 let default_github_api_base = "https://api.github.com"
 
 let github_api_base () =
@@ -85,42 +91,146 @@ let auth_headers_lwt ~(app_token : Github_app_token.t option)
                       m "GitHub auth: failed to get installation token: %s" msg);
                   Lwt.return [])))
 
-let post_comment ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
-    ~issue_number ~body =
+(* Resolve GitHub auth headers through the credential lease API when
+   [github_config.auth_credential_handle] is set. The snapshot scopes which
+   credential handles are allowed — missing or unauthorized handles are denied
+   before any API call. Falls back to legacy [auth_headers_lwt] when no handle
+   is configured. *)
+let resolve_github_auth_headers ~(config : Runtime_config.t)
+    ~(snapshot : Access_snapshot.t) ~(app_token : Github_app_token.t option)
+    ?(repo_full_name = "") (github_config : Runtime_config.github_config) :
+    (string * string) list option Lwt.t =
+  let open Lwt.Syntax in
+  match github_config.auth_credential_handle with
+  | None ->
+      (* Legacy path: resolve auth directly from the config *)
+      let* headers =
+        auth_headers_lwt ~app_token ~repo_full_name github_config.auth
+      in
+      Lwt.return (Some headers)
+  | Some handle_id -> (
+      match
+        Credential_lease.resolve_snapshot_lease ~config ~snapshot ~handle_id
+          ~header_name:"Authorization"
+      with
+      | Error err ->
+          let msg = Credential_lease.resolution_error_to_string err in
+          Logs.err (fun m ->
+              m "GitHub auth: credential lease denied for handle '%s': %s"
+                handle_id msg);
+          Lwt.return None
+      | Ok lease ->
+          let raw_token =
+            let result = ref "" in
+            Credential_lease.apply_headers lease (fun headers ->
+                result :=
+                  List.fold_left
+                    (fun acc (name, value) ->
+                      if name = "Authorization" then value else acc)
+                    "" headers);
+            !result
+          in
+          if raw_token = "" then (
+            Logs.err (fun m ->
+                m
+                  "GitHub auth: credential lease for handle '%s' resolved but \
+                   produced no Authorization header"
+                  handle_id);
+            Lwt.return None)
+          else
+            let prefix =
+              if
+                String.length raw_token >= 7
+                && String.sub raw_token 0 7 = "Bearer "
+              then ""
+              else "Bearer "
+            in
+            Lwt.return
+              (Some
+                 [
+                   ("Authorization", prefix ^ raw_token);
+                   ("Accept", "application/vnd.github+json");
+                   ("X-GitHub-Api-Version", "2022-11-28");
+                 ]))
+
+(* Type for pre-resolved header functions. Callers that use the credential
+   lease system pass this to override the legacy auth path. *)
+
+type resolve_headers_fn = string -> (string * string) list option Lwt.t
+
+let get_auth_headers ~(app_token : Github_app_token.t option)
+    ~(auth : Runtime_config.github_auth)
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~repo_full_name () =
+  match resolve_headers with
+  | Some f -> f repo_full_name
+  | None ->
+      let open Lwt.Syntax in
+      let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
+      Lwt.return (Some headers)
+
+let post_comment ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~owner ~repo
+    ~issue_number ~body () =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" (github_api_base ())
       owner repo issue_number
   in
-  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
-  let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
-  let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
-  if status < 200 || status >= 300 then
-    Logs.warn (fun m ->
-        m "GitHub API post_comment %s/%s#%d returned %d" owner repo issue_number
-          status);
-  Lwt.return_unit
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~repo_full_name ()
+  in
+  match headers with
+  | None ->
+      Logs.err (fun m ->
+          m "GitHub API post_comment: credential lease denied, aborting");
+      Lwt.return_unit
+  | Some headers ->
+      let req_body =
+        `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string
+      in
+      let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m "GitHub API post_comment %s/%s#%d returned %d" owner repo
+              issue_number status);
+      Lwt.return_unit
 
 let reply_to_review_comment ~(app_token : Github_app_token.t option) ~auth
-    ~owner ~repo ~pull_number ~comment_id ~body =
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~owner ~repo
+    ~pull_number ~comment_id ~body () =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/pulls/%d/comments/%d/replies"
       (github_api_base ()) owner repo pull_number comment_id
   in
-  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
-  let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
-  let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
-  if status < 200 || status >= 300 then
-    Logs.warn (fun m ->
-        m "GitHub API reply_to_review_comment %s/%s#%d comment=%d returned %d"
-          owner repo pull_number comment_id status);
-  Lwt.return_unit
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~repo_full_name ()
+  in
+  match headers with
+  | None ->
+      Logs.err (fun m ->
+          m
+            "GitHub API reply_to_review_comment: credential lease denied, \
+             aborting");
+      Lwt.return_unit
+  | Some headers ->
+      let req_body =
+        `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string
+      in
+      let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m
+              "GitHub API reply_to_review_comment %s/%s#%d comment=%d returned \
+               %d"
+              owner repo pull_number comment_id status);
+      Lwt.return_unit
 
-let add_reaction ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
-    ~comment_id ~content ~(comment_type : [ `Issue | `Review ]) =
+let add_reaction ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~owner ~repo
+    ~comment_id ~content ~(comment_type : [ `Issue | `Review ]) () =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let segment =
@@ -130,105 +240,150 @@ let add_reaction ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
     Printf.sprintf "%s/repos/%s/%s/%s/comments/%d/reactions"
       (github_api_base ()) owner repo segment comment_id
   in
-  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
-  let req_body =
-    `Assoc [ ("content", `String content) ] |> Yojson.Safe.to_string
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~repo_full_name ()
   in
-  let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
-  if status < 200 || status >= 300 then
-    Logs.warn (fun m ->
-        m "GitHub API add_reaction %s/%s comment=%d returned %d" owner repo
-          comment_id status);
-  Lwt.return_unit
+  match headers with
+  | None ->
+      Logs.err (fun m ->
+          m "GitHub API add_reaction: credential lease denied, aborting");
+      Lwt.return_unit
+  | Some headers ->
+      let req_body =
+        `Assoc [ ("content", `String content) ] |> Yojson.Safe.to_string
+      in
+      let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m "GitHub API add_reaction %s/%s comment=%d returned %d" owner repo
+              comment_id status);
+      Lwt.return_unit
 
 let post_comment_returning_id ~(app_token : Github_app_token.t option) ~auth
-    ~owner ~repo ~issue_number ~body =
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~owner ~repo
+    ~issue_number ~body () =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" (github_api_base ())
       owner repo issue_number
   in
-  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
-  let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
-  let* status, resp_body = Http_client.post_json ~uri ~headers ~body:req_body in
-  if status < 200 || status >= 300 then begin
-    Logs.warn (fun m ->
-        m "GitHub API post_comment_returning_id %s/%s#%d returned %d" owner repo
-          issue_number status);
-    Lwt.return None
-  end
-  else
-    let id =
-      try
-        Some
-          (Yojson.Safe.from_string resp_body
-          |> Yojson.Safe.Util.member "id"
-          |> Yojson.Safe.Util.to_int)
-      with _ -> None
-    in
-    Lwt.return id
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~repo_full_name ()
+  in
+  match headers with
+  | None ->
+      Logs.err (fun m ->
+          m
+            "GitHub API post_comment_returning_id: credential lease denied, \
+             aborting");
+      Lwt.return None
+  | Some headers ->
+      let req_body =
+        `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string
+      in
+      let* status, resp_body =
+        Http_client.post_json ~uri ~headers ~body:req_body
+      in
+      if status < 200 || status >= 300 then begin
+        Logs.warn (fun m ->
+            m "GitHub API post_comment_returning_id %s/%s#%d returned %d" owner
+              repo issue_number status);
+        Lwt.return None
+      end
+      else
+        let id =
+          try
+            Some
+              (Yojson.Safe.from_string resp_body
+              |> Yojson.Safe.Util.member "id"
+              |> Yojson.Safe.Util.to_int)
+          with _ -> None
+        in
+        Lwt.return id
 
-let edit_comment ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
-    ~comment_id ~body =
+let edit_comment ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~owner ~repo
+    ~comment_id ~body () =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/issues/comments/%d" (github_api_base ())
       owner repo comment_id
   in
-  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
-  let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
-  let* status, _body = Http_client.patch_json ~uri ~headers ~body:req_body in
-  if status < 200 || status >= 300 then
-    Logs.warn (fun m ->
-        m "GitHub API edit_comment %s/%s comment=%d returned %d" owner repo
-          comment_id status);
-  Lwt.return_unit
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~repo_full_name ()
+  in
+  match headers with
+  | None ->
+      Logs.err (fun m ->
+          m "GitHub API edit_comment: credential lease denied, aborting");
+      Lwt.return_unit
+  | Some headers ->
+      let req_body =
+        `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string
+      in
+      let* status, _body =
+        Http_client.patch_json ~uri ~headers ~body:req_body
+      in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m "GitHub API edit_comment %s/%s comment=%d returned %d" owner repo
+              comment_id status);
+      Lwt.return_unit
 
-let get_pr_files ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
-    ~pull_number =
+let get_pr_files ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option)) ~owner ~repo
+    ~pull_number () =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
-  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
-  let rec fetch_page page acc =
-    if page > 3 then Lwt.return (List.rev acc)
-    else
-      let uri =
-        Printf.sprintf "%s/repos/%s/%s/pulls/%d/files?per_page=100&page=%d"
-          (github_api_base ()) owner repo pull_number page
-      in
-      let* status, body = Http_client.get ~uri ~headers in
-      if status <> 200 then begin
-        Logs.warn (fun m ->
-            m "GitHub API get_pr_files %s/%s#%d page=%d returned %d" owner repo
-              pull_number page status);
-        Lwt.return (List.rev acc)
-      end
-      else
-        let files =
-          try
-            let json = Yojson.Safe.from_string body in
-            let open Yojson.Safe.Util in
-            json |> to_list
-            |> List.map (fun f ->
-                let filename =
-                  try f |> member "filename" |> to_string with _ -> ""
-                in
-                let file_status =
-                  try f |> member "status" |> to_string with _ -> ""
-                in
-                let additions =
-                  try f |> member "additions" |> to_int with _ -> 0
-                in
-                let deletions =
-                  try f |> member "deletions" |> to_int with _ -> 0
-                in
-                (filename, file_status, additions, deletions))
-          with _ -> []
-        in
-        let acc = acc @ files in
-        if List.length files < 100 then Lwt.return acc
-        else fetch_page (page + 1) acc
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~repo_full_name ()
   in
-  fetch_page 1 []
+  match headers with
+  | None ->
+      Logs.err (fun m ->
+          m "GitHub API get_pr_files: credential lease denied, aborting");
+      Lwt.return []
+  | Some headers ->
+      let rec fetch_page page acc =
+        if page > 3 then Lwt.return (List.rev acc)
+        else
+          let uri =
+            Printf.sprintf "%s/repos/%s/%s/pulls/%d/files?per_page=100&page=%d"
+              (github_api_base ()) owner repo pull_number page
+          in
+          let* status, body = Http_client.get ~uri ~headers in
+          if status <> 200 then begin
+            Logs.warn (fun m ->
+                m "GitHub API get_pr_files %s/%s#%d page=%d returned %d" owner
+                  repo pull_number page status);
+            Lwt.return (List.rev acc)
+          end
+          else
+            let files =
+              try
+                let json = Yojson.Safe.from_string body in
+                let open Yojson.Safe.Util in
+                json |> to_list
+                |> List.map (fun f ->
+                    let filename =
+                      try f |> member "filename" |> to_string with _ -> ""
+                    in
+                    let file_status =
+                      try f |> member "status" |> to_string with _ -> ""
+                    in
+                    let additions =
+                      try f |> member "additions" |> to_int with _ -> 0
+                    in
+                    let deletions =
+                      try f |> member "deletions" |> to_int with _ -> 0
+                    in
+                    (filename, file_status, additions, deletions))
+              with _ -> []
+            in
+            let acc = acc @ files in
+            if List.length files < 100 then Lwt.return acc
+            else fetch_page (page + 1) acc
+      in
+      fetch_page 1 []

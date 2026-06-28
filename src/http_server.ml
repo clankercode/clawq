@@ -1,11 +1,11 @@
 include Http_server_0_util
 
 let handler ~session_manager ~require_pairing ~auth_token
-    ?daemon_run_update_command ?slack_config ?github_config ?github_api_limiter
-    ?ip_limiter ?session_limiter ?slack_event_limiter ?teams_event_limiter
-    ?slack_run_update_command ?web_channel ?whatsapp_config ?line_config
-    ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn ?ui_server _conn
-    req body =
+    ?daemon_run_update_command ?slack_config ?github_config ?config
+    ?github_api_limiter ?ip_limiter ?session_limiter ?slack_event_limiter
+    ?teams_event_limiter ?slack_run_update_command ?web_channel ?whatsapp_config
+    ?line_config ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn
+    ?ui_server _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -410,7 +410,7 @@ let handler ~session_manager ~require_pairing ~auth_token
   | _ -> (
       let* webhook_result =
         Http_server_webhooks.handle ~session_manager ~auth_token ?slack_config
-          ?github_config ?github_api_limiter ?slack_event_limiter
+          ?github_config ?config ?github_api_limiter ?slack_event_limiter
           ?teams_event_limiter ?slack_run_update_command ?web_channel
           ?whatsapp_config ?line_config ?lark_config ?teams_config ?pairing
           ?runner_tokens ?ask_fn meth path req body
@@ -423,15 +423,15 @@ let handler ~session_manager ~require_pairing ~auth_token
             ~headers:json_headers ~body:{|{"error":"not found"}|} ())
 
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
-    ?daemon_run_update_command ?slack_config ?github_config ?github_api_limiter
-    ?ip_limiter ?session_limiter ?slack_event_limiter ?teams_event_limiter
-    ?slack_run_update_command ?web_channel ?whatsapp_config ?line_config
-    ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn ?ui_server ?stop
-    () =
+    ?daemon_run_update_command ?slack_config ?github_config ?config
+    ?github_api_limiter ?ip_limiter ?session_limiter ?slack_event_limiter
+    ?teams_event_limiter ?slack_run_update_command ?web_channel ?whatsapp_config
+    ?line_config ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn
+    ?ui_server ?stop () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token
-      ?daemon_run_update_command ?slack_config ?github_config
+      ?daemon_run_update_command ?slack_config ?github_config ?config
       ?github_api_limiter ?ip_limiter ?session_limiter ?slack_event_limiter
       ?teams_event_limiter ?slack_run_update_command ?web_channel
       ?whatsapp_config ?line_config ?lark_config ?teams_config ?pairing

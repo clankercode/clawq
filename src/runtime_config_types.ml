@@ -136,6 +136,10 @@ type github_config = {
   auth : github_auth;
   repos : github_repo_config list;
   default_model : string option;
+  auth_credential_handle : string option;
+      (** If set, GitHub API calls resolve credentials through the credential
+          lease API using this handle ID, scoped by the access snapshot. When
+          [None], falls back to the raw [auth] field. *)
 }
 
 type mattermost_config = {

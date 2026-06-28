@@ -1,4 +1,4 @@
-let handle ~session_manager ~auth_token ?slack_config ?github_config
+let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
     ?github_api_limiter ?slack_event_limiter ?teams_event_limiter
     ?slack_run_update_command ?web_channel ?whatsapp_config ?line_config
     ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn meth path req
@@ -113,8 +113,8 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config
                   (fun () ->
                     let* _result =
                       Github.handle_webhook ~repo_config ~github_config:gc
-                        ~session_manager ~api_limiter ~event_type ~body:body_str
-                        ~headers:req_headers
+                        ?config ~session_manager ~api_limiter ~event_type
+                        ~body:body_str ~headers:req_headers
                     in
                     Lwt.return_unit)
                   (fun exn ->

@@ -246,7 +246,13 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
         let default_model =
           try Some (g |> member "default_model" |> to_string) with _ -> None
         in
-        Some ({ auth; repos; default_model } : Runtime_config.github_config)
+        let auth_credential_handle =
+          try Some (g |> member "auth_credential_handle" |> to_string)
+          with _ -> None
+        in
+        Some
+          ({ auth; repos; default_model; auth_credential_handle }
+            : Runtime_config.github_config)
       with exn ->
         Logs.warn (fun m ->
             m "Config: failed to parse 'channels.github': %s"

@@ -254,7 +254,11 @@ let github_json (g : github_config) : Yojson.Safe.t =
   in
   `Assoc
     ([ ("auth", auth_json); ("repos", repos_json) ]
-    @ default_model_json_fields g.default_model)
+    @ default_model_json_fields g.default_model
+    @
+    match g.auth_credential_handle with
+    | Some h -> [ ("auth_credential_handle", `String h) ]
+    | None -> [])
 
 let mattermost_json (mm : mattermost_config) : Yojson.Safe.t =
   `Assoc

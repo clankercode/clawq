@@ -1,6 +1,10 @@
 (* GitHub-specific webhook hook infrastructure.
 
-   Built on top of Webhook_handler for generic utilities (JSON path traversal,
+   Disable warning 16 (unerasable-optional-argument) — optional
+   [resolve_headers] parameter uses same pattern as github_api.ml. *)
+[@@@warning "-16"]
+
+(* Built on top of Webhook_handler for generic utilities (JSON path traversal,
    frontmatter parsing, template rendering, match rule evaluation, delivery
    snapshots). This module supplies GitHub-specific event preparation, context
    extraction, session key derivation, and prompt assembly. *)
@@ -405,7 +409,8 @@ let default_session_key prepared =
 (* ---- Hook execution ---- *)
 
 let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
-    ~api_limiter ~context_json ~response =
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ~api_limiter ~context_json ~response () =
   let open Lwt.Syntax in
   let owner, repo =
     match Webhook_handler.first_string context_json [ "repo" ] with
@@ -444,7 +449,8 @@ let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
             let body = response ^ "\n<!-- clawq-reply -->" in
             Github_api.post_comment
               ~app_token:(Github_app_token.resolve_app_token ())
-              ~auth:github_config.auth ~owner ~repo ~issue_number:n ~body)
+              ~auth:github_config.auth ~resolve_headers ~owner ~repo
+              ~issue_number:n ~body ())
           (fun exn ->
             Logs.err (fun m ->
                 m "GitHub hooks: post_back_to_github failed for %s/%s#%d: %s"
@@ -452,8 +458,9 @@ let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
             Lwt.return ())
 
 let run_matching_hooks ~(session_manager : Session.t)
-    ~(github_config : Runtime_config.github_config option) ~api_limiter
-    ~prepared =
+    ~(github_config : Runtime_config.github_config option)
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ~api_limiter ~prepared () =
   let open Lwt.Syntax in
   match prepared.context_json with
   | None -> Lwt.return 0
@@ -496,7 +503,8 @@ let run_matching_hooks ~(session_manager : Session.t)
                   | Some gc when hook.post_back_to_github ->
                       let* () =
                         post_hook_response_to_github ~github_config:gc
-                          ~api_limiter ~context_json ~response
+                          ~resolve_headers ~api_limiter ~context_json ~response
+                          ()
                       in
                       Lwt.return 1
                   | _ ->

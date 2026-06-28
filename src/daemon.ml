@@ -1021,8 +1021,8 @@ let run ~(config : Runtime_config.t) =
           ~daemon_run_update_command:(fun ~mode ~send_progress () ->
             run_update_command ~mode ~send_progress ())
           ?slack_config:config.channels.slack
-          ?github_config:config.channels.github ~github_api_limiter ~ip_limiter
-          ~session_limiter ~slack_event_limiter ~teams_event_limiter
+          ?github_config:config.channels.github ~config ~github_api_limiter
+          ~ip_limiter ~session_limiter ~slack_event_limiter ~teams_event_limiter
           ?web_channel:web_channel_handler
           ~slack_run_update_command:run_update_command
           ?whatsapp_config:config.channels.whatsapp
