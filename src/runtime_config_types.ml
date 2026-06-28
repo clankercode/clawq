@@ -111,7 +111,16 @@ type slack_config = {
   default_model : string option;
 }
 
-type github_auth = GithubPat of string
+type github_app_installation = { installation_id : int; repos : string list }
+
+type github_app_config = {
+  app_id : int;
+  private_key_path : string;
+  webhook_secret : string;
+  installations : github_app_installation list;
+}
+
+type github_auth = GithubPat of string | GithubApp of github_app_config
 
 type github_repo_config = {
   name : string;

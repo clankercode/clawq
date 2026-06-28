@@ -16,6 +16,15 @@ let auth_headers (auth : Runtime_config.github_auth) =
         ("Accept", "application/vnd.github+json");
         ("X-GitHub-Api-Version", "2022-11-28");
       ]
+  | GithubApp _app ->
+      (* GitHub App auth requires JWT signing to generate installation access
+         tokens. This is not yet implemented. Raise an explicit error rather than
+         making unauthenticated API calls that would silently fail with 401. *)
+      Logs.err (fun m ->
+          m
+            "GitHub App auth: API calls not yet supported. Install a PAT or \
+             implement JWT token generation.");
+      failwith "GitHub App auth not yet implemented for outbound API calls"
 
 let post_comment ~auth ~owner ~repo ~issue_number ~body =
   let open Lwt.Syntax in

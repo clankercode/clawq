@@ -156,6 +156,50 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
                   with _ -> ""
                 in
                 Runtime_config.GithubPat token
+            | "app" ->
+                let app_id = try a |> member "app_id" |> to_int with _ -> 0 in
+                let private_key_path =
+                  try a |> member "private_key_path" |> to_string with _ -> ""
+                in
+                let webhook_secret =
+                  try
+                    a |> member "webhook_secret" |> to_string |> resolve_secret
+                  with _ -> ""
+                in
+                let installations =
+                  try
+                    a |> member "installations" |> to_list
+                    |> List.map (fun inst ->
+                        let installation_id =
+                          try inst |> member "installation_id" |> to_int
+                          with _ -> 0
+                        in
+                        let repos =
+                          try
+                            inst |> member "repos" |> to_list
+                            |> List.map to_string
+                          with _ -> []
+                        in
+                        ({ installation_id; repos }
+                          : Runtime_config.github_app_installation))
+                  with _ -> []
+                in
+                let app_config : Runtime_config.github_app_config =
+                  { app_id; private_key_path; webhook_secret; installations }
+                in
+                if
+                  app_id = 0 || private_key_path = "" || webhook_secret = ""
+                  || installations = []
+                  || List.exists
+                       (fun (inst : Runtime_config.github_app_installation) ->
+                         inst.installation_id = 0 || inst.repos = [])
+                       installations
+                then
+                  failwith
+                    "GitHub App auth requires app_id, private_key_path, \
+                     webhook_secret, and at least one installation with \
+                     installation_id > 0 and non-empty repos"
+                else Runtime_config.GithubApp app_config
             | other -> failwith ("Unknown github auth type: " ^ other)
           with Failure msg -> failwith msg
         in
