@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Access Bundle Data Model
       path: 01-access-bundle-data-model
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P14.M1.E1

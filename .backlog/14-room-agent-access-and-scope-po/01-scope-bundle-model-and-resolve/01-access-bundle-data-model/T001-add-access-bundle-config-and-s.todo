@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-28T09:35:42Z"
 claimed_by: workflow-p14-m1-e1
-completed_at: null
+completed_at: "2026-06-28T10:54:32Z"
 complexity: high
 depends_on: []
+duration_minutes: 78.83955824325
 estimate_hours: 4
 id: P14.M1.E1.T001
 priority: high
 started_at: "2026-06-28T09:35:42Z"
-status: in_progress
+status: done
 tags: []
 title: Add access bundle config and storage types
 ---
