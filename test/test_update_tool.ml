@@ -598,6 +598,47 @@ let test_progress_sender_renders_checklist () =
     "contains restart" true
     (Update_tool.contains_sub final "restart")
 
+let test_progress_sender_does_not_carry_output_to_next_step () =
+  let messages = ref [] in
+  let edits = ref [] in
+  let send_first text =
+    messages := text :: !messages;
+    Lwt.return "msg-1"
+  in
+  let edit msg_id text =
+    edits := (msg_id, text) :: !edits;
+    Lwt.return_unit
+  in
+  let send_progress, _get_final =
+    Update_tool.make_progress_sender ~send_first ~edit ~throttle:0.0
+      ~mode:Update_tool.Auto ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = send_progress "Starting update..." in
+     let* () = send_progress "Mode: git" in
+     let* () = send_progress "Running: git pull" in
+     (* This output is intentionally not guaranteed to flush immediately: the
+        bug was that it later rendered under the next running step. *)
+     let* () = send_progress "Already up to date." in
+     let* () = send_progress "Running: make build" in
+     Lwt.return_unit);
+  let edit_texts = List.map snd !edits in
+  Alcotest.(check bool)
+    "git output rendered while git pull still running" true
+    (List.exists
+       (fun text ->
+         Update_tool.contains_sub text "⏳ git pull"
+         && Update_tool.contains_sub text "Already up to date.")
+       edit_texts);
+  Alcotest.(check bool)
+    "git output not carried to make build" false
+    (List.exists
+       (fun text ->
+         Update_tool.contains_sub text "⏳ make build"
+         && Update_tool.contains_sub text "Already up to date.")
+       edit_texts)
+
 let test_progress_sender_handles_build_failure () =
   let messages = ref [] in
   let edits = ref [] in
@@ -801,6 +842,8 @@ let suite =
       test_stream_process_interrupt_kills_descendants;
     Alcotest.test_case "progress sender renders checklist" `Quick
       test_progress_sender_renders_checklist;
+    Alcotest.test_case "progress sender output stays with completed step" `Quick
+      test_progress_sender_does_not_carry_output_to_next_step;
     Alcotest.test_case "progress sender handles build failure" `Quick
       test_progress_sender_handles_build_failure;
     Alcotest.test_case "progress sender binary mode" `Quick

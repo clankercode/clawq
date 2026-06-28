@@ -583,6 +583,17 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
     let now = Unix.gettimeofday () in
     if now -. !last_edit >= 1.0 then flush () else Lwt.return_unit
   in
+  let finish_current_and_start label =
+    let open Lwt.Syntax in
+    (* If subprocess output arrived just before a step transition, it may have
+       been throttled and not rendered yet. Flush once while the old step is
+       still running, then clear the tail so it cannot appear under the next
+       step. *)
+    let* () = flush () in
+    output_tail := None;
+    let* () = update_current Done in
+    add_step label Running
+  in
   let send_progress text =
     let open Lwt.Syntax in
     let trimmed = String.trim text in
@@ -605,9 +616,7 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
         let* () = update_current (Failed trimmed) in
         Lwt.return_unit
       else if starts_with "Running: make build" trimmed then
-        let* () = update_current Done in
-        let* () = add_step "make build" Running in
-        Lwt.return_unit
+        finish_current_and_start "make build"
       else if starts_with "Running: curl" trimmed then
         let* () = add_step "download binary" Running in
         Lwt.return_unit
@@ -615,21 +624,14 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
         let* () = add_step "package manager update" Running in
         Lwt.return_unit
       else if starts_with "Running: chmod" trimmed then
-        let* () = update_current Done in
-        let* () = add_step "set permissions" Running in
-        Lwt.return_unit
+        finish_current_and_start "set permissions"
       else if starts_with "Running: mv" trimmed then
-        let* () = update_current Done in
-        let* () = add_step "replace executable" Running in
-        Lwt.return_unit
+        finish_current_and_start "replace executable"
       else if
         starts_with "Build complete" trimmed
         || starts_with "Binary update complete" trimmed
         || starts_with "Package update complete" trimmed
-      then
-        let* () = update_current Done in
-        let* () = add_step "restart" Running in
-        Lwt.return_unit
+      then finish_current_and_start "restart"
       else if starts_with "Build failed" trimmed then
         let* () = update_current (Failed trimmed) in
         Lwt.return_unit
@@ -642,9 +644,7 @@ let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
         let* () = update_current (Failed trimmed) in
         Lwt.return_unit
       else if starts_with "Restart requested" trimmed then
-        let* () = update_current Done in
-        let* () = add_step "finishing turn" Running in
-        Lwt.return_unit
+        finish_current_and_start "finishing turn"
       else if
         starts_with "Restart already" trimmed
         || starts_with "Cannot find" trimmed
