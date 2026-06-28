@@ -524,6 +524,37 @@ type postmortem_config = {
          immediately. *)
 }
 
+type credential_provider =
+  | Env_var of { name : string }
+      (** Read the credential value from the named environment variable. *)
+  | File of { path : string }
+      (** Read the credential value from the file at [path]. *)
+  | Encrypted of { cipher_text : string }
+      (** Decrypt using [Secret_store.resolve_secret]. The [cipher_text] should
+          be a [\$ENC:...] prefixed value. *)
+  | Prompt of { description : string }
+      (** Credential must be supplied interactively at startup. [description] is
+          a human-readable hint shown to the operator and persisted in config
+          for admin display. *)
+
+type credential_handle = {
+  id : string;
+      (** Unique handle identifier, e.g. ["github-app:main"]. Referenced by
+          [access_bundle.credential_handles]. *)
+  provider : credential_provider;
+      (** How to resolve the actual credential value at runtime. *)
+  description : string option;
+      (** Optional human-readable description for admin UIs. *)
+  status : string;
+      (** ["active"] or ["deleted"]. Soft-delete convention matches
+          [access_bundle.status] and [access_scope.status]. *)
+}
+(** A credential handle binds an opaque identifier to a provider that can
+    resolve the actual credential value at runtime. The value itself is NEVER
+    stored in the config record, serialized to JSON, included in prompts,
+    snapshots, logs, the ledger, or worker sandboxes. Only the handle ID is
+    referenced by access bundles and effective access. *)
+
 type access_bundle = {
   id : string;
   display_name : string option;
@@ -634,6 +665,7 @@ type t = {
   test : test_config;
   debate : debate_config;
   postmortem : postmortem_config;
+  credential_handles : credential_handle list;
   access_bundles : access_bundle list;
   access_scopes : access_scope list;
   room_profiles : room_profile list;

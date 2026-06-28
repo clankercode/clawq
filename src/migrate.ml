@@ -194,6 +194,7 @@ let convert (json : Yojson.Safe.t) =
       test = default.test;
       debate = default.debate;
       postmortem = default.postmortem;
+      credential_handles = default.credential_handles;
       access_bundles = default.access_bundles;
       access_scopes = default.access_scopes;
       room_profiles = default.room_profiles;

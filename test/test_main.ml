@@ -72,6 +72,7 @@ let () =
        ("connector_tool_calls", Test_connector_tool_calls.suite);
        ("http_server", Test_http_server.suite);
        ("config_loader", Test_config_loader.suite);
+       ("credential_handles", Test_credential_handles.suite);
        ("prompt_builder", Test_prompt_builder.suite);
        ("vector", Test_vector.suite);
        ("secret_store", Test_secret_store.suite);

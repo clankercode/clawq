@@ -25,9 +25,47 @@ let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :
    default_provider) are persisted even when they leave the merge output equal
    to the migrated form — otherwise the on-disk key would never be rewritten
    away (B701). *)
+let sanitize_credential_handle_providers ~(original : Yojson.Safe.t)
+    ~(complete : Yojson.Safe.t) : Yojson.Safe.t =
+  let open Yojson.Safe.Util in
+  match
+    (member "credential_handles" original, member "credential_handles" complete)
+  with
+  | `List orig_handles, `List comp_handles ->
+      let sanitized =
+        List.map2
+          (fun orig comp ->
+            let orig_provider = member "provider" orig in
+            match orig_provider with
+            | `Assoc fields -> (
+                match List.assoc_opt "type" fields with
+                | Some (`String "encrypted") -> (
+                    match List.assoc_opt "cipher_text" fields with
+                    | Some (`String ct) when not (Secret_store.is_encrypted ct)
+                      ->
+                        (* Replace malformed encrypted provider with
+                           sanitized version from complete config *)
+                        comp
+                    | _ -> orig)
+                | _ -> orig)
+            | _ -> orig)
+          orig_handles comp_handles
+      in
+      let orig_fields = match original with `Assoc f -> f | _ -> [] in
+      `Assoc
+        (List.map
+           (fun (k, v) ->
+             if k = "credential_handles" then (k, `List sanitized) else (k, v))
+           orig_fields)
+  | _ -> original
+
 let backfill_config ~path ~original_json ~disk_json ~config =
   let complete_json = Runtime_config.to_json config in
-  let merged = merge_json original_json complete_json in
+  let sanitized_original =
+    sanitize_credential_handle_providers ~original:original_json
+      ~complete:complete_json
+  in
+  let merged = merge_json sanitized_original complete_json in
   if merged <> disk_json then begin
     try
       let s = Yojson.Safe.pretty_to_string ~std:true merged in

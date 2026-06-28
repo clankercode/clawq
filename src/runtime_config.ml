@@ -277,6 +277,7 @@ let default =
     test = { show_skills = false };
     debate = default_debate_config;
     postmortem = default_postmortem_config;
+    credential_handles = [];
     access_bundles = [];
     access_scopes = [];
     room_profiles = [];
@@ -492,6 +493,31 @@ let find_access_bundle cfg id =
     (fun (bundle : access_bundle) ->
       bundle.id = id && access_bundle_active bundle)
     cfg.access_bundles
+
+let credential_handle_active (ch : credential_handle) =
+  String.lowercase_ascii ch.status <> "deleted"
+
+let find_credential_handle (cfg : t) (id : string) =
+  List.find_opt
+    (fun (ch : credential_handle) -> ch.id = id && credential_handle_active ch)
+    cfg.credential_handles
+
+let credential_handle_ids (cfg : t) : string list =
+  cfg.credential_handles
+  |> List.filter credential_handle_active
+  |> List.map (fun (ch : credential_handle) -> ch.id)
+
+let validate_credential_handle_refs (cfg : t) : string list =
+  let defined = credential_handle_ids cfg in
+  let bundle_handle_ids =
+    cfg.access_bundles
+    |> List.filter access_bundle_active
+    |> List.concat_map (fun (bundle : access_bundle) ->
+        bundle.credential_handles)
+  in
+  bundle_handle_ids
+  |> List.filter (fun ref_id -> not (List.mem ref_id defined))
+  |> unique_strings
 
 let profile_missing_access_bundle_ids cfg (profile : room_profile) =
   profile.access_bundle_ids

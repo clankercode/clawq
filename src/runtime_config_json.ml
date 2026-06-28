@@ -108,6 +108,46 @@ let provider_json (p : provider_config) : Yojson.Safe.t =
   in
   `Assoc fields
 
+(** Serialize a credential provider to JSON. The actual credential value is
+    NEVER included -- only the indirection metadata (env var name, file path,
+    encrypted cipher text, or prompt description). *)
+let credential_provider_json (cp : credential_provider) : Yojson.Safe.t =
+  match cp with
+  | Env_var { name } ->
+      `Assoc [ ("type", `String "env_var"); ("name", `String name) ]
+  | File { path } -> `Assoc [ ("type", `String "file"); ("path", `String path) ]
+  | Encrypted { cipher_text } ->
+      if not (Secret_store.is_encrypted cipher_text) then
+        (* Fail closed: reject malformed encrypted providers in serialization *)
+        `Assoc
+          [
+            ("type", `String "env_var");
+            ("name", `String "__invalid_encrypted__");
+          ]
+      else
+        `Assoc
+          [
+            ("type", `String "encrypted"); ("cipher_text", `String cipher_text);
+          ]
+  | Prompt { description } ->
+      `Assoc
+        [ ("type", `String "prompt"); ("description", `String description) ]
+
+(** Serialize a credential handle to JSON. Includes the handle ID, provider
+    metadata, and optional description -- but NEVER the resolved credential
+    value. *)
+let credential_handle_json (ch : credential_handle) : Yojson.Safe.t =
+  `Assoc
+    ([
+       ("id", `String ch.id);
+       ("provider", credential_provider_json ch.provider);
+       ("status", `String ch.status);
+     ]
+    @
+    match ch.description with
+    | Some desc -> [ ("description", `String desc) ]
+    | None -> [])
+
 (* Per-channel serializers. Each takes the (non-option) channel config and
    returns the JSON object emitted under its channel key. *)
 
@@ -892,6 +932,15 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
               ("delay_s", `Float pm.delay_s);
             ] );
       ]
+  in
+  let fields =
+    if cfg.credential_handles = [] then fields
+    else
+      fields
+      @ [
+          ( "credential_handles",
+            `List (List.map credential_handle_json cfg.credential_handles) );
+        ]
   in
   let fields =
     if cfg.access_bundles = [] then fields

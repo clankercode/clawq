@@ -973,6 +973,62 @@ let parse_config ?(resolve_secrets = true) json =
         : Runtime_config.summarizer_config)
     with _ -> Runtime_config.default_summarizer_config
   in
+  let credential_handles =
+    try
+      json
+      |> member "credential_handles"
+      |> to_list
+      |> List.map (fun ch ->
+          let id = ch |> member "id" |> to_string in
+          let status =
+            try ch |> member "status" |> to_string with _ -> "active"
+          in
+          let description =
+            try Some (ch |> member "description" |> to_string) with _ -> None
+          in
+          let provider_node = ch |> member "provider" in
+          let provider_type =
+            try provider_node |> member "type" |> to_string
+            with _ -> "env_var"
+          in
+          let provider : Runtime_config.credential_provider =
+            match provider_type with
+            | "env_var" ->
+                let name =
+                  try provider_node |> member "name" |> to_string with _ -> ""
+                in
+                Env_var { name }
+            | "file" ->
+                let path =
+                  try provider_node |> member "path" |> to_string with _ -> ""
+                in
+                File { path }
+            | "encrypted" ->
+                let cipher_text =
+                  try provider_node |> member "cipher_text" |> to_string
+                  with _ -> ""
+                in
+                if
+                  cipher_text = ""
+                  || not (Secret_store.is_encrypted cipher_text)
+                then
+                  (* Fail closed: reject malformed encrypted providers *)
+                  Env_var { name = "__invalid_encrypted_" ^ id }
+                else Encrypted { cipher_text }
+            | "prompt" ->
+                let description =
+                  try provider_node |> member "description" |> to_string
+                  with _ -> ""
+                in
+                Prompt { description }
+            | _ ->
+                (* Unknown provider type, default to env_var *)
+                Env_var { name = "" }
+          in
+          ({ id; provider; description; status }
+            : Runtime_config.credential_handle))
+    with _ -> []
+  in
   let access_bundles =
     let string_list node key =
       try node |> member key |> to_list |> List.map to_string with _ -> []
@@ -1319,6 +1375,7 @@ let parse_config ?(resolve_secrets = true) json =
          in
          ({ enabled; model; delay_s } : Runtime_config.postmortem_config)
        with _ -> Runtime_config.default_postmortem_config);
+    credential_handles;
     access_bundles;
     access_scopes;
     room_profiles =
@@ -1539,6 +1596,37 @@ let validate_room_profiles (cfg : Runtime_config.t) : string list =
               :: !issues)
         scope.access_bundle_ids)
     cfg.access_scopes;
+  (* Check duplicate credential handle ids *)
+  let ch_ids =
+    cfg.credential_handles
+    |> List.filter (fun (ch : Runtime_config.credential_handle) ->
+        String.lowercase_ascii ch.status <> "deleted")
+    |> List.map (fun (ch : Runtime_config.credential_handle) -> ch.id)
+  in
+  let ch_seen = Hashtbl.create (List.length ch_ids) in
+  List.iter
+    (fun id ->
+      if Hashtbl.mem ch_seen id then
+        issues :=
+          Printf.sprintf "credential_handles: duplicate handle id '%s'" id
+          :: !issues
+      else Hashtbl.add ch_seen id ())
+    ch_ids;
+  (* Check access bundles reference existing credential handles *)
+  List.iter
+    (fun (bundle : Runtime_config.access_bundle) ->
+      if String.lowercase_ascii bundle.status <> "deleted" then
+        List.iter
+          (fun handle_id ->
+            if not (Hashtbl.mem ch_seen handle_id) then
+              issues :=
+                Printf.sprintf
+                  "access_bundles: bundle '%s' references non-existent \
+                   credential handle '%s'"
+                  bundle.id handle_id
+                :: !issues)
+          bundle.credential_handles)
+    cfg.access_bundles;
   List.rev !issues
 
 (* B697: even with no (or unreadable) config.json, surface zero-config xiaomi
