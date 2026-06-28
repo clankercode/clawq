@@ -184,6 +184,7 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
   let content_acc = Buffer.create 1024 in
   let thinking_acc = Buffer.create 256 in
   let tool_calls_acc : (int * string * string * Buffer.t) list ref = ref [] in
+  let raw_tool_events : Yojson.Safe.t list ref = ref [] in
   let resp_model = ref "" in
   let usage_acc = ref None in
   let tagged_state = { in_thinking = false; pending = "" } in
@@ -255,6 +256,16 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
               try delta |> member "tool_calls" |> to_list with _ -> []
             in
             if tc_deltas <> [] then begin
+              raw_tool_events :=
+                !raw_tool_events
+                @ List.map
+                    (fun tc ->
+                      `Assoc
+                        [
+                          ("type", `String "chat_sse_tool_call_delta");
+                          ("data_raw", `String (Yojson.Safe.to_string tc));
+                        ])
+                    tc_deltas;
               let* () =
                 Lwt_list.iter_s
                   (fun tc ->
@@ -359,15 +370,20 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
   let content = Buffer.contents content_acc in
   let model = if !resp_model <> "" then !resp_model else "unknown" in
   let tool_calls =
-    List.map
-      (fun (_, id, name, args_buf) ->
+    !tool_calls_acc
+    |> List.filter (fun (_, id, name, _) -> id <> "" && name <> "")
+    |> List.map (fun (_, id, name, args_buf) ->
         { id; function_name = name; arguments = Buffer.contents args_buf })
-      !tool_calls_acc
   in
   let thinking =
     let t = Buffer.contents thinking_acc in
     if t = "" then None else Some t
   in
+  let provider_response_items_json =
+    match !raw_tool_events with
+    | [] -> None
+    | events -> Some (Yojson.Safe.to_string (`List events))
+  in
   Lwt.return
-    (make_stream_result ~tool_calls ~content ~model ~usage:!usage_acc ~thinking
-       ())
+    (make_stream_result ~tool_calls ~content ~model ~usage:!usage_acc
+       ~provider_response_items_json ~thinking ())

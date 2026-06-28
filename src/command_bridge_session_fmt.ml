@@ -283,6 +283,12 @@ let sanitize_tool_calls_json_for_session_show ~config = function
       with _ -> Some tool_calls_json)
 
 let sanitize_provider_response_items_json_for_session_show ~config =
+  let is_complete_json s =
+    try
+      ignore (Yojson.Safe.from_string s);
+      true
+    with _ -> false
+  in
   let rec sanitize json =
     match json with
     | `List items -> `List (List.map sanitize items)
@@ -310,7 +316,11 @@ let sanitize_provider_response_items_json_for_session_show ~config =
               | Some redacted_arguments ->
                   ("arguments", `String redacted_arguments)
                   :: List.remove_assoc "arguments" fields
-              | None -> fields)
+              | None ->
+                  if is_complete_json args then fields
+                  else
+                    ("arguments", `String "[redacted]")
+                    :: List.remove_assoc "arguments" fields)
           | _ -> fields
         in
         let fields =
@@ -355,14 +365,30 @@ let sanitize_provider_response_items_json_for_session_show ~config =
                       in
                       ("function", `Assoc fn_fields)
                       :: List.remove_assoc "function" fields
-                  | None -> fields)
+                  | None ->
+                      if is_complete_json args then fields
+                      else
+                        let fn_fields =
+                          ("arguments", `String "[redacted]")
+                          :: List.remove_assoc "arguments" fn_fields
+                        in
+                        ("function", `Assoc fn_fields)
+                        :: List.remove_assoc "function" fields)
+              | None, Some _args ->
+                  let fn_fields =
+                    ("arguments", `String "[redacted]")
+                    :: List.remove_assoc "arguments" fn_fields
+                  in
+                  ("function", `Assoc fn_fields)
+                  :: List.remove_assoc "function" fields
               | _ -> fields)
           | _ -> fields
         in
         let fields =
           List.map
             (fun (k, v) ->
-              if k = "data_raw" then
+              if k = "partial_json" then (k, `String "[redacted]")
+              else if k = "data_raw" then
                 match v with
                 | `String raw -> (
                     try

@@ -1169,6 +1169,64 @@ let test_session_show_redacts_openai_chat_provider_response_items () =
             (Test_helpers.string_contains shown "[redacted]"))
         ~finally:(fun () -> Unix.rmdir workspace))
 
+let test_session_show_redacts_streamed_provider_data_raw_partial_json () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      let workspace = Filename.concat home "workspace" in
+      Unix.mkdir workspace 0o755;
+      Fun.protect
+        (fun () ->
+          let secret = "streamed secret prompt text" in
+          write_config home
+            (Printf.sprintf
+               "{\n\
+               \  \"workspace\": %S,\n\
+               \  \"prompt\": { \"workspace_files\": [\"AGENTS.md\"] },\n\
+               \  \"security\": { \"tools_enabled\": false }\n\
+                }\n"
+               workspace);
+          let data_raw =
+            Yojson.Safe.to_string
+              (`Assoc
+                 [
+                   ("type", `String "content_block_delta");
+                   ("index", `Int 0);
+                   ( "delta",
+                     `Assoc
+                       [
+                         ("type", `String "input_json_delta");
+                         ( "partial_json",
+                           `String
+                             (Printf.sprintf {|{"path":%S,"content":%S}|}
+                                (Filename.concat workspace "AGENTS.md")
+                                secret) );
+                       ] );
+                 ])
+          in
+          let provider_response_items_json =
+            Yojson.Safe.to_string
+              (`List
+                 [
+                   `Assoc
+                     [
+                       ("event", `String "content_block_delta");
+                       ("data_raw", `String data_raw);
+                     ];
+                 ])
+          in
+          Memory.store_message ~db ~session_key:"web:test"
+            (Provider.make_message_full ~role:"assistant" ~content:""
+               ~provider_response_items_json:(Some provider_response_items_json)
+               ());
+          let shown = Command_bridge.handle [ "session"; "show"; "web:test" ] in
+          Alcotest.(check bool)
+            "session show redacts streamed data_raw partial secret" false
+            (Test_helpers.string_contains shown secret);
+          Alcotest.(check bool)
+            "session show redacts streamed data_raw partial_json" true
+            (Test_helpers.string_contains shown "[redacted]"))
+        ~finally:(fun () -> Unix.rmdir workspace))
+
 let test_session_show_redacts_anthropic_provider_response_items () =
   with_temp_home (fun home ->
       let db = session_db home in
@@ -5007,6 +5065,8 @@ let suite =
     Alcotest.test_case
       "session show redacts openai chat provider response items" `Quick
       test_session_show_redacts_openai_chat_provider_response_items;
+    Alcotest.test_case "session show redacts streamed provider data_raw" `Quick
+      test_session_show_redacts_streamed_provider_data_raw_partial_json;
     Alcotest.test_case "session show redacts anthropic provider response items"
       `Quick test_session_show_redacts_anthropic_provider_response_items;
     Alcotest.test_case "session show paging" `Quick test_session_show_paging;

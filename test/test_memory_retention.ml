@@ -339,6 +339,58 @@ let test_ensure_integrity_drops_anthropic_raw_only_orphan () =
     "anthropic raw-only orphan assistant dropped" 1 (List.length fixed);
   Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
 
+let test_ensure_integrity_drops_openai_chat_raw_only_without_tool_calls () =
+  let assistant_with_openai_chat_raw =
+    {
+      (Provider.make_message ~role:"assistant" ~content:"") with
+      provider_response_items_json =
+        Some
+          {|[{"id":"tc-openai","type":"function","function":{"name":"file_read","arguments":"{\"path\":\"secret.ml\"}"}}]|};
+    }
+  in
+  let user_msg = Provider.make_message ~role:"user" ~content:"hi" in
+  let msgs = [ assistant_with_openai_chat_raw; user_msg ] in
+  let fixed = Agent.ensure_tool_group_integrity msgs in
+  Alcotest.(check int)
+    "openai chat raw-only assistant without tool_calls dropped" 1
+    (List.length fixed);
+  Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
+
+let test_ensure_integrity_drops_generic_streamed_raw_only_without_tool_calls ()
+    =
+  let assistant_with_streamed_raw =
+    {
+      (Provider.make_message ~role:"assistant" ~content:"") with
+      provider_response_items_json =
+        Some
+          {|[{"type":"chat_sse_tool_call_delta","data_raw":"{\"index\":0,\"id\":\"tc-stream\",\"function\":{\"name\":\"file_read\",\"arguments\":\"{\\\"path\\\":\\\"secret.ml\\\"}\"}}"}]|};
+    }
+  in
+  let user_msg = Provider.make_message ~role:"user" ~content:"hi" in
+  let msgs = [ assistant_with_streamed_raw; user_msg ] in
+  let fixed = Agent.ensure_tool_group_integrity msgs in
+  Alcotest.(check int)
+    "generic streamed raw-only assistant without tool_calls dropped" 1
+    (List.length fixed);
+  Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
+
+let test_ensure_integrity_drops_streamed_raw_only_without_tool_calls () =
+  let assistant_with_streamed_raw =
+    {
+      (Provider.make_message ~role:"assistant" ~content:"") with
+      provider_response_items_json =
+        Some
+          {|[{"event":"content_block_start","data_raw":"{\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"tc-stream\",\"name\":\"file_read\",\"input\":{}}}"},{"event":"content_block_delta","data_raw":"{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"secret.ml\\\"}\"}}"}]|};
+    }
+  in
+  let user_msg = Provider.make_message ~role:"user" ~content:"hi" in
+  let msgs = [ assistant_with_streamed_raw; user_msg ] in
+  let fixed = Agent.ensure_tool_group_integrity msgs in
+  Alcotest.(check int)
+    "streamed raw-only assistant without tool_calls dropped" 1
+    (List.length fixed);
+  Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
+
 let test_ensure_integrity_drops_anthropic_raw_only_without_tool_calls () =
   let assistant_with_anthropic_raw =
     {
@@ -497,6 +549,13 @@ let suite =
       test_ensure_integrity_drops_anthropic_raw_only_orphan;
     Alcotest.test_case "ensure_integrity drops anthropic raw-only no calls"
       `Quick test_ensure_integrity_drops_anthropic_raw_only_without_tool_calls;
+    Alcotest.test_case "ensure_integrity drops openai chat raw-only no calls"
+      `Quick test_ensure_integrity_drops_openai_chat_raw_only_without_tool_calls;
+    Alcotest.test_case "ensure_integrity drops generic stream raw-only no calls"
+      `Quick
+      test_ensure_integrity_drops_generic_streamed_raw_only_without_tool_calls;
+    Alcotest.test_case "ensure_integrity drops streamed raw-only no calls"
+      `Quick test_ensure_integrity_drops_streamed_raw_only_without_tool_calls;
     Alcotest.test_case "trim_history tool group integrity" `Quick
       test_trim_history_tool_group_integrity;
     Alcotest.test_case "force_compress tool group integrity" `Quick

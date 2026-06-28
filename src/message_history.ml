@@ -44,6 +44,37 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
     | Some (`String id) -> List.mem id kept_ids
     | _ -> true
   in
+  let keep_openai_chat_function fields =
+    match List.assoc_opt "id" fields with
+    | Some (`String id) -> List.mem id kept_ids
+    | _ -> true
+  in
+  let raw_event_mentions_tool_call raw_json =
+    let rec contains_tool_shape = function
+      | `Assoc fields ->
+          List.exists
+            (fun (k, v) ->
+              match (k, v) with
+              | "tool_calls", `List _
+              | "content_block", `Assoc _
+              | "delta", `Assoc _ ->
+                  contains_tool_shape v
+              | "type", `String ("tool_use" | "input_json_delta") -> true
+              | _, child -> contains_tool_shape child)
+            fields
+      | `List items -> List.exists contains_tool_shape items
+      | _ -> false
+    in
+    try contains_tool_shape (Yojson.Safe.from_string raw_json) with _ -> false
+  in
+  let keep_streaming_raw_event fields =
+    match (List.assoc_opt "type" fields, List.assoc_opt "data_raw" fields) with
+    | Some (`String "chat_sse_tool_call_delta"), Some (`String _) ->
+        kept_ids <> []
+    | _, Some (`String raw) when raw_event_mentions_tool_call raw ->
+        kept_ids <> []
+    | _ -> true
+  in
   let content_has_replayable_blocks = function
     | `List blocks ->
         List.exists
@@ -95,8 +126,10 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
                       match List.assoc_opt "type" fields with
                       | Some (`String "function_call") ->
                           keep_function_call fields
+                      | Some (`String "function") ->
+                          keep_openai_chat_function fields
                       | Some (`String "tool_use") -> keep_tool_use fields
-                      | _ -> true)
+                      | _ -> keep_streaming_raw_event fields)
                   | _ -> true)
                 items
             in

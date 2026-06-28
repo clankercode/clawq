@@ -949,6 +949,61 @@ let test_codex_build_body_replays_call_when_raw_items_omit_it () =
   Alcotest.(check int) "one function_call" 1 call_count;
   Alcotest.(check int) "one function_call_output" 1 output_count
 
+let test_process_sse_stream_preserves_raw_tool_call_deltas () =
+  let chunks =
+    [
+      {|data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_raw","function":{"name":"search","arguments":"{\"q\":"}}]}}],"model":"test-model"}|}
+      ^ "\n\n";
+      {|data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"needle\"}"}}]}}]}|}
+      ^ "\n\n";
+      "data: [DONE]\n\n";
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let result =
+    Lwt_main.run
+      (Provider.process_sse_stream stream ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls; provider_response_items_json; _ } ->
+      Alcotest.(check int) "one tool call" 1 (List.length calls);
+      let raw =
+        match provider_response_items_json with
+        | Some raw -> raw
+        | None -> Alcotest.fail "expected provider_response_items_json"
+      in
+      Alcotest.(check bool)
+        "raw includes streamed id" true
+        (Test_helpers.string_contains raw "call_raw");
+      Alcotest.(check bool)
+        "raw includes streamed argument delta" true
+        (Test_helpers.string_contains raw "needle")
+  | _ -> Alcotest.fail "Expected ToolCalls response"
+
+let test_process_sse_stream_drops_incomplete_tool_calls () =
+  let chunks =
+    [
+      {|data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":\"needle\"}"}}]}}]}|}
+      ^ "\n\n";
+      "data: [DONE]\n\n";
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let result =
+    Lwt_main.run
+      (Provider.process_sse_stream stream ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.Text { provider_response_items_json; _ } ->
+      Alcotest.(check bool)
+        "raw incomplete call preserved" true
+        (match provider_response_items_json with
+        | Some raw -> Test_helpers.string_contains raw "needle"
+        | None -> false)
+  | Provider.ToolCalls { calls; _ } ->
+      Alcotest.failf "expected no executable tool calls, got %d"
+        (List.length calls)
+
 let suite =
   [
     Alcotest.test_case "SSE parse delta line" `Quick test_parse_sse_line_delta;
@@ -963,6 +1018,10 @@ let suite =
       test_process_sse_stream_tool_calls;
     Alcotest.test_case "SSE stream tool calls backfill metadata" `Quick
       test_process_sse_stream_tool_calls_backfill_metadata;
+    Alcotest.test_case "SSE stream preserves raw tool call deltas" `Quick
+      test_process_sse_stream_preserves_raw_tool_call_deltas;
+    Alcotest.test_case "SSE stream drops incomplete tool calls" `Quick
+      test_process_sse_stream_drops_incomplete_tool_calls;
     Alcotest.test_case "SSE stream partial chunks" `Quick
       test_process_sse_stream_partial_chunks;
     Alcotest.test_case "SSE reasoning_content thinking" `Quick
