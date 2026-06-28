@@ -1742,6 +1742,43 @@ let test_access_scope_malformed_selector_rejects () =
         "warns about malformed workspace selector" true
         (Test_helpers.string_contains stderr_output "access_scopes[0].workspace"))
 
+let test_instruction_records_roundtrip () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"access_bundles": [{"id": "t", "instructions": [
+          {"text": "Be helpful", "source_scope": "workspace",
+           "author": "admin", "edit_policy": "admin_only"},
+          "legacy"]}]}|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let bundle = List.hd cfg.access_bundles in
+  Alcotest.(check int) "count" 2 (List.length bundle.instructions);
+  let ir1 = List.nth bundle.instructions 0 in
+  Alcotest.(check string) "text" "Be helpful" ir1.text;
+  Alcotest.(check string) "scope" "workspace" ir1.source_scope;
+  Alcotest.(check (option string)) "author" (Some "admin") ir1.author;
+  Alcotest.(check bool) "locked" true ir1.locked;
+  let ir2 = List.nth bundle.instructions 1 in
+  Alcotest.(check string) "legacy" "legacy" ir2.text;
+  Alcotest.(check bool) "legacy locked" false ir2.locked;
+  let reparsed = Config_loader.parse_config (Runtime_config.to_json cfg) in
+  let ir1' = List.nth (List.hd reparsed.access_bundles).instructions 0 in
+  Alcotest.(check string) "rt text" "Be helpful" ir1'.text;
+  Alcotest.(check string) "rt scope" "workspace" ir1'.source_scope;
+  (match ir1'.edit_policy with
+  | Runtime_config.Admin_only -> ()
+  | _ -> Alcotest.fail "expected Admin_only");
+  let bad =
+    Yojson.Safe.from_string
+      {|{"access_bundles": [{"id": "b", "instructions": [{"text": ""}]}]}|}
+  in
+  let issues = Config_loader_support.validate_access_bundle_json_shapes bad in
+  Alcotest.(check bool)
+    "empty text rejected" true
+    (List.exists
+       (fun s -> Test_helpers.string_contains s "text must not be empty")
+       issues)
+
 let suite =
   [
     Alcotest.test_case "load warns on invalid port" `Quick
@@ -1958,4 +1995,6 @@ let suite =
                               msg 0);
                          true
                        with Not_found -> false))));
+    Alcotest.test_case "instruction records roundtrip and validation" `Quick
+      test_instruction_records_roundtrip;
   ]

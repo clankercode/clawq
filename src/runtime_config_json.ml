@@ -1056,7 +1056,28 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                             ( "instructions",
                               `List
                                 (List.map
-                                   (fun i -> `String i)
+                                   (fun (ir :
+                                          Runtime_config_types
+                                          .instruction_record) ->
+                                     `Assoc
+                                       ([
+                                          ("text", `String ir.text);
+                                          ( "source_scope",
+                                            `String ir.source_scope );
+                                          ("enabled", `Bool ir.enabled);
+                                          ( "edit_policy",
+                                            `String
+                                              (Runtime_config_types
+                                               .instruction_edit_policy_to_string
+                                                 ir.edit_policy) );
+                                        ]
+                                       @ (match ir.author with
+                                         | Some a -> [ ("author", `String a) ]
+                                         | None -> [])
+                                       @
+                                       match ir.digest with
+                                       | Some d -> [ ("digest", `String d) ]
+                                       | None -> []))
                                    bundle.instructions) );
                           ])
                      @ (if bundle.memory_grants = [] then []

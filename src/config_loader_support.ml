@@ -190,10 +190,83 @@ let access_bundle_string_list_fields =
     "repositories";
     "domains";
     "credential_handles";
-    "instructions";
     "memory_grants";
     "budget_refs";
   ]
+
+(** Validate that instructions in an access bundle are a list of strings (legacy
+    format), a list of objects, or a mixed list. Each object must have a
+    non-empty "text" field; optional fields are validated for type. *)
+let validate_instruction_shapes ~bundle_index fields : string list =
+  match List.assoc_opt "instructions" fields with
+  | None -> []
+  | Some (`List items) ->
+      items
+      |> List.mapi (fun i item ->
+          match item with
+          | `String _ -> []
+          | `Assoc obj_fields ->
+              let text_issues =
+                match List.assoc_opt "text" obj_fields with
+                | Some (`String t) when t <> "" -> []
+                | Some (`String _) ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].instructions[%d].text must not be \
+                         empty"
+                        bundle_index i;
+                    ]
+                | _ ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].instructions[%d] must have a \
+                         'text' field"
+                        bundle_index i;
+                    ]
+              in
+              let policy_issues =
+                match List.assoc_opt "edit_policy" obj_fields with
+                | None | Some (`String ("locked" | "admin_only" | "open")) -> []
+                | Some (`String invalid) ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].instructions[%d].edit_policy '%s' \
+                         must be locked, admin_only, or open"
+                        bundle_index i invalid;
+                    ]
+                | Some _ ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].instructions[%d].edit_policy must \
+                         be a string"
+                        bundle_index i;
+                    ]
+              in
+              let enabled_issues =
+                match List.assoc_opt "enabled" obj_fields with
+                | None | Some (`Bool _) -> []
+                | Some _ ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].instructions[%d].enabled must be a \
+                         boolean"
+                        bundle_index i;
+                    ]
+              in
+              text_issues @ policy_issues @ enabled_issues
+          | _ ->
+              [
+                Printf.sprintf
+                  "access_bundles[%d].instructions[%d] must be a string or an \
+                   instruction object"
+                  bundle_index i;
+              ])
+      |> List.flatten
+  | Some _ ->
+      [
+        Printf.sprintf "access_bundles[%d].instructions must be a list"
+          bundle_index;
+      ]
 
 let validate_access_bundle_json_shapes json : string list =
   match Yojson.Safe.Util.member "access_bundles" json with
@@ -202,26 +275,32 @@ let validate_access_bundle_json_shapes json : string list =
       |> List.mapi (fun index bundle ->
           match bundle with
           | `Assoc fields ->
-              access_bundle_string_list_fields
-              |> List.filter_map (fun field ->
-                  match List.assoc_opt field fields with
-                  | None -> None
-                  | Some (`List values) ->
-                      if
-                        List.for_all
-                          (function `String _ -> true | _ -> false)
-                          values
-                      then None
-                      else
+              let string_list_issues =
+                access_bundle_string_list_fields
+                |> List.filter_map (fun field ->
+                    match List.assoc_opt field fields with
+                    | None -> None
+                    | Some (`List values) ->
+                        if
+                          List.for_all
+                            (function `String _ -> true | _ -> false)
+                            values
+                        then None
+                        else
+                          Some
+                            (Printf.sprintf
+                               "access_bundles[%d].%s must be a list of strings"
+                               index field)
+                    | Some _ ->
                         Some
                           (Printf.sprintf
                              "access_bundles[%d].%s must be a list of strings"
-                             index field)
-                  | Some _ ->
-                      Some
-                        (Printf.sprintf
-                           "access_bundles[%d].%s must be a list of strings"
-                           index field))
+                             index field))
+              in
+              let instruction_issues =
+                validate_instruction_shapes ~bundle_index:index fields
+              in
+              string_list_issues @ instruction_issues
           | _ -> [ Printf.sprintf "access_bundles[%d] must be an object" index ])
       |> List.flatten
   | `Null -> []

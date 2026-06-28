@@ -3,19 +3,18 @@ let item_values items =
     (fun (item : Runtime_config.effective_access_item) -> item.value)
     items
 
-let provenance_labels item =
+let provenance_labels (item : Runtime_config.effective_access_item) =
   List.map
     (fun (p : Runtime_config.access_provenance) ->
       p.layer ^ ":" ^ p.source_id ^ ":" ^ p.field)
-    item.Runtime_config.provenance
+    item.provenance
 
 let assert_all_provenance label items =
   List.iter
-    (fun item ->
+    (fun (item : Runtime_config.effective_access_item) ->
       Alcotest.(check bool)
-        (label ^ " provenance for " ^ item.Runtime_config.value)
-        true
-        (item.Runtime_config.provenance <> []))
+        (label ^ " provenance for " ^ item.value)
+        true (item.provenance <> []))
     items
 
 let parse json = Config_loader.parse_config (Yojson.Safe.from_string json)
@@ -427,6 +426,238 @@ let test_invalid_scope_bundle_denies_scope_grants () =
     "invalid scope bundle reference suppresses all scope grants" []
     (item_values effective.allowed_tools)
 
+let test_instruction_records_carry_metadata_through_resolution () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "admin",
+          "instructions": [
+            {
+              "text": "Always greet the user",
+              "source_scope": "workspace",
+              "author": "admin@example.com",
+              "enabled": true,
+              "edit_policy": "admin_only"
+            }
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["admin"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  (* Text-only view still works *)
+  Alcotest.(check (list string))
+    "instruction text in text view"
+    [ "Always greet the user" ]
+    (item_values effective.instructions);
+  (* Full record view is populated *)
+  Alcotest.(check int)
+    "instruction_items count" 1
+    (List.length effective.instruction_items);
+  let item = List.hd effective.instruction_items in
+  Alcotest.(check string)
+    "instruction text" "Always greet the user"
+    item.instruction.Runtime_config.text;
+  Alcotest.(check string)
+    "source_scope" "workspace" item.instruction.Runtime_config.source_scope;
+  Alcotest.(check (option string))
+    "author" (Some "admin@example.com") item.instruction.Runtime_config.author;
+  Alcotest.(check bool) "enabled" true item.instruction.Runtime_config.enabled;
+  Alcotest.(check bool) "locked" true item.instruction.Runtime_config.locked;
+  (match item.instruction.Runtime_config.edit_policy with
+  | Runtime_config.Admin_only -> ()
+  | _ -> Alcotest.fail "expected Admin_only edit_policy");
+  Alcotest.(check bool) "provenance non-empty" true (item.provenance <> [])
+
+let test_disabled_instructions_are_filtered () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "mixed",
+          "instructions": [
+            {"text": "active instruction", "enabled": true},
+            {"text": "disabled instruction", "enabled": false}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["mixed"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "only enabled instruction text" [ "active instruction" ]
+    (item_values effective.instructions);
+  Alcotest.(check int)
+    "only enabled instruction_items" 1
+    (List.length effective.instruction_items)
+
+let test_legacy_string_instructions_parse_to_records () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "legacy",
+          "instructions": ["old style instruction"]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["legacy"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "legacy instruction text"
+    [ "old style instruction" ]
+    (item_values effective.instructions);
+  Alcotest.(check int)
+    "instruction_items count" 1
+    (List.length effective.instruction_items);
+  let item = List.hd effective.instruction_items in
+  Alcotest.(check string)
+    "default source_scope" "default"
+    item.instruction.Runtime_config.source_scope;
+  Alcotest.(check bool)
+    "default enabled" true item.instruction.Runtime_config.enabled;
+  Alcotest.(check bool)
+    "default not locked" false item.instruction.Runtime_config.locked;
+  match item.instruction.Runtime_config.edit_policy with
+  | Runtime_config.Open -> ()
+  | _ -> Alcotest.fail "expected Open edit_policy for legacy"
+
+let test_instruction_digest_is_computed () =
+  let ir = Runtime_config.default_instruction_record ~text:"hello world" () in
+  let digest = Runtime_config.instruction_record_digest ir in
+  Alcotest.(check bool)
+    "digest is non-empty hex" true
+    (String.length digest = 64);
+  (* Same text gives same digest *)
+  Alcotest.(check string)
+    "deterministic digest" digest
+    (Runtime_config.instruction_record_digest ir)
+
+let test_instruction_locked_reflects_edit_policy () =
+  let ir_locked =
+    {
+      (Runtime_config.default_instruction_record ~text:"a" ()) with
+      edit_policy = Locked;
+      locked = true;
+    }
+  in
+  let ir_admin =
+    {
+      (Runtime_config.default_instruction_record ~text:"b" ()) with
+      edit_policy = Admin_only;
+      locked = true;
+    }
+  in
+  let ir_open =
+    {
+      (Runtime_config.default_instruction_record ~text:"c" ()) with
+      edit_policy = Open;
+      locked = false;
+    }
+  in
+  Alcotest.(check bool)
+    "locked is active" true
+    (Runtime_config.instruction_record_is_active ir_locked);
+  Alcotest.(check bool)
+    "admin_only is active" true
+    (Runtime_config.instruction_record_is_active ir_admin);
+  Alcotest.(check bool)
+    "open is active" true
+    (Runtime_config.instruction_record_is_active ir_open);
+  Alcotest.(check string)
+    "locked to_string" "locked"
+    (Runtime_config.instruction_edit_policy_to_string Locked);
+  Alcotest.(check string)
+    "admin_only to_string" "admin_only"
+    (Runtime_config.instruction_edit_policy_to_string Admin_only);
+  Alcotest.(check string)
+    "open to_string" "open"
+    (Runtime_config.instruction_edit_policy_to_string Open);
+  let check_policy label expected actual =
+    match actual with
+    | Some p when p = expected -> ()
+    | Some _ -> Alcotest.fail (label ^ ": wrong policy")
+    | None -> Alcotest.fail (label ^ ": expected Some, got None")
+  in
+  check_policy "locked roundtrip" Runtime_config.Locked
+    (Runtime_config.instruction_edit_policy_of_string "locked");
+  check_policy "admin_only roundtrip" Runtime_config.Admin_only
+    (Runtime_config.instruction_edit_policy_of_string "admin_only");
+  check_policy "open roundtrip" Runtime_config.Open
+    (Runtime_config.instruction_edit_policy_of_string "open");
+  Alcotest.(check bool)
+    "invalid returns None" true
+    (Runtime_config.instruction_edit_policy_of_string "bogus" = None)
+
+let test_instruction_records_from_multiple_bundles_merge () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "base",
+          "instructions": [
+            {"text": "base instruction", "source_scope": "default"}
+          ]
+        },
+        {
+          "id": "room",
+          "instructions": [
+            {"text": "room instruction", "source_scope": "room", "author": "room-admin"}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]},
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["room"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "both instruction texts"
+    [ "base instruction"; "room instruction" ]
+    (item_values effective.instructions);
+  Alcotest.(check int)
+    "instruction_items count" 2
+    (List.length effective.instruction_items);
+  let room_item =
+    List.find
+      (fun (i : Runtime_config.effective_instruction_item) ->
+        i.instruction.Runtime_config.text = "room instruction")
+      effective.instruction_items
+  in
+  Alcotest.(check string)
+    "room instruction scope" "room"
+    room_item.instruction.Runtime_config.source_scope;
+  Alcotest.(check (option string))
+    "room instruction author" (Some "room-admin")
+    room_item.instruction.Runtime_config.author;
+  Alcotest.(check bool)
+    "room instruction provenance" true
+    (room_item.provenance <> [])
+
 let suite =
   [
     Alcotest.test_case "layers merge deterministically and deny wins" `Quick
@@ -459,4 +690,16 @@ let suite =
       `Quick test_invalid_profile_bundle_denies_effective_profile_grants;
     Alcotest.test_case "invalid scope bundle denies scope grants" `Quick
       test_invalid_scope_bundle_denies_scope_grants;
+    Alcotest.test_case "instruction records carry metadata" `Quick
+      test_instruction_records_carry_metadata_through_resolution;
+    Alcotest.test_case "disabled instructions are filtered" `Quick
+      test_disabled_instructions_are_filtered;
+    Alcotest.test_case "legacy string instructions parse to records" `Quick
+      test_legacy_string_instructions_parse_to_records;
+    Alcotest.test_case "instruction digest is computed" `Quick
+      test_instruction_digest_is_computed;
+    Alcotest.test_case "instruction locked reflects edit policy" `Quick
+      test_instruction_locked_reflects_edit_policy;
+    Alcotest.test_case "instruction records from multiple bundles merge" `Quick
+      test_instruction_records_from_multiple_bundles_merge;
   ]
