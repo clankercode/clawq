@@ -1465,6 +1465,79 @@ let test_room_profile_invalid_access_bundle_reference_rejects () =
         (Test_helpers.string_contains stderr_output
            "references non-existent access bundle"))
 
+let assert_access_policy_rejected json ~warning_substring =
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "access_bundles rejected (empty)" 0
+              (List.length cfg.access_bundles);
+            Alcotest.(check int)
+              "room_profiles rejected (empty)" 0
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings rejected (empty)" 0
+              (List.length cfg.room_profile_bindings))
+      in
+      Alcotest.(check bool)
+        "warns about access policy validation" true
+        (Test_helpers.string_contains stderr_output warning_substring))
+
+let test_access_bundle_malformed_security_fields_reject () =
+  let fields =
+    [
+      "allowed_tools";
+      "denied_tools";
+      "codebase_grants";
+      "mcp_servers";
+      "skills";
+      "repositories";
+      "domains";
+      "credential_handles";
+      "instructions";
+      "memory_grants";
+      "budget_refs";
+    ]
+  in
+  List.iter
+    (fun field ->
+      let json =
+        Printf.sprintf
+          {|{
+            "access_bundles": [
+              {"id": "bundle-dev", "%s": [42]}
+            ],
+            "room_profiles": [
+              {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": ["bundle-dev"]}
+            ],
+            "room_profile_bindings": [
+              {"profile_id": "p1", "room": "general", "active": true}
+            ]
+          }|}
+          field
+      in
+      assert_access_policy_rejected json
+        ~warning_substring:("access_bundles[0]." ^ field))
+    fields
+
+let test_access_bundle_duplicate_ids_rejects () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "dup", "allowed_tools": ["file_read"]},
+        {"id": "dup", "allowed_tools": ["file_write"]}
+      ],
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": ["dup"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  assert_access_policy_rejected json ~warning_substring:"duplicate bundle id"
+
 let suite =
   [
     Alcotest.test_case "load warns on invalid port" `Quick
@@ -1594,6 +1667,10 @@ let suite =
       test_room_profile_orphan_binding_rejects;
     Alcotest.test_case "room_profiles invalid access bundle rejects" `Quick
       test_room_profile_invalid_access_bundle_reference_rejects;
+    Alcotest.test_case "access_bundles malformed security fields reject" `Quick
+      test_access_bundle_malformed_security_fields_reject;
+    Alcotest.test_case "access_bundles duplicate ids reject" `Quick
+      test_access_bundle_duplicate_ids_rejects;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)
