@@ -45,6 +45,7 @@ type t = {
   skills : string list;
   repositories : string list;
   repo_grants : string list;
+  blocked_repo_grants : string list;
   domains : string list;
   credential_handles : string list;
   memory_grants : string list;
@@ -220,6 +221,7 @@ let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
     skills = item_values access.skills;
     repositories = item_values access.repositories;
     repo_grants = item_values access.repo_grants;
+    blocked_repo_grants = item_values access.blocked_repo_grants;
     domains = item_values access.domains;
     credential_handles = item_values access.credential_handles;
     memory_grants = item_values access.memory_grants;
@@ -277,6 +279,7 @@ let init_schema db =
     \  skills_json TEXT NOT NULL DEFAULT '[]',\n\
     \  repositories_json TEXT NOT NULL DEFAULT '[]',\n\
     \  repo_grants_json TEXT NOT NULL DEFAULT '[]',\n\
+    \  blocked_repo_grants_json TEXT NOT NULL DEFAULT '[]',\n\
     \  domains_json TEXT NOT NULL DEFAULT '[]',\n\
     \  credential_handles_json TEXT NOT NULL DEFAULT '[]',\n\
     \  memory_grants_json TEXT NOT NULL DEFAULT '[]',\n\
@@ -297,6 +300,7 @@ let init_schema db =
       "skills_json";
       "repositories_json";
       "repo_grants_json";
+      "blocked_repo_grants_json";
       "domains_json";
       "credential_handles_json";
       "memory_grants_json";
@@ -317,7 +321,8 @@ let snapshot_select_columns =
   "id, timestamp, config_hash, session_key, work_type, room_id, profile_id, \
    bundle_sources_json, allowed_tools_json, denied_tools_json, \
    codebase_grants_json, blocked_codebase_grants_json, mcp_servers_json, \
-   skills_json, repositories_json, repo_grants_json, domains_json, \
+   skills_json, repositories_json, repo_grants_json, \
+   blocked_repo_grants_json, domains_json, \
    credential_handles_json, memory_grants_json, budget_refs_json, \
    instruction_digests_json, redacted_summary"
 
@@ -328,10 +333,11 @@ let persist ~(db : Sqlite3.db) (snap : t) =
        work_type, room_id, profile_id, bundle_sources_json, \
        allowed_tools_json, denied_tools_json, codebase_grants_json, \
        blocked_codebase_grants_json, mcp_servers_json, skills_json, \
-       repositories_json, repo_grants_json, domains_json, \
-       credential_handles_json, memory_grants_json, budget_refs_json, \
-       instruction_digests_json, redacted_summary) VALUES (?, ?, ?, ?, ?, ?, \
-       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+       repositories_json, repo_grants_json, blocked_repo_grants_json, \
+       domains_json, credential_handles_json, memory_grants_json, \
+       budget_refs_json, instruction_digests_json, redacted_summary) \
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+       ?, ?, ?)"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -362,14 +368,16 @@ let persist ~(db : Sqlite3.db) (snap : t) =
       bind_text 14 (Yojson.Safe.to_string (list_to_json snap.skills));
       bind_text 15 (Yojson.Safe.to_string (list_to_json snap.repositories));
       bind_text 16 (Yojson.Safe.to_string (list_to_json snap.repo_grants));
-      bind_text 17 (Yojson.Safe.to_string (list_to_json snap.domains));
-      bind_text 18
+      bind_text 17
+        (Yojson.Safe.to_string (list_to_json snap.blocked_repo_grants));
+      bind_text 18 (Yojson.Safe.to_string (list_to_json snap.domains));
+      bind_text 19
         (Yojson.Safe.to_string (list_to_json snap.credential_handles));
-      bind_text 19 (Yojson.Safe.to_string (list_to_json snap.memory_grants));
-      bind_text 20 (Yojson.Safe.to_string (list_to_json snap.budget_refs));
-      bind_text 21
+      bind_text 20 (Yojson.Safe.to_string (list_to_json snap.memory_grants));
+      bind_text 21 (Yojson.Safe.to_string (list_to_json snap.budget_refs));
+      bind_text 22
         (Yojson.Safe.to_string (list_to_json snap.instruction_digests));
-      bind_text 22 snap.redacted_summary;
+      bind_text 23 snap.redacted_summary;
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
@@ -436,12 +444,13 @@ let row_of_stmt stmt : t =
     skills = json_list 13;
     repositories = json_list 14;
     repo_grants = json_list 15;
-    domains = json_list 16;
-    credential_handles = json_list 17;
-    memory_grants = json_list 18;
-    budget_refs = json_list 19;
-    instruction_digests = json_list 20;
-    redacted_summary = text 21;
+    blocked_repo_grants = json_list 16;
+    domains = json_list 17;
+    credential_handles = json_list 18;
+    memory_grants = json_list 19;
+    budget_refs = json_list 20;
+    instruction_digests = json_list 21;
+    redacted_summary = text 22;
   }
 
 let query ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
@@ -540,6 +549,7 @@ let to_json (snap : t) : Yojson.Safe.t =
       ("skills", list_to_json snap.skills);
       ("repositories", list_to_json snap.repositories);
       ("repo_grants", list_to_json snap.repo_grants);
+      ("blocked_repo_grants", list_to_json snap.blocked_repo_grants);
       ("domains", list_to_json snap.domains);
       ("credential_handles", list_to_json snap.credential_handles);
       ("memory_grants", list_to_json snap.memory_grants);

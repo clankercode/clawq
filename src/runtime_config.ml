@@ -876,6 +876,30 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
       (fun item -> not (blocked_by_global_security cfg item.value))
       codebase_items
   in
+  (* Filter repo_grants through the same global security policy that blocks
+     codebase_grants. A repo_grant is blocked if the repo's expected workspace
+     path would be blocked by the global security policy (workspace_only,
+     allowed_cwd_patterns). This ensures repo_grants can only narrow, not
+     weaken, the global security policy. Room codebase grants are respected
+     because they are already filtered through the same security check. *)
+  let repo_grant_blocked_by_global_security (rg_value : string) : bool =
+    match repo_grant_of_json_string rg_value with
+    | None -> true (* invalid JSON = blocked *)
+    | Some rg ->
+        (* Map repo pattern to expected workspace path *)
+        let repo_as_path =
+          expand_cwd_pattern ~config:cfg
+            ("$CLAWQ_WORKSPACE/" ^ rg.repo)
+        in
+        blocked_by_global_security cfg repo_as_path
+  in
+  let all_repo_grants = collect_repo_grants () in
+  let repo_grants, blocked_repo_grants =
+    List.partition
+      (fun item ->
+        not (repo_grant_blocked_by_global_security item.value))
+      all_repo_grants
+  in
   (* Collect instruction records with provenance. Only enabled instructions
      are resolved into effective_access; disabled ones are preserved in the
      bundle but not propagated. *)
@@ -915,7 +939,8 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
     mcp_servers = collect "mcp_servers" (fun b -> b.mcp_servers);
     skills = collect "skills" (fun b -> b.skills);
     repositories = collect "repositories" (fun b -> b.repositories);
-    repo_grants = collect_repo_grants ();
+    repo_grants;
+    blocked_repo_grants;
     domains = collect "domains" (fun b -> b.domains);
     credential_handles =
       collect "credential_handles" (fun b -> b.credential_handles);

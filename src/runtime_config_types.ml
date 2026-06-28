@@ -707,6 +707,9 @@ type effective_access = {
   repo_grants : effective_access_item list;
       (** Repository grants with capabilities. Each value is a JSON object
           string: {"repo":"owner/repo","capabilities":[...]}. *)
+  blocked_repo_grants : effective_access_item list;
+      (** Repository grants blocked by global security policy or because they
+          are not covered by effective codebase_grants. *)
   domains : effective_access_item list;
   credential_handles : effective_access_item list;
   instructions : effective_access_item list;

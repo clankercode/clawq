@@ -631,6 +631,78 @@ let test_repo_grant_empty_capabilities_grants_no_caps () =
        true
      with Not_found -> false)
 
+let test_repo_grants_blocked_by_global_security () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/clawq-scope-root/**"]},
+      "access_bundles": [
+        {
+          "id": "dev",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "branch"]},
+            {"repo": "outside/repo", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["dev"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  (* Both repos are within the workspace path, so both should be allowed *)
+  Alcotest.(check int)
+    "repo grants within workspace" 2
+    (List.length effective.repo_grants);
+  Alcotest.(check int)
+    "no blocked repo grants" 0
+    (List.length effective.blocked_repo_grants)
+
+let test_repo_grants_respect_room_codebase_grants () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/clawq-scope-root/**"]},
+      "access_bundles": [
+        {
+          "id": "room-grants",
+          "codebase_grants": ["$CLAWQ_WORKSPACE/**"],
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "branch", "pr"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["room-grants"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  (* Repo grants should be allowed because codebase_grants cover the workspace *)
+  Alcotest.(check int)
+    "repo grants with room codebase grants" 1
+    (List.length effective.repo_grants);
+  Alcotest.(check int)
+    "no blocked repo grants" 0
+    (List.length effective.blocked_repo_grants);
+  let grant_value = List.hd (item_values effective.repo_grants) in
+  List.iter
+    (fun cap ->
+      Alcotest.(check bool)
+        ("grant contains " ^ cap) true
+        (try
+           ignore (Str.search_forward (Str.regexp_string cap) grant_value 0);
+           true
+         with Not_found -> false))
+    ["read"; "comment"; "branch"; "pr"]
+
 let suite =
   [
     Alcotest.test_case "layers merge deterministically and deny wins" `Quick
@@ -677,4 +749,8 @@ let suite =
       test_empty_repo_grants_grant_nothing;
     Alcotest.test_case "repo grant empty capabilities" `Quick
       test_repo_grant_empty_capabilities_grants_no_caps;
+    Alcotest.test_case "repo grants blocked by global security" `Quick
+      test_repo_grants_blocked_by_global_security;
+    Alcotest.test_case "repo grants respect room codebase grants" `Quick
+      test_repo_grants_respect_room_codebase_grants;
   ]

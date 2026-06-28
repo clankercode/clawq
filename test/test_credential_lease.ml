@@ -306,6 +306,7 @@ let effective_access_with_credentials credential_handles : Runtime_config.effect
     skills = [];
     repositories = [];
     repo_grants = [];
+    blocked_repo_grants = [];
     domains = [];
     credential_handles;
     instructions = [];
