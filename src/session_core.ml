@@ -1259,6 +1259,27 @@ let resolve_initial_cwd mgr ~session_key ~db ~agent_template =
           | Some _ as r -> r
           | None -> cwd_from_template ()))
 
+(** [resolve_instruction_items_for_session mgr ~key] resolves the layered
+    instruction items for a session key, using session-aware profile resolution
+    that handles child threads and routine sessions. Returns the instruction
+    items with provenance labels in deterministic order: default → workspace →
+    channel → room/profile. *)
+let resolve_instruction_items_for_session mgr ~key :
+    Runtime_config.effective_instruction_item list =
+  let room_profile = resolve_room_profile_for_session mgr ~key in
+  (* For child-thread keys, use the parent session key for scope matching
+     so that channel/room scopes match correctly. *)
+  let scope_key =
+    match child_thread_parent_session_key key with
+    | Some parent_key -> parent_key
+    | None -> key
+  in
+  let effective_access =
+    Runtime_config.resolve_effective_access mgr.config ~session_key:scope_key
+      ?room_profile ()
+  in
+  effective_access.instruction_items
+
 (** [apply_room_profile_template_fields mgr ~key agent] resolves the active room
     profile and applies its template fields ([system_prompt] and
     [max_tool_iterations]) to the agent's config when they are non-empty /
@@ -1353,9 +1374,15 @@ let get_or_create_locked mgr ~key =
       let initial_cwd =
         resolve_initial_cwd mgr ~session_key:key ~db:mgr.db ~agent_template
       in
+      (* Resolve effective access to get layered instructions with provenance.
+         This ensures deterministic ordering: default → workspace → channel → room.
+         Uses resolve_room_profile_for_session for proper child-thread/routine handling. *)
+      let instruction_items =
+        resolve_instruction_items_for_session mgr ~key
+      in
       let agent =
         Agent.create ~config:mgr.config ?tool_registry ?agent_template
-          ?cwd:initial_cwd ()
+          ?cwd:initial_cwd ~instruction_items ()
       in
       let history = load_restorable_history mgr ~key in
       if history <> [] then begin
@@ -1870,6 +1897,9 @@ let update_config ?(source = "") mgr config =
       | None -> ());
       (* Re-apply room profile template fields *)
       apply_room_profile_template_fields mgr ~key agent;
+      (* Recompute layered instructions from access scopes *)
+      agent.Agent.instruction_items <-
+        resolve_instruction_items_for_session mgr ~key;
       Agent.sync_observed_active_workspace_files agent;
       persist_session_workspace_state mgr ~key agent)
     (Hashtbl.to_seq mgr.sessions |> List.of_seq)
@@ -1968,7 +1998,8 @@ let get_session_system_prompt mgr ~key : string =
         Prompt_builder.build ~config:agent.Agent.config
           ~tool_registry:agent.Agent.tool_registry
           ?agent_template:agent.Agent.agent_template
-          ?room_profile_system_prompt:agent.Agent.room_profile_system_prompt ()
+          ?room_profile_system_prompt:agent.Agent.room_profile_system_prompt
+          ~instruction_items:agent.Agent.instruction_items ()
       in
       agent.Agent.system_prompt <- prompt;
       prompt

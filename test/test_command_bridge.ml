@@ -2678,7 +2678,7 @@ let test_handle_reloads_config_between_calls () =
          with Not_found -> false))
 
 let effective_allowed_tools cfg =
-  (Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123")
+  (Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ())
     .allowed_tools
   |> List.map (fun (item : Runtime_config.effective_access_item) -> item.value)
 

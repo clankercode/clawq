@@ -241,9 +241,12 @@ let handle_agent_mention mgr ~key ?notify message =
             Lwt.return_some Session_core.draining_message
           else
             let tool_registry = resolve_agent_template_registry mgr tmpl in
+            let instruction_items =
+              Session_core.resolve_instruction_items_for_session mgr ~key
+            in
             let agent =
               Agent.create ~config:mgr.config ?tool_registry
-                ~agent_template:tmpl ()
+                ~agent_template:tmpl ~instruction_items ()
             in
             (match notify with
             | Some send ->
@@ -927,9 +930,16 @@ let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
         Lwt.async (fun () ->
             Session_core.with_in_flight mgr (fun () ->
                 let tool_registry = resolve_agent_template_registry mgr tmpl in
+                let instruction_items =
+                  match parent_key with
+                  | Some key ->
+                      Session_core.resolve_instruction_items_for_session mgr
+                        ~key
+                  | None -> []
+                in
                 let agent =
                   Agent.create ~config:mgr.config ?tool_registry
-                    ~agent_template:tmpl ()
+                    ~agent_template:tmpl ~instruction_items ()
                 in
                 agent.Agent.on_project_doc_loaded <-
                   Some
@@ -992,9 +1002,16 @@ let delegate_turn mgr ?parent_key ?debug_notify ?agent_name ~prompt ~send_reply
     | Some (agent_template, tool_registry) ->
         Lwt.async (fun () ->
             Session_core.with_in_flight mgr (fun () ->
+                let instruction_items =
+                  match parent_key with
+                  | Some key ->
+                      Session_core.resolve_instruction_items_for_session mgr
+                        ~key
+                  | None -> []
+                in
                 let agent =
                   Agent.create ~config:mgr.config ?tool_registry ?agent_template
-                    ()
+                    ~instruction_items ()
                 in
                 agent.Agent.on_project_doc_loaded <-
                   Some
@@ -1067,7 +1084,14 @@ let fork_and_run mgr ~parent_key ?debug_notify ?agent_name ~prompt ~send_reply
                 let* parent_history =
                   Session_core.snapshot_history mgr ~key:parent_key
                 in
-                let agent = Agent.create ~config:mgr.config ?tool_registry () in
+                let instruction_items =
+                  Session_core.resolve_instruction_items_for_session mgr
+                    ~key:parent_key
+                in
+                let agent =
+                  Agent.create ~config:mgr.config ?tool_registry
+                    ~instruction_items ()
+                in
                 agent.Agent.on_project_doc_loaded <-
                   Some
                     (fun msg ->

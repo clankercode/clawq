@@ -108,7 +108,7 @@ let generate_summary (explanation : t) : string =
     (List.length explanation.instructions)
 
 let create ~(config : Runtime_config.t) ~session_key () : t =
-  let access = Runtime_config.resolve_effective_access config ~session_key in
+  let access = Runtime_config.resolve_effective_access config ~session_key () in
   let matching_scopes =
     config.access_scopes
     |> List.filter (Runtime_config.scope_matches config ~session_key)
