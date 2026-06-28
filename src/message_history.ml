@@ -126,7 +126,7 @@ let ensure_tool_group_integrity msgs =
         | None -> true
       else true)
   |> List.map (fun (m : Provider.message) ->
-      if m.role = "assistant" && m.tool_calls <> [] then
+      if m.role = "assistant" then
         let kept =
           List.filter
             (fun (tc : Provider.tool_call) -> List.mem tc.id result_ids)

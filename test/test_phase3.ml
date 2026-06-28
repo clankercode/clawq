@@ -204,6 +204,54 @@ let test_tool_invocation () =
   Alcotest.(check bool) "tool was invoked" true !invoked;
   Alcotest.(check string) "tool result" "got: hello" result
 
+let test_execute_tool_calls_stream_classifies_raw_error_result () =
+  let registry = Tool_registry.create () in
+  let raw_error = "Error:" ^ String.make 2000 'x' in
+  let tool =
+    {
+      Tool.name = "stream_error_tool";
+      description = "Streams progress before returning an error";
+      parameters_schema = `Assoc [];
+      invoke = (fun ?context:_ _ -> Lwt.return raw_error);
+      invoke_stream =
+        Some
+          (fun ?context:_ ~on_output_chunk _ ->
+            let open Lwt.Syntax in
+            let* () = on_output_chunk "progress" in
+            Lwt.return raw_error);
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  Tool_registry.register registry tool;
+  let config =
+    {
+      default_config with
+      summarizer =
+        {
+          default_config.summarizer with
+          enabled = true;
+          threshold_chars = 1;
+          p2_max_chars = 4;
+        };
+    }
+  in
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  let call =
+    {
+      Provider.id = "stream_error";
+      function_name = "stream_error_tool";
+      arguments = "{}";
+    }
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls_stream agent ~db:None ~audit_enabled:false
+       ~session_key:None [ call ] ~on_chunk:(fun _ -> Lwt.return_unit));
+  match agent.history with
+  | result :: _ ->
+      Alcotest.(check bool) "raw error marked is_error" true result.is_error
+  | [] -> Alcotest.fail "expected streaming tool result in history"
+
 let test_execute_tool_calls_stream_bounds_final_result () =
   let registry = Tool_registry.create () in
   let streamed = String.make 13050 'x' in
@@ -962,6 +1010,8 @@ let suite =
       test_tool_registry_serialization;
     Alcotest.test_case "tool registry find" `Quick test_tool_registry_find;
     Alcotest.test_case "tool invocation" `Quick test_tool_invocation;
+    Alcotest.test_case "streamed raw error is classified" `Quick
+      test_execute_tool_calls_stream_classifies_raw_error_result;
     Alcotest.test_case "streamed tool result is bounded" `Quick
       test_execute_tool_calls_stream_bounds_final_result;
     Alcotest.test_case

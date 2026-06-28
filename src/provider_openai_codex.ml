@@ -715,6 +715,16 @@ let process_stream stream ~on_chunk =
             match Hashtbl.find_opt tool_buffers arr_idx with
             | Some (existing_call_id, existing_name, buf)
               when Buffer.length buf > 0
+                   && args = ""
+                   && valid_json_object_string (Buffer.contents buf) ->
+                let call_id =
+                  if existing_call_id = "" then call_id else existing_call_id
+                in
+                let name = if existing_name = "" then name else existing_name in
+                Hashtbl.replace tool_buffers arr_idx (call_id, name, buf)
+            | Some (existing_call_id, existing_name, buf)
+              when Buffer.length buf > 0
+                   && args = Buffer.contents buf
                    && valid_json_object_string (Buffer.contents buf) ->
                 let call_id =
                   if existing_call_id = "" then call_id else existing_call_id

@@ -282,7 +282,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           in
           let streamed_output = ref false in
           let t0 = Unix.gettimeofday () in
-          let* result_msg, result_for_event =
+          let* result_msg, raw_result =
             match pre_validation with
             | Error err_msg ->
                 Lwt.return
@@ -348,22 +348,17 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                     ~history:agent.history ?on_llm_call_debug ~raw_result:result
                     ()
                 in
-                let result_for_event =
-                  if !streamed_output then result_for_history else result
-                in
                 Lwt.return
                   ( Provider.make_tool_result ~tool_call_id:tc.id
                       ~name:tc.function_name ~content:result_for_history,
-                    result_for_event )
+                    result )
           in
           let invoke_duration = Unix.gettimeofday () -. t0 in
           Logs.info (fun m ->
               m "%sTool %s completed in %.3fs" sk_tag tc.function_name
                 invoke_duration);
           let result = result_msg.Provider.content in
-          let success =
-            not (String.starts_with ~prefix:"Error:" result_for_event)
-          in
+          let success = not (String.starts_with ~prefix:"Error:" raw_result) in
           (* B625: stamp the structured is_error flag now that we've
              classified the tool result. Downstream Anthropic-format
              converters use this directly instead of re-detecting via the
@@ -410,15 +405,14 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           if forward_to_user && success && not !streamed_output then
             notify_async (fun () ->
                 on_chunk
-                  (Provider.ToolOutputDelta
-                     { id = tc.id; chunk = result_for_event }));
+                  (Provider.ToolOutputDelta { id = tc.id; chunk = raw_result }));
           notify_async (fun () ->
               on_chunk
                 (Provider.ToolResult
                    {
                      id = tc.id;
                      name = tc.function_name;
-                     result = result_for_event;
+                     result;
                      is_error = not success;
                    }));
           let refresh =

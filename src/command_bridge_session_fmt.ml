@@ -330,6 +330,36 @@ let sanitize_provider_response_items_json_for_session_show ~config =
           | _ -> fields
         in
         let fields =
+          match List.assoc_opt "function" fields with
+          | Some (`Assoc fn_fields) -> (
+              let name =
+                match List.assoc_opt "name" fn_fields with
+                | Some (`String value) -> Some value
+                | _ -> None
+              in
+              let arguments =
+                match List.assoc_opt "arguments" fn_fields with
+                | Some (`String value) -> Some value
+                | _ -> None
+              in
+              match (name, arguments) with
+              | Some name, Some args -> (
+                  match
+                    redact_tool_call_arguments_for_session_show ~config
+                      ~function_name:name args
+                  with
+                  | Some redacted_args ->
+                      let fn_fields =
+                        ("arguments", `String redacted_args)
+                        :: List.remove_assoc "arguments" fn_fields
+                      in
+                      ("function", `Assoc fn_fields)
+                      :: List.remove_assoc "function" fields
+                  | None -> fields)
+              | _ -> fields)
+          | _ -> fields
+        in
+        let fields =
           List.map
             (fun (k, v) ->
               if k = "data_raw" then

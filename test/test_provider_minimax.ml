@@ -1141,6 +1141,26 @@ let test_b640_sse_text_delta_accumulates () =
     (Buffer.contents state.Provider_minimax.content_acc)
 
 (* B640: empty-args fallback path warns and substitutes "{}". *)
+let test_b640_sse_preserves_raw_tool_events () =
+  let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
+  let on_chunk _ = Lwt.return_unit in
+  let feed event_type data_str =
+    Lwt_main.run
+      (Provider_minimax.process_sse_event ~state ~on_chunk ~event_type ~data_str)
+  in
+  feed "message_start" {|{"message":{"model":"MiniMax-M2"}}|};
+  feed "content_block_start"
+    {|{"index":0,"content_block":{"type":"tool_use","id":"raw_tool","name":"file_read","input":{"path":"/tmp/raw"}}}|};
+  feed "content_block_stop" {|{"index":0}|};
+  feed "message_stop" {|{}|};
+  match Provider_minimax.finalize_stream_provider_response_items_json state with
+  | Some raw ->
+      Alcotest.(check bool)
+        "raw tool event contains id/name" true
+        (Test_helpers.string_contains raw "raw_tool"
+        && Test_helpers.string_contains raw "file_read")
+  | None -> Alcotest.fail "expected raw stream tool event payload"
+
 let test_b640_sse_empty_args_falls_back_to_curlies () =
   let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
   let on_chunk _ = Lwt.return_unit in
@@ -1686,6 +1706,8 @@ let suite =
       test_b640_sse_multiple_tool_uses_separate_args;
     Alcotest.test_case "B640: SSE text_delta accumulates" `Quick
       test_b640_sse_text_delta_accumulates;
+    Alcotest.test_case "B640: SSE preserves raw tool events" `Quick
+      test_b640_sse_preserves_raw_tool_events;
     Alcotest.test_case "B640: SSE empty args falls back to '{}'" `Quick
       test_b640_sse_empty_args_falls_back_to_curlies;
     Alcotest.test_case

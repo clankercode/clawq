@@ -304,6 +304,7 @@ type stream_state = {
   mutable stop_reason : string;
   mutable usage_acc : (int * int * int) option;
   mutable resp_model : string;
+  mutable raw_tool_events : Yojson.Safe.t list;
 }
 
 let make_stream_state ~model =
@@ -318,6 +319,7 @@ let make_stream_state ~model =
     stop_reason = "";
     usage_acc = None;
     resp_model = model;
+    raw_tool_events = [];
   }
 
 let process_sse_event ~(state : stream_state)
@@ -349,6 +351,15 @@ let process_sse_event ~(state : stream_state)
           let btype = block |> member "type" |> to_string in
           state.current_block_type <- btype;
           if btype = "tool_use" then begin
+            state.raw_tool_events <-
+              state.raw_tool_events
+              @ [
+                  `Assoc
+                    [
+                      ("event", `String event_type);
+                      ("data_raw", `String data_str);
+                    ];
+                ];
             state.current_tool_id <-
               (try block |> member "id" |> to_string with _ -> "");
             state.current_tool_name <-
@@ -406,6 +417,15 @@ let process_sse_event ~(state : stream_state)
           end
           else begin
             if dtype = "input_json_delta" then begin
+              state.raw_tool_events <-
+                state.raw_tool_events
+                @ [
+                    `Assoc
+                      [
+                        ("event", `String event_type);
+                        ("data_raw", `String data_str);
+                      ];
+                  ];
               let partial = delta |> member "partial_json" |> to_string in
               List.iter
                 (fun (idx, _, _, args_buf) ->
@@ -465,6 +485,11 @@ let finalize_stream_tool_calls (state : stream_state) =
       in
       { Provider.id; function_name = name; arguments })
     state.tool_calls_acc
+
+let finalize_stream_provider_response_items_json state =
+  match state.raw_tool_events with
+  | [] -> None
+  | events -> Some (Yojson.Safe.to_string (`List events))
 
 let complete_streaming ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
@@ -595,7 +620,10 @@ let complete_streaming ~(config : Runtime_config.t)
         let t = Buffer.contents state.thinking_acc in
         if t = "" then None else Some t
       in
+      let provider_response_items_json =
+        finalize_stream_provider_response_items_json state
+      in
       Lwt.return
         (Provider.make_stream_result ~tool_calls ~content ~model:final_model
-           ~usage:state.usage_acc ~thinking ()))
+           ~usage:state.usage_acc ~provider_response_items_json ~thinking ()))
     ()

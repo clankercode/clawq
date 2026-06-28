@@ -600,9 +600,10 @@ let test_codex_stream_backfill_only_missing () =
   | Provider.ToolCalls { calls; _ } ->
       Alcotest.(check int) "2 tool calls" 2 (List.length calls);
       let tc0 = List.nth calls 0 in
-      (* Index 0 should keep streamed args, NOT fallback *)
+      (* Completed response output is authoritative when it disagrees with deltas. *)
       Alcotest.(check string)
-        "tc0 keeps streamed args" {|{"path":"streamed.ml"}|} tc0.arguments;
+        "tc0 repaired from completed output" {|{"path":"fallback.ml"}|}
+        tc0.arguments;
       let tc1 = List.nth calls 1 in
       (* Index 1 should be backfilled from response.completed *)
       Alcotest.(check string) "tc1 backfilled id" "call_y" tc1.id;

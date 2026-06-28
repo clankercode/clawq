@@ -339,6 +339,23 @@ let test_ensure_integrity_drops_anthropic_raw_only_orphan () =
     "anthropic raw-only orphan assistant dropped" 1 (List.length fixed);
   Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
 
+let test_ensure_integrity_drops_anthropic_raw_only_without_tool_calls () =
+  let assistant_with_anthropic_raw =
+    {
+      (Provider.make_message ~role:"assistant" ~content:"") with
+      provider_response_items_json =
+        Some
+          {|{"content":[{"type":"tool_use","id":"tc-raw","name":"file_read","input":{"path":"secret.ml"}}],"model":"claude-3","stop_reason":"tool_use"}|};
+    }
+  in
+  let user_msg = Provider.make_message ~role:"user" ~content:"hi" in
+  let msgs = [ assistant_with_anthropic_raw; user_msg ] in
+  let fixed = Agent.ensure_tool_group_integrity msgs in
+  Alcotest.(check int)
+    "anthropic raw-only assistant without tool_calls dropped" 1
+    (List.length fixed);
+  Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
+
 let test_ensure_integrity_preserves_complete_groups () =
   let tc = make_tool_call "tc1" "shell_exec" in
   let assistant = make_assistant_with_tool_calls [ tc ] in
@@ -478,6 +495,8 @@ let suite =
       test_ensure_integrity_preserves_assistant_with_provider_items;
     Alcotest.test_case "ensure_integrity drops anthropic raw-only orphan" `Quick
       test_ensure_integrity_drops_anthropic_raw_only_orphan;
+    Alcotest.test_case "ensure_integrity drops anthropic raw-only no calls"
+      `Quick test_ensure_integrity_drops_anthropic_raw_only_without_tool_calls;
     Alcotest.test_case "trim_history tool group integrity" `Quick
       test_trim_history_tool_group_integrity;
     Alcotest.test_case "force_compress tool group integrity" `Quick
