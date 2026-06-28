@@ -116,6 +116,32 @@ let background_cmd = disabled "background" "Manage background coding tasks"
 let subagents_cmd = disabled "subagents" "Manage native/local subagents"
 let delegate_cmd = disabled "delegate" "High-level background-task workflow"
 
+let rooms_cmd =
+  let json_flag = Arg.(value & flag & info [ "json" ] ~doc:"Output as JSON.") in
+  let args = rest_args "ARGS" in
+  let term =
+    Term.(
+      ret
+        (const (fun json args ->
+             let args = if json then args @ [ "--json" ] else args in
+             run "rooms" args)
+        $ json_flag $ args))
+  in
+  Cmd.v
+    (Cmd.info "rooms"
+       ~doc:"Manage room profiles, bindings, workspaces, and activity ledger."
+       ~man:
+         [
+           `S "SUBCOMMANDS";
+           `I ("list", "List all room profiles and their bindings.");
+           `I ("show ROOM_ID", "Show a room's binding and profile details.");
+           `I ("workspace ROOM_ID", "Show/create a room workspace path.");
+           `I
+             ( "explain-access ROOM_ID [--json]",
+               "Explain effective access for a room (requires admin)." );
+         ])
+    term
+
 let audit_cmd =
   with_args "audit" "View the security audit log."
     [
@@ -294,6 +320,7 @@ let () =
       background_cmd;
       subagents_cmd;
       delegate_cmd;
+      rooms_cmd;
       audit_cmd;
       skills_cmd;
       migrate_cmd;
