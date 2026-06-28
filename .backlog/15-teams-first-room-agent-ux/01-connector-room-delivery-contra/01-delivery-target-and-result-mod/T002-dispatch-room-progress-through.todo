@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-28T16:52:10Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P15.M1.E1.T001
 estimate_hours: 3
 id: P15.M1.E1.T002
 priority: high
-status: pending
-tags:
-    - teams
-    - connectors
+started_at: "2026-06-28T16:52:10Z"
+status: in_progress
+tags: []
 title: Dispatch room progress through connector capabilities
 ---
 Acceptance: Teams and Slack progress delivery use the same connector-general contract; Slack-only branching in daemon delivery is replaced or wrapped by capability dispatch.

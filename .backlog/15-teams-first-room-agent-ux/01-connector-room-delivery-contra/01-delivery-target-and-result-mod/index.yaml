@@ -28,7 +28,8 @@ tasks:
       file: T002-dispatch-room-progress-through.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Dispatch room progress through connector capabilities
     - complexity: medium
       depends_on:
