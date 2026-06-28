@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T18:17:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T19:00:33Z"
 complexity: medium
 depends_on:
     - P14.M2.E1.T001
+duration_minutes: 43.492758965916664
 estimate_hours: 3
 id: P14.M2.E1.T002
 priority: high
 started_at: "2026-06-28T18:17:04Z"
-status: in_progress
+status: done
 tags: []
 title: Add rooms explain-access CLI and JSON output
 ---
