@@ -3,6 +3,10 @@ type server_config = {
   command : string;
   args : string list;
   env : (string * string) list;
+  credential_handle : string option;
+      (** Optional credential handle ID. When set, the MCP connection resolves
+          credentials through the snapshot-scoped lease API. Missing or
+          unauthorized handles deny connection before any network call. *)
 }
 
 type io_transport = {
@@ -273,6 +277,10 @@ let server_config_of_json (json : Yojson.Safe.t) =
   let open Yojson.Safe.Util in
   try
     let name = json |> member "name" |> to_string in
+    let credential_handle =
+      try Some (json |> member "credential_handle" |> to_string)
+      with _ -> None
+    in
     match json |> member "url" with
     | `String url ->
         let headers =
@@ -281,7 +289,7 @@ let server_config_of_json (json : Yojson.Safe.t) =
             |> List.map (fun (k, v) -> (k, to_string v))
           with _ -> []
         in
-        Ok { name; command = url; args = []; env = headers }
+        Ok { name; command = url; args = []; env = headers; credential_handle }
     | _ ->
         let command = json |> member "command" |> to_string in
         let args =
@@ -294,7 +302,7 @@ let server_config_of_json (json : Yojson.Safe.t) =
             |> List.map (fun (k, v) -> (k, to_string v))
           with _ -> []
         in
-        Ok { name; command; args; env }
+        Ok { name; command; args; env; credential_handle }
   with exn -> Error (Printexc.to_string exn)
 
 let load_server_configs path =
@@ -380,3 +388,54 @@ let disconnect t =
   match t.transport with
   | Http _ -> Lwt.return_unit
   | Stdio io -> cleanup_stdio_transport io
+
+(** [resolve_mcp_server_credentials ~config ~snapshot cfg] resolves the
+    credential handle for an MCP server through the snapshot-scoped lease API.
+    Returns [Ok env] with the resolved headers/env vars, or [Error msg] if the
+    handle is missing or unauthorized. When [cfg.credential_handle] is [None],
+    returns [Ok cfg.env] (legacy path). *)
+let resolve_mcp_server_credentials ~(config : Runtime_config.t)
+    ~(snapshot : Access_snapshot.t) (cfg : server_config) :
+    ((string * string) list, string) result =
+  match cfg.credential_handle with
+  | None -> Ok cfg.env
+  | Some handle_id -> (
+      (* Resolve as Authorization header for HTTP, then convert to env/header
+         pairs *)
+      match
+        Credential_lease.resolve_snapshot_lease ~config ~snapshot ~handle_id
+          ~header_name:"Authorization"
+      with
+      | Error err ->
+          let msg = Credential_lease.resolution_error_to_string err in
+          Logs.err (fun m ->
+              m "MCP server '%s': credential lease denied for handle '%s': %s"
+                cfg.name handle_id msg);
+          Error msg
+      | Ok lease ->
+          let result = ref [] in
+          Credential_lease.apply_headers lease (fun headers ->
+              result := headers);
+          Ok !result)
+
+(** [connect_with_policy ~config ~snapshot ?startup_timeout_s ?http_post cfg]
+    connects to an MCP server after resolving credentials through policy. If
+    [cfg.credential_handle] is set, credentials are resolved through the
+    snapshot-scoped lease API. Missing or unauthorized handles deny connection
+    before any network call. *)
+let connect_with_policy ~(config : Runtime_config.t)
+    ~(snapshot : Access_snapshot.t) ?startup_timeout_s ?http_post
+    (cfg : server_config) =
+  let open Lwt.Syntax in
+  match resolve_mcp_server_credentials ~config ~snapshot cfg with
+  | Error msg ->
+      Lwt.fail_with
+        (Printf.sprintf "MCP server '%s': credential policy denied: %s" cfg.name
+           msg)
+  | Ok resolved_env ->
+      (* Apply resolved credentials to the config *)
+      let cfg_with_creds =
+        if cfg.credential_handle <> None then { cfg with env = resolved_env }
+        else cfg
+      in
+      connect ?startup_timeout_s ?http_post cfg_with_creds

@@ -1377,9 +1377,7 @@ let get_or_create_locked mgr ~key =
       (* Resolve effective access to get layered instructions with provenance.
          This ensures deterministic ordering: default → workspace → channel → room.
          Uses resolve_room_profile_for_session for proper child-thread/routine handling. *)
-      let instruction_items =
-        resolve_instruction_items_for_session mgr ~key
-      in
+      let instruction_items = resolve_instruction_items_for_session mgr ~key in
       let agent =
         Agent.create ~config:mgr.config ?tool_registry ?agent_template
           ?cwd:initial_cwd ~instruction_items ()

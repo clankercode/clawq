@@ -269,6 +269,7 @@ let test_remote_http_requests () =
       command = "https://mcp.example.test/rpc";
       args = [];
       env = [ ("Authorization", "Bearer token") ];
+      credential_handle = None;
     }
   in
   let client = Lwt_main.run (Mcp_client.connect ~http_post:fake_post cfg) in
@@ -299,6 +300,7 @@ let test_startup_timeout () =
       command = "https://mcp.example.test/rpc";
       args = [];
       env = [];
+      credential_handle = None;
     }
   in
   match
@@ -326,6 +328,7 @@ let test_stdio_startup_timeout_cleanup_is_bounded () =
       command = "/bin/sh";
       args = [ "-c"; "trap '' TERM; while :; do :; done" ];
       env = [];
+      credential_handle = None;
     }
   in
   let started_at = Unix.gettimeofday () in
@@ -353,7 +356,13 @@ let test_disconnect_cleanup_is_bounded () =
       let client =
         {
           Mcp_client.config =
-            { name = "local"; command = "/bin/sh"; args = []; env = [] };
+            {
+              name = "local";
+              command = "/bin/sh";
+              args = [];
+              env = [];
+              credential_handle = None;
+            };
           transport = Mcp_client.Stdio { process; stderr_drain };
           next_id = 1;
           discovered = [];
@@ -406,6 +415,7 @@ let test_remote_http_sse_response () =
       command = "https://api.example.test/mcp";
       args = [];
       env = [];
+      credential_handle = None;
     }
   in
   let client = Lwt_main.run (Mcp_client.connect ~http_post:sse_post cfg) in
@@ -424,6 +434,7 @@ let test_remote_http_redirect_fails () =
       command = "https://api.example.test/mcp";
       args = [];
       env = [];
+      credential_handle = None;
     }
   in
   match
@@ -461,3 +472,326 @@ let suite =
     Alcotest.test_case "disconnect cleanup bounded" `Quick
       test_disconnect_cleanup_is_bounded;
   ]
+
+(* ---- Credential lease policy tests ---- *)
+
+let resolve_credentials_uses_lease_when_handle_set () =
+  Test_helpers.with_temp_home (fun _home ->
+      let cfg =
+        {
+          Mcp_client.name = "test-mcp";
+          command = "https://mcp.example.test/rpc";
+          args = [];
+          env = [ ("Authorization", "Bearer legacy_token") ];
+          credential_handle = Some "mcp-token:main";
+        }
+      in
+      let handle : Runtime_config.credential_handle =
+        {
+          id = "mcp-token:main";
+          provider = Runtime_config.Env_var { name = "TEST_MCP_TOKEN" };
+          description = Some "MCP token";
+          status = "active";
+        }
+      in
+      let config =
+        { Runtime_config.default with credential_handles = [ handle ] }
+      in
+      let snapshot =
+        Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+          ~session_key:"test:room1" ()
+      in
+      let snapshot =
+        {
+          snapshot with
+          Access_snapshot.credential_handles = [ "mcp-token:main" ];
+        }
+      in
+      Unix.putenv "TEST_MCP_TOKEN" "ghp_lease_resolved_token_abc";
+      let result =
+        Mcp_client.resolve_mcp_server_credentials ~config ~snapshot cfg
+      in
+      (match result with
+      | Ok headers -> (
+          let auth_header =
+            List.find_opt (fun (name, _) -> name = "Authorization") headers
+          in
+          match auth_header with
+          | Some (_, value) ->
+              Alcotest.(check string)
+                "uses lease token" "ghp_lease_resolved_token_abc" value
+          | None -> Alcotest.fail "no Authorization header")
+      | Error msg -> Alcotest.failf "expected Ok, got Error: %s" msg);
+      Unix.putenv "TEST_MCP_TOKEN" "")
+
+let resolve_credentials_denies_unauthorized_handle () =
+  Test_helpers.with_temp_home (fun _home ->
+      let cfg =
+        {
+          Mcp_client.name = "test-mcp";
+          command = "https://mcp.example.test/rpc";
+          args = [];
+          env = [];
+          credential_handle = Some "mcp-token:main";
+        }
+      in
+      let handle : Runtime_config.credential_handle =
+        {
+          id = "mcp-token:main";
+          provider = Runtime_config.Env_var { name = "TEST_MCP_TOKEN" };
+          description = Some "MCP token";
+          status = "active";
+        }
+      in
+      let config =
+        { Runtime_config.default with credential_handles = [ handle ] }
+      in
+      let snapshot =
+        Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+          ~session_key:"test:room1" ()
+      in
+      (* Snapshot does NOT include the handle *)
+      let snapshot =
+        { snapshot with Access_snapshot.credential_handles = [] }
+      in
+      Unix.putenv "TEST_MCP_TOKEN" "ghp_lease_resolved_token_abc";
+      let result =
+        Mcp_client.resolve_mcp_server_credentials ~config ~snapshot cfg
+      in
+      (match result with
+      | Ok _ -> Alcotest.fail "expected Error for unauthorized handle"
+      | Error msg ->
+          Alcotest.(check bool)
+            "error mentions not allowed" true
+            (String.length msg > 0));
+      Unix.putenv "TEST_MCP_TOKEN" "")
+
+let resolve_credentials_uses_legacy_when_no_handle () =
+  let cfg =
+    {
+      Mcp_client.name = "test-mcp";
+      command = "https://mcp.example.test/rpc";
+      args = [];
+      env = [ ("Authorization", "Bearer legacy_token") ];
+      credential_handle = None;
+    }
+  in
+  let config = Runtime_config.default in
+  let snapshot =
+    Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+      ~session_key:"test:room1" ()
+  in
+  let result =
+    Mcp_client.resolve_mcp_server_credentials ~config ~snapshot cfg
+  in
+  match result with
+  | Ok headers ->
+      Alcotest.(check (list (pair string string)))
+        "uses legacy env"
+        [ ("Authorization", "Bearer legacy_token") ]
+        headers
+  | Error msg -> Alcotest.failf "expected Ok, got Error: %s" msg
+
+let connect_with_policy_denies_on_unauthorized_handle () =
+  Test_helpers.with_temp_home (fun _home ->
+      let cfg =
+        {
+          Mcp_client.name = "test-mcp";
+          command = "https://mcp.example.test/rpc";
+          args = [];
+          env = [];
+          credential_handle = Some "mcp-token:main";
+        }
+      in
+      let handle : Runtime_config.credential_handle =
+        {
+          id = "mcp-token:main";
+          provider = Runtime_config.Env_var { name = "TEST_MCP_TOKEN" };
+          description = Some "MCP token";
+          status = "active";
+        }
+      in
+      let config =
+        { Runtime_config.default with credential_handles = [ handle ] }
+      in
+      let snapshot =
+        Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+          ~session_key:"test:room1" ()
+      in
+      (* Snapshot does NOT include the handle *)
+      let snapshot =
+        { snapshot with Access_snapshot.credential_handles = [] }
+      in
+      Unix.putenv "TEST_MCP_TOKEN" "ghp_lease_resolved_token_abc";
+      let result =
+        Lwt.catch
+          (fun () ->
+            let open Lwt.Syntax in
+            let* _ = Mcp_client.connect_with_policy ~config ~snapshot cfg in
+            Lwt.return (Ok ()))
+          (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+        |> Lwt_main.run
+      in
+      (match result with
+      | Ok () -> Alcotest.fail "expected connection denial"
+      | Error msg ->
+          Alcotest.(check bool)
+            "error mentions credential policy denied" true
+            (String.starts_with
+               ~prefix:
+                 "Failure(\"MCP server 'test-mcp': credential policy denied"
+               msg));
+      Unix.putenv "TEST_MCP_TOKEN" "")
+
+let connect_with_policy_succeeds_when_authorized () =
+  Test_helpers.with_temp_home (fun _home ->
+      let requests = ref [] in
+      let fake_post ~url ~headers ~body =
+        requests := (url, headers, body) :: !requests;
+        let open Yojson.Safe.Util in
+        let json = Yojson.Safe.from_string body in
+        let method_ = json |> member "method" |> to_string in
+        match method_ with
+        | "initialize" ->
+            Lwt.return
+              ( 200,
+                Yojson.Safe.to_string
+                  (`Assoc
+                     [
+                       ("jsonrpc", `String "2.0");
+                       ("id", `Int 1);
+                       ( "result",
+                         `Assoc [ ("protocolVersion", `String "2024-11-05") ] );
+                     ]),
+                "application/json" )
+        | "notifications/initialized" -> Lwt.return (202, "", "application/json")
+        | "tools/list" ->
+            Lwt.return
+              ( 200,
+                Yojson.Safe.to_string
+                  (`Assoc
+                     [
+                       ("jsonrpc", `String "2.0");
+                       ("id", `Int 2);
+                       ( "result",
+                         `Assoc
+                           [
+                             ( "tools",
+                               `List
+                                 [
+                                   `Assoc
+                                     [
+                                       ("name", `String "test_tool");
+                                       ("description", `String "Test");
+                                       ( "inputSchema",
+                                         `Assoc [ ("type", `String "object") ]
+                                       );
+                                     ];
+                                 ] );
+                           ] );
+                     ]),
+                "application/json" )
+        | _ -> Lwt.return (200, "{}", "application/json")
+      in
+      let cfg =
+        {
+          Mcp_client.name = "test-mcp";
+          command = "https://mcp.example.test/rpc";
+          args = [];
+          env = [ ("Authorization", "Bearer legacy_token") ];
+          credential_handle = Some "mcp-token:main";
+        }
+      in
+      let handle : Runtime_config.credential_handle =
+        {
+          id = "mcp-token:main";
+          provider = Runtime_config.Env_var { name = "TEST_MCP_TOKEN" };
+          description = Some "MCP token";
+          status = "active";
+        }
+      in
+      let config =
+        { Runtime_config.default with credential_handles = [ handle ] }
+      in
+      let snapshot =
+        Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+          ~session_key:"test:room1" ()
+      in
+      let snapshot =
+        {
+          snapshot with
+          Access_snapshot.credential_handles = [ "mcp-token:main" ];
+        }
+      in
+      Unix.putenv "TEST_MCP_TOKEN" "ghp_lease_resolved_token_abc";
+      let client =
+        Lwt_main.run
+          (Mcp_client.connect_with_policy ~config ~snapshot ~http_post:fake_post
+             cfg)
+      in
+      let tools = Mcp_client.discovered_tools client in
+      Alcotest.(check int) "one tool discovered" 1 (List.length tools);
+      (* Verify the lease token was used, not the legacy one *)
+      let requests = List.rev !requests in
+      let _url, headers, _body = List.hd requests in
+      let auth_header =
+        List.find_opt (fun (name, _) -> name = "Authorization") headers
+      in
+      (match auth_header with
+      | Some (_, value) ->
+          Alcotest.(check string)
+            "uses lease token" "ghp_lease_resolved_token_abc" value
+      | None -> Alcotest.fail "no Authorization header in request");
+      Unix.putenv "TEST_MCP_TOKEN" "")
+
+let parse_config_with_credential_handle () =
+  let json =
+    `Assoc
+      [
+        ("name", `String "remote");
+        ("url", `String "https://mcp.example.test/rpc");
+        ("headers", `Assoc [ ("Authorization", `String "Bearer token") ]);
+        ("credential_handle", `String "mcp-token:main");
+      ]
+  in
+  match Mcp_client.server_config_of_json json with
+  | Error msg -> Alcotest.fail msg
+  | Ok cfg ->
+      Alcotest.(check string) "name" "remote" cfg.name;
+      Alcotest.(check (option string))
+        "credential_handle" (Some "mcp-token:main") cfg.credential_handle
+
+let parse_config_without_credential_handle () =
+  let json =
+    `Assoc
+      [
+        ("name", `String "remote");
+        ("url", `String "https://mcp.example.test/rpc");
+      ]
+  in
+  match Mcp_client.server_config_of_json json with
+  | Error msg -> Alcotest.fail msg
+  | Ok cfg ->
+      Alcotest.(check (option string))
+        "credential_handle" None cfg.credential_handle
+
+let credential_lease_suite =
+  [
+    Alcotest.test_case "resolve uses lease when handle set" `Quick
+      resolve_credentials_uses_lease_when_handle_set;
+    Alcotest.test_case "resolve denies unauthorized handle" `Quick
+      resolve_credentials_denies_unauthorized_handle;
+    Alcotest.test_case "resolve uses legacy when no handle" `Quick
+      resolve_credentials_uses_legacy_when_no_handle;
+    Alcotest.test_case "connect denies on unauthorized handle" `Quick
+      connect_with_policy_denies_on_unauthorized_handle;
+    Alcotest.test_case "connect succeeds when authorized" `Quick
+      connect_with_policy_succeeds_when_authorized;
+    Alcotest.test_case "parse config with credential handle" `Quick
+      parse_config_with_credential_handle;
+    Alcotest.test_case "parse config without credential handle" `Quick
+      parse_config_without_credential_handle;
+  ]
+
+let suites =
+  [ ("mcp_client", suite); ("mcp_credential_lease", credential_lease_suite) ]

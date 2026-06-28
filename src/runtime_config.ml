@@ -904,8 +904,7 @@ let resolve_effective_access (cfg : t) ~session_key ?room_profile () :
           expand_cwd_pattern ~config:cfg rg.repo
         else
           (* Map GitHub repo to expected workspace path *)
-          expand_cwd_pattern ~config:cfg
-            ("$CLAWQ_WORKSPACE/" ^ rg.repo)
+          expand_cwd_pattern ~config:cfg ("$CLAWQ_WORKSPACE/" ^ rg.repo)
     | None -> item.value
   in
   let repo_grant_has_glob_metachar repo =

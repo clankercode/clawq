@@ -1222,8 +1222,8 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
       Session.drain_queued_messages session_manager ~key:session_key agent
         interrupt ())
 
-let setup_mcp_clients ?(connect_client = Mcp_client.connect) ~registry
-    ~mcp_clients () =
+let setup_mcp_clients ?connect_client ~registry ~mcp_clients ?config ?snapshot
+    () =
   let servers_path = mcp_servers_path () in
   if not (Sys.file_exists servers_path) then Lwt.return_unit
   else
@@ -1233,7 +1233,13 @@ let setup_mcp_clients ?(connect_client = Mcp_client.connect) ~registry
       (fun cfg ->
         Lwt.catch
           (fun () ->
-            let* client = connect_client cfg in
+            let* client =
+              match (connect_client, config, snapshot) with
+              | Some f, _, _ -> f cfg
+              | None, Some config, Some snapshot ->
+                  Mcp_client.connect_with_policy ~config ~snapshot cfg
+              | _ -> Mcp_client.connect cfg
+            in
             mcp_clients := client :: !mcp_clients;
             List.iter
               (fun t ->
@@ -1251,15 +1257,15 @@ let setup_mcp_clients ?(connect_client = Mcp_client.connect) ~registry
       servers
 
 let run_mcp_setup_stage ?(now = Unix.gettimeofday)
-    ?(log_message = fun msg -> Logs.info (fun m -> m "%s" msg))
-    ?(connect_client = Mcp_client.connect) ~tool_registry ~config ~mcp_clients
-    () =
+    ?(log_message = fun msg -> Logs.info (fun m -> m "%s" msg)) ?connect_client
+    ~tool_registry ~config ~mcp_clients () =
   with_boot_stage_logging ~now ~log_message "mcp-setup" (fun () ->
       match (tool_registry, config.Runtime_config.mcp.enabled) with
       | Some registry, true ->
           Lwt.catch
             (fun () ->
-              setup_mcp_clients ~connect_client ~registry ~mcp_clients ())
+              setup_mcp_clients ?connect_client ~registry ~mcp_clients ~config
+                ())
             (fun exn ->
               Logs.warn (fun m ->
                   m "Failed to load MCP servers config: %s"
