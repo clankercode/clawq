@@ -7,6 +7,13 @@ let github_api_base () =
 
 let redact_token = String_util.redact_token
 
+let pat_headers token =
+  [
+    ("Authorization", "Bearer " ^ token);
+    ("Accept", "application/vnd.github+json");
+    ("X-GitHub-Api-Version", "2022-11-28");
+  ]
+
 let auth_headers (auth : Runtime_config.github_auth) =
   match auth with
   | GithubPat token ->
@@ -33,7 +40,13 @@ let auth_headers_lwt ~(app_token : Github_app_token.t option)
     ?(repo_full_name = "") (auth : Runtime_config.github_auth) =
   let open Lwt.Syntax in
   match auth with
-  | GithubPat token -> Lwt.return (pat_headers token)
+  | GithubPat token ->
+      Lwt.return
+        [
+          ("Authorization", "Bearer " ^ token);
+          ("Accept", "application/vnd.github+json");
+          ("X-GitHub-Api-Version", "2022-11-28");
+        ]
   | GithubApp _config -> (
       match app_token with
       | None ->
@@ -71,10 +84,6 @@ let auth_headers_lwt ~(app_token : Github_app_token.t option)
                   Logs.err (fun m ->
                       m "GitHub auth: failed to get installation token: %s" msg);
                   Lwt.return [])))
-
-(* Legacy synchronous auth_headers for PAT-only callers. *)
-let auth_headers (auth : Runtime_config.github_auth) =
-  match auth with GithubPat token -> pat_headers token | GithubApp _ -> []
 
 let post_comment ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
     ~issue_number ~body =
