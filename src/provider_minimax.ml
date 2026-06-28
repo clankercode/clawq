@@ -159,7 +159,7 @@ let parse_response body model =
                calls = tool_calls;
                model = resp_model;
                usage;
-               provider_response_items_json = None;
+               provider_response_items_json = Some body;
                thinking;
              })
       else Error "tool_use stop reason but no tool_use blocks found"

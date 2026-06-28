@@ -374,7 +374,14 @@ let test_parse_tool_use_response () =
     {|{"content":[{"type":"tool_use","id":"call-1","name":"file_read","input":{"path":"/tmp"}}],"model":"MiniMax-M2.7","stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}|}
   in
   match Provider_minimax.parse_response body "MiniMax-M2.7" with
-  | Ok (Provider.ToolCalls { calls; _ }) ->
+  | Ok (Provider.ToolCalls { calls; provider_response_items_json; _ }) ->
+      Alcotest.(check bool)
+        "raw provider response preserved" true
+        (match provider_response_items_json with
+        | Some raw ->
+            Test_helpers.string_contains raw "call-1"
+            && Test_helpers.string_contains raw "file_read"
+        | None -> false);
       Alcotest.(check int) "1 call" 1 (List.length calls);
       let tc = List.hd calls in
       Alcotest.(check string) "id" "call-1" tc.id;

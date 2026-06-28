@@ -282,53 +282,77 @@ let sanitize_tool_calls_json_for_session_show ~config = function
         Some (Yojson.Safe.to_string sanitized)
       with _ -> Some tool_calls_json)
 
-let sanitize_provider_response_items_json_for_session_show ~config = function
+let sanitize_provider_response_items_json_for_session_show ~config =
+  let rec sanitize json =
+    match json with
+    | `List items -> `List (List.map sanitize items)
+    | `Assoc fields ->
+        let item_type =
+          match List.assoc_opt "type" fields with
+          | Some (`String value) -> Some value
+          | _ -> None
+        in
+        let function_name =
+          match List.assoc_opt "name" fields with
+          | Some (`String value) -> Some value
+          | _ -> None
+        in
+        let fields =
+          match
+            (item_type, function_name, List.assoc_opt "arguments" fields)
+          with
+          | Some ("function_call" | "tool_call"), Some name, Some (`String args)
+            -> (
+              match
+                redact_tool_call_arguments_for_session_show ~config
+                  ~function_name:name args
+              with
+              | Some redacted_arguments ->
+                  ("arguments", `String redacted_arguments)
+                  :: List.remove_assoc "arguments" fields
+              | None -> fields)
+          | _ -> fields
+        in
+        let fields =
+          match (item_type, function_name, List.assoc_opt "input" fields) with
+          | Some "tool_use", Some name, Some input -> (
+              let args = Yojson.Safe.to_string input in
+              match
+                redact_tool_call_arguments_for_session_show ~config
+                  ~function_name:name args
+              with
+              | Some redacted_args -> (
+                  try
+                    ("input", Yojson.Safe.from_string redacted_args)
+                    :: List.remove_assoc "input" fields
+                  with _ -> fields)
+              | None -> fields)
+          | _ -> fields
+        in
+        let fields =
+          List.map
+            (fun (k, v) ->
+              if k = "data_raw" then
+                match v with
+                | `String raw -> (
+                    try
+                      let redacted = sanitize (Yojson.Safe.from_string raw) in
+                      (k, `String (Yojson.Safe.to_string redacted))
+                    with _ -> (k, v))
+                | _ -> (k, sanitize v)
+              else (k, sanitize v))
+            fields
+        in
+        `Assoc fields
+    | other -> other
+  in
+  function
   | None -> None
   | Some provider_response_items_json -> (
       try
-        let json = Yojson.Safe.from_string provider_response_items_json in
-        let sanitized =
-          match json with
-          | `List items ->
-              `List
-                (List.map
-                   (function
-                     | `Assoc fields as item ->
-                         let item_type =
-                           match List.assoc_opt "type" fields with
-                           | Some (`String value) -> Some value
-                           | _ -> None
-                         in
-                         let function_name =
-                           match List.assoc_opt "name" fields with
-                           | Some (`String value) -> Some value
-                           | _ -> None
-                         in
-                         let arguments =
-                           match List.assoc_opt "arguments" fields with
-                           | Some (`String value) -> Some value
-                           | _ -> None
-                         in
-                         begin match (item_type, function_name, arguments) with
-                         | ( Some ("function_call" | "tool_call"),
-                             Some name,
-                             Some args ) -> (
-                             match
-                               redact_tool_call_arguments_for_session_show
-                                 ~config ~function_name:name args
-                             with
-                             | Some redacted_arguments ->
-                                 `Assoc
-                                   (("arguments", `String redacted_arguments)
-                                   :: List.remove_assoc "arguments" fields)
-                             | None -> item)
-                         | _ -> item
-                         end
-                     | other -> other)
-                   items)
-          | other -> other
-        in
-        Some (Yojson.Safe.to_string sanitized)
+        Some
+          (Yojson.Safe.to_string
+             (sanitize (Yojson.Safe.from_string provider_response_items_json)))
       with _ -> Some provider_response_items_json)
 
 let raw_message_json config index (row : Memory.raw_message) =
