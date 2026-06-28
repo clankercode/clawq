@@ -236,11 +236,11 @@ let test_format_final_message_succeeded () =
     "contains Succeeded" true
     (Test_helpers.string_contains msg "Succeeded");
   Alcotest.(check bool)
-    "contains prompt label" true
-    (Test_helpers.string_contains msg "Fix the bug");
+    "contains task label" true
+    (Test_helpers.string_contains msg "codex repo=test-repo branch=main");
   Alcotest.(check bool)
-    "contains result" true
-    (Test_helpers.string_contains msg "All tests pass")
+    "contains summary" true
+    (Test_helpers.string_contains msg "Task completed successfully")
 
 let test_format_final_message_failed () =
   let task =

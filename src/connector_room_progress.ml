@@ -21,6 +21,23 @@ type progress_callbacks = {
       (** Edit an existing message in place. The [msg_id] is the identifier
           returned by a prior [send] call. Should raise on failure so callers
           can fall back to a fresh send. *)
+  send_adaptive_card :
+    (room_id:string ->
+    ?thread_id:string ->
+    card:Yojson.Safe.t ->
+    unit ->
+    string Lwt.t)
+    option;
+      (** Send an Adaptive Card to [room_id]. Returns the message identifier.
+          [None] if the connector does not support Adaptive Cards. *)
+  edit_adaptive_card :
+    (room_id:string ->
+    msg_id:string ->
+    card:Yojson.Safe.t ->
+    unit ->
+    unit Lwt.t)
+    option;
+      (** Edit an existing Adaptive Card in place. [None] if not supported. *)
 }
 (** Callbacks for delivering progress messages to a specific connector. *)
 
@@ -61,7 +78,7 @@ let slack_callbacks (slack_config : Runtime_config.slack_config) :
     Slack.edit_message ~bot_token:slack_config.bot_token ~channel_id:room_id
       ~ts:msg_id ~text
   in
-  { send; edit }
+  { send; edit; send_adaptive_card = None; edit_adaptive_card = None }
 
 (** {1 Teams callbacks} *)
 
@@ -100,7 +117,36 @@ let teams_callbacks ~(teams_config : Runtime_config.teams_config)
     Teams.edit_activity ~config:teams_config ~service_url:decoded_service_url
       ~conversation_id ~activity_id:msg_id ~text ()
   in
-  { send; edit }
+  let send_adaptive_card ~room_id ?thread_id ~card () =
+    let _ = thread_id in
+    let channel_id =
+      compose_teams_channel_id ~service_url ~conversation_id:room_id
+        ~fallback_service_url:teams_config.service_url
+    in
+    let decoded_service_url, conversation_id =
+      Teams.decode_channel_id channel_id
+    in
+    Teams.send_adaptive_card ~config:teams_config
+      ~service_url:decoded_service_url ~conversation_id ~reply_to_id:"" ~card ()
+  in
+  let edit_adaptive_card ~room_id ~msg_id ~card () =
+    let channel_id =
+      compose_teams_channel_id ~service_url ~conversation_id:room_id
+        ~fallback_service_url:teams_config.service_url
+    in
+    let decoded_service_url, conversation_id =
+      Teams.decode_channel_id channel_id
+    in
+    Teams_adaptive_card.edit_adaptive_card ~config:teams_config
+      ~service_url:decoded_service_url ~conversation_id ~activity_id:msg_id
+      ~card ()
+  in
+  {
+    send;
+    edit;
+    send_adaptive_card = Some send_adaptive_card;
+    edit_adaptive_card = Some edit_adaptive_card;
+  }
 
 (** {1 Discord callbacks} *)
 
@@ -115,7 +161,7 @@ let discord_callbacks (discord_config : Runtime_config.discord_config) :
     Discord.edit_message ~bot_token:discord_config.bot_token ~channel_id:room_id
       ~message_id:msg_id ~text
   in
-  { send; edit }
+  { send; edit; send_adaptive_card = None; edit_adaptive_card = None }
 
 (** {1 Dispatch} *)
 

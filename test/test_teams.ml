@@ -96,7 +96,7 @@ let capture_reply sent ?alert:_ ~config:_ ~service_url:_ ~conversation_id:_
 let capture_adaptive_card cards ~config:_ ~service_url:_ ~conversation_id:_
     ~reply_to_id:_ ~card () =
   cards := card :: !cards;
-  Lwt.return_unit
+  Lwt.return "test-activity-id"
 
 let successful_turn count _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
     ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
@@ -117,7 +117,7 @@ let test_parse_activity_returns_record () =
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
       ~conversation_id:"conv-1" ~team_id:"t1" ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check string) "activity_id" "act-1" a.activity_id;
@@ -137,7 +137,7 @@ let test_parse_activity_non_message () =
   in
   Alcotest.(check bool)
     "typing returns None" true
-    (Teams.parse_activity body = None)
+    (Teams_activity_parser.parse_activity body = None)
 
 let test_parse_activity_empty_text () =
   let body =
@@ -147,7 +147,7 @@ let test_parse_activity_empty_text () =
   in
   Alcotest.(check bool)
     "empty text returns None" true
-    (Teams.parse_activity body = None)
+    (Teams_activity_parser.parse_activity body = None)
 
 let test_parse_activity_missing_from_name () =
   let body =
@@ -163,7 +163,7 @@ let test_parse_activity_missing_from_name () =
       ]
     |> Yojson.Safe.to_string
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check string) "user_name defaults to empty" "" a.user_name
@@ -479,7 +479,7 @@ let test_parse_activity_group_chat () =
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
       ~conversation_id:"conv-g" ~team_id:"t1" ~is_group:true ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check bool) "is_group true" true a.is_group;
@@ -750,7 +750,7 @@ let test_not_slash_after_mention_strip () =
 
 let test_build_attachment_upload_body () =
   let body =
-    Teams.build_attachment_upload_body ~filename:"test.json"
+    Teams_file_upload.build_attachment_upload_body ~filename:"test.json"
       ~content_type:"application/json" ~content:"hello world"
   in
   let json = Yojson.Safe.from_string body in
@@ -765,7 +765,7 @@ let test_build_attachment_upload_body () =
 
 let test_build_message_with_attachment () =
   let body =
-    Teams.build_message_with_attachment ~filename:"dump.json"
+    Teams_file_upload.build_message_with_attachment ~filename:"dump.json"
       ~content_type:"application/json"
       ~content_url:"https://svc/v3/attachments/att-1/views/original"
   in
@@ -1234,7 +1234,7 @@ let test_parse_activity_with_entities () =
       ~user_name:"Bob" ~conversation_id:"conv-e" ~team_id:"t1" ~is_group:true
       ~entities ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check int) "mentioned_ids count" 2 (List.length a.mentioned_ids);
@@ -1251,7 +1251,7 @@ let test_parse_activity_no_entities () =
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
       ~conversation_id:"conv-ne" ~team_id:"t1" ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check int)
@@ -1293,7 +1293,7 @@ let test_parse_activity_with_attachments () =
       ~user_name:"User" ~conversation_id:"c1" ~team_id:"t1" ~attachments:[ att ]
       ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | Some act ->
       Alcotest.(check int) "one attachment" 1 (List.length act.attachments);
       let a = List.hd act.attachments in
@@ -1324,7 +1324,7 @@ let test_parse_activity_card_filtered () =
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"User"
       ~conversation_id:"c1" ~team_id:"t1" ~attachments:[ card; real ] ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | Some act ->
       Alcotest.(check int) "card filtered out" 1 (List.length act.attachments);
       Alcotest.(check string)
@@ -1345,7 +1345,7 @@ let test_parse_activity_attachment_only () =
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"User"
       ~conversation_id:"c1" ~team_id:"t1" ~attachments:[ att ] ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | Some act ->
       Alcotest.(check string) "text empty" "" act.text;
       Alcotest.(check int) "has attachment" 1 (List.length act.attachments)
@@ -1482,7 +1482,7 @@ let test_parse_activity_extracts_activity_id_for_reply () =
       ~activity_id:"msg-target-99" ~service_url:"https://svc" ~user_id:"u1"
       ~user_name:"Alice" ~conversation_id:"conv-r" ~team_id:"t1" ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check string)
@@ -1496,7 +1496,7 @@ let test_parse_activity_thread_conversation_id () =
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Bob"
       ~conversation_id:"19:abc@thread.v2" ~team_id:"t1" ()
   in
-  match Teams.parse_activity body with
+  match Teams_activity_parser.parse_activity body with
   | None -> Alcotest.fail "expected Some"
   | Some a ->
       Alcotest.(check bool)

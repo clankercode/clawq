@@ -179,6 +179,7 @@
   room_workspace
   room_activity_ledger
   room_progress_checklist
+  teams_progress_card
   room_budget
   room_request_classifier
   daemon_status
@@ -321,6 +322,9 @@
   onebot
   teams_auth
   teams_file_consent
+  teams_activity_parser
+  teams_file_upload
+  teams_adaptive_card
   teams
   attachment_download
   voice_transcription

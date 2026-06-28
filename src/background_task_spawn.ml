@@ -227,7 +227,18 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
                 ?channel ?channel_id ?profile_id ?origin_json ?thread_id
                 ?requester ?access_snapshot_id ()
             with
-            | Ok id -> Ok (id, runner, chosen_repo_path)
+            | Ok id ->
+                (* Create initial checklist item for room-origin tasks *)
+                if Option.is_some origin_json then begin
+                  let item =
+                    Room_progress_checklist.append ~db ~task_id:id
+                      ~title:"Task accepted" ()
+                  in
+                  ignore
+                    (Room_progress_checklist.update_state ~db ~id:item.id
+                       ~state:Current ())
+                end;
+                Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))
 
 let runner_to_framework_runner (r : runner) : Runner_framework.runner =
@@ -788,7 +799,7 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
     | None -> None
   in
   let origin =
-    Room_origin.make ~connector ~room_id ~requester_id ?profile_id ()
+    Room_origin.make ~connector ~room_id ~requester_id ?thread_id ?profile_id ()
   in
   let origin_json =
     if Room_origin.is_empty origin then None
@@ -796,29 +807,43 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
   in
   let requester = Some requester_id in
   let default_repo_path = room_default_repo_path room_id in
-  match preferred_runner with
-  | Some Local -> (
-      (* Native/local runner: enqueue directly with runner=Local *)
-      match
-        enqueue ~db ~runner:Local ~use_worktree ~require_git:false
-          ~automerge:false ~repo_path:default_repo_path ~prompt:goal ?agent_name
-          ?model:model_override ~session_key ?profile_id ?origin_json ?thread_id
-          ?requester ?access_snapshot_id ()
-      with
-      | Ok id -> Ok id
-      | Error msg -> Error msg)
-  | _ -> (
-      (* External runner: use delegate_enqueue for auto runner selection *)
-      let context : Tool.invoke_context =
-        { Tool.default_context with session_key = Some session_key }
-      in
-      match
-        delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
-          ~check_available:true ?preferred_runner ?model:model_override
-          ?access_snapshot_id ~default_repo_path ~goal ()
-      with
-      | Ok (id, _runner, _repo) -> Ok id
-      | Error msg -> Error msg)
+  let result =
+    match preferred_runner with
+    | Some Local -> (
+        (* Native/local runner: enqueue directly with runner=Local *)
+        match
+          enqueue ~db ~runner:Local ~use_worktree ~require_git:false
+            ~automerge:false ~repo_path:default_repo_path ~prompt:goal
+            ?agent_name ?model:model_override ~session_key ?profile_id
+            ?origin_json ?thread_id ?requester ?access_snapshot_id ()
+        with
+        | Ok id ->
+            (* Create initial checklist item for room-origin tasks *)
+            if Option.is_some origin_json then begin
+              let item =
+                Room_progress_checklist.append ~db ~task_id:id
+                  ~title:"Task accepted" ()
+              in
+              ignore
+                (Room_progress_checklist.update_state ~db ~id:item.id
+                   ~state:Current ())
+            end;
+            Ok id
+        | Error msg -> Error msg)
+    | _ -> (
+        (* External runner: use delegate_enqueue for auto runner selection *)
+        let context : Tool.invoke_context =
+          { Tool.default_context with session_key = Some session_key }
+        in
+        match
+          delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
+            ~check_available:true ?preferred_runner ?model:model_override
+            ?access_snapshot_id ~default_repo_path ~goal ()
+        with
+        | Ok (id, _runner, _repo) -> Ok id
+        | Error msg -> Error msg)
+  in
+  result
 
 let readopt_running_tasks ~db ~on_task_finished =
   let pid_or_group_alive pid =

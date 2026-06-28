@@ -204,21 +204,25 @@ let format_final_message ?summary (task : task) =
     | Queued -> "Queued"
     | Running -> "Running"
   in
-  let label = short_prompt_label task in
+  let label = task_label task in
   let elapsed = elapsed_string task in
   let merge_suffix = merge_status_suffix task in
   let lines = ref [] in
   let add s = lines := s :: !lines in
   add (Printf.sprintf "[%s%s] %s" status_word merge_suffix label);
   add (Printf.sprintf "%s (%s)" (task_label task) elapsed);
-  (* Summary: prefer caller-provided, then result_preview *)
+  (* Summary: prefer caller-provided, then use generic status. Never use
+     result_preview directly as it can contain raw output. *)
   (match summary with
   | Some s -> add (Printf.sprintf "Summary: %s" (preview_text_n 120 s))
-  | None -> (
-      match task.result_preview with
-      | Some text when String.trim text <> "" ->
-          add (Printf.sprintf "Result: %s" (preview_text_n 120 text))
-      | _ -> ()));
+  | None ->
+      add
+        (match task.status with
+        | Succeeded -> "Summary: Task completed successfully"
+        | Failed -> "Summary: Task failed"
+        | DirtyWorktree -> "Summary: Task finished with uncommitted changes"
+        | Cancelled -> "Summary: Task was cancelled"
+        | _ -> "Summary: Task in progress"));
   (* Hints — concise, actionable *)
   (match task.status with
   | Failed ->
@@ -292,6 +296,234 @@ let deliver_final_message ?summary
         clear_progress_msg_id ~task_id:task.id;
         let err = Printexc.to_string exn in
         (* Record exception-based failure in ledger *)
+        (match db with
+        | Some db ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None -> ());
+        Lwt.return (Delivery_failed err))
+  end
+
+(** {1 Adaptive Card delivery} *)
+
+(** [send_or_edit_card] performs send/edit cycle for Adaptive Cards. Falls back
+    to text if adaptive card callbacks are not available. *)
+let send_or_edit_card ~send_card ~edit_card ~send_text ~edit_text ~room_id
+    ?thread_id ~card ~fallback_text ~task_id () =
+  let open Lwt.Syntax in
+  match (send_card, edit_card) with
+  | Some send_card_fn, _ -> (
+      match Hashtbl.find_opt progress_msg_ids task_id with
+      | Some msg_id when is_valid_message_id msg_id -> (
+          match edit_card with
+          | Some edit_card_fn ->
+              Lwt.catch
+                (fun () ->
+                  let* () = edit_card_fn ~room_id ~msg_id ~card () in
+                  Lwt.return (Delivered, Some msg_id))
+                (fun exn ->
+                  (* Edit failed, send new card *)
+                  let* new_id = send_card_fn ~room_id ?thread_id ~card () in
+                  if is_valid_message_id new_id then begin
+                    Hashtbl.replace progress_msg_ids task_id new_id;
+                    Lwt.return (Delivered, Some new_id)
+                  end
+                  else
+                    Lwt.return
+                      ( Delivery_failed
+                          (Printf.sprintf
+                             "card send failed after edit error: %s"
+                             (Printexc.to_string exn)),
+                        None ))
+          | None ->
+              (* No edit support, send new card *)
+              let* new_id = send_card_fn ~room_id ?thread_id ~card () in
+              if is_valid_message_id new_id then begin
+                Hashtbl.replace progress_msg_ids task_id new_id;
+                Lwt.return (Delivered, Some new_id)
+              end
+              else Lwt.return (Delivery_failed "empty card message ID", None))
+      | _ ->
+          (* No existing message, send new card *)
+          let* new_id = send_card_fn ~room_id ?thread_id ~card () in
+          if is_valid_message_id new_id then begin
+            Hashtbl.replace progress_msg_ids task_id new_id;
+            Lwt.return (Delivered, Some new_id)
+          end
+          else Lwt.return (Delivery_failed "empty card message ID", None))
+  | None, _ ->
+      (* No adaptive card support, fall back to text *)
+      send_or_edit ~send:send_text ~edit:edit_text ~room_id ?thread_id
+        ~text:fallback_text ~task_id ()
+
+(** Deliver a progress update using Adaptive Cards when available. Falls back to
+    plain text for connectors without card support. Returns [true] if the card
+    was delivered successfully, [false] otherwise. *)
+let deliver_progress_update_with_card
+    ~(send :
+       room_id:string ->
+       ?thread_id:string ->
+       text:string ->
+       unit ->
+       string Lwt.t)
+    ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
+    ?send_adaptive_card ?edit_adaptive_card ?(db : Sqlite3.db option)
+    ~(checklist_items : Room_progress_checklist.checklist_item list)
+    ~(task : task) () : bool Lwt.t =
+  let open Lwt.Syntax in
+  let connector, room_id, thread_id = connector_and_room_of_task task in
+  if room_id = "" then Lwt.return false
+  else begin
+    let task_label = task_label task in
+    let elapsed = elapsed_string task in
+    (* Build the adaptive card *)
+    let card =
+      Teams_progress_card.build_card ~task_id:task.id ~task_label
+        ~items:checklist_items ~elapsed ()
+    in
+    let fallback_text =
+      Teams_progress_card.build_fallback_text ~task_label ~items:checklist_items
+        ()
+    in
+    let existing_activity_id =
+      activity_id_of_message_id (Hashtbl.find_opt progress_msg_ids task.id)
+    in
+    (* Record delivery attempt in ledger *)
+    (match db with
+    | Some db ->
+        ignore
+          (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
+             ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
+    | None -> ());
+    Lwt.catch
+      (fun () ->
+        let* result, msg_id =
+          send_or_edit_card ~send_card:send_adaptive_card
+            ~edit_card:edit_adaptive_card ~send_text:send ~edit_text:edit
+            ~room_id ?thread_id ~card ~fallback_text ~task_id:task.id ()
+        in
+        let activity_id = activity_id_of_message_id msg_id in
+        (* Record delivery outcome in ledger *)
+        (match (db, result) with
+        | Some db, Delivered ->
+            ignore
+              (Room_activity_ledger.record_delivery_success ~db ~room_id
+                 ~connector ~task_id:task.id
+                 ~message_id:(Option.value msg_id ~default:"")
+                 ?thread_id ?activity_id ())
+        | Some db, Delivery_failed err ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id ?activity_id
+                 ())
+        | Some _, Skipped -> ()
+        | None, _ -> ());
+        Lwt.return (result = Delivered))
+      (fun exn ->
+        let err = Printexc.to_string exn in
+        (match db with
+        | Some db ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None -> ());
+        Lwt.return false)
+  end
+
+(** Deliver a final completion/failure message using Adaptive Cards when
+    available. Falls back to plain text for connectors without card support. *)
+let deliver_final_message_with_card ?summary
+    ~(send :
+       room_id:string ->
+       ?thread_id:string ->
+       text:string ->
+       unit ->
+       string Lwt.t)
+    ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
+    ?send_adaptive_card ?edit_adaptive_card ?(db : Sqlite3.db option)
+    ~(checklist_items : Room_progress_checklist.checklist_item list)
+    ~(task_actions : Teams_progress_card.task_actions option) ~(task : task) ()
+    : delivery_result Lwt.t =
+  let open Lwt.Syntax in
+  let connector, room_id, thread_id = connector_and_room_of_task task in
+  if room_id = "" then begin
+    clear_progress_msg_id ~task_id:task.id;
+    Lwt.return Skipped
+  end
+  else begin
+    let task_label = task_label task in
+    let elapsed = elapsed_string task in
+    (* Summary: prefer caller-provided, then use generic status message.
+       Never use result_preview directly as it can contain raw output. *)
+    let summary_text =
+      match summary with
+      | Some s -> Some (preview_text_n 200 s)
+      | None ->
+          Some
+            (match task.status with
+            | Succeeded -> "Task completed successfully"
+            | Failed -> "Task failed"
+            | DirtyWorktree -> "Task finished with uncommitted changes"
+            | Cancelled -> "Task was cancelled"
+            | _ -> "Task in progress")
+    in
+    (* Determine task outcome for terminal state styling *)
+    let task_outcome =
+      match task.status with
+      | Succeeded -> Some Teams_progress_card.Succeeded
+      | Failed -> Some Teams_progress_card.Failed
+      | DirtyWorktree -> Some Teams_progress_card.DirtyWorktree
+      | Cancelled -> Some Teams_progress_card.Cancelled
+      | _ -> None
+    in
+    (* Build the final adaptive card *)
+    let card =
+      Teams_progress_card.build_card ~task_id:task.id ~task_label
+        ~items:checklist_items ~actions:task_actions ~elapsed
+        ?summary:summary_text ?task_outcome ()
+    in
+    let fallback_text = format_final_message ?summary task in
+    let existing_activity_id =
+      activity_id_of_message_id (Hashtbl.find_opt progress_msg_ids task.id)
+    in
+    (* Record delivery attempt in ledger *)
+    (match db with
+    | Some db ->
+        ignore
+          (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
+             ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
+    | None -> ());
+    Lwt.catch
+      (fun () ->
+        let* result, msg_id =
+          send_or_edit_card ~send_card:send_adaptive_card
+            ~edit_card:edit_adaptive_card ~send_text:send ~edit_text:edit
+            ~room_id ?thread_id ~card ~fallback_text ~task_id:task.id ()
+        in
+        clear_progress_msg_id ~task_id:task.id;
+        let activity_id = activity_id_of_message_id msg_id in
+        (* Record delivery outcome in ledger *)
+        (match (db, result) with
+        | Some db, Delivered ->
+            ignore
+              (Room_activity_ledger.record_delivery_success ~db ~room_id
+                 ~connector ~task_id:task.id
+                 ~message_id:(Option.value msg_id ~default:"")
+                 ?thread_id ?activity_id ())
+        | Some db, Delivery_failed err ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id ?activity_id
+                 ())
+        | Some _, Skipped -> ()
+        | None, _ -> ());
+        Lwt.return result)
+      (fun exn ->
+        clear_progress_msg_id ~task_id:task.id;
+        let err = Printexc.to_string exn in
         (match db with
         | Some db ->
             ignore

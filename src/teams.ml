@@ -134,25 +134,6 @@ let decode_channel_id channel_id =
   | service_url :: rest -> (service_url, String.concat "|" rest)
   | [] -> ("", channel_id)
 
-type teams_attachment = {
-  content_type : string;
-  content_url : string;
-  name : string;
-}
-
-type teams_activity = {
-  activity_id : string;
-  service_url : string;
-  conversation_id : string;
-  user_id : string;
-  user_name : string;
-  team_id : string;
-  text : string;
-  is_group : bool;
-  mentioned_ids : string list;
-  attachments : teams_attachment list;
-}
-
 type mention = { mention_id : string; mention_name : string }
 
 let dedup_seen id =
@@ -504,7 +485,7 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
   match token_opt with
   | None ->
       Logs.err (fun m -> m "Teams: cannot send adaptive card, no OAuth token");
-      Lwt.return_unit
+      Lwt.return ""
   | Some token ->
       let uri = build_reply_uri ~service_url ~conversation_id ~reply_to_id in
       let headers = [ ("Authorization", "Bearer " ^ token) ] in
@@ -512,119 +493,25 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
       let* status, resp =
         post_json_throttled ~conversation_id ~uri ~headers ~body
       in
-      if status < 200 || status >= 300 then
+      if status >= 200 && status < 300 then begin
+        Logs.info (fun m ->
+            m "Teams: send_adaptive_card ok (HTTP %d) conv=%s resp_len=%d"
+              status conversation_id (String.length resp));
+        try
+          let json = Yojson.Safe.from_string resp in
+          let open Yojson.Safe.Util in
+          let id = try json |> member "id" |> to_string with _ -> "" in
+          Lwt.return id
+        with _ -> Lwt.return ""
+      end
+      else begin
         Logs.warn (fun m ->
             m "Teams: send_adaptive_card failed (HTTP %d) conv=%s: %s" status
               conversation_id resp);
-      Lwt.return_unit
+        Lwt.return ""
+      end
 
 (* Build JSON body for the Bot Framework attachment upload endpoint. *)
-let build_attachment_upload_body ~filename ~content_type ~content =
-  let encoded = Base64.encode_exn content in
-  `Assoc
-    [
-      ("type", `String content_type);
-      ("name", `String filename);
-      ("originalBase64", `String encoded);
-    ]
-  |> Yojson.Safe.to_string
-
-(* Build a message activity JSON body with a file attachment reference. *)
-let build_message_with_attachment ~filename ~content_type ~content_url =
-  `Assoc
-    [
-      ("type", `String "message");
-      ("text", `String filename);
-      ( "attachments",
-        `List
-          [
-            `Assoc
-              [
-                ("contentType", `String content_type);
-                ("contentUrl", `String content_url);
-                ("name", `String filename);
-              ];
-          ] );
-    ]
-  |> Yojson.Safe.to_string
-
-(* Upload an attachment to a conversation via Bot Framework REST API.
-   Returns Ok content_url on success, Error msg on failure.
-   NOTE: This endpoint only works for Direct Line and Web Chat channels.
-   Teams returns HTTP 404 — use Temp_downloads for Teams file delivery. *)
-let upload_attachment ~(config : Runtime_config.teams_config) ~service_url
-    ~conversation_id ~filename ~content_type ~content () =
-  let open Lwt.Syntax in
-  let* token_opt = fetch_token ~config in
-  match token_opt with
-  | None -> Lwt.return (Error "No OAuth token available")
-  | Some token ->
-      let uri =
-        Printf.sprintf "%s/v3/conversations/%s/attachments"
-          (String.trim service_url)
-          (Uri.pct_encode conversation_id)
-      in
-      let headers = [ ("Authorization", "Bearer " ^ token) ] in
-      let body =
-        build_attachment_upload_body ~filename ~content_type ~content
-      in
-      let* status, resp =
-        post_json_throttled ~conversation_id ~uri ~headers ~body
-      in
-      if status >= 200 && status < 300 then
-        try
-          let json = Yojson.Safe.from_string resp in
-          let id = Yojson.Safe.Util.(json |> member "id" |> to_string) in
-          let content_url =
-            Printf.sprintf "%s/v3/attachments/%s/views/original"
-              (String.trim service_url) (Uri.pct_encode id)
-          in
-          Logs.info (fun m ->
-              m "Teams: uploaded attachment %s conv=%s" filename conversation_id);
-          Lwt.return (Ok content_url)
-        with exn ->
-          Lwt.return
-            (Error
-               (Printf.sprintf "Failed to parse upload response: %s"
-                  (Printexc.to_string exn)))
-      else
-        Lwt.return
-          (Error (Printf.sprintf "Upload failed (HTTP %d): %s" status resp))
-
-(* Send a file as an attachment in a Teams message.
-   Uploads via Bot Framework attachment API, then sends a message
-   referencing the uploaded content URL. *)
-let send_file ~(config : Runtime_config.teams_config) ~service_url
-    ~conversation_id ~reply_to_id ~filename ~content ~content_type () =
-  let open Lwt.Syntax in
-  let* upload_result =
-    upload_attachment ~config ~service_url ~conversation_id ~filename
-      ~content_type ~content ()
-  in
-  match upload_result with
-  | Error msg -> Lwt.return (Error msg)
-  | Ok content_url -> (
-      let* token_opt = fetch_token ~config in
-      match token_opt with
-      | None -> Lwt.return (Error "No OAuth token available for send")
-      | Some token ->
-          let uri =
-            build_reply_uri ~service_url ~conversation_id ~reply_to_id
-          in
-          let headers = [ ("Authorization", "Bearer " ^ token) ] in
-          let body =
-            build_message_with_attachment ~filename ~content_type ~content_url
-          in
-          let* status, resp =
-            post_json_throttled ~conversation_id ~uri ~headers ~body
-          in
-          if status >= 200 && status < 300 then Lwt.return (Ok ())
-          else
-            Lwt.return
-              (Error
-                 (Printf.sprintf "Send with attachment failed (HTTP %d): %s"
-                    status resp)))
-
 (* --- File Consent Card flow wrappers --- *)
 
 (* Wrappers that bind fetch_token and post_json_throttled for the
@@ -692,96 +579,6 @@ let is_user_allowed ~(config : Runtime_config.teams_config) ~user_id =
 
 (* Parse a Teams activity JSON body. Returns relevant fields or None if not a
    processable user message. *)
-let parse_activity body_str =
-  try
-    let json = Yojson.Safe.from_string body_str in
-    let open Yojson.Safe.Util in
-    let activity_type = try json |> member "type" |> to_string with _ -> "" in
-    if activity_type <> "message" then None
-    else
-      let raw_text = try json |> member "text" |> to_string with _ -> "" in
-      (* Check for Action.Submit value with question answer *)
-      let text =
-        if raw_text = "" then
-          try
-            let value = json |> member "value" in
-            value |> member "clawq_question_answer" |> to_string
-          with _ -> raw_text
-        else raw_text
-      in
-      let activity_id = try json |> member "id" |> to_string with _ -> "" in
-      let service_url =
-        try json |> member "serviceUrl" |> to_string with _ -> ""
-      in
-      let from_obj = try json |> member "from" with _ -> `Null in
-      let user_id = try from_obj |> member "id" |> to_string with _ -> "" in
-      let user_name =
-        try from_obj |> member "name" |> to_string with _ -> ""
-      in
-      let conversation_obj =
-        try json |> member "conversation" with _ -> `Null
-      in
-      let conversation_id =
-        try conversation_obj |> member "id" |> to_string with _ -> ""
-      in
-      let is_group =
-        try conversation_obj |> member "isGroup" |> to_bool with _ -> false
-      in
-      let mentioned_ids =
-        try
-          json |> member "entities" |> to_list
-          |> List.filter_map (fun entity ->
-              try
-                if entity |> member "type" |> to_string = "mention" then
-                  Some (entity |> member "mentioned" |> member "id" |> to_string)
-                else None
-              with _ -> None)
-        with _ -> []
-      in
-      let team_id =
-        try
-          json |> member "channelData" |> member "team" |> member "id"
-          |> to_string
-        with _ -> ""
-      in
-      let attachments =
-        try
-          json |> member "attachments" |> to_list
-          |> List.filter_map (fun att ->
-              try
-                let ct = att |> member "contentType" |> to_string in
-                if
-                  String.length ct >= 28
-                  && String.sub ct 0 28 = "application/vnd.microsoft."
-                then None
-                else
-                  let content_url = att |> member "contentUrl" |> to_string in
-                  let name =
-                    try att |> member "name" |> to_string
-                    with _ -> "attachment"
-                  in
-                  Some { content_type = ct; content_url; name }
-              with _ -> None)
-        with _ -> []
-      in
-      if (text = "" && attachments = []) || conversation_id = "" || user_id = ""
-      then None
-      else
-        Some
-          {
-            activity_id;
-            service_url;
-            conversation_id;
-            user_id;
-            user_name;
-            team_id;
-            text;
-            is_group;
-            mentioned_ids;
-            attachments;
-          }
-  with _ -> None
-
 (* Strip <at>...</at> mention tags from Teams message text *)
 let strip_at_mentions text =
   (* Simple state machine to remove <at>...</at> tags *)
@@ -841,7 +638,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
       Logs.warn (fun m -> m "Teams: auth failed: %s" reason);
       Lwt.return_unit
   | Ok () -> (
-      match parse_activity body_str with
+      match Teams_activity_parser.parse_activity body_str with
       | None -> Lwt.return_unit
       | Some
           {
@@ -1171,7 +968,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                       .build_teams_card_from_buttons ~text
                                         ~button_rows
                                     in
-                                    let* () =
+                                    let* _id =
                                       send_adaptive_card ~config
                                         ~service_url:effective_service_url
                                         ~conversation_id
@@ -1187,7 +984,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                         ~question ~options
                                     in
                                     ignore allows_multiple;
-                                    let* () =
+                                    let* _id =
                                       send_adaptive_card ~config
                                         ~service_url:effective_service_url
                                         ~conversation_id
@@ -1233,7 +1030,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                     (* Partition audio attachments for transcription *)
                                     let audio_atts, non_audio_atts =
                                       List.partition
-                                        (fun (a : teams_attachment) ->
+                                        (fun (a :
+                                               Teams_activity_parser
+                                               .teams_attachment) ->
                                           Voice_transcription.is_audio_mime
                                             a.content_type)
                                         parsed_attachments
@@ -1263,7 +1062,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                         in
                                         let* texts =
                                           Lwt_list.map_s
-                                            (fun (a : teams_attachment) ->
+                                            (fun (a :
+                                                   Teams_activity_parser
+                                                   .teams_attachment) ->
                                               match
                                                 Voice_transcription.validate
                                                   ~config:full_config
@@ -1351,7 +1152,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                         in
                                         let metas =
                                           List.map
-                                            (fun (a : teams_attachment) ->
+                                            (fun (a :
+                                                   Teams_activity_parser
+                                                   .teams_attachment) ->
                                               Attachment_download.
                                                 {
                                                   url = a.content_url;
@@ -1373,7 +1176,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                           if non_audio_atts <> [] then
                                             let names =
                                               List.map
-                                                (fun (a : teams_attachment) ->
+                                                (fun (a :
+                                                       Teams_activity_parser
+                                                       .teams_attachment) ->
                                                   Printf.sprintf
                                                     "\n\
                                                      [Attachment: %s (download \
@@ -1448,9 +1253,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               ~page ~is_admin ~config:full_config
                               ~session_key:key ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | Reset ->
                           let* active_bg_tasks =
                             Session.reset session_manager ~key
@@ -1626,50 +1435,74 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             Slash_commands_manifest
                             .agent_menu_adaptive_card_json ~page ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | ModelMenu page ->
                           let card_json =
                             Slash_commands_manifest
                             .model_menu_adaptive_card_json ~page ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | ThinkingMenu ->
                           let card_json =
                             Slash_commands_manifest
                             .thinking_menu_adaptive_card_json ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | ConfigMenu page ->
                           let card_json =
                             Slash_commands_manifest
                             .config_menu_adaptive_card_json ~page ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | SkillsMenu page ->
                           let show_test = is_admin in
                           let card_json =
                             Slash_commands_manifest
                             .skills_menu_adaptive_card_json ~show_test ~page ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | CostsMenu ->
                           let card_json =
                             Slash_commands_manifest
                             .costs_menu_adaptive_card_json ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | BgMenu ->
                           let cancellable =
                             match Session.get_db session_manager with
@@ -1697,9 +1530,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               ~config:full_config ~session_key:key ~cancellable
                               ()
                           in
-                          send_adaptive_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~card:card_json ()
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~card:card_json ()
+                          in
+                          Lwt.return_unit
                       | ForkAnd (agent_name, prompt) ->
                           let* () = send_text "Forking session..." in
                           Session.fork_and_run session_manager ~parent_key:key
