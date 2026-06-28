@@ -733,6 +733,427 @@ let test_redacted_summary_format () =
        true
      with Not_found -> false)
 
+let test_bg_task_snapshot_immutable_after_config_change () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  (* Config v1: has "deploy" tool *)
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["file_read", "shell_exec", "deploy"],
+         "denied_tools": []}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  (* Create snapshot simulating a background task starting *)
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Background_task ~session_key:"bg:task-42" ()
+  in
+  let snap_before = Access_snapshot.get_by_id ~db snap_id in
+  let original_tools =
+    match snap_before with
+    | Some s -> s.allowed_tools
+    | None -> Alcotest.fail "snapshot not found before config change"
+  in
+  Alcotest.(check (list string))
+    "bg snapshot has deploy before change"
+    [ "file_read"; "shell_exec"; "deploy" ]
+    original_tools;
+  (* Config v2: removes deploy, adds audit *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["file_read", "shell_exec", "audit"],
+         "denied_tools": ["deploy"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let cfg_v2 = parse json_v2 in
+  (* Snapshot retrieved after config change should still show v1 access *)
+  let snap_after = Access_snapshot.get_by_id ~db snap_id in
+  match snap_after with
+  | None -> Alcotest.fail "snapshot disappeared after config change"
+  | Some s ->
+      Alcotest.(check (list string))
+        "bg snapshot tools immutable after config change"
+        [ "file_read"; "shell_exec"; "deploy" ]
+        s.allowed_tools;
+      Alcotest.(check (list string))
+        "bg snapshot denied_tools immutable after config change" []
+        s.denied_tools;
+      Alcotest.(check string)
+        "bg snapshot config_hash still v1"
+        (Access_snapshot.config_hash cfg_v1)
+        s.config_hash;
+      Alcotest.(check bool)
+        "bg snapshot config_hash differs from v2" true
+        (s.config_hash <> Access_snapshot.config_hash cfg_v2);
+      Alcotest.(check string)
+        "bg snapshot redacted_summary still v1"
+        (Option.get snap_before).redacted_summary s.redacted_summary
+
+let test_routine_snapshot_immutable_after_config_change () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  (* Config v1: routine has broad domain access *)
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "cron", "allowed_tools": ["report_gen"],
+         "domains": ["internal.corp", "api.example.com"],
+         "skills": ["daily-report"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["cron"]}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Routine ~session_key:"cron:daily-report" ()
+  in
+  let snap_before = Access_snapshot.get_by_id ~db snap_id in
+  let original_domains =
+    match snap_before with
+    | Some s -> s.domains
+    | None -> Alcotest.fail "routine snapshot not found"
+  in
+  Alcotest.(check (list string))
+    "routine domains before change"
+    [ "internal.corp"; "api.example.com" ]
+    original_domains;
+  (* Config v2: restricts domains and removes skills *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "cron", "allowed_tools": ["report_gen"],
+         "domains": ["internal.corp"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["cron"]}
+      ]
+    }|}
+  in
+  let cfg_v2 = parse json_v2 in
+  let snap_after = Access_snapshot.get_by_id ~db snap_id in
+  match snap_after with
+  | None -> Alcotest.fail "routine snapshot disappeared"
+  | Some s ->
+      Alcotest.(check (list string))
+        "routine domains immutable"
+        [ "internal.corp"; "api.example.com" ]
+        s.domains;
+      Alcotest.(check (list string))
+        "routine skills immutable" [ "daily-report" ] s.skills;
+      Alcotest.(check string)
+        "routine config_hash still v1"
+        (Access_snapshot.config_hash cfg_v1)
+        s.config_hash;
+      Alcotest.(check bool)
+        "routine config_hash differs from v2" true
+        (s.config_hash <> Access_snapshot.config_hash cfg_v2)
+
+let test_concurrent_tasks_have_independent_snapshots () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  (* Config v1 for task A *)
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "b1", "allowed_tools": ["tool_v1"],
+         "mcp_servers": ["srv-v1"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["b1"]}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  (* Task A starts *)
+  let snap_a_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Background_task ~session_key:"bg:task-a" ()
+  in
+  (* Config changes to v2 *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "b1", "allowed_tools": ["tool_v2"],
+         "mcp_servers": ["srv-v2"], "denied_tools": ["tool_v1"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["b1"]}
+      ]
+    }|}
+  in
+  let cfg_v2 = parse json_v2 in
+  (* Task B starts under new config *)
+  let snap_b_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v2
+      ~work_type:Access_snapshot.Background_task ~session_key:"bg:task-b" ()
+  in
+  (* Both snapshots should be independent *)
+  let snap_a = Access_snapshot.get_by_id ~db snap_a_id in
+  let snap_b = Access_snapshot.get_by_id ~db snap_b_id in
+  match (snap_a, snap_b) with
+  | Some a, Some b ->
+      Alcotest.(check (list string))
+        "task-a still has tool_v1" [ "tool_v1" ] a.allowed_tools;
+      Alcotest.(check (list string))
+        "task-a still has srv-v1" [ "srv-v1" ] a.mcp_servers;
+      Alcotest.(check (list string))
+        "task-b has tool_v2" [ "tool_v2" ] b.allowed_tools;
+      Alcotest.(check (list string))
+        "task-b has srv-v2" [ "srv-v2" ] b.mcp_servers;
+      Alcotest.(check (list string))
+        "task-b has tool_v1 denied" [ "tool_v1" ] b.denied_tools;
+      Alcotest.(check bool)
+        "different config hashes" true
+        (a.config_hash <> b.config_hash)
+  | _ -> Alcotest.fail "one or both snapshots not found"
+
+let test_snapshot_reflects_config_at_creation_not_retrieval () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  (* Config with room profile granting specific tools *)
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["file_read"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ],
+      "room_profiles": [
+        {"id": "vip", "model": "openai:gpt-5.4", "allowed_tools": ["vip_tool"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "vip", "room": "C100", "active": true}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Room_turn ~session_key:"slack:C100"
+      ~room_id:"C100" ()
+  in
+  (* Config v2: change profile tools and deactivate binding *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["file_read"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ],
+      "room_profiles": [
+        {"id": "vip", "model": "openai:gpt-5.4", "allowed_tools": ["new_vip_tool"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "vip", "room": "C100", "active": false}
+      ]
+    }|}
+  in
+  (* Parse v2 but don't use it for the existing snapshot *)
+  let _cfg_v2 = parse json_v2 in
+  let snap = Access_snapshot.get_by_id ~db snap_id in
+  match snap with
+  | None -> Alcotest.fail "snapshot not found"
+  | Some s -> (
+      Alcotest.(check (list string))
+        "room turn snapshot retains vip_tool"
+        [ "file_read"; "vip_tool" ]
+        s.allowed_tools;
+      Alcotest.(check (option string))
+        "room turn snapshot retains profile_id" (Some "vip") s.profile_id;
+      Alcotest.(check (option string))
+        "room turn snapshot retains room_id" (Some "C100") s.room_id;
+      (* New snapshot under v2 should reflect the changes *)
+      let json_v2_active =
+        {|{
+          "access_bundles": [
+            {"id": "base", "allowed_tools": ["file_read"]}
+          ],
+          "access_scopes": [
+            {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+          ],
+          "room_profiles": [
+            {"id": "vip", "model": "openai:gpt-5.4", "allowed_tools": ["new_vip_tool"]}
+          ],
+          "room_profile_bindings": [
+            {"profile_id": "vip", "room": "C100", "active": true}
+          ]
+        }|}
+      in
+      let cfg_v2_active = parse json_v2_active in
+      let new_snap_id =
+        Access_snapshot.record_for_work ~db ~config:cfg_v2_active
+          ~work_type:Access_snapshot.Room_turn ~session_key:"slack:C100"
+          ~room_id:"C100" ()
+      in
+      let new_snap = Access_snapshot.get_by_id ~db new_snap_id in
+      match new_snap with
+      | None -> Alcotest.fail "new snapshot not found"
+      | Some ns ->
+          Alcotest.(check (list string))
+            "new snapshot has new_vip_tool"
+            [ "file_read"; "new_vip_tool" ]
+            ns.allowed_tools;
+          Alcotest.(check bool)
+            "snapshots have different config hashes" true
+            (s.config_hash <> ns.config_hash))
+
+let test_bg_task_denied_tools_immutable_after_config_change () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["tool_a"],
+         "denied_tools": ["dangerous_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Background_task ~session_key:"bg:task-denied"
+      ()
+  in
+  (* Config v2: allows the previously denied tool *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["tool_a", "dangerous_tool"],
+         "denied_tools": []}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let _cfg_v2 = parse json_v2 in
+  let snap = Access_snapshot.get_by_id ~db snap_id in
+  match snap with
+  | None -> Alcotest.fail "snapshot not found"
+  | Some s ->
+      Alcotest.(check (list string))
+        "denied_tools still has dangerous_tool" [ "dangerous_tool" ]
+        s.denied_tools;
+      Alcotest.(check (list string))
+        "allowed_tools does not include dangerous_tool" [ "tool_a" ]
+        s.allowed_tools
+
+let test_routine_mcp_servers_immutable_after_config_change () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "mcp_servers": ["srv-a", "srv-b"],
+         "skills": ["skill-a"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Routine ~session_key:"cron:sync" ()
+  in
+  let snap_before = Access_snapshot.get_by_id ~db snap_id in
+  let original_servers =
+    match snap_before with
+    | Some s -> s.mcp_servers
+    | None -> Alcotest.fail "routine snapshot not found"
+  in
+  Alcotest.(check (list string))
+    "mcp_servers before change" [ "srv-a"; "srv-b" ] original_servers;
+  Alcotest.(check (list string))
+    "skills before change" [ "skill-a" ] (Option.get snap_before).skills;
+  (* Config v2: removes one server and changes skills *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "base", "mcp_servers": ["srv-a"],
+         "skills": ["skill-b", "skill-c"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let _cfg_v2 = parse json_v2 in
+  let snap_after = Access_snapshot.get_by_id ~db snap_id in
+  match snap_after with
+  | None -> Alcotest.fail "routine snapshot disappeared"
+  | Some s ->
+      Alcotest.(check (list string))
+        "mcp_servers immutable" [ "srv-a"; "srv-b" ] s.mcp_servers;
+      Alcotest.(check (list string)) "skills immutable" [ "skill-a" ] s.skills
+
+let test_snapshot_preserves_instruction_digests_after_config_change () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  let json_v1 =
+    {|{
+      "access_bundles": [
+        {"id": "b1", "instructions": ["Be helpful", "Follow rules"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["b1"]}
+      ]
+    }|}
+  in
+  let cfg_v1 = parse json_v1 in
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v1
+      ~work_type:Access_snapshot.Background_task ~session_key:"bg:task-inst" ()
+  in
+  let snap_before = Access_snapshot.get_by_id ~db snap_id in
+  let original_digests =
+    match snap_before with
+    | Some s -> s.instruction_digests
+    | None -> Alcotest.fail "snapshot not found"
+  in
+  Alcotest.(check int) "2 digests before" 2 (List.length original_digests);
+  (* Config v2: changes instructions *)
+  let json_v2 =
+    {|{
+      "access_bundles": [
+        {"id": "b1", "instructions": ["New instructions only"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["b1"]}
+      ]
+    }|}
+  in
+  let _cfg_v2 = parse json_v2 in
+  let snap_after = Access_snapshot.get_by_id ~db snap_id in
+  match snap_after with
+  | None -> Alcotest.fail "snapshot disappeared"
+  | Some s ->
+      Alcotest.(check int)
+        "instruction digests count unchanged" 2
+        (List.length s.instruction_digests);
+      Alcotest.(check (list string))
+        "instruction digests identical" original_digests s.instruction_digests
+
 let suite =
   [
     Alcotest.test_case "create snapshot basic" `Quick test_create_snapshot_basic;
@@ -785,4 +1206,19 @@ let suite =
       test_snapshot_immutable_after_persist;
     Alcotest.test_case "redacted summary format" `Quick
       test_redacted_summary_format;
+    Alcotest.test_case "bg task snapshot immutable after config change" `Quick
+      test_bg_task_snapshot_immutable_after_config_change;
+    Alcotest.test_case "routine snapshot immutable after config change" `Quick
+      test_routine_snapshot_immutable_after_config_change;
+    Alcotest.test_case "concurrent tasks have independent snapshots" `Quick
+      test_concurrent_tasks_have_independent_snapshots;
+    Alcotest.test_case "snapshot reflects config at creation not retrieval"
+      `Quick test_snapshot_reflects_config_at_creation_not_retrieval;
+    Alcotest.test_case "bg task denied_tools immutable after config change"
+      `Quick test_bg_task_denied_tools_immutable_after_config_change;
+    Alcotest.test_case "routine mcp_servers immutable after config change"
+      `Quick test_routine_mcp_servers_immutable_after_config_change;
+    Alcotest.test_case
+      "snapshot preserves instruction digests after config change" `Quick
+      test_snapshot_preserves_instruction_digests_after_config_change;
   ]
