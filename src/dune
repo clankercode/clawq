@@ -178,6 +178,7 @@
   room_origin
   room_workspace
   room_activity_ledger
+  room_progress_checklist
   room_budget
   room_request_classifier
   daemon_status

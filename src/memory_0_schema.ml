@@ -1,4 +1,4 @@
-let schema_version = 37
+let schema_version = 39
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -653,6 +653,7 @@ let ensure_all_tables db =
   init_room_profiles_schema db;
   init_room_profile_bindings_schema db;
   init_room_activity_ledger_schema db;
+  Room_progress_checklist.init_schema db;
   Room_budget.init_schema db;
   init_scoped_memory_schema db
 
@@ -827,6 +828,7 @@ let migrate_step db v =
         "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \
          request_stats(profile_id, requested_at)"
   | 37 -> init_room_activity_ledger_schema db
+  | 38 -> Room_progress_checklist.init_schema db
   | 36 -> Room_budget.init_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
@@ -871,6 +873,7 @@ let repair_missing_columns db =
      request_stats(profile_id, requested_at)";
   init_connector_history_schema db;
   init_room_activity_ledger_schema db;
+  Room_progress_checklist.init_schema db;
   Room_budget.init_schema db;
   repair_room_profile_tables db;
   init_scoped_memory_schema db

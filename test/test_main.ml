@@ -53,6 +53,7 @@ let () =
        ("room_origin", Test_room_origin.suite);
        ("room_workspace", Test_room_workspace.suite);
        ("room_activity_ledger", Test_room_activity_ledger.suite);
+       ("room_progress_checklist", Test_room_progress_checklist.suite);
        ("room_stale_query", Test_room_stale_query.suite);
        ("room_watcher_decision", Test_room_watcher_decision.suite);
        ("room_ambient_delivery", Test_room_ambient_delivery.suite);
