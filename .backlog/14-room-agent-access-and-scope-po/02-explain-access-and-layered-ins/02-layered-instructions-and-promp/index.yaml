@@ -20,7 +20,8 @@ tasks:
       file: T001-add-scoped-instruction-records.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add scoped instruction records with provenance and edit policy
     - complexity: high
       depends_on:
