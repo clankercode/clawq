@@ -1,4 +1,6 @@
-# CLAUDE.md
+# Clawq -- an AI assistant for work and life
+
+Project name is "Clawq" (note casing)
 
 Agent instructions for this repository. Keep changes minimal, verifiable, and aligned with existing OCaml style.
 
