@@ -15,7 +15,7 @@ tasks:
       file: T001-implement-deterministic-scope.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement deterministic scope inheritance resolver
     - complexity: high
