@@ -94,6 +94,34 @@ let test_global_security_caps_codebase_grants () =
   assert_all_provenance "blocked codebase grant"
     effective.blocked_codebase_grants
 
+let test_inherited_grants_do_not_weaken_global_security () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/clawq-scope-root/**"]},
+      "access_bundles": [
+        {"id": "default", "codebase_grants": ["/tmp/outside-default/**"]},
+        {"id": "room", "codebase_grants": ["$CLAWQ_WORKSPACE/project/**", "/tmp/outside-room/**"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["default"]},
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["room"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "inherited workspace grant survives global ceiling"
+    [ "/tmp/clawq-scope-root/project/**" ]
+    (item_values effective.codebase_grants);
+  Alcotest.(check (list string))
+    "inherited outside grants stay blocked"
+    [ "/tmp/outside-default/**"; "/tmp/outside-room/**" ]
+    (item_values effective.blocked_codebase_grants)
+
 let test_memory_grants_are_direct_not_transitive () =
   let json =
     {|{
@@ -113,6 +141,78 @@ let test_memory_grants_are_direct_not_transitive () =
   Alcotest.(check (list string))
     "only direct memory grants are effective" [ "child" ]
     (item_values effective.memory_grants)
+
+let test_missing_memory_grants_default_to_no_access () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "empty"},
+        {"id": "unreferenced", "memory_grants": ["scope:secret:read"]}
+      ],
+      "access_scopes": [
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["empty"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "missing memory grants grant nothing" []
+    (item_values effective.memory_grants)
+
+let test_duplicate_bundle_references_merge_provenance_once () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "shared", "allowed_tools": ["shared_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["shared"]},
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["shared"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "duplicate bundle tool appears once" [ "shared_tool" ]
+    (item_values effective.allowed_tools);
+  let shared_item = List.hd effective.allowed_tools in
+  Alcotest.(check (list string))
+    "duplicate bundle provenance keeps both sources"
+    [
+      "default:default:allowed_tools";
+      "default:default:access_bundle_ids:shared:allowed_tools";
+      "room:room:allowed_tools";
+      "room:room:access_bundle_ids:shared:allowed_tools";
+    ]
+    (provenance_labels shared_item)
+
+let test_allow_and_deny_same_tool_denies () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "conflict", "allowed_tools": ["shell_exec"], "denied_tools": ["shell_exec"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["conflict"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "same-tool allow is removed" []
+    (item_values effective.allowed_tools);
+  Alcotest.(check (list string))
+    "same-tool deny remains explicit" [ "shell_exec" ]
+    (item_values effective.denied_tools)
 
 let test_room_scopes_do_not_cross_channel_boundaries () =
   let json =
@@ -138,6 +238,57 @@ let test_room_scopes_do_not_cross_channel_boundaries () =
   Alcotest.(check (list string))
     "different channel does not receive room grant" []
     (item_values discord.allowed_tools)
+
+let test_invalid_profile_and_room_references_grant_nothing () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "profile", "allowed_tools": ["profile_tool"]},
+        {"id": "room", "allowed_tools": ["room_tool"]}
+      ],
+      "room_profiles": [
+        {"id": "known", "model": "openai:gpt-5.4", "access_bundle_ids": ["profile"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "missing", "room": "C123", "active": true}
+      ],
+      "access_scopes": [
+        {"id": "other-room", "level": "room", "room": "C999", "access_bundle_ids": ["room"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "invalid profile and room refs grant no tools" []
+    (item_values effective.allowed_tools)
+
+let test_room_deny_overrides_workspace_allow () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "access_bundles": [
+        {"id": "workspace", "allowed_tools": ["deploy_tool"]},
+        {"id": "room", "allowed_tools": ["room_tool"], "denied_tools": ["deploy_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "workspace", "level": "workspace", "workspace": "/tmp/clawq-scope-root", "access_bundle_ids": ["workspace"]},
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["room"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "room deny removes inherited workspace allow" [ "room_tool" ]
+    (item_values effective.allowed_tools);
+  Alcotest.(check (list string))
+    "room deny remains visible" [ "deploy_tool" ]
+    (item_values effective.denied_tools)
 
 let test_missing_layer_selectors_are_not_wildcards () =
   let json =
@@ -282,10 +433,22 @@ let suite =
       test_layers_merge_deterministically_and_deny_wins;
     Alcotest.test_case "global security caps codebase grants" `Quick
       test_global_security_caps_codebase_grants;
+    Alcotest.test_case "inherited grants do not weaken global security" `Quick
+      test_inherited_grants_do_not_weaken_global_security;
     Alcotest.test_case "memory grants are direct" `Quick
       test_memory_grants_are_direct_not_transitive;
+    Alcotest.test_case "missing memory grants grant nothing" `Quick
+      test_missing_memory_grants_default_to_no_access;
+    Alcotest.test_case "duplicate bundle references merge once" `Quick
+      test_duplicate_bundle_references_merge_provenance_once;
+    Alcotest.test_case "allow and deny same tool denies" `Quick
+      test_allow_and_deny_same_tool_denies;
     Alcotest.test_case "room scopes do not cross channel boundaries" `Quick
       test_room_scopes_do_not_cross_channel_boundaries;
+    Alcotest.test_case "invalid profile and room references grant nothing"
+      `Quick test_invalid_profile_and_room_references_grant_nothing;
+    Alcotest.test_case "room deny overrides workspace allow" `Quick
+      test_room_deny_overrides_workspace_allow;
     Alcotest.test_case "missing layer selectors are not wildcards" `Quick
       test_missing_layer_selectors_are_not_wildcards;
     Alcotest.test_case "workspace scope expands tilde selector" `Quick
