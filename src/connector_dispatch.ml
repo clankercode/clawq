@@ -42,6 +42,37 @@ type dispatch_env = {
   send_formatted : string -> unit Lwt.t;
 }
 
+(* Derive a room-level session key from a connector session key by checking
+   if a room profile binding exists for any colon-separated segment after
+   the connector prefix. Different connectors place the room identifier at
+   different positions:
+   - Slack: slack:<channel>:<user>  (segment 2)
+   - Discord: discord:<channel>:<user>  (segment 2)
+   - Telegram: telegram:<chat>:<user>  (segment 2)
+   - Teams: teams:<team>:<conversation>  (segment 3, last)
+   If a binding exists, returns connector:room_id; otherwise returns the
+   original key. *)
+let room_access_key (cfg : Runtime_config.t) key =
+  let binding_exists room_id =
+    List.exists
+      (fun (b : Runtime_config.room_profile_binding) ->
+        b.active && b.room = room_id)
+      cfg.room_profile_bindings
+  in
+  match String.index_opt key ':' with
+  | Some i when i < String.length key - 1 ->
+      let connector_prefix = String.sub key 0 i in
+      let rest = String.sub key (i + 1) (String.length key - i - 1) in
+      let segments = String.split_on_char ':' rest in
+      let rec try_segments = function
+        | [] -> key
+        | seg :: rest_segments ->
+            if binding_exists seg then connector_prefix ^ ":" ^ seg
+            else try_segments rest_segments
+      in
+      try_segments segments
+  | _ -> key
+
 let followup_queue_ack = "Follow-up queued for after this turn."
 let followup_append_ack = "Queued follow-up updated."
 
@@ -422,6 +453,14 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       env.send_plain
         "Room memory commands are available via CLI: clawq rooms memory \
          <list|show|save> <room_id>"
+  | ExplainAccess ->
+      let cfg = Session.get_config session_mgr in
+      let access_key = room_access_key cfg key in
+      let explanation =
+        Access_explanation.create ~config:cfg ~session_key:access_key ()
+      in
+      let text = Access_explanation.to_text explanation in
+      env.send_formatted (Format_adapter.code_block connector text)
   (* Commands with per-connector behaviour are handled by each connector's own
      match and never routed here; treat as a no-op for totality. *)
   | Compact | Delegate _ | ForkAnd _ | AgentInvoke _ | Debate _ | BashRun _

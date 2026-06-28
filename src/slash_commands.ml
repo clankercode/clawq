@@ -296,6 +296,7 @@ let handle ?(skill_names = []) text =
             if !ok then Memories { oldest = !oldest; page = !page }
             else
               FormattedReply (fun connector -> format_memories_usage ~connector)
+        | "access" -> ExplainAccess
         | "tasks" -> (
             match args with
             | [ "full" ] -> TasksFull
