@@ -185,6 +185,8 @@ let rec result_to_string = function
       | Slash_commands.FollowupQueue message -> "Followup(" ^ message ^ ")"
       | Slash_commands.FollowupAppend message ->
           "FollowupAppend(" ^ message ^ ")")
+  | Slash_commands.RoomsMemory args ->
+      "RoomsMemory(" ^ String.concat "," args ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let rec result_eq a b =

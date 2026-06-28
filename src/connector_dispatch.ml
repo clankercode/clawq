@@ -418,6 +418,10 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       | None ->
           env.send_plain "Repository management is not available (no database)."
       )
+  | RoomsMemory _args ->
+      env.send_plain
+        "Room memory commands are available via CLI: clawq rooms memory \
+         <list|show|save> <room_id>"
   (* Commands with per-connector behaviour are handled by each connector's own
      match and never routed here; treat as a no-op for totality. *)
   | Compact | Delegate _ | ForkAnd _ | AgentInvoke _ | Debate _ | BashRun _

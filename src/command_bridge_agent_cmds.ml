@@ -1082,6 +1082,280 @@ let cmd_rooms_routine cfg args =
       \  disable <name>              Disable a room routine (admin-only)\n\
       \  trigger <name>              Trigger a room routine now (admin-only)"
 
+let cmd_rooms_memory (cfg : Runtime_config.t) args =
+  let db = get_db () in
+  let is_admin =
+    match Sys.getenv_opt "CLAWQ_ADMIN" with
+    | Some v -> v = "1" || v = "true"
+    | None -> false
+  in
+  let reconcile_error =
+    try
+      ignore (Memory.reconcile_room_profiles ~db ~config:cfg);
+      None
+    with exn ->
+      Some
+        (Printf.sprintf "Error reconciling room profile bindings: %s"
+           (Printexc.to_string exn))
+  in
+  let room_display_name room_id =
+    match Memory.get_room_profile_for_room ~db ~room_id with
+    | Some profile -> Printf.sprintf "%s (%s)" room_id profile.name
+    | None -> room_id
+  in
+  let get_room_binding ~room_id =
+    match reconcile_error with
+    | Some msg -> Error msg
+    | None -> Ok (Memory.get_room_profile_binding ~db ~room_id)
+  in
+  let attach_scope_profile_if_missing ~(scope : Memory.memory_scope) ~profile_id
+      =
+    match scope.profile_id with
+    | Some _ -> scope
+    | None ->
+        let stmt =
+          Sqlite3.prepare db
+            "UPDATE memory_scopes SET profile_id = ?, updated_at = \
+             datetime('now') WHERE id = ? AND profile_id IS NULL"
+        in
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore
+              (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int profile_id)));
+            ignore
+              (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int scope.id)));
+            match Sqlite3.step stmt with
+            | Sqlite3.Rc.DONE -> ()
+            | rc ->
+                failwith
+                  (Printf.sprintf "update room memory scope owner failed: %s"
+                     (Sqlite3.Rc.to_string rc)));
+        Option.value ~default:scope (Memory.get_scope ~db ~id:scope.id)
+  in
+  let ensure_room_scope ~room_id =
+    match get_room_binding ~room_id with
+    | Error msg -> Error msg
+    | Ok binding -> (
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:room_id with
+        | Some scope ->
+            let scope =
+              match binding with
+              | Some binding ->
+                  attach_scope_profile_if_missing ~scope
+                    ~profile_id:binding.profile_id
+              | None -> scope
+            in
+            Ok scope
+        | None -> (
+            match binding with
+            | Some binding ->
+                Ok
+                  (Memory.create_scope ~db ~kind:"room" ~key:room_id
+                     ~profile_id:binding.profile_id ~provenance:"cli" ())
+            | None when is_admin ->
+                Ok
+                  (Memory.create_scope ~db ~kind:"room" ~key:room_id
+                     ~provenance:"cli" ())
+            | None ->
+                Error
+                  (Printf.sprintf "No memory scope found for room '%s'." room_id)
+            ))
+  in
+  let check_grant ~room_id ~capability =
+    match get_room_binding ~room_id with
+    | Error msg -> Error msg
+    | Ok None -> (
+        (* No binding: check if scope exists and if grants allow access *)
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:room_id with
+        | None ->
+            Error
+              (Printf.sprintf "No memory scope found for room '%s'." room_id)
+        | Some scope ->
+            if is_admin then Ok scope
+            else
+              let grants =
+                Memory.resolve_grants ~db ~scope_id:scope.id
+                  ~principal_kind:"room" ~principal_id:room_id
+              in
+              if List.mem capability grants then Ok scope
+              else
+                Error
+                  (Printf.sprintf
+                     "Access denied: room '%s' does not have '%s' capability."
+                     room_id capability))
+    | Ok (Some binding) -> (
+        (* Has binding: owner has implicit access, or check grants *)
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:room_id with
+        | None ->
+            Error
+              (Printf.sprintf "No memory scope found for room '%s'." room_id)
+        | Some scope ->
+            let scope =
+              attach_scope_profile_if_missing ~scope
+                ~profile_id:binding.profile_id
+            in
+            if is_admin then Ok scope
+            else
+              let is_owner =
+                match scope.profile_id with
+                | Some profile_id -> profile_id = binding.profile_id
+                | None -> false
+              in
+              if is_owner then Ok scope
+              else
+                let grants =
+                  Memory.resolve_grants ~db ~scope_id:scope.id
+                    ~principal_kind:"profile"
+                    ~principal_id:(string_of_int binding.profile_id)
+                in
+                if List.mem capability grants then Ok scope
+                else
+                  Error
+                    (Printf.sprintf
+                       "Access denied: room '%s' does not have '%s' capability."
+                       room_id capability))
+  in
+  match args with
+  | [ "list"; room_id ] -> (
+      match check_grant ~room_id ~capability:"list" with
+      | Error msg -> msg
+      | Ok scope ->
+          let memories =
+            Memory.query_scoped_memories ~db ~scope_kind:"room"
+              ~scope_key:room_id ~limit:100 ()
+          in
+          if memories = [] then
+            Printf.sprintf "No memories found for room '%s'."
+              (room_display_name room_id)
+          else
+            let columns =
+              Table_format.
+                [
+                  { header = "ID"; align = Right; min_width = 4; flex = false };
+                  {
+                    header = "REFERENCE";
+                    align = Left;
+                    min_width = 12;
+                    flex = false;
+                  };
+                  {
+                    header = "CONTENT";
+                    align = Left;
+                    min_width = 20;
+                    flex = true;
+                  };
+                  {
+                    header = "PROVENANCE";
+                    align = Left;
+                    min_width = 8;
+                    flex = false;
+                  };
+                  {
+                    header = "UPDATED";
+                    align = Left;
+                    min_width = 16;
+                    flex = false;
+                  };
+                ]
+            in
+            let rows =
+              List.map
+                (fun (m : Memory.scoped_memory) ->
+                  let content_preview =
+                    match m.content with
+                    | Some c when String.length c > 80 ->
+                        String.sub c 0 80 ^ "..."
+                    | Some c -> c
+                    | None -> "(empty)"
+                  in
+                  [
+                    string_of_int m.id;
+                    m.reference;
+                    content_preview;
+                    m.provenance;
+                    m.updated_at;
+                  ])
+                memories
+            in
+            Format_adapter.bold Format_adapter.Plain
+              (Printf.sprintf "Room Memories: %s" (room_display_name room_id))
+            ^ "\n\n"
+            ^ Format_adapter.render_table Format_adapter.Plain ~max_width:100
+                columns rows)
+  | [ "show"; room_id; memory_id_str ] -> (
+      match check_grant ~room_id ~capability:"read" with
+      | Error msg -> msg
+      | Ok _scope -> (
+          match int_of_string_opt memory_id_str with
+          | None ->
+              Printf.sprintf "Error: '%s' is not a valid memory ID."
+                memory_id_str
+          | Some memory_id -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> room_id ->
+                  Printf.sprintf "Memory #%d does not belong to room '%s'."
+                    memory_id room_id
+              | Some m ->
+                  let lines = ref [] in
+                  let add s = lines := s :: !lines in
+                  add
+                    (Printf.sprintf "Room:       %s"
+                       (room_display_name room_id));
+                  add (Printf.sprintf "ID:         %d" m.id);
+                  add (Printf.sprintf "Reference:  %s" m.reference);
+                  add (Printf.sprintf "Provenance: %s" m.provenance);
+                  add (Printf.sprintf "Created:    %s" m.created_at);
+                  add (Printf.sprintf "Updated:    %s" m.updated_at);
+                  (match m.content with
+                  | Some c ->
+                      add "";
+                      add "--- Content ---";
+                      add c
+                  | None -> add "Content:    (empty)");
+                  (match m.redacted_at with
+                  | Some ts ->
+                      add "";
+                      add (Printf.sprintf "Redacted:   %s" ts);
+                      Option.iter
+                        (fun r -> add (Printf.sprintf "Reason:     %s" r))
+                        m.redaction_reason
+                  | None -> ());
+                  String.concat "\n" (List.rev !lines))))
+  | "save" :: room_id :: reference :: content_parts -> (
+      if reference = "" then "Error: memory reference is required."
+      else if content_parts = [] then "Error: memory content is required."
+      else
+        match ensure_room_scope ~room_id with
+        | Error msg -> msg
+        | Ok _scope -> (
+            match check_grant ~room_id ~capability:"write" with
+            | Error msg -> msg
+            | Ok scope -> (
+                let content = String.concat " " content_parts in
+                let provenance = if is_admin then "admin-cli" else "cli" in
+                try
+                  let m =
+                    Memory.upsert_scoped_memory ~db ~scope_id:scope.id
+                      ~reference ~content ~provenance ()
+                  in
+                  Printf.sprintf "Saved memory '%s' (ID: %d) for room '%s'."
+                    m.reference m.id
+                    (room_display_name room_id)
+                with exn ->
+                  Printf.sprintf "Error saving memory: %s"
+                    (Printexc.to_string exn))))
+  | "save" :: _ ->
+      "Usage: clawq rooms memory save <room_id> <reference> <content>"
+  | _ ->
+      "Usage: clawq rooms memory <list|show|save> <room_id> [args...]\n\n\
+       Subcommands:\n\
+      \  list <room_id>              List memories in a room scope\n\
+      \  show <room_id> <id>         Show details of a specific memory\n\
+      \  save <room_id> <ref> <content>\n\
+      \                              Save or update a room-scoped memory"
+
 let cmd_rooms args =
   let cfg = get_config () in
   match args with
@@ -1424,9 +1698,10 @@ let cmd_rooms args =
           let result = Ambient_inspection.inspect ~db ~cfg ~room_id () in
           Ambient_inspection.format_inspection result)
   | "routine" :: rest -> cmd_rooms_routine cfg rest
+  | "memory" :: rest -> cmd_rooms_memory cfg rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine>\n\n\
+       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine|memory>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
@@ -1445,7 +1720,9 @@ let cmd_rooms args =
        (admin-only)\n\
       \  unbind <room_id>            Remove room binding (preserves profile)\n\
       \  routine <create|list|show|edit|remove|enable|disable|trigger>   \
-       Manage room routines (admin-only)"
+       Manage room routines (admin-only)\n\
+      \  memory <list|show|save> <room_id> [args...]\n\
+      \                              Manage room-scoped memories"
 
 let cmd_rig args =
   match args with
