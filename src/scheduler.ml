@@ -33,6 +33,7 @@ type run = {
   profile_id : int option;
   thread_id : string option;
   routine_workspace_id : string option;
+  access_snapshot_id : string option;
 }
 
 let column_text_opt stmt idx =
@@ -121,7 +122,9 @@ let init_schema db =
      (e.g. an hourly cron that always emits "Nothing notable." because its
      config is empty) and disable the cron before it burns more tokens. *)
   (try exec "ALTER TABLE cron_runs ADD COLUMN bg_task_id INTEGER" with _ -> ());
-  try exec "ALTER TABLE cron_runs ADD COLUMN output_hash TEXT" with _ -> ()
+  (try exec "ALTER TABLE cron_runs ADD COLUMN output_hash TEXT" with _ -> ());
+  try exec "ALTER TABLE cron_runs ADD COLUMN access_snapshot_id TEXT"
+  with _ -> ()
 
 let parse_duration_seconds s =
   let len = String.length s in
@@ -332,15 +335,16 @@ let list_runs ~db ?job_name ~limit () =
     match job_name with
     | Some name ->
         ( "SELECT r.id, r.job_name, r.started_at, r.finished_at, r.status, \
-           r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id \
-           FROM cron_runs r LEFT JOIN cron_jobs j ON j.name = r.job_name WHERE \
-           r.job_name = ? ORDER BY r.id DESC LIMIT ?",
+           r.result_preview, j.profile_id, j.thread_id, \
+           j.routine_workspace_id, r.access_snapshot_id FROM cron_runs r LEFT \
+           JOIN cron_jobs j ON j.name = r.job_name WHERE r.job_name = ? ORDER \
+           BY r.id DESC LIMIT ?",
           [ Sqlite3.Data.TEXT name; Sqlite3.Data.INT (Int64.of_int limit) ] )
     | None ->
         ( "SELECT r.id, r.job_name, r.started_at, r.finished_at, r.status, \
-           r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id \
-           FROM cron_runs r LEFT JOIN cron_jobs j ON j.name = r.job_name ORDER \
-           BY r.id DESC LIMIT ?",
+           r.result_preview, j.profile_id, j.thread_id, \
+           j.routine_workspace_id, r.access_snapshot_id FROM cron_runs r LEFT \
+           JOIN cron_jobs j ON j.name = r.job_name ORDER BY r.id DESC LIMIT ?",
           [ Sqlite3.Data.INT (Int64.of_int limit) ] )
   in
   let stmt = Sqlite3.prepare db sql in
@@ -369,6 +373,7 @@ let list_runs ~db ?job_name ~limit () =
         let profile_id = column_int_opt stmt 6 in
         let thread_id = column_text_opt stmt 7 in
         let routine_workspace_id = column_text_opt stmt 8 in
+        let access_snapshot_id = try column_text_opt stmt 9 with _ -> None in
         runs :=
           {
             run_id;
@@ -380,6 +385,7 @@ let list_runs ~db ?job_name ~limit () =
             profile_id;
             thread_id;
             routine_workspace_id;
+            access_snapshot_id;
           }
           :: !runs
       done;
@@ -525,9 +531,9 @@ let toggle_job ~db ~name =
 let get_history ~db ~name ~limit =
   let sql =
     "SELECT r.id, r.job_name, r.started_at, r.finished_at, r.status, \
-     r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id FROM \
-     cron_runs r LEFT JOIN cron_jobs j ON j.name = r.job_name WHERE r.job_name \
-     = ? ORDER BY r.id DESC LIMIT ?"
+     r.result_preview, j.profile_id, j.thread_id, j.routine_workspace_id, \
+     r.access_snapshot_id FROM cron_runs r LEFT JOIN cron_jobs j ON j.name = \
+     r.job_name WHERE r.job_name = ? ORDER BY r.id DESC LIMIT ?"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -556,6 +562,7 @@ let get_history ~db ~name ~limit =
         let profile_id = column_int_opt stmt 6 in
         let thread_id = column_text_opt stmt 7 in
         let routine_workspace_id = column_text_opt stmt 8 in
+        let access_snapshot_id = try column_text_opt stmt 9 with _ -> None in
         runs :=
           {
             run_id;
@@ -567,18 +574,28 @@ let get_history ~db ~name ~limit =
             profile_id;
             thread_id;
             routine_workspace_id;
+            access_snapshot_id;
           }
           :: !runs
       done;
       List.rev !runs)
 
-let record_run_start ~db ~job_name =
-  let sql = "INSERT INTO cron_runs (job_name, status) VALUES (?, 'running')" in
+let record_run_start ~db ~job_name ?access_snapshot_id () =
+  let sql =
+    match access_snapshot_id with
+    | Some _ ->
+        "INSERT INTO cron_runs (job_name, status, access_snapshot_id) VALUES \
+         (?, 'running', ?)"
+    | None -> "INSERT INTO cron_runs (job_name, status) VALUES (?, 'running')"
+  in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
+      (match access_snapshot_id with
+      | Some sid -> ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT sid))
+      | None -> ());
       ignore (Sqlite3.step stmt);
       Int64.to_int (Sqlite3.last_insert_rowid db))
 
@@ -651,12 +668,23 @@ let effective_session_key ~db (job : job) : string * string =
                 routine_key profile.name);
           (routine_key, job.session_key))
 
-let trigger_job ~db ~name =
+let trigger_job ~db ?config ~name () =
   match get_job ~db ~name with
   | None -> Error (Printf.sprintf "No cron job found with name '%s'." name)
   | Some job -> (
-      let run_id = record_run_start ~db ~job_name:job.name in
-      let turn_key, delivery_key = effective_session_key ~db job in
+      let turn_key, _ = effective_session_key ~db job in
+      let access_snapshot_id =
+        match config with
+        | Some cfg ->
+            Some
+              (Access_snapshot.record_for_work ~db ~config:cfg
+                 ~work_type:Routine ~session_key:turn_key ())
+        | None -> None
+      in
+      let run_id =
+        record_run_start ~db ~job_name:job.name ?access_snapshot_id ()
+      in
+      let _, delivery_key = effective_session_key ~db job in
       let channel_info =
         Memory.get_session_channel ~db ~session_key:delivery_key
       in
@@ -886,7 +914,7 @@ let tick ~db ~session_mgr
           Logs.info (fun m ->
               m "Cron job %s: TTL expired, auto-disabling" job.name);
           expire_job ~db ~name:job.name;
-          let run_id = record_run_start ~db ~job_name:job.name in
+          let run_id = record_run_start ~db ~job_name:job.name () in
           record_run_finish ~db ~run_id ~status:"expired"
             ~result_preview:"Job TTL expired; auto-disabled.";
           Lwt.return_unit
@@ -898,7 +926,7 @@ let tick ~db ~session_mgr
               let last_run = get_last_run_time ~db ~job_name:job.name in
               if should_run sched ~last_run ~now then begin
                 if job.ephemeral then begin
-                  let run_id = record_run_start ~db ~job_name:job.name in
+                  let run_id = record_run_start ~db ~job_name:job.name () in
                   let turn_key, delivery_key = effective_session_key ~db job in
                   Logs.info (fun m ->
                       m
@@ -934,8 +962,17 @@ let tick ~db ~session_mgr
                 end
                 else begin
                   Hashtbl.replace in_flight_jobs job.name ();
-                  let run_id = record_run_start ~db ~job_name:job.name in
                   let turn_key, delivery_key = effective_session_key ~db job in
+                  let access_snapshot_id =
+                    Some
+                      (Access_snapshot.record_for_work ~db
+                         ~config:session_mgr.Session_core.config
+                         ~work_type:Routine ~session_key:turn_key ())
+                  in
+                  let run_id =
+                    record_run_start ~db ~job_name:job.name ?access_snapshot_id
+                      ()
+                  in
                   Logs.info (fun m ->
                       m "Cron job %s: starting turn for session %s" job.name
                         turn_key);

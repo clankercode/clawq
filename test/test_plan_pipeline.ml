@@ -147,6 +147,7 @@ let test_check_plan_stable_hash_unchanged () =
               thread_id = None;
               requester = None;
               progress_state = None;
+              access_snapshot_id = None;
             }
           in
           let stable =
@@ -205,6 +206,7 @@ let test_check_plan_stable_marker () =
               thread_id = None;
               requester = None;
               progress_state = None;
+              access_snapshot_id = None;
             }
           in
           let stable =
@@ -261,6 +263,7 @@ let test_stage_transitions () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -352,6 +355,7 @@ let test_stage_force_stop_at_max () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   with_temp_git_repo (fun repo ->

@@ -1661,6 +1661,7 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     thread_id = None;
     requester = None;
     progress_state = None;
+    access_snapshot_id = None;
   }
 
 let test_local_background_turn_template_persists_history_and_model () =

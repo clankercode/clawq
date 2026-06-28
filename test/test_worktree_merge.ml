@@ -57,6 +57,7 @@ let fake_task ?(automerge = false) ?(use_worktree = true) ?(merge_status = None)
     thread_id = None;
     requester = None;
     progress_state = None;
+    access_snapshot_id = None;
   }
 
 let test_schema_migration () =

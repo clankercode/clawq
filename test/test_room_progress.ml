@@ -42,6 +42,7 @@ let make_task ?(id = 1) ?(status = Running) ?(progress_state = None)
     thread_id;
     requester = None;
     progress_state;
+    access_snapshot_id = None;
   }
 
 let test_format_progress_message_working () =

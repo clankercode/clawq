@@ -73,6 +73,8 @@ let task_of_stmt stmt : task =
          | Sqlite3.Data.TEXT s -> progress_state_of_string s
          | _ -> None
        with _ -> None);
+    access_snapshot_id =
+      (try Sqlite3.column stmt 37 |> sql_text with _ -> None);
   }
 
 let init_schema db =
@@ -155,6 +157,7 @@ let init_schema db =
   try_alter "ALTER TABLE background_tasks ADD COLUMN thread_id TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN progress_state TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN access_snapshot_id TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -268,7 +271,8 @@ let background_task_actor ~runner ?agent_name ?requester ?session_key () =
   |> Option.value ~default:(string_of_runner runner)
 
 let record_background_task_event ~db ~event_type ~task_id ~runner ?session_key
-    ?channel ?channel_id ?origin_json ?agent_name ?requester metadata_fields =
+    ?channel ?channel_id ?origin_json ?agent_name ?requester ?access_snapshot_id
+    metadata_fields =
   match
     first_nonblank
       [
@@ -291,6 +295,9 @@ let record_background_task_event ~db ~event_type ~task_id ~runner ?session_key
           @ (match channel with
             | Some value -> [ ("channel", `String value) ]
             | None -> [])
+          @ (match access_snapshot_id with
+            | Some sid -> [ ("access_snapshot_id", `String sid) ]
+            | None -> [])
           @ metadata_fields)
       in
       try
@@ -307,7 +314,8 @@ let record_background_task_event_for_task ~db ~event_type metadata_fields
   record_background_task_event ~db ~event_type ~task_id:task.id
     ~runner:task.runner ?session_key:task.session_key ?channel:task.channel
     ?channel_id:task.channel_id ?origin_json:task.origin_json
-    ?agent_name:task.agent_name ?requester:task.requester metadata_fields
+    ?agent_name:task.agent_name ?requester:task.requester
+    ?access_snapshot_id:task.access_snapshot_id metadata_fields
 
 let record_notification_result ~db ~id ~status ?error () =
   if table_exists ~db ~name:"background_tasks" then
@@ -358,7 +366,7 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
     ?session_key ?channel ?channel_id ?parent_task_id ?agent_name
     ?follow_up_prompt ?description ?context_snapshot ?profile_id ?origin_json
-    ?thread_id ?requester () =
+    ?thread_id ?requester ?access_snapshot_id () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -369,8 +377,9 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
           "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
            branch, session_key, channel, channel_id, automerge, use_worktree, \
            parent_task_id, acp, agent_name, follow_up_prompt, description, \
-           context_snapshot, profile_id, origin_json, thread_id, requester) \
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+           context_snapshot, profile_id, origin_json, thread_id, requester, \
+           access_snapshot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+           ?, ?, ?, ?, ?, ?, ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -416,13 +425,14 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             bind_opt 18 origin_json;
             bind_opt 19 thread_id;
             bind_opt 20 requester;
+            bind_opt 21 access_snapshot_id;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
                 record_background_task_event ~db
                   ~event_type:"background_task_create" ~task_id:id ~runner
                   ?session_key ?channel ?channel_id ?origin_json ?agent_name
-                  ?requester
+                  ?requester ?access_snapshot_id
                   [ ("status", `String "queued") ];
                 signal_enqueue ();
                 Ok id
@@ -440,7 +450,7 @@ let select_columns =
    agent_name, notification_status, notification_error, \
    COALESCE(notification_attempts, 0), follow_up_prompt, description, \
    context_snapshot, profile_id, origin_json, thread_id, requester, \
-   progress_state"
+   progress_state, access_snapshot_id"
 
 let list_tasks ~db : task list =
   let sql =

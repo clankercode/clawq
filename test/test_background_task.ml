@@ -89,6 +89,7 @@ let fake_task ?(runner = Background_task.Codex)
     thread_id = None;
     requester = None;
     progress_state = None;
+    access_snapshot_id = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model ?agent_name
@@ -131,6 +132,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model ?agent_name
     thread_id = None;
     requester = None;
     progress_state = None;
+    access_snapshot_id = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -408,6 +410,7 @@ let test_command_of_task_codex () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -461,6 +464,7 @@ let test_command_of_task_claude () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -508,6 +512,7 @@ let test_command_of_task_kimi () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -555,6 +560,7 @@ let test_command_of_task_kimi_with_model () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -602,6 +608,7 @@ let test_command_of_task_gemini () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -649,6 +656,7 @@ let test_command_of_task_gemini_with_model () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -696,6 +704,7 @@ let test_command_of_task_opencode () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -743,6 +752,7 @@ let test_command_of_task_opencode_with_model () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -790,6 +800,7 @@ let test_command_of_task_cursor () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -837,6 +848,7 @@ let test_command_of_task_cursor_with_model () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -1850,6 +1862,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     thread_id = None;
     requester = None;
     progress_state = None;
+    access_snapshot_id = None;
   }
 
 let test_elapsed_string_recent () =
@@ -2062,6 +2075,7 @@ let test_command_of_task_codex_with_model () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -2117,6 +2131,7 @@ let test_command_of_task_claude_with_model () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -4131,6 +4146,7 @@ let test_terse_message_dirty_worktree () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -5618,6 +5634,7 @@ let test_effective_progress_state_room_origin () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   let opt = Alcotest.option Alcotest.string in
@@ -5673,6 +5690,7 @@ let test_effective_progress_state_non_room () =
       thread_id = None;
       requester = None;
       progress_state = None;
+      access_snapshot_id = None;
     }
   in
   let opt = Alcotest.option Alcotest.string in
@@ -5919,6 +5937,68 @@ let test_clear_progress_state () =
       Alcotest.(check (option string))
         "progress_state is None" None
         (Option.map Background_task.string_of_progress_state task.progress_state)
+
+let test_access_snapshot_id_on_enqueue () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  (* Enqueue with snapshot id *)
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Codex ~require_git:false
+        ~repo_path:"/tmp" ~prompt:"test" ~access_snapshot_id:"snap_123" ()
+    with
+    | Ok id -> id
+    | Error e -> Alcotest.fail ("enqueue failed: " ^ e)
+  in
+  (match Background_task.get_task ~db ~id with
+  | None -> Alcotest.fail "task not found"
+  | Some task ->
+      Alcotest.(check (option string))
+        "access_snapshot_id stored" (Some "snap_123") task.access_snapshot_id);
+  (* Enqueue without snapshot id *)
+  let id2 =
+    match
+      Background_task.enqueue ~db ~runner:Codex ~require_git:false
+        ~repo_path:"/tmp" ~prompt:"test2" ()
+    with
+    | Ok id -> id
+    | Error e -> Alcotest.fail ("enqueue failed: " ^ e)
+  in
+  match Background_task.get_task ~db ~id:id2 with
+  | None -> Alcotest.fail "task2 not found"
+  | Some task ->
+      Alcotest.(check (option string))
+        "access_snapshot_id is None" None task.access_snapshot_id
+
+let test_access_snapshot_id_in_ledger_metadata () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  Room_activity_ledger.init_schema db;
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Codex ~require_git:false
+        ~repo_path:"/tmp" ~prompt:"test" ~access_snapshot_id:"snap_ledger_456"
+        ~session_key:"slack:C123" ~channel_id:"C123" ()
+    with
+    | Ok id -> id
+    | Error e -> Alcotest.fail ("enqueue failed: " ^ e)
+  in
+  let events =
+    Room_activity_ledger.query ~db ~room_id:"C123"
+      ~event_type:"background_task_create" ()
+  in
+  match events with
+  | [] -> Alcotest.fail "expected ledger event"
+  | event :: _ ->
+      let open Yojson.Safe.Util in
+      let snap_id =
+        event.metadata |> member "access_snapshot_id" |> to_string_option
+      in
+      Alcotest.(check (option string))
+        "ledger has snapshot id" (Some "snap_ledger_456") snap_id;
+      (* Also verify task_id and runner are present *)
+      let task_id = event.metadata |> member "task_id" |> to_int in
+      Alcotest.(check int) "ledger task_id" id task_id
 
 let test_command_to_log_string () =
   let exec_result =
@@ -6621,6 +6701,10 @@ let suite =
     Alcotest.test_case "set progress state persists" `Quick
       test_set_progress_state_persists;
     Alcotest.test_case "clear progress state" `Quick test_clear_progress_state;
+    Alcotest.test_case "access_snapshot_id on enqueue" `Quick
+      test_access_snapshot_id_on_enqueue;
+    Alcotest.test_case "access_snapshot_id in ledger metadata" `Quick
+      test_access_snapshot_id_in_ledger_metadata;
     Alcotest.test_case "async_cmd_to_bg_launch delegate" `Quick
       test_async_cmd_to_bg_launch_delegate;
     Alcotest.test_case "async_cmd_to_bg_launch agent invoke" `Quick

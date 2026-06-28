@@ -173,7 +173,7 @@ let build_delegate_prompt ~automerge:_ ~goal =
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
     ?(automerge = true) ?(use_worktree = true) ?(acp = false)
     ?(allow_claude = true) ?follow_up_prompt ~db ?preferred_runner ?model
-    ?repo_path ?branch ~default_repo_path ~goal () =
+    ?repo_path ?branch ?access_snapshot_id ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -225,7 +225,7 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
                 ~automerge ~use_worktree ~acp ?follow_up_prompt
                 ~repo_path:chosen_repo_path ~prompt ?branch ?session_key
                 ?channel ?channel_id ?profile_id ?origin_json ?thread_id
-                ?requester ()
+                ?requester ?access_snapshot_id ()
             with
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))
@@ -781,7 +781,7 @@ let room_default_repo_path room_id =
     Returns [Ok bg_task_id] on success or [Error msg] on failure. *)
 let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
     ?preferred_runner ?agent_name ?thread_id ?model_override ?notify_cfg
-    ?(use_worktree = false) () =
+    ?(use_worktree = false) ?access_snapshot_id () =
   let profile_id =
     match Memory.get_room_profile_binding ~db ~room_id with
     | Some b -> Some b.profile_id
@@ -803,7 +803,7 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
         enqueue ~db ~runner:Local ~use_worktree ~require_git:false
           ~automerge:false ~repo_path:default_repo_path ~prompt:goal ?agent_name
           ?model:model_override ~session_key ?profile_id ?origin_json ?thread_id
-          ?requester ()
+          ?requester ?access_snapshot_id ()
       with
       | Ok id -> Ok id
       | Error msg -> Error msg)
@@ -815,7 +815,7 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
       match
         delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
           ~check_available:true ?preferred_runner ?model:model_override
-          ~default_repo_path ~goal ()
+          ?access_snapshot_id ~default_repo_path ~goal ()
       with
       | Ok (id, _runner, _repo) -> Ok id
       | Error msg -> Error msg)

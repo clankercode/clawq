@@ -530,7 +530,7 @@ let cmd_cron args =
       let db = get_db () in
       Scheduler.init_schema db;
       Background_task.init_schema db;
-      match Scheduler.trigger_job ~db ~name with
+      match Scheduler.trigger_job ~db ~name () with
       | Ok task_id ->
           Printf.sprintf
             "Triggered cron job '%s' — enqueued as background task %d.\n\
