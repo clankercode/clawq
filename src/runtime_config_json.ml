@@ -1033,6 +1033,26 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                                    (fun r -> `String r)
                                    bundle.repositories) );
                           ])
+                     @ (if bundle.repo_grants = [] then []
+                        else
+                          [
+                            ( "repo_grants",
+                              `List
+                                (List.map
+                                   (fun (rg : repo_grant) ->
+                                     `Assoc
+                                       [
+                                         ("repo", `String rg.repo);
+                                         ( "capabilities",
+                                           `List
+                                             (List.map
+                                                (fun c ->
+                                                  `String
+                                                    (repo_capability_to_string c))
+                                                rg.capabilities) );
+                                       ])
+                                   bundle.repo_grants) );
+                          ])
                      @ (if bundle.domains = [] then []
                         else
                           [

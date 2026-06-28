@@ -183,6 +183,7 @@ let test_credential_handle_validate_refs () =
             mcp_servers = [];
             skills = [];
             repositories = [];
+            repo_grants = [];
             domains = [];
             credential_handles = [ "valid-handle"; "missing-handle" ];
             instructions = [];

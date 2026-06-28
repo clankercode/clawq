@@ -502,6 +502,31 @@ let unique_strings items =
 let access_bundle_active (bundle : access_bundle) =
   String.lowercase_ascii bundle.status <> "deleted"
 
+let repo_grant_to_json_string (rg : repo_grant) : string =
+  let caps =
+    rg.capabilities |> List.map (fun c -> `String (repo_capability_to_string c))
+  in
+  Yojson.Safe.to_string
+    (`Assoc [ ("repo", `String rg.repo); ("capabilities", `List caps) ])
+
+let repo_to_read_only_grant_json_string repo : string =
+  Yojson.Safe.to_string
+    (`Assoc
+       [ ("repo", `String repo); ("capabilities", `List [ `String "read" ]) ])
+
+let repo_grant_of_json_string s : repo_grant option =
+  try
+    let json = Yojson.Safe.from_string s in
+    let open Yojson.Safe.Util in
+    let repo = json |> member "repo" |> to_string in
+    let capabilities =
+      json |> member "capabilities" |> to_list
+      |> List.filter_map (fun j ->
+          repo_capability_of_string (Yojson.Safe.Util.to_string j))
+    in
+    Some { repo; capabilities }
+  with _ -> None
+
 let find_access_bundle cfg id =
   List.find_opt
     (fun (bundle : access_bundle) ->
@@ -561,6 +586,7 @@ let legacy_access_bundle_for_profile (cfg : t) (profile : room_profile) =
          mcp_servers = [];
          skills = [];
          repositories = [];
+         repo_grants = [];
          domains = [];
          credential_handles = [];
          instructions = [];
@@ -774,6 +800,64 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
           (get bundle))
     |> merge_effective_items
   in
+  let collect_repo_grants () =
+    (* Phase 1: gather all repo grants from all bundles, keyed by repo.
+       Explicit repo_grants suppress legacy repositories for the same repo. *)
+    let repo_table :
+        ( string,
+          repo_capability list * (string * string * string) list )
+        Hashtbl.t =
+      Hashtbl.create 16
+    in
+    let repo_order = ref [] in
+    List.iter
+      (fun (layer, source_id, (bundle : access_bundle)) ->
+        let provenance_entry = (layer, source_id, bundle.id) in
+        (* Explicit repo_grants *)
+        List.iter
+          (fun (rg : repo_grant) ->
+            let existing_caps, existing_prov =
+              Option.value ~default:([], [])
+                (Hashtbl.find_opt repo_table rg.repo)
+            in
+            if not (Hashtbl.mem repo_table rg.repo) then
+              repo_order := !repo_order @ [ rg.repo ];
+            Hashtbl.replace repo_table rg.repo
+              ( unique_strings (existing_caps @ rg.capabilities),
+                existing_prov @ [ provenance_entry ] ))
+          bundle.repo_grants;
+        (* Legacy repositories: only if repo not already covered *)
+        List.iter
+          (fun repo ->
+            if not (Hashtbl.mem repo_table repo) then begin
+              repo_order := !repo_order @ [ repo ];
+              Hashtbl.add repo_table repo ([ Read ], [ provenance_entry ])
+            end)
+          bundle.repositories)
+      bundles;
+    (* Phase 2: convert to effective_access_items with merged provenance *)
+    !repo_order
+    |> List.filter_map (fun repo ->
+        match Hashtbl.find_opt repo_table repo with
+        | None -> None
+        | Some (caps, prov_entries) ->
+            let value =
+              repo_grant_to_json_string { repo; capabilities = caps }
+            in
+            let provenance =
+              prov_entries
+              |> List.concat_map (fun (layer, source_id, bundle_id) ->
+                  [
+                    { layer; source_id; field = "repo_grants" };
+                    {
+                      layer;
+                      source_id = source_id ^ ":access_bundle_ids:" ^ bundle_id;
+                      field = "repo_grants";
+                    };
+                  ])
+            in
+            Some ({ value; provenance } : effective_access_item))
+  in
   let denied_tools = collect "denied_tools" (fun b -> b.denied_tools) in
   let denied_tool_values = List.map (fun item -> item.value) denied_tools in
   let allowed_tools =
@@ -831,6 +915,7 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
     mcp_servers = collect "mcp_servers" (fun b -> b.mcp_servers);
     skills = collect "skills" (fun b -> b.skills);
     repositories = collect "repositories" (fun b -> b.repositories);
+    repo_grants = collect_repo_grants ();
     domains = collect "domains" (fun b -> b.domains);
     credential_handles =
       collect "credential_handles" (fun b -> b.credential_handles);

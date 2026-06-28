@@ -1228,6 +1228,57 @@ let test_snapshot_preserves_instruction_digests_after_config_change () =
         "different config hashes" true
         (s.config_hash <> Access_snapshot.config_hash cfg_v2)
 
+let test_repo_grants_persist_and_roundtrip () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Access_snapshot.init_schema db;
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "gh",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "pr"]},
+            {"repo": "acme/infra", "capabilities": ["read", "workflow-trigger"]}
+          ],
+          "repositories": ["acme/legacy"]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["gh"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let snap =
+    Access_snapshot.create ~config:cfg ~work_type:Room_turn
+      ~session_key:"slack:C1" ()
+  in
+  Alcotest.(check int) "3 repo_grants" 3 (List.length snap.repo_grants);
+  Alcotest.(check (list string))
+    "legacy repo" [ "acme/legacy" ] snap.repositories;
+  Access_snapshot.persist ~db snap;
+  match Access_snapshot.get_by_id ~db snap.id with
+  | None -> Alcotest.fail "snapshot not found"
+  | Some found ->
+      Alcotest.(check int)
+        "roundtrip repo_grants" 3
+        (List.length found.repo_grants);
+      Alcotest.(check (list string))
+        "roundtrip repositories" [ "acme/legacy" ] found.repositories;
+      let open Yojson.Safe.Util in
+      let json_out = Access_snapshot.to_json found in
+      let rg_list = json_out |> member "repo_grants" |> to_list in
+      Alcotest.(check int) "json repo_grants count" 3 (List.length rg_list);
+      Alcotest.(check bool)
+        "summary has repo_grants" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "repo_grants:")
+                found.redacted_summary 0);
+           true
+         with Not_found -> false)
+
 let suite =
   [
     Alcotest.test_case "create snapshot basic" `Quick test_create_snapshot_basic;
@@ -1295,4 +1346,6 @@ let suite =
     Alcotest.test_case
       "snapshot preserves instruction digests after config change" `Quick
       test_snapshot_preserves_instruction_digests_after_config_change;
+    Alcotest.test_case "repo grants persist and roundtrip" `Quick
+      test_repo_grants_persist_and_roundtrip;
   ]

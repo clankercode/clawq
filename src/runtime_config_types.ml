@@ -564,61 +564,43 @@ type credential_handle = {
     snapshots, logs, the ledger, or worker sandboxes. Only the handle ID is
     referenced by access bundles and effective access. *)
 
-type instruction_edit_policy =
-  | Locked
-      (** Instruction cannot be modified or removed by non-admin actors. *)
-  | Admin_only  (** Only admin-scoped bundles may modify this instruction. *)
-  | Open  (** Any bundle in the scope chain may override or remove. *)
+type repo_capability =
+  | Read
+  | Comment
+  | Branch
+  | Pr
+  | Workflow_read
+  | Workflow_trigger
+      (** Fine-grained capability for a GitHub repository grant. *)
 
-let instruction_edit_policy_to_string = function
-  | Locked -> "locked"
-  | Admin_only -> "admin_only"
-  | Open -> "open"
+let repo_capability_to_string = function
+  | Read -> "read"
+  | Comment -> "comment"
+  | Branch -> "branch"
+  | Pr -> "pr"
+  | Workflow_read -> "workflow-read"
+  | Workflow_trigger -> "workflow-trigger"
 
-let instruction_edit_policy_of_string = function
-  | "locked" -> Some Locked
-  | "admin_only" -> Some Admin_only
-  | "open" -> Some Open
+let repo_capability_of_string = function
+  | "read" -> Some Read
+  | "comment" -> Some Comment
+  | "branch" -> Some Branch
+  | "pr" -> Some Pr
+  | "workflow-read" -> Some Workflow_read
+  | "workflow-trigger" -> Some Workflow_trigger
   | _ -> None
 
-type instruction_record = {
-  text : string;  (** The instruction content itself. *)
-  source_scope : string;
-      (** Scope level that originated this instruction (default, workspace,
-          channel, room). *)
-  author : string option;
-      (** Optional author/admin identity that created or last modified this
-          instruction. None means system-inherited or anonymous. *)
-  enabled : bool;
-      (** Whether this instruction is active. Disabled instructions are
-          preserved in config but not resolved into effective_access. *)
-  digest : string option;
-      (** SHA-256 hex digest of [text]. Auto-computed on load when None; used
-          for change detection and snapshot integrity. *)
-  locked : bool;
-      (** Convenience flag: true iff [edit_policy] is [Locked] or [Admin_only].
-          Exposed for quick checks without matching. *)
-  edit_policy : instruction_edit_policy;
-      (** Who may modify or remove this instruction. *)
+let all_repo_capabilities =
+  [ Read; Comment; Branch; Pr; Workflow_read; Workflow_trigger ]
+
+type repo_grant = {
+  repo : string;  (** Repository pattern, e.g. "owner/repo" or "owner/*". *)
+  capabilities : repo_capability list;
+      (** Capabilities granted for this repository. An empty list means no
+          capabilities are granted. *)
 }
-
-let default_instruction_record ~text () =
-  {
-    text;
-    source_scope = "default";
-    author = None;
-    enabled = true;
-    digest = None;
-    locked = false;
-    edit_policy = Open;
-  }
-
-let instruction_record_digest (ir : instruction_record) : string =
-  match ir.digest with
-  | Some d -> d
-  | None -> Digestif.SHA256.(digest_string ir.text |> to_hex)
-
-let instruction_record_is_active (ir : instruction_record) = ir.enabled
+(** A repo grant attaches a set of capabilities to a repository pattern within
+    an access bundle. *)
 
 type access_bundle = {
   id : string;
@@ -630,6 +612,11 @@ type access_bundle = {
   mcp_servers : string list;
   skills : string list;
   repositories : string list;
+      (** Deprecated: use [repo_grants] for fine-grained capability control.
+          Legacy string entries are treated as read-only repo grants during
+          effective-access resolution. *)
+  repo_grants : repo_grant list;
+      (** GitHub repository grants with fine-grained capabilities. *)
   domains : string list;
   credential_handles : string list;
   instructions : instruction_record list;
@@ -672,6 +659,10 @@ type effective_access = {
   mcp_servers : effective_access_item list;
   skills : effective_access_item list;
   repositories : effective_access_item list;
+      (** Legacy repository names (read-only). *)
+  repo_grants : effective_access_item list;
+      (** Repository grants with capabilities. Each value is a JSON object
+          string: {"repo":"owner/repo","capabilities":[...]}. *)
   domains : effective_access_item list;
   credential_handles : effective_access_item list;
   instructions : effective_access_item list;

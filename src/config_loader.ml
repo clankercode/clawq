@@ -1046,73 +1046,26 @@ let parse_config ?(resolve_secrets = true) json =
           let status =
             try b |> member "status" |> to_string with _ -> "active"
           in
-          let parse_instructions b : Runtime_config.instruction_record list =
-            match Yojson.Safe.Util.member "instructions" b with
-            | `List items ->
-                List.filter_map
-                  (fun item ->
-                    match item with
-                    | `String text ->
-                        (* Legacy plain-string format: wrap in a default
-                           record with "default" scope and Open policy. *)
-                        Some
-                          (Runtime_config.default_instruction_record ~text ())
-                    | `Assoc _fields ->
-                        let open Yojson.Safe.Util in
-                        let text =
-                          try item |> member "text" |> to_string with _ -> ""
-                        in
-                        if text = "" then None
-                        else
-                          let source_scope =
-                            try item |> member "source_scope" |> to_string
-                            with _ -> "default"
-                          in
-                          let author =
-                            try Some (item |> member "author" |> to_string)
-                            with _ -> None
-                          in
-                          let enabled =
-                            try item |> member "enabled" |> to_bool
-                            with _ -> true
-                          in
-                          let digest =
-                            match
-                              try Some (item |> member "digest" |> to_string)
-                              with _ -> None
-                            with
-                            | Some _ as d -> d
-                            | None ->
-                                Some
-                                  Digestif.SHA256.(digest_string text |> to_hex)
-                          in
-                          let edit_policy =
-                            try
-                              item |> member "edit_policy" |> to_string
-                              |> Runtime_config
-                                 .instruction_edit_policy_of_string
-                              |> Option.value ~default:Runtime_config.Open
-                            with _ -> Runtime_config.Open
-                          in
-                          let locked =
-                            match edit_policy with
-                            | Runtime_config.Locked | Admin_only -> true
-                            | Open -> false
-                          in
-                          Some
-                            ({
-                               text;
-                               source_scope;
-                               author;
-                               enabled;
-                               digest;
-                               locked;
-                               edit_policy;
-                             }
-                              : Runtime_config.instruction_record)
-                    | _ -> None)
-                  items
-            | _ -> []
+          let repo_grants =
+            try
+              b |> member "repo_grants" |> to_list
+              |> List.filter_map (fun g ->
+                  let repo =
+                    try Some (g |> member "repo" |> to_string) with _ -> None
+                  in
+                  let capabilities =
+                    try
+                      g |> member "capabilities" |> to_list
+                      |> List.filter_map (fun c ->
+                          Runtime_config.repo_capability_of_string (to_string c))
+                    with _ -> []
+                  in
+                  match repo with
+                  | Some r ->
+                      Some
+                        ({ repo = r; capabilities } : Runtime_config.repo_grant)
+                  | None -> None)
+            with _ -> []
           in
           ({
              id;
@@ -1124,6 +1077,7 @@ let parse_config ?(resolve_secrets = true) json =
              mcp_servers = string_list b "mcp_servers";
              skills = string_list b "skills";
              repositories = string_list b "repositories";
+             repo_grants;
              domains = string_list b "domains";
              credential_handles = string_list b "credential_handles";
              instructions = parse_instructions b;

@@ -1213,6 +1213,7 @@ let test_room_profiles_roundtrip () =
             mcp_servers = [];
             skills = [];
             repositories = [];
+            repo_grants = [];
             domains = [];
             credential_handles = [ "github-app:main" ];
             instructions = [];

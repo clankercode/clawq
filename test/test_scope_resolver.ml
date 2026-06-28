@@ -426,25 +426,20 @@ let test_invalid_scope_bundle_denies_scope_grants () =
     "invalid scope bundle reference suppresses all scope grants" []
     (item_values effective.allowed_tools)
 
-let test_instruction_records_carry_metadata_through_resolution () =
+let test_repo_grants_attach_to_bundle () =
   let json =
     {|{
       "access_bundles": [
         {
-          "id": "admin",
-          "instructions": [
-            {
-              "text": "Always greet the user",
-              "source_scope": "workspace",
-              "author": "admin@example.com",
-              "enabled": true,
-              "edit_policy": "admin_only"
-            }
+          "id": "dev",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "branch"]},
+            {"repo": "acme/lib", "capabilities": ["read", "pr"]}
           ]
         }
       ],
       "access_scopes": [
-        {"id": "default", "level": "default", "access_bundle_ids": ["admin"]}
+        {"id": "default", "level": "default", "access_bundle_ids": ["dev"]}
       ]
     }|}
   in
@@ -452,65 +447,21 @@ let test_instruction_records_carry_metadata_through_resolution () =
   let effective =
     Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
   in
-  (* Text-only view still works *)
-  Alcotest.(check (list string))
-    "instruction text in text view"
-    [ "Always greet the user" ]
-    (item_values effective.instructions);
-  (* Full record view is populated *)
-  Alcotest.(check int)
-    "instruction_items count" 1
-    (List.length effective.instruction_items);
-  let item = List.hd effective.instruction_items in
-  Alcotest.(check string)
-    "instruction text" "Always greet the user"
-    item.instruction.Runtime_config.text;
-  Alcotest.(check string)
-    "source_scope" "workspace" item.instruction.Runtime_config.source_scope;
-  Alcotest.(check (option string))
-    "author" (Some "admin@example.com") item.instruction.Runtime_config.author;
-  Alcotest.(check bool) "enabled" true item.instruction.Runtime_config.enabled;
-  Alcotest.(check bool) "locked" true item.instruction.Runtime_config.locked;
-  (match item.instruction.Runtime_config.edit_policy with
-  | Runtime_config.Admin_only -> ()
-  | _ -> Alcotest.fail "expected Admin_only edit_policy");
-  Alcotest.(check bool) "provenance non-empty" true (item.provenance <> [])
+  let grant_values = item_values effective.repo_grants in
+  Alcotest.(check int) "two repo grants" 2 (List.length grant_values);
+  let first = List.nth grant_values 0 in
+  Alcotest.(check bool)
+    "first grant contains repo" true
+    (String.contains first 'a');
+  assert_all_provenance "repo grant" effective.repo_grants
 
-let test_disabled_instructions_are_filtered () =
-  let json =
-    {|{
-      "access_bundles": [
-        {
-          "id": "mixed",
-          "instructions": [
-            {"text": "active instruction", "enabled": true},
-            {"text": "disabled instruction", "enabled": false}
-          ]
-        }
-      ],
-      "access_scopes": [
-        {"id": "default", "level": "default", "access_bundle_ids": ["mixed"]}
-      ]
-    }|}
-  in
-  let cfg = parse json in
-  let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
-  in
-  Alcotest.(check (list string))
-    "only enabled instruction text" [ "active instruction" ]
-    (item_values effective.instructions);
-  Alcotest.(check int)
-    "only enabled instruction_items" 1
-    (List.length effective.instruction_items)
-
-let test_legacy_string_instructions_parse_to_records () =
+let test_legacy_repositories_become_read_only_repo_grants () =
   let json =
     {|{
       "access_bundles": [
         {
           "id": "legacy",
-          "instructions": ["old style instruction"]
+          "repositories": ["acme/old-repo"]
         }
       ],
       "access_scopes": [
@@ -523,111 +474,27 @@ let test_legacy_string_instructions_parse_to_records () =
     Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
   in
   Alcotest.(check (list string))
-    "legacy instruction text"
-    [ "old style instruction" ]
-    (item_values effective.instructions);
+    "legacy repositories" [ "acme/old-repo" ]
+    (item_values effective.repositories);
   Alcotest.(check int)
-    "instruction_items count" 1
-    (List.length effective.instruction_items);
-  let item = List.hd effective.instruction_items in
-  Alcotest.(check string)
-    "default source_scope" "default"
-    item.instruction.Runtime_config.source_scope;
-  Alcotest.(check bool)
-    "default enabled" true item.instruction.Runtime_config.enabled;
-  Alcotest.(check bool)
-    "default not locked" false item.instruction.Runtime_config.locked;
-  match item.instruction.Runtime_config.edit_policy with
-  | Runtime_config.Open -> ()
-  | _ -> Alcotest.fail "expected Open edit_policy for legacy"
+    "one repo grant from legacy" 1
+    (List.length effective.repo_grants);
+  assert_all_provenance "repo grant" effective.repo_grants
 
-let test_instruction_digest_is_computed () =
-  let ir = Runtime_config.default_instruction_record ~text:"hello world" () in
-  let digest = Runtime_config.instruction_record_digest ir in
-  Alcotest.(check bool)
-    "digest is non-empty hex" true
-    (String.length digest = 64);
-  (* Same text gives same digest *)
-  Alcotest.(check string)
-    "deterministic digest" digest
-    (Runtime_config.instruction_record_digest ir)
-
-let test_instruction_locked_reflects_edit_policy () =
-  let ir_locked =
-    {
-      (Runtime_config.default_instruction_record ~text:"a" ()) with
-      edit_policy = Locked;
-      locked = true;
-    }
-  in
-  let ir_admin =
-    {
-      (Runtime_config.default_instruction_record ~text:"b" ()) with
-      edit_policy = Admin_only;
-      locked = true;
-    }
-  in
-  let ir_open =
-    {
-      (Runtime_config.default_instruction_record ~text:"c" ()) with
-      edit_policy = Open;
-      locked = false;
-    }
-  in
-  Alcotest.(check bool)
-    "locked is active" true
-    (Runtime_config.instruction_record_is_active ir_locked);
-  Alcotest.(check bool)
-    "admin_only is active" true
-    (Runtime_config.instruction_record_is_active ir_admin);
-  Alcotest.(check bool)
-    "open is active" true
-    (Runtime_config.instruction_record_is_active ir_open);
-  Alcotest.(check string)
-    "locked to_string" "locked"
-    (Runtime_config.instruction_edit_policy_to_string Locked);
-  Alcotest.(check string)
-    "admin_only to_string" "admin_only"
-    (Runtime_config.instruction_edit_policy_to_string Admin_only);
-  Alcotest.(check string)
-    "open to_string" "open"
-    (Runtime_config.instruction_edit_policy_to_string Open);
-  let check_policy label expected actual =
-    match actual with
-    | Some p when p = expected -> ()
-    | Some _ -> Alcotest.fail (label ^ ": wrong policy")
-    | None -> Alcotest.fail (label ^ ": expected Some, got None")
-  in
-  check_policy "locked roundtrip" Runtime_config.Locked
-    (Runtime_config.instruction_edit_policy_of_string "locked");
-  check_policy "admin_only roundtrip" Runtime_config.Admin_only
-    (Runtime_config.instruction_edit_policy_of_string "admin_only");
-  check_policy "open roundtrip" Runtime_config.Open
-    (Runtime_config.instruction_edit_policy_of_string "open");
-  Alcotest.(check bool)
-    "invalid returns None" true
-    (Runtime_config.instruction_edit_policy_of_string "bogus" = None)
-
-let test_instruction_records_from_multiple_bundles_merge () =
+let test_explicit_repo_grants_take_precedence_over_legacy () =
   let json =
     {|{
       "access_bundles": [
         {
-          "id": "base",
-          "instructions": [
-            {"text": "base instruction", "source_scope": "default"}
-          ]
-        },
-        {
-          "id": "room",
-          "instructions": [
-            {"text": "room instruction", "source_scope": "room", "author": "room-admin"}
+          "id": "mixed",
+          "repositories": ["acme/app"],
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "pr"]}
           ]
         }
       ],
       "access_scopes": [
-        {"id": "default", "level": "default", "access_bundle_ids": ["base"]},
-        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["room"]}
+        {"id": "default", "level": "default", "access_bundle_ids": ["mixed"]}
       ]
     }|}
   in
@@ -635,28 +502,134 @@ let test_instruction_records_from_multiple_bundles_merge () =
   let effective =
     Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
   in
-  Alcotest.(check (list string))
-    "both instruction texts"
-    [ "base instruction"; "room instruction" ]
-    (item_values effective.instructions);
   Alcotest.(check int)
-    "instruction_items count" 2
-    (List.length effective.instruction_items);
-  let room_item =
-    List.find
-      (fun (i : Runtime_config.effective_instruction_item) ->
-        i.instruction.Runtime_config.text = "room instruction")
-      effective.instruction_items
+    "one repo grant (not duplicated)" 1
+    (List.length effective.repo_grants);
+  Alcotest.(check (list string))
+    "legacy repositories preserved" [ "acme/app" ]
+    (item_values effective.repositories)
+
+let test_room_repo_grants_override_default () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "default-grants",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read"]}
+          ]
+        },
+        {
+          "id": "room-grants",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "branch", "pr"]},
+            {"repo": "acme/infra", "capabilities": ["read", "workflow-trigger"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["default-grants"]},
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["room-grants"]}
+      ]
+    }|}
   in
-  Alcotest.(check string)
-    "room instruction scope" "room"
-    room_item.instruction.Runtime_config.source_scope;
-  Alcotest.(check (option string))
-    "room instruction author" (Some "room-admin")
-    room_item.instruction.Runtime_config.author;
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int)
+    "room grants merged" 2
+    (List.length effective.repo_grants);
+  assert_all_provenance "repo grant" effective.repo_grants
+
+let test_repo_grant_capabilities_all_six () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "full",
+          "repo_grants": [
+            {
+              "repo": "acme/everything",
+              "capabilities": [
+                "read", "comment", "branch", "pr",
+                "workflow-read", "workflow-trigger"
+              ]
+            }
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["full"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int) "one full grant" 1 (List.length effective.repo_grants);
+  let grant_value = List.hd (item_values effective.repo_grants) in
+  List.iter
+    (fun cap ->
+      Alcotest.(check bool)
+        ("grant contains " ^ cap) true
+        (try
+           ignore (Str.search_forward (Str.regexp_string cap) grant_value 0);
+           true
+         with Not_found -> false))
+    [ "read"; "comment"; "branch"; "pr"; "workflow-read"; "workflow-trigger" ]
+
+let test_empty_repo_grants_grant_nothing () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "empty", "repo_grants": []}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["empty"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int) "empty repo grants" 0 (List.length effective.repo_grants);
+  Alcotest.(check int)
+    "empty repositories" 0
+    (List.length effective.repositories)
+
+let test_repo_grant_empty_capabilities_grants_no_caps () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "nocaps",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": []}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["nocaps"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int)
+    "one grant with empty caps" 1
+    (List.length effective.repo_grants);
+  let grant_value = List.hd (item_values effective.repo_grants) in
   Alcotest.(check bool)
-    "room instruction provenance" true
-    (room_item.provenance <> [])
+    "empty capabilities" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "[]") grant_value 0);
+       true
+     with Not_found -> false)
 
 let suite =
   [
@@ -690,16 +663,18 @@ let suite =
       `Quick test_invalid_profile_bundle_denies_effective_profile_grants;
     Alcotest.test_case "invalid scope bundle denies scope grants" `Quick
       test_invalid_scope_bundle_denies_scope_grants;
-    Alcotest.test_case "instruction records carry metadata" `Quick
-      test_instruction_records_carry_metadata_through_resolution;
-    Alcotest.test_case "disabled instructions are filtered" `Quick
-      test_disabled_instructions_are_filtered;
-    Alcotest.test_case "legacy string instructions parse to records" `Quick
-      test_legacy_string_instructions_parse_to_records;
-    Alcotest.test_case "instruction digest is computed" `Quick
-      test_instruction_digest_is_computed;
-    Alcotest.test_case "instruction locked reflects edit policy" `Quick
-      test_instruction_locked_reflects_edit_policy;
-    Alcotest.test_case "instruction records from multiple bundles merge" `Quick
-      test_instruction_records_from_multiple_bundles_merge;
+    Alcotest.test_case "repo grants attach to bundle" `Quick
+      test_repo_grants_attach_to_bundle;
+    Alcotest.test_case "legacy repositories become read-only repo grants" `Quick
+      test_legacy_repositories_become_read_only_repo_grants;
+    Alcotest.test_case "explicit repo grants take precedence over legacy" `Quick
+      test_explicit_repo_grants_take_precedence_over_legacy;
+    Alcotest.test_case "room repo grants override default" `Quick
+      test_room_repo_grants_override_default;
+    Alcotest.test_case "repo grant supports all six capabilities" `Quick
+      test_repo_grant_capabilities_all_six;
+    Alcotest.test_case "empty repo grants grant nothing" `Quick
+      test_empty_repo_grants_grant_nothing;
+    Alcotest.test_case "repo grant empty capabilities" `Quick
+      test_repo_grant_empty_capabilities_grants_no_caps;
   ]
