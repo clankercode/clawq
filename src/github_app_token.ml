@@ -119,7 +119,7 @@ let github_api_base () =
 
 (* Parse ISO 8601 UTC timestamp "2024-01-15T10:00:00Z" or
    "2024-01-15T10:00:00.000Z" to Unix epoch float.
-   Computes directly from UTC components to avoid local-timezone issues. *)
+   Computes directly from UTC components without relying on Unix.mktime. *)
 let parse_iso8601_utc s =
   let s = String.trim s in
   let len = String.length s in
@@ -146,31 +146,31 @@ let parse_iso8601_utc s =
     | [ h; m; s ] -> (int_of_string h, int_of_string m, int_of_string s)
     | _ -> failwith "bad time part"
   in
-  (* Use Unix.mktime with tm_isdst=false on a UTC-interpretation tm,
-     then correct for local timezone offset. This is the standard OCaml
-     idiom for UTC timestamps without calendar libraries. *)
-  let tm =
-    {
-      Unix.tm_sec = second;
-      tm_min = minute;
-      tm_hour = hour;
-      tm_mday = day;
-      tm_mon = month - 1;
-      tm_year = year - 1900;
-      tm_wday = 0;
-      tm_yday = 0;
-      tm_isdst = false;
-    }
+  (* Compute days since 1970-01-01 directly. *)
+  let is_leap y = (y mod 4 = 0 && y mod 100 <> 0) || y mod 400 = 0 in
+  let days_in_month y m =
+    match m with
+    | 1 | 3 | 5 | 7 | 8 | 10 | 12 -> 31
+    | 4 | 6 | 9 | 11 -> 30
+    | 2 -> if is_leap y then 29 else 28
+    | _ -> 30
   in
-  (* mktime interprets tm as local time; to get UTC, compute the offset
-     between local and UTC at the epoch origin. *)
-  let local_ts, _ = Unix.mktime tm in
-  let utc_offset =
-    let local_0, _ = Unix.mktime (Unix.localtime 0.0) in
-    let utc_0, _ = Unix.mktime (Unix.gmtime 0.0) in
-    local_0 -. utc_0
+  (* Count complete years from 1970 to year-1 *)
+  let year_days = ref 0 in
+  for y = 1970 to year - 1 do
+    year_days := !year_days + if is_leap y then 366 else 365
+  done;
+  (* Count complete months in the target year *)
+  let month_days = ref 0 in
+  for m = 1 to month - 1 do
+    month_days := !month_days + days_in_month year m
+  done;
+  (* Total days since epoch (1970-01-01 is day 0) *)
+  let total_days = !year_days + !month_days + day - 1 in
+  let total_seconds =
+    (total_days * 86400) + (hour * 3600) + (minute * 60) + second
   in
-  local_ts -. utc_offset
+  float_of_int total_seconds
 
 let fetch_installation_token ~jwt ~installation_id ~repos () =
   let uri =

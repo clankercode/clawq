@@ -483,6 +483,26 @@ let token_redacted_in_logs () =
     "redacted is shorter than full token" true
     (String.length redacted < String.length token)
 
+(* ---- ISO 8601 parsing tests ---- *)
+
+let iso8601_epoch () =
+  let ts = Github_app_token.parse_iso8601_utc "1970-01-01T00:00:00Z" in
+  Alcotest.(check (float 0.001)) "epoch" 0.0 ts
+
+let iso8601_known_date () =
+  (* 2024-01-01T00:00:00Z = 1704067200 *)
+  let ts = Github_app_token.parse_iso8601_utc "2024-01-01T00:00:00Z" in
+  Alcotest.(check (float 0.001)) "2024-01-01" 1704067200.0 ts
+
+let iso8601_with_millis () =
+  let ts = Github_app_token.parse_iso8601_utc "2024-06-15T12:30:45.123Z" in
+  Alcotest.(check (float 0.001)) "with millis" 1718454645.0 ts
+
+let iso8601_leap_year () =
+  (* 2024-02-29T00:00:00Z = 1709164800 *)
+  let ts = Github_app_token.parse_iso8601_utc "2024-02-29T00:00:00Z" in
+  Alcotest.(check (float 0.001)) "leap day" 1709164800.0 ts
+
 (* ---- Integration test: Github_api with GithubApp auth ---- *)
 
 let github_api_with_app_auth_posts_comment () =
@@ -612,6 +632,14 @@ let fetch_suite =
 
 let redaction_suite =
   [ Alcotest.test_case "token redacted in logs" `Quick token_redacted_in_logs ]
+
+let iso8601_suite =
+  [
+    Alcotest.test_case "epoch" `Quick iso8601_epoch;
+    Alcotest.test_case "known date" `Quick iso8601_known_date;
+    Alcotest.test_case "with milliseconds" `Quick iso8601_with_millis;
+    Alcotest.test_case "leap year" `Quick iso8601_leap_year;
+  ]
 
 let integration_suite =
   [
