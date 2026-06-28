@@ -7,14 +7,24 @@ let github_api_base () =
 
 let redact_token = String_util.redact_token
 
-(* Synchronous headers for PAT auth (backward compat). *)
-let pat_headers token =
-  Logs.debug (fun m -> m "GitHub auth: PAT %s" (redact_token token));
-  [
-    ("Authorization", "Bearer " ^ token);
-    ("Accept", "application/vnd.github+json");
-    ("X-GitHub-Api-Version", "2022-11-28");
-  ]
+let auth_headers (auth : Runtime_config.github_auth) =
+  match auth with
+  | GithubPat token ->
+      Logs.debug (fun m -> m "GitHub auth: PAT %s" (redact_token token));
+      [
+        ("Authorization", "Bearer " ^ token);
+        ("Accept", "application/vnd.github+json");
+        ("X-GitHub-Api-Version", "2022-11-28");
+      ]
+  | GithubApp _app ->
+      (* GitHub App auth requires JWT signing to generate installation access
+         tokens. This is not yet implemented. Raise an explicit error rather than
+         making unauthenticated API calls that would silently fail with 401. *)
+      Logs.err (fun m ->
+          m
+            "GitHub App auth: API calls not yet supported. Install a PAT or \
+             implement JWT token generation.");
+      failwith "GitHub App auth not yet implemented for outbound API calls"
 
 (* Asynchronous auth headers that support both PAT and GitHub App auth.
    [app_token] is required when [auth = GithubApp _].

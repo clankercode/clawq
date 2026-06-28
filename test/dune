@@ -42,6 +42,7 @@
   test_github
   test_github_app_config
   test_github_app_token
+  test_github_app_config
   test_group_chat_filter
   test_helpers
   test_history_search
