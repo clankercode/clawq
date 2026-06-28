@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B727
+priority: high
+status: pending
+tags:
+    - telegram
+    - provider
+    - tools
+    - logging
+title: Telegram xiaomi Anthropic stream emits tool calls with empty arguments
+---
+Observed in daemon logs for session telegram:58495225:58495225 using provider=xiaomi-token-plan-sgp model=mimo-v2.5-pro against Anthropic-compatible /anthropic/v1/messages stream. Tool calls for shell_exec, use_skill, and file_write repeatedly arrive with args={} or raw args empty string, causing missing required parameter errors, max completion=8192 loops, B652 watchdog pauses, and B677 identical parameter-validation circuit breaker aborts. Investigate provider streaming/tool-call argument assembly. Also add/ensure raw model tool-call payload logging whenever any tool-call-related parse, validation, or execution failure occurs, so future failures include the raw data as received from the model before normalization/parsing.
