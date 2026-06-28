@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-28T19:07:07Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T19:07:07Z"
 complexity: medium
 depends_on:
     - P15.M1.E1.T001
     - P15.M1.E1.T002
+duration_minutes: 0.015566435816666667
 estimate_hours: 2
 id: P15.M1.E1.T003
 priority: high
 started_at: "2026-06-28T19:07:07Z"
-status: in_progress
+status: done
 tags: []
 title: Record delivery attempts in room activity ledger
 ---
