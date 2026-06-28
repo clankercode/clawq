@@ -643,7 +643,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   Session.turn session_manager ~key
                                     ~message:text ~channel_name:"email"
                                     ~channel_type:"dm" ~sender_id:msg.from_addr
-                                    ()
+                                    ~snapshot_work_type:
+                                      Access_snapshot.Room_turn ()
                                 in
                                 Lwt.return (Ok response))
                               (fun exn ->

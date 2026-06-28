@@ -297,6 +297,7 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
           let channel_type =
             match group_id_opt with Some _ -> "group" | None -> "dm"
           in
+          let channel_id = Option.value group_id_opt ~default:from in
           Session.register_connector_capabilities session_manager ~key
             Connector_capabilities.signal;
           let* result =
@@ -308,7 +309,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                   (fun () ->
                     let* response =
                       Session.turn session_manager ~key ~message:text
-                        ~channel_name:"signal" ~channel_type ~sender_id:from ()
+                        ~channel_name:"signal" ~channel_type ~sender_id:from
+                        ~channel_id
+                        ~snapshot_work_type:Access_snapshot.Room_turn ()
                     in
                     Lwt.return (Ok response))
                   (fun exn -> Lwt.return (Error (Printexc.to_string exn))))

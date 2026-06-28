@@ -21,6 +21,7 @@ type queued_message = {
       (** SQLite inbound_queue row id if persisted for crash recovery. *)
   bang : bool;
   deferred_followup : bool;
+  snapshot_work_type : Access_snapshot.work_type option;
 }
 
 type continuation_state = {

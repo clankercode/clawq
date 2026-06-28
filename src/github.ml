@@ -191,7 +191,7 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
             ~channel_name:gh_channel_name ~channel_type:"dm" ~sender_id:author
             ~channel:"github"
             ~channel_id:(owner ^ "/" ^ repo)
-            ()
+            ~snapshot_work_type:Access_snapshot.GitHub_trigger ()
         in
         Lwt.return (Result.Ok response))
       (fun exn -> Lwt.return (Result.Error (Printexc.to_string exn)))

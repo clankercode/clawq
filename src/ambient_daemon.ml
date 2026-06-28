@@ -47,6 +47,22 @@ let tick ~db ~(config : Runtime_config.t) () =
       Lwt_list.iter_s
         (fun (room_id, profile) ->
           let open Lwt.Syntax in
+          let session_key =
+            match
+              List.find_opt
+                (fun (b : Runtime_config.room_profile_binding) ->
+                  b.active
+                  && b.profile_id = profile.Runtime_config.id
+                  && b.room = room_id)
+                config.room_profile_bindings
+            with
+            | Some b -> b.room
+            | None -> room_id
+          in
+          ignore
+            (Access_snapshot.record_for_work ~db ~config
+               ~work_type:Access_snapshot.Ambient_work ~session_key ~room_id
+               ~profile_id:profile.id ());
           let* _outcomes =
             Room_ambient_delivery.deliver_room_ambient_followups ~db ~profile
               ~room_id ~stale_after_s:3600.0 ~send_message ()

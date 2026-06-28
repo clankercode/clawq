@@ -299,6 +299,7 @@ let run ~(config : Runtime_config.t) =
         Audit.init_schema db;
         Logs.info (fun m -> m "Audit trail enabled")
       end;
+      Access_snapshot.init_schema db;
       Logs.info (fun m ->
           m "SQLite memory initialized at %s (vector index enabled)" db_path);
       Some db

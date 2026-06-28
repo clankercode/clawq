@@ -112,6 +112,7 @@
   task_tree
   migrate
   audit
+  access_snapshot
   skills
   skills_cmd_inject
   builtin_skills

@@ -1001,7 +1001,8 @@ let tick ~db ~session_mgr
                               in
                               let* result =
                                 Session.turn session_mgr ~key:turn_key
-                                  ~message:job.message ()
+                                  ~message:job.message
+                                  ~snapshot_work_type:Access_snapshot.Routine ()
                               in
                               Logs.info (fun m ->
                                   m "Cron job %s: LLM turn complete (%d chars)"

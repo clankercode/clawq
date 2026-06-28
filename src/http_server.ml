@@ -145,7 +145,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                           (fun () ->
                             let* response =
                               Session.turn session_manager ~key:session_key
-                                ~message ?cwd ()
+                                ~message ?cwd
+                                ~snapshot_work_type:Access_snapshot.Room_turn ()
                             in
                             let queued =
                               Session.should_suppress_response response

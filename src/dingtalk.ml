@@ -236,7 +236,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                             Session.turn session_manager ~key
                                               ~message:content
                                               ~channel_name:"dingtalk"
-                                              ~channel_type ~sender_id ()
+                                              ~channel_type ~sender_id
+                                              ~snapshot_work_type:
+                                                Access_snapshot.Room_turn ()
                                           in
                                           Lwt.return (Ok response))
                                         (fun exn ->
