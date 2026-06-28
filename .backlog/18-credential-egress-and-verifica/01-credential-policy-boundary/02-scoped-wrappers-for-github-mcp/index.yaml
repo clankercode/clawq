@@ -21,7 +21,8 @@ tasks:
       file: T001-wrap-github-auth-through-crede.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Wrap GitHub auth through credential policy
     - complexity: high
       depends_on:

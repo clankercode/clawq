@@ -30,7 +30,8 @@ tasks:
       file: T002-resolve-layered-instructions-i.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Resolve layered instructions into prompt context
     - complexity: medium
       depends_on:

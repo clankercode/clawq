@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-28T19:07:30Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P18.M1.E1.T003
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 3
 id: P18.M1.E2.T001
 priority: high
-status: pending
-tags:
-    - security
-    - github
+started_at: "2026-06-28T19:07:30Z"
+status: in_progress
+tags: []
 title: Wrap GitHub auth through credential policy
 ---
 Acceptance: GitHub calls obtain credentials through snapshot-scoped handles and deny missing or unauthorized handles before API calls.

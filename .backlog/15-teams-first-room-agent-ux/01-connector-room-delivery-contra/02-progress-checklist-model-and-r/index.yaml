@@ -30,7 +30,8 @@ tasks:
       file: T002-implement-teams-progress-adapt.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement Teams progress Adaptive Card renderer
     - complexity: medium
       depends_on:

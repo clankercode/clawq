@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-28T19:07:30Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P16.M1.E2.T001
 estimate_hours: 3
 id: P16.M1.E2.T002
 priority: high
-status: pending
-tags:
-    - github
-    - policy
+started_at: "2026-06-28T19:07:30Z"
+status: in_progress
+tags: []
 title: Intersect repo grants with codebase and global security policy
 ---
 Acceptance: repo grants can only narrow, not weaken, global codebase/security policy; existing room codebase grants remain respected.
