@@ -99,6 +99,7 @@ type result =
   | HeldItems of held_items_action
   | Memories of memories_action
   | RoomsMemory of room_memory_action
+  | ExplainAccess
   | Followup of followup_action
   | DebugDumpChat
   | BashRun of string
