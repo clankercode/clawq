@@ -28,7 +28,8 @@ tasks:
       file: T002-implement-github-app-jwt-and-i.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement GitHub App JWT and installation-token cache
     - complexity: high
       depends_on:
