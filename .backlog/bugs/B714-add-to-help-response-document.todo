@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-06-28T07:55:02Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B714
 priority: high
-status: pending
+started_at: "2026-06-28T07:55:02Z"
+status: in_progress
 tags: []
 title: 'Add to /help response: document ''!'' as a way to interrupt current processing. this task May interact with followups if we use a char prefix for those too.'
 ---
