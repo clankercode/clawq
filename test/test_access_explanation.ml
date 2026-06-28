@@ -699,14 +699,16 @@ let test_deleted_profile_no_credential_leak () =
     {|{
       "workspace": "/tmp/test",
       "credential_handles": [
-        {"id": "deleted-cred", "provider": {"type": "env_var", "name": "DELETED_SECRET"}, "status": "deleted"},
-        {"id": "active-cred", "provider": {"type": "env_var", "name": "ACTIVE_SECRET"}}
+        {"id": "profile-cred", "provider": {"type": "env_var", "name": "PROFILE_SECRET"}, "description": "Profile API key"}
       ],
       "access_bundles": [
-        {"id": "b1", "allowed_tools": ["tool_a"], "credential_handles": ["deleted-cred", "active-cred"]}
+        {"id": "profile-bundle", "allowed_tools": ["profile_tool"], "credential_handles": ["profile-cred"]}
       ],
-      "access_scopes": [
-        {"id": "default", "level": "default", "access_bundle_ids": ["b1"]}
+      "room_profiles": [
+        {"id": "coding", "model": "openai:gpt-5.4", "access_bundle_ids": ["profile-bundle"], "status": "deleted"}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "coding", "room": "slack:C123", "active": true}
       ]
     }|}
   in
@@ -714,19 +716,18 @@ let test_deleted_profile_no_credential_leak () =
   let explanation =
     Access_explanation.create ~config:cfg ~session_key:"slack:C123" ()
   in
+  (* Deleted profile should not contribute credential handles *)
   Alcotest.(check int)
-    "only active credential handle" 1
+    "no credential handles from deleted profile" 0
     (List.length explanation.credential_handles);
-  let ch = List.hd explanation.credential_handles in
-  Alcotest.(check string) "active cred id" "active-cred" ch.id;
   let json_out = Access_explanation.to_json explanation in
   let json_str = Yojson.Safe.to_string json_out in
   Alcotest.(check bool)
-    "json does not contain deleted-cred id" true
-    (not (Test_helpers.string_contains json_str "deleted-cred"));
+    "json does not contain profile-cred" true
+    (not (Test_helpers.string_contains json_str "profile-cred"));
   Alcotest.(check bool)
-    "json does not contain DELETED_SECRET env var name" true
-    (not (Test_helpers.string_contains json_str "DELETED_SECRET"))
+    "json does not contain PROFILE_SECRET env var name" true
+    (not (Test_helpers.string_contains json_str "PROFILE_SECRET"))
 
 let test_encrypted_credential_redaction () =
   let json =
@@ -865,7 +866,7 @@ let test_inactive_bundle_scope_no_credential_leak () =
     "json does not contain LEAKED_SECRET" true
     (not (Test_helpers.string_contains json_str "LEAKED_SECRET"))
 
-let test_unauthorized_member_empty_explanation () =
+let test_no_matching_scope_no_leak () =
   let json =
     {|{
       "workspace": "/tmp/test",
@@ -1067,8 +1068,8 @@ let suite =
       test_env_var_credential_redaction;
     Alcotest.test_case "inactive bundle scope no credential leak" `Quick
       test_inactive_bundle_scope_no_credential_leak;
-    Alcotest.test_case "unauthorized member empty explanation" `Quick
-      test_unauthorized_member_empty_explanation;
+    Alcotest.test_case "no matching scope no leak" `Quick
+      test_no_matching_scope_no_leak;
     Alcotest.test_case "mixed active deleted credentials" `Quick
       test_mixed_active_deleted_credentials;
   ]
