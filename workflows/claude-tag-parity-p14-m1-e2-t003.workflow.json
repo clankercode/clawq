@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-plan",
+  "title": "P14.M1.E2.T003 Config Reload Derived Policy",
+  "summary": "Refresh derived access policy across config set, SIGHUP, and file watcher reload paths while preserving the last valid policy on failed reload.",
+  "goal": "Complete claimed backlog task P14.M1.E2.T003.",
+  "cwd": "/home/xertrov/src/clawq",
+  "runner": "codex-direct",
+  "model": "gpt-5.5",
+  "sandbox": "workspace-write",
+  "approval": "on-request",
+  "max_agents": 1,
+  "startup_delay": 1.0,
+  "tags": ["clawq", "p14", "scope-resolver", "config-reload"],
+  "phases": [
+    {
+      "name": "implement",
+      "title": "Implement",
+      "summary": "Add reload behavior/tests for derived scoped-access policy.",
+      "jobs": [
+        {
+          "name": "p14-m1-e2-t003-config-reload-policy",
+          "role": "workflow-implementer",
+          "worktree": {
+            "branch": "workflow/p14-m1-e2-t003-config-reload-policy",
+            "base": "HEAD",
+            "merge_target": "master",
+            "label": "p14-m1-e2-t003-config-reload-policy"
+          },
+          "prompt": "Complete claimed backlog task P14.M1.E2.T003. Follow AGENTS.md plus src/test CLAUDE.md where relevant and follow PIRFL: inspect existing reload paths and access policy resolution, write focused failing tests first where feasible, implement the smallest production change, review, then fix. Do not run bl commands. Preserve Clawq casing. Acceptance: config set, daemon file watcher reload, and SIGHUP reload refresh in-memory derived access policy; failed reload leaves the last valid policy active; tests cover reload success and failure. Important starting points: Runtime_config.resolve_effective_access and access scope helpers in src/runtime_config.ml; SIGHUP and file-watch reload paths in src/daemon.ml; runtime-bound refresh helpers in src/daemon_util.ml; command bridge reload coverage in test/test_command_bridge.ml; daemon reload/tool refresh coverage in test/test_daemon.ml; resolver/config coverage in test/test_scope_resolver.ml and test/test_config_loader.ml. If existing behavior already computes policy directly from current config, make that explicit with regression tests on the actual runtime holders (session manager/current config/tool closures), not with a no-op change. Required checks: make test-run ARGS=\"test scope_resolver\"; make test-run ARGS=\"test daemon\" or the narrow daemon case selection if the suite is expensive; make test-run ARGS=\"test command_bridge\" if command bridge/config-set behavior changes or is tested; make test-run ARGS=\"test config_loader\" if config loading changes; make fmt-check. Commit the work on the branch with a concise message.",
+          "write_scope": [
+            "src/runtime_config.ml",
+            "src/daemon.ml",
+            "src/daemon_util.ml",
+            "src/session.ml",
+            "src/command_bridge.ml",
+            "src/command_bridge_helpers.ml",
+            "src/config_loader.ml",
+            "src/config_loader_support.ml",
+            "test/test_scope_resolver.ml",
+            "test/test_daemon.ml",
+            "test/test_command_bridge.ml",
+            "test/test_config_loader.ml"
+          ],
+          "timeout_secs": 7200,
+          "failure_retries": 0
+        }
+      ]
+    }
+  ]
+}
