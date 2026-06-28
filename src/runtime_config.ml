@@ -558,6 +558,10 @@ let string_option_matches value = function
   | None -> true
   | Some expected -> expected = value
 
+let string_option_required_matches value = function
+  | None -> false
+  | Some expected -> expected = value
+
 let scope_matches (cfg : t) ~session_key (scope : access_scope) =
   let channel_type = channel_type_of_session_key session_key in
   let room =
@@ -570,12 +574,22 @@ let scope_matches (cfg : t) ~session_key (scope : access_scope) =
   scope_active scope
   &&
   match scope.level with
-  | Default -> true
-  | Workspace -> string_option_matches workspace scope.workspace
-  | Channel -> string_option_matches channel_type scope.channel
-  | Room ->
-      string_option_matches session_key scope.room
-      || string_option_matches room scope.room
+  | Default ->
+      scope.workspace = None && scope.channel = None && scope.room = None
+  | Workspace ->
+      string_option_required_matches workspace scope.workspace
+      && scope.channel = None && scope.room = None
+  | Channel ->
+      string_option_matches workspace scope.workspace
+      && string_option_required_matches channel_type scope.channel
+      && scope.room = None
+  | Room -> (
+      string_option_matches workspace scope.workspace
+      && string_option_matches channel_type scope.channel
+      &&
+      match scope.room with
+      | None -> false
+      | Some expected -> expected = session_key || expected = room)
 
 let sort_scopes scopes =
   List.sort
@@ -681,9 +695,11 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
     match resolve_room_profile cfg ~session_key with
     | None -> []
     | Some profile ->
-        access_bundles_for_profile cfg profile
-        |> List.map (fun bundle ->
-            ("room", "room_profile:" ^ profile.id, bundle))
+        if profile_missing_access_bundle_ids cfg profile <> [] then []
+        else
+          access_bundles_for_profile cfg profile
+          |> List.map (fun bundle ->
+              ("room", "room_profile:" ^ profile.id, bundle))
   in
   let scope_bundles =
     selected_scopes

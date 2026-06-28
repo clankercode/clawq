@@ -114,6 +114,54 @@ let test_memory_grants_are_direct_not_transitive () =
     "only direct memory grants are effective" [ "child" ]
     (item_values effective.memory_grants)
 
+let test_room_scopes_do_not_cross_channel_boundaries () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "room", "allowed_tools": ["room_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "slack-room", "level": "room", "channel": "slack", "room": "C123", "access_bundle_ids": ["room"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let slack =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  let discord =
+    Runtime_config.resolve_effective_access cfg ~session_key:"discord:C123"
+  in
+  Alcotest.(check (list string))
+    "matching channel receives room grant" [ "room_tool" ]
+    (item_values slack.allowed_tools);
+  Alcotest.(check (list string))
+    "different channel does not receive room grant" []
+    (item_values discord.allowed_tools)
+
+let test_missing_layer_selectors_are_not_wildcards () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "workspace", "allowed_tools": ["workspace_tool"]},
+        {"id": "channel", "allowed_tools": ["channel_tool"]},
+        {"id": "room", "allowed_tools": ["room_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "workspace-missing", "level": "workspace", "access_bundle_ids": ["workspace"]},
+        {"id": "channel-missing", "level": "channel", "access_bundle_ids": ["channel"]},
+        {"id": "room-missing", "level": "room", "access_bundle_ids": ["room"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "missing selectors grant nothing" []
+    (item_values effective.allowed_tools)
+
 let test_legacy_room_profile_bundle_is_room_layer () =
   let json =
     {|{
@@ -162,6 +210,33 @@ let test_legacy_room_profile_bundle_is_room_layer () =
     ]
     (provenance_labels file_read)
 
+let test_invalid_profile_bundle_denies_effective_profile_grants () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "known", "allowed_tools": ["explicit_tool"]}
+      ],
+      "room_profiles": [
+        {
+          "id": "legacy",
+          "model": "openai:gpt-5.4",
+          "allowed_tools": ["legacy_tool"],
+          "access_bundle_ids": ["known", "missing"]
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "legacy", "room": "C123", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "invalid profile bundle reference suppresses all profile grants" []
+    (item_values effective.allowed_tools)
+
 let suite =
   [
     Alcotest.test_case "layers merge deterministically and deny wins" `Quick
@@ -170,6 +245,12 @@ let suite =
       test_global_security_caps_codebase_grants;
     Alcotest.test_case "memory grants are direct" `Quick
       test_memory_grants_are_direct_not_transitive;
+    Alcotest.test_case "room scopes do not cross channel boundaries" `Quick
+      test_room_scopes_do_not_cross_channel_boundaries;
+    Alcotest.test_case "missing layer selectors are not wildcards" `Quick
+      test_missing_layer_selectors_are_not_wildcards;
     Alcotest.test_case "legacy profile bundle is room layer" `Quick
       test_legacy_room_profile_bundle_is_room_layer;
+    Alcotest.test_case "invalid profile bundle denies effective profile grants"
+      `Quick test_invalid_profile_bundle_denies_effective_profile_grants;
   ]

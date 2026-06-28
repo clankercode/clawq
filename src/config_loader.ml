@@ -1011,11 +1011,11 @@ let parse_config ?(resolve_secrets = true) json =
     with _ -> []
   in
   let access_scope_level_of_string = function
-    | "default" -> Runtime_config.Default
-    | "workspace" -> Runtime_config.Workspace
-    | "channel" -> Runtime_config.Channel
-    | "room" -> Runtime_config.Room
-    | _ -> Runtime_config.Default
+    | "default" -> Some Runtime_config.Default
+    | "workspace" -> Some Runtime_config.Workspace
+    | "channel" -> Some Runtime_config.Channel
+    | "room" -> Some Runtime_config.Room
+    | _ -> None
   in
   let access_scopes =
     let string_list node key =
@@ -1025,10 +1025,9 @@ let parse_config ?(resolve_secrets = true) json =
       json |> member "access_scopes" |> to_list
       |> List.map (fun s ->
           let id = s |> member "id" |> to_string in
-          let level =
-            try s |> member "level" |> to_string |> access_scope_level_of_string
-            with _ -> Runtime_config.Default
-          in
+          let level_raw = try s |> member "level" |> to_string with _ -> "" in
+          let level_opt = access_scope_level_of_string level_raw in
+          let level = Option.value ~default:Runtime_config.Default level_opt in
           let workspace =
             try Some (s |> member "workspace" |> to_string) with _ -> None
           in
@@ -1039,7 +1038,8 @@ let parse_config ?(resolve_secrets = true) json =
             try Some (s |> member "room" |> to_string) with _ -> None
           in
           let status =
-            try s |> member "status" |> to_string with _ -> "active"
+            if Option.is_none level_opt then "deleted"
+            else try s |> member "status" |> to_string with _ -> "active"
           in
           ({
              id;
@@ -1495,9 +1495,31 @@ let validate_room_profiles (cfg : Runtime_config.t) : string list =
               :: !issues)
         p.access_bundle_ids)
     cfg.room_profiles;
-  (* Check scope access_bundle_ids reference existing active bundles. *)
+  (* Check scope selector shape and access_bundle_ids references. *)
   List.iter
     (fun (scope : Runtime_config.access_scope) ->
+      let issue msg =
+        issues :=
+          Printf.sprintf "access_scopes: scope '%s' %s" scope.id msg :: !issues
+      in
+      (match scope.level with
+      | Default ->
+          if
+            scope.workspace <> None || scope.channel <> None
+            || scope.room <> None
+          then issue "must not set workspace, channel, or room selectors"
+      | Workspace ->
+          if Option.is_none scope.workspace then
+            issue "must set workspace for workspace level";
+          if scope.channel <> None || scope.room <> None then
+            issue "must not set channel or room selectors for workspace level"
+      | Channel ->
+          if Option.is_none scope.channel then
+            issue "must set channel for channel level";
+          if scope.room <> None then
+            issue "must not set room selector for channel level"
+      | Room ->
+          if Option.is_none scope.room then issue "must set room for room level");
       List.iter
         (fun bundle_id ->
           if not (Hashtbl.mem bundles_seen bundle_id) then
