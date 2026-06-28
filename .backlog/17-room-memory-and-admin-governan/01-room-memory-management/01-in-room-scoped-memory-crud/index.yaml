@@ -39,7 +39,8 @@ tasks:
       file: T003-add-in-channel-scoped-memory-e.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add in-channel scoped memory equivalents
     - complexity: high
       depends_on:
