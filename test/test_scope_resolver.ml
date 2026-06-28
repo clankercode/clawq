@@ -802,7 +802,7 @@ let test_repo_grants_blocked_by_global_security () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   (* Both repos are within the workspace path, so both should be allowed *)
   Alcotest.(check int)
@@ -833,7 +833,7 @@ let test_repo_grants_respect_room_codebase_grants () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   (* Repo grants should be allowed because codebase_grants cover the workspace *)
   Alcotest.(check int)

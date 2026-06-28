@@ -887,11 +887,6 @@ let resolve_effective_access (cfg : t) ~session_key ?room_profile () :
       (fun item -> not (blocked_by_global_security cfg item.value))
       codebase_items
   in
-  let repo_path_for_grant_item (item : effective_access_item) =
-    match repo_grant_of_json_string item.value with
-    | Some rg -> expand_cwd_pattern ~config:cfg rg.repo
-    | None -> item.value
-  in
   let repo_grant_is_local_path repo =
     let repo = String.trim repo in
     repo <> ""
@@ -900,6 +895,18 @@ let resolve_effective_access (cfg : t) ~session_key ?room_profile () :
        || repo.[0] = '$'
        || String.starts_with ~prefix:"./" repo
        || String.starts_with ~prefix:"../" repo)
+  in
+  let repo_path_for_grant_item (item : effective_access_item) =
+    match repo_grant_of_json_string item.value with
+    | Some rg ->
+        (* GitHub repos like "acme/app" are mapped to workspace paths *)
+        if repo_grant_is_local_path rg.repo then
+          expand_cwd_pattern ~config:cfg rg.repo
+        else
+          (* Map GitHub repo to expected workspace path *)
+          expand_cwd_pattern ~config:cfg
+            ("$CLAWQ_WORKSPACE/" ^ rg.repo)
+    | None -> item.value
   in
   let repo_grant_has_glob_metachar repo =
     String.exists (function '*' | '?' | '[' -> true | _ -> false) repo

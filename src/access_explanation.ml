@@ -33,8 +33,6 @@ type t = {
   mcp_servers : item_explanation list;
   skills : item_explanation list;
   repositories : item_explanation list;
-  repo_grants : item_explanation list;
-  blocked_repo_grants : item_explanation list;
   domains : item_explanation list;
   credential_handles : credential_info list;
   instructions : string list;
@@ -148,9 +146,6 @@ let create ~(config : Runtime_config.t) ~session_key () : t =
       mcp_servers = List.map item_to_explanation access.mcp_servers;
       skills = List.map item_to_explanation access.skills;
       repositories = List.map item_to_explanation access.repositories;
-      repo_grants = List.map item_to_explanation access.repo_grants;
-      blocked_repo_grants =
-        List.map item_to_explanation access.blocked_repo_grants;
       domains = List.map item_to_explanation access.domains;
       credential_handles = inherited_credential_handles;
       instructions = instruction_texts;
