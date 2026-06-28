@@ -529,6 +529,51 @@ let test_repo_grants_intersect_codebase_grants () =
     [ "/tmp/clawq-scope-root/other/app" ]
     (repo_grant_repos effective.blocked_repo_grants)
 
+let test_wildcard_repo_grants_require_exact_codebase_grant () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/clawq-scope-root/**"]},
+      "access_bundles": [
+        {
+          "id": "repo",
+          "codebase_grants": [
+            "/tmp/clawq-scope-root/allowed/*",
+            "/tmp/clawq-scope-root/exact/**",
+            "/tmp/clawq-scope-root/prefix/app*",
+            "/tmp/clawq-scope-root/bracket/*"
+          ],
+          "repo_grants": [
+            {"repo": "/tmp/clawq-scope-root/allowed/app", "capabilities": ["read"]},
+            {"repo": "/tmp/clawq-scope-root/allowed/**", "capabilities": ["read"]},
+            {"repo": "/tmp/clawq-scope-root/exact/**", "capabilities": ["read"]},
+            {"repo": "/tmp/clawq-scope-root/prefix/app?", "capabilities": ["read"]},
+            {"repo": "/tmp/clawq-scope-root/bracket/lib[0-9]", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["repo"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "codebase grant keeps concrete and exact wildcard repo grants"
+    [ "/tmp/clawq-scope-root/allowed/app"; "/tmp/clawq-scope-root/exact/**" ]
+    (repo_grant_repos effective.repo_grants);
+  Alcotest.(check (list string))
+    "codebase grant blocks non-exact wildcard repo grants"
+    [
+      "/tmp/clawq-scope-root/allowed/**";
+      "/tmp/clawq-scope-root/prefix/app?";
+      "/tmp/clawq-scope-root/bracket/lib[0-9]";
+    ]
+    (repo_grant_repos effective.blocked_repo_grants)
+
 let test_legacy_repositories_become_read_only_repo_grants () =
   let json =
     {|{
@@ -743,6 +788,8 @@ let suite =
       test_repo_grants_blocked_by_global_security;
     Alcotest.test_case "repo grants intersect codebase grants" `Quick
       test_repo_grants_intersect_codebase_grants;
+    Alcotest.test_case "wildcard repo grants require exact codebase grant"
+      `Quick test_wildcard_repo_grants_require_exact_codebase_grant;
     Alcotest.test_case "legacy repositories become read-only repo grants" `Quick
       test_legacy_repositories_become_read_only_repo_grants;
     Alcotest.test_case "explicit repo grants take precedence over legacy" `Quick

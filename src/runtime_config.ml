@@ -892,12 +892,23 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
        || String.starts_with ~prefix:"./" repo
        || String.starts_with ~prefix:"../" repo)
   in
+  let repo_grant_has_glob_metachar repo =
+    String.exists (function '*' | '?' | '[' -> true | _ -> false) repo
+  in
+  let repo_grant_exactly_covered_by_codebase_grants repo =
+    List.exists
+      (fun (grant : effective_access_item) -> String.equal grant.value repo)
+      codebase_grants
+  in
   let repo_grant_covered_by_codebase_grants repo =
-    (not has_codebase_grants)
-    || List.exists
-         (fun (grant : effective_access_item) ->
-           Path_util.glob_matches_path ~pattern:grant.value repo)
-         codebase_grants
+    if not has_codebase_grants then true
+    else if repo_grant_has_glob_metachar repo then
+      repo_grant_exactly_covered_by_codebase_grants repo
+    else
+      List.exists
+        (fun (grant : effective_access_item) ->
+          Path_util.glob_matches_path ~pattern:grant.value repo)
+        codebase_grants
   in
   let repo_grant_allowed item =
     let repo = repo_path_for_grant_item item in
