@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-28T06:40:42Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T06:55:07Z"
 complexity: medium
 depends_on: []
+duration_minutes: 14.4244602955
 estimate_hours: 1
 id: B727
 priority: high
 started_at: "2026-06-28T06:40:42Z"
-status: in_progress
+status: done
 tags: []
 title: Telegram xiaomi Anthropic stream emits tool calls with empty arguments
 ---

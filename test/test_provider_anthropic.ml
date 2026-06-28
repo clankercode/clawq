@@ -289,6 +289,53 @@ let test_parse_ignores_thinking_blocks () =
       Alcotest.(check string) "visible text only" "hello" content
   | _ -> Alcotest.fail "expected Text response"
 
+let sse event data = Printf.sprintf "event: %s\ndata: %s\n\n" event data
+
+let test_stream_accepts_object_partial_json () =
+  let sse_body =
+    String.concat ""
+      [
+        sse "message_start"
+          {|{"type":"message_start","message":{"model":"mimo-v2.5-pro","usage":{"input_tokens":1,"output_tokens":0}}}|};
+        sse "content_block_start"
+          {|{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"shell_exec","input":{}}}|};
+        sse "content_block_delta"
+          {|{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":{"cmd":"pwd"}}}|};
+        sse "content_block_stop" {|{"type":"content_block_stop","index":0}|};
+        sse "message_delta"
+          {|{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}|};
+        sse "message_stop" {|{"type":"message_stop"}|};
+      ]
+  in
+  let result =
+    Lwt_main.run
+      (Provider_anthropic.process_anthropic_sse_stream ~model:"mimo-v2.5-pro"
+         (Lwt_stream.of_list [ sse_body ]) ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls = [ tc ]; provider_response_items_json; _ } ->
+      Alcotest.(check string) "id" "toolu_1" tc.id;
+      Alcotest.(check string) "name" "shell_exec" tc.function_name;
+      Alcotest.(check string) "arguments" {|{"cmd":"pwd"}|} tc.arguments;
+      let raw =
+        match provider_response_items_json with
+        | Some raw -> raw
+        | None -> Alcotest.fail "expected raw stream tool events"
+      in
+      Alcotest.(check bool)
+        "raw stream payload includes object partial_json" true
+        (let open Yojson.Safe.Util in
+         raw |> Yojson.Safe.from_string |> to_list
+         |> List.exists (fun event ->
+             try
+               let data_raw = event |> member "data_raw" |> to_string in
+               Test_helpers.string_contains data_raw
+                 {|"partial_json":{"cmd":"pwd"}|}
+             with _ -> false))
+  | Provider.ToolCalls { calls; _ } ->
+      Alcotest.failf "expected one tool call, got %d" (List.length calls)
+  | Provider.Text _ -> Alcotest.fail "expected tool call response"
+
 let suite =
   [
     Alcotest.test_case "user message" `Quick test_user_message;
@@ -321,4 +368,6 @@ let suite =
     Alcotest.test_case "parse empty content" `Quick test_parse_empty_content;
     Alcotest.test_case "parse ignores thinking blocks" `Quick
       test_parse_ignores_thinking_blocks;
+    Alcotest.test_case "B727: stream accepts object partial_json" `Quick
+      test_stream_accepts_object_partial_json;
   ]
