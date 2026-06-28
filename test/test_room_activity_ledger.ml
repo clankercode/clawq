@@ -427,6 +427,7 @@ let make_room_progress_task ?(id = 42) ?(connector = "slack")
     thread_id = None;
     requester = None;
     progress_state = None;
+    access_snapshot_id = None;
   }
 
 let test_room_progress_records_delivery () =
@@ -484,6 +485,7 @@ let test_room_progress_records_delivery () =
           thread_id = None;
           requester = None;
           progress_state = None;
+    access_snapshot_id = None;
         }
       in
       Lwt_main.run
@@ -632,6 +634,7 @@ let test_room_progress_empty_send_records_failure () =
           thread_id = None;
           requester = None;
           progress_state = None;
+    access_snapshot_id = None;
         }
       in
       Lwt_main.run
