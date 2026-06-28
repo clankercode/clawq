@@ -26,9 +26,11 @@ tasks:
     - complexity: medium
       depends_on:
         - P15.M1.E1.T001
+        - P15.M1.E1.T002
       estimate_hours: 2
       file: T003-record-delivery-attempts-in-ro.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Record delivery attempts in room activity ledger
