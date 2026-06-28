@@ -973,6 +973,43 @@ let parse_config ?(resolve_secrets = true) json =
         : Runtime_config.summarizer_config)
     with _ -> Runtime_config.default_summarizer_config
   in
+  let access_bundles =
+    let string_list node key =
+      try node |> member key |> to_list |> List.map to_string with _ -> []
+    in
+    try
+      json |> member "access_bundles" |> to_list
+      |> List.map (fun b ->
+          let id = b |> member "id" |> to_string in
+          let display_name =
+            try Some (b |> member "display_name" |> to_string) with _ -> None
+          in
+          let system_prompt =
+            try Some (b |> member "system_prompt" |> to_string) with _ -> None
+          in
+          let status =
+            try b |> member "status" |> to_string with _ -> "active"
+          in
+          ({
+             id;
+             display_name;
+             system_prompt;
+             allowed_tools = string_list b "allowed_tools";
+             denied_tools = string_list b "denied_tools";
+             codebase_grants = string_list b "codebase_grants";
+             mcp_servers = string_list b "mcp_servers";
+             skills = string_list b "skills";
+             repositories = string_list b "repositories";
+             domains = string_list b "domains";
+             credential_handles = string_list b "credential_handles";
+             instructions = string_list b "instructions";
+             memory_grants = string_list b "memory_grants";
+             budget_refs = string_list b "budget_refs";
+             status;
+           }
+            : Runtime_config.access_bundle))
+    with _ -> []
+  in
   {
     workspace;
     Runtime_config.default_temperature;
@@ -1231,6 +1268,7 @@ let parse_config ?(resolve_secrets = true) json =
          in
          ({ enabled; model; delay_s } : Runtime_config.postmortem_config)
        with _ -> Runtime_config.default_postmortem_config);
+    access_bundles;
     room_profiles =
       (try
          json |> member "room_profiles" |> to_list
@@ -1258,6 +1296,12 @@ let parse_config ?(resolve_secrets = true) json =
                try p |> member "denied_tools" |> to_list |> List.map to_string
                with _ -> []
              in
+             let access_bundle_ids =
+               try
+                 p |> member "access_bundle_ids" |> to_list
+                 |> List.map to_string
+               with _ -> []
+             in
              let ambient_enabled =
                try p |> member "ambient_enabled" |> to_bool with _ -> false
              in
@@ -1281,6 +1325,7 @@ let parse_config ?(resolve_secrets = true) json =
                 status;
                 allowed_tools;
                 denied_tools;
+                access_bundle_ids;
                 ambient_enabled;
                 ambient_quiet_start;
                 ambient_quiet_end;
@@ -1324,6 +1369,22 @@ let parse_config ?(resolve_secrets = true) json =
     (each profile_id bound to at most one room). *)
 let validate_room_profiles (cfg : Runtime_config.t) : string list =
   let issues = ref [] in
+  (* Check duplicate access bundle ids *)
+  let bundle_ids =
+    cfg.access_bundles
+    |> List.filter (fun (b : Runtime_config.access_bundle) ->
+        String.lowercase_ascii b.status <> "deleted")
+    |> List.map (fun (b : Runtime_config.access_bundle) -> b.id)
+  in
+  let bundles_seen = Hashtbl.create (List.length bundle_ids) in
+  List.iter
+    (fun id ->
+      if Hashtbl.mem bundles_seen id then
+        issues :=
+          Printf.sprintf "access_bundles: duplicate bundle id '%s'" id
+          :: !issues
+      else Hashtbl.add bundles_seen id ())
+    bundle_ids;
   (* Check duplicate profile ids *)
   let ids =
     List.map (fun (p : Runtime_config.room_profile) -> p.id) cfg.room_profiles
@@ -1376,6 +1437,20 @@ let validate_room_profiles (cfg : Runtime_config.t) : string list =
             b.profile_id
           :: !issues)
     cfg.room_profile_bindings;
+  (* Check profile access_bundle_ids reference existing active bundles. *)
+  List.iter
+    (fun (p : Runtime_config.room_profile) ->
+      List.iter
+        (fun bundle_id ->
+          if not (Hashtbl.mem bundles_seen bundle_id) then
+            issues :=
+              Printf.sprintf
+                "room_profiles: profile '%s' references non-existent access \
+                 bundle '%s'"
+                p.id bundle_id
+              :: !issues)
+        p.access_bundle_ids)
+    cfg.room_profiles;
   List.rev !issues
 
 (* B697: even with no (or unreadable) config.json, surface zero-config xiaomi
@@ -1441,22 +1516,23 @@ let load ?(path = "") () : Runtime_config.t =
         | Some warn -> Printf.eprintf "%s\n%!" warn
         | None -> ());
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
-        let room_profile_issues = validate_room_profiles config in
+        let access_policy_issues =
+          validate_access_bundle_json_shapes json
+          @ validate_room_profile_access_bundle_json_shapes json
+          @ validate_room_profiles config
+        in
         let config =
-          if room_profile_issues <> [] then (
+          if access_policy_issues <> [] then (
             Printf.eprintf
-              "WARNING: room_profiles validation failed for %s: %s\n%%!"
+              "WARNING: access policy validation failed for %s: %s\n%!"
               config_path
-              (String.concat "; " room_profile_issues);
+              (String.concat "; " access_policy_issues);
             Printf.eprintf
-              "WARNING: rejecting room_profiles and room_profile_bindings \
-               (using empty lists)\n\
-               %%!";
-            {
-              config with
-              Runtime_config.room_profiles = [];
-              room_profile_bindings = [];
-            })
+              "WARNING: preserving access_bundles, room_profiles, and \
+               room_profile_bindings, but forcing profile-scoped access to \
+               deny until the access policy is repaired\n\
+               %!";
+            fail_closed_access_policy config)
           else config
         in
         backfill_config ~path:config_path ~original_json:json

@@ -524,6 +524,24 @@ type postmortem_config = {
          immediately. *)
 }
 
+type access_bundle = {
+  id : string;
+  display_name : string option;
+  system_prompt : string option;
+  allowed_tools : string list;
+  denied_tools : string list;
+  codebase_grants : string list;
+  mcp_servers : string list;
+  skills : string list;
+  repositories : string list;
+  domains : string list;
+  credential_handles : string list;
+  instructions : string list;
+  memory_grants : string list;
+  budget_refs : string list;
+  status : string;
+}
+
 type room_profile = {
   id : string;
   display_name : string option;
@@ -533,6 +551,7 @@ type room_profile = {
   status : string;
   allowed_tools : string list;
   denied_tools : string list;
+  access_bundle_ids : string list;
   ambient_enabled : bool;
   ambient_quiet_start : int;
   ambient_quiet_end : int;
@@ -581,6 +600,7 @@ type t = {
   test : test_config;
   debate : debate_config;
   postmortem : postmortem_config;
+  access_bundles : access_bundle list;
   room_profiles : room_profile list;
   room_profile_codebase_grants : (string * string list) list;
   room_profile_bindings : room_profile_binding list;

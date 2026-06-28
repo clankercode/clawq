@@ -142,6 +142,144 @@ let warn_invalid_config ~config_path issues =
 
 let default_path () = Dot_dir.config_path ()
 
+let access_bundle_string_list_fields =
+  [
+    "allowed_tools";
+    "denied_tools";
+    "codebase_grants";
+    "mcp_servers";
+    "skills";
+    "repositories";
+    "domains";
+    "credential_handles";
+    "instructions";
+    "memory_grants";
+    "budget_refs";
+  ]
+
+let validate_access_bundle_json_shapes json : string list =
+  match Yojson.Safe.Util.member "access_bundles" json with
+  | `List bundles ->
+      bundles
+      |> List.mapi (fun index bundle ->
+          match bundle with
+          | `Assoc fields ->
+              access_bundle_string_list_fields
+              |> List.filter_map (fun field ->
+                  match List.assoc_opt field fields with
+                  | None -> None
+                  | Some (`List values) ->
+                      if
+                        List.for_all
+                          (function `String _ -> true | _ -> false)
+                          values
+                      then None
+                      else
+                        Some
+                          (Printf.sprintf
+                             "access_bundles[%d].%s must be a list of strings"
+                             index field)
+                  | Some _ ->
+                      Some
+                        (Printf.sprintf
+                           "access_bundles[%d].%s must be a list of strings"
+                           index field))
+          | _ -> [ Printf.sprintf "access_bundles[%d] must be an object" index ])
+      |> List.flatten
+  | `Null -> []
+  | _ -> [ "access_bundles must be a list" ]
+
+let validate_room_profile_access_bundle_json_shapes json : string list =
+  match Yojson.Safe.Util.member "room_profiles" json with
+  | `List profiles ->
+      profiles
+      |> List.mapi (fun index profile ->
+          match profile with
+          | `Assoc fields -> (
+              match List.assoc_opt "access_bundle_ids" fields with
+              | None -> []
+              | Some (`List values)
+                when List.for_all
+                       (function `String _ -> true | _ -> false)
+                       values ->
+                  []
+              | Some _ ->
+                  [
+                    Printf.sprintf
+                      "room_profiles[%d].access_bundle_ids must be a list of \
+                       strings"
+                      index;
+                  ])
+          | _ -> [ Printf.sprintf "room_profiles[%d] must be an object" index ])
+      |> List.flatten
+  | `Null -> []
+  | _ -> [ "room_profiles must be a list" ]
+
+let fail_closed_access_bundle_id (cfg : Runtime_config.t) =
+  let base = "__invalid_access_policy_validation__" in
+  let existing =
+    List.map (fun (b : Runtime_config.access_bundle) -> b.id) cfg.access_bundles
+  in
+  let rec pick n =
+    let id = if n = 0 then base else Printf.sprintf "%s:%d" base n in
+    if List.mem id existing then pick (n + 1) else id
+  in
+  pick 0
+
+let fail_closed_profile invalid_bundle_id
+    (profile : Runtime_config.room_profile) =
+  if List.mem invalid_bundle_id profile.access_bundle_ids then profile
+  else
+    {
+      profile with
+      access_bundle_ids = profile.access_bundle_ids @ [ invalid_bundle_id ];
+    }
+
+let locked_profile_for_missing_binding invalid_bundle_id profile_id :
+    Runtime_config.room_profile =
+  {
+    Runtime_config.id = profile_id;
+    display_name = Some "Invalid room profile binding";
+    model = Runtime_config.default.agent_defaults.primary_model;
+    system_prompt = "";
+    max_tool_iterations =
+      Runtime_config.default.agent_defaults.max_tool_iterations;
+    status = "active";
+    allowed_tools = [];
+    denied_tools = [];
+    access_bundle_ids = [ invalid_bundle_id ];
+    ambient_enabled = false;
+    ambient_quiet_start = Ambient_policy.default_ambient_quiet_start;
+    ambient_quiet_end = Ambient_policy.default_ambient_quiet_end;
+    ambient_rate_limit_rph = 0;
+  }
+
+let fail_closed_access_policy (cfg : Runtime_config.t) =
+  let invalid_bundle_id = fail_closed_access_bundle_id cfg in
+  let profiles =
+    List.map (fail_closed_profile invalid_bundle_id) cfg.room_profiles
+  in
+  let profile_ids =
+    let tbl = Hashtbl.create (List.length profiles) in
+    List.iter
+      (fun (p : Runtime_config.room_profile) -> Hashtbl.replace tbl p.id ())
+      profiles;
+    tbl
+  in
+  let missing_binding_profiles =
+    cfg.room_profile_bindings
+    |> List.filter_map (fun (b : Runtime_config.room_profile_binding) ->
+        if b.active && not (Hashtbl.mem profile_ids b.profile_id) then (
+          Hashtbl.add profile_ids b.profile_id ();
+          Some
+            (locked_profile_for_missing_binding invalid_bundle_id b.profile_id))
+        else None)
+  in
+  {
+    cfg with
+    Runtime_config.room_profiles = profiles @ missing_binding_profiles;
+  }
+
 (* Migrate the deprecated top-level "default_provider" key into the canonical
    "agent_defaults.primary_model" provider prefix, then drop it. (B701)
 

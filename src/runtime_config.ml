@@ -277,6 +277,7 @@ let default =
     test = { show_skills = false };
     debate = default_debate_config;
     postmortem = default_postmortem_config;
+    access_bundles = [];
     room_profiles = [];
     room_profile_codebase_grants = [];
     room_profile_bindings = [];
@@ -443,10 +444,94 @@ let resolve_room_profile_model (cfg : t) ~session_key : string option =
   | Some p when p.model <> "" -> Some p.model
   | _ -> None
 
+let unique_strings items =
+  let seen = Hashtbl.create (List.length items) in
+  List.filter
+    (fun item ->
+      if Hashtbl.mem seen item then false
+      else begin
+        Hashtbl.add seen item ();
+        true
+      end)
+    items
+
+let access_bundle_active (bundle : access_bundle) =
+  String.lowercase_ascii bundle.status <> "deleted"
+
+let find_access_bundle cfg id =
+  List.find_opt
+    (fun (bundle : access_bundle) ->
+      bundle.id = id && access_bundle_active bundle)
+    cfg.access_bundles
+
+let profile_missing_access_bundle_ids cfg (profile : room_profile) =
+  profile.access_bundle_ids
+  |> List.filter (fun id -> Option.is_none (find_access_bundle cfg id))
+
+let legacy_access_bundle_for_profile (cfg : t) (profile : room_profile) =
+  let codebase_grants =
+    match List.assoc_opt profile.id cfg.room_profile_codebase_grants with
+    | Some grants -> grants
+    | None -> []
+  in
+  if
+    profile.system_prompt = "" && profile.allowed_tools = []
+    && profile.denied_tools = [] && codebase_grants = []
+  then None
+  else
+    Some
+      ({
+         id = "__legacy_room_profile:" ^ profile.id;
+         display_name = Some "Legacy room profile grants";
+         system_prompt =
+           (if profile.system_prompt = "" then None
+            else Some profile.system_prompt);
+         allowed_tools = profile.allowed_tools;
+         denied_tools = profile.denied_tools;
+         codebase_grants;
+         mcp_servers = [];
+         skills = [];
+         repositories = [];
+         domains = [];
+         credential_handles = [];
+         instructions = [];
+         memory_grants = [];
+         budget_refs = [];
+         status = "active";
+       }
+        : access_bundle)
+
+let access_bundles_for_profile (cfg : t) (profile : room_profile) :
+    access_bundle list =
+  let explicit =
+    profile.access_bundle_ids |> List.filter_map (find_access_bundle cfg)
+  in
+  match legacy_access_bundle_for_profile cfg profile with
+  | None -> explicit
+  | Some legacy -> explicit @ [ legacy ]
+
 let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =
-  match List.assoc_opt profile_id cfg.room_profile_codebase_grants with
-  | Some grants -> grants
-  | None -> []
+  match
+    List.find_opt
+      (fun (profile : room_profile) -> profile.id = profile_id)
+      cfg.room_profiles
+  with
+  | None -> (
+      match List.assoc_opt profile_id cfg.room_profile_codebase_grants with
+      | Some grants -> grants
+      | None -> [])
+  | Some profile -> (
+      match profile_missing_access_bundle_ids cfg profile with
+      | [] ->
+          access_bundles_for_profile cfg profile
+          |> List.concat_map (fun (bundle : access_bundle) ->
+              bundle.codebase_grants)
+          |> unique_strings
+      | missing ->
+          [
+            Printf.sprintf "__invalid_access_bundle_reference__:%s"
+              (String.concat "," missing);
+          ])
 
 let room_profile_tool_denial (profile : room_profile) ~tool_name =
   Profile_policy.tool_denial ~profile_id:profile.id ~tool_name
@@ -455,7 +540,35 @@ let room_profile_tool_denial (profile : room_profile) ~tool_name =
 let room_profile_tool_denial_for_session cfg ~session_key ~tool_name =
   match resolve_room_profile cfg ~session_key with
   | None -> None
-  | Some profile -> room_profile_tool_denial profile ~tool_name
+  | Some profile -> (
+      match profile_missing_access_bundle_ids cfg profile with
+      | missing_id :: _ ->
+          Some
+            (Profile_policy.denial_message ~profile_id:profile.id
+               (Profile_policy.requirement ~grant_type:"access_bundle"
+                  ~required_permission:("resolve:" ^ missing_id) ~granted:false
+                  ~reason:
+                    (Printf.sprintf
+                       "Room profile references non-existent access bundle \
+                        '%s'. Fix access_bundle_ids before using \
+                        profile-scoped tools."
+                       missing_id)))
+      | [] ->
+          let bundles = access_bundles_for_profile cfg profile in
+          let allowed_tools =
+            bundles
+            |> List.concat_map (fun (bundle : access_bundle) ->
+                bundle.allowed_tools)
+            |> unique_strings
+          in
+          let denied_tools =
+            bundles
+            |> List.concat_map (fun (bundle : access_bundle) ->
+                bundle.denied_tools)
+            |> unique_strings
+          in
+          Profile_policy.tool_denial ~profile_id:profile.id ~tool_name
+            ~allowed_tools ~denied_tools)
 
 let effective_compaction_threshold_percent (memory : memory_config) =
   let p = memory.compaction_threshold_percent in

@@ -1087,6 +1087,9 @@ let test_room_profiles_default_empty () =
     "default room_profiles empty" 0
     (List.length Runtime_config.default.room_profiles);
   Alcotest.(check int)
+    "default access_bundles empty" 0
+    (List.length Runtime_config.default.access_bundles);
+  Alcotest.(check int)
     "default room_profile_bindings empty" 0
     (List.length Runtime_config.default.room_profile_bindings)
 
@@ -1094,8 +1097,25 @@ let test_parse_room_profiles () =
   let json =
     Yojson.Safe.from_string
       {|{
+        "access_bundles": [
+          {
+            "id": "bundle-dev",
+            "display_name": "Dev bundle",
+            "allowed_tools": ["file_read"],
+            "denied_tools": ["shell_exec"],
+            "codebase_grants": ["$CLAWQ_WORKSPACE/src/**"],
+            "mcp_servers": ["fs"],
+            "skills": ["review-and-fix"],
+            "repositories": ["owner/repo"],
+            "domains": ["api.example.com"],
+            "credential_handles": ["github-app:main"],
+            "instructions": ["Use read-only review mode."],
+            "memory_grants": ["scope:42:read"],
+            "budget_refs": ["room-dev"]
+          }
+        ],
         "room_profiles": [
-          {"id": "p1", "model": "openai:gpt-4o", "system_prompt": "You are helpful", "max_tool_iterations": 5},
+          {"id": "p1", "model": "openai:gpt-4o", "system_prompt": "You are helpful", "max_tool_iterations": 5, "access_bundle_ids": ["bundle-dev"]},
           {"id": "p2", "model": "anthropic:claude-sonnet-4-6"}
         ],
         "room_profile_bindings": [
@@ -1105,12 +1125,30 @@ let test_parse_room_profiles () =
       }|}
   in
   let cfg = Config_loader.parse_config json in
+  Alcotest.(check int) "access_bundles count" 1 (List.length cfg.access_bundles);
+  let bundle = List.nth cfg.access_bundles 0 in
+  Alcotest.(check string) "bundle.id" "bundle-dev" bundle.id;
+  Alcotest.(check (option string))
+    "bundle.display_name" (Some "Dev bundle") bundle.display_name;
+  Alcotest.(check (list string))
+    "bundle.allowed_tools" [ "file_read" ] bundle.allowed_tools;
+  Alcotest.(check (list string))
+    "bundle.denied_tools" [ "shell_exec" ] bundle.denied_tools;
+  Alcotest.(check (list string))
+    "bundle.codebase_grants"
+    [ "$CLAWQ_WORKSPACE/src/**" ]
+    bundle.codebase_grants;
+  Alcotest.(check (list string))
+    "bundle.credential_handles are handles only" [ "github-app:main" ]
+    bundle.credential_handles;
   Alcotest.(check int) "room_profiles count" 2 (List.length cfg.room_profiles);
   let p1 = List.nth cfg.room_profiles 0 in
   Alcotest.(check string) "p1.id" "p1" p1.id;
   Alcotest.(check string) "p1.model" "openai:gpt-4o" p1.model;
   Alcotest.(check string) "p1.system_prompt" "You are helpful" p1.system_prompt;
   Alcotest.(check int) "p1.max_tool_iterations" 5 p1.max_tool_iterations;
+  Alcotest.(check (list string))
+    "p1.access_bundle_ids" [ "bundle-dev" ] p1.access_bundle_ids;
   let p2 = List.nth cfg.room_profiles 1 in
   Alcotest.(check string) "p2.id" "p2" p2.id;
   Alcotest.(check string) "p2.system_prompt empty" "" p2.system_prompt;
@@ -1124,7 +1162,22 @@ let test_parse_room_profiles () =
   Alcotest.(check string) "b1.room" "general" b1.room;
   Alcotest.(check bool) "b1.active" true b1.active;
   let b2 = List.nth cfg.room_profile_bindings 1 in
-  Alcotest.(check bool) "b2.active default false" false b2.active
+  Alcotest.(check bool) "b2.active default false" false b2.active;
+  Alcotest.(check bool)
+    "bundle denied tool enforced" true
+    (Option.is_some
+       (Runtime_config.room_profile_tool_denial_for_session cfg
+          ~session_key:"chat:general" ~tool_name:"shell_exec"));
+  Alcotest.(check bool)
+    "bundle allowed tool permitted" true
+    (Option.is_none
+       (Runtime_config.room_profile_tool_denial_for_session cfg
+          ~session_key:"chat:general" ~tool_name:"file_read"));
+  Alcotest.(check bool)
+    "bundle allowlist fails closed" true
+    (Option.is_some
+       (Runtime_config.room_profile_tool_denial_for_session cfg
+          ~session_key:"chat:general" ~tool_name:"file_write"))
 
 let test_room_profiles_roundtrip () =
   let cfg =
@@ -1141,10 +1194,31 @@ let test_room_profiles_roundtrip () =
             status = "active";
             allowed_tools = [];
             denied_tools = [];
+            access_bundle_ids = [ "test-bundle" ];
             ambient_enabled = false;
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+          };
+        ];
+      access_bundles =
+        [
+          {
+            Runtime_config.id = "test-bundle";
+            display_name = None;
+            system_prompt = None;
+            allowed_tools = [ "file_read" ];
+            denied_tools = [ "shell_exec" ];
+            codebase_grants = [ "$CLAWQ_WORKSPACE/src/**" ];
+            mcp_servers = [];
+            skills = [];
+            repositories = [];
+            domains = [];
+            credential_handles = [ "github-app:main" ];
+            instructions = [];
+            memory_grants = [];
+            budget_refs = [];
+            status = "active";
           };
         ];
       room_profile_bindings =
@@ -1166,6 +1240,11 @@ let test_room_profiles_roundtrip () =
   let p = List.nth cfg2.room_profiles 0 in
   Alcotest.(check string) "id roundtrip" "test-p" p.id;
   Alcotest.(check string) "model roundtrip" "openai:gpt-4o" p.model;
+  Alcotest.(check (list string))
+    "access bundle ids roundtrip" [ "test-bundle" ] p.access_bundle_ids;
+  Alcotest.(check int)
+    "access bundles roundtrip" 1
+    (List.length cfg2.access_bundles);
   Alcotest.(check int)
     "bindings roundtrip" 1
     (List.length cfg2.room_profile_bindings);
@@ -1173,12 +1252,61 @@ let test_room_profiles_roundtrip () =
   Alcotest.(check string) "binding room" "general" b.room;
   Alcotest.(check bool) "binding active" true b.active;
   Alcotest.(check (list string))
-    "codebase grants roundtrip" [ "$CLAWQ_WORKSPACE/**" ]
+    "codebase grants roundtrip"
+    [ "$CLAWQ_WORKSPACE/src/**"; "$CLAWQ_WORKSPACE/**" ]
     (Runtime_config.room_profile_codebase_grants_for_profile cfg2
        ~profile_id:"test-p")
 
+let test_room_profile_legacy_fields_compile_to_implicit_bundle () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "room_profiles": [
+          {
+            "id": "legacy",
+            "model": "openai:gpt-4o",
+            "system_prompt": "Legacy prompt",
+            "allowed_tools": ["file_read"],
+            "denied_tools": ["shell_exec"]
+          }
+        ],
+        "room_profile_codebase_grants": [
+          {"profile_id": "legacy", "patterns": ["$CLAWQ_WORKSPACE/src/**"]}
+        ]
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let profile = List.nth cfg.room_profiles 0 in
+  let bundles = Runtime_config.access_bundles_for_profile cfg profile in
+  Alcotest.(check int) "implicit legacy bundle only" 1 (List.length bundles);
+  let bundle = List.nth bundles 0 in
+  Alcotest.(check string)
+    "implicit bundle id" "__legacy_room_profile:legacy" bundle.id;
+  Alcotest.(check (option string))
+    "legacy system prompt carried" (Some "Legacy prompt") bundle.system_prompt;
+  Alcotest.(check (list string))
+    "legacy allowed tools carried" [ "file_read" ] bundle.allowed_tools;
+  Alcotest.(check (list string))
+    "legacy denied tools carried" [ "shell_exec" ] bundle.denied_tools;
+  Alcotest.(check (list string))
+    "legacy codebase grants carried"
+    [ "$CLAWQ_WORKSPACE/src/**" ]
+    bundle.codebase_grants;
+  Alcotest.(check (list string))
+    "legacy grants still enforce"
+    [ "$CLAWQ_WORKSPACE/src/**" ]
+    (Runtime_config.room_profile_codebase_grants_for_profile cfg
+       ~profile_id:"legacy");
+  Alcotest.(check bool)
+    "legacy denied tool still denied" true
+    (Option.is_some
+       (Runtime_config.room_profile_tool_denial profile ~tool_name:"shell_exec"))
+
 let test_room_profiles_to_json_omits_empty () =
   let json = Runtime_config.to_json Runtime_config.default in
+  Alcotest.(check bool)
+    "empty access_bundles omitted" true
+    (Yojson.Safe.Util.member "access_bundles" json = `Null);
   Alcotest.(check bool)
     "empty room_profiles omitted" true
     (Yojson.Safe.Util.member "room_profiles" json = `Null);
@@ -1200,11 +1328,8 @@ let test_room_profiles_duplicate_ids_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
-              (List.length cfg.room_profiles);
-            Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profiles preserved" 2
+              (List.length cfg.room_profiles))
       in
       Alcotest.(check bool)
         "warns about duplicate profile id" true
@@ -1228,11 +1353,16 @@ let test_room_profiles_duplicate_active_bindings_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles preserved" 2
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 2
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "duplicate binding denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about duplicate active room binding" true
@@ -1256,11 +1386,16 @@ let test_room_profiles_multi_room_binding_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles preserved" 1
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 2
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "multi-room binding denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about multi-room binding" true
@@ -1297,15 +1432,147 @@ let test_room_profile_orphan_binding_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles plus locked missing profile preserved" 2
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 1
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "orphan binding denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about non-existent profile" true
         (Test_helpers.string_contains stderr_output "non-existent profile"))
+
+let test_room_profile_invalid_access_bundle_reference_rejects () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "known", "allowed_tools": ["file_read"]}
+      ],
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": ["missing"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "room_profiles preserved" 1
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings preserved" 1
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "missing bundle reference denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
+      in
+      Alcotest.(check bool)
+        "warns about missing access bundle" true
+        (Test_helpers.string_contains stderr_output
+           "references non-existent access bundle"))
+
+let assert_access_policy_fail_closed json ~warning_substring =
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "room_profiles preserved" 1
+              (List.length cfg.room_profiles);
+            Alcotest.(check int)
+              "room_profile_bindings preserved" 1
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "invalid access policy denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
+      in
+      Alcotest.(check bool)
+        "warns about access policy validation" true
+        (Test_helpers.string_contains stderr_output warning_substring))
+
+let test_access_bundle_malformed_security_fields_reject () =
+  let fields =
+    [
+      "allowed_tools";
+      "denied_tools";
+      "codebase_grants";
+      "mcp_servers";
+      "skills";
+      "repositories";
+      "domains";
+      "credential_handles";
+      "instructions";
+      "memory_grants";
+      "budget_refs";
+    ]
+  in
+  List.iter
+    (fun field ->
+      let json =
+        Printf.sprintf
+          {|{
+            "access_bundles": [
+              {"id": "bundle-dev", "%s": [42]}
+            ],
+            "room_profiles": [
+              {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": ["bundle-dev"]}
+            ],
+            "room_profile_bindings": [
+              {"profile_id": "p1", "room": "general", "active": true}
+            ]
+          }|}
+          field
+      in
+      assert_access_policy_fail_closed json
+        ~warning_substring:("access_bundles[0]." ^ field))
+    fields
+
+let test_room_profile_malformed_access_bundle_ids_rejects () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "known", "allowed_tools": ["file_read"]}
+      ],
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": {"id": "known"}}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  assert_access_policy_fail_closed json
+    ~warning_substring:"room_profiles[0].access_bundle_ids"
+
+let test_access_bundle_duplicate_ids_rejects () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "dup", "allowed_tools": ["file_read"]},
+        {"id": "dup", "allowed_tools": ["file_write"]}
+      ],
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": ["dup"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  assert_access_policy_fail_closed json ~warning_substring:"duplicate bundle id"
 
 let suite =
   [
@@ -1420,6 +1687,8 @@ let suite =
     Alcotest.test_case "parse room profiles" `Quick test_parse_room_profiles;
     Alcotest.test_case "room_profiles roundtrip" `Quick
       test_room_profiles_roundtrip;
+    Alcotest.test_case "legacy profile fields compile to implicit bundle" `Quick
+      test_room_profile_legacy_fields_compile_to_implicit_bundle;
     Alcotest.test_case "to_json omits empty room profiles" `Quick
       test_room_profiles_to_json_omits_empty;
     Alcotest.test_case "room_profiles duplicate ids rejects" `Quick
@@ -1432,6 +1701,14 @@ let suite =
       test_room_profile_binding_active_default_true;
     Alcotest.test_case "room_profiles orphan binding rejects" `Quick
       test_room_profile_orphan_binding_rejects;
+    Alcotest.test_case "room_profiles invalid access bundle rejects" `Quick
+      test_room_profile_invalid_access_bundle_reference_rejects;
+    Alcotest.test_case "room_profiles malformed access_bundle_ids rejects"
+      `Quick test_room_profile_malformed_access_bundle_ids_rejects;
+    Alcotest.test_case "access_bundles malformed security fields reject" `Quick
+      test_access_bundle_malformed_security_fields_reject;
+    Alcotest.test_case "access_bundles duplicate ids reject" `Quick
+      test_access_bundle_duplicate_ids_rejects;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)

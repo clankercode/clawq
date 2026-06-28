@@ -20,6 +20,7 @@ let make_profile ?(ambient_enabled = false)
     status = "active";
     allowed_tools = [];
     denied_tools = [];
+    access_bundle_ids = [];
     ambient_enabled;
     ambient_quiet_start;
     ambient_quiet_end;

@@ -2469,6 +2469,7 @@ let room_profile_tool_config ?(allowed_tools = []) ?(denied_tools = []) () =
           status = "active";
           allowed_tools;
           denied_tools;
+          access_bundle_ids = [];
           ambient_enabled = false;
           ambient_quiet_start = 23;
           ambient_quiet_end = 8;
