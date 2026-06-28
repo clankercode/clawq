@@ -845,6 +845,13 @@ let help_interrupt_hint =
   "Prefix a message with ! to interrupt current processing in this session and \
    send the rest as a normal message."
 
+let help_more_hint ~connector =
+  "Use "
+  ^ Format_adapter.code connector "/help skills"
+  ^ " for skills and "
+  ^ Format_adapter.code connector "/help agents"
+  ^ " for agents."
+
 let format_help_skills_section ~connector (skills : Skills.skill_md_meta list) =
   if skills = [] then ""
   else
@@ -877,9 +884,7 @@ let format_help_agents_section ~connector (agents : Agent_template.t list) =
         (Printf.sprintf "Agents (%d):" (List.length agents))
     ^ "\n" ^ String.concat "\n" lines
 
-let format_help_with ~connector ~commands ~skills ~agents =
-  let skills_section = format_help_skills_section ~connector skills in
-  let agents_section = format_help_agents_section ~connector agents in
+let format_help_with ~connector ~commands ~skills:_ ~agents:_ =
   match connector with
   | Format_adapter.Telegram_html ->
       let rows =
@@ -892,17 +897,15 @@ let format_help_with ~connector ~commands ~skills ~agents =
       in
       String.concat "\n"
         ([
+           Format_adapter.escape Format_adapter.Telegram_html
+             help_interrupt_hint;
+           "";
            Format_adapter.bold Format_adapter.Telegram_html
              "Available commands:";
            "";
          ]
         @ rows
-        @ [
-            "";
-            Format_adapter.escape Format_adapter.Telegram_html
-              help_interrupt_hint;
-          ])
-      ^ skills_section ^ agents_section
+        @ [ ""; help_more_hint ~connector:Format_adapter.Telegram_html ])
   | Format_adapter.Plain ->
       let command_labels = List.map (fun c -> "/" ^ c.name) commands in
       let command_width =
@@ -918,8 +921,9 @@ let format_help_with ~connector ~commands ~skills ~agents =
           commands
       in
       String.concat "\n"
-        ([ "Available commands:"; "" ] @ rows @ [ ""; help_interrupt_hint ])
-      ^ skills_section ^ agents_section
+        ([ help_interrupt_hint; ""; "Available commands:"; "" ]
+        @ rows
+        @ [ ""; help_more_hint ~connector ])
   | Format_adapter.Teams ->
       let table_columns =
         Table_format.
@@ -931,12 +935,13 @@ let format_help_with ~connector ~commands ~skills ~agents =
       let table_rows =
         List.map (fun c -> [ "/" ^ c.name; c.description ]) commands
       in
-      Format_adapter.bold Format_adapter.Teams "Available commands:"
+      help_interrupt_hint ^ "\n\n"
+      ^ Format_adapter.bold Format_adapter.Teams "Available commands:"
       ^ "\n\n"
       ^ Table_format.render_markdown
           ~escape_cell:(Format_adapter.escape_table_cell Format_adapter.Teams)
           table_columns table_rows
-      ^ "\n\n" ^ help_interrupt_hint ^ skills_section ^ agents_section
+      ^ "\n\n" ^ help_more_hint ~connector
   | _ ->
       let command_labels = List.map (fun c -> "/" ^ c.name) commands in
       let command_width =
@@ -953,10 +958,11 @@ let format_help_with ~connector ~commands ~skills ~agents =
       in
       let plain_text =
         String.concat "\n"
-          ([ "Available commands:"; "" ] @ rows @ [ ""; help_interrupt_hint ])
+          ([ help_interrupt_hint; ""; "Available commands:"; "" ]
+          @ rows
+          @ [ ""; "Use /help skills for skills and /help agents for agents." ])
       in
-      Format_adapter.code_block connector
-        (plain_text ^ skills_section ^ agents_section)
+      Format_adapter.code_block connector plain_text
 
 let format_help ~connector ?(show_test = false) () =
   let skills =

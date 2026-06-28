@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-28T08:18:31Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T08:29:20Z"
 complexity: medium
 depends_on: []
+duration_minutes: 10.8271826108
 estimate_hours: 1
 id: B729
 priority: high
 started_at: "2026-06-28T08:18:31Z"
-status: in_progress
+status: done
 tags: []
 title: move the prefix-bang paragraph in /help response to top of help so that it's the most visible thing. Move skills under '/help skills' and move agents under '/help agents'. Both should be referenced at the end of the main help command.
 ---

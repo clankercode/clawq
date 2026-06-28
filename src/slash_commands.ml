@@ -23,7 +23,19 @@ let handle ?(skill_names = []) text =
         let cmd_lower = String.lowercase_ascii cmd in
         match cmd_lower with
         | "start" -> FormattedReply (fun connector -> format_start ~connector)
-        | "help" -> Help
+        | "help" -> (
+            match List.map String.lowercase_ascii args with
+            | [ "skills" ] -> SkillsMenu 1
+            | [ "skills"; n ] -> (
+                match int_of_string_opt n with
+                | Some page when page >= 1 -> SkillsMenu page
+                | _ -> SkillsMenu 1)
+            | [ "agents" ] -> AgentMenu 1
+            | [ "agents"; n ] -> (
+                match int_of_string_opt n with
+                | Some page when page >= 1 -> AgentMenu page
+                | _ -> AgentMenu 1)
+            | _ -> Help)
         | "new" -> Reset
         | "compact" -> Compact
         | "context" -> Context

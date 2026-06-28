@@ -231,7 +231,9 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 Available in chat-integrated channels that support slash commands. Admin-only commands (marked below) are hidden from guest users in help, menus, and command manifests.
 
 - `/start` — show the ready message
-- `/help` — list available slash commands, plus Skills and Agents sections (when any are available)
+- `/help` — list core slash commands and show the interrupt hint
+- `/help skills` — show available skills
+- `/help agents` — show available agents
 - `/new` — reset the current session
 - `/status` — rich table-formatted status report showing uptime, PID, version, build date, session counts, gateway address, connector states (Telegram/Discord/Slack/Teams/GitHub), and tunnel info
 - `/runtime_ctx` (alias `/runtime-ctx`) — show the full per-session runtime context block injected into the system prompt, including session identity, workspace, git branch, timezone, shell policy, context usage, and background task summary

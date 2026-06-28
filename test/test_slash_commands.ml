@@ -505,12 +505,21 @@ let test_bare_slash () =
     (Slash_commands.handle "/")
 
 let test_command_with_args () =
-  match Slash_commands.handle "/help extra args here" with
-  | Slash_commands.Help -> ()
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Help for /help with args, got %s"
-           (result_to_string other))
+  Alcotest.check result_testable "unknown /help args show main help"
+    Slash_commands.Help
+    (Slash_commands.handle "/help extra args here");
+  Alcotest.check result_testable "/help skills opens skills help"
+    (Slash_commands.SkillsMenu 1)
+    (Slash_commands.handle "/help skills");
+  Alcotest.check result_testable "/help skills page opens skills help page"
+    (Slash_commands.SkillsMenu 2)
+    (Slash_commands.handle "/help skills 2");
+  Alcotest.check result_testable "/help agents opens agents help"
+    (Slash_commands.AgentMenu 1)
+    (Slash_commands.handle "/help agents");
+  Alcotest.check result_testable "/help agents page opens agents help page"
+    (Slash_commands.AgentMenu 2)
+    (Slash_commands.handle "/help agents 2")
 
 let test_format_help_telegram () =
   let output =
@@ -1957,8 +1966,8 @@ let test_format_help_with_skills () =
     ]
   in
   let output =
-    Slash_commands.format_help_with ~connector:Format_adapter.Plain
-      ~commands:Slash_commands.commands ~skills ~agents:[]
+    Slash_commands.format_help_skills_section ~connector:Format_adapter.Plain
+      skills
   in
   Alcotest.(check bool)
     "has Skills section" true
@@ -1973,8 +1982,8 @@ let test_format_help_with_skills () =
 let test_format_help_with_agents () =
   let agents = [ make_dummy_agent "reviewer" "Code review specialist" ] in
   let output =
-    Slash_commands.format_help_with ~connector:Format_adapter.Plain
-      ~commands:Slash_commands.commands ~skills:[] ~agents
+    Slash_commands.format_help_agents_section ~connector:Format_adapter.Plain
+      agents
   in
   Alcotest.(check bool)
     "has Agents section" true
@@ -1985,9 +1994,52 @@ let test_format_help_with_agents () =
   Alcotest.(check bool)
     "has agent description" true
     (Test_helpers.string_contains output "Code review specialist");
+  Alcotest.(check string)
+    "no Skills section when empty" ""
+    (Slash_commands.format_help_skills_section ~connector:Format_adapter.Plain
+       [])
+
+let test_format_help_keeps_skills_and_agents_out_of_main_help () =
+  let skills : Skills.skill_md_meta list =
+    [
+      {
+        md_name = "deploy";
+        md_description = "Deploy to production";
+        md_allowed_tools = [];
+        md_model = None;
+        md_disable_model_invocation = false;
+        md_source_path = "/tmp/test";
+      };
+    ]
+  in
+  let agents = [ make_dummy_agent "reviewer" "Code review specialist" ] in
+  let output =
+    Slash_commands.format_help_with ~connector:Format_adapter.Plain
+      ~commands:Slash_commands.commands ~skills ~agents
+  in
+  let index_of needle =
+    try Some (Str.search_forward (Str.regexp_string needle) output 0)
+    with Not_found -> None
+  in
+  let interrupt_idx = index_of "Prefix a message with !" in
+  let commands_idx = index_of "Available commands:" in
   Alcotest.(check bool)
-    "no Skills section when empty" true
-    (not (Test_helpers.string_contains output "Skills"))
+    "interrupt hint comes before commands" true
+    (match (interrupt_idx, commands_idx) with
+    | Some interrupt_idx, Some commands_idx -> interrupt_idx < commands_idx
+    | _ -> false);
+  Alcotest.(check bool)
+    "main help points to skills help" true
+    (Test_helpers.string_contains output "/help skills");
+  Alcotest.(check bool)
+    "main help points to agents help" true
+    (Test_helpers.string_contains output "/help agents");
+  Alcotest.(check bool)
+    "main help omits inline skills" false
+    (Test_helpers.string_contains output "Skills (1):");
+  Alcotest.(check bool)
+    "main help omits inline agents" false
+    (Test_helpers.string_contains output "Agents (1):")
 
 let test_format_help_teams_skills_bulleted () =
   let skills : Skills.skill_md_meta list =
@@ -2011,8 +2063,8 @@ let test_format_help_teams_skills_bulleted () =
     ]
   in
   let output =
-    Slash_commands.format_help_with ~connector:Format_adapter.Teams
-      ~commands:Slash_commands.commands ~skills ~agents:[]
+    Slash_commands.format_help_skills_section ~connector:Format_adapter.Teams
+      skills
   in
   Alcotest.(check bool)
     "deploy is bulleted" true
@@ -2029,8 +2081,8 @@ let test_format_help_teams_agents_bulleted () =
     ]
   in
   let output =
-    Slash_commands.format_help_with ~connector:Format_adapter.Teams
-      ~commands:Slash_commands.commands ~skills:[] ~agents
+    Slash_commands.format_help_agents_section ~connector:Format_adapter.Teams
+      agents
   in
   Alcotest.(check bool)
     "reviewer is bulleted" true
@@ -2053,8 +2105,8 @@ let test_format_help_plain_skills_no_bullets () =
     ]
   in
   let output =
-    Slash_commands.format_help_with ~connector:Format_adapter.Plain
-      ~commands:Slash_commands.commands ~skills ~agents:[]
+    Slash_commands.format_help_skills_section ~connector:Format_adapter.Plain
+      skills
   in
   Alcotest.(check bool)
     "no bullet prefix" true
@@ -3221,6 +3273,8 @@ let suite =
       test_format_help_with_skills;
     Alcotest.test_case "format help with agents" `Quick
       test_format_help_with_agents;
+    Alcotest.test_case "format help links skills and agents subhelp" `Quick
+      test_format_help_keeps_skills_and_agents_out_of_main_help;
     Alcotest.test_case "format help teams skills bulleted" `Quick
       test_format_help_teams_skills_bulleted;
     Alcotest.test_case "format help teams agents bulleted" `Quick

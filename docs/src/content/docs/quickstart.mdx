@@ -193,7 +193,7 @@ If you configured Telegram, open Telegram and message your bot. Built-in command
 | Command | Action |
 |---------|--------|
 | `/start` | Welcome message |
-| `/help` | Show available commands |
+| `/help` | Show command help |
 | `/new` | Reset conversation history |
 
 The bot maintains conversation history per chat, so follow-up questions work naturally.
@@ -249,7 +249,7 @@ Open the browser UI at `http://127.0.0.1:13451/`:
 
 Now that clawq is running, here are some things to explore:
 
-- **Slash commands in chat:** Type `/help` in any chat channel to see all available slash commands. `/status` shows a rich status report, `/costs` shows usage costs, and `/model list` shows available models.
+- **Slash commands in chat:** Type `/help` in any chat channel to see core command help. Use `/help skills` for skills and `/help agents` for agents. `/status` shows a rich status report, `/costs` shows usage costs, and `/model list` shows available models.
 - **Interrupt a running turn:** Prefix a message with `!` to interrupt the current turn and send a new message. For example, `!stop` interrupts and sends "stop". Admins can send bare `stop` or `/stop` during a busy turn to stop it cleanly with `Stopped by admin.` instead of enqueueing a follow-up.
 - **Background tasks:** Use `clawq delegate "implement feature X"` to hand off coding work to a background agent running in a git worktree. See the output with `clawq background logs`.
 - **Shell completions:** Run `clawq completions install` to set up tab completion for your shell.

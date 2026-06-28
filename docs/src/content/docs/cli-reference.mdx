@@ -459,14 +459,16 @@ When `shell_exec` is interrupted, the running process is moved to a background s
 
 ## Slash Commands
 
-Slash commands are available in chat-integrated channels (Telegram, Discord, Slack, Teams, web UI). Type `/help` in any channel to see the full list.
+Slash commands are available in chat-integrated channels (Telegram, Discord, Slack, Teams, web UI). Type `/help` in any channel to see core command help and the interrupt hint. Use `/help skills` for skills and `/help agents` for agents.
 
 Model-setting commands accept canonical `provider:model`, legacy `provider/model`, or a bare model name. Bare names are matched against the model catalog; if more than one provider matches, the command fails with candidate `provider:model` values instead of choosing one silently. In the web UI, slash-command errors are also written to the session history so the next LLM turn can see what failed.
 
 | Command | Description |
 |---------|-------------|
 | `/start` | Show the ready message |
-| `/help` | List available slash commands, skills, and agents |
+| `/help` | List core slash commands and show the interrupt hint |
+| `/help skills` | Show available skills |
+| `/help agents` | Show available agents |
 | `/new` | Reset the current session |
 | `/status` | Rich table-formatted status report (uptime, PID, sessions, connectors, tunnel) |
 | `/runtime_ctx` | Show the full per-session runtime context block |
