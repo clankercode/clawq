@@ -4,6 +4,12 @@ estimate_hours: 10
 id: P14.M1.E1
 locked: false
 name: Access Bundle Data Model
+stats:
+    blocked: 0
+    done: 3
+    in_progress: 0
+    pending: 0
+    total: 3
 status: done
 tasks:
     - complexity: high

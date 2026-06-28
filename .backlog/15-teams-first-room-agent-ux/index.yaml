@@ -1,13 +1,11 @@
 complexity: medium
-depends_on:
-    - P14
+depends_on: []
 estimate_hours: 56
 id: P15
 locked: false
 milestones:
     - complexity: high
-      depends_on:
-        - P14.M1
+      depends_on: []
       description: Shared delivery target/result vocabulary and progress rendering primitives.
       estimate_hours: 24
       id: M1
@@ -26,5 +24,11 @@ milestones:
       path: 02-teams-production-room-ux
       status: pending
 name: Teams-First Room-Agent UX
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 21
+    total_tasks: 21
 status: pending
 weeks: 4

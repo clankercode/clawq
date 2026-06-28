@@ -1,6 +1,5 @@
 complexity: high
-depends_on:
-    - P14.M1
+depends_on: []
 epics:
     - complexity: high
       depends_on: []
@@ -25,4 +24,10 @@ estimate_hours: 24
 id: P17.M1
 locked: false
 name: Room Memory Management
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 8
+    total_tasks: 8
 status: pending

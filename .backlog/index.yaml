@@ -1,220 +1,274 @@
 critical_path:
-    - P11.M1.E1.T001
-    - P11.M1.E1.T002
-    - P11.M1.E1.T003
-    - P11.M1.E3.T001
-    - P11.M2.E1.T001
-    - P11.M2.E2.T001
-    - P11.M2.E2.T002
-    - P11.M3.E4.T001
-    - P11.M3.E4.T002
-    - P11.M3.E4.T003
-    - P12.M3.E1.T001
-    - P12.M3.E2.T001
-    - P12.M3.E2.T002
-    - P12.M3.E2.T003
-    - P12.M3.E2.T004
-    - P12.M3.E2.T005
-    - P13.M1.E2.T001
-    - P13.M1.E3.T001
-    - P13.M1.E3.T002
-    - P13.M1.E3.T003
-    - P13.M1.E3.T004
-    - P13.M3.E3.T001
+- P14.M1.E3.T001
+- P14.M1.E3.T002
+- P14.M1.E3.T003
+- P14.M2.E1.T001
+- P14.M2.E1.T002
+- P14.M2.E1.T003
+- P14.M2.E1.T004
+- P14.M2.E3.T001
+- P14.M2.E3.T002
+- P14.M2.E3.T003
+- P16.M1.E1.T001
+- P16.M1.E1.T002
+- P16.M1.E1.T003
+- P16.M1.E1.T004
+- P16.M1.E2.T001
+- P16.M1.E2.T002
+- P16.M1.E2.T003
+- P16.M1.E2.T004
+- P16.M2.E1.T001
+- P16.M2.E1.T002
+- P16.M2.E1.T003
+- P16.M2.E1.T004
+- P16.M2.E2.T001
+- P16.M2.E2.T002
+- P16.M2.E2.T003
+- P16.M2.E2.T004
+- P16.M3.E1.T001
+- P16.M3.E1.T002
+- P16.M3.E1.T003
+- P16.M3.E1.T004
+- P16.M3.E2.T001
+- P16.M3.E2.T002
+- P16.M3.E2.T003
+- P16.M3.E2.T004
+- P18.M1.E1.T001
+- P18.M1.E1.T002
+- P18.M1.E1.T003
+- P18.M1.E1.T004
+- P18.M1.E2.T001
+- P18.M1.E2.T002
+- P18.M1.E2.T003
+- P18.M2.E1.T001
+- P18.M2.E1.T002
+- P18.M2.E1.T003
+- P18.M2.E1.T004
+- P18.M2.E2.T001
+- P18.M2.E2.T002
+- P18.M2.E2.T003
+- P18.M2.E2.T004
+- P18.M3.E1.T001
+- P18.M3.E1.T002
+- P18.M3.E1.T003
+- P18.M3.E2.T001
+- P18.M3.E2.T002
+- P18.M3.E2.T003
 description: A formally verified fully autonomous AI assistant.
-next_available: P11.M1.E1.T001
+next_available: P14.M1.E3.T001
 phases:
-    - depends_on: []
-      description: 'Features identified via nullclaw comparison and doc review. Organized by effort tier: quick wins, high impact, ecosystem expansion, and formalization.'
-      estimate_hours: 300
-      id: P1
-      locked: true
-      name: 'Feature Roadmap: Parity & Expansion'
-      path: 01-feature-roadmap-parity-expansi
-      priority: high
-      status: done
-      weeks: 12
-    - depends_on: []
-      description: Close the remaining feature gaps vs nullclaw identified in NULLCLAW_COMPARISON_1.tmp.md. Covers native providers, 13 new channels, OTP pairing, memory export, sandbox hardening, WASM runtime, Chat UI, test coverage, and tunnel alternatives.
-      estimate_hours: 480
-      id: P2
-      locked: true
-      name: 'Nullclaw Parity: Gap Closure'
-      path: 02-nullclaw-parity-gap-closure
-      priority: high
-      status: done
-      weeks: 16
-    - depends_on: []
-      description: ""
-      estimate_hours: 40
-      id: P3
-      locked: true
-      name: 'Web UI: Streaming Chat Interface'
-      path: 03-web-ui-streaming-chat-interfac
-      priority: high
-      status: done
-      weeks: 3
-    - depends_on: []
-      description: ""
-      estimate_hours: 14
-      id: P4
-      locked: true
-      name: Runtime Infrastructure & Developer Experience
-      path: 04-runtime-infrastructure-develop
-      priority: medium
-      status: done
-      weeks: 2
-    - depends_on: []
-      description: 'Complete the remaining high-value formal verification work identified in the 2026-03-07 audit and roadmap: anchored audit retention follow-through, runtime-aligned security proofs, agent-loop invariants, and verification-status documentation alignment.'
-      estimate_hours: 84
-      id: P5
-      locked: false
-      name: Formal Verification Expansion
-      path: 05-formal-verification-expansion
-      priority: high
-      status: pending
-      weeks: 8
-    - depends_on: []
-      description: 'Close the gap between Coq proofs and runtime enforcement. Wire already-extracted functions, add conformance tests, instantiate abstract Coq modules with concrete implementations, and add runtime assertions for spec-only invariants. Ref: docs/FV_SPEC_IMPL_GAP_AUDIT_2026_03_08.md'
-      estimate_hours: 40
-      id: P6
-      locked: true
-      name: Formal Verification Gap Closure
-      path: 06-formal-verification-gap-closur
-      priority: high
-      status: done
-      weeks: 2
-    - depends_on: []
-      description: Add a durable inbound queue for offline session injection, replay it safely on daemon startup through the real session runtime, expose strong operator/debug visibility, and keep docs plus verification follow-through aligned with the final architecture plan.
-      estimate_hours: 40
-      id: P7
-      locked: true
-      name: Persisted Inbound Queue & Replay
-      path: 07-persisted-inbound-queue-replay
-      priority: high
-      status: done
-      weeks: 3
-    - depends_on: []
-      description: 'I019: Proactive error watcher with separate EC process, multi-model diagnosis/voting pipeline, and auto-fix capability'
-      estimate_hours: 30
-      id: P8
-      locked: true
-      name: Error Correction Watcher
-      path: 08-error-correction-watcher
-      priority: high
-      status: done
-      weeks: 3
-    - depends_on: []
-      description: ""
-      estimate_hours: 10
-      id: P9
-      locked: true
-      name: SKILL.md Refactor
-      path: 09-skill-md-refactor
-      priority: medium
-      status: done
-      weeks: 2
-    - depends_on: []
-      description: 'Unify skill loading across all activation pathways to use system messages, add deduplication, fix command injection gap, and handle compaction. Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md'
-      estimate_hours: 11
-      id: P10
-      locked: true
-      name: Skill Injection Overhaul
-      path: 10-skill-injection-overhaul
-      priority: high
-      status: done
-      weeks: 2
-    - depends_on: []
-      description: 'Claude Tag-style room-agent MVP: shared profiled room sessions, persistent room workspaces, typed room/thread/routine session keys, Slack-first connector routing, P11 privacy guard, thread-bound work sessions, and mention-to-task async delivery. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
-      estimate_hours: 96
-      id: P11
-      locked: true
-      name: Room Agent MVP
-      path: 11-room-agent-mvp
-      priority: high
-      status: done
-      weeks: 4
-    - depends_on: []
-      description: 'Governance layer for room agents: scoped memory tables, grant policy, profile tool/codebase policy, budgets, and activity ledger. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
-      estimate_hours: 96
-      id: P12
-      locked: true
-      name: Room Agent Governance
-      path: 12-room-agent-governance
-      priority: high
-      status: done
-      weeks: 4
-    - depends_on: []
-      description: 'Cron-integrated room routines, opt-in ambient room watcher, connector capability matrix, and multi-connector polish for room agents. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
-      estimate_hours: 72
-      id: P13
-      locked: true
-      name: Ambient and Scheduled Room Agents
-      path: 13-ambient-and-scheduled-room-age
-      priority: medium
-      status: done
-      weeks: 4
-    - depends_on:
-        - P13
-      description: 'Claude Tag parity follow-on: access bundles, default/workspace/channel/room inheritance, effective-access snapshots, layered instructions, and redacted explain-access surfaces. Source plan: docs/ultra-plans/claude-tag-parity-next/.'
-      estimate_hours: 56
-      id: P14
-      locked: false
-      name: Room Agent Access and Scope Policy
-      path: 14-room-agent-access-and-scope-po
-      priority: high
-      status: pending
-      weeks: 4
-    - depends_on:
-        - P14
-      description: 'Teams-first production room-agent UX with Slack as the Claude Tag baseline: shared delivery contracts, progress cards/checklists, durable session records, context capture, and delivery observability.'
-      estimate_hours: 56
-      id: P15
-      locked: false
-      name: Teams-First Room-Agent UX
-      path: 15-teams-first-room-agent-ux
-      priority: high
-      status: pending
-      weeks: 4
-    - depends_on:
-        - P14
-      description: GitHub App/bot identity, global and per-room repo grants, PR subscriptions, CI/review update reporting, triggered review/security runs, and backlinks.
-      estimate_hours: 72
-      id: P16
-      locked: false
-      name: GitHub App and Room Code Workflows
-      path: 16-github-app-and-room-code-workf
-      priority: high
-      status: pending
-      weeks: 5
-    - depends_on:
-        - P14
-      description: Room-scoped memory CRUD/provenance, private/public semantics, pilot setup wizard, governance restrictions, readiness report, and audit export.
-      estimate_hours: 56
-      id: P17
-      locked: false
-      name: Room Memory and Admin Governance
-      path: 17-room-memory-and-admin-governan
-      priority: high
-      status: pending
-      weeks: 4
-    - depends_on:
-        - P14
-        - P16
-      description: Staged credential handle/proxy boundary, explicit egress policy wrappers, room-scoped MCP policy, audit/warn enforcement, and verification follow-up specs without formal proof implementation.
-      estimate_hours: 56
-      id: P18
-      locked: false
-      name: Credential Egress and Verification Boundary
-      path: 18-credential-egress-and-verifica
-      priority: high
-      status: pending
-      weeks: 4
+- depends_on: []
+  description: 'Features identified via nullclaw comparison and doc review. Organized
+    by effort tier: quick wins, high impact, ecosystem expansion, and formalization.'
+  estimate_hours: 300
+  id: P1
+  locked: true
+  name: 'Feature Roadmap: Parity & Expansion'
+  path: 01-feature-roadmap-parity-expansi
+  priority: high
+  status: done
+  weeks: 12
+- depends_on: []
+  description: Close the remaining feature gaps vs nullclaw identified in NULLCLAW_COMPARISON_1.tmp.md.
+    Covers native providers, 13 new channels, OTP pairing, memory export, sandbox
+    hardening, WASM runtime, Chat UI, test coverage, and tunnel alternatives.
+  estimate_hours: 480
+  id: P2
+  locked: true
+  name: 'Nullclaw Parity: Gap Closure'
+  path: 02-nullclaw-parity-gap-closure
+  priority: high
+  status: done
+  weeks: 16
+- depends_on: []
+  description: ''
+  estimate_hours: 40
+  id: P3
+  locked: true
+  name: 'Web UI: Streaming Chat Interface'
+  path: 03-web-ui-streaming-chat-interfac
+  priority: high
+  status: done
+  weeks: 3
+- depends_on: []
+  description: ''
+  estimate_hours: 14
+  id: P4
+  locked: true
+  name: Runtime Infrastructure & Developer Experience
+  path: 04-runtime-infrastructure-develop
+  priority: medium
+  status: done
+  weeks: 2
+- depends_on: []
+  description: 'Complete the remaining high-value formal verification work identified
+    in the 2026-03-07 audit and roadmap: anchored audit retention follow-through,
+    runtime-aligned security proofs, agent-loop invariants, and verification-status
+    documentation alignment.'
+  estimate_hours: 84
+  id: P5
+  locked: false
+  name: Formal Verification Expansion
+  path: 05-formal-verification-expansion
+  priority: high
+  status: pending
+  weeks: 8
+- depends_on: []
+  description: 'Close the gap between Coq proofs and runtime enforcement. Wire already-extracted
+    functions, add conformance tests, instantiate abstract Coq modules with concrete
+    implementations, and add runtime assertions for spec-only invariants. Ref: docs/FV_SPEC_IMPL_GAP_AUDIT_2026_03_08.md'
+  estimate_hours: 40
+  id: P6
+  locked: true
+  name: Formal Verification Gap Closure
+  path: 06-formal-verification-gap-closur
+  priority: high
+  status: done
+  weeks: 2
+- depends_on: []
+  description: Add a durable inbound queue for offline session injection, replay it
+    safely on daemon startup through the real session runtime, expose strong operator/debug
+    visibility, and keep docs plus verification follow-through aligned with the final
+    architecture plan.
+  estimate_hours: 40
+  id: P7
+  locked: true
+  name: Persisted Inbound Queue & Replay
+  path: 07-persisted-inbound-queue-replay
+  priority: high
+  status: done
+  weeks: 3
+- depends_on: []
+  description: 'I019: Proactive error watcher with separate EC process, multi-model
+    diagnosis/voting pipeline, and auto-fix capability'
+  estimate_hours: 30
+  id: P8
+  locked: true
+  name: Error Correction Watcher
+  path: 08-error-correction-watcher
+  priority: high
+  status: done
+  weeks: 3
+- depends_on: []
+  description: ''
+  estimate_hours: 10
+  id: P9
+  locked: true
+  name: SKILL.md Refactor
+  path: 09-skill-md-refactor
+  priority: medium
+  status: done
+  weeks: 2
+- depends_on: []
+  description: 'Unify skill loading across all activation pathways to use system messages,
+    add deduplication, fix command injection gap, and handle compaction. Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md'
+  estimate_hours: 11
+  id: P10
+  locked: true
+  name: Skill Injection Overhaul
+  path: 10-skill-injection-overhaul
+  priority: high
+  status: done
+  weeks: 2
+- depends_on: []
+  description: 'Claude Tag-style room-agent MVP: shared profiled room sessions, persistent
+    room workspaces, typed room/thread/routine session keys, Slack-first connector
+    routing, P11 privacy guard, thread-bound work sessions, and mention-to-task async
+    delivery. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
+  estimate_hours: 96
+  id: P11
+  locked: true
+  name: Room Agent MVP
+  path: 11-room-agent-mvp
+  priority: high
+  status: done
+  weeks: 4
+- depends_on: []
+  description: 'Governance layer for room agents: scoped memory tables, grant policy,
+    profile tool/codebase policy, budgets, and activity ledger. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
+  estimate_hours: 96
+  id: P12
+  locked: true
+  name: Room Agent Governance
+  path: 12-room-agent-governance
+  priority: high
+  status: done
+  weeks: 4
+- depends_on: []
+  description: 'Cron-integrated room routines, opt-in ambient room watcher, connector
+    capability matrix, and multi-connector polish for room agents. Source plan: docs/plans/2026-06-26-room-agent-profiles.md.'
+  estimate_hours: 72
+  id: P13
+  locked: true
+  name: Ambient and Scheduled Room Agents
+  path: 13-ambient-and-scheduled-room-age
+  priority: medium
+  status: done
+  weeks: 4
+- depends_on:
+  - P13
+  description: 'Claude Tag parity follow-on: access bundles, default/workspace/channel/room
+    inheritance, effective-access snapshots, layered instructions, and redacted explain-access
+    surfaces. Source plan: docs/ultra-plans/claude-tag-parity-next/.'
+  estimate_hours: 56
+  id: P14
+  locked: false
+  name: Room Agent Access and Scope Policy
+  path: 14-room-agent-access-and-scope-po
+  priority: high
+  status: pending
+  weeks: 4
+- depends_on: []
+  description: 'Teams-first production room-agent UX with Slack as the Claude Tag
+    baseline: shared delivery contracts, progress cards/checklists, durable session
+    records, context capture, and delivery observability.'
+  estimate_hours: 56
+  id: P15
+  locked: false
+  name: Teams-First Room-Agent UX
+  path: 15-teams-first-room-agent-ux
+  priority: high
+  status: pending
+  weeks: 4
+- depends_on: []
+  description: GitHub App/bot identity, global and per-room repo grants, PR subscriptions,
+    CI/review update reporting, triggered review/security runs, and backlinks.
+  estimate_hours: 72
+  id: P16
+  locked: false
+  name: GitHub App and Room Code Workflows
+  path: 16-github-app-and-room-code-workf
+  priority: high
+  status: pending
+  weeks: 5
+- depends_on: []
+  description: Room-scoped memory CRUD/provenance, private/public semantics, pilot
+    setup wizard, governance restrictions, readiness report, and audit export.
+  estimate_hours: 56
+  id: P17
+  locked: false
+  name: Room Memory and Admin Governance
+  path: 17-room-memory-and-admin-governan
+  priority: high
+  status: pending
+  weeks: 4
+- depends_on: []
+  description: Staged credential handle/proxy boundary, explicit egress policy wrappers,
+    room-scoped MCP policy, audit/warn enforcement, and verification follow-up specs
+    without formal proof implementation.
+  estimate_hours: 56
+  id: P18
+  locked: false
+  name: Credential Egress and Verification Boundary
+  path: 18-credential-egress-and-verifica
+  priority: high
+  status: pending
+  weeks: 4
 project: Clawq
 stats:
-    blocked: 0
-    done: 990
-    in_progress: 27
-    pending: 95
-    total_tasks: 1113
+  blocked: 0
+  done: 1084
+  in_progress: 20
+  pending: 120
+  total_tasks: 1225
 timeline_weeks: 0

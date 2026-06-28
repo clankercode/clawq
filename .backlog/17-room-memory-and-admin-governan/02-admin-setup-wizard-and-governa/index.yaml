@@ -37,4 +37,10 @@ estimate_hours: 32
 id: P17.M2
 locked: false
 name: Admin Setup Wizard and Governance Readiness
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 11
+    total_tasks: 11
 status: pending

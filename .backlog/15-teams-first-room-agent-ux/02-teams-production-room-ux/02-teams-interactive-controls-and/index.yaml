@@ -6,6 +6,12 @@ estimate_hours: 10
 id: P15.M2.E2
 locked: false
 name: Teams Interactive Controls and Native Flow
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -31,18 +37,22 @@ tasks:
       depends_on:
         - P14.M2.E1.T003
         - P15.M2.E2.T001
+        - P15.M2.E2.T002
       estimate_hours: 2
       file: T003-add-teams-what-can-clawq-do-he.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Add Teams what-can-Clawq-do-here command/card
     - complexity: medium
       depends_on:
         - P15.M2.E2.T001
+        - P15.M2.E2.T003
       estimate_hours: 2
       file: T004-generalize-text-command-fallba.todo
       id: T004
       priority: medium
       status: pending
+      tags: []
       title: Generalize text command fallbacks for non-card connectors

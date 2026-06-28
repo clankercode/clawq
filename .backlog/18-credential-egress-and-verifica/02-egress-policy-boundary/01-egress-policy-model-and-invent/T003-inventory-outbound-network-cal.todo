@@ -1,14 +1,15 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P18.M2.E1.T001
+    - P18.M2.E1.T002
 estimate_hours: 3
 id: P18.M2.E1.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - security
-    - egress
+tags: []
 title: Inventory outbound network callsites
 ---
 Acceptance: HTTP client, GitHub, MCP, provider, connectors, browser, shell/git, and runner paths are classified by enforceability and risk; full transparent proxying is deferred.

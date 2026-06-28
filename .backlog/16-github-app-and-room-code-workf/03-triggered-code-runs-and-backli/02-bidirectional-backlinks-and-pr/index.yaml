@@ -6,6 +6,12 @@ estimate_hours: 12
 id: P16.M3.E2
 locked: false
 name: Bidirectional Backlinks and Provenance
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -31,11 +37,13 @@ tasks:
       depends_on:
         - P16.M3.E2.T001
         - P15.M1.E3.T003
+        - P16.M3.E2.T002
       estimate_hours: 2
       file: T003-render-room-side-backlinks-for.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Render room-side backlinks for GitHub actions
     - complexity: medium
       depends_on:

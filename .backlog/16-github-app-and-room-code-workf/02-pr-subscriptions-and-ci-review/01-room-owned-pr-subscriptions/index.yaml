@@ -5,6 +5,12 @@ estimate_hours: 12
 id: P16.M2.E1
 locked: false
 name: Room-Owned PR Subscriptions
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -29,11 +35,13 @@ tasks:
       depends_on:
         - P16.M2.E1.T001
         - P15.M1.E1.T001
+        - P16.M2.E1.T002
       estimate_hours: 4
       file: T003-dispatch-subscribed-github-eve.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Dispatch subscribed GitHub events into room threads
     - complexity: medium
       depends_on:

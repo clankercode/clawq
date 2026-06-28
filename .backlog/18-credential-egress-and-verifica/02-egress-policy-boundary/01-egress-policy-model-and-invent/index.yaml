@@ -4,6 +4,12 @@ estimate_hours: 10
 id: P18.M2.E1
 locked: false
 name: Egress Policy Model and Inventory
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -27,19 +33,23 @@ tasks:
     - complexity: medium
       depends_on:
         - P18.M2.E1.T001
+        - P18.M2.E1.T002
       estimate_hours: 3
       file: T003-inventory-outbound-network-cal.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Inventory outbound network callsites
     - complexity: medium
       depends_on:
         - P18.M2.E1.T002
         - P14.M2.E1.T001
+        - P18.M2.E1.T003
       estimate_hours: 2
       file: T004-show-egress-rules-in-explain-a.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Show egress rules in explain-access output

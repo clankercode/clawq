@@ -5,6 +5,12 @@ estimate_hours: 10
 id: P15.M1.E2
 locked: false
 name: Progress Checklist Model and Renderers
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -28,11 +34,13 @@ tasks:
     - complexity: medium
       depends_on:
         - P15.M1.E2.T001
+        - P15.M1.E2.T002
       estimate_hours: 2
       file: T003-implement-slack-baseline-progr.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Implement Slack baseline progress checklist renderer
     - complexity: medium
       depends_on:

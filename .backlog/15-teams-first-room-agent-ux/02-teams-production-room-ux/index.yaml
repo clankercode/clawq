@@ -38,4 +38,10 @@ estimate_hours: 32
 id: P15.M2
 locked: false
 name: Teams Production Room UX
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 11
+    total_tasks: 11
 status: pending

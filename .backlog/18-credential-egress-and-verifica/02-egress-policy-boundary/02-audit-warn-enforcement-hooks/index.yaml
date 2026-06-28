@@ -6,6 +6,12 @@ estimate_hours: 10
 id: P18.M2.E2
 locked: false
 name: Audit Warn Enforcement Hooks
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -32,11 +38,13 @@ tasks:
         - P18.M2.E2.T001
         - P18.M1.E2.T001
         - P18.M1.E2.T002
+        - P18.M2.E2.T002
       estimate_hours: 3
       file: T003-add-deny-mode-for-wrapped-gith.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Add deny mode for wrapped GitHub and MCP paths
     - complexity: medium
       depends_on:

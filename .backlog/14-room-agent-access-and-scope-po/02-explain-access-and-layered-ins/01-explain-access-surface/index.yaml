@@ -5,6 +5,12 @@ estimate_hours: 10
 id: P14.M2.E1
 locked: false
 name: Explain Access Surface
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high

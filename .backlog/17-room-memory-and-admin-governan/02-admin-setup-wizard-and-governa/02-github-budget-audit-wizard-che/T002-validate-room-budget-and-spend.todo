@@ -1,14 +1,15 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P17.M2.E1.T001
+    - P17.M2.E2.T001
 estimate_hours: 2
 id: P17.M2.E2.T002
 priority: high
+started_at: null
 status: pending
-tags:
-    - setup
-    - budget
+tags: []
 title: Validate room budget and spend warnings in wizard
 ---
 Acceptance: wizard reports room budget state, hard/soft limits, and budget denial message behavior without leaking prompts.

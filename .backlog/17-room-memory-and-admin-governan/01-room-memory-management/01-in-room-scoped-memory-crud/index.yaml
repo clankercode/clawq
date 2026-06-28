@@ -4,6 +4,12 @@ estimate_hours: 12
 id: P17.M1.E1
 locked: false
 name: In-Room Scoped Memory CRUD
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -37,9 +43,11 @@ tasks:
       depends_on:
         - P17.M1.E1.T001
         - P14.M1.E3.T002
+        - P17.M1.E1.T003
       estimate_hours: 3
       file: T004-add-scoped-agent-memory-tool-s.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Add scoped agent memory tool support

@@ -5,6 +5,12 @@ estimate_hours: 10
 id: P18.M1.E2
 locked: false
 name: Scoped Wrappers for GitHub MCP and Tools
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high
@@ -21,18 +27,22 @@ tasks:
       depends_on:
         - P18.M1.E1.T003
         - P14.M1.E2.T001
+        - P18.M1.E2.T001
       estimate_hours: 3
       file: T002-wrap-room-scoped-mcp-connector.todo
       id: T002
       priority: high
       status: pending
+      tags: []
       title: Wrap room-scoped MCP connectors through policy
     - complexity: high
       depends_on:
         - P18.M1.E1.T003
+        - P18.M1.E2.T002
       estimate_hours: 3
       file: T003-wrap-representative-credential.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Wrap representative credential-sensitive built-in tools

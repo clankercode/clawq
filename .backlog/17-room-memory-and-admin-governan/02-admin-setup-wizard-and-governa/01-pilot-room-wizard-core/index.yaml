@@ -4,6 +4,12 @@ estimate_hours: 12
 id: P17.M2.E1
 locked: false
 name: Pilot Room Wizard Core
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -29,11 +35,13 @@ tasks:
     - complexity: high
       depends_on:
         - P17.M2.E1.T001
+        - P17.M2.E1.T002
       estimate_hours: 3
       file: T003-add-idempotent-rerun-and-repai.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Add idempotent rerun and repair behavior
     - complexity: medium
       depends_on:

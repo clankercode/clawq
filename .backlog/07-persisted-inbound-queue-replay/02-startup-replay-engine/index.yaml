@@ -27,8 +27,8 @@ locked: false
 name: Startup Replay Engine
 stats:
     blocked: 0
-    done: 0
-    in_progress: 6
+    done: 6
+    in_progress: 0
     pending: 0
     total_tasks: 6
 status: done

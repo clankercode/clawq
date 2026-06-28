@@ -5,6 +5,12 @@ estimate_hours: 12
 id: P16.M3.E1
 locked: false
 name: Triggered Review and Security Runs
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high

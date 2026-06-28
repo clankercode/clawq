@@ -1,16 +1,17 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P18.M2.E2.T001
     - P18.M1.E2.T001
     - P18.M1.E2.T002
+    - P18.M2.E2.T002
 estimate_hours: 3
 id: P18.M2.E2.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - security
-    - egress
+tags: []
 title: Add deny mode for wrapped GitHub and MCP paths
 ---
 Acceptance: GitHub API and MCP tool calls can be denied by egress policy before outbound traffic.

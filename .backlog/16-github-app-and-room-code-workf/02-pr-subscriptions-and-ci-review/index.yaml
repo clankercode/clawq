@@ -26,4 +26,10 @@ estimate_hours: 24
 id: P16.M2
 locked: false
 name: PR Subscriptions and CI Review Reporting
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 8
+    total_tasks: 8
 status: pending

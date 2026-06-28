@@ -6,6 +6,12 @@ estimate_hours: 8
 id: P15.M2.E3
 locked: false
 name: Connector UX Docs and Smoke Tests
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high
@@ -30,9 +36,11 @@ tasks:
     - complexity: medium
       depends_on:
         - P15.M2.E1.T003
+        - P15.M2.E3.T002
       estimate_hours: 2
       file: T003-surface-recent-delivery-failur.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Surface recent delivery failures in room commands

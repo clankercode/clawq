@@ -5,6 +5,12 @@ estimate_hours: 8
 id: P14.M1.E3
 locked: false
 name: Effective Access Snapshots
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high

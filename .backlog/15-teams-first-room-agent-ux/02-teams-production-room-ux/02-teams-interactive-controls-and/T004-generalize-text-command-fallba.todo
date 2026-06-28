@@ -1,14 +1,15 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P15.M2.E2.T001
+    - P15.M2.E2.T003
 estimate_hours: 2
 id: P15.M2.E2.T004
 priority: medium
+started_at: null
 status: pending
-tags:
-    - connectors
-    - fallbacks
+tags: []
 title: Generalize text command fallbacks for non-card connectors
 ---
 Acceptance: connectors without cards/buttons get deterministic text commands/links and capability fallback tests cover unsupported paths.

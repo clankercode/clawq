@@ -1,15 +1,16 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P14.M2.E1.T003
     - P15.M2.E2.T001
+    - P15.M2.E2.T002
 estimate_hours: 2
 id: P15.M2.E2.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - teams
-    - access
+tags: []
 title: Add Teams what-can-Clawq-do-here command/card
 ---
 Acceptance: Teams users can see current capabilities, profile binding, history capture state, delivery mode, memory/GitHub readiness, and degraded behavior explanations.

@@ -25,4 +25,10 @@ estimate_hours: 16
 id: P18.M3
 locked: false
 name: Verification Follow-Up
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 6
+    total_tasks: 6
 status: pending

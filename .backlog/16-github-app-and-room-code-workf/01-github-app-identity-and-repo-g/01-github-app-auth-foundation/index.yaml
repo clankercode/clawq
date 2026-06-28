@@ -4,6 +4,12 @@ estimate_hours: 12
 id: P16.M1.E1
 locked: false
 name: GitHub App Auth Foundation
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -35,9 +41,11 @@ tasks:
     - complexity: medium
       depends_on:
         - P16.M1.E1.T002
+        - P16.M1.E1.T003
       estimate_hours: 2
       file: T004-resolve-repo-installation-iden.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Resolve repo installation identity from webhook and API context

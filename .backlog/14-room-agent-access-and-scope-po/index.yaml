@@ -25,5 +25,11 @@ milestones:
       path: 02-explain-access-and-layered-ins
       status: pending
 name: Room Agent Access and Scope Policy
+stats:
+    blocked: 0
+    done: 6
+    in_progress: 0
+    pending: 13
+    total_tasks: 19
 status: pending
 weeks: 4

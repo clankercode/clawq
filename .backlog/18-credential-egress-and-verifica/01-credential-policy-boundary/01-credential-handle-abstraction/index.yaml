@@ -4,6 +4,12 @@ estimate_hours: 10
 id: P18.M1.E1
 locked: false
 name: Credential Handle Abstraction
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: medium

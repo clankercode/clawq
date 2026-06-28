@@ -34,4 +34,10 @@ estimate_hours: 28
 id: P14.M1
 locked: false
 name: Scope Bundle Model and Resolver
+stats:
+    blocked: 0
+    done: 6
+    in_progress: 0
+    pending: 3
+    total_tasks: 9
 status: pending

@@ -1,14 +1,15 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P15.M1.E2.T001
+    - P15.M1.E2.T002
 estimate_hours: 2
 id: P15.M1.E2.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - slack
-    - progress
+tags: []
 title: Implement Slack baseline progress checklist renderer
 ---
 Acceptance: Slack room work edits one visible thread message when possible and falls back to safe threaded updates with equivalent checklist information.

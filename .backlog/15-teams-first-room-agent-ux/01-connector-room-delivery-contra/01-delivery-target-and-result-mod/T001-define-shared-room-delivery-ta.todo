@@ -5,9 +5,7 @@ estimate_hours: 3
 id: P15.M1.E1.T001
 priority: high
 status: pending
-tags:
-    - teams
-    - connectors
+tags: []
 title: Define shared room delivery target and result types
 ---
 Acceptance: delivery model records room, thread/reply id, service URL, connector, message/activity id, and attempted/accepted/confirmed/unconfirmed/failed state. Unsupported connectors have explicit fallback result values.

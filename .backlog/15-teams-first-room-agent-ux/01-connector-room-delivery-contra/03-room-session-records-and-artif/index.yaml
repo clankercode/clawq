@@ -5,6 +5,12 @@ estimate_hours: 6
 id: P15.M1.E3
 locked: false
 name: Room Session Records and Artifact Links
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high

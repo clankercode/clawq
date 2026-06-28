@@ -5,6 +5,12 @@ estimate_hours: 12
 id: P15.M2.E1
 locked: false
 name: Teams Context Threads and Delivery Proof
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -30,11 +36,13 @@ tasks:
       depends_on:
         - P15.M1.E1.T003
         - P15.M2.E1.T001
+        - P15.M2.E1.T002
       estimate_hours: 3
       file: T003-record-teams-delivery-lifecycl.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Record Teams delivery lifecycle states
     - complexity: medium
       depends_on:

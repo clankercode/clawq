@@ -1,13 +1,11 @@
 complexity: medium
-depends_on:
-    - P14
+depends_on: []
 estimate_hours: 72
 id: P16
 locked: false
 milestones:
     - complexity: high
-      depends_on:
-        - P14.M1
+      depends_on: []
       description: App installation identity, token exchange, and repo grants.
       estimate_hours: 24
       id: M1
@@ -36,5 +34,11 @@ milestones:
       path: 03-triggered-code-runs-and-backli
       status: pending
 name: GitHub App and Room Code Workflows
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 24
+    total_tasks: 24
 status: pending
 weeks: 5

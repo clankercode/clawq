@@ -1,15 +1,16 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P17.M1.E1.T001
     - P14.M1.E3.T002
+    - P17.M1.E1.T003
 estimate_hours: 3
 id: P17.M1.E1.T004
 priority: high
+started_at: null
 status: pending
-tags:
-    - memory
-    - tools
+tags: []
 title: Add scoped agent memory tool support
 ---
 Acceptance: agent tools can propose/save/correct room memory only under the active effective-access snapshot and never silently write global memory in profiled rooms.

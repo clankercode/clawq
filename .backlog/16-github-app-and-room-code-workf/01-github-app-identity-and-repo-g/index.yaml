@@ -1,6 +1,5 @@
 complexity: high
-depends_on:
-    - P14.M1
+depends_on: []
 epics:
     - complexity: high
       depends_on: []
@@ -14,7 +13,6 @@ epics:
     - complexity: high
       depends_on:
         - P16.M1.E1
-        - P14.M1.E2
       description: Global/per-room repo grants integrated with effective access.
       estimate_hours: 12
       id: E2
@@ -26,4 +24,10 @@ estimate_hours: 24
 id: P16.M1
 locked: false
 name: GitHub App Identity and Repo Grants
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 8
+    total_tasks: 8
 status: pending

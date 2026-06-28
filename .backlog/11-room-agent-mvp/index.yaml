@@ -43,9 +43,9 @@ milestones:
 name: Room Agent MVP
 stats:
     blocked: 0
-    done: 0
+    done: 28
     in_progress: 0
-    pending: 28
+    pending: 0
     total_tasks: 28
 status: pending
 weeks: 4

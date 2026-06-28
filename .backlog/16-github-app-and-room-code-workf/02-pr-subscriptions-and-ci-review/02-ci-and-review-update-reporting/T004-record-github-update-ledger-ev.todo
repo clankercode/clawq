@@ -1,14 +1,15 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P16.M2.E2.T002
+    - P16.M2.E2.T003
 estimate_hours: 2
 id: P16.M2.E2.T004
 priority: high
+started_at: null
 status: pending
-tags:
-    - github
-    - ledger
+tags: []
 title: Record GitHub update ledger events
 ---
 Acceptance: ledger events record delivered/skipped/denied updates with webhook refs, room/thread refs, snapshot ID, sanitized payload summary, and connector delivery result.

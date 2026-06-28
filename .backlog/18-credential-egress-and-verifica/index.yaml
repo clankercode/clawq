@@ -1,15 +1,11 @@
 complexity: medium
-depends_on:
-    - P14
-    - P16
+depends_on: []
 estimate_hours: 56
 id: P18
 locked: false
 milestones:
     - complexity: high
-      depends_on:
-        - P14.M1
-        - P16.M1
+      depends_on: []
       description: Credential handle abstraction and scoped wrappers for GitHub/MCP/tools.
       estimate_hours: 20
       id: M1
@@ -38,5 +34,11 @@ milestones:
       path: 03-verification-follow-up
       status: pending
 name: Credential Egress and Verification Boundary
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 21
+    total_tasks: 21
 status: pending
 weeks: 4

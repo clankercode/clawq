@@ -1,15 +1,16 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P18.M1.E1.T003
     - P14.M1.E2.T001
+    - P18.M1.E2.T001
 estimate_hours: 3
 id: P18.M1.E2.T002
 priority: high
+started_at: null
 status: pending
-tags:
-    - security
-    - mcp
+tags: []
 title: Wrap room-scoped MCP connectors through policy
 ---
 Acceptance: MCP tools can be enabled/disabled through bundle policy; external MCP server headers move to credential refs; denials are JSON-RPC-compliant and actionable.

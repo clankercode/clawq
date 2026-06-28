@@ -34,8 +34,8 @@ locked: false
 name: Cron-Integrated Room Routines
 stats:
     blocked: 0
-    done: 0
+    done: 6
     in_progress: 0
-    pending: 6
+    pending: 0
     total_tasks: 6
 status: pending

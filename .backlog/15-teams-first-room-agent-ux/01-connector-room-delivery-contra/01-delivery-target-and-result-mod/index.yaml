@@ -4,6 +4,12 @@ estimate_hours: 8
 id: P15.M1.E1
 locked: false
 name: Delivery Target and Result Model
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high
@@ -13,6 +19,7 @@ tasks:
       id: T001
       priority: high
       status: pending
+      tags: []
       title: Define shared room delivery target and result types
     - complexity: high
       depends_on:

@@ -6,6 +6,12 @@ estimate_hours: 8
 id: P17.M2.E2
 locked: false
 name: GitHub Budget Audit Wizard Checks
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high
@@ -21,19 +27,23 @@ tasks:
     - complexity: medium
       depends_on:
         - P17.M2.E1.T001
+        - P17.M2.E2.T001
       estimate_hours: 2
       file: T002-validate-room-budget-and-spend.todo
       id: T002
       priority: high
       status: pending
+      tags: []
       title: Validate room budget and spend warnings in wizard
     - complexity: high
       depends_on:
         - P15.M2.E1.T003
         - P17.M2.E1.T001
+        - P17.M2.E2.T002
       estimate_hours: 3
       file: T003-validate-audit-ledger-and-conn.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Validate audit ledger and connector delivery in wizard

@@ -5,6 +5,12 @@ estimate_hours: 12
 id: P16.M2.E2
 locked: false
 name: CI and Review Update Reporting
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -38,9 +44,11 @@ tasks:
     - complexity: medium
       depends_on:
         - P16.M2.E2.T002
+        - P16.M2.E2.T003
       estimate_hours: 2
       file: T004-record-github-update-ledger-ev.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Record GitHub update ledger events

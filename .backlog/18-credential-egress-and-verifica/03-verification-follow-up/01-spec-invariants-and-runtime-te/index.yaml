@@ -4,6 +4,12 @@ estimate_hours: 8
 id: P18.M3.E1
 locked: false
 name: Spec Invariants and Runtime Tests
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: medium
@@ -19,11 +25,13 @@ tasks:
       depends_on:
         - P17.M1.E2.T004
         - P18.M2.E2.T004
+        - P18.M3.E1.T001
       estimate_hours: 2
       file: T002-write-memory-policy-isolation.todo
       id: T002
       priority: medium
       status: pending
+      tags: []
       title: Write memory policy isolation invariant spec
     - complexity: high
       depends_on:

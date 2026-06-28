@@ -26,4 +26,10 @@ estimate_hours: 20
 id: P18.M2
 locked: false
 name: Egress Policy Boundary
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 8
+    total_tasks: 8
 status: pending

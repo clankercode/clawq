@@ -1,13 +1,11 @@
 complexity: medium
-depends_on:
-    - P14
+depends_on: []
 estimate_hours: 56
 id: P17
 locked: false
 milestones:
     - complexity: high
-      depends_on:
-        - P14.M1
+      depends_on: []
       description: Room-scoped memory CRUD, provenance, and isolation semantics.
       estimate_hours: 24
       id: M1
@@ -27,5 +25,11 @@ milestones:
       path: 02-admin-setup-wizard-and-governa
       status: pending
 name: Room Memory and Admin Governance
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 19
+    total_tasks: 19
 status: pending
 weeks: 4

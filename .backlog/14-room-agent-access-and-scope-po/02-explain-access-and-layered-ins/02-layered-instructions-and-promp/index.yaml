@@ -5,6 +5,12 @@ estimate_hours: 9
 id: P14.M2.E2
 locked: false
 name: Layered Instructions and Prompt Context
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high

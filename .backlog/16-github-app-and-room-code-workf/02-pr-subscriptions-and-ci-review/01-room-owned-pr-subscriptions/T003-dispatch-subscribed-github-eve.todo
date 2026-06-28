@@ -1,15 +1,16 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - P16.M2.E1.T001
     - P15.M1.E1.T001
+    - P16.M2.E1.T002
 estimate_hours: 4
 id: P16.M2.E1.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - github
-    - connectors
+tags: []
 title: Dispatch subscribed GitHub events into room threads
 ---
 Acceptance: PR opened/synchronized/ready/review/comment/check/workflow events post to the correct room/thread after repo grant checks, dedupe, and rate limits.

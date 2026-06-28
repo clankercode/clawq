@@ -1,6 +1,5 @@
 complexity: high
 depends_on:
-    - P14.M1
     - P16.M1
 epics:
     - complexity: high
@@ -26,4 +25,10 @@ estimate_hours: 20
 id: P18.M1
 locked: false
 name: Credential Policy Boundary
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 7
+    total_tasks: 7
 status: pending
