@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B726
+priority: high
+status: pending
+tags: []
+title: React with salute emoji on interrupt message processing
+---
+When an interrupt message is received and processed by the agent, it should react to the message with a salute emoji (🫡) when reactions are possible/available on the channel. This provides visual feedback to the user that their interrupt was acknowledged and acted upon.
