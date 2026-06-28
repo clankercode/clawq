@@ -227,6 +227,7 @@ let () =
     @ [ ("held_items", Test_held_items.suite) ]
     @ [ ("repo_manager", Test_repo_manager.suite) ]
     @ Test_github.suites
+    @ [ ("github_app_config", Test_github_app_config.suite) ]
     @ [
         ( "config_isolation",
           [
