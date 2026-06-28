@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Delivery Target and Result Model
       path: 01-delivery-target-and-result-mod
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P15.M1.E1
