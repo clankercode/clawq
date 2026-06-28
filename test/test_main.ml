@@ -237,6 +237,7 @@ let () =
     @ [ ("github_app_cache", Test_github_app_token.cache_suite) ]
     @ [ ("github_app_fetch", Test_github_app_token.fetch_suite) ]
     @ [ ("github_app_redaction", Test_github_app_token.redaction_suite) ]
+    @ [ ("github_app_integration", Test_github_app_token.integration_suite) ]
     @ [
         ( "config_isolation",
           [

@@ -483,6 +483,89 @@ let token_redacted_in_logs () =
     "redacted is shorter than full token" true
     (String.length redacted < String.length token)
 
+(* ---- Integration test: Github_api with GithubApp auth ---- *)
+
+let github_api_with_app_auth_posts_comment () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 77;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [ { Runtime_config.installation_id = 555; repos = [ "acme/app" ] } ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          let mock_install_token = "ghs_integration_test_token_xyz" in
+          let mock_expires = "2099-12-31T23:59:59Z" in
+          let token_response =
+            Printf.sprintf {|{"token":"%s","expires_at":"%s"}|}
+              mock_install_token mock_expires
+          in
+          (* Track what Authorization header was used for the comment POST *)
+          let used_auth = ref "" in
+          let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             let callback _conn req req_body =
+               let path = Cohttp.Request.resource req in
+               let meth = Cohttp.Request.meth req in
+               let auth =
+                 Cohttp.Request.headers req |> Cohttp.Header.get_authorization
+               in
+               (match auth with Some (`Other s) -> used_auth := s | _ -> ());
+               if meth = `POST && path = "/app/installations/555/access_tokens"
+               then
+                 Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                   ~body:token_response ()
+               else if
+                 meth = `POST && path = "/repos/acme/app/issues/42/comments"
+               then (
+                 let* _body_str = Cohttp_lwt.Body.to_string req_body in
+                 (* Verify the comment was posted with the installation token *)
+                 Alcotest.(check bool)
+                   "used installation token" true
+                   (String.sub !used_auth 0 (min 7 (String.length !used_auth))
+                    = "Bearer "
+                   && !used_auth = "Bearer " ^ mock_install_token);
+                 Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                   ~body:{|{"id":999}|} ())
+               else
+                 Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+                   ~body:"not found" ()
+             in
+             let port = 19881 in
+             let server =
+               Cohttp_lwt_unix.Server.create
+                 ~mode:(`TCP (`Port port))
+                 (Cohttp_lwt_unix.Server.make ~callback ())
+             in
+             Lwt.async (fun () -> server);
+             Unix.putenv "CLAWQ_GITHUB_API_BASE"
+               (Printf.sprintf "http://127.0.0.1:%d" port);
+             let* () = Lwt_unix.sleep 0.05 in
+             (* Call Github_api.post_comment with app_token *)
+             let* () =
+               Github_api.post_comment ~app_token:(Some tok)
+                 ~auth:(GithubApp config) ~owner:"acme" ~repo:"app"
+                 ~issue_number:42 ~body:"test comment"
+             in
+             let* () = Lwt_unix.sleep 0.1 in
+             (match previous_api_base with
+             | Some v -> Unix.putenv "CLAWQ_GITHUB_API_BASE" v
+             | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "");
+             Lwt.return_unit);
+          (* Verify the installation token was cached *)
+          let cached =
+            Github_app_token.lookup_cache tok.cache ~installation_id:555
+              ~repos:[ "acme/app" ]
+          in
+          Alcotest.(check (option string))
+            "token cached after API call" (Some mock_install_token) cached)
+
 (* ---- Test suite ---- *)
 
 let jwt_suite =
@@ -529,3 +612,9 @@ let fetch_suite =
 
 let redaction_suite =
   [ Alcotest.test_case "token redacted in logs" `Quick token_redacted_in_logs ]
+
+let integration_suite =
+  [
+    Alcotest.test_case "Github_api uses app installation token" `Quick
+      github_api_with_app_auth_posts_comment;
+  ]

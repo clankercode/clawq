@@ -99,7 +99,13 @@ let lookup_cache cache ~installation_id ~repos =
 
 let store_cache cache ~installation_id ~repos ~token ~expires_at =
   let key = cache_key ~installation_id ~repos in
-  Hashtbl.replace cache.entries key { token; expires_at; repos }
+  (* Cap cache lifetime to cache_ttl_s (50 min) regardless of GitHub's
+     expires_at. Tokens expire after 60 min; we refresh at 50 min to
+     avoid edge-case expiry during a request. *)
+  let max_expires = Unix.gettimeofday () +. cache_ttl_s in
+  let capped_expires = min expires_at max_expires in
+  Hashtbl.replace cache.entries key
+    { token; expires_at = capped_expires; repos }
 
 (* ---- GitHub API: fetch installation access token ---- *)
 
@@ -112,7 +118,8 @@ let github_api_base () =
   | _ -> default_github_api_base
 
 (* Parse ISO 8601 UTC timestamp "2024-01-15T10:00:00Z" or
-   "2024-01-15T10:00:00.000Z" to Unix epoch float. *)
+   "2024-01-15T10:00:00.000Z" to Unix epoch float.
+   Computes directly from UTC components to avoid local-timezone issues. *)
 let parse_iso8601_utc s =
   let s = String.trim s in
   let len = String.length s in
@@ -139,6 +146,9 @@ let parse_iso8601_utc s =
     | [ h; m; s ] -> (int_of_string h, int_of_string m, int_of_string s)
     | _ -> failwith "bad time part"
   in
+  (* Use Unix.mktime with tm_isdst=false on a UTC-interpretation tm,
+     then correct for local timezone offset. This is the standard OCaml
+     idiom for UTC timestamps without calendar libraries. *)
   let tm =
     {
       Unix.tm_sec = second;
@@ -152,9 +162,14 @@ let parse_iso8601_utc s =
       tm_isdst = false;
     }
   in
+  (* mktime interprets tm as local time; to get UTC, compute the offset
+     between local and UTC at the epoch origin. *)
   let local_ts, _ = Unix.mktime tm in
-  let local_back_ts, _ = Unix.mktime (Unix.localtime 0.0) in
-  let utc_offset = local_back_ts -. fst (Unix.mktime (Unix.gmtime 0.0)) in
+  let utc_offset =
+    let local_0, _ = Unix.mktime (Unix.localtime 0.0) in
+    let utc_0, _ = Unix.mktime (Unix.gmtime 0.0) in
+    local_0 -. utc_0
+  in
   local_ts -. utc_offset
 
 let fetch_installation_token ~jwt ~installation_id ~repos () =
@@ -169,11 +184,22 @@ let fetch_installation_token ~jwt ~installation_id ~repos () =
       ("X-GitHub-Api-Version", "2022-11-28");
     ]
   in
+  (* GitHub API expects repo names only (not owner/repo) in the
+     repositories field. Strip owner prefix if present. *)
+  let repo_name full_name =
+    match String.split_on_char '/' full_name with
+    | [ _owner; name ] -> name
+    | _ -> full_name
+  in
   let body =
     match repos with
     | [] -> "{}"
     | repos ->
-        `Assoc [ ("repositories", `List (List.map (fun r -> `String r) repos)) ]
+        `Assoc
+          [
+            ( "repositories",
+              `List (List.map (fun r -> `String (repo_name r)) repos) );
+          ]
         |> Yojson.Safe.to_string
   in
   let* status, resp_body = Http_client.post_json ~uri ~headers ~body in
