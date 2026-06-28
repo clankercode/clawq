@@ -92,6 +92,7 @@
   test_room_workspace
   test_room_activity_ledger
   test_room_progress_checklist
+  test_slack_progress_checklist
   test_room_stale_query
   test_room_watcher_decision
   test_room_ambient_delivery
