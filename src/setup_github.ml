@@ -42,7 +42,31 @@ let repo_to_json (r : Runtime_config.github_repo_config) =
   in
   `Assoc fields
 
-let build_full_github_json ~pat_token ~repos =
+let build_full_github_json ?(existing_auth : Runtime_config.github_auth option)
+    ~pat_token ~repos () : Yojson.Safe.t =
+  let auth_json =
+    match existing_auth with
+    | Some (Runtime_config.GithubApp app) ->
+        `Assoc
+          [
+            ("type", `String "app");
+            ("app_id", `Int app.app_id);
+            ("private_key_path", `String app.private_key_path);
+            ("webhook_secret", `String app.webhook_secret);
+            ( "installations",
+              `List
+                (List.map
+                   (fun (inst : Runtime_config.github_app_installation) ->
+                     `Assoc
+                       [
+                         ("installation_id", `Int inst.installation_id);
+                         ( "repos",
+                           `List (List.map (fun r -> `String r) inst.repos) );
+                       ])
+                   app.installations) );
+          ]
+    | _ -> `Assoc [ ("type", `String "pat"); ("token", `String pat_token) ]
+  in
   `Assoc
     [
       ( "channels",
@@ -51,10 +75,7 @@ let build_full_github_json ~pat_token ~repos =
             ( "github",
               `Assoc
                 [
-                  ( "auth",
-                    `Assoc
-                      [ ("type", `String "pat"); ("token", `String pat_token) ]
-                  );
+                  ("auth", auth_json);
                   ("repos", `List (List.map repo_to_json repos));
                 ] );
           ] );
@@ -73,7 +94,7 @@ let build_github_json ~pat_token ~repo_name ~webhook_secret ~webhook_path
       include_pr_files;
     }
   in
-  build_full_github_json ~pat_token ~repos:[ repo ]
+  build_full_github_json ~pat_token ~repos:[ repo ] ()
 
 let post_setup_instructions ~repo_name ~webhook_path ~webhook_secret
     ~gateway_port ~tunnel_url =
@@ -342,9 +363,10 @@ let prompt_pat_change ~current_pat =
 
 (* ── Save helper ─────────────────────────────────────────────────── *)
 
-let save_github_config ~pat_token ~repos =
+let save_github_config ~(existing_auth : Runtime_config.github_auth option)
+    ~pat_token ~repos =
   let open Setup_common in
-  let json = build_full_github_json ~pat_token ~repos in
+  let json = build_full_github_json ?existing_auth ~pat_token ~repos () in
   match merge_and_write_config json with
   | Ok path ->
       print_success (Printf.sprintf "Saved to %s" path);
@@ -384,10 +406,15 @@ let run () =
   | Error e -> e
   | Ok () ->
       let existing = load_existing () in
+      let existing_auth =
+        match existing with Some { auth; _ } -> Some auth | None -> None
+      in
       let pat_token =
         ref
           (match existing with
           | Some { auth = Runtime_config.GithubPat t; _ } -> t
+          | Some { auth = Runtime_config.GithubApp _; _ } ->
+              "(GitHub App auth configured)"
           | None -> "")
       in
       let repos =
@@ -433,7 +460,8 @@ let run () =
                   Setup_common.press_enter_to_continue ())
                 else (
                   ignore
-                    (save_github_config ~pat_token:!pat_token ~repos:!repos);
+                    (save_github_config ~existing_auth ~pat_token:!pat_token
+                       ~repos:!repos);
                   quit := true)
               end
               else quit := true
@@ -499,8 +527,10 @@ let run () =
               pat_token := prompt_new_pat ();
               dirty := true);
             if !pat_token <> "" then (
-              if save_github_config ~pat_token:!pat_token ~repos:!repos then
-                dirty := false;
+              if
+                save_github_config ~existing_auth ~pat_token:!pat_token
+                  ~repos:!repos
+              then dirty := false;
               Setup_common.press_enter_to_continue ())
         | s -> (
             match int_of_string_opt s with

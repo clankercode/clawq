@@ -628,7 +628,25 @@ let config_github_roundtrip () =
           Alcotest.(check string) "name" "acme/backend" r.name;
           Alcotest.(check string)
             "webhook_path" "/github/webhook/acme" r.webhook_path;
-          Alcotest.(check bool) "include_pr_files" true r.include_pr_files)
+          Alcotest.(check bool) "include_pr_files" true r.include_pr_files
+      | _ -> Alcotest.fail "expected GithubPat")
+  | None -> Alcotest.fail "expected github config"
+
+let config_github_app_roundtrip () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"channels":{"github":{"auth":{"type":"app","app_id":42,"private_key_path":"/key.pem","webhook_secret":"ws","installations":[{"installation_id":100,"repos":["a/b"]}]},"repos":[]}}}|}
+  in
+  let config = Config_loader.parse_config ~resolve_secrets:false json in
+  match config.channels.github with
+  | Some g -> (
+      match g.auth with
+      | Runtime_config.GithubApp app ->
+          Alcotest.(check int) "app_id" 42 app.app_id;
+          Alcotest.(check int)
+            "installations count" 1
+            (List.length app.installations)
+      | Runtime_config.GithubPat _ -> Alcotest.fail "expected GithubApp")
   | None -> Alcotest.fail "expected github config"
 
 let config_tunnel_roundtrip () =
@@ -1074,6 +1092,8 @@ let hooks_suite =
 let config_suite =
   [
     Alcotest.test_case "github config roundtrip" `Quick config_github_roundtrip;
+    Alcotest.test_case "github app config roundtrip" `Quick
+      config_github_app_roundtrip;
     Alcotest.test_case "tunnel config roundtrip" `Quick config_tunnel_roundtrip;
   ]
 

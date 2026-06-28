@@ -40,6 +40,8 @@
   test_email
   test_format_adapter
   test_github
+  test_github_app_config
+  test_github_app_token
   test_group_chat_filter
   test_helpers
   test_history_search

@@ -294,6 +294,7 @@
   github
   github_webhook
   github_api
+  github_app_token
   tunnel_manager
   mcp_client
   telemetry
@@ -385,6 +386,8 @@
   mirage-crypto
   mirage-crypto-rng
   mirage-crypto-rng.unix
+  mirage-crypto-pk
+  x509
   kdf.pbkdf
   digestif.c
   base64

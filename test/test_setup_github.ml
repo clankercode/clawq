@@ -87,7 +87,8 @@ let build_json_basic () =
           Alcotest.(check (list string)) "allow_users" [ "*" ] r.allow_users;
           Alcotest.(check (list string)) "react_to" [] r.react_to;
           Alcotest.(check bool) "include_pr_files" true r.include_pr_files;
-          Alcotest.(check (option string)) "agent_name" None r.agent_name)
+          Alcotest.(check (option string)) "agent_name" None r.agent_name
+      | _ -> Alcotest.fail "expected GithubPat")
   | None -> Alcotest.fail "expected github config"
 
 let build_json_custom_react_to () =
@@ -260,7 +261,7 @@ let build_full_multi_repo () =
       };
     ]
   in
-  let json = Setup_github.build_full_github_json ~pat_token:"ghp_x" ~repos in
+  let json = Setup_github.build_full_github_json ~pat_token:"ghp_x" ~repos () in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   match config.channels.github with
   | Some g ->

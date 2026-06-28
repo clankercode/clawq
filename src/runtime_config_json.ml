@@ -172,6 +172,25 @@ let github_json (g : github_config) : Yojson.Safe.t =
     match g.auth with
     | GithubPat token ->
         `Assoc [ ("type", `String "pat"); ("token", `String token) ]
+    | GithubApp app ->
+        `Assoc
+          [
+            ("type", `String "app");
+            ("app_id", `Int app.app_id);
+            ("private_key_path", `String app.private_key_path);
+            ("webhook_secret", `String app.webhook_secret);
+            ( "installations",
+              `List
+                (List.map
+                   (fun (inst : github_app_installation) ->
+                     `Assoc
+                       [
+                         ("installation_id", `Int inst.installation_id);
+                         ( "repos",
+                           `List (List.map (fun r -> `String r) inst.repos) );
+                       ])
+                   app.installations) );
+          ]
   in
   let repos_json =
     `List

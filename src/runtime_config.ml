@@ -314,8 +314,22 @@ let discord_has_valid_credentials (cfg : discord_config) =
 let slack_has_valid_credentials (cfg : slack_config) =
   is_credential_valid cfg.bot_token && is_credential_valid cfg.signing_secret
 
+let github_app_has_valid_credentials (cfg : github_app_config) =
+  cfg.app_id > 0 && cfg.private_key_path <> "" && cfg.webhook_secret <> ""
+  && cfg.installations <> []
+  && List.for_all
+       (fun (inst : github_app_installation) ->
+         inst.installation_id > 0 && inst.repos <> [])
+       cfg.installations
+
 let github_has_valid_credentials (cfg : github_config) =
-  match cfg.auth with GithubPat token -> is_credential_valid token
+  match cfg.auth with
+  | GithubPat token -> is_credential_valid token
+  | GithubApp _app ->
+      (* GitHub App auth structure is valid but outbound API not yet
+         implemented. Return false so the connector is not shown as
+         "configured" in status until token generation is built. *)
+      false
 
 let mattermost_has_valid_credentials (cfg : mattermost_config) =
   is_credential_valid cfg.access_token
