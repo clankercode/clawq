@@ -2675,6 +2675,67 @@ let test_handle_reloads_config_between_calls () =
            true
          with Not_found -> false))
 
+let effective_allowed_tools cfg =
+  (Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123")
+    .allowed_tools
+  |> List.map (fun (item : Runtime_config.effective_access_item) -> item.value)
+
+let test_config_set_refreshes_effective_access_policy_on_next_load () =
+  with_temp_home (fun home ->
+      let old_ws = Filename.concat home "old-workspace" in
+      let new_ws = Filename.concat home "new-workspace" in
+      Unix.mkdir old_ws 0o755;
+      Unix.mkdir new_ws 0o755;
+      write_config_json home
+        (`Assoc
+           [
+             ("workspace", `String old_ws);
+             ( "access_bundles",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("id", `String "old-bundle");
+                       ("allowed_tools", `List [ `String "old_tool" ]);
+                     ];
+                   `Assoc
+                     [
+                       ("id", `String "new-bundle");
+                       ("allowed_tools", `List [ `String "new_tool" ]);
+                     ];
+                 ] );
+             ( "access_scopes",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("id", `String "old-scope");
+                       ("level", `String "workspace");
+                       ("workspace", `String old_ws);
+                       ("access_bundle_ids", `List [ `String "old-bundle" ]);
+                     ];
+                   `Assoc
+                     [
+                       ("id", `String "new-scope");
+                       ("level", `String "workspace");
+                       ("workspace", `String new_ws);
+                       ("access_bundle_ids", `List [ `String "new-bundle" ]);
+                     ];
+                 ] );
+           ]);
+      Alcotest.(check (list string))
+        "initial workspace policy grants old tool" [ "old_tool" ]
+        (effective_allowed_tools (Config_loader.load ()));
+      let result =
+        Command_bridge.handle [ "config"; "set"; "workspace"; new_ws ]
+      in
+      Alcotest.(check bool)
+        "config set reports workspace update" true
+        (Test_helpers.string_contains result "workspace");
+      Alcotest.(check (list string))
+        "config set reload grants new workspace policy" [ "new_tool" ]
+        (effective_allowed_tools (Config_loader.load ())))
+
 let test_handle_tunnel_status () =
   let result = Command_bridge.handle [ "tunnel"; "status" ] in
   Alcotest.(check bool)
@@ -5084,6 +5145,8 @@ let suite =
       test_handle_audit_usage_mentions_anchor;
     Alcotest.test_case "handle reloads config between calls" `Quick
       test_handle_reloads_config_between_calls;
+    Alcotest.test_case "config set refreshes effective access policy" `Quick
+      test_config_set_refreshes_effective_access_policy_on_next_load;
     Alcotest.test_case "handle tunnel status" `Quick test_handle_tunnel_status;
     Alcotest.test_case "read daemon tunnel info active" `Quick
       test_read_daemon_tunnel_info_active;

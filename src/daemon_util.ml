@@ -441,7 +441,17 @@ let handle_heartbeat_response
   end;
   Lwt.return_unit
 
-let refresh_runtime_bound_tools ~(config : Runtime_config.t)
+type send_file_runtime = {
+  send_fn : (text:string -> unit Lwt.t) option;
+  rich_send_fn :
+    (session_key:string -> Rich_message.t -> Rich_message.send_result Lwt.t)
+    option;
+  store_file :
+    (content:string -> content_type:string -> filename:string -> string option)
+    option;
+}
+
+let refresh_runtime_bound_tools ?send_file_runtime ~(config : Runtime_config.t)
     ~(session_manager : Session.t) ~sandbox registry =
   let refresh_optional name ~configured make_tool =
     if configured then Tool_registry.replace registry (make_tool ())
@@ -452,12 +462,49 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t)
   refresh_optional "transcribe" ~configured:(config.stt <> None) (fun () ->
       Tools_builtin.transcribe ~config);
   let workspace = Runtime_config.effective_workspace config in
+  let workspace_only = config.security.workspace_only in
+  let extra_allowed_paths = config.security.extra_allowed_paths in
+  (* Refresh all workspace/security-dependent filesystem tools *)
   Tool_registry.replace registry
-    (Tools_builtin.shell_exec_with_hooks ~workspace
-       ~workspace_only:config.security.workspace_only
+    (Tools_builtin.file_read ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_write ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_append ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_edit ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_edit_lines ~workspace ~workspace_only
+       ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.glob ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.list_dir ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.grep ~workspace ~workspace_only ~extra_allowed_paths);
+  (* Refresh network tools that depend on workspace_only *)
+  Tool_registry.replace registry (Tools_builtin.http_get ~workspace_only);
+  Tool_registry.replace registry (Tools_builtin.http_request ~workspace_only);
+  Tool_registry.replace registry (Tools_builtin.web_fetch ~workspace_only);
+  (* Refresh browser tool which depends on workspace_only and config *)
+  Tool_registry.replace registry
+    (Tools_builtin_browser.browser ~workspace_only ~config);
+  (* Refresh git operations which depend on workspace *)
+  Tool_registry.replace registry (Tools_builtin.git_operations ~workspace);
+  (match (Tool_registry.find registry "send_file", send_file_runtime) with
+  | Some _, Some sf ->
+      Tool_registry.replace registry
+        (Tools_builtin.send_file ~workspace ~workspace_only ~extra_allowed_paths
+           ~send_fn:sf.send_fn ~rich_send_fn:sf.rich_send_fn
+           ~store_file:sf.store_file)
+  | _ -> ());
+  Tool_registry.replace registry
+    (Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only
        ~allowed_commands:Tools_builtin.default_shell_allowlist
-       ~extra_allowed_paths:config.security.extra_allowed_paths ~sandbox
-       ~session_mgr:session_manager ());
+       ~extra_allowed_paths ~sandbox ~session_mgr:session_manager ());
+  Tool_registry.replace registry
+    (Tools_builtin.change_working_dir ~config ~workspace ~workspace_only
+       ~extra_allowed_paths);
   Tool_registry.replace registry
     (Tools_builtin.models_tool ~config ~session_mgr:session_manager ());
   (match Session.get_db session_manager with

@@ -36,6 +36,86 @@ let current_max_concurrent_native_agents (current_config : Runtime_config.t ref)
     =
   !current_config.agent_defaults.max_concurrent_native_agents
 
+let refresh_active_template_tool_registries session_manager =
+  match Session.get_tool_registry session_manager with
+  | None -> ()
+  | Some base_registry ->
+      Hashtbl.iter
+        (fun _ (agent, _, _) ->
+          match (agent.Agent.agent_template, agent.Agent.tool_registry) with
+          | Some tmpl, Some registry ->
+              let refreshed =
+                Agent_template.filter_tool_registry base_registry tmpl
+              in
+              Tool_registry.restore registry (Tool_registry.snapshot refreshed)
+          | _ -> ())
+        session_manager.sessions
+
+let apply_runtime_config_reload
+    ?(reconcile_room_profiles =
+      fun ~db ~config -> ignore (Memory.reconcile_room_profiles ~db ~config))
+    ?send_file_runtime ?(after_publish = fun () -> ()) ~source ~current_config
+    ~session_manager ~sandbox ~db ~tool_registry ~new_config () =
+  let old_config = !current_config in
+  let old_sandbox = !sandbox in
+  let old_registry = Option.map Tool_registry.snapshot tool_registry in
+  try
+    (* Reconcile room profile config into DB BEFORE publishing new_config so
+       that on failure the old config and its derived policies remain active. *)
+    (match db with
+    | Some db -> reconcile_room_profiles ~db ~config:new_config
+    | None -> ());
+    sandbox := make_sandbox new_config;
+    current_config := new_config;
+    Session.set_sandbox session_manager !sandbox;
+    Session.update_config ~source session_manager new_config;
+    Http_debug.sync_config new_config.log;
+    (let old_sc = old_config.summarizer in
+     let new_sc = new_config.summarizer in
+     if old_sc <> new_sc then
+       Logs.info (fun m ->
+           m
+             "Summarizer config updated [%s]: enabled=%b→%b, model=%s→%s, \
+              threshold=%d→%d"
+             source old_sc.enabled new_sc.enabled
+             (Pmodel.to_string old_sc.model)
+             (Pmodel.to_string new_sc.model)
+             old_sc.threshold_chars new_sc.threshold_chars));
+    (match tool_registry with
+    | Some registry -> (
+        refresh_runtime_bound_tools ?send_file_runtime ~config:new_config
+          ~session_manager ~sandbox:!sandbox registry;
+        match db with
+        | Some db ->
+            let notify =
+              if new_config.agent_defaults.task_tree_notifications then
+                Some (task_tree_notify_for_session session_manager)
+              else None
+            in
+            refresh_task_tree_tools_with_current_workspace ~current_config ~db
+              ?notify registry
+        | None -> ())
+    | None -> ());
+    refresh_active_template_tool_registries session_manager;
+    after_publish ();
+    Ok ()
+  with exn ->
+    (* Rollback to old config and sandbox on failure to preserve
+       last valid policy *)
+    Logs.warn (fun m ->
+        m "Config reload failed [%s], rolling back to previous config: %s"
+          source (Printexc.to_string exn));
+    (match (tool_registry, old_registry) with
+    | Some registry, Some snapshot -> Tool_registry.restore registry snapshot
+    | _ -> ());
+    sandbox := old_sandbox;
+    current_config := old_config;
+    Session.set_sandbox session_manager old_sandbox;
+    Session.update_config ~source session_manager old_config;
+    refresh_active_template_tool_registries session_manager;
+    Http_debug.sync_config old_config.log;
+    Error (Printexc.to_string exn)
+
 let run ~(config : Runtime_config.t) =
   (Lwt.async_exception_hook :=
      fun exn ->
@@ -412,38 +492,30 @@ let run ~(config : Runtime_config.t) =
                           parse channel from key"
                          session_key))))
   in
+  let channel_send_fn =
+    Some (fun ~text -> Session.notify_channel_sessions session_manager text)
+  in
+  let store_file =
+    Some
+      (fun ~content ~content_type ~filename ->
+        Temp_downloads.download_url
+          (Temp_downloads.add ~content ~content_type ~filename ~ttl_s:3600.0))
+  in
+  let send_file_runtime =
+    { send_fn = channel_send_fn; rich_send_fn; store_file }
+  in
   (match tool_registry with
   | Some registry ->
       Tool_registry.register registry
-        (Tools_builtin.send_message ~rich_send_fn
-           ~send_fn:
-             (Some
-                (fun ~text ->
-                  Session.notify_channel_sessions session_manager text)));
+        (Tools_builtin.send_message ~rich_send_fn ~send_fn:channel_send_fn);
       Tool_registry.register registry
-        (Tools_builtin.send_poll ~rich_send_fn
-           ~send_fn:
-             (Some
-                (fun ~text ->
-                  Session.notify_channel_sessions session_manager text)));
+        (Tools_builtin.send_poll ~rich_send_fn ~send_fn:channel_send_fn);
       Tool_registry.register registry
         (Tools_builtin.send_file
            ~workspace:(Runtime_config.effective_workspace !current_config)
            ~workspace_only:config.security.workspace_only
            ~extra_allowed_paths:config.security.extra_allowed_paths
-           ~rich_send_fn
-           ~send_fn:
-             (Some
-                (fun ~text ->
-                  Session.notify_channel_sessions session_manager text))
-           ~store_file:
-             (Some
-                (fun ~content ~content_type ~filename ->
-                  let token =
-                    Temp_downloads.add ~content ~content_type ~filename
-                      ~ttl_s:3600.0
-                  in
-                  Temp_downloads.download_url token)));
+           ~rich_send_fn ~send_fn:channel_send_fn ~store_file);
       Tool_registry.register registry
         (Tools_builtin.compact_history ~compact_fn:(fun ~session_key ->
              match Hashtbl.find_opt session_manager.sessions session_key with
@@ -1034,88 +1106,49 @@ let run ~(config : Runtime_config.t) =
         Logs.info (fun m -> m "SIGHUP received, reloading config...");
         try
           let new_config = Config_loader.load () in
-          let old_config = !current_config in
-          (* Reconcile room profile config into DB BEFORE publishing new_config
-             so that on failure the old config remains active. *)
-          (match db with
-          | Some db -> (
-              try ignore (Memory.reconcile_room_profiles ~db ~config:new_config)
-              with exn ->
-                Logs.err (fun m ->
-                    m "Room profile reconciliation failed: %s"
-                      (Printexc.to_string exn));
-                raise exn)
-          | None -> ());
-          sandbox := make_sandbox new_config;
-          current_config := new_config;
-          Session.set_sandbox session_manager !sandbox;
-          Session.update_config ~source:"config_reload" session_manager
-            new_config;
-          Http_debug.sync_config new_config.log;
-          (let old_sc = old_config.summarizer in
-           let new_sc = new_config.summarizer in
-           if old_sc <> new_sc then
-             Logs.info (fun m ->
-                 m
-                   "Summarizer config updated: enabled=%b→%b, model=%s→%s, \
-                    threshold=%d→%d"
-                   old_sc.enabled new_sc.enabled
-                   (Pmodel.to_string old_sc.model)
-                   (Pmodel.to_string new_sc.model)
-                   old_sc.threshold_chars new_sc.threshold_chars));
-          (match tool_registry with
-          | Some registry -> (
-              refresh_runtime_bound_tools ~config:new_config ~session_manager
-                ~sandbox:!sandbox registry;
-              match db with
-              | Some db ->
-                  let notify =
-                    if new_config.agent_defaults.task_tree_notifications then
-                      Some (task_tree_notify_for_session session_manager)
-                    else None
-                  in
-                  refresh_task_tree_tools_with_current_workspace ~current_config
-                    ~db ?notify registry
-              | None ->
-                  (* No DB available; skip DB-dependent reload steps *)
-                  ())
-          | None ->
-              (* No tool registry available; skip all registry-dependent reload *)
-              ());
-          Lwt.async (fun () ->
-              Lwt.catch
-                (fun () ->
-                  Tunnel_manager.apply_config tunnel_manager
-                    ~config:new_config.tunnel ~port:new_config.gateway.port
-                    ~on_url:tunnel_on_url)
-                (fun exn ->
+          match
+            apply_runtime_config_reload ~source:"config_reload" ~current_config
+              ~session_manager ~sandbox ~db ~tool_registry ~send_file_runtime
+              ~new_config ()
+          with
+          | Error msg -> Logs.err (fun m -> m "Config reload failed: %s" msg)
+          | Ok () ->
+              Lwt.async (fun () ->
+                  Lwt.catch
+                    (fun () ->
+                      Tunnel_manager.apply_config tunnel_manager
+                        ~config:new_config.tunnel ~port:new_config.gateway.port
+                        ~on_url:tunnel_on_url)
+                    (fun exn ->
+                      Logs.err (fun m ->
+                          m "Tunnel reconfiguration error: %s"
+                            (Printexc.to_string exn));
+                      Lwt.return_unit));
+              (* Handle EC process enable/disable on config reload *)
+              if new_config.error_watcher.enabled && ec_state.pid = None then begin
+                Logs.info (fun m ->
+                    m "EC watcher enabled via config reload, starting");
+                try Error_watcher.start_ec_process ec_state
+                with exn ->
                   Logs.err (fun m ->
-                      m "Tunnel reconfiguration error: %s"
-                        (Printexc.to_string exn));
-                  Lwt.return_unit));
-          (* Handle EC process enable/disable on config reload *)
-          if new_config.error_watcher.enabled && ec_state.pid = None then begin
-            Logs.info (fun m ->
-                m "EC watcher enabled via config reload, starting");
-            try Error_watcher.start_ec_process ec_state
-            with exn ->
-              Logs.err (fun m ->
-                  m "Failed to start EC process: %s" (Printexc.to_string exn))
-          end
-          else if (not new_config.error_watcher.enabled) && ec_state.pid <> None
-          then begin
-            Logs.info (fun m ->
-                m "EC watcher disabled via config reload, stopping");
-            Lwt.async (fun () ->
-                Lwt.catch
-                  (fun () -> Error_watcher.stop_ec_process ec_state)
-                  (fun exn ->
-                    Logs.err (fun m ->
-                        m "Failed to stop EC process: %s"
-                          (Printexc.to_string exn));
-                    Lwt.return_unit))
-          end;
-          Logs.info (fun m -> m "Config reloaded successfully")
+                      m "Failed to start EC process: %s"
+                        (Printexc.to_string exn))
+              end
+              else if
+                (not new_config.error_watcher.enabled) && ec_state.pid <> None
+              then begin
+                Logs.info (fun m ->
+                    m "EC watcher disabled via config reload, stopping");
+                Lwt.async (fun () ->
+                    Lwt.catch
+                      (fun () -> Error_watcher.stop_ec_process ec_state)
+                      (fun exn ->
+                        Logs.err (fun m ->
+                            m "Failed to stop EC process: %s"
+                              (Printexc.to_string exn));
+                        Lwt.return_unit))
+              end;
+              Logs.info (fun m -> m "Config reloaded successfully")
         with exn ->
           Logs.err (fun m ->
               m "Config reload failed: %s" (Printexc.to_string exn)))
@@ -1399,93 +1432,58 @@ let run ~(config : Runtime_config.t) =
                let st = Unix.stat config_watch_path in
                if st.Unix.st_mtime > !last_config_mtime then begin
                  let new_config = Config_loader.load () in
-                 let old_config = !current_config in
-                 (* Reconcile room profile config into DB BEFORE publishing
-                    new_config so that on failure the old config remains
-                    active. On failure, last_config_mtime is NOT advanced so
-                    the watcher retries on the next cycle. *)
-                 (match db with
-                 | Some db -> (
-                     try
-                       ignore
-                         (Memory.reconcile_room_profiles ~db ~config:new_config)
-                     with exn ->
-                       Logs.err (fun m ->
-                           m "Room profile reconciliation failed: %s"
-                             (Printexc.to_string exn));
-                       raise exn)
-                 | None -> ());
-                 sandbox := make_sandbox new_config;
-                 current_config := new_config;
-                 Session.set_sandbox session_manager !sandbox;
-                 Session.update_config ~source:"config_reload" session_manager
-                   new_config;
-                 Http_debug.sync_config new_config.log;
-                 (let old_sc = old_config.summarizer in
-                  let new_sc = new_config.summarizer in
-                  if old_sc <> new_sc then
-                    Logs.info (fun m ->
-                        m
-                          "Summarizer config updated (file watch): \
-                           enabled=%b→%b, model=%s→%s, threshold=%d→%d"
-                          old_sc.enabled new_sc.enabled
-                          (Pmodel.to_string old_sc.model)
-                          (Pmodel.to_string new_sc.model)
-                          old_sc.threshold_chars new_sc.threshold_chars));
-                 (match tool_registry with
-                 | Some registry -> (
-                     refresh_runtime_bound_tools ~config:new_config
-                       ~session_manager ~sandbox:!sandbox registry;
-                     match db with
-                     | Some db ->
-                         let notify =
-                           if new_config.agent_defaults.task_tree_notifications
-                           then
-                             Some (task_tree_notify_for_session session_manager)
-                           else None
-                         in
-                         refresh_task_tree_tools_with_current_workspace
-                           ~current_config ~db ?notify registry
-                     | None -> ())
-                 | None -> ());
-                 Lwt.async (fun () ->
-                     Lwt.catch
-                       (fun () ->
-                         Tunnel_manager.apply_config tunnel_manager
-                           ~config:new_config.tunnel
-                           ~port:new_config.gateway.port ~on_url:tunnel_on_url)
-                       (fun exn ->
+                 match
+                   apply_runtime_config_reload ~source:"config_file_watch"
+                     ~current_config ~session_manager ~sandbox ~db
+                     ~tool_registry ~send_file_runtime ~new_config ()
+                 with
+                 | Error msg ->
+                     (* Do not advance [last_config_mtime]; retry next cycle. *)
+                     Logs.err (fun m -> m "Config auto-reload failed: %s" msg)
+                 | Ok () ->
+                     Lwt.async (fun () ->
+                         Lwt.catch
+                           (fun () ->
+                             Tunnel_manager.apply_config tunnel_manager
+                               ~config:new_config.tunnel
+                               ~port:new_config.gateway.port
+                               ~on_url:tunnel_on_url)
+                           (fun exn ->
+                             Logs.err (fun m ->
+                                 m
+                                   "Tunnel reconfiguration error (file watch): \
+                                    %s"
+                                   (Printexc.to_string exn));
+                             Lwt.return_unit));
+                     (* Handle EC process enable/disable on auto-reload *)
+                     if new_config.error_watcher.enabled && ec_state.pid = None
+                     then begin
+                       Logs.info (fun m ->
+                           m "EC watcher enabled via auto-reload, starting");
+                       try Error_watcher.start_ec_process ec_state
+                       with exn ->
                          Logs.err (fun m ->
-                             m "Tunnel reconfiguration error (file watch): %s"
-                               (Printexc.to_string exn));
-                         Lwt.return_unit));
-                 (* Handle EC process enable/disable on auto-reload *)
-                 if new_config.error_watcher.enabled && ec_state.pid = None then begin
-                   Logs.info (fun m ->
-                       m "EC watcher enabled via auto-reload, starting");
-                   try Error_watcher.start_ec_process ec_state
-                   with exn ->
-                     Logs.err (fun m ->
-                         m "Failed to start EC process: %s"
-                           (Printexc.to_string exn))
-                 end
-                 else if
-                   (not new_config.error_watcher.enabled)
-                   && ec_state.pid <> None
-                 then begin
-                   Logs.info (fun m ->
-                       m "EC watcher disabled via auto-reload, stopping");
-                   Lwt.async (fun () ->
-                       Lwt.catch
-                         (fun () -> Error_watcher.stop_ec_process ec_state)
-                         (fun exn ->
-                           Logs.err (fun m ->
-                               m "Failed to stop EC process: %s"
-                                 (Printexc.to_string exn));
-                           Lwt.return_unit))
-                 end;
-                 Logs.info (fun m -> m "Config auto-reloaded (file changed)");
-                 last_config_mtime := st.Unix.st_mtime
+                             m "Failed to start EC process: %s"
+                               (Printexc.to_string exn))
+                     end
+                     else if
+                       (not new_config.error_watcher.enabled)
+                       && ec_state.pid <> None
+                     then begin
+                       Logs.info (fun m ->
+                           m "EC watcher disabled via auto-reload, stopping");
+                       Lwt.async (fun () ->
+                           Lwt.catch
+                             (fun () -> Error_watcher.stop_ec_process ec_state)
+                             (fun exn ->
+                               Logs.err (fun m ->
+                                   m "Failed to stop EC process: %s"
+                                     (Printexc.to_string exn));
+                               Lwt.return_unit))
+                     end;
+                     Logs.info (fun m ->
+                         m "Config auto-reloaded (file changed)");
+                     last_config_mtime := st.Unix.st_mtime
                end
              with exn ->
                Logs.debug (fun m ->

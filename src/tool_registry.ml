@@ -2,6 +2,11 @@ type t = { mutable tools : Tool.t list; mutable skill_names : string list }
 
 let create () = { tools = []; skill_names = [] }
 let register registry tool = registry.tools <- tool :: registry.tools
+let snapshot registry = (registry.tools, registry.skill_names)
+
+let restore registry (tools, skill_names) =
+  registry.tools <- tools;
+  registry.skill_names <- skill_names
 
 let register_skill registry tool =
   registry.skill_names <- tool.Tool.name :: registry.skill_names;
