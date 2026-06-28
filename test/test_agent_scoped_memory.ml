@@ -11,13 +11,22 @@ let audit_report_relpath =
   "docs/ultra-plans/room-agent-profiles/nodes/04-scoped-memory/P12.M1.E3.T003-global-memory-callsite-audit.md"
 
 let repo_root () =
-  let exe =
-    if Filename.is_relative Sys.executable_name then
-      Filename.concat (Sys.getcwd ()) Sys.executable_name
-    else Sys.executable_name
+  let rec find_from dir =
+    let has_file name = Sys.file_exists (Filename.concat dir name) in
+    if has_file "dune-project" && has_file "src" then Some dir
+    else
+      let parent = Filename.dirname dir in
+      if parent = dir then None else find_from parent
   in
-  exe |> Filename.dirname |> Filename.dirname |> Filename.dirname
-  |> Filename.dirname
+  match find_from (Sys.getcwd ()) with
+  | Some dir -> dir
+  | None ->
+      let exe =
+        if Filename.is_relative Sys.executable_name then
+          Filename.concat (Sys.getcwd ()) Sys.executable_name
+        else Sys.executable_name
+      in
+      find_from (Filename.dirname exe) |> Option.value ~default:(Sys.getcwd ())
 
 let read_file path =
   let ic = open_in path in
