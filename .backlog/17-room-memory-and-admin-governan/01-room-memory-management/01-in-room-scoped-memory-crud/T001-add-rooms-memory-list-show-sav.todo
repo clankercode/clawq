@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-28T15:00:18Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P14.M1.E2.T001
 estimate_hours: 3
 id: P17.M1.E1.T001
 priority: high
-status: pending
-tags:
-    - memory
-    - rooms
+started_at: "2026-06-28T15:00:18Z"
+status: in_progress
+tags: []
 title: Add rooms memory list show save commands
 ---
 Acceptance: users/admins can save and inspect room-scoped memories through CLI/channel commands with grant checks, friendly names, source metadata, and no global fallback.

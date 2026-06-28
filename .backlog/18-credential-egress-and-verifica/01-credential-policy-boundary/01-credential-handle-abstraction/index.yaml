@@ -18,7 +18,8 @@ tasks:
       file: T001-inventory-credential-bearing-c.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Inventory credential-bearing callsites
     - complexity: high
       depends_on:

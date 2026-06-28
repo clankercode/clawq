@@ -19,7 +19,8 @@ tasks:
       file: T001-add-rooms-memory-list-show-sav.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add rooms memory list show save commands
     - complexity: high
       depends_on:

@@ -18,7 +18,8 @@ tasks:
       file: T001-add-github-app-config-and-inst.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add GitHub App config and installation schema
     - complexity: high
       depends_on:
