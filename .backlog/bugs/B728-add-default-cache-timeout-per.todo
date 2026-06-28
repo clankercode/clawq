@@ -18,3 +18,6 @@ This data is needed for:
 - Cost estimation: cached vs uncached token pricing depends on cache hit probability which depends on TTL
 
 Should be stored per-provider (not per-model) since cache behavior is typically uniform within a provider, with model-specific overrides where known.
+
+Please research online to find answers and make sure they are cited in the source docs so we have a lead to go off when updating them in future.
+
