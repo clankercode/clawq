@@ -5234,6 +5234,246 @@ let test_rooms_routine_disable_rejected_without_admin () =
       Alcotest.(check bool)
         "disable denial audited to ledger" true (events <> []))
 
+let test_rooms_explain_access_text_output () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "You are a coder.",
+     "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ],
+  "access_bundles": [
+    {"id": "base", "allowed_tools": ["file_read", "shell_exec"]}
+  ],
+  "access_scopes": [
+    {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "explain-access"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "text output contains Effective Access" true
+        (Test_helpers.string_contains result "Effective Access");
+      Alcotest.(check bool)
+        "text output contains Allowed Tools" true
+        (Test_helpers.string_contains result "Allowed Tools");
+      Alcotest.(check bool)
+        "text output contains Summary" true
+        (Test_helpers.string_contains result "Summary"))
+
+let test_rooms_explain_access_json_output () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "You are a coder.",
+     "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ],
+  "access_bundles": [
+    {"id": "base", "allowed_tools": ["file_read"]}
+  ],
+  "access_scopes": [
+    {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "explain-access"; "slack:C1"; "--json" ]
+      in
+      Alcotest.(check bool)
+        "json output contains scopes" true
+        (Test_helpers.string_contains result "\"scopes\"");
+      Alcotest.(check bool)
+        "json output contains allowed_tools" true
+        (Test_helpers.string_contains result "\"allowed_tools\"");
+      Alcotest.(check bool)
+        "json output contains room_binding" true
+        (Test_helpers.string_contains result "\"room_binding\"");
+      Alcotest.(check bool)
+        "json output contains room_id" true
+        (Test_helpers.string_contains result "\"room_id\"");
+      Alcotest.(check bool)
+        "json output bound is true" true
+        (Test_helpers.string_contains result "\"bound\": true"))
+
+let test_rooms_explain_access_unbound_room () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "",
+     "max_tool_iterations": 10}
+  ],
+  "access_bundles": [
+    {"id": "base", "allowed_tools": ["file_read"]}
+  ],
+  "access_scopes": [
+    {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "explain-access"; "slack:UNBOUND" ]
+      in
+      Alcotest.(check bool)
+        "unbound room shows binding guidance" true
+        (Test_helpers.string_contains result "not bound");
+      Alcotest.(check bool)
+        "unbound room shows bind command" true
+        (Test_helpers.string_contains result "clawq rooms bind slack:UNBOUND");
+      Alcotest.(check bool)
+        "unbound room lists available profiles" true
+        (Test_helpers.string_contains result "coding"))
+
+let test_rooms_explain_access_unbound_room_json () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "",
+     "max_tool_iterations": 10}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "explain-access"; "slack:UNBOUND"; "--json" ]
+      in
+      Alcotest.(check bool)
+        "json unbound room_binding bound is false" true
+        (Test_helpers.string_contains result "\"bound\": false");
+      Alcotest.(check bool)
+        "json unbound has room_id" true
+        (Test_helpers.string_contains result "\"room_id\": \"slack:UNBOUND\"");
+      Alcotest.(check bool)
+        "json unbound has explanation data" true
+        (Test_helpers.string_contains result "\"scopes\""))
+
+let test_rooms_explain_access_requires_admin () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "";
+      let result =
+        Command_bridge.handle [ "rooms"; "explain-access"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "explain-access without admin mentions admin" true
+        (Test_helpers.string_contains result "admin"))
+
+let test_rooms_explain_access_no_room_id () =
+  with_temp_home (fun _home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result = Command_bridge.handle [ "rooms"; "explain-access" ] in
+      Alcotest.(check bool)
+        "explain-access no args mentions room_id" true
+        (Test_helpers.string_contains result "room_id"))
+
+let test_rooms_explain_access_deleted_profile () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "",
+     "max_tool_iterations": 10, "status": "deleted"}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "explain-access"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "deleted profile shows deleted guidance" true
+        (Test_helpers.string_contains result "deleted");
+      Alcotest.(check bool)
+        "deleted profile shows rebind command" true
+        (Test_helpers.string_contains result "clawq rooms bind slack:C1"))
+
+let test_rooms_explain_access_deleted_profile_json () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "",
+     "max_tool_iterations": 10, "status": "deleted"}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "explain-access"; "slack:C1"; "--json" ]
+      in
+      Alcotest.(check bool)
+        "json deleted profile bound is false" true
+        (Test_helpers.string_contains result "\"bound\": false");
+      Alcotest.(check bool)
+        "json deleted profile status" true
+        (Test_helpers.string_contains result "\"status\": \"deleted\""))
+
+let test_rooms_explain_access_missing_profile () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      (* Bind to a profile that doesn't exist in config.
+         Config validation preserves binding and creates a default profile. *)
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profile_bindings": [
+    {"profile_id": "nonexistent", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle [ "rooms"; "explain-access"; "slack:C1" ]
+      in
+      (* Config validation creates default profile, so room appears bound *)
+      Alcotest.(check bool)
+        "missing profile shows effective access" true
+        (Test_helpers.string_contains result "Effective Access");
+      Alcotest.(check bool)
+        "missing profile shows summary" true
+        (Test_helpers.string_contains result "Summary"))
+
+let test_rooms_explain_access_missing_profile_json () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profile_bindings": [
+    {"profile_id": "nonexistent", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "explain-access"; "slack:C1"; "--json" ]
+      in
+      (* Config validation creates default profile, so room appears bound *)
+      Alcotest.(check bool)
+        "json missing profile has room_binding" true
+        (Test_helpers.string_contains result "\"room_binding\"");
+      Alcotest.(check bool)
+        "json missing profile has scopes" true
+        (Test_helpers.string_contains result "\"scopes\""))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -5577,4 +5817,24 @@ let suite =
       test_rooms_routine_enable_rejected_without_admin;
     Alcotest.test_case "rooms routine disable rejected without admin" `Quick
       test_rooms_routine_disable_rejected_without_admin;
+    Alcotest.test_case "rooms explain-access text output" `Quick
+      test_rooms_explain_access_text_output;
+    Alcotest.test_case "rooms explain-access json output" `Quick
+      test_rooms_explain_access_json_output;
+    Alcotest.test_case "rooms explain-access unbound room" `Quick
+      test_rooms_explain_access_unbound_room;
+    Alcotest.test_case "rooms explain-access unbound room json" `Quick
+      test_rooms_explain_access_unbound_room_json;
+    Alcotest.test_case "rooms explain-access requires admin" `Quick
+      test_rooms_explain_access_requires_admin;
+    Alcotest.test_case "rooms explain-access no room_id" `Quick
+      test_rooms_explain_access_no_room_id;
+    Alcotest.test_case "rooms explain-access deleted profile" `Quick
+      test_rooms_explain_access_deleted_profile;
+    Alcotest.test_case "rooms explain-access deleted profile json" `Quick
+      test_rooms_explain_access_deleted_profile_json;
+    Alcotest.test_case "rooms explain-access missing profile" `Quick
+      test_rooms_explain_access_missing_profile;
+    Alcotest.test_case "rooms explain-access missing profile json" `Quick
+      test_rooms_explain_access_missing_profile_json;
   ]

@@ -1462,6 +1462,164 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
       \                              Forget (redact) a memory (admin: --hard \
        for purge)"
 
+let cmd_rooms_explain_access cfg args =
+  match require_admin () with
+  | Some err -> err
+  | None -> (
+      match args with
+      | [] ->
+          "Error: rooms explain-access requires a room_id.\n\n\
+           Usage: clawq rooms explain-access <room_id> [--json]"
+      | room_id :: flags ->
+          let as_json = List.mem "--json" flags in
+          let explanation =
+            Access_explanation.create ~config:cfg ~session_key:room_id ()
+          in
+          (* Check if the room has an active profile binding *)
+          let binding =
+            (* Match using the same channel-id fallback as
+               Runtime_config.resolve_room_profile *)
+            let channel_id =
+              match String.index_opt room_id ':' with
+              | Some i ->
+                  String.sub room_id (i + 1) (String.length room_id - i - 1)
+              | None -> ""
+            in
+            List.find_opt
+              (fun (b : Runtime_config.room_profile_binding) ->
+                b.active
+                && (b.room = room_id
+                   || (channel_id <> "" && b.room = channel_id)))
+              cfg.room_profile_bindings
+          in
+          (* Lookup profile, filtering out deleted ones *)
+          let profile =
+            match binding with
+            | Some b ->
+                List.find_opt
+                  (fun (p : Runtime_config.room_profile) ->
+                    p.id = b.profile_id && not (room_profile_deleted p))
+                  cfg.room_profiles
+            | None -> None
+          in
+          (* Also check if the profile exists but is deleted *)
+          let profile_deleted =
+            match binding with
+            | Some b ->
+                List.exists
+                  (fun (p : Runtime_config.room_profile) ->
+                    p.id = b.profile_id && room_profile_deleted p)
+                  cfg.room_profiles
+            | None -> false
+          in
+          if as_json then
+            let explanation_json = Access_explanation.to_json explanation in
+            let binding_status =
+              match (binding, profile) with
+              | Some _, Some _ -> "active"
+              | Some _, None when profile_deleted -> "deleted"
+              | Some _, None -> "missing"
+              | None, _ -> "unbound"
+            in
+            let extra =
+              [
+                ( "room_binding",
+                  `Assoc
+                    [
+                      ( "bound",
+                        `Bool
+                          (binding <> None && profile <> None
+                         && not profile_deleted) );
+                      ("status", `String binding_status);
+                      ( "profile_id",
+                        match binding with
+                        | Some b -> `String b.profile_id
+                        | None -> `Null );
+                      ("room_id", `String room_id);
+                    ] );
+              ]
+            in
+            let merged =
+              match explanation_json with
+              | `Assoc fields -> `Assoc (fields @ extra)
+              | other ->
+                  `Assoc
+                    [ ("explanation", other); ("room_binding", `Assoc extra) ]
+            in
+            Yojson.Safe.pretty_to_string merged
+          else
+            let buf = Buffer.create 2048 in
+            let add line =
+              Buffer.add_string buf line;
+              Buffer.add_char buf '\n'
+            in
+            add (Access_explanation.to_text explanation);
+            (match (binding, profile) with
+            | None, _ -> (
+                add "";
+                add "--- Room Binding Status ---";
+                add
+                  (Printf.sprintf
+                     "Room '%s' is not bound to any profile.\n\
+                      To bind it, run: clawq rooms bind %s <profile_id>"
+                     room_id room_id);
+                let active_profiles =
+                  List.filter
+                    (fun (p : Runtime_config.room_profile) ->
+                      not (room_profile_deleted p))
+                    cfg.room_profiles
+                in
+                match active_profiles with
+                | [] ->
+                    add
+                      "\nNo active room profiles configured. Create one first."
+                | profiles ->
+                    add "\nAvailable profiles:";
+                    List.iter
+                      (fun (p : Runtime_config.room_profile) ->
+                        add (Printf.sprintf "  - %s (model: %s)" p.id p.model))
+                      profiles)
+            | Some _b, None when profile_deleted -> (
+                add "";
+                add "--- Room Binding Status ---";
+                add
+                  (Printf.sprintf
+                     "Room '%s' is bound to profile '%s', but that profile has \
+                      been deleted.\n\
+                      Rebind to an active profile: clawq rooms bind %s \
+                      <profile_id>"
+                     room_id
+                     (match binding with Some b -> b.profile_id | None -> "")
+                     room_id);
+                let active_profiles =
+                  List.filter
+                    (fun (p : Runtime_config.room_profile) ->
+                      not (room_profile_deleted p))
+                    cfg.room_profiles
+                in
+                match active_profiles with
+                | [] -> add "No active room profiles available."
+                | profiles ->
+                    add "Active profiles:";
+                    List.iter
+                      (fun (p : Runtime_config.room_profile) ->
+                        add (Printf.sprintf "  - %s (model: %s)" p.id p.model))
+                      profiles)
+            | Some _b, None ->
+                add "";
+                add "--- Room Binding Status ---";
+                add
+                  (Printf.sprintf
+                     "Room '%s' is bound to profile '%s', but that profile is \
+                      missing from config.\n\
+                      Rebind to an active profile: clawq rooms bind %s \
+                      <profile_id>"
+                     room_id
+                     (match binding with Some b -> b.profile_id | None -> "")
+                     room_id)
+            | Some _b, Some _p -> ());
+            Buffer.contents buf)
+
 let cmd_rooms args =
   let cfg = get_config () in
   match args with
@@ -1805,9 +1963,10 @@ let cmd_rooms args =
           Ambient_inspection.format_inspection result)
   | "routine" :: rest -> cmd_rooms_routine cfg rest
   | "memory" :: rest -> cmd_rooms_memory cfg rest
+  | "explain-access" :: rest -> cmd_rooms_explain_access cfg rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine|memory>\n\n\
+       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine|memory|explain-access>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
@@ -1827,8 +1986,11 @@ let cmd_rooms args =
       \  unbind <room_id>            Remove room binding (preserves profile)\n\
       \  routine <create|list|show|edit|remove|enable|disable|trigger>   \
        Manage room routines (admin-only)\n\
-      \  memory <list|show|save|correct|forget> <room_id> [args...]\n\
-      \                              Manage room-scoped memories"
+      \  memory <list|show|save> <room_id> [args...]\n\
+      \                              Manage room-scoped memories\n\
+      \  explain-access <room_id> [--json]\n\
+      \                              Explain effective access for a room \
+       (admin-only)"
 
 let cmd_rig args =
   match args with
