@@ -28,6 +28,8 @@ type t = {
   denied_tools : item_explanation list;
   codebase_grants : item_explanation list;
   blocked_codebase_grants : item_explanation list;
+  repo_grants : item_explanation list;
+  blocked_repo_grants : item_explanation list;
   mcp_servers : item_explanation list;
   skills : item_explanation list;
   repositories : item_explanation list;
@@ -140,6 +142,9 @@ let create ~(config : Runtime_config.t) ~session_key () : t =
       codebase_grants = List.map item_to_explanation access.codebase_grants;
       blocked_codebase_grants =
         List.map item_to_explanation access.blocked_codebase_grants;
+      repo_grants = List.map item_to_explanation access.repo_grants;
+      blocked_repo_grants =
+        List.map item_to_explanation access.blocked_repo_grants;
       mcp_servers = List.map item_to_explanation access.mcp_servers;
       skills = List.map item_to_explanation access.skills;
       repositories = List.map item_to_explanation access.repositories;
