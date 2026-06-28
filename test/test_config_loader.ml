@@ -1230,6 +1230,18 @@ let test_room_profiles_roundtrip () =
           };
         ];
       room_profile_codebase_grants = [ ("test-p", [ "$CLAWQ_WORKSPACE/**" ]) ];
+      access_scopes =
+        [
+          {
+            Runtime_config.id = "room-scope";
+            level = Runtime_config.Room;
+            workspace = Some "~/src/test";
+            channel = Some "slack";
+            room = Some "C123";
+            access_bundle_ids = [ "test-bundle" ];
+            status = "active";
+          };
+        ];
     }
   in
   let json = Runtime_config.to_json cfg in
@@ -1255,7 +1267,24 @@ let test_room_profiles_roundtrip () =
     "codebase grants roundtrip"
     [ "$CLAWQ_WORKSPACE/src/**"; "$CLAWQ_WORKSPACE/**" ]
     (Runtime_config.room_profile_codebase_grants_for_profile cfg2
-       ~profile_id:"test-p")
+       ~profile_id:"test-p");
+  Alcotest.(check int)
+    "access scopes roundtrip" 1
+    (List.length cfg2.access_scopes);
+  let s = List.nth cfg2.access_scopes 0 in
+  Alcotest.(check string) "scope id roundtrip" "room-scope" s.id;
+  Alcotest.(check string)
+    "scope workspace roundtrip" "~/src/test"
+    (Option.value ~default:"" s.workspace);
+  Alcotest.(check string)
+    "scope channel roundtrip" "slack"
+    (Option.value ~default:"" s.channel);
+  Alcotest.(check string)
+    "scope room roundtrip" "C123"
+    (Option.value ~default:"" s.room);
+  Alcotest.(check (list string))
+    "scope bundle ids roundtrip" [ "test-bundle" ] s.access_bundle_ids;
+  Alcotest.(check string) "scope status roundtrip" "active" s.status
 
 let test_room_profile_legacy_fields_compile_to_implicit_bundle () =
   let json =

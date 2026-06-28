@@ -562,6 +562,14 @@ let string_option_required_matches value = function
   | None -> false
   | Some expected -> expected = value
 
+let workspace_option_matches workspace = function
+  | None -> true
+  | Some expected -> Path_util.normalize_path (expand_home expected) = workspace
+
+let workspace_option_required_matches workspace = function
+  | None -> false
+  | Some expected -> Path_util.normalize_path (expand_home expected) = workspace
+
 let scope_matches (cfg : t) ~session_key (scope : access_scope) =
   let channel_type = channel_type_of_session_key session_key in
   let room =
@@ -570,21 +578,21 @@ let scope_matches (cfg : t) ~session_key (scope : access_scope) =
         String.sub session_key (i + 1) (String.length session_key - i - 1)
     | None -> session_key
   in
-  let workspace = effective_workspace cfg in
+  let workspace = Path_util.normalize_path (effective_workspace cfg) in
   scope_active scope
   &&
   match scope.level with
   | Default ->
       scope.workspace = None && scope.channel = None && scope.room = None
   | Workspace ->
-      string_option_required_matches workspace scope.workspace
+      workspace_option_required_matches workspace scope.workspace
       && scope.channel = None && scope.room = None
   | Channel ->
-      string_option_matches workspace scope.workspace
+      workspace_option_matches workspace scope.workspace
       && string_option_required_matches channel_type scope.channel
       && scope.room = None
   | Room -> (
-      string_option_matches workspace scope.workspace
+      workspace_option_matches workspace scope.workspace
       && string_option_matches channel_type scope.channel
       &&
       match scope.room with

@@ -162,6 +162,26 @@ let test_missing_layer_selectors_are_not_wildcards () =
     "missing selectors grant nothing" []
     (item_values effective.allowed_tools)
 
+let test_workspace_scope_expands_tilde_selector () =
+  let json =
+    {|{
+      "workspace": "~/clawq-scope-root",
+      "access_bundles": [
+        {"id": "workspace", "allowed_tools": ["workspace_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "workspace-home", "level": "workspace", "workspace": "~/clawq-scope-root", "access_bundle_ids": ["workspace"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "tilde workspace selector matches expanded workspace" [ "workspace_tool" ]
+    (item_values effective.allowed_tools)
+
 let test_legacy_room_profile_bundle_is_room_layer () =
   let json =
     {|{
@@ -268,6 +288,8 @@ let suite =
       test_room_scopes_do_not_cross_channel_boundaries;
     Alcotest.test_case "missing layer selectors are not wildcards" `Quick
       test_missing_layer_selectors_are_not_wildcards;
+    Alcotest.test_case "workspace scope expands tilde selector" `Quick
+      test_workspace_scope_expands_tilde_selector;
     Alcotest.test_case "legacy profile bundle is room layer" `Quick
       test_legacy_room_profile_bundle_is_room_layer;
     Alcotest.test_case "invalid profile bundle denies effective profile grants"
