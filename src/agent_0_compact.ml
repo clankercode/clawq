@@ -611,6 +611,11 @@ let flush_memory_tool_schemas =
 
 let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
   let open Yojson.Safe.Util in
+  let memory_forget_requires_session_error =
+    "Error: memory_forget requires an active session context so the deleted \
+     memory can be archived. Retry from an interactive session, or overwrite \
+     the memory with memory_store instead of deleting it."
+  in
   let args =
     try Yojson.Safe.from_string tc.arguments
     with _ ->
@@ -657,9 +662,7 @@ let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
     | "memory_forget" ->
         let key = try args |> member "key" |> to_string with _ -> "" in
         if key = "" then "Error: key is required"
-        else if Memory.forget_core ~db ~key then
-          Printf.sprintf "Deleted memory: %s" key
-        else Printf.sprintf "No memory found with key: %s" key
+        else memory_forget_requires_session_error
     | "memory_list" ->
         let category =
           try args |> member "category" |> to_string with _ -> ""

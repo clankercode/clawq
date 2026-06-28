@@ -126,6 +126,7 @@ let () =
        ("tunnel_manager", Test_tunnel_manager.suite);
        ("pairing", Test_pairing.suite);
        ("memory", Test_memory.suite);
+       ("memory_archive", Test_memory_archive.suite);
        ("room_profile_reconcile", Test_room_profile_reconcile.suite);
        ("room_budget", Test_room_budget.suite);
        ("room_request_classifier", Test_room_request_classifier.suite);

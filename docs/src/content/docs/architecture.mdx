@@ -60,7 +60,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `agent.ml` | Agent loop: prompt assembly, provider calls, tool dispatch, conversation management |
 | `session.ml` | Session lifecycle: create, resume, persist conversation state |
 | `provider.ml` | LLM provider abstraction: streaming text/thinking/tool events, model selection |
-| `memory.ml` | Key-value memory backend: SQLite-backed store/recall/forget with namespace support |
+| `memory.ml` | Key-value memory backend: SQLite-backed store/recall/forget with namespace support and per-session archive files for forgotten memories |
 | `vector.ml` | Local vector index: embedding storage, cosine similarity, hybrid FTS+vector merge |
 | `tool.ml` | Tool type definitions and invocation framework with risk-level enforcement |
 | `tool_registry.ml` | Dynamic tool registration: register, lookup, list by name or category |

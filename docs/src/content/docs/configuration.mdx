@@ -408,6 +408,8 @@ The gateway root `/` serves the embedded web UI. Supporting endpoints include `/
 | `keyword_weight` | `50` | Weight for keyword FTS results |
 | `ttl_days` | `365` | Days before memory entries expire |
 
+When an interactive agent calls `memory_forget`, Clawq removes the key from active memory and appends a recovery copy to `$CLAWQ_HOME/workspace/rooms/<session-slug-hash>/memory_archive.jsonl` (or `~/.clawq/workspace/rooms/<session-slug-hash>/memory_archive.jsonl`). Each JSONL row records the key, category, content, and UTC time the memory was forgotten.
+
 ### resilience
 
 ```json
@@ -854,6 +856,8 @@ Bindings are evaluated in priority order (highest first). The first matching pat
 ## Workspace Files
 
 The workspace directory (`~/.clawq/workspace/` by default, or `$CLAWQ_HOME/workspace/`) contains Markdown files that are read at the start of each agent turn and included in the system prompt context.
+
+Per-session workspace subdirectories may also contain runtime artifacts. Forgotten memories are archived to `memory_archive.jsonl` in the invoking session's workspace subdirectory so mistakenly removed memories can be recovered later.
 
 | File | Purpose |
 |------|---------|

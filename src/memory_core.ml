@@ -404,6 +404,56 @@ let store_core ~db ~key ~content ?(category = "general") () =
           m "Failed to store core memory: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
 
+let core_memory_by_key ~db ~key =
+  let sql = "SELECT content, category FROM core_memories WHERE key = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let content =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          let category =
+            match Sqlite3.column stmt 1 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> "general"
+          in
+          Some (content, category)
+      | _ -> None)
+
+let memory_archive_path ~session_key =
+  let dir = Room_workspace.workspace_path ~create:true session_key in
+  Filename.concat dir "memory_archive.jsonl"
+
+let archive_forgotten_memory ~session_key ~key ~content ~category =
+  let row =
+    `Assoc
+      [
+        ("key", `String key);
+        ("category", `String category);
+        ("content", `String content);
+        ( "forgotten_at",
+          `String
+            ( Unix.time () |> Unix.gmtime |> fun tm ->
+              Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+                (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday tm.tm_hour
+                tm.tm_min tm.tm_sec ) );
+      ]
+  in
+  let path = memory_archive_path ~session_key in
+  let oc = open_out_gen [ Open_creat; Open_append; Open_text ] 0o600 path in
+  Fun.protect
+    ~finally:(fun () -> close_out oc)
+    (fun () ->
+      output_string oc (Yojson.Safe.to_string row);
+      output_char oc '\n';
+      flush oc)
+
 (* B654: FTS5 treats ':' as a column-qualifier operator, so a query like
    "rig:briefing:config" parses as `column=rig MATCH "briefing:config"` and
    errors with "no such column: rig". Escape each whitespace-separated token
@@ -453,13 +503,23 @@ let recall_core ~db ~query ~limit =
   ignore (Sqlite3.finalize stmt);
   List.rev !results
 
-let forget_core ~db ~key =
+let forget_core_internal ~db ~key ?session_key () =
+  let existing = core_memory_by_key ~db ~key in
+  (match (session_key, existing) with
+  | Some session_key, Some (content, category) ->
+      archive_forgotten_memory ~session_key ~key ~content ~category
+  | _ -> ());
   let sql = "DELETE FROM core_memories WHERE key = ?" in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key));
   let rc = Sqlite3.step stmt in
   ignore (Sqlite3.finalize stmt);
   match rc with Sqlite3.Rc.DONE -> Sqlite3.changes db > 0 | _ -> false
+
+let forget_core ~db ~key = forget_core_internal ~db ~key ()
+
+let forget_core_for_session ~db ~key ~session_key =
+  forget_core_internal ~db ~key ~session_key ()
 
 let list_core ~db ?(category = "") () =
   let sql, has_category =
