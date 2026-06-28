@@ -1056,7 +1056,7 @@ let cmd_rooms_routine cfg args =
                  set). Use 'clawq cron trigger %s' instead."
                 name name
           | Some _ -> (
-              match Scheduler.trigger_job ~db ~name with
+              match Scheduler.trigger_job ~db ~name () with
               | Ok task_id ->
                   Printf.sprintf
                     "Triggered room routine '%s' — enqueued as background task \

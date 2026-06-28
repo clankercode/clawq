@@ -668,12 +668,23 @@ let effective_session_key ~db (job : job) : string * string =
                 routine_key profile.name);
           (routine_key, job.session_key))
 
-let trigger_job ~db ~name =
+let trigger_job ~db ?config ~name () =
   match get_job ~db ~name with
   | None -> Error (Printf.sprintf "No cron job found with name '%s'." name)
   | Some job -> (
-      let run_id = record_run_start ~db ~job_name:job.name () in
-      let turn_key, delivery_key = effective_session_key ~db job in
+      let turn_key, _ = effective_session_key ~db job in
+      let access_snapshot_id =
+        match config with
+        | Some cfg ->
+            Some
+              (Access_snapshot.record_for_work ~db ~config:cfg
+                 ~work_type:Routine ~session_key:turn_key ())
+        | None -> None
+      in
+      let run_id =
+        record_run_start ~db ~job_name:job.name ?access_snapshot_id ()
+      in
+      let _, delivery_key = effective_session_key ~db job in
       let channel_info =
         Memory.get_session_channel ~db ~session_key:delivery_key
       in

@@ -530,7 +530,7 @@ let format_cron ~connector ~db ~session_key action =
           ^ Format_adapter.escape connector e)
   | CronTrigger name -> (
       Background_task.init_schema db;
-      match Scheduler.trigger_job ~db ~name with
+      match Scheduler.trigger_job ~db ~name () with
       | Ok task_id ->
           format_cron_confirm ~connector "triggered" name
           ^ " Enqueued as background task "
