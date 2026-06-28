@@ -564,6 +564,50 @@ type credential_handle = {
     snapshots, logs, the ledger, or worker sandboxes. Only the handle ID is
     referenced by access bundles and effective access. *)
 
+type instruction_edit_policy =
+  | Locked
+  | Admin_only
+  | Open
+
+let instruction_edit_policy_to_string = function
+  | Locked -> "locked"
+  | Admin_only -> "admin_only"
+  | Open -> "open"
+
+let instruction_edit_policy_of_string = function
+  | "locked" -> Some Locked
+  | "admin_only" -> Some Admin_only
+  | "open" -> Some Open
+  | _ -> None
+
+type instruction_record = {
+  text : string;
+  source_scope : string;
+  author : string option;
+  enabled : bool;
+  digest : string option;
+  locked : bool;
+  edit_policy : instruction_edit_policy;
+}
+
+let default_instruction_record ~text () =
+  {
+    text;
+    source_scope = "default";
+    author = None;
+    enabled = true;
+    digest = None;
+    locked = false;
+    edit_policy = Open;
+  }
+
+let instruction_record_digest (ir : instruction_record) : string =
+  match ir.digest with
+  | Some d -> d
+  | None -> Digestif.SHA256.(digest_string ir.text |> to_hex)
+
+let instruction_record_is_active (ir : instruction_record) = ir.enabled
+
 type repo_capability =
   | Read
   | Comment

@@ -41,6 +41,7 @@ type lease = {
 
 type resolution_error =
   | Handle_not_found of string
+  | Handle_not_allowed of string
   | Env_var_unset of string
   | File_not_found of string
   | File_read_error of string * string
@@ -76,6 +77,69 @@ val resolve_env_lease :
 
 val resolve_url_lease :
   config:Runtime_config.t ->
+  handle_id:string ->
+  (lease, resolution_error) result
+
+val resolve_scoped_lease :
+  config:Runtime_config.t ->
+  allowed_handle_ids:string list ->
+  handle_id:string ->
+  header_name:string ->
+  (lease, resolution_error) result
+(** Resolve a handle only if [handle_id] appears in [allowed_handle_ids]. Policy
+    denial happens before provider resolution, so unauthorized handles cannot
+    read environment variables, files, or encrypted payloads. *)
+
+val resolve_scoped_env_lease :
+  config:Runtime_config.t ->
+  allowed_handle_ids:string list ->
+  handle_id:string ->
+  env_name:string ->
+  (lease, resolution_error) result
+
+val resolve_scoped_url_lease :
+  config:Runtime_config.t ->
+  allowed_handle_ids:string list ->
+  handle_id:string ->
+  (lease, resolution_error) result
+
+val resolve_effective_access_lease :
+  config:Runtime_config.t ->
+  access:Runtime_config.effective_access ->
+  handle_id:string ->
+  header_name:string ->
+  (lease, resolution_error) result
+
+val resolve_effective_access_env_lease :
+  config:Runtime_config.t ->
+  access:Runtime_config.effective_access ->
+  handle_id:string ->
+  env_name:string ->
+  (lease, resolution_error) result
+
+val resolve_effective_access_url_lease :
+  config:Runtime_config.t ->
+  access:Runtime_config.effective_access ->
+  handle_id:string ->
+  (lease, resolution_error) result
+
+val resolve_snapshot_lease :
+  config:Runtime_config.t ->
+  snapshot:Access_snapshot.t ->
+  handle_id:string ->
+  header_name:string ->
+  (lease, resolution_error) result
+
+val resolve_snapshot_env_lease :
+  config:Runtime_config.t ->
+  snapshot:Access_snapshot.t ->
+  handle_id:string ->
+  env_name:string ->
+  (lease, resolution_error) result
+
+val resolve_snapshot_url_lease :
+  config:Runtime_config.t ->
+  snapshot:Access_snapshot.t ->
   handle_id:string ->
   (lease, resolution_error) result
 
