@@ -41,8 +41,9 @@ let apply_runtime_config_reload
       fun ~db ~config -> ignore (Memory.reconcile_room_profiles ~db ~config))
     ~source ~current_config ~session_manager ~sandbox ~db ~tool_registry
     ~new_config () =
+  let old_config = !current_config in
+  let old_sandbox = !sandbox in
   try
-    let old_config = !current_config in
     (* Reconcile room profile config into DB BEFORE publishing new_config so
        that on failure the old config and its derived policies remain active. *)
     (match db with
@@ -80,7 +81,18 @@ let apply_runtime_config_reload
         | None -> ())
     | None -> ());
     Ok ()
-  with exn -> Error (Printexc.to_string exn)
+  with exn ->
+    (* Rollback to old config and sandbox on failure to preserve
+       last valid policy *)
+    Logs.warn (fun m ->
+        m "Config reload failed [%s], rolling back to previous config: %s"
+          source (Printexc.to_string exn));
+    sandbox := old_sandbox;
+    current_config := old_config;
+    Session.set_sandbox session_manager old_sandbox;
+    Session.update_config ~source session_manager old_config;
+    Http_debug.sync_config old_config.log;
+    Error (Printexc.to_string exn)
 
 let run ~(config : Runtime_config.t) =
   (Lwt.async_exception_hook :=

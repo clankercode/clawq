@@ -454,6 +454,33 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t)
   let workspace = Runtime_config.effective_workspace config in
   let workspace_only = config.security.workspace_only in
   let extra_allowed_paths = config.security.extra_allowed_paths in
+  (* Refresh all workspace/security-dependent filesystem tools *)
+  Tool_registry.replace registry
+    (Tools_builtin.file_read ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_write ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_append ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_edit ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.file_edit_lines ~workspace ~workspace_only
+       ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.glob ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.list_dir ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.replace registry
+    (Tools_builtin.grep ~workspace ~workspace_only ~extra_allowed_paths);
+  (* Refresh network tools that depend on workspace_only *)
+  Tool_registry.replace registry (Tools_builtin.http_get ~workspace_only);
+  Tool_registry.replace registry (Tools_builtin.http_request ~workspace_only);
+  Tool_registry.replace registry (Tools_builtin.web_fetch ~workspace_only);
+  (* Refresh browser tool which depends on workspace_only and config *)
+  Tool_registry.replace registry
+    (Tools_builtin_browser.browser ~workspace_only ~config);
+  (* Refresh git operations which depend on workspace *)
+  Tool_registry.replace registry (Tools_builtin.git_operations ~workspace);
   Tool_registry.replace registry
     (Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only
        ~allowed_commands:Tools_builtin.default_shell_allowlist

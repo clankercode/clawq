@@ -3045,6 +3045,78 @@ let invoke_change_working_dir registry path =
   in
   (result, !cwd_change)
 
+let invoke_file_read registry path =
+  let tool = Option.get (Tool_registry.find registry "file_read") in
+  let context =
+    {
+      Tool.session_key = Some "slack:C123";
+      send_progress = None;
+      interrupt_check = None;
+      inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
+    }
+  in
+  Lwt_main.run (tool.Tool.invoke ~context (`Assoc [ ("path", `String path) ]))
+
+let test_apply_runtime_config_reload_refreshes_file_read_policy_closure () =
+  let root = Filename.temp_file "clawq-reload-file-read" "" in
+  Sys.remove root;
+  Unix.mkdir root 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote root))))
+    (fun () ->
+      let workspace = Filename.concat root "workspace" in
+      let extra = Filename.concat root "extra" in
+      Unix.mkdir workspace 0o755;
+      Unix.mkdir extra 0o755;
+      let file_path = Filename.concat extra "note.txt" in
+      let oc = open_out file_path in
+      output_string oc "fresh extra path\n";
+      close_out oc;
+      let config1 =
+        {
+          Runtime_config.default with
+          workspace;
+          security =
+            {
+              Runtime_config.default.security with
+              workspace_only = true;
+              extra_allowed_paths = [];
+            };
+        }
+      in
+      let config2 =
+        {
+          config1 with
+          security = { config1.security with extra_allowed_paths = [ extra ] };
+        }
+      in
+      let registry = Tool_registry.create () in
+      let sandbox = ref (Daemon.make_sandbox config1) in
+      Tools_builtin.register_all ~config:config1 ~sandbox:!sandbox registry;
+      let current_config = ref config1 in
+      let session_manager =
+        Session.create ~config:config1 ~tool_registry:registry ~sandbox:!sandbox
+          ()
+      in
+      let denied = invoke_file_read registry file_path in
+      Alcotest.(check string)
+        "old file_read closure denies file outside original policy"
+        "Error: path is outside workspace" denied;
+      (match
+         Daemon.apply_runtime_config_reload ~source:"test_reload"
+           ~current_config ~session_manager ~sandbox ~db:None
+           ~tool_registry:(Some registry) ~new_config:config2 ()
+       with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      let allowed = invoke_file_read registry file_path in
+      Alcotest.(check string)
+        "reloaded file_read closure uses extra_allowed_paths"
+        "fresh extra path\n" allowed)
+
 let test_apply_runtime_config_reload_refreshes_access_policy_tool_closures () =
   let root = Filename.temp_file "clawq-reload-policy" "" in
   Sys.remove root;
@@ -3644,6 +3716,8 @@ let suite =
       test_apply_runtime_config_reload_refreshes_access_policy_holders;
     Alcotest.test_case "reload failure keeps last valid access policy" `Quick
       test_apply_runtime_config_reload_failure_preserves_access_policy;
+    Alcotest.test_case "reload refreshes file_read policy closure" `Quick
+      test_apply_runtime_config_reload_refreshes_file_read_policy_closure;
     Alcotest.test_case "reload refreshes access policy tool closures" `Quick
       test_apply_runtime_config_reload_refreshes_access_policy_tool_closures;
     Alcotest.test_case
