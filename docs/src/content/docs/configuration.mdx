@@ -43,7 +43,7 @@ Manage individual values by dot-path:
 ```bash
 # Set a value
 clawq config set providers.openrouter.api_key "sk-..."
-clawq config set agent_defaults.primary_model "openrouter:gpt-5.4"
+clawq config set agent_defaults.primary_model "openrouter:openai/gpt-4o"
 clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 
 # Read a value
@@ -130,7 +130,7 @@ An object keyed by provider name. The active provider is selected via `agent_def
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `api_key` | Yes | API key (or `$ENC:...` encrypted value) |
+| `api_key` | API-key providers only | API key (or `$ENC:...` encrypted value). Subscription/OAuth providers such as `openai-codex` can authenticate with provider-specific credentials instead. |
 | `base_url` | No | API base URL (defaults to OpenAI) |
 | `kind` | No | Provider kind override (for example `openai-codex`) |
 | `default_model` | No | Default model for this provider. Required for quota-based failover: when another provider is deprioritized, only providers with a `default_model` are eligible alternatives |
@@ -154,13 +154,13 @@ Models: public `xiaomi` offers `mimo-v2-flash`, `mimo-v2-omni`, `mimo-v2-pro`, `
 
 :::caution[Deprecated]
 `default_provider` is deprecated as of B425. The provider is already embedded in
-`agent_defaults.primary_model` using the `provider:model` format (e.g. `"openrouter:gpt-5.4"`).
+`agent_defaults.primary_model` using the `provider:model` format (e.g. `"openrouter:openai/gpt-4o"`).
 
 **Migration:** clawq migrates this field automatically on the next load — no
 manual edit required. If `agent_defaults.primary_model` has no provider prefix,
 the `default_provider` value is folded into it (e.g. `default_provider:
-"openrouter"` + `primary_model: "gpt-5.4"` becomes `primary_model:
-"openrouter:gpt-5.4"`); otherwise the redundant key is simply dropped. Either
+"openrouter"` + `primary_model: "openai/gpt-4o"` becomes `primary_model:
+"openrouter:openai/gpt-4o"`); otherwise the redundant key is simply dropped. Either
 way `default_provider` disappears from `config.json` and the deprecation warning
 stops firing.
 :::

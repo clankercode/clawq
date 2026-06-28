@@ -316,11 +316,11 @@ Note: Structural changes that affect daemon startup (enabling/disabling channels
 ```
 clawq config set providers.openrouter.api_key "sk-or-v1-..."
 clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.openrouter.default_model "anthropic:claude-sonnet-4-6"
-clawq config set agent_defaults.primary_model "openrouter:claude-sonnet-4-6"
+clawq config set providers.openrouter.default_model "openai/gpt-4o"
+clawq config set agent_defaults.primary_model "openrouter:openai/gpt-4o"
 clawq config set providers.kimi_coding.api_key "sk-kimi-..."
 clawq config set providers.kimi_coding.default_model "kimi-for-coding"
-clawq config set agent_defaults.primary_model "anthropic:claude-sonnet-4-6"
+clawq config set agent_defaults.primary_model "kimi_coding:kimi-for-coding"
 clawq config set agent_defaults.max_tool_iterations 10
 clawq config set agent_defaults.reasoning_effort "medium"
 clawq config set agent_defaults.show_thinking true
@@ -403,7 +403,7 @@ Use `/model set-force <name>` to bypass model name validation when setting custo
 
 ### Config sections reference
 
-**providers** — keyed by provider name. Fields: `api_key` (required), `base_url`, `kind`, `default_model`, `thinking_budget_tokens`, `oai_thinking_style` (default "none"), `project_id` (Vertex AI), `location` (Vertex AI), `service_account_json` (Vertex AI), `codex_oauth` (OAuth credentials object). The active provider is selected via `agent_defaults.primary_model` using the `provider:model` format. (`default_provider` at the top level is deprecated — see agent_defaults.) Provider names with built-in default base URLs: `openrouter` (fallback default), `mistral`, `xai`/`x_ai`, `deepseek`, `cohere`, `zai`, `zai_coding`, `kimi` (→ api.moonshot.cn/v1), `moonshot` (→ api.moonshot.cn/v1), `kimi_coding`/`kimi-code` (→ api.kimi.com/coding/v1), `minimax` (→ api.minimax.io; Anthropic-compatible requests use `/anthropic/v1/messages`), `xiaomi` (→ api.xiaomimimo.com/v1), `xiaomi-token-plan-cn` (→ token-plan-cn.xiaomimimo.com/v1), `xiaomi-token-plan-ams` (→ token-plan-ams.xiaomimimo.com/v1), `xiaomi-token-plan-sgp` (→ token-plan-sgp.xiaomimimo.com/v1). Kimi Coding subscription keys use the `sk-kimi-...` prefix; configure with provider name `kimi_coding` and the key will auto-route to the correct endpoint. The Xiaomi MiMo providers (`kind: "xiaomi"`, OpenAI-compatible, `oai_thinking_style: "reasoning_content"`) are zero-config: if a key is found in `XIAOMI_API_KEY`, `XIAOMI_TOKEN_PLAN_CN_API_KEY`, `XIAOMI_TOKEN_PLAN_AMS_API_KEY`, or `XIAOMI_TOKEN_PLAN_SGP_API_KEY` (the SGP provider also reads `~/.mimo`), the provider is synthesized in memory and never written to `config.json`. Models: public `xiaomi` offers `mimo-v2-flash`, `mimo-v2-omni`, `mimo-v2-pro`, `mimo-v2.5`, `mimo-v2.5-pro`, `mimo-v2.5-pro-ultraspeed`; the token-plan providers offer the same set minus `mimo-v2-flash`.
+**providers** — keyed by provider name. Fields: `api_key` (required for API-key providers; subscription/OAuth providers such as `openai-codex` can authenticate with provider-specific credentials), `base_url`, `kind`, `default_model`, `thinking_budget_tokens`, `oai_thinking_style` (default "none"), `project_id` (Vertex AI), `location` (Vertex AI), `service_account_json` (Vertex AI), `codex_oauth` (OAuth credentials object). The active provider is selected via `agent_defaults.primary_model` using the `provider:model` format. (`default_provider` at the top level is deprecated — see agent_defaults.) Provider names with built-in default base URLs: `openrouter` (fallback default), `mistral`, `xai`/`x_ai`, `deepseek`, `cohere`, `zai`, `zai_coding`, `kimi` (→ api.moonshot.cn/v1), `moonshot` (→ api.moonshot.cn/v1), `kimi_coding`/`kimi-code` (→ api.kimi.com/coding/v1), `minimax` (→ api.minimax.io; Anthropic-compatible requests use `/anthropic/v1/messages`), `xiaomi` (→ api.xiaomimimo.com/v1), `xiaomi-token-plan-cn` (→ token-plan-cn.xiaomimimo.com/v1), `xiaomi-token-plan-ams` (→ token-plan-ams.xiaomimimo.com/v1), `xiaomi-token-plan-sgp` (→ token-plan-sgp.xiaomimimo.com/v1). Kimi Coding subscription keys use the `sk-kimi-...` prefix; configure with provider name `kimi_coding` and the key will auto-route to the correct endpoint. The Xiaomi MiMo providers (`kind: "xiaomi"`, OpenAI-compatible, `oai_thinking_style: "reasoning_content"`) are zero-config: if a key is found in `XIAOMI_API_KEY`, `XIAOMI_TOKEN_PLAN_CN_API_KEY`, `XIAOMI_TOKEN_PLAN_AMS_API_KEY`, or `XIAOMI_TOKEN_PLAN_SGP_API_KEY` (the SGP provider also reads `~/.mimo`), the provider is synthesized in memory and never written to `config.json`. Models: public `xiaomi` offers `mimo-v2-flash`, `mimo-v2-omni`, `mimo-v2-pro`, `mimo-v2.5`, `mimo-v2.5-pro`, `mimo-v2.5-pro-ultraspeed`; the token-plan providers offer the same set minus `mimo-v2-flash`.
 
 **model_context_limits** — optional top-level object mapping model names to manual token limits used for runtime context budgeting and history compaction. Keys may include provider prefixes (for example `openai-codex/gpt-5.4`). These values are not inferred or backfilled automatically; only explicitly configured entries are written. Lookup is normalized the same way model selection is normalized (case-insensitive, provider prefix/date suffix tolerated). Built-in defaults still exist for some known models; configured entries take precedence. Example: use `"openai-codex/gpt-5.4": 272000` to treat 272k as the practical soft cap for compaction even if the upstream provider allows a larger absolute window.
 
@@ -929,15 +929,16 @@ Gateway auth behavior:
 ## First-Time Setup Guide
 
 Tell users:
-1. Install opam and libsqlite3-dev
-2. `git clone <repo> clawq && cd clawq`
-3. `make bootstrap` — creates opam switch clawq-5.1, installs deps
-4. `make build` — builds the project
-5. `clawq onboard` — creates initial config; in a TTY it runs onboarding, otherwise it writes a starter template. Use `clawq config wizard` later for full reconfiguration. For individual channels, use `clawq setup <channel>` (discord, telegram, slack, github, teams, irc, matrix, mattermost, email, dingtalk, lark, line, nostr, onebot, whatsapp, imessage, signal, tunnel, summarizer).
-6. `clawq doctor` — validate configuration
-7. `clawq agent` — start the daemon
-8. Open `http://127.0.0.1:13451/` for the web UI
-9. Use `clawq otp-show` to get the pairing code if pairing is enabled
+1. Install Node.js/npm if needed.
+2. `npm install -g @clawq/clawq` — installs the packaged `clawq` binary.
+3. `clawq version` — verify the CLI is on PATH. Use `npx @clawq/clawq version` when testing without a global install.
+4. `clawq onboard` — creates initial config; in a TTY it runs onboarding, otherwise it writes a starter template. Use `clawq config wizard` later for full reconfiguration. For individual channels, use `clawq setup <channel>` (discord, telegram, slack, github, teams, irc, matrix, mattermost, email, dingtalk, lark, line, nostr, onebot, whatsapp, imessage, signal, tunnel, summarizer).
+5. `clawq doctor` — validate configuration
+6. `clawq agent` — start the daemon
+7. Open `http://127.0.0.1:13451/` for the web UI
+8. Use `clawq otp-show` to get the pairing code if pairing is enabled
+
+The current npm release artifact is built on Linux. On other platforms, use the source build path for now: clone the repo, install opam plus system SQLite headers, run `make bootstrap`, then `make build` and `make test`.
 
 ## Troubleshooting
 
@@ -963,7 +964,7 @@ Tell users:
 - **Behavior differs because session is not opted into heartbeat**: normal user chats use their own session keys and histories; heartbeat runs only for sessions explicitly opted in.
 - **Bot not responding**: check daemon is running (`clawq status`), verify token (`clawq doctor`), check allow_from/allow_users/allow_guilds includes the user or is `["*"]`.
 - **Daemon refuses to bind non-loopback host**: if `gateway.host` is not loopback, set `gateway.auth_token` or change `gateway.host` back to `127.0.0.1`/`localhost`.
-- **No providers configured**: ensure `providers` section exists in config with a valid api_key, and `agent_defaults.primary_model` is set to a `provider:model` string (e.g. `"openrouter:gpt-5.4"`).
+- **No providers configured**: ensure `providers` section exists in config with either a valid api_key or a configured subscription provider such as `openai-codex`, and `agent_defaults.primary_model` is set to a `provider:model` string (e.g. `"openrouter:openai/gpt-4o"` or `"openai-codex:gpt-5.4"`).
 - **LLM API errors**: verify API key validity, try a different model, check base_url matches provider.
 - **Config not found**: run `clawq onboard` to create the initial config, or `clawq config wizard` after a config already exists.
 - **Check health**: `curl http://127.0.0.1:13451/health`.
@@ -973,7 +974,7 @@ Tell users:
 
 ## Docs
 
-- [Quick Start](https://clawq.org/quickstart): Build, configure, and run clawq in 5 minutes
+- [Quick Start](https://clawq.org/quickstart): Install from npm, configure, and run clawq in 5 minutes
 - [Architecture](https://clawq.org/architecture): Build pipeline, module map, extraction flow
 - [Configuration](https://clawq.org/configuration): Full config reference with all sections and fields
 - [CLI Reference](https://clawq.org/cli-reference): Complete command reference

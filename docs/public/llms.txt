@@ -5,7 +5,7 @@
 ## Docs
 
 - [Full self-knowledge context](https://clawq.org/llms-full.txt): Complete self-reference with every CLI command, config section and field with defaults, all built-in tools, channel setup walkthroughs, gateway endpoints, restart/resume behavior, first-time setup guide, and troubleshooting
-- [Quick Start](https://clawq.org/quickstart): Build from source, configure a provider, open the web UI, add a channel — 5 minutes
+- [Quick Start](https://clawq.org/quickstart): Install from npm, configure a provider, open the web UI, add a channel — 5 minutes
 - [Configuration](https://clawq.org/configuration): Full config reference — providers, channels, security, gateway, memory, resilience, MCP, tunnels
 - [CLI Reference](https://clawq.org/cli-reference): Complete command reference for all clawq commands and subcommands
 - [Channels](https://clawq.org/channels): Telegram, Discord, Slack, GitHub, MS Teams setup and Channel.S interface

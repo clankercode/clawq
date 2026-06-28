@@ -18,6 +18,8 @@ clawq onboard
 
 # Or configure piece by piece with an API key provider
 clawq config set providers.openrouter.api_key "sk-..."
+clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
+clawq config set agent_defaults.primary_model "openrouter:openai/gpt-4o"
 clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 clawq config show                  # review config (secrets redacted)
 
@@ -45,23 +47,27 @@ See the [Quick Start guide](https://clawq.org/quickstart) for a full walkthrough
 
 ## Quick Start
 
-### Prerequisites
+### Install
 
-- **opam** (OCaml package manager)
-- **libsqlite3-dev** (or equivalent for your distro)
-
-### Bootstrap and Build
+The easiest way to install Clawq is the npm package:
 
 ```bash
-# 1. Create opam switch "clawq-5.1" and install all dependencies
-make bootstrap
-
-# 2. Build
-make build
-
-# 3. Run tests
-make test
+npm install -g @clawq/clawq
+clawq version
 ```
+
+The current npm release artifact is built on Linux. If you are on another
+platform, use the [Development Guide](https://clawq.org/development) source
+build path for now.
+
+You can also run it without a global install:
+
+```bash
+npx @clawq/clawq version
+```
+
+For source builds and contributor setup, see the
+[Development Guide](https://clawq.org/development).
 
 ### Getting Started with Telegram
 
@@ -72,7 +78,7 @@ The fastest way to get a running clawq instance is via Telegram:
 3. Run the interactive setup wizard:
 
 ```bash
-./clawq onboard
+clawq onboard
 ```
 
 This launches a full interactive TUI wizard (when run in a terminal) to configure your provider, model, security, channels, gateway, and memory settings. Pipe input or redirect to a non-TTY and it falls back to generating a starter template instead.
@@ -86,6 +92,9 @@ This launches a full interactive TUI wizard (when run in a terminal) to configur
       "api_key": "sk-...",
       "default_model": "gpt-4o"
     }
+  },
+  "agent_defaults": {
+    "primary_model": "openai:gpt-4o"
   },
   "channels": {
     "telegram": {
@@ -108,8 +117,11 @@ For ChatGPT/Codex subscription auth instead of an API key, add a provider like t
     "openai-codex": {
       "kind": "openai-codex",
       "base_url": "https://chatgpt.com/backend-api/codex",
-      "default_model": "openai-codex:gpt-5.3-codex"
+      "default_model": "openai-codex:gpt-5.4"
     }
+  },
+  "agent_defaults": {
+    "primary_model": "openai-codex:gpt-5.4"
   }
 }
 ```
@@ -119,7 +131,7 @@ For ChatGPT/Codex subscription auth instead of an API key, add a provider like t
 5. Start the daemon:
 
 ```bash
-./clawq agent
+clawq agent
 ```
 
 Your bot is now live on Telegram. Send it a message to verify.
@@ -336,5 +348,8 @@ make fv-all
 
 ## Notes
 - The generated extraction file path is `src/extracted/clawq_core.ml`.
+- The npm package is the recommended user install path. CI builds the release
+  binary and publishes `@clawq/clawq` from release tags; source builds remain
+  the contributor/development path.
 
 When delegation quality matters, prefer `gpt-5.4` for Codex background work. Use `gpt-5.3-codex` when you specifically want the Codex-tuned path or need to mirror Codex OAuth defaults more closely.

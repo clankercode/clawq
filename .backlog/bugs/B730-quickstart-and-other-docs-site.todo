@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-28T09:43:48Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T09:54:42Z"
 complexity: medium
 depends_on: []
+duration_minutes: 10.9013595896
 estimate_hours: 1
 id: B730
 priority: high
 started_at: "2026-06-28T09:43:48Z"
-status: in_progress
+status: done
 tags: []
 title: Quickstart and other docs (site and llms.txt etc) might be outdated or have outdated install instructions. The npm package is now the easiest way to install clawq. We should update all the docs and make sure that all of the install/getting started stuff is up to date! (Important!)
 ---
