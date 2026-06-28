@@ -76,6 +76,7 @@ let () =
        ("vector", Test_vector.suite);
        ("secret_store", Test_secret_store.suite);
        ("scope_resolver", Test_scope_resolver.suite);
+       ("access_snapshot", Test_access_snapshot.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);

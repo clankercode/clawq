@@ -183,7 +183,9 @@ let run_local_background_turn ~(session_manager : Session.t) ~key ~message
           in
           poll ());
       Lwt.finalize
-        (fun () -> Session.turn session_manager ~key ~message ?cwd ())
+        (fun () ->
+          Session.turn session_manager ~key ~message ?cwd
+            ~snapshot_work_type:Access_snapshot.Background_task ())
         (fun () ->
           done_ := true;
           Lwt.return_unit)

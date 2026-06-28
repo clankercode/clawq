@@ -217,7 +217,8 @@ let handle_webhook_body ~(config : Runtime_config.lark_config)
                             let* response =
                               Session.turn session_mgr ~key ~message:text
                                 ~channel_name:"lark" ~channel_type
-                                ~sender_id:user_id ()
+                                ~sender_id:user_id
+                                ~snapshot_work_type:Access_snapshot.Room_turn ()
                             in
                             Lwt.return (Ok response))
                           (fun exn ->

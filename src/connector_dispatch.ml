@@ -67,6 +67,7 @@ let queued_followup ?channel_name ?channel_type ?sender_name ?message_id
     inbound_queue_id = None;
     bang = false;
     deferred_followup = true;
+    snapshot_work_type = Some Access_snapshot.Room_turn;
   }
 
 let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
@@ -109,7 +110,8 @@ let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
               ?channel_name ?channel_type ~channel_id ~sender_id:user_id
               ?sender_name ?message_id
               ~user_group:(if is_admin then "admin" else "guest")
-              ~deferred_if_busy:true ~before_drain ())
+              ~deferred_if_busy:true ~before_drain
+              ~snapshot_work_type:Access_snapshot.Room_turn ())
       in
       if Session.is_queued_message_response response then
         send_reply followup_queue_ack

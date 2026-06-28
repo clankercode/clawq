@@ -262,7 +262,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   let* response =
                                     Session.turn session_manager ~key
                                       ~message:text ~channel_name:room_id
-                                      ~channel_type:"group" ~sender_id:sender ()
+                                      ~channel_type:"group" ~sender_id:sender
+                                      ~snapshot_work_type:
+                                        Access_snapshot.Room_turn ()
                                   in
                                   Lwt.return (Ok response))
                                 (fun exn ->

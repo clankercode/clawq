@@ -619,7 +619,7 @@ let inject_background_task_completion
       in
       let run_turn () =
         Session.turn session_manager ~key:session_key ~message ?channel
-          ?channel_id ()
+          ?channel_id ~snapshot_work_type:Access_snapshot.Room_turn ()
       in
       let* response =
         match notify_fn with
@@ -955,6 +955,7 @@ let notify_background_task_started ~(session_manager : Session.t)
             inbound_queue_id = None;
             bang = false;
             deferred_followup = false;
+            snapshot_work_type = None;
           }
       in
       Lwt.return_unit

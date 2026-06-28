@@ -273,6 +273,7 @@ let start_session ~db ~(session_mgr : Session_core.t)
           inbound_queue_id = None;
           bang = false;
           deferred_followup = false;
+          snapshot_work_type = None;
         }
       in
       let open Lwt.Syntax in

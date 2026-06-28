@@ -572,6 +572,17 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
                    ?sender_name:queued.sender_name ?user_group:queued.user_group
                    ())
           in
+          (* Record effective-access snapshot when queued work begins. *)
+          (match queued.snapshot_work_type with
+          | Some work_type -> (
+              match mgr.Session_core.db with
+              | Some db ->
+                  ignore
+                    (Access_snapshot.record_for_work ~db
+                       ~config:mgr.Session_core.config ~work_type
+                       ~session_key:key ?room_id:queued.channel_id ())
+              | None -> ())
+          | None -> ());
           let* response =
             run_locked_turn mgr ~key agent interrupt ~message:turn_message
               ~content_parts:queued.content_parts
@@ -626,7 +637,7 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
 let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
     ?user_group ?channel ?channel_id ?message_id ?cwd
-    ?(deferred_if_busy = false) ?before_drain () =
+    ?(deferred_if_busy = false) ?before_drain ?snapshot_work_type () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -657,6 +668,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               inbound_queue_id = None;
               bang = false;
               deferred_followup = deferred_if_busy;
+              snapshot_work_type;
             }
           in
           let on_draining () =
@@ -667,6 +679,17 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
           in
           let run_with_lock agent interrupt =
             Session_core.with_in_flight mgr (fun () ->
+                (* Record effective-access snapshot when work begins *)
+                (match snapshot_work_type with
+                | Some work_type -> (
+                    match mgr.Session_core.db with
+                    | Some db ->
+                        ignore
+                          (Access_snapshot.record_for_work ~db
+                             ~config:mgr.Session_core.config ~work_type
+                             ~session_key:key ?room_id:channel_id ())
+                    | None -> ())
+                | None -> ());
                 (match cwd with
                 | Some c ->
                     Session_core.apply_cwd_change_for_turn mgr ~key agent ~cwd:c
@@ -1077,7 +1100,7 @@ let fork_and_run mgr ~parent_key ?debug_notify ?agent_name ~prompt ~send_reply
 let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
     ?user_group ?channel ?channel_id ?message_id ?cwd ?on_tool_round_complete
-    ?on_drain_progress ?before_drain ~on_chunk () =
+    ?on_drain_progress ?before_drain ?snapshot_work_type ~on_chunk () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -1111,6 +1134,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               inbound_queue_id = None;
               bang = false;
               deferred_followup = false;
+              snapshot_work_type;
             }
           in
           let* queued =
@@ -1129,6 +1153,17 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                 | None -> Lwt.return Session_core.draining_message)
               (fun agent interrupt ->
                 Session_core.with_in_flight mgr (fun () ->
+                    (* Record effective-access snapshot when work begins *)
+                    (match snapshot_work_type with
+                    | Some work_type -> (
+                        match mgr.Session_core.db with
+                        | Some db ->
+                            ignore
+                              (Access_snapshot.record_for_work ~db
+                                 ~config:mgr.Session_core.config ~work_type
+                                 ~session_key:key ?room_id:channel_id ())
+                        | None -> ())
+                    | None -> ());
                     (match cwd with
                     | Some c ->
                         Session_core.apply_cwd_change_for_turn mgr ~key agent

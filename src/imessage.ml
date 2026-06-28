@@ -170,7 +170,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                     let* response =
                                       Session.turn session_manager ~key
                                         ~message:text ~channel_name:"imessage"
-                                        ~channel_type:"dm" ()
+                                        ~channel_type:"dm"
+                                        ~snapshot_work_type:
+                                          Access_snapshot.Room_turn ()
                                     in
                                     Lwt.return (Ok response))
                                   (fun exn ->

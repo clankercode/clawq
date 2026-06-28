@@ -121,7 +121,8 @@ let handle_webhook ~(config : Runtime_config.line_config)
                     (fun () ->
                       let* response =
                         Session.turn session_mgr ~key ~message:text
-                          ~channel_name:"line" ~channel_type:"dm" ()
+                          ~channel_name:"line" ~channel_type:"dm"
+                          ~snapshot_work_type:Access_snapshot.Room_turn ()
                       in
                       Lwt.return (Ok response))
                     (fun exn -> Lwt.return (Error (Printexc.to_string exn))))

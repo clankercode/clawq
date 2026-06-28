@@ -179,7 +179,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                               ~channel_type:
                                                 (clawq_channel_type_of_mm
                                                    mm_channel_type)
-                                              ()
+                                              ~snapshot_work_type:
+                                                Access_snapshot.Room_turn ()
                                           in
                                           Lwt.return (Ok response))
                                         (fun exn ->

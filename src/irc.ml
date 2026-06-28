@@ -290,7 +290,9 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                                   ~channel_type:
                                     (if reply_target = sender then "dm"
                                      else "group")
-                                  ~sender_id:sender ()
+                                  ~sender_id:sender
+                                  ~snapshot_work_type:Access_snapshot.Room_turn
+                                  ()
                               in
                               Lwt.return (Ok response))
                             (fun exn ->

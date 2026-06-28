@@ -488,7 +488,9 @@ let handle_chat ~session_manager ~require_pairing ~auth_token ?ip_limiter
                                 Lwt.return_unit)
                               (fun () ->
                                 Session.turn session_manager ~key ~message
-                                  ~skill_injections ~user_group:"admin" ())
+                                  ~skill_injections ~user_group:"admin"
+                                  ~snapshot_work_type:Access_snapshot.Room_turn
+                                  ())
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn)))

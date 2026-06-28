@@ -329,7 +329,9 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                                             Session.turn session_mgr
                                               ~key:session_key ~message
                                               ~channel:"telegram"
-                                              ~channel_id:cb.cb_chat_id ()
+                                              ~channel_id:cb.cb_chat_id
+                                              ~snapshot_work_type:
+                                                Access_snapshot.Room_turn ()
                                           in
                                           if
                                             not
@@ -427,7 +429,9 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                                   let* response =
                                     Session.turn session_mgr ~key:session_key
                                       ~message ~channel:"telegram"
-                                      ~channel_id:chat_id ()
+                                      ~channel_id:chat_id
+                                      ~snapshot_work_type:
+                                        Access_snapshot.Room_turn ()
                                   in
                                   if
                                     not

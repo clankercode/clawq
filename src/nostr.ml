@@ -324,7 +324,8 @@ let listen_relay ~(config : Runtime_config.nostr_config) relay ~since_ts
                                   let* response =
                                     Session.turn session_mgr ~key ~message:text
                                       ~channel_name:"nostr" ~channel_type:"dm"
-                                      ()
+                                      ~snapshot_work_type:
+                                        Access_snapshot.Room_turn ()
                                   in
                                   Lwt.return (Ok response))
                                 (fun exn ->

@@ -130,7 +130,8 @@ let handle_message t req body_str =
               Lwt.catch
                 (fun () ->
                   let* response =
-                    Session.turn t.session_manager ~key ~message:text ()
+                    Session.turn t.session_manager ~key ~message:text
+                      ~snapshot_work_type:Access_snapshot.Room_turn ()
                   in
                   Lwt.return (Ok response))
                 (fun exn -> Lwt.return (Error (Printexc.to_string exn)))

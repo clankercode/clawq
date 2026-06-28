@@ -73,7 +73,7 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
   let messages = parse_inbound_messages body_str in
   Lwt_list.iter_s
     (fun (_id, from, group_jid, text) ->
-      let key, channel_type, allowed =
+      let key, channel_type, channel_id, allowed =
         match group_jid with
         | Some gjid ->
             (* Group message: session keyed by group_jid, but the sender's
@@ -84,12 +84,14 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
             let from_normalized = strip_leading_plus from in
             ( "whatsapp:group:" ^ gjid,
               "group",
+              gjid,
               is_allowed ~config ~from:from_normalized )
         | None ->
             (* Direct message: apply allow_from filter *)
             let from_normalized = strip_leading_plus from in
             ( "whatsapp:" ^ from_normalized,
               "dm",
+              from_normalized,
               is_allowed ~config ~from:from_normalized )
       in
       if not allowed then begin
@@ -108,7 +110,8 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
                 (fun () ->
                   let* response =
                     Session.turn session_mgr ~key ~message:text
-                      ~channel_name:"whatsapp" ~channel_type ()
+                      ~channel_name:"whatsapp" ~channel_type ~channel_id
+                      ~snapshot_work_type:Access_snapshot.Room_turn ()
                   in
                   Lwt.return (Ok response))
                 (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
