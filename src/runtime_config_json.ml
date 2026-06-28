@@ -888,6 +888,125 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
       ]
   in
   let fields =
+    if cfg.access_bundles = [] then fields
+    else
+      fields
+      @ [
+          ( "access_bundles",
+            `List
+              (List.map
+                 (fun (bundle : access_bundle) ->
+                   `Assoc
+                     ([
+                        ("id", `String bundle.id);
+                        ("status", `String bundle.status);
+                      ]
+                     @ (match bundle.display_name with
+                       | Some name -> [ ("display_name", `String name) ]
+                       | None -> [])
+                     @ (match bundle.system_prompt with
+                       | Some prompt -> [ ("system_prompt", `String prompt) ]
+                       | None -> [])
+                     @ (if bundle.allowed_tools = [] then []
+                        else
+                          [
+                            ( "allowed_tools",
+                              `List
+                                (List.map
+                                   (fun t -> `String t)
+                                   bundle.allowed_tools) );
+                          ])
+                     @ (if bundle.denied_tools = [] then []
+                        else
+                          [
+                            ( "denied_tools",
+                              `List
+                                (List.map
+                                   (fun t -> `String t)
+                                   bundle.denied_tools) );
+                          ])
+                     @ (if bundle.codebase_grants = [] then []
+                        else
+                          [
+                            ( "codebase_grants",
+                              `List
+                                (List.map
+                                   (fun p -> `String p)
+                                   bundle.codebase_grants) );
+                          ])
+                     @ (if bundle.mcp_servers = [] then []
+                        else
+                          [
+                            ( "mcp_servers",
+                              `List
+                                (List.map
+                                   (fun s -> `String s)
+                                   bundle.mcp_servers) );
+                          ])
+                     @ (if bundle.skills = [] then []
+                        else
+                          [
+                            ( "skills",
+                              `List
+                                (List.map (fun s -> `String s) bundle.skills) );
+                          ])
+                     @ (if bundle.repositories = [] then []
+                        else
+                          [
+                            ( "repositories",
+                              `List
+                                (List.map
+                                   (fun r -> `String r)
+                                   bundle.repositories) );
+                          ])
+                     @ (if bundle.domains = [] then []
+                        else
+                          [
+                            ( "domains",
+                              `List
+                                (List.map (fun d -> `String d) bundle.domains)
+                            );
+                          ])
+                     @ (if bundle.credential_handles = [] then []
+                        else
+                          [
+                            ( "credential_handles",
+                              `List
+                                (List.map
+                                   (fun h -> `String h)
+                                   bundle.credential_handles) );
+                          ])
+                     @ (if bundle.instructions = [] then []
+                        else
+                          [
+                            ( "instructions",
+                              `List
+                                (List.map
+                                   (fun i -> `String i)
+                                   bundle.instructions) );
+                          ])
+                     @ (if bundle.memory_grants = [] then []
+                        else
+                          [
+                            ( "memory_grants",
+                              `List
+                                (List.map
+                                   (fun g -> `String g)
+                                   bundle.memory_grants) );
+                          ])
+                     @
+                     if bundle.budget_refs = [] then []
+                     else
+                       [
+                         ( "budget_refs",
+                           `List
+                             (List.map (fun b -> `String b) bundle.budget_refs)
+                         );
+                       ]))
+                 cfg.access_bundles) );
+        ]
+  in
+  let fields =
     if cfg.room_profiles = [] then fields
     else
       fields
@@ -919,6 +1038,15 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                               `List
                                 (List.map (fun t -> `String t) p.denied_tools)
                             );
+                          ])
+                     @ (if p.access_bundle_ids = [] then []
+                        else
+                          [
+                            ( "access_bundle_ids",
+                              `List
+                                (List.map
+                                   (fun id -> `String id)
+                                   p.access_bundle_ids) );
                           ])
                      @ (if not p.ambient_enabled then []
                         else [ ("ambient_enabled", `Bool true) ])

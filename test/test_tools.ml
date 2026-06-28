@@ -2962,6 +2962,7 @@ let make_room_profile_codebase_config ?(workspace_only = false) ~workspace
           status = "active";
           allowed_tools = [];
           denied_tools = [];
+          access_bundle_ids = [];
           ambient_enabled = false;
           ambient_quiet_start = 23;
           ambient_quiet_end = 8;
