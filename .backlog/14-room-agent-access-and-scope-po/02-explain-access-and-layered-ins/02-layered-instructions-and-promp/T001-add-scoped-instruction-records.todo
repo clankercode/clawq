@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T17:48:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T18:42:41Z"
 complexity: high
 depends_on:
     - P14.M1.E2.T001
+duration_minutes: 54.28455593206667
 estimate_hours: 3
 id: P14.M2.E2.T001
 priority: high
 started_at: "2026-06-28T17:48:24Z"
-status: in_progress
+status: done
 tags: []
 title: Add scoped instruction records with provenance and edit policy
 ---
