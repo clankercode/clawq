@@ -30,7 +30,8 @@ tasks:
       file: T002-add-rooms-explain-access-cli-a.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add rooms explain-access CLI and JSON output
     - complexity: medium
       depends_on:

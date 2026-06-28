@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-28T18:17:04Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P15.M1.E1.T001
 estimate_hours: 3
 id: P15.M1.E2.T001
 priority: high
-status: pending
-tags:
-    - teams
-    - progress
+started_at: "2026-06-28T18:17:04Z"
+status: in_progress
+tags: []
 title: Add durable room progress checklist model
 ---
 Acceptance: planned/current/blocked/done/final states are appendable, resumable, and renderable without re-running model text; state includes task id, transcript/session links, last update, and delivery state.

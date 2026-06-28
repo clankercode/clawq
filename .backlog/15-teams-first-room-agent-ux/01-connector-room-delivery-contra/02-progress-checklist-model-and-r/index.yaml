@@ -20,7 +20,8 @@ tasks:
       file: T001-add-durable-room-progress-chec.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add durable room progress checklist model
     - complexity: high
       depends_on:
