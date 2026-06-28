@@ -1624,7 +1624,7 @@ let test_access_scope_invalid_access_bundle_reference_rejects () =
               (List.length cfg.access_scopes);
             let effective =
               Runtime_config.resolve_effective_access cfg
-                ~session_key:"chat:general"
+                ~session_key:"chat:general" ()
             in
             Alcotest.(check (list string))
               "invalid scope grants no tools" []
@@ -1730,7 +1730,7 @@ let test_access_scope_malformed_selector_rejects () =
               (List.length cfg.access_scopes);
             let effective =
               Runtime_config.resolve_effective_access cfg
-                ~session_key:"slack:C123"
+                ~session_key:"slack:C123" ()
             in
             Alcotest.(check (list string))
               "malformed selector grants no tools" []

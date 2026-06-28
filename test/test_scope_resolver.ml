@@ -48,7 +48,7 @@ let test_layers_merge_deterministically_and_deny_wins () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "allowed tools preserve layer order after denies"
@@ -89,7 +89,7 @@ let test_global_security_caps_codebase_grants () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "global ceiling keeps workspace grant"
@@ -119,7 +119,7 @@ let test_inherited_grants_do_not_weaken_global_security () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "inherited workspace grant survives global ceiling"
@@ -144,7 +144,7 @@ let test_memory_grants_are_direct_not_transitive () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"web:general"
+    Runtime_config.resolve_effective_access cfg ~session_key:"web:general" ()
   in
   Alcotest.(check (list string))
     "only direct memory grants are effective" [ "child" ]
@@ -164,7 +164,7 @@ let test_missing_memory_grants_default_to_no_access () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "missing memory grants grant nothing" []
@@ -184,7 +184,7 @@ let test_duplicate_bundle_references_merge_provenance_once () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "duplicate bundle tool appears once" [ "shared_tool" ]
@@ -213,7 +213,7 @@ let test_allow_and_deny_same_tool_denies () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "same-tool allow is removed" []
@@ -235,10 +235,10 @@ let test_room_scopes_do_not_cross_channel_boundaries () =
   in
   let cfg = parse json in
   let slack =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   let discord =
-    Runtime_config.resolve_effective_access cfg ~session_key:"discord:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"discord:C123" ()
   in
   Alcotest.(check (list string))
     "matching channel receives room grant" [ "room_tool" ]
@@ -267,7 +267,7 @@ let test_invalid_profile_and_room_references_grant_nothing () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "invalid profile and room refs grant no tools" []
@@ -289,7 +289,7 @@ let test_room_deny_overrides_workspace_allow () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "room deny removes inherited workspace allow" [ "room_tool" ]
@@ -315,7 +315,7 @@ let test_missing_layer_selectors_are_not_wildcards () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "missing selectors grant nothing" []
@@ -335,7 +335,7 @@ let test_workspace_scope_expands_tilde_selector () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "tilde workspace selector matches expanded workspace" [ "workspace_tool" ]
@@ -363,7 +363,7 @@ let test_legacy_room_profile_bundle_is_room_layer () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "legacy allowed tools remain effective" [ "file_read" ]
@@ -410,7 +410,7 @@ let test_invalid_profile_bundle_denies_effective_profile_grants () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "invalid profile bundle reference suppresses all profile grants" []
@@ -429,7 +429,7 @@ let test_invalid_scope_bundle_denies_scope_grants () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "invalid scope bundle reference suppresses all scope grants" []
@@ -454,7 +454,7 @@ let test_repo_grants_attach_to_bundle () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   let grant_values = item_values effective.repo_grants in
   Alcotest.(check int) "two repo grants" 2 (List.length grant_values);
@@ -590,7 +590,7 @@ let test_legacy_repositories_become_read_only_repo_grants () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check (list string))
     "legacy repositories" [ "acme/old-repo" ]
@@ -619,7 +619,7 @@ let test_explicit_repo_grants_take_precedence_over_legacy () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check int)
     "one repo grant (not duplicated)" 1
@@ -654,7 +654,7 @@ let test_room_repo_grants_override_default () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check int)
     "room grants merged" 2
@@ -685,7 +685,7 @@ let test_repo_grant_capabilities_all_six () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check int) "one full grant" 1 (List.length effective.repo_grants);
   let grant_value = List.hd (item_values effective.repo_grants) in
@@ -712,7 +712,7 @@ let test_empty_repo_grants_grant_nothing () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check int) "empty repo grants" 0 (List.length effective.repo_grants);
   Alcotest.(check int)
@@ -737,7 +737,7 @@ let test_repo_grant_empty_capabilities_grants_no_caps () =
   in
   let cfg = parse json in
   let effective =
-    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123" ()
   in
   Alcotest.(check int)
     "one grant with empty caps" 1

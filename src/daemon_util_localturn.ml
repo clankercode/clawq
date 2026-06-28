@@ -88,8 +88,13 @@ let run_local_background_turn ~(session_manager : Session.t) ~key ~message
             | Some model -> config_with_primary_model base_config model
             | None -> base_config
           in
+          let instruction_items =
+            Session_core.resolve_instruction_items_for_session session_manager
+              ~key
+          in
           let agent =
-            Agent.create ~config ?tool_registry ~agent_template:tmpl ()
+            Agent.create ~config ?tool_registry ~agent_template:tmpl
+              ~instruction_items ()
           in
           (match session_manager.Session_core.db with
           | Some db ->

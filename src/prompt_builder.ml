@@ -503,7 +503,9 @@ let attachment_syntax_block attachments =
 
 let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     ?(channel_type = "dm") ?(workspace = None) ?(scheduled_jobs = [])
-    ?agent_template ?room_profile_system_prompt () =
+    ?agent_template ?room_profile_system_prompt
+    ?(instruction_items : Runtime_config.effective_instruction_item list = [])
+    () =
   (* Determine the effective system prompt source. Room profile overrides
      agent_template per the acceptance chain:
      session override > room profile > channel default > global. *)
@@ -621,6 +623,87 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
           add
             "(Workspace identity files suppressed for named agents. Project \
              instructions from CLAUDE.md/AGENTS.md are provided separately.)"
+    end;
+    (* Layered instructions from access bundles. Ordered by scope level:
+       default → workspace → channel → room/profile. Each instruction
+       carries provenance labels showing which scope/bundle contributed it.
+       Profile system prompts are excluded to avoid duplication with the
+       room_profile_system_prompt already injected above. *)
+    if instruction_items <> [] then begin
+      add "";
+      add "## Layered Instructions";
+      add
+        "The following instructions are resolved from access scopes in \
+         precedence order. Higher-precedence layers override lower ones for \
+         conflicting directives.";
+      add "";
+      let layer_order = ["default"; "workspace"; "channel"; "room"] in
+      let by_layer :
+          (string, Runtime_config.effective_instruction_item list) Hashtbl.t =
+        Hashtbl.create 8
+      in
+      List.iter
+        (fun (item : Runtime_config.effective_instruction_item) ->
+          let layer =
+            match item.provenance with p :: _ -> p.layer | [] -> "unknown"
+          in
+          let existing =
+            Option.value ~default:[] (Hashtbl.find_opt by_layer layer)
+          in
+          Hashtbl.replace by_layer layer (item :: existing))
+        instruction_items;
+      (* Reverse each layer's list to preserve original order within layer *)
+      Hashtbl.filter_map_inplace
+        (fun _ items -> Some (List.rev items))
+        by_layer;
+      List.iter
+        (fun layer ->
+          match Hashtbl.find_opt by_layer layer with
+          | None | Some [] -> ()
+          | Some items -> begin
+              add
+                (Printf.sprintf "### Layer: %s"
+                   (String.uppercase_ascii layer));
+              add "";
+              List.iter
+                (fun (item : Runtime_config.effective_instruction_item) ->
+                  let provenance_label =
+                    match item.provenance with
+                    | p :: _ ->
+                        Printf.sprintf "[%s/%s]" p.source_id p.field
+                    | [] -> "[unknown]"
+                  in
+                  add provenance_label;
+                  add item.instruction.text;
+                  add "")
+                items
+            end)
+        layer_order;
+      (* Render any layers not in the predefined order *)
+      let rendered = Hashtbl.create 8 in
+      List.iter
+        (fun layer -> Hashtbl.replace rendered layer true)
+        layer_order;
+      Hashtbl.iter
+        (fun layer items ->
+          if (not (Hashtbl.mem rendered layer)) && items <> [] then begin
+            add
+              (Printf.sprintf "### Layer: %s"
+                 (String.uppercase_ascii layer));
+            add "";
+            List.iter
+              (fun (item : Runtime_config.effective_instruction_item) ->
+                let provenance_label =
+                  match item.provenance with
+                  | p :: _ -> Printf.sprintf "[%s/%s]" p.source_id p.field
+                  | [] -> "[unknown]"
+                in
+                add provenance_label;
+                add item.instruction.text;
+                add "")
+              items
+          end)
+        by_layer
     end;
     if config.prompt.include_safety_section then begin
       add "";

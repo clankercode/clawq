@@ -31,6 +31,10 @@ type t = {
      Set by apply_room_profile_template_fields in session_core. *)
   mutable room_profile_system_prompt : string option;
   mutable profiled_room : bool;
+  (* Layered instructions resolved from access scopes. Carries provenance
+     labels for deterministic ordering: default → workspace → channel → room.
+     Passed to Prompt_builder.build for injection into the system prompt. *)
+  mutable instruction_items : Runtime_config.effective_instruction_item list;
 }
 
 exception Interrupted of string

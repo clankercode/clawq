@@ -759,21 +759,29 @@ let blocked_by_global_security (cfg : t) pattern =
   in
   not (ws_ok && pattern_ok)
 
-let resolve_effective_access (cfg : t) ~session_key : effective_access =
+let resolve_effective_access (cfg : t) ~session_key ?room_profile () : effective_access =
   let selected_scopes =
     cfg.access_scopes
     |> List.filter (scope_matches cfg ~session_key)
     |> sort_scopes
   in
   let profile_bundles =
-    match resolve_room_profile cfg ~session_key with
-    | None -> []
+    match room_profile with
     | Some profile ->
         if profile_missing_access_bundle_ids cfg profile <> [] then []
         else
           access_bundles_for_profile cfg profile
           |> List.map (fun bundle ->
               ("room", "room_profile:" ^ profile.id, bundle))
+    | None ->
+        match resolve_room_profile cfg ~session_key with
+        | None -> []
+        | Some profile ->
+            if profile_missing_access_bundle_ids cfg profile <> [] then []
+            else
+              access_bundles_for_profile cfg profile
+              |> List.map (fun bundle ->
+                  ("room", "room_profile:" ^ profile.id, bundle))
   in
   let scope_bundles =
     selected_scopes

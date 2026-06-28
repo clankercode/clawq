@@ -200,7 +200,7 @@ let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
   in
   let access =
     Runtime_config.resolve_effective_access config
-      ~session_key:resolved_session_key
+      ~session_key:resolved_session_key ()
   in
   {
     id = generate_id ();

@@ -1,9 +1,12 @@
 include Agent_2_tools
 
-let create ~config ?tool_registry ?agent_template ?cwd () =
+let create ~config ?tool_registry ?agent_template ?cwd
+    ?(instruction_items : Runtime_config.effective_instruction_item list = [])
+    () =
   let config = apply_subagent_default_model ~config ~agent_template in
   let system_prompt =
-    Prompt_builder.build ~config ~tool_registry ?agent_template ()
+    Prompt_builder.build ~config ~tool_registry ?agent_template
+      ~instruction_items ()
   in
   let ws_doc_digests =
     match agent_template with
@@ -40,6 +43,7 @@ let create ~config ?tool_registry ?agent_template ?cwd () =
     hard_abort_reason = None;
     room_profile_system_prompt = None;
     profiled_room = false;
+    instruction_items;
   }
 
 let room_profile_prompt_active = function
