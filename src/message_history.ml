@@ -49,15 +49,14 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
     | Some (`String id) -> List.mem id kept_ids
     | _ -> true
   in
-  let raw_event_mentions_tool_call raw_json =
+  let raw_event_tool_ref raw_json =
     let rec contains_tool_shape = function
       | `Assoc fields ->
           List.exists
             (fun (k, v) ->
               match (k, v) with
-              | "tool_calls", `List _
-              | "content_block", `Assoc _
-              | "delta", `Assoc _ ->
+              | "tool_calls", `List _ | "function", `Assoc _ -> true
+              | "content_block", `Assoc _ | "delta", `Assoc _ ->
                   contains_tool_shape v
               | "type", `String ("tool_use" | "input_json_delta") -> true
               | _, child -> contains_tool_shape child)
@@ -65,14 +64,48 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
       | `List items -> List.exists contains_tool_shape items
       | _ -> false
     in
-    try contains_tool_shape (Yojson.Safe.from_string raw_json) with _ -> false
+    let rec find_id = function
+      | `Assoc fields -> (
+          match List.assoc_opt "id" fields with
+          | Some (`String id) -> Some id
+          | _ -> (
+              match List.assoc_opt "content_block" fields with
+              | Some block -> find_id block
+              | None -> List.find_map (fun (_, child) -> find_id child) fields))
+      | `List items -> List.find_map find_id items
+      | _ -> None
+    in
+    let find_index = function
+      | `Assoc fields -> (
+          match List.assoc_opt "index" fields with
+          | Some (`Int idx) -> Some idx
+          | _ -> None)
+      | _ -> None
+    in
+    try
+      let json = Yojson.Safe.from_string raw_json in
+      (contains_tool_shape json, find_index json, find_id json)
+    with _ -> (false, None, None)
   in
-  let keep_streaming_raw_event fields =
-    match (List.assoc_opt "type" fields, List.assoc_opt "data_raw" fields) with
-    | Some (`String "chat_sse_tool_call_delta"), Some (`String _) ->
-        kept_ids <> []
-    | _, Some (`String raw) when raw_event_mentions_tool_call raw ->
-        kept_ids <> []
+  let stream_ref_of_item = function
+    | `Assoc fields -> (
+        match
+          (List.assoc_opt "type" fields, List.assoc_opt "data_raw" fields)
+        with
+        | Some (`String "chat_sse_tool_call_delta"), Some (`String raw) ->
+            let _is_tool, index, id = raw_event_tool_ref raw in
+            Some (true, index, id)
+        | _, Some (`String raw) ->
+            let is_tool, index, id = raw_event_tool_ref raw in
+            if is_tool then Some (true, index, id) else None
+        | _ -> None)
+    | _ -> None
+  in
+  let keep_streaming_raw_event ~kept_stream_indices fields =
+    match stream_ref_of_item (`Assoc fields) with
+    | Some (true, _, Some id) -> List.mem id kept_ids
+    | Some (true, Some index, None) -> List.mem index kept_stream_indices
+    | Some (true, None, None) -> false
     | _ -> true
   in
   let content_has_replayable_blocks = function
@@ -118,6 +151,16 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
                   Some (Yojson.Safe.to_string (`Assoc fields))
             | _ -> Some (Yojson.Safe.to_string obj))
         | `List items ->
+            let kept_stream_indices =
+              List.fold_left
+                (fun acc item ->
+                  match stream_ref_of_item item with
+                  | Some (true, Some index, Some id)
+                    when List.mem id kept_ids && not (List.mem index acc) ->
+                      index :: acc
+                  | _ -> acc)
+                [] items
+            in
             let filtered =
               List.filter
                 (fun item ->
@@ -129,7 +172,8 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
                       | Some (`String "function") ->
                           keep_openai_chat_function fields
                       | Some (`String "tool_use") -> keep_tool_use fields
-                      | _ -> keep_streaming_raw_event fields)
+                      | _ ->
+                          keep_streaming_raw_event ~kept_stream_indices fields)
                   | _ -> true)
                 items
             in

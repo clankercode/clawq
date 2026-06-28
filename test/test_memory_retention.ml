@@ -356,6 +356,80 @@ let test_ensure_integrity_drops_openai_chat_raw_only_without_tool_calls () =
     (List.length fixed);
   Alcotest.(check string) "remaining is user" "user" (List.hd fixed).role
 
+let test_ensure_integrity_strips_mixed_streamed_raw_orphans () =
+  let kept = make_tool_call "tc-kept" "file_read" in
+  let orphan = make_tool_call "tc-orphan" "file_write" in
+  let raw_item ~index ~id ~name ~args =
+    `Assoc
+      [
+        ("type", `String "chat_sse_tool_call_delta");
+        ( "data_raw",
+          `String
+            (Yojson.Safe.to_string
+               (`Assoc
+                  [
+                    ("index", `Int index);
+                    ("id", `String id);
+                    ( "function",
+                      `Assoc
+                        [ ("name", `String name); ("arguments", `String args) ]
+                    );
+                  ])) );
+      ]
+  in
+  let raw_delta ~index ~args =
+    `Assoc
+      [
+        ("type", `String "chat_sse_tool_call_delta");
+        ( "data_raw",
+          `String
+            (Yojson.Safe.to_string
+               (`Assoc
+                  [
+                    ("index", `Int index);
+                    ("function", `Assoc [ ("arguments", `String args) ]);
+                  ])) );
+      ]
+  in
+  let assistant =
+    {
+      (make_assistant_with_tool_calls [ kept; orphan ]) with
+      provider_response_items_json =
+        Some
+          (Yojson.Safe.to_string
+             (`List
+                [
+                  raw_item ~index:0 ~id:"tc-kept" ~name:"file_read"
+                    ~args:{|{"path":|};
+                  raw_delta ~index:0 ~args:{|"kept.ml"}|};
+                  raw_item ~index:1 ~id:"tc-orphan" ~name:"file_write"
+                    ~args:{|{"path":"orphan.ml",|};
+                  raw_delta ~index:1 ~args:{|"content":"orphan secret"}|};
+                ]));
+    }
+  in
+  let user_msg = Provider.make_message ~role:"user" ~content:"hi" in
+  let tool_result = make_tool_result_msg "tc-kept" "file_read" in
+  let fixed =
+    Agent.ensure_tool_group_integrity [ assistant; tool_result; user_msg ]
+  in
+  let fixed_assistant = List.hd fixed in
+  Alcotest.(check int)
+    "only kept normalized tool call remains" 1
+    (List.length fixed_assistant.Provider.tool_calls);
+  let raw =
+    match fixed_assistant.Provider.provider_response_items_json with
+    | Some raw -> raw
+    | None -> Alcotest.fail "expected kept raw stream items"
+  in
+  Alcotest.(check bool)
+    "kept raw remains" true
+    (Test_helpers.string_contains raw "tc-kept");
+  Alcotest.(check bool)
+    "orphan raw removed" false
+    (Test_helpers.string_contains raw "tc-orphan"
+    || Test_helpers.string_contains raw "orphan secret")
+
 let test_ensure_integrity_drops_generic_streamed_raw_only_without_tool_calls ()
     =
   let assistant_with_streamed_raw =
@@ -551,6 +625,8 @@ let suite =
       `Quick test_ensure_integrity_drops_anthropic_raw_only_without_tool_calls;
     Alcotest.test_case "ensure_integrity drops openai chat raw-only no calls"
       `Quick test_ensure_integrity_drops_openai_chat_raw_only_without_tool_calls;
+    Alcotest.test_case "ensure_integrity strips mixed streamed raw orphans"
+      `Quick test_ensure_integrity_strips_mixed_streamed_raw_orphans;
     Alcotest.test_case "ensure_integrity drops generic stream raw-only no calls"
       `Quick
       test_ensure_integrity_drops_generic_streamed_raw_only_without_tool_calls;
