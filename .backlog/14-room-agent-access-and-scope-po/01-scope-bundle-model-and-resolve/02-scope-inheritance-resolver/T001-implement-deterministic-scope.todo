@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-28T10:55:45Z"
+claimed_by: workflow-p14-m1-e2
+completed_at: null
 complexity: high
 depends_on:
     - P14.M1.E1.T001
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 4
 id: P14.M1.E2.T001
 priority: high
-status: pending
-tags:
-    - access
-    - policy
+started_at: "2026-06-28T10:55:45Z"
+status: in_progress
+tags: []
 title: Implement deterministic scope inheritance resolver
 ---
 Acceptance: resolver merges default -> workspace -> channel -> room layers deterministically; deny wins over allow; global security remains a ceiling; scoped-memory grants remain direct and non-transitive; every effective item includes provenance.
