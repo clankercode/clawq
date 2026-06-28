@@ -49,6 +49,6 @@ tasks:
       file: T004-resolve-repo-installation-iden.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Resolve repo installation identity from webhook and API context
