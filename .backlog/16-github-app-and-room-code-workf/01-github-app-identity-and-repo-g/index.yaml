@@ -9,7 +9,7 @@ epics:
       locked: false
       name: GitHub App Auth Foundation
       path: 01-github-app-auth-foundation
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P16.M1.E1
