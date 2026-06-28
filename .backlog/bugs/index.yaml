@@ -722,3 +722,4 @@ bugs:
     - file: B725-archive-forgotten-memories-to.todo
     - file: B726-react-with-salute-emoji-on-int.todo
     - file: B727-telegram-xiaomi-anthropic-stre.todo
+    - file: B728-add-default-cache-timeout-per.todo

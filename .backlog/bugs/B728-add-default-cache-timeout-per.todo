@@ -1,0 +1,20 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B728
+priority: high
+status: pending
+tags: []
+title: Add default cache timeout per provider to available models table
+---
+Add a default caching timeout column/field for each provider in the available models table. This is the prompt cache TTL for that provider's API.
+
+Default is usually ~5 minutes for most providers (OpenAI, Anthropic, etc.), but some upcoming models may have significantly longer cache windows (e.g. gpt-5.6 reportedly will have 30-minute cache timeouts once released).
+
+This data is needed for:
+- Intelligent subagent_result blocking (B724): block up to cache timeout minus safety margin
+- Cache-aware session management: know when a context switch/cache miss is likely
+- Cost estimation: cached vs uncached token pricing depends on cache hit probability which depends on TTL
+
+Should be stored per-provider (not per-model) since cache behavior is typically uniform within a provider, with model-specific overrides where known.
