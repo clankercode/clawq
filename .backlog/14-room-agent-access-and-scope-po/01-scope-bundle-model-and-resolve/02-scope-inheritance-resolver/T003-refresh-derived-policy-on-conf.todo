@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-06-28T13:21:38Z"
+claimed_by: workflow-p14-m1-e2-t003-review-fix
 completed_at: null
 complexity: high
 depends_on:
@@ -6,8 +8,8 @@ depends_on:
 estimate_hours: 3
 id: P14.M1.E2.T003
 priority: high
-started_at: null
-status: pending
+started_at: "2026-06-28T13:21:38Z"
+status: in_progress
 tags: []
 title: Refresh derived policy on config reload
 ---
