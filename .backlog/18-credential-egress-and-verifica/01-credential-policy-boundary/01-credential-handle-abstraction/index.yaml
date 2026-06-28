@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -49,5 +49,6 @@ tasks:
       file: T004-add-prompt-log-ledger-redactio.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add prompt log ledger redaction tests for credentials

@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T18:35:40Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T19:07:17Z"
 complexity: medium
 depends_on:
     - P18.M1.E1.T003
+duration_minutes: 31.624341923
 estimate_hours: 2
 id: P18.M1.E1.T004
 priority: high
 started_at: "2026-06-28T18:35:40Z"
-status: in_progress
+status: done
 tags: []
 title: Add prompt log ledger redaction tests for credentials
 ---

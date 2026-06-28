@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Credential Handle Abstraction
       path: 01-credential-handle-abstraction
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P18.M1.E1
