@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-plan",
+  "title": "P14.M1.E2.T003 Loader Boundary Review Fix",
+  "summary": "Fix the review-found reload boundary where malformed config can be converted to defaults before the rollback transaction sees a failure.",
+  "goal": "Complete the reopened P14.M1.E2.T003 review fix.",
+  "cwd": "/home/xertrov/src/clawq",
+  "runner": "ccc",
+  "ccc_runner": "@pi-mimo25p",
+  "sandbox": "workspace-write",
+  "approval": "never",
+  "permission_mode": "auto",
+  "max_agents": 1,
+  "startup_delay": 1.0,
+  "tags": ["clawq", "p14", "scope-resolver", "config-reload", "review-fix"],
+  "phases": [
+    {
+      "name": "implement",
+      "title": "Implement",
+      "summary": "Fix malformed/unreadable daemon reload behavior and add regression coverage.",
+      "jobs": [
+        {
+          "name": "p14-m1-e2-t003-loader-boundary-fix",
+          "role": "workflow-implementer",
+          "worktree": {
+            "branch": "workflow/p14-m1-e2-t003-loader-boundary-fix",
+            "base": "HEAD",
+            "merge_target": "master",
+            "label": "p14-m1-e2-t003-loader-boundary-fix"
+          },
+          "prompt": "Complete reopened backlog task P14.M1.E2.T003 review fix. Follow AGENTS.md plus src/test CLAUDE.md where relevant and follow PIRFL: inspect the real reload/config-load path, write a focused failing regression test first, implement the smallest production change, review, then fix. Do not run bl commands. Preserve Clawq casing. Implementation runner requirement: you are running as ccc @pi-mimo25p using mimo-v2.5-pro via pi. If you need a review-and-fix subagent, use an openai-codex/gpt-5.5 subagent via @cx-reviewer and tell it not to delegate. Review finding to fix: src/daemon.ml reloads at the SIGHUP and file-watch caller boundary via Config_loader.load; src/config_loader.ml currently catches config parse failures and returns defaults. A malformed or unreadable config during daemon reload can therefore publish a successful default config instead of failing and preserving the last valid effective policy. Acceptance for this repair: malformed/unreadable config in daemon SIGHUP/file-watch reload paths must preserve the last valid config/effective access policy; config set should keep its existing user-facing behavior unless the real code proves it shares this bug; rollback after late helper failures must still pass; runtime-bound tool refresh behavior from the prior T003 work must remain intact. Add tests that cover the loader boundary, not only injected failures inside apply_runtime_config_reload. Suggested starting points: Config_loader.load/load_result behavior in src/config_loader.ml; SIGHUP and file-watch reload sites around src/daemon.ml; existing reload tests around test/test_daemon.ml daemon cases 70-75. Keep src/daemon.ml under the 2000-line hard limit; if edits threaten that, move small helper code to an existing support module rather than growing daemon.ml. Required checks before commit: make test-run ARGS=\"test daemon 70-75\" or update range if new cases are adjacent; make test-run ARGS=\"test config_loader\" if config loading behavior changes; make test-run ARGS=\"test command_bridge 104-105\" if config set behavior changes; make fmt-check. Commit the work on the branch with a concise message and summarize exact checks.",
+          "write_scope": [
+            "src/daemon.ml",
+            "src/config_loader.ml",
+            "src/config_loader_support.ml",
+            "test/test_daemon.ml",
+            "test/test_config_loader.ml",
+            "test/test_command_bridge.ml"
+          ],
+          "timeout_secs": 7200,
+          "failure_retries": 0,
+          "quota_retries": 2
+        }
+      ]
+    }
+  ]
+}
