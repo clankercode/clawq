@@ -1676,3 +1676,25 @@ let replay_pending_questions ~(session_manager : Session.t)
                     session_key);
               try Memory.pending_question_delete ~db ~session_key with _ -> ()))
         rows
+
+(** Toggle EC watcher start/stop based on new config vs current state. Shared
+    between SIGHUP and file-watch reload paths. *)
+let apply_ec_watcher_toggle ~(new_config : Runtime_config.t)
+    ~(ec_state : Error_watcher.ec_state) =
+  if new_config.error_watcher.enabled && ec_state.pid = None then begin
+    Logs.info (fun m -> m "EC watcher enabled, starting");
+    try Error_watcher.start_ec_process ec_state
+    with exn ->
+      Logs.err (fun m ->
+          m "Failed to start EC process: %s" (Printexc.to_string exn))
+  end
+  else if (not new_config.error_watcher.enabled) && ec_state.pid <> None then begin
+    Logs.info (fun m -> m "EC watcher disabled, stopping");
+    Lwt.async (fun () ->
+        Lwt.catch
+          (fun () -> Error_watcher.stop_ec_process ec_state)
+          (fun exn ->
+            Logs.err (fun m ->
+                m "Failed to stop EC process: %s" (Printexc.to_string exn));
+            Lwt.return_unit))
+  end

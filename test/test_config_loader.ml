@@ -1904,4 +1904,58 @@ let suite =
         Alcotest.(check (float 0.001))
           "updated temperature" 0.42
           (Session.get_config mgr).default_temperature);
+    Alcotest.test_case "load_result returns Ok for valid config" `Quick
+      (fun () ->
+        with_temp_file {|{"default_temperature": 0.5}|} (fun path ->
+            match Config_loader.load_result ~path () with
+            | Ok cfg ->
+                Alcotest.(check (float 0.001))
+                  "temperature parsed" 0.5 cfg.default_temperature
+            | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)));
+    Alcotest.test_case "load_result returns Error for malformed JSON" `Quick
+      (fun () ->
+        with_temp_file {|{this is not valid json|} (fun path ->
+            match Config_loader.load_result ~path () with
+            | Ok _ -> Alcotest.fail "expected Error for malformed JSON"
+            | Error msg ->
+                Alcotest.(check bool)
+                  "error mentions parse failure" true
+                  (try
+                     ignore
+                       (Str.search_forward
+                          (Str.regexp_string "Failed to parse")
+                          msg 0);
+                     true
+                   with Not_found -> false)));
+    Alcotest.test_case "load_result returns Ok defaults for missing file" `Quick
+      (fun () ->
+        let path =
+          "/tmp/clawq_missing_config_" ^ string_of_int (Unix.getpid ())
+        in
+        (try Sys.remove path with _ -> ());
+        match Config_loader.load_result ~path () with
+        | Ok _cfg -> ()
+        | Error msg ->
+            Alcotest.fail
+              ("expected Ok defaults for missing file, got error: " ^ msg));
+    Alcotest.test_case "load_result returns Error for unreadable config file"
+      `Quick (fun () ->
+        with_temp_file {|{"default_temperature": 0.5}|} (fun path ->
+            Unix.chmod path 0o000;
+            Fun.protect
+              ~finally:(fun () -> Unix.chmod path 0o644)
+              (fun () ->
+                match Config_loader.load_result ~path () with
+                | Ok _ ->
+                    Alcotest.fail "expected Error for unreadable config file"
+                | Error msg ->
+                    Alcotest.(check bool)
+                      "error mentions parse failure" true
+                      (try
+                         ignore
+                           (Str.search_forward
+                              (Str.regexp_string "Failed to parse")
+                              msg 0);
+                         true
+                       with Not_found -> false))));
   ]

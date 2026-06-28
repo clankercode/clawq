@@ -1104,54 +1104,32 @@ let run ~(config : Runtime_config.t) =
   let _ =
     Lwt_unix.on_signal Sys.sighup (fun _ ->
         Logs.info (fun m -> m "SIGHUP received, reloading config...");
-        try
-          let new_config = Config_loader.load () in
-          match
-            apply_runtime_config_reload ~source:"config_reload" ~current_config
-              ~session_manager ~sandbox ~db ~tool_registry ~send_file_runtime
-              ~new_config ()
-          with
-          | Error msg -> Logs.err (fun m -> m "Config reload failed: %s" msg)
-          | Ok () ->
-              Lwt.async (fun () ->
-                  Lwt.catch
-                    (fun () ->
-                      Tunnel_manager.apply_config tunnel_manager
-                        ~config:new_config.tunnel ~port:new_config.gateway.port
-                        ~on_url:tunnel_on_url)
-                    (fun exn ->
-                      Logs.err (fun m ->
-                          m "Tunnel reconfiguration error: %s"
-                            (Printexc.to_string exn));
-                      Lwt.return_unit));
-              (* Handle EC process enable/disable on config reload *)
-              if new_config.error_watcher.enabled && ec_state.pid = None then begin
-                Logs.info (fun m ->
-                    m "EC watcher enabled via config reload, starting");
-                try Error_watcher.start_ec_process ec_state
-                with exn ->
-                  Logs.err (fun m ->
-                      m "Failed to start EC process: %s"
-                        (Printexc.to_string exn))
-              end
-              else if
-                (not new_config.error_watcher.enabled) && ec_state.pid <> None
-              then begin
-                Logs.info (fun m ->
-                    m "EC watcher disabled via config reload, stopping");
+        match Config_loader.load_result () with
+        | Error msg ->
+            Logs.err (fun m ->
+                m "Config reload failed: %s, preserving current config" msg)
+        | Ok new_config -> (
+            match
+              apply_runtime_config_reload ~source:"config_reload"
+                ~current_config ~session_manager ~sandbox ~db ~tool_registry
+                ~send_file_runtime ~new_config ()
+            with
+            | Error msg -> Logs.err (fun m -> m "Config reload failed: %s" msg)
+            | Ok () ->
                 Lwt.async (fun () ->
                     Lwt.catch
-                      (fun () -> Error_watcher.stop_ec_process ec_state)
+                      (fun () ->
+                        Tunnel_manager.apply_config tunnel_manager
+                          ~config:new_config.tunnel
+                          ~port:new_config.gateway.port ~on_url:tunnel_on_url)
                       (fun exn ->
                         Logs.err (fun m ->
-                            m "Failed to stop EC process: %s"
+                            m "Tunnel reconfiguration error: %s"
                               (Printexc.to_string exn));
-                        Lwt.return_unit))
-              end;
-              Logs.info (fun m -> m "Config reloaded successfully")
-        with exn ->
-          Logs.err (fun m ->
-              m "Config reload failed: %s" (Printexc.to_string exn)))
+                        Lwt.return_unit));
+                (* Handle EC process enable/disable on config reload *)
+                apply_ec_watcher_toggle ~new_config ~ec_state;
+                Logs.info (fun m -> m "Config reloaded successfully")))
   in
   let slack_socket_enabled =
     match config.channels.slack with
@@ -1431,59 +1409,44 @@ let run ~(config : Runtime_config.t) =
             (try
                let st = Unix.stat config_watch_path in
                if st.Unix.st_mtime > !last_config_mtime then begin
-                 let new_config = Config_loader.load () in
-                 match
-                   apply_runtime_config_reload ~source:"config_file_watch"
-                     ~current_config ~session_manager ~sandbox ~db
-                     ~tool_registry ~send_file_runtime ~new_config ()
-                 with
+                 match Config_loader.load_result () with
                  | Error msg ->
                      (* Do not advance [last_config_mtime]; retry next cycle. *)
-                     Logs.err (fun m -> m "Config auto-reload failed: %s" msg)
-                 | Ok () ->
-                     Lwt.async (fun () ->
-                         Lwt.catch
-                           (fun () ->
-                             Tunnel_manager.apply_config tunnel_manager
-                               ~config:new_config.tunnel
-                               ~port:new_config.gateway.port
-                               ~on_url:tunnel_on_url)
-                           (fun exn ->
-                             Logs.err (fun m ->
-                                 m
-                                   "Tunnel reconfiguration error (file watch): \
-                                    %s"
-                                   (Printexc.to_string exn));
-                             Lwt.return_unit));
-                     (* Handle EC process enable/disable on auto-reload *)
-                     if new_config.error_watcher.enabled && ec_state.pid = None
-                     then begin
-                       Logs.info (fun m ->
-                           m "EC watcher enabled via auto-reload, starting");
-                       try Error_watcher.start_ec_process ec_state
-                       with exn ->
+                     Logs.err (fun m ->
+                         m
+                           "Config auto-reload failed: %s, preserving current \
+                            config"
+                           msg)
+                 | Ok new_config -> (
+                     match
+                       apply_runtime_config_reload ~source:"config_file_watch"
+                         ~current_config ~session_manager ~sandbox ~db
+                         ~tool_registry ~send_file_runtime ~new_config ()
+                     with
+                     | Error msg ->
+                         (* Do not advance [last_config_mtime]; retry next cycle. *)
                          Logs.err (fun m ->
-                             m "Failed to start EC process: %s"
-                               (Printexc.to_string exn))
-                     end
-                     else if
-                       (not new_config.error_watcher.enabled)
-                       && ec_state.pid <> None
-                     then begin
-                       Logs.info (fun m ->
-                           m "EC watcher disabled via auto-reload, stopping");
-                       Lwt.async (fun () ->
-                           Lwt.catch
-                             (fun () -> Error_watcher.stop_ec_process ec_state)
-                             (fun exn ->
-                               Logs.err (fun m ->
-                                   m "Failed to stop EC process: %s"
-                                     (Printexc.to_string exn));
-                               Lwt.return_unit))
-                     end;
-                     Logs.info (fun m ->
-                         m "Config auto-reloaded (file changed)");
-                     last_config_mtime := st.Unix.st_mtime
+                             m "Config auto-reload failed: %s" msg)
+                     | Ok () ->
+                         Lwt.async (fun () ->
+                             Lwt.catch
+                               (fun () ->
+                                 Tunnel_manager.apply_config tunnel_manager
+                                   ~config:new_config.tunnel
+                                   ~port:new_config.gateway.port
+                                   ~on_url:tunnel_on_url)
+                               (fun exn ->
+                                 Logs.err (fun m ->
+                                     m
+                                       "Tunnel reconfiguration error (file \
+                                        watch): %s"
+                                       (Printexc.to_string exn));
+                                 Lwt.return_unit));
+                         (* Handle EC process enable/disable on auto-reload *)
+                         apply_ec_watcher_toggle ~new_config ~ec_state;
+                         Logs.info (fun m ->
+                             m "Config auto-reloaded (file changed)");
+                         last_config_mtime := st.Unix.st_mtime)
                end
              with exn ->
                Logs.debug (fun m ->

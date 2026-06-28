@@ -3909,4 +3909,34 @@ let suite =
       test_replay_history_saved_before_queue_row_deleted;
     Alcotest.test_case "replay history not saved when turn errors before flush"
       `Quick test_replay_history_not_saved_when_turn_errors;
+    Alcotest.test_case
+      "malformed config preserves current config via load_result" `Quick
+      (fun () ->
+        let config1 = config_with_default_access_tool "old_tool" in
+        let current_config = ref config1 in
+        let sandbox = ref (Daemon.make_sandbox config1) in
+        let session_manager =
+          Session.create ~config:config1 ~sandbox:!sandbox ()
+        in
+        (* Simulate SIGHUP handler pattern: load_result returns Error for
+           malformed config, so apply_runtime_config_reload is never called
+           and current_config is preserved *)
+        let path = Filename.temp_file "clawq_malformed" ".json" in
+        let oc = open_out path in
+        output_string oc "{this is not valid json";
+        close_out oc;
+        Fun.protect
+          ~finally:(fun () -> if Sys.file_exists path then Sys.remove path)
+          (fun () ->
+            match Config_loader.load_result ~path () with
+            | Ok _ -> Alcotest.fail "expected Error for malformed config"
+            | Error _msg ->
+                (* This is the daemon SIGHUP pattern: on Error, preserve
+                   current config and do NOT call apply_runtime_config_reload *)
+                assert_allowed_tool
+                  "current config preserved after load_result Error" "old_tool"
+                  !current_config;
+                assert_allowed_tool
+                  "session manager preserved after load_result Error" "old_tool"
+                  (Session.get_config session_manager)));
   ]

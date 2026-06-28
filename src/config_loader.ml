@@ -1572,19 +1572,20 @@ let load_readonly ?(path = "") () : Runtime_config.t =
         let json = migrate_config_json json in
         parse_config ~resolve_secrets:true json
 
-let load ?(path = "") () : Runtime_config.t =
+let load_result ?(path = "") () : (Runtime_config.t, string) result =
   let config_path = if path <> "" then path else default_path () in
-  if not (Sys.file_exists config_path) then default_with_discovered_providers ()
+  if not (Sys.file_exists config_path) then
+    Ok (default_with_discovered_providers ())
   else
-    let json =
+    match
       try Some (Yojson.Safe.from_file config_path)
       with exn ->
-        Printf.eprintf "WARNING: Failed to parse %s: %s (using defaults)\n%!"
-          config_path (Printexc.to_string exn);
+        Logs.warn (fun m ->
+            m "Failed to parse config %s: %s" config_path
+              (Printexc.to_string exn));
         None
-    in
-    match json with
-    | None -> default_with_discovered_providers ()
+    with
+    | None -> Error (Printf.sprintf "Failed to parse config %s" config_path)
     | Some raw_json ->
         let json = migrate_config_json raw_json in
         let config = parse_config ~resolve_secrets:true json in
@@ -1627,4 +1628,11 @@ let load ?(path = "") () : Runtime_config.t =
         backfill_config ~path:config_path ~original_json:json
           ~disk_json:raw_json ~config:backfill_cfg;
         Http_debug.sync_config config.log;
-        config
+        Ok config
+
+let load ?(path = "") () : Runtime_config.t =
+  match load_result ~path () with
+  | Ok config -> config
+  | Error msg ->
+      Printf.eprintf "WARNING: %s (using defaults)\n%!" msg;
+      default_with_discovered_providers ()
