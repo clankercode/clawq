@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T11:54:11Z"
 claimed_by: workflow-p14-m1-e2-t002
-completed_at: null
+completed_at: "2026-06-28T12:12:14Z"
 complexity: high
 depends_on:
     - P14.M1.E2.T001
+duration_minutes: 18.065981663166667
 estimate_hours: 3
 id: P14.M1.E2.T002
 priority: high
 started_at: "2026-06-28T11:54:11Z"
-status: in_progress
+status: done
 tags: []
 title: Add resolver conflict and precedence tests
 ---

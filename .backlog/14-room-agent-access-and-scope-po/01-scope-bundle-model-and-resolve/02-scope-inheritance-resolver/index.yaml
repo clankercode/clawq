@@ -25,7 +25,7 @@ tasks:
       file: T002-add-resolver-conflict-and-prec.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add resolver conflict and precedence tests
     - complexity: high
