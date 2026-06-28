@@ -564,6 +564,44 @@ type credential_handle = {
     snapshots, logs, the ledger, or worker sandboxes. Only the handle ID is
     referenced by access bundles and effective access. *)
 
+type repo_capability =
+  | Read
+  | Comment
+  | Branch
+  | Pr
+  | Workflow_read
+  | Workflow_trigger
+      (** Fine-grained capability for a GitHub repository grant. *)
+
+let repo_capability_to_string = function
+  | Read -> "read"
+  | Comment -> "comment"
+  | Branch -> "branch"
+  | Pr -> "pr"
+  | Workflow_read -> "workflow-read"
+  | Workflow_trigger -> "workflow-trigger"
+
+let repo_capability_of_string = function
+  | "read" -> Some Read
+  | "comment" -> Some Comment
+  | "branch" -> Some Branch
+  | "pr" -> Some Pr
+  | "workflow-read" -> Some Workflow_read
+  | "workflow-trigger" -> Some Workflow_trigger
+  | _ -> None
+
+let all_repo_capabilities =
+  [ Read; Comment; Branch; Pr; Workflow_read; Workflow_trigger ]
+
+type repo_grant = {
+  repo : string;  (** Repository pattern, e.g. "owner/repo" or "owner/*". *)
+  capabilities : repo_capability list;
+      (** Capabilities granted for this repository. An empty list means no
+          capabilities are granted. *)
+}
+(** A repo grant attaches a set of capabilities to a repository pattern within
+    an access bundle. *)
+
 type access_bundle = {
   id : string;
   display_name : string option;
@@ -574,6 +612,11 @@ type access_bundle = {
   mcp_servers : string list;
   skills : string list;
   repositories : string list;
+      (** Deprecated: use [repo_grants] for fine-grained capability control.
+          Legacy string entries are treated as read-only repo grants during
+          effective-access resolution. *)
+  repo_grants : repo_grant list;
+      (** GitHub repository grants with fine-grained capabilities. *)
   domains : string list;
   credential_handles : string list;
   instructions : string list;
@@ -609,6 +652,10 @@ type effective_access = {
   mcp_servers : effective_access_item list;
   skills : effective_access_item list;
   repositories : effective_access_item list;
+      (** Legacy repository names (read-only). *)
+  repo_grants : effective_access_item list;
+      (** Repository grants with capabilities. Each value is a JSON object
+          string: {"repo":"owner/repo","capabilities":[...]}. *)
   domains : effective_access_item list;
   credential_handles : effective_access_item list;
   instructions : effective_access_item list;

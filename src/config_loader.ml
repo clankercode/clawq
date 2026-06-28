@@ -1046,6 +1046,27 @@ let parse_config ?(resolve_secrets = true) json =
           let status =
             try b |> member "status" |> to_string with _ -> "active"
           in
+          let repo_grants =
+            try
+              b |> member "repo_grants" |> to_list
+              |> List.filter_map (fun g ->
+                  let repo =
+                    try Some (g |> member "repo" |> to_string) with _ -> None
+                  in
+                  let capabilities =
+                    try
+                      g |> member "capabilities" |> to_list
+                      |> List.filter_map (fun c ->
+                          Runtime_config.repo_capability_of_string (to_string c))
+                    with _ -> []
+                  in
+                  match repo with
+                  | Some r ->
+                      Some
+                        ({ repo = r; capabilities } : Runtime_config.repo_grant)
+                  | None -> None)
+            with _ -> []
+          in
           ({
              id;
              display_name;
@@ -1056,6 +1077,7 @@ let parse_config ?(resolve_secrets = true) json =
              mcp_servers = string_list b "mcp_servers";
              skills = string_list b "skills";
              repositories = string_list b "repositories";
+             repo_grants;
              domains = string_list b "domains";
              credential_handles = string_list b "credential_handles";
              instructions = string_list b "instructions";

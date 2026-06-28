@@ -202,26 +202,82 @@ let validate_access_bundle_json_shapes json : string list =
       |> List.mapi (fun index bundle ->
           match bundle with
           | `Assoc fields ->
-              access_bundle_string_list_fields
-              |> List.filter_map (fun field ->
-                  match List.assoc_opt field fields with
-                  | None -> None
-                  | Some (`List values) ->
-                      if
-                        List.for_all
-                          (function `String _ -> true | _ -> false)
-                          values
-                      then None
-                      else
+              let string_list_issues =
+                access_bundle_string_list_fields
+                |> List.filter_map (fun field ->
+                    match List.assoc_opt field fields with
+                    | None -> None
+                    | Some (`List values) ->
+                        if
+                          List.for_all
+                            (function `String _ -> true | _ -> false)
+                            values
+                        then None
+                        else
+                          Some
+                            (Printf.sprintf
+                               "access_bundles[%d].%s must be a list of strings"
+                               index field)
+                    | Some _ ->
                         Some
                           (Printf.sprintf
                              "access_bundles[%d].%s must be a list of strings"
-                             index field)
-                  | Some _ ->
-                      Some
-                        (Printf.sprintf
-                           "access_bundles[%d].%s must be a list of strings"
-                           index field))
+                             index field))
+              in
+              let repo_grants_issues =
+                match List.assoc_opt "repo_grants" fields with
+                | None -> []
+                | Some (`List grants) ->
+                    grants
+                    |> List.mapi (fun gi g ->
+                        match g with
+                        | `Assoc gf ->
+                            let repo_ok =
+                              match List.assoc_opt "repo" gf with
+                              | Some (`String _) -> true
+                              | _ -> false
+                            in
+                            let caps_ok =
+                              match List.assoc_opt "capabilities" gf with
+                              | Some (`List caps) ->
+                                  List.for_all
+                                    (function `String _ -> true | _ -> false)
+                                    caps
+                              | None -> true
+                              | _ -> false
+                            in
+                            (if not repo_ok then
+                               [
+                                 Printf.sprintf
+                                   "access_bundles[%d].repo_grants[%d].repo \
+                                    must be a string"
+                                   index gi;
+                               ]
+                             else [])
+                            @
+                            if not caps_ok then
+                              [
+                                Printf.sprintf
+                                  "access_bundles[%d].repo_grants[%d].capabilities \
+                                   must be a list of strings"
+                                  index gi;
+                              ]
+                            else []
+                        | _ ->
+                            [
+                              Printf.sprintf
+                                "access_bundles[%d].repo_grants[%d] must be an \
+                                 object"
+                                index gi;
+                            ])
+                    |> List.flatten
+                | Some _ ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].repo_grants must be a list" index;
+                    ]
+              in
+              string_list_issues @ repo_grants_issues
           | _ -> [ Printf.sprintf "access_bundles[%d] must be an object" index ])
       |> List.flatten
   | `Null -> []

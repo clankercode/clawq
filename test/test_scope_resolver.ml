@@ -427,6 +427,211 @@ let test_invalid_scope_bundle_denies_scope_grants () =
     "invalid scope bundle reference suppresses all scope grants" []
     (item_values effective.allowed_tools)
 
+let test_repo_grants_attach_to_bundle () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "dev",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "branch"]},
+            {"repo": "acme/lib", "capabilities": ["read", "pr"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["dev"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  let grant_values = item_values effective.repo_grants in
+  Alcotest.(check int) "two repo grants" 2 (List.length grant_values);
+  let first = List.nth grant_values 0 in
+  Alcotest.(check bool)
+    "first grant contains repo" true
+    (String.contains first 'a');
+  assert_all_provenance "repo grant" effective.repo_grants
+
+let test_legacy_repositories_become_read_only_repo_grants () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "legacy",
+          "repositories": ["acme/old-repo"]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["legacy"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "legacy repositories" [ "acme/old-repo" ]
+    (item_values effective.repositories);
+  Alcotest.(check int)
+    "one repo grant from legacy" 1
+    (List.length effective.repo_grants);
+  assert_all_provenance "repo grant" effective.repo_grants
+
+let test_explicit_repo_grants_take_precedence_over_legacy () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "mixed",
+          "repositories": ["acme/app"],
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "pr"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["mixed"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int)
+    "one repo grant (not duplicated)" 1
+    (List.length effective.repo_grants);
+  Alcotest.(check (list string))
+    "legacy repositories preserved" [ "acme/app" ]
+    (item_values effective.repositories)
+
+let test_room_repo_grants_override_default () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "default-grants",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read"]}
+          ]
+        },
+        {
+          "id": "room-grants",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": ["read", "comment", "branch", "pr"]},
+            {"repo": "acme/infra", "capabilities": ["read", "workflow-trigger"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["default-grants"]},
+        {"id": "room", "level": "room", "room": "C123", "access_bundle_ids": ["room-grants"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int)
+    "room grants merged" 2
+    (List.length effective.repo_grants);
+  assert_all_provenance "repo grant" effective.repo_grants
+
+let test_repo_grant_capabilities_all_six () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "full",
+          "repo_grants": [
+            {
+              "repo": "acme/everything",
+              "capabilities": [
+                "read", "comment", "branch", "pr",
+                "workflow-read", "workflow-trigger"
+              ]
+            }
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["full"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int) "one full grant" 1 (List.length effective.repo_grants);
+  let grant_value = List.hd (item_values effective.repo_grants) in
+  List.iter
+    (fun cap ->
+      Alcotest.(check bool)
+        ("grant contains " ^ cap) true
+        (try
+           ignore (Str.search_forward (Str.regexp_string cap) grant_value 0);
+           true
+         with Not_found -> false))
+    [ "read"; "comment"; "branch"; "pr"; "workflow-read"; "workflow-trigger" ]
+
+let test_empty_repo_grants_grant_nothing () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "empty", "repo_grants": []}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["empty"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int) "empty repo grants" 0 (List.length effective.repo_grants);
+  Alcotest.(check int)
+    "empty repositories" 0
+    (List.length effective.repositories)
+
+let test_repo_grant_empty_capabilities_grants_no_caps () =
+  let json =
+    {|{
+      "access_bundles": [
+        {
+          "id": "nocaps",
+          "repo_grants": [
+            {"repo": "acme/app", "capabilities": []}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["nocaps"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check int)
+    "one grant with empty caps" 1
+    (List.length effective.repo_grants);
+  let grant_value = List.hd (item_values effective.repo_grants) in
+  Alcotest.(check bool)
+    "empty capabilities" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "[]") grant_value 0);
+       true
+     with Not_found -> false)
+
 let suite =
   [
     Alcotest.test_case "layers merge deterministically and deny wins" `Quick
@@ -459,4 +664,18 @@ let suite =
       `Quick test_invalid_profile_bundle_denies_effective_profile_grants;
     Alcotest.test_case "invalid scope bundle denies scope grants" `Quick
       test_invalid_scope_bundle_denies_scope_grants;
+    Alcotest.test_case "repo grants attach to bundle" `Quick
+      test_repo_grants_attach_to_bundle;
+    Alcotest.test_case "legacy repositories become read-only repo grants" `Quick
+      test_legacy_repositories_become_read_only_repo_grants;
+    Alcotest.test_case "explicit repo grants take precedence over legacy" `Quick
+      test_explicit_repo_grants_take_precedence_over_legacy;
+    Alcotest.test_case "room repo grants override default" `Quick
+      test_room_repo_grants_override_default;
+    Alcotest.test_case "repo grant supports all six capabilities" `Quick
+      test_repo_grant_capabilities_all_six;
+    Alcotest.test_case "empty repo grants grant nothing" `Quick
+      test_empty_repo_grants_grant_nothing;
+    Alcotest.test_case "repo grant empty capabilities" `Quick
+      test_repo_grant_empty_capabilities_grants_no_caps;
   ]
