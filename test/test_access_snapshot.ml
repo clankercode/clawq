@@ -964,8 +964,13 @@ let test_snapshot_reflects_config_at_creation_not_retrieval () =
       ]
     }|}
   in
-  (* Parse v2 but don't use it for the existing snapshot *)
-  let _cfg_v2 = parse json_v2 in
+  (* Parse v2 and create a snapshot under it to prove config change *)
+  let cfg_v2_inactive = parse json_v2 in
+  let snap_v2_inactive_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v2_inactive
+      ~work_type:Access_snapshot.Room_turn ~session_key:"slack:C100"
+      ~room_id:"C100" ()
+  in
   let snap = Access_snapshot.get_by_id ~db snap_id in
   match snap with
   | None -> Alcotest.fail "snapshot not found"
@@ -978,7 +983,19 @@ let test_snapshot_reflects_config_at_creation_not_retrieval () =
         "room turn snapshot retains profile_id" (Some "vip") s.profile_id;
       Alcotest.(check (option string))
         "room turn snapshot retains room_id" (Some "C100") s.room_id;
-      (* New snapshot under v2 should reflect the changes *)
+      (* v2 inactive binding snapshot should NOT have vip profile *)
+      let snap_v2_inactive =
+        Access_snapshot.get_by_id ~db snap_v2_inactive_id
+      in
+      (match snap_v2_inactive with
+      | None -> Alcotest.fail "v2 inactive snapshot not found"
+      | Some v2i ->
+          Alcotest.(check bool)
+            "v2 inactive has different config hash" true
+            (s.config_hash <> v2i.config_hash);
+          Alcotest.(check (list string))
+            "v2 inactive has base tools only" [ "file_read" ] v2i.allowed_tools);
+      (* New snapshot under v2 active should reflect the changes *)
       let json_v2_active =
         {|{
           "access_bundles": [
@@ -1045,7 +1062,13 @@ let test_bg_task_denied_tools_immutable_after_config_change () =
       ]
     }|}
   in
-  let _cfg_v2 = parse json_v2 in
+  let cfg_v2 = parse json_v2 in
+  (* Verify v2 config produces different access *)
+  let snap_v2_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v2
+      ~work_type:Access_snapshot.Background_task
+      ~session_key:"bg:task-denied-v2" ()
+  in
   let snap = Access_snapshot.get_by_id ~db snap_id in
   match snap with
   | None -> Alcotest.fail "snapshot not found"
@@ -1055,7 +1078,21 @@ let test_bg_task_denied_tools_immutable_after_config_change () =
         s.denied_tools;
       Alcotest.(check (list string))
         "allowed_tools does not include dangerous_tool" [ "tool_a" ]
-        s.allowed_tools
+        s.allowed_tools;
+      (* New snapshot under v2 reflects the config change *)
+      let snap_v2 = Access_snapshot.get_by_id ~db snap_v2_id in
+      (match snap_v2 with
+      | None -> Alcotest.fail "v2 snapshot not found"
+      | Some v2 ->
+          Alcotest.(check (list string))
+            "v2 snapshot has dangerous_tool allowed"
+            [ "tool_a"; "dangerous_tool" ]
+            v2.allowed_tools;
+          Alcotest.(check (list string))
+            "v2 snapshot has no denied tools" [] v2.denied_tools);
+      Alcotest.(check bool)
+        "different config hashes between v1 and v2" true
+        (s.config_hash <> Access_snapshot.config_hash cfg_v2)
 
 let test_routine_mcp_servers_immutable_after_config_change () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1098,14 +1135,31 @@ let test_routine_mcp_servers_immutable_after_config_change () =
       ]
     }|}
   in
-  let _cfg_v2 = parse json_v2 in
+  let cfg_v2 = parse json_v2 in
+  (* Verify v2 config produces different access *)
+  let snap_v2_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v2
+      ~work_type:Access_snapshot.Routine ~session_key:"cron:sync-v2" ()
+  in
   let snap_after = Access_snapshot.get_by_id ~db snap_id in
   match snap_after with
   | None -> Alcotest.fail "routine snapshot disappeared"
   | Some s ->
       Alcotest.(check (list string))
         "mcp_servers immutable" [ "srv-a"; "srv-b" ] s.mcp_servers;
-      Alcotest.(check (list string)) "skills immutable" [ "skill-a" ] s.skills
+      Alcotest.(check (list string)) "skills immutable" [ "skill-a" ] s.skills;
+      (* New snapshot under v2 reflects the config change *)
+      let snap_v2 = Access_snapshot.get_by_id ~db snap_v2_id in
+      (match snap_v2 with
+      | None -> Alcotest.fail "v2 snapshot not found"
+      | Some v2 ->
+          Alcotest.(check (list string))
+            "v2 snapshot has reduced mcp_servers" [ "srv-a" ] v2.mcp_servers;
+          Alcotest.(check (list string))
+            "v2 snapshot has new skills" [ "skill-b"; "skill-c" ] v2.skills);
+      Alcotest.(check bool)
+        "different config hashes" true
+        (s.config_hash <> Access_snapshot.config_hash cfg_v2)
 
 let test_snapshot_preserves_instruction_digests_after_config_change () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1143,7 +1197,13 @@ let test_snapshot_preserves_instruction_digests_after_config_change () =
       ]
     }|}
   in
-  let _cfg_v2 = parse json_v2 in
+  let cfg_v2 = parse json_v2 in
+  (* Verify v2 config produces different instruction digests *)
+  let snap_v2_id =
+    Access_snapshot.record_for_work ~db ~config:cfg_v2
+      ~work_type:Access_snapshot.Background_task ~session_key:"bg:task-inst-v2"
+      ()
+  in
   let snap_after = Access_snapshot.get_by_id ~db snap_id in
   match snap_after with
   | None -> Alcotest.fail "snapshot disappeared"
@@ -1152,7 +1212,21 @@ let test_snapshot_preserves_instruction_digests_after_config_change () =
         "instruction digests count unchanged" 2
         (List.length s.instruction_digests);
       Alcotest.(check (list string))
-        "instruction digests identical" original_digests s.instruction_digests
+        "instruction digests identical" original_digests s.instruction_digests;
+      (* New snapshot under v2 has different digests *)
+      let snap_v2 = Access_snapshot.get_by_id ~db snap_v2_id in
+      (match snap_v2 with
+      | None -> Alcotest.fail "v2 snapshot not found"
+      | Some v2 ->
+          Alcotest.(check int)
+            "v2 snapshot has 1 instruction digest" 1
+            (List.length v2.instruction_digests);
+          Alcotest.(check bool)
+            "v2 digests differ from v1" true
+            (v2.instruction_digests <> s.instruction_digests));
+      Alcotest.(check bool)
+        "different config hashes" true
+        (s.config_hash <> Access_snapshot.config_hash cfg_v2)
 
 let suite =
   [
