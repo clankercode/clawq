@@ -77,6 +77,10 @@ type task = {
       (** Sparse progress state for room-origin work. Persisted best-effort; no
           raw logs are stored for posting. Derived from task status when not
           explicitly set. *)
+  access_snapshot_id : string option;
+      (** Effective-access snapshot captured when the task was enqueued. Lets
+          running work continue with the original policy even after config
+          changes. *)
 }
 
 type queued_message = {

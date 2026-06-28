@@ -1609,7 +1609,9 @@ let test_handle_cron_history_shows_routine_target () =
   with_temp_home (fun home ->
       let db = session_db home in
       add_routine_cron_job db ~name:"routine-history";
-      let run_id = Scheduler.record_run_start ~db ~job_name:"routine-history" in
+      let run_id =
+        Scheduler.record_run_start ~db ~job_name:"routine-history" ()
+      in
       Scheduler.record_run_finish ~db ~run_id ~status:"ok"
         ~result_preview:"done";
       let result =

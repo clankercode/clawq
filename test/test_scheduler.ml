@@ -155,7 +155,7 @@ let test_run_history_includes_routine_target () =
     (Scheduler.add_job ~db ~name:"routine_hist" ~session_key:"room:abc"
        ~message:"m" ~schedule:"every 1m" ~profile_id:42 ~thread_id:"thread-1"
        ~routine_workspace_id:"workspace-1" ());
-  let run_id = Scheduler.record_run_start ~db ~job_name:"routine_hist" in
+  let run_id = Scheduler.record_run_start ~db ~job_name:"routine_hist" () in
   Scheduler.record_run_finish ~db ~run_id ~status:"ok" ~result_preview:"done";
   let runs = Scheduler.get_history ~db ~name:"routine_hist" ~limit:10 in
   let r = List.hd runs in
@@ -180,7 +180,7 @@ let test_run_history () =
   ignore
     (Scheduler.add_job ~db ~name:"hist" ~session_key:"s" ~message:"m"
        ~schedule:"every 1m" ());
-  let run_id = Scheduler.record_run_start ~db ~job_name:"hist" in
+  let run_id = Scheduler.record_run_start ~db ~job_name:"hist" () in
   Scheduler.record_run_finish ~db ~run_id ~status:"ok" ~result_preview:"done";
   let runs = Scheduler.get_history ~db ~name:"hist" ~limit:10 in
   Alcotest.(check int) "one run" 1 (List.length runs);
@@ -190,13 +190,41 @@ let test_run_history () =
     "preview" "done"
     (match r.result_preview with Some s -> s | None -> "")
 
+let test_run_history_with_access_snapshot_id () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"snap_hist" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  let run_id =
+    Scheduler.record_run_start ~db ~job_name:"snap_hist"
+      ~access_snapshot_id:"snap_routine_789" ()
+  in
+  Scheduler.record_run_finish ~db ~run_id ~status:"ok" ~result_preview:"done";
+  let runs = Scheduler.get_history ~db ~name:"snap_hist" ~limit:10 in
+  Alcotest.(check int) "one run" 1 (List.length runs);
+  let r = List.hd runs in
+  Alcotest.(check (option string))
+    "access_snapshot_id stored" (Some "snap_routine_789") r.access_snapshot_id;
+  (* Also verify list_runs returns it *)
+  let all_runs = Scheduler.list_runs ~db ~limit:10 () in
+  let found =
+    List.find_opt (fun (run : Scheduler.run) -> run.run_id = run_id) all_runs
+  in
+  match found with
+  | None -> Alcotest.fail "run not found in list_runs"
+  | Some run ->
+      Alcotest.(check (option string))
+        "list_runs access_snapshot_id" (Some "snap_routine_789")
+        run.access_snapshot_id
+
 let test_get_last_run_time_parses_timestamp () =
   let db = Memory.init ~db_path:":memory:" () in
   Scheduler.init_schema db;
   ignore
     (Scheduler.add_job ~db ~name:"last" ~session_key:"s" ~message:"m"
        ~schedule:"every 1m" ());
-  ignore (Scheduler.record_run_start ~db ~job_name:"last");
+  ignore (Scheduler.record_run_start ~db ~job_name:"last" ());
   match Scheduler.get_last_run_time ~db ~job_name:"last" with
   | None -> Alcotest.fail "expected last_run timestamp"
   | Some ts ->
@@ -243,7 +271,7 @@ let test_record_run_delivery_failed () =
   ignore
     (Scheduler.add_job ~db ~name:"dfail" ~session_key:"teams:c:u" ~message:"msg"
        ~schedule:"every 1m" ());
-  let run_id = Scheduler.record_run_start ~db ~job_name:"dfail" in
+  let run_id = Scheduler.record_run_start ~db ~job_name:"dfail" () in
   Scheduler.record_run_finish ~db ~run_id ~status:"delivery_failed"
     ~result_preview:"LLM ok, delivery failed: timeout";
   let runs = Scheduler.get_history ~db ~name:"dfail" ~limit:1 in
@@ -303,7 +331,7 @@ let test_record_run_ok_notifier_unconfirmed () =
   ignore
     (Scheduler.add_job ~db ~name:"notif" ~session_key:"teams:c:u" ~message:"m"
        ~schedule:"every 1m" ());
-  let run_id = Scheduler.record_run_start ~db ~job_name:"notif" in
+  let run_id = Scheduler.record_run_start ~db ~job_name:"notif" () in
   Scheduler.record_run_finish ~db ~run_id ~status:"ok_notifier_unconfirmed"
     ~result_preview:"LLM ok, delivery via registered notifier (unconfirmed)";
   let runs = Scheduler.get_history ~db ~name:"notif" ~limit:1 in
@@ -647,7 +675,7 @@ let job_enabled ~db ~name =
    given bg_task_id, and return the bg_task_id so we can drive
    mark_run_output. *)
 let stub_cron_run ~db ~job_name ~bg_task_id =
-  let run_id = Scheduler.record_run_start ~db ~job_name in
+  let run_id = Scheduler.record_run_start ~db ~job_name () in
   Scheduler.record_run_bg_task ~db ~run_id ~bg_task_id
 
 let test_identical_output_disables_cron () =
@@ -745,7 +773,7 @@ let test_inline_run_output_disables_cron () =
     (Scheduler.add_job ~db ~name:"inline" ~session_key:"s" ~message:"m"
        ~schedule:"every 1h" ());
   for _ = 1 to 5 do
-    let run_id = Scheduler.record_run_start ~db ~job_name:"inline" in
+    let run_id = Scheduler.record_run_start ~db ~job_name:"inline" () in
     Scheduler.mark_run_output_by_run_id ~db ~run_id ~job_name:"inline"
       ~output:"Nothing notable."
   done;
@@ -760,7 +788,7 @@ let test_inline_run_output_varying_keeps_enabled () =
     (Scheduler.add_job ~db ~name:"inline_varied" ~session_key:"s" ~message:"m"
        ~schedule:"every 1h" ());
   for i = 1 to 5 do
-    let run_id = Scheduler.record_run_start ~db ~job_name:"inline_varied" in
+    let run_id = Scheduler.record_run_start ~db ~job_name:"inline_varied" () in
     Scheduler.mark_run_output_by_run_id ~db ~run_id ~job_name:"inline_varied"
       ~output:(Printf.sprintf "varied %d" i)
   done;
@@ -898,6 +926,8 @@ let suite =
       test_run_history_includes_routine_target;
     Alcotest.test_case "add invalid schedule" `Quick test_add_invalid_schedule;
     Alcotest.test_case "run history" `Quick test_run_history;
+    Alcotest.test_case "run history with access_snapshot_id" `Quick
+      test_run_history_with_access_snapshot_id;
     Alcotest.test_case "get_last_run_time parses timestamp" `Quick
       test_get_last_run_time_parses_timestamp;
     Alcotest.test_case "get_session_channel with channel" `Quick
