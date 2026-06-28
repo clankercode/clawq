@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T18:17:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T19:00:33Z"
 complexity: high
 depends_on:
     - P15.M1.E1.T001
+duration_minutes: 43.495224622183336
 estimate_hours: 3
 id: P15.M1.E2.T001
 priority: high
 started_at: "2026-06-28T18:17:04Z"
-status: in_progress
+status: done
 tags: []
 title: Add durable room progress checklist model
 ---
