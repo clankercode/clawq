@@ -31,6 +31,7 @@ type prepared_event = {
   repo_full_name : string;
   sender_login : string;
   is_user_generated : bool;
+  installation_id : int option;
 }
 
 (* ---- Directory layout ---- *)
@@ -226,15 +227,15 @@ let prepare_event ~event_name ~headers ~raw_body =
   let payload_json =
     try Some (Yojson.Safe.from_string raw_body) with _ -> None
   in
-  let repo_full_name, sender_login, context_json =
+  let repo_full_name, sender_login, context_json, installation_id =
     match payload_json with
     | Some payload ->
         ( repo_full_name_of_payload payload,
           sender_login_of_payload payload,
           Some
-            (build_context_json ~event_name ~delivery_id ~snapshot_path ~payload)
-        )
-    | None -> ("", "", None)
+            (build_context_json ~event_name ~delivery_id ~snapshot_path ~payload),
+          Webhook_handler.first_int payload [ "installation.id" ] )
+    | None -> ("", "", None, None)
   in
   {
     event_name;
@@ -246,6 +247,7 @@ let prepare_event ~event_name ~headers ~raw_body =
     repo_full_name;
     sender_login;
     is_user_generated = is_user_generated_event event_name;
+    installation_id;
   }
 
 (* ---- Hook loading (uses generic frontmatter parser) ---- *)

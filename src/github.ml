@@ -274,66 +274,110 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
       end
       else if not (is_event_allowed ~repo_config ~event_type) then
         Lwt.return (Ok "filtered")
-      else if prepared.is_user_generated then
-        let sender = prepared.sender_login in
-        if not (is_user_allowed ~repo_config ~sender) then begin
-          Logs.info (fun m ->
-              m "GitHub: ignoring event %s from unauthorized user @%s"
-                event_type sender);
-          Lwt.return (Ok "user not allowed")
-        end
-        else
-          let event = Github_webhook.parse_event ~event_type ~body in
-          (* Bot self-loop protection: skip comments containing our reply marker *)
-          let body_text = comment_body_of_event event in
-          if Option.is_some body_text && is_bot_reply (Option.get body_text)
-          then begin
-            Logs.debug (fun m ->
-                m "GitHub: ignoring bot self-reply (delivery=%s)" delivery_id);
-            Lwt.return (Ok "bot self-reply")
+      else
+        (* Installation identity check: for GitHub App auth, verify that the
+           installation_id in the webhook payload matches a configured
+           installation and that the repo is within its scope. This blocks
+           uninstalled repos before PR file fetch, hook execution, or
+           background launch. *)
+        let installation_denied =
+          match github_config.auth with
+          | Runtime_config.GithubPat _ -> false
+          | Runtime_config.GithubApp _ -> (
+              match prepared.installation_id with
+              | None ->
+                  Logs.warn (fun m ->
+                      m
+                        "GitHub: denying webhook for %s — no installation_id \
+                         in payload"
+                        prepared.repo_full_name);
+                  true
+              | Some inst_id -> (
+                  match Github_app_token.resolve_app_token () with
+                  | None ->
+                      Logs.warn (fun m ->
+                          m
+                            "GitHub: denying webhook for %s — no app token \
+                             available"
+                            prepared.repo_full_name);
+                      true
+                  | Some tok ->
+                      if
+                        Github_app_token.verify_installation tok
+                          ~installation_id:inst_id
+                          ~repo_full_name:prepared.repo_full_name
+                      then false
+                      else (
+                        Logs.warn (fun m ->
+                            m
+                              "GitHub: denying webhook for %s — installation \
+                               %d not authorized for this repo"
+                              prepared.repo_full_name inst_id);
+                        true)))
+        in
+        if installation_denied then
+          Lwt.return (Ok "installation not authorized")
+        else if prepared.is_user_generated then
+          let sender = prepared.sender_login in
+          if not (is_user_allowed ~repo_config ~sender) then begin
+            Logs.info (fun m ->
+                m "GitHub: ignoring event %s from unauthorized user @%s"
+                  event_type sender);
+            Lwt.return (Ok "user not allowed")
           end
           else
-            match event with
-            | Github_webhook.Ignored ->
-                let* hook_count =
-                  Github_hooks.run_matching_hooks ~session_manager ~prepared
-                    ~github_config:(Some github_config) ~api_limiter
-                in
-                if hook_count > 0 then
-                  Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
-                else Lwt.return (Ok "ignored")
-            | _ -> (
-                let author =
-                  let parsed = Github_webhook.author_of_event event in
-                  if parsed <> "" then parsed else prepared.sender_login
-                in
-                let owner, repo =
-                  match split_repo_full_name repo_config.name with
-                  | Some parts -> parts
-                  | None -> Github_webhook.repo_of_event event
-                in
-                let* pr_files =
-                  fetch_pr_files ~repo_config ~github_config ~api_limiter ~owner
-                    ~repo event
-                in
-                match Github_webhook.extract_clawq ~event ~pr_files with
-                | Some (user_message, preamble) ->
-                    run_clawq_command ~github_config ~session_manager
-                      ~api_limiter ~owner ~repo ~author event ~user_message
-                      ~preamble
-                | None ->
-                    let* hook_count =
-                      Github_hooks.run_matching_hooks ~session_manager ~prepared
-                        ~github_config:(Some github_config) ~api_limiter
-                    in
-                    if hook_count > 0 then
-                      Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
-                    else Lwt.return (Ok "no /clawq command"))
-      else
-        let* hook_count =
-          Github_hooks.run_matching_hooks ~session_manager ~prepared
-            ~github_config:(Some github_config) ~api_limiter
-        in
-        if hook_count > 0 then
-          Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
-        else Lwt.return (Ok "ignored")
+            let event = Github_webhook.parse_event ~event_type ~body in
+            (* Bot self-loop protection: skip comments containing our reply marker *)
+            let body_text = comment_body_of_event event in
+            if Option.is_some body_text && is_bot_reply (Option.get body_text)
+            then begin
+              Logs.debug (fun m ->
+                  m "GitHub: ignoring bot self-reply (delivery=%s)" delivery_id);
+              Lwt.return (Ok "bot self-reply")
+            end
+            else
+              match event with
+              | Github_webhook.Ignored ->
+                  let* hook_count =
+                    Github_hooks.run_matching_hooks ~session_manager ~prepared
+                      ~github_config:(Some github_config) ~api_limiter
+                  in
+                  if hook_count > 0 then
+                    Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
+                  else Lwt.return (Ok "ignored")
+              | _ -> (
+                  let author =
+                    let parsed = Github_webhook.author_of_event event in
+                    if parsed <> "" then parsed else prepared.sender_login
+                  in
+                  let owner, repo =
+                    match split_repo_full_name repo_config.name with
+                    | Some parts -> parts
+                    | None -> Github_webhook.repo_of_event event
+                  in
+                  let* pr_files =
+                    fetch_pr_files ~repo_config ~github_config ~api_limiter
+                      ~owner ~repo event
+                  in
+                  match Github_webhook.extract_clawq ~event ~pr_files with
+                  | Some (user_message, preamble) ->
+                      run_clawq_command ~github_config ~session_manager
+                        ~api_limiter ~owner ~repo ~author event ~user_message
+                        ~preamble
+                  | None ->
+                      let* hook_count =
+                        Github_hooks.run_matching_hooks ~session_manager
+                          ~prepared ~github_config:(Some github_config)
+                          ~api_limiter
+                      in
+                      if hook_count > 0 then
+                        Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
+                      else Lwt.return (Ok "no /clawq command"))
+        else
+          let* hook_count =
+            Github_hooks.run_matching_hooks ~session_manager ~prepared
+              ~github_config:(Some github_config) ~api_limiter
+          in
+          if hook_count > 0 then
+            Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
+          else Lwt.return (Ok "ignored")
