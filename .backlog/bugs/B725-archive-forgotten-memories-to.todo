@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-06-28T06:39:42Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B725
 priority: high
-status: pending
+started_at: "2026-06-28T06:39:42Z"
+status: in_progress
 tags: []
 title: Archive forgotten memories to persistent per-session workspace storage
 ---
