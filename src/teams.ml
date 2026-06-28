@@ -1981,6 +1981,18 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             "Room memory commands are available via CLI: clawq \
                              rooms memory <list|show|save|correct|forget> \
                              <room_id>"
+                      | ExplainAccess ->
+                          let cfg = Session.get_config session_manager in
+                          let access_key =
+                            Connector_dispatch.room_access_key cfg key
+                          in
+                          let explanation =
+                            Access_explanation.create ~config:cfg
+                              ~session_key:access_key ()
+                          in
+                          let text = Access_explanation.to_text explanation in
+                          send_text
+                            (Format_adapter.code_block Format_adapter.Teams text)
                       | Rig action -> (
                           match action with
                           | RigList ->

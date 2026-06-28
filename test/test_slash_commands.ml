@@ -187,6 +187,7 @@ let rec result_to_string = function
           "FollowupAppend(" ^ message ^ ")")
   | Slash_commands.RoomsMemory args ->
       "RoomsMemory(" ^ String.concat "," args ^ ")"
+  | Slash_commands.ExplainAccess -> "ExplainAccess"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let rec result_eq a b =
@@ -252,6 +253,7 @@ let rec result_eq a b =
   | Slash_commands.Debate a, Slash_commands.Debate b -> a = b
   | Slash_commands.Memories a, Slash_commands.Memories b -> a = b
   | Slash_commands.Followup a, Slash_commands.Followup b -> a = b
+  | Slash_commands.ExplainAccess, Slash_commands.ExplainAccess -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -3076,6 +3078,20 @@ let test_repo_in_commands_list () =
   in
   Alcotest.(check bool) "repo in commands" true (List.mem "repo" names)
 
+(* ── /access tests ──────────────────────────────────────────────────────── *)
+
+let test_access_handle () =
+  Alcotest.check result_testable "/access" Slash_commands.ExplainAccess
+    (Slash_commands.handle "/access")
+
+let test_access_in_commands_list () =
+  let names =
+    List.map
+      (fun (cmd : Slash_commands.command) -> cmd.name)
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "/access in commands" true (List.mem "access" names)
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -3452,4 +3468,7 @@ let suite =
     Alcotest.test_case "/repo associate path" `Quick test_repo_associate_path;
     Alcotest.test_case "/repo in commands list" `Quick
       test_repo_in_commands_list;
+    Alcotest.test_case "/access handle" `Quick test_access_handle;
+    Alcotest.test_case "/access in commands list" `Quick
+      test_access_in_commands_list;
   ]

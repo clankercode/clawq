@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T19:07:07Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T19:07:07Z"
 complexity: medium
 depends_on:
     - P14.M1.E3.T002
+duration_minutes: 0.010937284783333332
 estimate_hours: 2
 id: P14.M1.E3.T003
 priority: high
 started_at: "2026-06-28T19:07:07Z"
-status: in_progress
+status: done
 tags: []
 title: Add snapshot immutability regression tests
 ---
