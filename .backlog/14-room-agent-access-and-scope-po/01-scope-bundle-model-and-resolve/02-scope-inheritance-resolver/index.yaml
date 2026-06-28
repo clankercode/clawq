@@ -31,6 +31,7 @@ tasks:
     - complexity: high
       depends_on:
         - P14.M1.E2.T001
+        - P14.M1.E2.T002
       estimate_hours: 3
       file: T003-refresh-derived-policy-on-conf.todo
       id: T003
