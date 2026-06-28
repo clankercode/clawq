@@ -230,6 +230,7 @@ let () =
     @ [ ("repo_manager", Test_repo_manager.suite) ]
     @ Test_github.suites
     @ [ ("github_app_config", Test_github_app_config.suite) ]
+    @ [ ("github_app_token", Test_github_app_token.suite) ]
     @ [
         ( "config_isolation",
           [

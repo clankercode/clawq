@@ -734,6 +734,175 @@ let invalidate_all_clears_token () =
            (fun _tok -> "has_token")
            (Github_app_token.resolve_app_token ())))
 
+(* ---- verify_installation tests ---- *)
+
+let verify_installation_matching_id_and_repo () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 1;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [
+              {
+                Runtime_config.installation_id = 100;
+                repos = [ "acme/backend" ];
+              };
+            ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          Alcotest.(check bool)
+            "authorized" true
+            (Github_app_token.verify_installation tok ~installation_id:100
+               ~repo_full_name:"acme/backend"))
+
+let verify_installation_wrong_id () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 1;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [
+              {
+                Runtime_config.installation_id = 100;
+                repos = [ "acme/backend" ];
+              };
+            ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          Alcotest.(check bool)
+            "wrong id denied" false
+            (Github_app_token.verify_installation tok ~installation_id:999
+               ~repo_full_name:"acme/backend"))
+
+let verify_installation_wrong_repo () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 1;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [
+              {
+                Runtime_config.installation_id = 100;
+                repos = [ "acme/backend" ];
+              };
+            ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          Alcotest.(check bool)
+            "wrong repo denied" false
+            (Github_app_token.verify_installation tok ~installation_id:100
+               ~repo_full_name:"other/repo"))
+
+let verify_installation_all_repos () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 1;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [ { Runtime_config.installation_id = 200; repos = [] } ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          Alcotest.(check bool)
+            "all repos authorized" true
+            (Github_app_token.verify_installation tok ~installation_id:200
+               ~repo_full_name:"any/repo"))
+
+let verify_installation_multiple_installations () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 1;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [
+              {
+                Runtime_config.installation_id = 100;
+                repos = [ "acme/backend" ];
+              };
+              {
+                Runtime_config.installation_id = 200;
+                repos = [ "acme/frontend" ];
+              };
+            ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          Alcotest.(check bool)
+            "first installation" true
+            (Github_app_token.verify_installation tok ~installation_id:100
+               ~repo_full_name:"acme/backend");
+          Alcotest.(check bool)
+            "second installation" true
+            (Github_app_token.verify_installation tok ~installation_id:200
+               ~repo_full_name:"acme/frontend");
+          Alcotest.(check bool)
+            "cross installation denied" false
+            (Github_app_token.verify_installation tok ~installation_id:100
+               ~repo_full_name:"acme/frontend"))
+
+let verify_installation_case_insensitive () =
+  with_test_rsa_key (fun key_path ->
+      let config : Runtime_config.github_app_config =
+        {
+          app_id = 1;
+          private_key_path = key_path;
+          webhook_secret = "test";
+          installations =
+            [
+              {
+                Runtime_config.installation_id = 100;
+                repos = [ "Acme/Backend" ];
+              };
+            ];
+        }
+      in
+      match Github_app_token.create ~config () with
+      | Error msg -> Alcotest.failf "create failed: %s" msg
+      | Ok tok ->
+          Alcotest.(check bool)
+            "case-insensitive match" true
+            (Github_app_token.verify_installation tok ~installation_id:100
+               ~repo_full_name:"acme/backend"))
+
+let verify_installation_suite =
+  [
+    Alcotest.test_case "verify matching id and repo" `Quick
+      verify_installation_matching_id_and_repo;
+    Alcotest.test_case "verify wrong id denied" `Quick
+      verify_installation_wrong_id;
+    Alcotest.test_case "verify wrong repo denied" `Quick
+      verify_installation_wrong_repo;
+    Alcotest.test_case "verify all repos authorized" `Quick
+      verify_installation_all_repos;
+    Alcotest.test_case "verify multiple installations" `Quick
+      verify_installation_multiple_installations;
+    Alcotest.test_case "verify case-insensitive repo match" `Quick
+      verify_installation_case_insensitive;
+  ]
+
 let integration_suite =
   [
     Alcotest.test_case "Github_api uses app installation token" `Quick
@@ -747,3 +916,8 @@ let integration_suite =
     Alcotest.test_case "invalidate_all clears token" `Quick
       invalidate_all_clears_token;
   ]
+
+let suite =
+  jwt_suite @ key_suite @ installation_lookup_suite @ cache_suite @ fetch_suite
+  @ redaction_suite @ iso8601_suite @ verify_installation_suite
+  @ integration_suite

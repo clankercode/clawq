@@ -289,6 +289,22 @@ let find_installation_for_repo t ~repo_full_name =
       inst.repos = [] || List.exists (String.equal repo_full_name) inst.repos)
     t.config.installations
 
+(* ---- Verify installation identity from webhook ---- *)
+
+(* Check that [installation_id] from a webhook payload matches a configured
+   installation and that [repo_full_name] is within that installation's scope.
+   Returns [true] if the installation is authorized for this repo. *)
+let verify_installation t ~installation_id ~repo_full_name =
+  let repo_lower = String.lowercase_ascii repo_full_name in
+  List.exists
+    (fun (inst : Runtime_config.github_app_installation) ->
+      inst.installation_id = installation_id
+      && (inst.repos = []
+         || List.exists
+              (fun r -> String.lowercase_ascii r = repo_lower)
+              inst.repos))
+    t.config.installations
+
 (* ---- Module-level cached instance ---- *)
 
 let app_token : t option ref = ref None

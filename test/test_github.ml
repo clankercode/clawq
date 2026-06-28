@@ -1063,6 +1063,31 @@ let run_matching_hooks_no_post_back_when_false () =
       Alcotest.(check bool)
         "no POST made when post_back_to_github is false" false !any_request)
 
+let prepare_event_extracts_installation_id () =
+  let payload =
+    {|{"action":"opened","installation":{"id":42},"pull_request":{"number":1,"title":"test","head":{"sha":"abc"},"base":{"ref":"main"}},"repository":{"full_name":"acme/backend","owner":{"login":"acme"},"name":"backend"},"sender":{"login":"user"}}|}
+  in
+  let prepared =
+    Github_hooks.prepare_event ~event_name:"pull_request"
+      ~headers:(Cohttp.Header.of_list [ ("X-GitHub-Delivery", "inst-id-test") ])
+      ~raw_body:payload
+  in
+  Alcotest.(check (option int))
+    "installation_id extracted" (Some 42) prepared.installation_id
+
+let prepare_event_missing_installation_id () =
+  let payload =
+    {|{"action":"opened","repository":{"full_name":"acme/backend"},"sender":{"login":"user"}}|}
+  in
+  let prepared =
+    Github_hooks.prepare_event ~event_name:"push"
+      ~headers:
+        (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "no-inst-id-test") ])
+      ~raw_body:payload
+  in
+  Alcotest.(check (option int))
+    "missing installation_id" None prepared.installation_id
+
 let hooks_suite =
   [
     Alcotest.test_case "load and render workflow hook" `Quick
@@ -1087,6 +1112,10 @@ let hooks_suite =
       run_matching_hooks_post_back_integration;
     Alcotest.test_case "run_matching_hooks no post_back when false" `Quick
       run_matching_hooks_no_post_back_when_false;
+    Alcotest.test_case "prepare_event extracts installation_id from payload"
+      `Quick prepare_event_extracts_installation_id;
+    Alcotest.test_case "prepare_event missing installation_id is None" `Quick
+      prepare_event_missing_installation_id;
   ]
 
 let config_suite =
