@@ -148,10 +148,18 @@ let extract_bundle_sources (access : Runtime_config.effective_access) :
 
 let extract_instruction_digests (access : Runtime_config.effective_access) :
     string list =
-  List.map
-    (fun (item : Runtime_config.effective_access_item) ->
-      Digestif.SHA256.(digest_string item.value |> to_hex))
-    access.instructions
+  (* Prefer digests from instruction_records when available; fall back to
+     computing from the text-only effective_access_item values. *)
+  if access.instruction_items <> [] then
+    List.map
+      (fun (item : Runtime_config.effective_instruction_item) ->
+        Runtime_config.instruction_record_digest item.instruction)
+      access.instruction_items
+  else
+    List.map
+      (fun (item : Runtime_config.effective_access_item) ->
+        Digestif.SHA256.(digest_string item.value |> to_hex))
+      access.instructions
 
 let item_values items =
   List.map (fun (i : Runtime_config.effective_access_item) -> i.value) items

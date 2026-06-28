@@ -792,6 +792,37 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
       (fun item -> not (blocked_by_global_security cfg item.value))
       codebase_items
   in
+  (* Collect instruction records with provenance. Only enabled instructions
+     are resolved into effective_access; disabled ones are preserved in the
+     bundle but not propagated. *)
+  let collect_instructions () :
+      effective_access_item list * effective_instruction_item list =
+    let text_items = ref [] in
+    let record_items = ref [] in
+    List.iter
+      (fun (layer, source_id, (bundle : access_bundle)) ->
+        List.iter
+          (fun (ir : instruction_record) ->
+            if instruction_record_is_active ir then begin
+              let provenance =
+                [
+                  { layer; source_id; field = "instructions" };
+                  {
+                    layer;
+                    source_id = source_id ^ ":access_bundle_ids:" ^ bundle.id;
+                    field = "instructions";
+                  };
+                ]
+              in
+              text_items := { value = ir.text; provenance } :: !text_items;
+              record_items := { instruction = ir; provenance } :: !record_items
+            end)
+          bundle.instructions)
+      bundles;
+    (List.rev !text_items, List.rev !record_items)
+  in
+  let instruction_text_items, instruction_items = collect_instructions () in
+  let instruction_text_items = merge_effective_items instruction_text_items in
   {
     allowed_tools;
     denied_tools;
@@ -803,7 +834,8 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
     domains = collect "domains" (fun b -> b.domains);
     credential_handles =
       collect "credential_handles" (fun b -> b.credential_handles);
-    instructions = collect "instructions" (fun b -> b.instructions);
+    instructions = instruction_text_items;
+    instruction_items;
     memory_grants = collect "memory_grants" (fun b -> b.memory_grants);
     budget_refs = collect "budget_refs" (fun b -> b.budget_refs);
   }
