@@ -98,6 +98,7 @@ type result =
   | Repo of repo_action
   | HeldItems of held_items_action
   | Memories of memories_action
+  | RoomsMemory of string list
   | Followup of followup_action
   | DebugDumpChat
   | BashRun of string

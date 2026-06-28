@@ -3833,6 +3833,286 @@ let test_rooms_show_unbound () =
         "show unbound mentions not bound" true
         (Test_helpers.string_contains result "not bound"))
 
+let test_rooms_memory_save_creates_scope_for_first_admin_memory () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let result =
+        Command_bridge.handle
+          [ "rooms"; "memory"; "save"; "slack:C1"; "summary"; "first"; "fact" ]
+      in
+      Alcotest.(check bool)
+        "save creates first unbound room memory" true
+        (Test_helpers.string_contains result "Saved memory");
+      let scope =
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:"slack:C1" with
+        | Some scope -> scope
+        | None -> Alcotest.fail "expected room memory scope"
+      in
+      Alcotest.(check (option int))
+        "unbound room scope has no owner profile" None scope.profile_id;
+      let memories =
+        Memory.query_scoped_memories ~db ~scope_kind:"room"
+          ~scope_key:"slack:C1" ~limit:10 ()
+      in
+      Alcotest.(check int) "one scoped memory stored" 1 (List.length memories);
+      let stored = List.hd memories in
+      Alcotest.(check string) "stored reference" "summary" stored.reference;
+      Alcotest.(check string)
+        "stored content" "first fact"
+        (Option.value ~default:"" stored.content))
+
+let test_rooms_memory_save_bound_room_sets_owner_and_allows_read () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let save_result =
+        Command_bridge.handle
+          [ "rooms"; "memory"; "save"; "slack:C1"; "guideline"; "Use"; "TDD" ]
+      in
+      Alcotest.(check bool)
+        "bound room owner can save first memory" true
+        (Test_helpers.string_contains save_result "Saved memory");
+      let profile_id =
+        match Memory.get_room_profile_by_name ~db ~name:"coding" with
+        | Some profile -> profile.id
+        | None -> Alcotest.fail "expected reconciled room profile"
+      in
+      let scope =
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:"slack:C1" with
+        | Some scope -> scope
+        | None -> Alcotest.fail "expected bound room memory scope"
+      in
+      Alcotest.(check (option int))
+        "bound room scope stores owner profile" (Some profile_id)
+        scope.profile_id;
+      let memories =
+        Memory.query_scoped_memories ~db ~scope_kind:"room"
+          ~scope_key:"slack:C1" ~limit:10 ()
+      in
+      let stored =
+        match memories with m :: _ -> m | [] -> Alcotest.fail "no memory"
+      in
+      let list_result =
+        Command_bridge.handle [ "rooms"; "memory"; "list"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "list shows saved reference" true
+        (Test_helpers.string_contains list_result "guideline");
+      Alcotest.(check bool)
+        "list shows saved content" true
+        (Test_helpers.string_contains list_result "Use TDD");
+      let show_result =
+        Command_bridge.handle
+          [ "rooms"; "memory"; "show"; "slack:C1"; string_of_int stored.id ]
+      in
+      Alcotest.(check bool)
+        "show displays saved content" true
+        (Test_helpers.string_contains show_result "Use TDD"))
+
+let test_rooms_memory_save_uses_config_binding_before_reconcile () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let save_result =
+        Command_bridge.handle
+          [ "rooms"; "memory"; "save"; "slack:C1"; "guideline"; "Use"; "TDD" ]
+      in
+      Alcotest.(check bool)
+        "config-bound room owner can save before daemon reconcile" true
+        (Test_helpers.string_contains save_result "Saved memory");
+      Alcotest.(check bool)
+        "config-bound save reconciles DB binding" true
+        (Option.is_some
+           (Memory.get_room_profile_binding ~db ~room_id:"slack:C1")))
+
+let test_rooms_memory_backfills_owner_for_existing_unowned_scope () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      let save_result =
+        Command_bridge.handle
+          [ "rooms"; "memory"; "save"; "slack:C1"; "summary"; "first"; "fact" ]
+      in
+      Alcotest.(check bool)
+        "admin can create room memory" true
+        (Test_helpers.string_contains save_result "Saved memory");
+      let scope =
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:"slack:C1" with
+        | Some scope -> scope
+        | None -> Alcotest.fail "expected room memory scope"
+      in
+      ignore
+        (let stmt =
+           Sqlite3.prepare db
+             "UPDATE memory_scopes SET profile_id = NULL WHERE id = ?"
+         in
+         Fun.protect
+           ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+           (fun () ->
+             ignore
+               (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope.id)));
+             Sqlite3.step stmt));
+      Unix.putenv "CLAWQ_ADMIN" "";
+      let list_result =
+        Command_bridge.handle [ "rooms"; "memory"; "list"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "new bound owner can read existing unowned room scope" true
+        (Test_helpers.string_contains list_result "summary");
+      let profile_id =
+        match Memory.get_room_profile_binding ~db ~room_id:"slack:C1" with
+        | Some binding -> binding.profile_id
+        | None -> Alcotest.fail "expected room binding"
+      in
+      let scope =
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:"slack:C1" with
+        | Some scope -> scope
+        | None -> Alcotest.fail "expected room memory scope"
+      in
+      Alcotest.(check (option int))
+        "existing scope owner is backfilled" (Some profile_id) scope.profile_id)
+
+let test_rooms_memory_denied_unbound_save_does_not_create_scope () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      let save_result =
+        Command_bridge.handle
+          [ "rooms"; "memory"; "save"; "slack:C1"; "summary"; "first"; "fact" ]
+      in
+      Alcotest.(check bool)
+        "unbound non-admin save is denied" true
+        (not (Test_helpers.string_contains save_result "Saved memory"));
+      Alcotest.(check (option int))
+        "denied save does not create scope" None
+        (Option.map
+           (fun (scope : Memory.memory_scope) -> scope.id)
+           (Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:"slack:C1")))
+
+let test_rooms_memory_stale_db_binding_fails_closed () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      let profile_id = Memory.insert_room_profile ~db ~name:"coding" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"slack:C1" ~profile_id;
+      let scope =
+        Memory.create_scope ~db ~kind:"room" ~key:"slack:C1" ~profile_id
+          ~provenance:"test" ()
+      in
+      ignore
+        (Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"summary"
+           ~content:"stale fact" ~provenance:"test" ());
+      let list_result =
+        Command_bridge.handle [ "rooms"; "memory"; "list"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "stale binding does not grant owner read" true
+        (not (Test_helpers.string_contains list_result "summary"));
+      Alcotest.(check bool)
+        "stale binding removed by source-of-truth reconcile" true
+        (Option.is_none
+           (Memory.get_room_profile_binding ~db ~room_id:"slack:C1")))
+
+let test_rooms_memory_duplicate_config_binding_fails_closed () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10},
+    {"id": "review", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true},
+    {"profile_id": "review", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let coding_id = Memory.insert_room_profile ~db ~name:"coding" in
+      Memory.upsert_room_profile_binding ~db ~room_id:"slack:C1"
+        ~profile_id:coding_id;
+      let scope =
+        Memory.create_scope ~db ~kind:"room" ~key:"slack:C1"
+          ~profile_id:coding_id ~provenance:"test" ()
+      in
+      ignore
+        (Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"summary"
+           ~content:"conflicted fact" ~provenance:"test" ());
+      let list_result =
+        Command_bridge.handle [ "rooms"; "memory"; "list"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "duplicate config binding does not grant owner read" true
+        (not (Test_helpers.string_contains list_result "summary"));
+      Alcotest.(check bool)
+        "duplicate config binding removes DB binding" true
+        (Option.is_none
+           (Memory.get_room_profile_binding ~db ~room_id:"slack:C1")))
+
+let test_rooms_memory_existing_owner_is_not_overwritten () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "old", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10},
+    {"id": "new", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "new", "room": "slack:C1", "active": true}
+  ]
+}|});
+      let old_profile_id = Memory.insert_room_profile ~db ~name:"old" in
+      let scope =
+        Memory.create_scope ~db ~kind:"room" ~key:"slack:C1"
+          ~profile_id:old_profile_id ~provenance:"test" ()
+      in
+      ignore
+        (Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"summary"
+           ~content:"old owner fact" ~provenance:"test" ());
+      let list_result =
+        Command_bridge.handle [ "rooms"; "memory"; "list"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "different bound profile cannot read old owner scope" true
+        (not (Test_helpers.string_contains list_result "summary"));
+      let scope =
+        match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:"slack:C1" with
+        | Some scope -> scope
+        | None -> Alcotest.fail "expected room memory scope"
+      in
+      Alcotest.(check (option int))
+        "existing owner profile is not overwritten" (Some old_profile_id)
+        scope.profile_id)
+
 let find_loaded_room_profile id =
   let cfg = Config_loader.load () in
   match
@@ -5217,6 +5497,22 @@ let suite =
       test_rooms_unbind_no_binding;
     Alcotest.test_case "rooms show bound" `Quick test_rooms_show_bound;
     Alcotest.test_case "rooms show unbound" `Quick test_rooms_show_unbound;
+    Alcotest.test_case "rooms memory save creates first admin scope" `Quick
+      test_rooms_memory_save_creates_scope_for_first_admin_memory;
+    Alcotest.test_case "rooms memory save stores owner and allows read" `Quick
+      test_rooms_memory_save_bound_room_sets_owner_and_allows_read;
+    Alcotest.test_case "rooms memory save uses config binding" `Quick
+      test_rooms_memory_save_uses_config_binding_before_reconcile;
+    Alcotest.test_case "rooms memory backfills existing owner" `Quick
+      test_rooms_memory_backfills_owner_for_existing_unowned_scope;
+    Alcotest.test_case "rooms memory denied save has no side effect" `Quick
+      test_rooms_memory_denied_unbound_save_does_not_create_scope;
+    Alcotest.test_case "rooms memory stale DB binding fails closed" `Quick
+      test_rooms_memory_stale_db_binding_fails_closed;
+    Alcotest.test_case "rooms memory duplicate config binding fails closed"
+      `Quick test_rooms_memory_duplicate_config_binding_fails_closed;
+    Alcotest.test_case "rooms memory existing owner not overwritten" `Quick
+      test_rooms_memory_existing_owner_is_not_overwritten;
     Alcotest.test_case "rooms usage" `Quick test_rooms_usage;
     Alcotest.test_case "rooms bind rejected without admin" `Quick
       test_rooms_bind_rejected_without_admin;

@@ -152,10 +152,29 @@ entries) protect a workspace from purging.
 
 ## Scoped Memory
 
-Room agents use scoped memory that is isolated per profile. The scoped memory
-tables (`memory_scopes`, `scoped_memories`, `memory_grants`) are separate from
-the global memory, so a room agent's memories do not leak into other rooms or
-personal sessions.
+Room agents use scoped memory that is isolated per room scope and owned by the
+bound room profile when one exists. The scoped memory tables (`memory_scopes`,
+`scoped_memories`, `memory_grants`) are separate from the global memory, so a
+room agent's memories do not leak into other rooms or personal sessions.
+
+Operators can inspect and update room-scoped entries with:
+
+```bash
+clawq rooms memory list ROOM_ID
+clawq rooms memory show ROOM_ID MEMORY_ID
+clawq rooms memory save ROOM_ID REFERENCE CONTENT...
+```
+
+A bound room profile has implicit owner access to its room scope. The CLI
+reconciles `room_profiles` / `room_profile_bindings` from config before checking
+access, so config-only bindings work without waiting for the daemon. If a room
+is newly bound to an existing unowned scope, the owner profile is backfilled on
+access; an existing different owner is not overwritten.
+
+Saving the first memory creates the room scope for bound rooms, and admins can
+also create an unbound room scope with `CLAWQ_ADMIN=1`. Unbound non-admin saves
+fail closed and do not create a scope. Stale database bindings and duplicate
+active config bindings are reconciled away and do not grant access.
 
 Global unscoped memory/search injection is disabled for profiled rooms until
 scoped memory is fully integrated. The privacy guard prevents cross-room

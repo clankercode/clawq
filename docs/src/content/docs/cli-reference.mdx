@@ -96,6 +96,9 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq rooms list` | List all room profiles and bindings |
 | `clawq rooms show ROOM_ID` | Show a room binding and profile details |
 | `clawq rooms workspace ROOM_ID` | Show/create the preserved workspace path for a room |
+| `clawq rooms memory list ROOM_ID` | List room-scoped memories when the room has list access |
+| `clawq rooms memory show ROOM_ID MEMORY_ID` | Show a room-scoped memory when the room has read access |
+| `clawq rooms memory save ROOM_ID REFERENCE CONTENT...` | Save or update a room-scoped memory when the room has write access; creates the first scope for bound rooms or admins |
 | `clawq rooms ledger list [FILTERS]` | List room activity ledger entries (admin-only). Filters: `--room-id`, `--event-type`, `--from`, `--to`, `--actor`, `--profile-id`, `--thread-id`, `--task-id`, `--background-id`, `--requester`, `--status` |
 | `clawq rooms ledger export [FILTERS] [--format json\|jsonl]` | Export filtered room activity ledger entries as JSON (or JSONL with `--format jsonl` / `--jsonl`) |
 | `clawq rooms ledger retention-cleanup --retention-days N` | Delete ledger entries older than the configured retention period (admin-only) |

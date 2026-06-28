@@ -135,6 +135,9 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `rooms list` | List configured room profiles and bindings |
 | `rooms show ROOM_ID` | Show a room binding and profile details |
 | `rooms workspace ROOM_ID` | Show/create the preserved workspace path for a room |
+| `rooms memory list ROOM_ID` | List room-scoped memories when the room has list access |
+| `rooms memory show ROOM_ID MEMORY_ID` | Show a room-scoped memory when the room has read access |
+| `rooms memory save ROOM_ID REFERENCE CONTENT...` | Save or update a room-scoped memory when the room has write access; creates the first scope for bound rooms or admins |
 | `rooms ledger list [FILTERS]` | List room activity ledger entries. Admin-only. Filters include `--room-id`, `--event-type`, `--from`, `--to`, `--actor`, `--profile-id`, `--thread-id`, `--task-id`, `--background-id`, `--requester`, and `--status` |
 | `rooms ledger export [FILTERS] [--format json\|jsonl]` | Export filtered room activity ledger entries as JSON (or JSONL with `--format jsonl` / `--jsonl`). Admin-only |
 | `rooms ledger retention-cleanup --retention-days N` | Delete ledger entries older than the configured retention period. Admin-only |
@@ -698,6 +701,10 @@ Configured profiles live in `room_profiles`; active room bindings live in
   `__room_routine:<profile_id>:<routine_id>` keys.
 - `clawq rooms bind ROOM_ID PROFILE_ID --preserve|--reset` attaches a room to a
   profile. Mutations require `CLAWQ_ADMIN=1`.
+- `clawq rooms memory list|show|save` manages room-scoped memories. Bound room
+  profiles have implicit owner access; CLI calls reconcile config bindings
+  before access checks. First saves create scopes for bound rooms or admins;
+  unbound non-admin saves and stale/duplicate bindings fail closed.
 - Room routines are cron-backed jobs managed through `clawq rooms routine ...`.
   They run under the room profile and can be triggered manually with
   `rooms routine trigger NAME`.
