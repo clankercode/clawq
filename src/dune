@@ -115,6 +115,7 @@
   audit
   access_snapshot
   access_explanation
+  credential_lease
   skills
   skills_cmd_inject
   builtin_skills
