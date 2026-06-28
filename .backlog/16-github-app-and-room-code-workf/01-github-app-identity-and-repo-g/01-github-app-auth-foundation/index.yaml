@@ -38,7 +38,7 @@ tasks:
       file: T003-route-github-api-auth-through.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Route GitHub API auth through App/PAT abstraction
     - complexity: medium
