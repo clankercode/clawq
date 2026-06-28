@@ -3,6 +3,15 @@ let item_values items =
     (fun (item : Runtime_config.effective_access_item) -> item.value)
     items
 
+let repo_grant_repos items =
+  List.filter_map
+    (fun (item : Runtime_config.effective_access_item) ->
+      try
+        let open Yojson.Safe.Util in
+        Some (Yojson.Safe.from_string item.value |> member "repo" |> to_string)
+      with _ -> None)
+    items
+
 let provenance_labels (item : Runtime_config.effective_access_item) =
   List.map
     (fun (p : Runtime_config.access_provenance) ->
@@ -455,6 +464,71 @@ let test_repo_grants_attach_to_bundle () =
     (String.contains first 'a');
   assert_all_provenance "repo grant" effective.repo_grants
 
+let test_repo_grants_blocked_by_global_security () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/clawq-scope-root/**"]},
+      "access_bundles": [
+        {
+          "id": "repo",
+          "repo_grants": [
+            {"repo": "/tmp/clawq-scope-root/app", "capabilities": ["read"]},
+            {"repo": "/tmp/outside/app", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["repo"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "global security keeps workspace repo grant"
+    [ "/tmp/clawq-scope-root/app" ]
+    (repo_grant_repos effective.repo_grants);
+  Alcotest.(check (list string))
+    "global security blocks outside repo grant" [ "/tmp/outside/app" ]
+    (repo_grant_repos effective.blocked_repo_grants);
+  assert_all_provenance "blocked repo grant" effective.blocked_repo_grants
+
+let test_repo_grants_intersect_codebase_grants () =
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-scope-root",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/clawq-scope-root/**"]},
+      "access_bundles": [
+        {
+          "id": "repo",
+          "codebase_grants": ["/tmp/clawq-scope-root/allowed/**"],
+          "repo_grants": [
+            {"repo": "/tmp/clawq-scope-root/allowed/app", "capabilities": ["read"]},
+            {"repo": "/tmp/clawq-scope-root/other/app", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["repo"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "codebase grant keeps covered repo grant"
+    [ "/tmp/clawq-scope-root/allowed/app" ]
+    (repo_grant_repos effective.repo_grants);
+  Alcotest.(check (list string))
+    "codebase grant blocks uncovered repo grant"
+    [ "/tmp/clawq-scope-root/other/app" ]
+    (repo_grant_repos effective.blocked_repo_grants)
+
 let test_legacy_repositories_become_read_only_repo_grants () =
   let json =
     {|{
@@ -665,6 +739,10 @@ let suite =
       test_invalid_scope_bundle_denies_scope_grants;
     Alcotest.test_case "repo grants attach to bundle" `Quick
       test_repo_grants_attach_to_bundle;
+    Alcotest.test_case "repo grants blocked by global security" `Quick
+      test_repo_grants_blocked_by_global_security;
+    Alcotest.test_case "repo grants intersect codebase grants" `Quick
+      test_repo_grants_intersect_codebase_grants;
     Alcotest.test_case "legacy repositories become read-only repo grants" `Quick
       test_legacy_repositories_become_read_only_repo_grants;
     Alcotest.test_case "explicit repo grants take precedence over legacy" `Quick

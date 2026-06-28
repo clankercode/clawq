@@ -398,6 +398,37 @@ let test_effective_access_lease_denies_non_inherited_handle () =
       fail "provider was resolved before effective-access denial"
   | Error _ -> fail "wrong error type"
 
+let test_snapshot_lease_denies_non_snapshot_handle () =
+  let config =
+    {
+      Runtime_config.default with
+      credential_handles =
+        [
+          {
+            Runtime_config.id = "test:not-snapshot";
+            provider = Env_var { name = "CLAWQ_TEST_NOT_SNAPSHOT" };
+            description = None;
+            status = "active";
+          };
+        ];
+    }
+  in
+  let snapshot =
+    Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+      ~session_key:"test:room" ()
+  in
+  Unix.putenv "CLAWQ_TEST_NOT_SNAPSHOT" "";
+  match
+    Credential_lease.resolve_snapshot_lease ~config ~snapshot
+      ~handle_id:"test:not-snapshot" ~header_name:"Authorization"
+  with
+  | Ok _ -> fail "should fail for handle outside snapshot policy"
+  | Error (Credential_lease.Handle_not_allowed id) ->
+      check string "denied handle id" "test:not-snapshot" id
+  | Error (Credential_lease.Env_var_unset _) ->
+      fail "provider was resolved before snapshot denial"
+  | Error _ -> fail "wrong error type"
+
 let test_encrypted_provider () =
   (* Test Encrypted provider - requires CLAWQ_MASTER_KEY to be set *)
   let master_key = Sys.getenv_opt "CLAWQ_MASTER_KEY" in
@@ -497,6 +528,9 @@ let suite =
     ( "effective_access_lease_denies_non_inherited_handle",
       `Quick,
       test_effective_access_lease_denies_non_inherited_handle );
+    ( "snapshot_lease_denies_non_snapshot_handle",
+      `Quick,
+      test_snapshot_lease_denies_non_snapshot_handle );
     ("encrypted_provider", `Quick, test_encrypted_provider);
     ( "apply_headers_empty_decorations",
       `Quick,

@@ -304,6 +304,7 @@ requests, inbound verification, or stored in memory.
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
 | `config_loader.ml:1093-1104` | `Config_loader` | `search_api_key` | Loaded from config for web search provider | None | HIGH | MISSING |
+| `tools_builtin_net.ml:75-97` | `Tools_builtin_net` | User-supplied HTTP headers (`Authorization`, API keys, cookies, etc.) | Arbitrary headers passed through `http_request` to `Http_client.*` | None in request path | HIGH | MISSING |
 | `tools_builtin_net.ml:365-416` | `Tools_builtin_net` | Brave `search_api_key` | `X-Subscription-Token: <key>` on Brave web search requests | None in request path | HIGH | MISSING |
 | `tools_builtin_net.ml:937-960` | `Tools_builtin_net` | Brave `search_api_key` | `X-Subscription-Token: <key>` on Brave health-check probe | None in request path | HIGH | MISSING |
 
@@ -316,7 +317,8 @@ requests, inbound verification, or stored in memory.
 | `config_loader.ml:1118-1141` | `Config_loader` | `zai_mcp.key` | Loaded from config for Z.ai MCP tools | None | HIGH | MISSING |
 | `tools_builtin_zai.ml:38-55` | `Tools_builtin_zai` | `zai_mcp.key` / discovered Z.ai provider key | `Authorization: Bearer <key>` for Z.ai MCP `tools/call` requests | None in request path | HIGH | MISSING |
 | `tools_builtin_zai.ml:151-154` | `Tools_builtin_zai` | `zai_mcp.key` / discovered Z.ai provider key | `Authorization: Bearer <key>` for Z.ai MCP initialize and discovery requests | None in request path | HIGH | MISSING |
-| `mcp_client.ml:278-318` | `Mcp_client` | Configured HTTP MCP headers | Arbitrary configured headers sent to HTTP MCP transports | None in transport setup | HIGH | MISSING |
+| `mcp_client.ml:278-318` | `Mcp_client` | Configured HTTP MCP headers | Parsed from HTTP MCP server config into transport headers | None in transport setup | HIGH | MISSING |
+| `mcp_client.ml:169` | `Mcp_client` | Configured HTTP MCP headers | `transport.headers` passed to HTTP MCP `transport.post` for JSON-RPC requests | None in request path | HIGH | MISSING |
 
 ---
 
