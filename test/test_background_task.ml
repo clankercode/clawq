@@ -91,7 +91,7 @@ let fake_task ?(runner = Background_task.Codex)
     progress_state = None;
   }
 
-let fake_started_task ?(runner = Background_task.Codex) ?model
+let fake_started_task ?(runner = Background_task.Codex) ?model ?agent_name
     ?(status = Background_task.Succeeded) id =
   {
     Background_task.id;
@@ -119,7 +119,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     replaced_by = None;
     runner_session_id = None;
     acp = false;
-    agent_name = None;
+    agent_name;
     notification_status = None;
     notification_error = None;
     notification_attempts = 0;
@@ -3036,6 +3036,332 @@ let test_wait_until_terminal_honors_real_interrupt () =
       match result with
       | Background_task.Interrupted _ -> ()
       | _ -> Alcotest.fail "expected Interrupted for non-queued reason")
+
+let subagent_short_cache_config retention =
+  let provider =
+    {
+      Runtime_config.default_provider_config with
+      api_key = "test-key";
+      default_model = Some "gpt-test";
+      prompt_cache_retention = retention;
+    }
+  in
+  {
+    Runtime_config.default with
+    providers = [ ("testprov", provider) ];
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = "testprov:gpt-test";
+      };
+  }
+
+let subagent_two_provider_config ~primary_retention ~subagent_retention =
+  let provider retention =
+    {
+      Runtime_config.default_provider_config with
+      api_key = "test-key";
+      default_model = Some "gpt-test";
+      prompt_cache_retention = retention;
+    }
+  in
+  {
+    Runtime_config.default with
+    providers =
+      [
+        ("parentprov", provider primary_retention);
+        ("subprov", provider subagent_retention);
+      ];
+    agent_defaults =
+      {
+        Runtime_config.default.agent_defaults with
+        primary_model = "parentprov:gpt-test";
+        subagent_default_model = Some "subprov:gpt-test";
+      };
+  }
+
+let test_subagent_result_wait_budget_tracks_provider_cache () =
+  let cfg = subagent_short_cache_config (Some "2m") in
+  Alcotest.(check (float 0.0))
+    "waits slightly less than cache ttl" 115.0
+    (Subagent_tool.subagent_result_wait_timeout_seconds ~config:cfg ());
+  let cfg = subagent_short_cache_config (Some "24h") in
+  Alcotest.(check (float 0.0))
+    "caps at four and a half minutes" 270.0
+    (Subagent_tool.subagent_result_wait_timeout_seconds ~config:cfg ())
+
+let test_subagent_result_wait_budget_uses_default_subagent_model () =
+  let cfg =
+    subagent_two_provider_config ~primary_retention:(Some "24h")
+      ~subagent_retention:(Some "2m")
+  in
+  let task = fake_started_task ~status:Background_task.Running 724 in
+  Alcotest.(check (float 0.0))
+    "uses child default model cache ttl" 115.0
+    (Subagent_tool.subagent_result_wait_timeout_seconds_for_task ~config:cfg
+       task)
+
+let test_subagent_result_wait_budget_template_falls_back_to_default_model () =
+  let cfg =
+    subagent_two_provider_config ~primary_retention:(Some "24h")
+      ~subagent_retention:(Some "2m")
+  in
+  let task =
+    fake_started_task ~agent_name:"coder" ~status:Background_task.Running 725
+  in
+  Alcotest.(check (float 0.0))
+    "uses subagent default when template has no model" 115.0
+    (Subagent_tool.subagent_result_wait_timeout_seconds_for_task ~config:cfg
+       task)
+
+let test_subagent_result_queued_system_message_does_not_steer () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let interrupt_check () = Some Agent.queued_message_interrupt_token in
+      let steering_check () = Lwt.return_false in
+      let result =
+        Lwt_main.run
+          (Subagent_tool.wait_for_subagent_result ~poll_seconds:0.01
+             ~timeout_seconds:0.03 ~interrupt_check ~steering_check ~db ~id ())
+      in
+      match result with
+      | Subagent_tool.Wait_timeout -> ()
+      | _ -> Alcotest.fail "expected queued non-steering interrupt to time out")
+
+let test_subagent_result_tool_uses_session_mgr_for_queued_interrupts () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let key = "telegram:1:user" in
+      let cfg = subagent_short_cache_config (Some "4s") in
+      let mgr = Session.create ~config:cfg ~db () in
+      Hashtbl.replace mgr.Session.queued_messages key
+        [
+          {
+            Session.message = "[bg #1 started]";
+            content_parts = [];
+            attachments = [];
+            channel_name = None;
+            channel_type = None;
+            sender_id = None;
+            sender_name = None;
+            user_group = None;
+            channel = Some "telegram";
+            channel_id = Some "1";
+            message_id = None;
+            inbound_queue_id = None;
+            bang = false;
+            deferred_followup = false;
+          };
+        ];
+      let tool =
+        Subagent_tool.result_tool ~config:cfg ~db ~session_mgr:mgr ()
+      in
+      let context =
+        {
+          Tool.default_context with
+          session_key = Some key;
+          interrupt_check =
+            Some (fun () -> Some Agent.queued_message_interrupt_token);
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context
+             (`Assoc [ ("id", `Int id); ("wait", `Bool true) ]))
+      in
+      Alcotest.(check bool)
+        "does not mention steering" false
+        (Test_helpers.string_contains result "steering commands");
+      Alcotest.(check bool)
+        "returns cache-timeout guidance" true
+        (Test_helpers.string_contains result "prompt cache timeout"))
+
+let test_subagent_result_late_steering_after_system_message () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let checks = ref 0 in
+      let interrupt_check () = Some Agent.queued_message_interrupt_token in
+      let steering_check () =
+        incr checks;
+        Lwt.return (!checks >= 2)
+      in
+      let result =
+        Lwt_main.run
+          (Subagent_tool.wait_for_subagent_result ~poll_seconds:0.01
+             ~timeout_seconds:0.1 ~interrupt_check ~steering_check ~db ~id ())
+      in
+      match result with
+      | Subagent_tool.Wait_steering_message -> ()
+      | _ -> Alcotest.fail "expected later steering message to interrupt wait")
+
+let test_subagent_result_timeout_guides_recall () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let cfg = subagent_short_cache_config (Some "4s") in
+      let tool = Subagent_tool.result_tool ~config:cfg ~db () in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("wait", `Bool true) ]))
+      in
+      Alcotest.(check bool)
+        "mentions returned early" true
+        (Test_helpers.string_contains result "Returned early");
+      Alcotest.(check bool)
+        "mentions cache timeout" true
+        (Test_helpers.string_contains result "prompt cache timeout");
+      Alcotest.(check bool)
+        "instructs recall" true
+        (Test_helpers.string_contains result "subagent_result");
+      Alcotest.(check bool)
+        "says task still running" true
+        (Test_helpers.string_contains result "sub-agent is still running"))
+
+let test_subagent_result_timeout_guidance_survives_peek () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-subagent-peek" ".log" in
+      Fun.protect
+        ~finally:(fun () -> try Sys.remove log_path with Sys_error _ -> ())
+        (fun () ->
+          let oc = open_out log_path in
+          output_string oc "line one\nline two\n";
+          close_out oc;
+          ignore
+            (Background_task.set_running ~db ~id ~branch:"clawq-bg-test"
+               ~worktree_path:repo_path ~log_path ~pid:99999);
+          let cfg = subagent_short_cache_config (Some "4s") in
+          let tool = Subagent_tool.result_tool ~config:cfg ~db () in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke
+                 (`Assoc
+                    [
+                      ("id", `Int id);
+                      ("wait", `Bool true);
+                      ("peek", `Assoc [ ("lines", `Int 1) ]);
+                    ]))
+          in
+          Alcotest.(check bool)
+            "mentions cache timeout" true
+            (Test_helpers.string_contains result "prompt cache timeout");
+          Alcotest.(check bool)
+            "includes peeked log" true
+            (Test_helpers.string_contains result "line two")))
+
+let test_subagent_result_timeout_guidance_survives_peek_without_log () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let cfg = subagent_short_cache_config (Some "4s") in
+      let tool = Subagent_tool.result_tool ~config:cfg ~db () in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("id", `Int id);
+                  ("wait", `Bool true);
+                  ("peek", `Assoc [ ("lines", `Int 1) ]);
+                ]))
+      in
+      Alcotest.(check bool)
+        "mentions cache timeout" true
+        (Test_helpers.string_contains result "prompt cache timeout");
+      Alcotest.(check bool)
+        "preserves no-log error" true
+        (Test_helpers.string_contains result "has no log file yet"))
+
+let test_subagent_result_steering_interrupt_guides_recall () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let cfg = subagent_short_cache_config (Some "24h") in
+      let tool = Subagent_tool.result_tool ~config:cfg ~db () in
+      let context =
+        {
+          Tool.default_context with
+          interrupt_check =
+            Some (fun () -> Some Agent.queued_message_interrupt_token);
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context
+             (`Assoc [ ("id", `Int id); ("wait", `Bool true) ]))
+      in
+      Alcotest.(check bool)
+        "mentions steering" true
+        (Test_helpers.string_contains result "steering commands");
+      Alcotest.(check bool)
+        "mentions user message" true
+        (Test_helpers.string_contains result "user added");
+      Alcotest.(check bool)
+        "instructs recall" true
+        (Test_helpers.string_contains result "subagent_result");
+      Alcotest.(check bool)
+        "says task still running" true
+        (Test_helpers.string_contains result "sub-agent is still running"))
 
 let test_start_to_file () =
   let log_path = Filename.temp_file "clawq-bg-file" ".log" in
@@ -6092,6 +6418,29 @@ let suite =
     Alcotest.test_case
       "B473: wait_until_terminal honors non-queued interrupt reasons" `Quick
       test_wait_until_terminal_honors_real_interrupt;
+    Alcotest.test_case "subagent_result wait budget tracks provider cache"
+      `Quick test_subagent_result_wait_budget_tracks_provider_cache;
+    Alcotest.test_case "subagent_result wait budget uses default subagent model"
+      `Quick test_subagent_result_wait_budget_uses_default_subagent_model;
+    Alcotest.test_case
+      "subagent_result template falls back to default subagent model" `Quick
+      test_subagent_result_wait_budget_template_falls_back_to_default_model;
+    Alcotest.test_case "subagent_result queued system message does not steer"
+      `Quick test_subagent_result_queued_system_message_does_not_steer;
+    Alcotest.test_case
+      "subagent_result tool uses session mgr for queued interrupts" `Quick
+      test_subagent_result_tool_uses_session_mgr_for_queued_interrupts;
+    Alcotest.test_case "subagent_result late steering after system message"
+      `Quick test_subagent_result_late_steering_after_system_message;
+    Alcotest.test_case "subagent_result timeout guides recall" `Quick
+      test_subagent_result_timeout_guides_recall;
+    Alcotest.test_case "subagent_result timeout guidance survives peek" `Quick
+      test_subagent_result_timeout_guidance_survives_peek;
+    Alcotest.test_case
+      "subagent_result timeout guidance survives peek without log" `Quick
+      test_subagent_result_timeout_guidance_survives_peek_without_log;
+    Alcotest.test_case "subagent_result steering interrupt guides recall" `Quick
+      test_subagent_result_steering_interrupt_guides_recall;
     Alcotest.test_case "start_to_file writes output to log" `Quick
       test_start_to_file;
     Alcotest.test_case "readopt re-adopts alive running task" `Quick

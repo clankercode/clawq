@@ -4,6 +4,67 @@
 let max_result_chars = 20_000
 let max_peek_lines = 200
 let max_subagent_depth = 4
+let max_subagent_result_wait_seconds = 270.0
+let prompt_cache_wait_margin_seconds = 5.0
+
+let prompt_cache_retention_seconds retention =
+  match Scheduler.parse_duration_seconds (String.trim retention) with
+  | Ok seconds -> Some seconds
+  | Error _ -> None
+
+let prompt_cache_retention_for_model ?model ~config () =
+  let config =
+    match model with
+    | Some model when String.trim model <> "" ->
+        let agent_defaults =
+          {
+            config.Runtime_config.agent_defaults with
+            primary_model = String.trim model;
+          }
+        in
+        { config with Runtime_config.agent_defaults }
+    | _ -> config
+  in
+  let _provider_name, provider, _model =
+    Provider_routing.select_provider ~config ()
+  in
+  provider.Runtime_config.prompt_cache_retention
+
+let subagent_result_wait_timeout_seconds ?model ~config () =
+  let cache_limited =
+    match prompt_cache_retention_for_model ?model ~config () with
+    | None -> max_subagent_result_wait_seconds
+    | Some retention -> (
+        match prompt_cache_retention_seconds retention with
+        | Some seconds ->
+            Float.max 0.0 (seconds -. prompt_cache_wait_margin_seconds)
+        | None -> max_subagent_result_wait_seconds)
+  in
+  Float.min max_subagent_result_wait_seconds cache_limited
+
+let nonblank_opt = function
+  | Some s when String.trim s <> "" -> Some (String.trim s)
+  | _ -> None
+
+let effective_subagent_model ~config (task : Background_task.task) =
+  let template_model =
+    match nonblank_opt task.agent_name with
+    | Some name -> (
+        match Agent_template.resolve name with
+        | Some template -> nonblank_opt template.model
+        | None -> None)
+    | None -> None
+  in
+  match (nonblank_opt task.model, template_model) with
+  | (Some _ as model), _ -> model
+  | None, (Some _ as model) -> model
+  | None, None ->
+      nonblank_opt config.Runtime_config.agent_defaults.subagent_default_model
+
+let subagent_result_wait_timeout_seconds_for_task ~config task =
+  subagent_result_wait_timeout_seconds
+    ?model:(effective_subagent_model ~config task)
+    ~config ()
 
 let subagent_depth ~db ~session_key =
   match Background_task.find_task_id_by_session_key ~db ~session_key with
@@ -107,6 +168,69 @@ let format_result (task : Background_task.task) ~verbose =
     else ""
   in
   Printf.sprintf "%s\n\n%s%s%s" header result_text output_path verbose_section
+
+type subagent_wait_result =
+  | Wait_finished
+  | Wait_timeout
+  | Wait_interrupted
+  | Wait_steering_message
+  | Wait_not_found
+
+let is_steering_message_interrupt = function
+  | Some reason when reason = Agent.queued_message_interrupt_token -> true
+  | _ -> false
+
+let rec wait_for_subagent_result ?(poll_seconds = 1.0) ?interrupt_check
+    ?steering_check ~db ~id ~timeout_seconds () =
+  let open Lwt.Syntax in
+  let continue_wait () =
+    if timeout_seconds <= 0.0 then Lwt.return Wait_timeout
+    else
+      let sleep_for = Float.min poll_seconds timeout_seconds in
+      let* () = Lwt_unix.sleep sleep_for in
+      wait_for_subagent_result ~poll_seconds ?interrupt_check ?steering_check
+        ~db ~id
+        ~timeout_seconds:(timeout_seconds -. sleep_for)
+        ()
+  in
+  match Background_task.get_task ~db ~id with
+  | None -> Lwt.return Wait_not_found
+  | Some task when Background_task.is_terminal_status task.status ->
+      Lwt.return Wait_finished
+  | Some _ -> (
+      let interrupt_reason = Option.bind interrupt_check (fun f -> f ()) in
+      match interrupt_reason with
+      | reason when is_steering_message_interrupt reason -> (
+          match steering_check with
+          | None -> Lwt.return Wait_steering_message
+          | Some has_steering_message ->
+              let* has_steering = has_steering_message () in
+              if has_steering then Lwt.return Wait_steering_message
+              else continue_wait ())
+      | Some _ -> Lwt.return Wait_interrupted
+      | None -> continue_wait ())
+
+let wait_timeout_guidance ~id =
+  Printf.sprintf
+    "Returned early before the prompt cache timeout. The sub-agent is still \
+     running. Call subagent_result again with {\"id\": %d, \"wait\": true} to \
+     continue blocking."
+    id
+
+let wait_steering_guidance ~id =
+  Printf.sprintf
+    "Returned early because the user added steering commands while waiting. \
+     The sub-agent is still running. Handle the steering message, then call \
+     subagent_result again with {\"id\": %d, \"wait\": true} to continue \
+     blocking."
+    id
+
+let wait_interrupted_guidance ~id =
+  Printf.sprintf
+    "Waiting was interrupted while the sub-agent was still running. Call \
+     subagent_result again with {\"id\": %d, \"wait\": true} to continue \
+     blocking."
+    id
 
 let spawn_tool ~db =
   {
@@ -267,13 +391,14 @@ let spawn_tool ~db =
     deferred = false;
   }
 
-let result_tool ~db =
+let result_tool ~config ~db ?session_mgr () =
   {
     Tool.name = "subagent_result";
     description =
       "Check the status or wait for a background subagent task. Returns \
        status, output, and metadata. Use wait:true to block until completion \
-       (max 110s). Use peek to tail/filter the log file.";
+       or until the adaptive prompt-cache-aware wait budget elapses. Use peek \
+       to tail/filter the log file.";
     parameters_schema =
       `Assoc
         [
@@ -293,8 +418,9 @@ let result_tool ~db =
                       ("type", `String "boolean");
                       ( "description",
                         `String
-                          "Block until the task finishes (max 110 seconds). \
-                           Default: false." );
+                          "Block until the task finishes, the adaptive \
+                           prompt-cache-aware wait budget elapses, or a queued \
+                           steering message arrives. Default: false." );
                     ] );
                 ( "verbose",
                   `Assoc
@@ -380,22 +506,42 @@ let result_tool ~db =
         if id < 0 then
           Lwt.return "Error: id is required and must be a non-negative integer."
         else
+          let open Lwt.Syntax in
+          let initial_task = Background_task.get_task ~db ~id in
           let interrupt_check =
             Option.bind context (fun c -> c.Tool.interrupt_check)
           in
-          let open Lwt.Syntax in
-          (* If wait is requested, block until terminal first *)
-          let* () =
-            if wait then
-              let* result =
-                Background_task.wait_until_terminal ~timeout_seconds:110.0
-                  ?interrupt_check ~db ~id ()
-              in
-              match result with
-              | Background_task.Finished _ | Background_task.Timeout _
-              | Background_task.Interrupted _ | Background_task.Not_found ->
-                  Lwt.return_unit
-            else Lwt.return_unit
+          let steering_check =
+            match
+              (session_mgr, Option.bind context (fun c -> c.Tool.session_key))
+            with
+            | Some mgr, Some key ->
+                Some (fun () -> Session.has_queued_steering_message mgr ~key)
+            | _ -> None
+          in
+          let* wait_guidance =
+            match (wait, initial_task) with
+            | false, _ | true, None -> Lwt.return_none
+            | true, Some task -> (
+                let timeout_seconds =
+                  subagent_result_wait_timeout_seconds_for_task ~config task
+                in
+                let* wait_result =
+                  wait_for_subagent_result ~timeout_seconds ?interrupt_check ~db
+                    ?steering_check ~id ()
+                in
+                match wait_result with
+                | Wait_finished | Wait_not_found -> Lwt.return_none
+                | Wait_timeout -> Lwt.return_some (wait_timeout_guidance ~id)
+                | Wait_steering_message ->
+                    Lwt.return_some (wait_steering_guidance ~id)
+                | Wait_interrupted ->
+                    Lwt.return_some (wait_interrupted_guidance ~id))
+          in
+          let with_wait_guidance text =
+            match wait_guidance with
+            | Some guidance -> guidance ^ "\n\n" ^ text
+            | None -> text
           in
           match Background_task.get_task ~db ~id with
           | None ->
@@ -408,25 +554,30 @@ let result_tool ~db =
                   match task.log_path with
                   | None ->
                       Lwt.return
-                        (Printf.sprintf
-                           "Error: Task %d has no log file yet (status: %s)" id
-                           (Background_task.string_of_status task.status))
+                        (with_wait_guidance
+                           (Printf.sprintf
+                              "Error: Task %d has no log file yet (status: %s)"
+                              id
+                              (Background_task.string_of_status task.status)))
                   | Some path when not (Sys.file_exists path) ->
                       Lwt.return
-                        (Printf.sprintf "Error: Log file does not exist yet: %s"
-                           path)
+                        (with_wait_guidance
+                           (Printf.sprintf
+                              "Error: Log file does not exist yet: %s" path))
                   | Some path ->
                       let all_lines = read_file_lines path in
                       let text =
                         apply_peek ~lines:n ?regex:peek_regex ?after:peek_after
                           all_lines
                       in
+                      let text = with_wait_guidance text in
                       let capped =
                         truncate_with_guidance ~max:max_result_chars text
                       in
                       Lwt.return capped)
               | None ->
                   let text = format_result task ~verbose in
+                  let text = with_wait_guidance text in
                   let capped =
                     truncate_with_guidance ~max:max_result_chars text
                   in

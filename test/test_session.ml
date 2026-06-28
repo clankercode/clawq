@@ -1456,6 +1456,19 @@ let test_midturn_injection_pulls_steering_before_followups () =
            (Session.take_next_queued_message mgr ~key))
        [ (); () ])
 
+let test_metadata_free_user_inject_counts_as_steering () =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let key = "telegram:1:u" in
+  Hashtbl.replace mgr.queued_messages key [ queued_message "please steer" ];
+  Alcotest.(check bool)
+    "metadata-free user injection steers" true
+    (Lwt_main.run (Session.has_queued_steering_message mgr ~key));
+  Hashtbl.replace mgr.queued_messages key
+    [ queued_message "[bg #12 started: Codex repo=/tmp/repo branch=main]" ];
+  Alcotest.(check bool)
+    "background lifecycle message does not steer" false
+    (Lwt_main.run (Session.has_queued_steering_message mgr ~key))
+
 let test_append_followup_updates_last_queued_followup () =
   let config = Runtime_config.default in
   let mgr = Session.create ~config () in
@@ -5109,6 +5122,8 @@ let suite =
     Alcotest.test_case
       "mid-turn injection pulls steering before deferred followups" `Quick
       test_midturn_injection_pulls_steering_before_followups;
+    Alcotest.test_case "metadata-free user inject counts as steering" `Quick
+      test_metadata_free_user_inject_counts_as_steering;
     Alcotest.test_case "append followup updates last queued followup" `Quick
       test_append_followup_updates_last_queued_followup;
     Alcotest.test_case "append followup without existing queues new followup"

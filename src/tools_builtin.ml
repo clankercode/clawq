@@ -980,7 +980,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (Background_task_tools.recover_tool ~db);
       *)
       Tool_registry.register registry (Subagent_tool.spawn_tool ~db);
-      Tool_registry.register registry (Subagent_tool.result_tool ~db);
+      Tool_registry.register registry
+        (Subagent_tool.result_tool ~config ~db ?session_mgr ());
       Tool_registry.register registry (Worktree_merge.finalize_tool ~db);
       Tool_registry.register registry
         (Plan_pipeline.start_tool ~db ~default_repo_path:workspace);

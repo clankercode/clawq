@@ -119,6 +119,35 @@ let is_admin_stop_message ~user_group message =
 let is_queued_admin_stop_message (msg : queued_message) =
   (not msg.bang) && is_admin_stop_message ~user_group:msg.user_group msg.message
 
+let starts_with ~prefix text =
+  let prefix_len = String.length prefix in
+  String.length text >= prefix_len && String.sub text 0 prefix_len = prefix
+
+let queued_message_has_user_origin (msg : queued_message) =
+  match
+    ( msg.sender_id,
+      msg.sender_name,
+      msg.user_group,
+      msg.message_id,
+      msg.content_parts,
+      msg.attachments )
+  with
+  | None, None, None, None, [], [] -> false
+  | _ -> true
+
+let queued_message_is_lifecycle (msg : queued_message) =
+  (not (queued_message_has_user_origin msg))
+  &&
+  let text = String.trim msg.message in
+  starts_with ~prefix:"[bg #" text
+  || starts_with ~prefix:"[automatic restart-resume]" text
+  || starts_with ~prefix:"Automatic restart-resume:" text
+  || starts_with ~prefix:"Autonomous session check-in:" text
+  || starts_with ~prefix:"[Automated Keepalive Check-In]" text
+
+let queued_message_is_steering (msg : queued_message) =
+  (not msg.deferred_followup) && not (queued_message_is_lifecycle msg)
+
 let delete_queued_message_row mgr (msg : queued_message) =
   match (msg.inbound_queue_id, mgr.db) with
   | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
@@ -832,6 +861,16 @@ let take_all_queued_messages mgr ~key =
       | None -> ());
       msgs
   | None -> []
+
+let has_queued_steering_message mgr ~key =
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+      let msgs =
+        match Hashtbl.find_opt mgr.queued_messages key with
+        | Some msgs -> msgs
+        | None -> []
+      in
+      Lwt.return (List.exists queued_message_is_steering msgs))
 
 let take_all_queued_messages_for_injection ?interrupt mgr ~key =
   let existing =

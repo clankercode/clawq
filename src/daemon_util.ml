@@ -460,6 +460,11 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t)
        ~session_mgr:session_manager ());
   Tool_registry.replace registry
     (Tools_builtin.models_tool ~config ~session_mgr:session_manager ());
+  (match Session.get_db session_manager with
+  | Some db ->
+      Tool_registry.replace registry
+        (Subagent_tool.result_tool ~config ~db ~session_mgr:session_manager ())
+  | None -> ());
   Tool_registry.replace registry
     (Tools_builtin.doc_write ~workspace
        ~workspace_files:config.prompt.workspace_files);
