@@ -50,6 +50,34 @@ let exec_with_params db sql params =
             (Printf.sprintf "SQLite error: %s (sql: %s)"
                (Sqlite3.Rc.to_string rc) sql))
 
+let table_exists db table_name =
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT table_name));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
+let column_exists db table_name column_name =
+  if not (table_exists db table_name) then false
+  else
+    let stmt =
+      Sqlite3.prepare db (Printf.sprintf "PRAGMA table_info(%s)" table_name)
+    in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        let found = ref false in
+        while (not !found) && Sqlite3.step stmt = Sqlite3.Rc.ROW do
+          match Sqlite3.column stmt 1 with
+          | Sqlite3.Data.TEXT s when s = column_name -> found := true
+          | _ -> ()
+        done;
+        !found)
+
 let set_schema_version db version =
   let stmt = Sqlite3.prepare db "UPDATE schema_version SET version = ?" in
   Fun.protect
@@ -433,6 +461,45 @@ let init_room_profile_bindings_schema db =
 
 let init_room_activity_ledger_schema db = Room_activity_ledger.init_schema db
 
+let repair_room_profile_tables db =
+  let profiles_modern = column_exists db "room_profiles" "name" in
+  let bindings_modern = column_exists db "room_profile_bindings" "room_id" in
+  if (not profiles_modern) || not bindings_modern then begin
+    exec_exn db "DROP TABLE IF EXISTS room_profile_bindings_legacy_repair";
+    exec_exn db "DROP TABLE IF EXISTS room_profiles_legacy_repair";
+    if table_exists db "room_profile_bindings" then
+      exec_exn db
+        "ALTER TABLE room_profile_bindings RENAME TO \
+         room_profile_bindings_legacy_repair";
+    if table_exists db "room_profiles" then
+      exec_exn db
+        "ALTER TABLE room_profiles RENAME TO room_profiles_legacy_repair";
+    init_room_profiles_schema db;
+    init_room_profile_bindings_schema db;
+    if table_exists db "room_profiles_legacy_repair" then
+      exec_exn db
+        "INSERT OR IGNORE INTO room_profiles (name) SELECT DISTINCT id FROM \
+         room_profiles_legacy_repair WHERE id IS NOT NULL AND id <> ''";
+    if table_exists db "room_profile_bindings_legacy_repair" then begin
+      if column_exists db "room_profile_bindings_legacy_repair" "profile_id"
+      then
+        exec_exn db
+          "INSERT OR IGNORE INTO room_profiles (name) SELECT DISTINCT \
+           profile_id FROM room_profile_bindings_legacy_repair WHERE \
+           profile_id IS NOT NULL AND profile_id <> ''";
+      if
+        column_exists db "room_profile_bindings_legacy_repair" "room"
+        && column_exists db "room_profile_bindings_legacy_repair" "profile_id"
+      then
+        exec_exn db
+          "INSERT OR REPLACE INTO room_profile_bindings (room_id, profile_id, \
+           created_at) SELECT b.room, p.id, b.created_at FROM \
+           room_profile_bindings_legacy_repair b JOIN room_profiles p ON \
+           p.name = b.profile_id WHERE b.room IS NOT NULL AND b.room <> '' AND \
+           COALESCE(b.active, 1) <> 0"
+    end
+  end
+
 let init_scoped_memory_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS memory_scopes (\n\
@@ -805,6 +872,7 @@ let repair_missing_columns db =
   init_connector_history_schema db;
   init_room_activity_ledger_schema db;
   Room_budget.init_schema db;
+  repair_room_profile_tables db;
   init_scoped_memory_schema db
 
 let migrate_schema db current_version =

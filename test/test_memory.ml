@@ -2441,6 +2441,45 @@ let test_repair_missing_columns_restores_dropped_column () =
     "debug_enabled restored by repair_missing_columns" true
     (column_exists db "session_state" "debug_enabled")
 
+let test_repair_legacy_room_profile_tables () =
+  with_temp_db (fun path ->
+      let db = Sqlite3.db_open path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db
+        (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
+           Memory.schema_version);
+      exec_exn db
+        "CREATE TABLE room_profiles (id TEXT PRIMARY KEY, model TEXT NOT NULL, \
+         system_prompt TEXT NOT NULL DEFAULT '', max_tool_iterations INTEGER \
+         NOT NULL DEFAULT 10, created_at TEXT NOT NULL DEFAULT \
+         (datetime('now')), deleted_at TEXT DEFAULT NULL)";
+      exec_exn db
+        "CREATE TABLE room_profile_bindings (id INTEGER PRIMARY KEY \
+         AUTOINCREMENT, room TEXT NOT NULL, profile_id TEXT NOT NULL, active \
+         INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT \
+         (datetime('now')))";
+      exec_exn db
+        "INSERT INTO room_profiles (id, model, system_prompt) VALUES \
+         ('default', 'openai:gpt-5.4', '')";
+      exec_exn db
+        "INSERT INTO room_profile_bindings (room, profile_id, active) VALUES \
+         ('teams-room', 'default', 1)";
+      ignore (Sqlite3.db_close db);
+      let db = Memory.init ~db_path:path () in
+      Alcotest.(check bool)
+        "room_id restored" true
+        (column_exists db "room_profile_bindings" "room_id");
+      Alcotest.(check bool)
+        "name restored" true
+        (column_exists db "room_profiles" "name");
+      match Memory.get_room_profile_binding ~db ~room_id:"teams-room" with
+      | None -> Alcotest.fail "expected migrated binding"
+      | Some binding -> (
+          match Memory.get_room_profile ~db ~id:binding.profile_id with
+          | None -> Alcotest.fail "expected migrated profile"
+          | Some profile ->
+              Alcotest.(check string) "profile name" "default" profile.name))
+
 let test_upsert_room_profile_binding_orphan_rejection () =
   let db = Memory.init ~db_path:":memory:" () in
   (* Binding to a nonexistent profile_id must fail *)
@@ -2664,6 +2703,8 @@ let suite =
       test_remove_room_profile_binding;
     Alcotest.test_case "repair missing columns restores dropped column" `Quick
       test_repair_missing_columns_restores_dropped_column;
+    Alcotest.test_case "repair legacy room profile tables" `Quick
+      test_repair_legacy_room_profile_tables;
     Alcotest.test_case "upsert room profile binding orphan rejection" `Quick
       test_upsert_room_profile_binding_orphan_rejection;
   ]
