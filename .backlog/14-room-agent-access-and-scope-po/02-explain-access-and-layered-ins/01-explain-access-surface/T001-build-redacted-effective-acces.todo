@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T17:48:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T18:16:42Z"
 complexity: high
 depends_on:
     - P14.M1.E3.T002
+duration_minutes: 28.303692225633334
 estimate_hours: 3
 id: P14.M2.E1.T001
 priority: high
 started_at: "2026-06-28T17:48:24Z"
-status: in_progress
+status: done
 tags: []
 title: Build redacted effective-access explanation API
 ---
