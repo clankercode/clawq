@@ -1028,6 +1028,9 @@ let parse_config ?(resolve_secrets = true) json =
           let level_raw = try s |> member "level" |> to_string with _ -> "" in
           let level_opt = access_scope_level_of_string level_raw in
           let level = Option.value ~default:Runtime_config.Default level_opt in
+          let selector_malformed key =
+            match member key s with `Null | `String _ -> false | _ -> true
+          in
           let workspace =
             try Some (s |> member "workspace" |> to_string) with _ -> None
           in
@@ -1038,7 +1041,12 @@ let parse_config ?(resolve_secrets = true) json =
             try Some (s |> member "room" |> to_string) with _ -> None
           in
           let status =
-            if Option.is_none level_opt then "deleted"
+            if
+              Option.is_none level_opt
+              || selector_malformed "workspace"
+              || selector_malformed "channel"
+              || selector_malformed "room"
+            then "deleted"
             else try s |> member "status" |> to_string with _ -> "active"
           in
           ({

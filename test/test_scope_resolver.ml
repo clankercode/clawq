@@ -237,6 +237,25 @@ let test_invalid_profile_bundle_denies_effective_profile_grants () =
     "invalid profile bundle reference suppresses all profile grants" []
     (item_values effective.allowed_tools)
 
+let test_invalid_scope_bundle_denies_scope_grants () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "known", "allowed_tools": ["explicit_tool"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["known", "missing"]}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C123"
+  in
+  Alcotest.(check (list string))
+    "invalid scope bundle reference suppresses all scope grants" []
+    (item_values effective.allowed_tools)
+
 let suite =
   [
     Alcotest.test_case "layers merge deterministically and deny wins" `Quick
@@ -253,4 +272,6 @@ let suite =
       test_legacy_room_profile_bundle_is_room_layer;
     Alcotest.test_case "invalid profile bundle denies effective profile grants"
       `Quick test_invalid_profile_bundle_denies_effective_profile_grants;
+    Alcotest.test_case "invalid scope bundle denies scope grants" `Quick
+      test_invalid_scope_bundle_denies_scope_grants;
   ]

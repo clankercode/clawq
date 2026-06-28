@@ -1680,6 +1680,39 @@ let test_access_scope_missing_required_selector_rejects () =
         (Test_helpers.string_contains stderr_output
            "scope 'room-missing' must set room"))
 
+let test_access_scope_malformed_selector_rejects () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "known", "allowed_tools": ["file_read"]}
+      ],
+      "access_scopes": [
+        {"id": "bad-default", "level": "default", "workspace": 42, "access_bundle_ids": ["known"]}
+      ]
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () ->
+            let cfg = Config_loader.load ~path () in
+            Alcotest.(check int)
+              "malformed selector disables scopes" 0
+              (List.length cfg.access_scopes);
+            let effective =
+              Runtime_config.resolve_effective_access cfg
+                ~session_key:"slack:C123"
+            in
+            Alcotest.(check (list string))
+              "malformed selector grants no tools" []
+              (List.map
+                 (fun (item : Runtime_config.effective_access_item) ->
+                   item.value)
+                 effective.allowed_tools))
+      in
+      Alcotest.(check bool)
+        "warns about malformed workspace selector" true
+        (Test_helpers.string_contains stderr_output "access_scopes[0].workspace"))
+
 let suite =
   [
     Alcotest.test_case "load warns on invalid port" `Quick
@@ -1823,6 +1856,8 @@ let suite =
       test_access_scope_invalid_level_rejects;
     Alcotest.test_case "access_scopes missing selector rejects" `Quick
       test_access_scope_missing_required_selector_rejects;
+    Alcotest.test_case "access_scopes malformed selector rejects" `Quick
+      test_access_scope_malformed_selector_rejects;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)

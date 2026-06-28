@@ -241,6 +241,16 @@ let validate_access_scope_json_shapes json : string list =
                         index;
                     ]
               in
+              let selector_issues =
+                [ "workspace"; "channel"; "room" ]
+                |> List.filter_map (fun key ->
+                    match List.assoc_opt key fields with
+                    | None | Some `Null | Some (`String _) -> None
+                    | Some _ ->
+                        Some
+                          (Printf.sprintf
+                             "access_scopes[%d].%s must be a string" index key))
+              in
               let bundle_issues =
                 match List.assoc_opt "access_bundle_ids" fields with
                 | None -> []
@@ -257,7 +267,7 @@ let validate_access_scope_json_shapes json : string list =
                         index;
                     ]
               in
-              level_issues @ bundle_issues
+              level_issues @ selector_issues @ bundle_issues
           | _ -> [ Printf.sprintf "access_scopes[%d] must be an object" index ])
       |> List.flatten
   | `Null -> []

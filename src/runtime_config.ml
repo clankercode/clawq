@@ -705,10 +705,16 @@ let resolve_effective_access (cfg : t) ~session_key : effective_access =
     selected_scopes
     |> List.concat_map (fun scope ->
         let layer = access_scope_level_label scope.level in
-        scope.access_bundle_ids
-        |> List.filter_map (fun bundle_id ->
-            find_access_bundle cfg bundle_id
-            |> Option.map (fun bundle -> (layer, scope.id, bundle))))
+        if
+          List.exists
+            (fun bundle_id -> find_access_bundle cfg bundle_id = None)
+            scope.access_bundle_ids
+        then []
+        else
+          scope.access_bundle_ids
+          |> List.filter_map (fun bundle_id ->
+              find_access_bundle cfg bundle_id
+              |> Option.map (fun bundle -> (layer, scope.id, bundle))))
   in
   let bundles : (string * string * access_bundle) list =
     scope_bundles @ profile_bundles
