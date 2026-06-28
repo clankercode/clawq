@@ -719,3 +719,4 @@ bugs:
     - file: B722-models-get-tool-reports-config.todo
     - file: B723-stuck-detection-counts-per-too.todo
     - file: B724-subagent-result-adaptive-block.todo
+    - file: B725-archive-forgotten-memories-to.todo

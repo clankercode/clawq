@@ -1,0 +1,20 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B725
+priority: high
+status: pending
+tags: []
+title: Archive forgotten memories to persistent per-session workspace storage
+---
+When memories are forgotten via memory_forget, they should be archived to a persistent location so they can be recovered if needed.
+
+Requirements:
+1. Forgotten memories should be logged to a file in the session's workspace subfolder (e.g. ~/.clawq/workspace/<session_key>/memory_archive.jsonl or similar)
+2. Each session gets its own workspace subfolder
+3. Only use recursive subfolders for things with clear hierarchy (e.g. threads in rooms)
+4. The archive should include the full key, category, content, and timestamp of when it was forgotten
+5. This is a safety net — if a memory was forgotten by mistake, it can be recovered from the archive
+
+Motivation: During large cleanup sweeps, many memories are deleted in bulk. Some may contain valuable information that was removed accidentally. Having a persistent archive ensures nothing is truly lost.
