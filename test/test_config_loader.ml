@@ -1328,11 +1328,8 @@ let test_room_profiles_duplicate_ids_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
-              (List.length cfg.room_profiles);
-            Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profiles preserved" 2
+              (List.length cfg.room_profiles))
       in
       Alcotest.(check bool)
         "warns about duplicate profile id" true
@@ -1356,11 +1353,16 @@ let test_room_profiles_duplicate_active_bindings_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles preserved" 2
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 2
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "duplicate binding denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about duplicate active room binding" true
@@ -1384,11 +1386,16 @@ let test_room_profiles_multi_room_binding_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles preserved" 1
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 2
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "multi-room binding denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about multi-room binding" true
@@ -1425,11 +1432,16 @@ let test_room_profile_orphan_binding_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles plus locked missing profile preserved" 2
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 1
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "orphan binding denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about non-existent profile" true
@@ -1454,31 +1466,38 @@ let test_room_profile_invalid_access_bundle_reference_rejects () =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles preserved" 1
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 1
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "missing bundle reference denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about missing access bundle" true
         (Test_helpers.string_contains stderr_output
            "references non-existent access bundle"))
 
-let assert_access_policy_rejected json ~warning_substring =
+let assert_access_policy_fail_closed json ~warning_substring =
   with_temp_file json (fun path ->
       let stderr_output =
         capture_stderr (fun () ->
             let cfg = Config_loader.load ~path () in
             Alcotest.(check int)
-              "access_bundles rejected (empty)" 0
-              (List.length cfg.access_bundles);
-            Alcotest.(check int)
-              "room_profiles rejected (empty)" 0
+              "room_profiles preserved" 1
               (List.length cfg.room_profiles);
             Alcotest.(check int)
-              "room_profile_bindings rejected (empty)" 0
-              (List.length cfg.room_profile_bindings))
+              "room_profile_bindings preserved" 1
+              (List.length cfg.room_profile_bindings);
+            Alcotest.(check bool)
+              "invalid access policy denies profile-scoped tool" true
+              (Option.is_some
+                 (Runtime_config.room_profile_tool_denial_for_session cfg
+                    ~session_key:"chat:general" ~tool_name:"file_read")))
       in
       Alcotest.(check bool)
         "warns about access policy validation" true
@@ -1517,9 +1536,26 @@ let test_access_bundle_malformed_security_fields_reject () =
           }|}
           field
       in
-      assert_access_policy_rejected json
+      assert_access_policy_fail_closed json
         ~warning_substring:("access_bundles[0]." ^ field))
     fields
+
+let test_room_profile_malformed_access_bundle_ids_rejects () =
+  let json =
+    {|{
+      "access_bundles": [
+        {"id": "known", "allowed_tools": ["file_read"]}
+      ],
+      "room_profiles": [
+        {"id": "p1", "model": "openai:gpt-4o", "access_bundle_ids": {"id": "known"}}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "p1", "room": "general", "active": true}
+      ]
+    }|}
+  in
+  assert_access_policy_fail_closed json
+    ~warning_substring:"room_profiles[0].access_bundle_ids"
 
 let test_access_bundle_duplicate_ids_rejects () =
   let json =
@@ -1536,7 +1572,7 @@ let test_access_bundle_duplicate_ids_rejects () =
       ]
     }|}
   in
-  assert_access_policy_rejected json ~warning_substring:"duplicate bundle id"
+  assert_access_policy_fail_closed json ~warning_substring:"duplicate bundle id"
 
 let suite =
   [
@@ -1667,6 +1703,8 @@ let suite =
       test_room_profile_orphan_binding_rejects;
     Alcotest.test_case "room_profiles invalid access bundle rejects" `Quick
       test_room_profile_invalid_access_bundle_reference_rejects;
+    Alcotest.test_case "room_profiles malformed access_bundle_ids rejects"
+      `Quick test_room_profile_malformed_access_bundle_ids_rejects;
     Alcotest.test_case "access_bundles malformed security fields reject" `Quick
       test_access_bundle_malformed_security_fields_reject;
     Alcotest.test_case "access_bundles duplicate ids reject" `Quick

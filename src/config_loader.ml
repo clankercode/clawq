@@ -1453,53 +1453,6 @@ let validate_room_profiles (cfg : Runtime_config.t) : string list =
     cfg.room_profiles;
   List.rev !issues
 
-let access_bundle_string_list_fields =
-  [
-    "allowed_tools";
-    "denied_tools";
-    "codebase_grants";
-    "mcp_servers";
-    "skills";
-    "repositories";
-    "domains";
-    "credential_handles";
-    "instructions";
-    "memory_grants";
-    "budget_refs";
-  ]
-
-let validate_access_bundle_json_shapes json : string list =
-  match Yojson.Safe.Util.member "access_bundles" json with
-  | `List bundles ->
-      bundles
-      |> List.mapi (fun index bundle ->
-          match bundle with
-          | `Assoc fields ->
-              access_bundle_string_list_fields
-              |> List.filter_map (fun field ->
-                  match List.assoc_opt field fields with
-                  | None -> None
-                  | Some (`List values) ->
-                      if
-                        List.for_all
-                          (function `String _ -> true | _ -> false)
-                          values
-                      then None
-                      else
-                        Some
-                          (Printf.sprintf
-                             "access_bundles[%d].%s must be a list of strings"
-                             index field)
-                  | Some _ ->
-                      Some
-                        (Printf.sprintf
-                           "access_bundles[%d].%s must be a list of strings"
-                           index field))
-          | _ -> [ Printf.sprintf "access_bundles[%d] must be an object" index ])
-      |> List.flatten
-  | `Null -> []
-  | _ -> [ "access_bundles must be a list" ]
-
 (* B697: even with no (or unreadable) config.json, surface zero-config xiaomi
    providers synthesized from discoverable keys (env vars / ~/.mimo) so the
    feature works without any config file. Callers that hit this path return
@@ -1565,6 +1518,7 @@ let load ?(path = "") () : Runtime_config.t =
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
         let access_policy_issues =
           validate_access_bundle_json_shapes json
+          @ validate_room_profile_access_bundle_json_shapes json
           @ validate_room_profiles config
         in
         let config =
@@ -1574,15 +1528,11 @@ let load ?(path = "") () : Runtime_config.t =
               config_path
               (String.concat "; " access_policy_issues);
             Printf.eprintf
-              "WARNING: rejecting access_bundles, room_profiles, and \
-               room_profile_bindings (using empty lists)\n\
+              "WARNING: preserving access_bundles, room_profiles, and \
+               room_profile_bindings, but forcing profile-scoped access to \
+               deny until the access policy is repaired\n\
                %!";
-            {
-              config with
-              Runtime_config.access_bundles = [];
-              Runtime_config.room_profiles = [];
-              room_profile_bindings = [];
-            })
+            fail_closed_access_policy config)
           else config
         in
         backfill_config ~path:config_path ~original_json:json
