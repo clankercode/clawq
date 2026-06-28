@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-28T19:07:30Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T20:39:25Z"
 complexity: medium
 depends_on:
     - P14.M2.E1.T001
     - P14.M2.E1.T002
+duration_minutes: 91.92225496853334
 estimate_hours: 2
 id: P14.M2.E1.T003
 priority: high
 started_at: "2026-06-28T19:07:30Z"
-status: in_progress
+status: done
 tags: []
 title: Add room-facing what-can-you-access command path
 ---

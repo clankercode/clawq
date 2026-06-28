@@ -41,7 +41,7 @@ tasks:
       file: T003-add-room-facing-what-can-you-a.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add room-facing what-can-you-access command path
     - complexity: medium
