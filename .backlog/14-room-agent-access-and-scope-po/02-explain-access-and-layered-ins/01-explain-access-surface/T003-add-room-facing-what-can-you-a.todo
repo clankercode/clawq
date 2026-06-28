@@ -1,14 +1,15 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P14.M2.E1.T001
+    - P14.M2.E1.T002
 estimate_hours: 2
 id: P14.M2.E1.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - access
-    - connectors
+tags: []
 title: Add room-facing what-can-you-access command path
 ---
 Acceptance: room members can ask what Clawq can access here and receive a redacted explanation appropriate to their permissions and connector capabilities.
