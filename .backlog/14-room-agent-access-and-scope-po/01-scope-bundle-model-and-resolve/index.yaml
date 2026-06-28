@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Scope Inheritance Resolver
       path: 02-scope-inheritance-resolver
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P14.M1.E2

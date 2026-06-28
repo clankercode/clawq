@@ -5,7 +5,7 @@ estimate_hours: 10
 id: P14.M1.E2
 locked: false
 name: Scope Inheritance Resolver
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -35,6 +35,6 @@ tasks:
       file: T003-refresh-derived-policy-on-conf.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Refresh derived policy on config reload
