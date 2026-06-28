@@ -39,7 +39,7 @@ tasks:
       file: T003-add-credential-lease-resolutio.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add credential lease resolution API
     - complexity: medium
