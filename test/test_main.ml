@@ -228,6 +228,15 @@ let () =
     @ [ ("repo_manager", Test_repo_manager.suite) ]
     @ Test_github.suites
     @ [ ("github_app_config", Test_github_app_config.suite) ]
+    @ [ ("github_app_jwt", Test_github_app_token.jwt_suite) ]
+    @ [ ("github_app_key", Test_github_app_token.key_suite) ]
+    @ [
+        ( "github_app_installation_lookup",
+          Test_github_app_token.installation_lookup_suite );
+      ]
+    @ [ ("github_app_cache", Test_github_app_token.cache_suite) ]
+    @ [ ("github_app_fetch", Test_github_app_token.fetch_suite) ]
+    @ [ ("github_app_redaction", Test_github_app_token.redaction_suite) ]
     @ [
         ( "config_isolation",
           [

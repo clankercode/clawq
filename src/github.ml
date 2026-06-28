@@ -52,8 +52,8 @@ let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
             Rate_limiter.check_and_consume api_limiter
               ~key:(Printf.sprintf "github:%s/%s" owner repo)
           in
-          Github_api.get_pr_files ~auth:github_config.auth ~owner ~repo
-            ~pull_number:pr_n)
+          Github_api.get_pr_files ~app_token:None ~auth:github_config.auth
+            ~owner ~repo ~pull_number:pr_n)
         (fun exn ->
           Logs.warn (fun m ->
               m "GitHub: failed to fetch PR files: %s" (Printexc.to_string exn));
@@ -75,11 +75,13 @@ let acknowledge_reaction ~(github_config : Runtime_config.github_config)
       in
       match event with
       | Github_webhook.IssueComment e ->
-          Github_api.add_reaction ~auth:github_config.auth ~owner ~repo
-            ~comment_id:e.comment_id ~content:"eyes" ~comment_type:`Issue
+          Github_api.add_reaction ~app_token:None ~auth:github_config.auth
+            ~owner ~repo ~comment_id:e.comment_id ~content:"eyes"
+            ~comment_type:`Issue
       | Github_webhook.PrReviewComment e ->
-          Github_api.add_reaction ~auth:github_config.auth ~owner ~repo
-            ~comment_id:e.comment_id ~content:"eyes" ~comment_type:`Review
+          Github_api.add_reaction ~app_token:None ~auth:github_config.auth
+            ~owner ~repo ~comment_id:e.comment_id ~content:"eyes"
+            ~comment_type:`Review
       | _ -> Lwt.return_unit)
     (fun exn ->
       Logs.warn (fun m ->
@@ -103,20 +105,20 @@ let post_reply ~(github_config : Runtime_config.github_config) ~api_limiter
       in
       match placeholder_id with
       | Some cid ->
-          Github_api.edit_comment ~auth:github_config.auth ~owner ~repo
-            ~comment_id:cid ~body:reply_text
+          Github_api.edit_comment ~app_token:None ~auth:github_config.auth
+            ~owner ~repo ~comment_id:cid ~body:reply_text
       | None -> (
           match event with
           | Github_webhook.PrReviewComment e ->
-              Github_api.reply_to_review_comment ~auth:github_config.auth ~owner
-                ~repo ~pull_number:e.pr_number ~comment_id:e.comment_id
-                ~body:reply_text
+              Github_api.reply_to_review_comment ~app_token:None
+                ~auth:github_config.auth ~owner ~repo ~pull_number:e.pr_number
+                ~comment_id:e.comment_id ~body:reply_text
           | Github_webhook.PullRequest e ->
-              Github_api.post_comment ~auth:github_config.auth ~owner ~repo
-                ~issue_number:e.pr_number ~body:reply_text
+              Github_api.post_comment ~app_token:None ~auth:github_config.auth
+                ~owner ~repo ~issue_number:e.pr_number ~body:reply_text
           | Github_webhook.IssueComment e ->
-              Github_api.post_comment ~auth:github_config.auth ~owner ~repo
-                ~issue_number:e.issue_number ~body:reply_text
+              Github_api.post_comment ~app_token:None ~auth:github_config.auth
+                ~owner ~repo ~issue_number:e.issue_number ~body:reply_text
           | Github_webhook.Ignored -> Lwt.return_unit))
     (fun exn ->
       Logs.err (fun m ->
@@ -152,8 +154,9 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
                   "> /clawq %s\n\n\xE2\x8F\xB3 Working on it...\n%s"
                   user_message bot_reply_marker
               in
-              Github_api.post_comment_returning_id ~auth:github_config.auth
-                ~owner ~repo ~issue_number:issue_n ~body:placeholder)
+              Github_api.post_comment_returning_id ~app_token:None
+                ~auth:github_config.auth ~owner ~repo ~issue_number:issue_n
+                ~body:placeholder)
             (fun exn ->
               Logs.warn (fun m ->
                   m "GitHub: failed to post placeholder: %s"
@@ -169,8 +172,8 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
         if issue_n > 0 then
           Lwt.catch
             (fun () ->
-              Github_api.post_comment ~auth:github_config.auth ~owner ~repo
-                ~issue_number:issue_n ~body)
+              Github_api.post_comment ~app_token:None ~auth:github_config.auth
+                ~owner ~repo ~issue_number:issue_n ~body)
             (fun exn ->
               Logs.err (fun m ->
                   m "GitHub: channel notifier failed: %s"

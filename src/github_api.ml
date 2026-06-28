@@ -7,32 +7,74 @@ let github_api_base () =
 
 let redact_token = String_util.redact_token
 
-let auth_headers (auth : Runtime_config.github_auth) =
-  match auth with
-  | GithubPat token ->
-      Logs.debug (fun m -> m "GitHub auth: PAT %s" (redact_token token));
-      [
-        ("Authorization", "Bearer " ^ token);
-        ("Accept", "application/vnd.github+json");
-        ("X-GitHub-Api-Version", "2022-11-28");
-      ]
-  | GithubApp _app ->
-      (* GitHub App auth requires JWT signing to generate installation access
-         tokens. This is not yet implemented. Raise an explicit error rather than
-         making unauthenticated API calls that would silently fail with 401. *)
-      Logs.err (fun m ->
-          m
-            "GitHub App auth: API calls not yet supported. Install a PAT or \
-             implement JWT token generation.");
-      failwith "GitHub App auth not yet implemented for outbound API calls"
+(* Synchronous headers for PAT auth (backward compat). *)
+let pat_headers token =
+  Logs.debug (fun m -> m "GitHub auth: PAT %s" (redact_token token));
+  [
+    ("Authorization", "Bearer " ^ token);
+    ("Accept", "application/vnd.github+json");
+    ("X-GitHub-Api-Version", "2022-11-28");
+  ]
 
-let post_comment ~auth ~owner ~repo ~issue_number ~body =
+(* Asynchronous auth headers that support both PAT and GitHub App auth.
+   [app_token] is required when [auth = GithubApp _].
+   [repo_full_name] is used to look up the correct installation. *)
+let auth_headers_lwt ~(app_token : Github_app_token.t option)
+    ?(repo_full_name = "") (auth : Runtime_config.github_auth) =
   let open Lwt.Syntax in
+  match auth with
+  | GithubPat token -> Lwt.return (pat_headers token)
+  | GithubApp _config -> (
+      match app_token with
+      | None ->
+          Logs.err (fun m ->
+              m
+                "GitHub auth: GithubApp auth requested but no \
+                 Github_app_token.t provided");
+          Lwt.return []
+      | Some tok -> (
+          match
+            Github_app_token.find_installation_for_repo tok ~repo_full_name
+          with
+          | None ->
+              Logs.err (fun m ->
+                  m "GitHub auth: no installation configured for repo %s"
+                    repo_full_name);
+              Lwt.return []
+          | Some inst -> (
+              let* result =
+                Github_app_token.get_installation_token tok
+                  ~installation_id:inst.installation_id ~repos:inst.repos
+              in
+              match result with
+              | Ok token ->
+                  Logs.debug (fun m ->
+                      m "GitHub auth: App installation %d token=%s"
+                        inst.installation_id (redact_token token));
+                  Lwt.return
+                    [
+                      ("Authorization", "Bearer " ^ token);
+                      ("Accept", "application/vnd.github+json");
+                      ("X-GitHub-Api-Version", "2022-11-28");
+                    ]
+              | Error msg ->
+                  Logs.err (fun m ->
+                      m "GitHub auth: failed to get installation token: %s" msg);
+                  Lwt.return [])))
+
+(* Legacy synchronous auth_headers for PAT-only callers. *)
+let auth_headers (auth : Runtime_config.github_auth) =
+  match auth with GithubPat token -> pat_headers token | GithubApp _ -> []
+
+let post_comment ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
+    ~issue_number ~body =
+  let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" (github_api_base ())
       owner repo issue_number
   in
-  let headers = auth_headers auth in
+  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
   let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
   let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
   if status < 200 || status >= 300 then
@@ -41,13 +83,15 @@ let post_comment ~auth ~owner ~repo ~issue_number ~body =
           status);
   Lwt.return_unit
 
-let reply_to_review_comment ~auth ~owner ~repo ~pull_number ~comment_id ~body =
+let reply_to_review_comment ~(app_token : Github_app_token.t option) ~auth
+    ~owner ~repo ~pull_number ~comment_id ~body =
   let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/pulls/%d/comments/%d/replies"
       (github_api_base ()) owner repo pull_number comment_id
   in
-  let headers = auth_headers auth in
+  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
   let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
   let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
   if status < 200 || status >= 300 then
@@ -56,9 +100,10 @@ let reply_to_review_comment ~auth ~owner ~repo ~pull_number ~comment_id ~body =
           owner repo pull_number comment_id status);
   Lwt.return_unit
 
-let add_reaction ~auth ~owner ~repo ~comment_id ~content
-    ~(comment_type : [ `Issue | `Review ]) =
+let add_reaction ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
+    ~comment_id ~content ~(comment_type : [ `Issue | `Review ]) =
   let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
   let segment =
     match comment_type with `Issue -> "issues" | `Review -> "pulls"
   in
@@ -66,7 +111,7 @@ let add_reaction ~auth ~owner ~repo ~comment_id ~content
     Printf.sprintf "%s/repos/%s/%s/%s/comments/%d/reactions"
       (github_api_base ()) owner repo segment comment_id
   in
-  let headers = auth_headers auth in
+  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
   let req_body =
     `Assoc [ ("content", `String content) ] |> Yojson.Safe.to_string
   in
@@ -77,13 +122,15 @@ let add_reaction ~auth ~owner ~repo ~comment_id ~content
           comment_id status);
   Lwt.return_unit
 
-let post_comment_returning_id ~auth ~owner ~repo ~issue_number ~body =
+let post_comment_returning_id ~(app_token : Github_app_token.t option) ~auth
+    ~owner ~repo ~issue_number ~body =
   let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" (github_api_base ())
       owner repo issue_number
   in
-  let headers = auth_headers auth in
+  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
   let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
   let* status, resp_body = Http_client.post_json ~uri ~headers ~body:req_body in
   if status < 200 || status >= 300 then begin
@@ -103,13 +150,15 @@ let post_comment_returning_id ~auth ~owner ~repo ~issue_number ~body =
     in
     Lwt.return id
 
-let edit_comment ~auth ~owner ~repo ~comment_id ~body =
+let edit_comment ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
+    ~comment_id ~body =
   let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
   let uri =
     Printf.sprintf "%s/repos/%s/%s/issues/comments/%d" (github_api_base ())
       owner repo comment_id
   in
-  let headers = auth_headers auth in
+  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
   let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
   let* status, _body = Http_client.patch_json ~uri ~headers ~body:req_body in
   if status < 200 || status >= 300 then
@@ -118,9 +167,11 @@ let edit_comment ~auth ~owner ~repo ~comment_id ~body =
           comment_id status);
   Lwt.return_unit
 
-let get_pr_files ~auth ~owner ~repo ~pull_number =
+let get_pr_files ~(app_token : Github_app_token.t option) ~auth ~owner ~repo
+    ~pull_number =
   let open Lwt.Syntax in
-  let headers = auth_headers auth in
+  let repo_full_name = owner ^ "/" ^ repo in
+  let* headers = auth_headers_lwt ~app_token ~repo_full_name auth in
   let rec fetch_page page acc =
     if page > 3 then Lwt.return (List.rev acc)
     else

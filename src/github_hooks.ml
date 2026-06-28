@@ -440,8 +440,8 @@ let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
                 ~key:(Printf.sprintf "github:%s/%s" owner repo)
             in
             let body = response ^ "\n<!-- clawq-reply -->" in
-            Github_api.post_comment ~auth:github_config.auth ~owner ~repo
-              ~issue_number:n ~body)
+            Github_api.post_comment ~app_token:None ~auth:github_config.auth
+              ~owner ~repo ~issue_number:n ~body)
           (fun exn ->
             Logs.err (fun m ->
                 m "GitHub hooks: post_back_to_github failed for %s/%s#%d: %s"
