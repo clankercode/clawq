@@ -20,7 +20,7 @@ tasks:
       file: T001-persist-effective-access-snaps.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Persist effective-access snapshots for executable work
     - complexity: high
