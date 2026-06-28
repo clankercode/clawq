@@ -121,7 +121,9 @@ requests, inbound verification, or stored in memory.
 
 ---
 
-## 5. MCP Client HTTP Headers
+## 5. MCP Client
+
+### 5.1 HTTP Transport Headers
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
@@ -130,6 +132,15 @@ requests, inbound verification, or stored in memory.
 | `mcp_client.ml:169` | `Mcp_client` | Transport headers | Sent on every MCP message | None | HIGH | MISSING |
 
 **Note:** MCP client allows arbitrary `headers` in config (e.g., `Authorization`, API keys). These are sent on every HTTP request without redaction.
+
+### 5.2 Stdio Transport Environment
+
+| Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
+|----------|--------------|------------|--------------|-----------|------|----------------|
+| `mcp_client.ml:291-297` | `Mcp_client` | `env` from config | Parsed as key-value pairs from JSON | None | HIGH | MISSING |
+| `mcp_client.ml:321-326` | `Mcp_client` | `env` + parent environment | Appended to `Unix.environment()`, passed to `Lwt_process.open_process_full` | None | HIGH | MISSING |
+
+**Note:** For stdio MCP servers, configured `env` entries (which may contain API keys) are merged with the full parent environment and forwarded to the child process.
 
 ---
 
@@ -166,7 +177,9 @@ requests, inbound verification, or stored in memory.
 | `discord.ml:301` | `Discord` | `bot_token` | `Authorization: Bot <token>` (add_reaction) | None | HIGH | MISSING |
 | `discord.ml:317` | `Discord` | `bot_token` | `Authorization: Bot <token>` (delete_own_reaction) | None | HIGH | MISSING |
 | `discord.ml:330` | `Discord` | `bot_token` | `Authorization: Bot <token>` (send_dm) | None | HIGH | MISSING |
-| `discord_gateway.ml:184` | `Discord_gateway` | `bot_token` | `Authorization: Bot <token>` (gateway connect) | None | HIGH | MISSING |
+| `discord_gateway.ml:35` | `Discord_gateway` | `bot_token` | JSON `token` field in Identify payload | None | HIGH | MISSING |
+| `discord_gateway.ml:60` | `Discord_gateway` | `bot_token` | JSON `token` field in Resume payload | None | HIGH | MISSING |
+| `discord_gateway.ml:184` | `Discord_gateway` | `bot_token` | `Authorization: Bot <token>` (gateway fetch URL) | None | HIGH | MISSING |
 
 ---
 
@@ -225,6 +238,7 @@ requests, inbound verification, or stored in memory.
 | `telegram_api.ml:send_poll` | `Telegram_api` | `bot_token` | URL path: `<base><token>/sendPoll` | None | HIGH | MISSING |
 | `telegram_api.ml:get_file` | `Telegram_api` | `bot_token` | URL path: `<base><token>/getFile` | None | HIGH | MISSING |
 | `telegram_api.ml:download_file` | `Telegram_api` | `bot_token` | URL path: `<base>/file/bot<token>/<path>` | None | HIGH | MISSING |
+| `telegram_api.ml:1320` | `Telegram_api` | `bot_token` | URL path: `<base><token>/setMyCommands` | `redact_token` in error log | HIGH | EXISTING |
 
 **Mitigation:** `daemon.ml:155` has `scrub_telegram_tokens` that scrubs Telegram tokens from stderr output.
 
@@ -349,6 +363,7 @@ requests, inbound verification, or stored in memory.
 |----------|--------------|------------|--------------|-----------|------|----------------|
 | `onebot.ml:51` | `Onebot` | `access_token` (optional) | `Authorization: Bearer <token>` (HTTP POST) | None | HIGH | MISSING |
 | `onebot.ml:77` | `Onebot` | `access_token` (optional) | `Authorization: Bearer <token>` (HTTP POST) | None | HIGH | MISSING |
+| `onebot.ml:181` | `Onebot` | `access_token` (optional) | JSON `access_token` in `meta::connect` WebSocket message | None | HIGH | MISSING |
 
 ---
 
@@ -414,23 +429,46 @@ requests, inbound verification, or stored in memory.
 
 ## 25. Shell/Git Process Execution
 
+### 25.1 Core Process Spawner
+
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `tools_builtin_net.ml:824-830` | `Tools_builtin_net` | Environment from `workspace_only_env()` + `GIT_TERMINAL_PROMPT=0` | Passed to `Process_group.start` for git commands | No credential filtering on env | MEDIUM | MISSING |
+| `process_group.ml:60-63` | `Process_group` | `env` array | Passed to `Unix.execve` | No filtering -- full env forwarded to child | MEDIUM | MISSING |
+
+### 25.2 Git Operations
+
+| Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
+|----------|--------------|------------|--------------|-----------|------|----------------|
+| `tools_builtin_net.ml:824-830` | `Tools_builtin_net` | `workspace_only_env()` + `GIT_TERMINAL_PROMPT=0` | Passed to `Process_group.start` for git commands | No credential filtering | MEDIUM | MISSING |
+| `repo_manager.ml:134-135` | `Repo_manager` | `Unix.environment()` | Full parent env passed to git commands | No filtering | MEDIUM | MISSING |
+
+### 25.3 Shell Commands
+
+| Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
+|----------|--------------|------------|--------------|-----------|------|----------------|
 | `tools_builtin_proc.ml:524-533` | `Tools_builtin_proc` | `~env` parameter | Passed to `Process_group.start` for shell/exec commands | Inherits full parent environment | MEDIUM | MISSING |
-| `process_group.ml:60-63` | `Process_group` | `env` array | Passed to `Unix.execve` | No filtering — full env forwarded to child | MEDIUM | MISSING |
+| `slash_commands_bash.ml:15-16` | `Slash_commands_bash` | `Unix.environment()` | Full parent env passed to `/bin/bash -c` | No filtering | MEDIUM | MISSING |
+
+### 25.4 Background Task Spawning
+
+| Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
+|----------|--------------|------------|--------------|-----------|------|----------------|
+| `background_task_spawn.ml:288` | `Background_task_spawn` | `Unix.environment()` | Full parent env passed to runner process | No filtering | MEDIUM | MISSING |
+| `background_task_spawn.ml:319` | `Background_task_spawn` | `Unix.environment()` | Full parent env passed to runner process | No filtering | MEDIUM | MISSING |
+| `background_task_spawn.ml:499-511` | `Background_task_spawn` | `augment_env` + `Unix.environment()` | Env augmented with runner-specific vars, passed to `Process_group.start_to_file` | No filtering | MEDIUM | MISSING |
 
 **Note:** `Process_group.start` receives an `env` array that is forwarded directly to `Unix.execve`. If the parent process has credentials in environment variables (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), child processes inherit them.
 
 ---
 
-## 26. HTTP Client Layer
+## 26. HTTP Client Layer & Tool HTTP Requests
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
 | `http_client.ml` (all calls) | `Http_client` | Any headers passed by callers | Forwarded to `Cohttp_lwt_unix.Client` | No redaction at HTTP client level | HIGH | MISSING |
+| `tools_builtin_net.ml:92-97` | `Tools_builtin_net` | Arbitrary user-supplied `headers` | Forwarded to `Http_client` (GET/POST/PUT/PATCH/DELETE) | None | HIGH | MISSING |
 
-**Note:** `Http_client` is a thin wrapper around Cohttp. It does not perform any credential redaction. Redaction responsibility falls on callers and on `Http_debug`.
+**Note:** `Http_client` is a thin wrapper around Cohttp. It does not perform any credential redaction. The `http_request` tool allows agents to pass arbitrary headers (including `Authorization`, API keys) which are forwarded without redaction.
 
 ---
 
@@ -443,6 +481,7 @@ requests, inbound verification, or stored in memory.
 **Gaps in HTTP debug redaction:**
 - `x-goog-api-key` (Gemini) — NOT redacted
 - `x-acs-dingtalk-access-token` (DingTalk) — NOT redacted
+- `x-subscription-token` (Brave Search) — NOT redacted
 - Credentials embedded in URLs (Telegram bot tokens) — NOT redacted at HTTP layer (mitigated by `daemon.ml:scrub_telegram_tokens` for stderr)
 - Secrets in request bodies (Lark/DingTalk/Teams OAuth) — NOT redacted
 
