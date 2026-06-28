@@ -1979,7 +1979,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       | RoomsMemory _args ->
                           send_text
                             "Room memory commands are available via CLI: clawq \
-                             rooms memory <list|show|save> <room_id>"
+                             rooms memory <list|show|save|correct|forget> \
+                             <room_id>"
                       | Rig action -> (
                           match action with
                           | RigList ->

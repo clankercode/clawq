@@ -263,8 +263,8 @@ let get_scoped_memory ~db ~id =
 
 let find_scoped_memory_id ~db ~scope_id ~reference =
   let sql =
-    "SELECT id FROM scoped_memories WHERE scope_id = ? AND reference = ? LIMIT \
-     1"
+    "SELECT id FROM scoped_memories WHERE scope_id = ? AND reference = ? AND \
+     redacted_at IS NULL LIMIT 1"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -395,6 +395,59 @@ let delete_scoped_memory ~db ~id =
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | _ -> false)
+
+(** Update the content of an existing scoped memory, preserving the old content
+    in provenance metadata. Returns the updated memory row or [None] if the
+    memory does not exist. *)
+let correct_scoped_memory ~db ~id ~content ?(provenance = "corrected") () =
+  match get_scoped_memory ~db ~id with
+  | None -> None
+  | Some existing ->
+      let old_content = Option.value ~default:"(empty)" existing.content in
+      let old_provenance = existing.provenance in
+      let new_provenance =
+        Printf.sprintf "%s | prev_provenance: %s | prev_content: %s" provenance
+          old_provenance
+          (if String.length old_content > 200 then
+             String.sub old_content 0 197 ^ "..."
+           else old_content)
+      in
+      let stmt =
+        Sqlite3.prepare db
+          "UPDATE scoped_memories SET content = ?, provenance = ?, updated_at \
+           = datetime('now') WHERE id = ?"
+      in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT content));
+          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT new_provenance));
+          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> get_scoped_memory ~db ~id
+          | _ -> None)
+
+(** Soft-delete (redact) a scoped memory by setting [redacted_at],
+    [redaction_reason], clearing the content, and redacting any provenance that
+    may contain previous content. The row remains in the database for audit
+    purposes but content is no longer visible. *)
+let redact_scoped_memory ~db ~id ?(reason = "user request") () =
+  let stmt =
+    Sqlite3.prepare db
+      "UPDATE scoped_memories SET redacted_at = datetime('now'), \
+       redaction_reason = ?, content = NULL, reference = COALESCE(reference, \
+       'redacted:' || id), provenance = CASE WHEN provenance LIKE \
+       '%prev_content:%' THEN 'redacted' ELSE provenance END, updated_at = \
+       datetime('now') WHERE id = ? AND redacted_at IS NULL"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT reason));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
       | _ -> false)

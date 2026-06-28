@@ -1348,13 +1348,119 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                     (Printexc.to_string exn))))
   | "save" :: _ ->
       "Usage: clawq rooms memory save <room_id> <reference> <content>"
+  | "correct" :: room_id :: memory_id_str :: content_parts -> (
+      match check_grant ~room_id ~capability:"write" with
+      | Error msg -> msg
+      | Ok _scope -> (
+          match int_of_string_opt memory_id_str with
+          | None ->
+              Printf.sprintf "Error: '%s' is not a valid memory ID."
+                memory_id_str
+          | Some memory_id -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> room_id ->
+                  Printf.sprintf "Memory #%d does not belong to room '%s'."
+                    memory_id room_id
+              | Some m when m.redacted_at <> None ->
+                  Printf.sprintf
+                    "Memory #%d is redacted and cannot be corrected." memory_id
+              | Some _ -> (
+                  if content_parts = [] then
+                    "Error: new memory content is required."
+                  else
+                    let content = String.concat " " content_parts in
+                    let provenance =
+                      if is_admin then "corrected:admin-cli"
+                      else "corrected:cli"
+                    in
+                    match
+                      Memory.correct_scoped_memory ~db ~id:memory_id ~content
+                        ~provenance ()
+                    with
+                    | None ->
+                        Printf.sprintf "Error: failed to correct memory #%d."
+                          memory_id
+                    | Some updated ->
+                        Printf.sprintf
+                          "Corrected memory #%d '%s' for room '%s'.\n\
+                           Old provenance preserved in correction trail."
+                          updated.id updated.reference
+                          (room_display_name room_id)))))
+  | "correct" :: _ ->
+      "Usage: clawq rooms memory correct <room_id> <id> <new_content>"
+  | "forget" :: room_id :: memory_id_str :: flags -> (
+      match check_grant ~room_id ~capability:"write" with
+      | Error msg -> msg
+      | Ok _scope -> (
+          match int_of_string_opt memory_id_str with
+          | None ->
+              Printf.sprintf "Error: '%s' is not a valid memory ID."
+                memory_id_str
+          | Some memory_id -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> room_id ->
+                  Printf.sprintf "Memory #%d does not belong to room '%s'."
+                    memory_id room_id
+              | Some m ->
+                  let hard_purge = List.mem "--hard" flags in
+                  let reason =
+                    let non_flags =
+                      List.filter
+                        (fun s -> not (String.starts_with ~prefix:"--" s))
+                        flags
+                    in
+                    match non_flags with
+                    | [] -> "user request"
+                    | parts -> String.concat " " parts
+                  in
+                  if hard_purge then begin
+                    match
+                      require_admin_audited ~room_id ~action:"memory_hard_purge"
+                    with
+                    | Some err -> err
+                    | None ->
+                        if Memory.delete_scoped_memory ~db ~id:memory_id then
+                          Printf.sprintf
+                            "Hard-purged memory #%d '%s' for room '%s'."
+                            memory_id m.reference
+                            (room_display_name room_id)
+                        else
+                          Printf.sprintf
+                            "Error: failed to hard-purge memory #%d." memory_id
+                  end
+                  else if m.redacted_at <> None then
+                    Printf.sprintf
+                      "Memory #%d is already redacted. Use --hard to purge."
+                      memory_id
+                  else if
+                    Memory.redact_scoped_memory ~db ~id:memory_id ~reason ()
+                  then
+                    Printf.sprintf
+                      "Forgot (redacted) memory #%d '%s' for room '%s'. \
+                       Content is now hidden."
+                      memory_id m.reference
+                      (room_display_name room_id)
+                  else
+                    Printf.sprintf "Error: failed to redact memory #%d."
+                      memory_id)))
+  | "forget" :: _ ->
+      "Usage: clawq rooms memory forget <room_id> <id> [-- --hard] [reason]\n\
+       Note: use -- separator before flags when invoking from CLI."
   | _ ->
-      "Usage: clawq rooms memory <list|show|save> <room_id> [args...]\n\n\
+      "Usage: clawq rooms memory <list|show|save|correct|forget> <room_id> \
+       [args...]\n\n\
        Subcommands:\n\
       \  list <room_id>              List memories in a room scope\n\
       \  show <room_id> <id>         Show details of a specific memory\n\
       \  save <room_id> <ref> <content>\n\
-      \                              Save or update a room-scoped memory"
+      \                              Save or update a room-scoped memory\n\
+      \  correct <room_id> <id> <content>\n\
+      \                              Correct a memory (preserves old provenance)\n\
+      \  forget <room_id> <id> [-- --hard] [reason]\n\
+      \                              Forget (redact) a memory (admin: --hard \
+       for purge)"
 
 let cmd_rooms args =
   let cfg = get_config () in
@@ -1721,7 +1827,7 @@ let cmd_rooms args =
       \  unbind <room_id>            Remove room binding (preserves profile)\n\
       \  routine <create|list|show|edit|remove|enable|disable|trigger>   \
        Manage room routines (admin-only)\n\
-      \  memory <list|show|save> <room_id> [args...]\n\
+      \  memory <list|show|save|correct|forget> <room_id> [args...]\n\
       \                              Manage room-scoped memories"
 
 let cmd_rig args =
