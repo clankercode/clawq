@@ -1,0 +1,24 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B724
+priority: high
+status: pending
+tags: []
+title: 'subagent_result: adaptive blocking with cache-timeout awareness and steering-message interruption'
+---
+## Problem
+
+`subagent_result(wait=true)` currently blocks up to ~110s. It should be smarter:
+
+1. **Cache-timeout awareness**: Block for up to 4.5 minutes (or slightly less than the cache timeout for the model/provider in use). When it unblocks early to avoid hitting the cache timeout, the tool result should include a message telling the agent it returned early, the sub-agent is still running, and it should recall `subagent_result(wait=true)` to continue blocking.
+
+2. **Steering-message interruption**: While blocking, if the user sends a steering message (a queued message that will be injected at the next tool-call boundary — NOT a follow-up/background message), the tool should detect this, end early, and the tool result should explain that it ended early due to the user adding steering commands.
+
+3. **Internal API for queue/lifecycle monitoring**: To support (2), we likely need an internal API for monitoring the message queue and/or registering/unregistered lifecycle events for the duration of a tool call (ad-hoc, easily added and removed). If such infrastructure is needed, it should be planned and implemented as a separate task/feature FIRST, before the subagent_result modifications.
+
+## Notes
+
+- "Steering messages" = queued user messages that interact with the agent's current operations (injected at next convenient entry point, usually after a tool call). NOT background/follow-up messages.
+- The cache timeout varies by model/provider — the blocking duration should be derived from the effective provider's cache TTL, not hardcoded.

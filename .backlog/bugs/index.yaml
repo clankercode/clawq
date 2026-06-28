@@ -718,3 +718,4 @@ bugs:
     - file: B721-use-description-field-in-subag.todo
     - file: B722-models-get-tool-reports-config.todo
     - file: B723-stuck-detection-counts-per-too.todo
+    - file: B724-subagent-result-adaptive-block.todo
