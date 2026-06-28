@@ -13,7 +13,7 @@ milestones:
       locked: false
       name: Scope Bundle Model and Resolver
       path: 01-scope-bundle-model-and-resolve
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P14.M1

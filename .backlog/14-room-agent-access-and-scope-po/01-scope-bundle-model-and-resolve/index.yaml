@@ -29,7 +29,7 @@ epics:
       locked: false
       name: Effective Access Snapshots
       path: 03-effective-access-snapshots
-      status: pending
+      status: done
 estimate_hours: 28
 id: P14.M1
 locked: false
@@ -40,4 +40,4 @@ stats:
     in_progress: 0
     pending: 3
     total_tasks: 9
-status: pending
+status: done
