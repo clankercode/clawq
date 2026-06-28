@@ -120,6 +120,15 @@ let metadata_string key json =
       match List.assoc_opt key fields with Some (`String s) -> s | _ -> "")
   | _ -> ""
 
+let expect_invalid_argument label f =
+  match f () with
+  | exception Invalid_argument msg ->
+      Alcotest.(check bool) label true (String.trim msg <> "")
+  | exception exn ->
+      Alcotest.failf "%s: expected Invalid_argument, got %s" label
+        (Printexc.to_string exn)
+  | _ -> Alcotest.failf "%s: expected Invalid_argument" label
+
 let test_background_task_events_recorded () =
   with_db (fun db ->
       Background_task.init_schema db;
@@ -257,6 +266,401 @@ let test_provider_events_recorded () =
             "model metadata" "gpt-5.4"
             (metadata_string "model" response_event.metadata)))
 
+let test_delivery_attempt_records_metadata () =
+  with_db (fun db ->
+      let event =
+        Room_activity_ledger.record_delivery_attempt ~db ~room_id:"room-42"
+          ~connector:"teams" ~task_id:7 ~thread_id:"t-123" ()
+      in
+      Alcotest.(check string) "event_type" "delivery_attempt" event.event_type;
+      Alcotest.(check string) "actor" "teams" event.actor;
+      Alcotest.(check string) "room_id" "room-42" event.room_id;
+      Alcotest.(check int) "task_id" 7 (metadata_int "task_id" event.metadata);
+      Alcotest.(check string)
+        "connector" "teams"
+        (metadata_string "connector" event.metadata);
+      Alcotest.(check string)
+        "thread_id" "t-123"
+        (metadata_string "thread_id" event.metadata))
+
+let test_delivery_success_records_message_id () =
+  with_db (fun db ->
+      let event =
+        Room_activity_ledger.record_delivery_success ~db ~room_id:"room-1"
+          ~connector:"slack" ~task_id:3 ~message_id:"ts-12345"
+          ~thread_id:"thread-1" ()
+      in
+      Alcotest.(check string) "event_type" "delivery_success" event.event_type;
+      Alcotest.(check string) "actor" "slack" event.actor;
+      Alcotest.(check int) "task_id" 3 (metadata_int "task_id" event.metadata);
+      Alcotest.(check string)
+        "message_id" "ts-12345"
+        (metadata_string "message_id" event.metadata);
+      Alcotest.(check string)
+        "thread_id" "thread-1"
+        (metadata_string "thread_id" event.metadata))
+
+let contains_substring s sub =
+  let s_len = String.length s in
+  let sub_len = String.length sub in
+  let rec search i =
+    if i + sub_len > s_len then false
+    else if String.sub s i sub_len = sub then true
+    else search (i + 1)
+  in
+  sub_len = 0 || search 0
+
+let test_delivery_failure_records_sanitized_error () =
+  with_db (fun db ->
+      let event =
+        Room_activity_ledger.record_delivery_failure ~db ~room_id:"room-1"
+          ~connector:"discord" ~task_id:5 ~error:"Bearer sk-secret123456 failed"
+          ()
+      in
+      Alcotest.(check string) "event_type" "delivery_failure" event.event_type;
+      let err = metadata_string "error" event.metadata in
+      Alcotest.(check bool)
+        "token redacted" true
+        (not (contains_substring err "sk-secret123456"));
+      Alcotest.(check bool)
+        "has REDACTED" true
+        (contains_substring err "[REDACTED]"))
+
+let test_delivery_failure_truncates_long_error () =
+  with_db (fun db ->
+      let long_err = String.make 600 'x' in
+      let event =
+        Room_activity_ledger.record_delivery_failure ~db ~room_id:"room-1"
+          ~connector:"slack" ~task_id:2 ~error:long_err ()
+      in
+      let err = metadata_string "error" event.metadata in
+      Alcotest.(check int) "truncated length" 503 (String.length err);
+      Alcotest.(check string)
+        "truncated content"
+        (String.make 500 'x' ^ "...")
+        err)
+
+let test_delivery_attempt_no_thread () =
+  with_db (fun db ->
+      let event =
+        Room_activity_ledger.record_delivery_attempt ~db ~room_id:"room-1"
+          ~connector:"slack" ~task_id:1 ()
+      in
+      Alcotest.(check string) "event_type" "delivery_attempt" event.event_type;
+      Alcotest.(check bool)
+        "no thread_id" true
+        (match event.metadata with
+        | `Assoc fields -> not (List.mem_assoc "thread_id" fields)
+        | _ -> false))
+
+let test_delivery_success_rejects_invalid_message_id () =
+  with_db (fun db ->
+      expect_invalid_argument "empty message_id rejected" (fun () ->
+          ignore
+            (Room_activity_ledger.record_delivery_success ~db ~room_id:"room-1"
+               ~connector:"teams" ~task_id:9 ~message_id:"" ()));
+      expect_invalid_argument "placeholder message_id rejected" (fun () ->
+          ignore
+            (Room_activity_ledger.record_delivery_success ~db ~room_id:"room-1"
+               ~connector:"teams" ~task_id:9 ~message_id:"0" ())))
+
+let test_sanitize_error () =
+  let open Room_activity_ledger in
+  let r1 = sanitize_error "simple error" in
+  Alcotest.(check string) "simple" "simple error" r1;
+  let r2 = sanitize_error "Auth failed: Bearer abc+def/ghi==" in
+  Alcotest.(check string) "bearer redacted" "Auth failed: Bearer [REDACTED]" r2;
+  let r3 = sanitize_error "connection failed token=abc123def456 more info" in
+  Alcotest.(check bool)
+    "token redacted" true
+    (not (contains_substring r3 "abc123def456"));
+  let r4 = sanitize_error "connection failed key=abc+def/ghi== more info" in
+  Alcotest.(check bool)
+    "key redacted" true
+    (not (contains_substring r4 "abc+def/ghi=="))
+
+let make_room_progress_task ?(id = 42) ?(connector = "slack")
+    ?(room_id = "room-42") ?thread_id () =
+  let origin_fields =
+    [ ("room_id", `String room_id); ("connector", `String connector) ]
+  in
+  let origin_fields =
+    match thread_id with
+    | Some tid -> ("thread_id", `String tid) :: origin_fields
+    | None -> origin_fields
+  in
+  {
+    Background_task_0_format.id;
+    runner = Background_task_0_format.Codex;
+    model = None;
+    repo_path = "/tmp";
+    prompt = "test task";
+    branch = "main";
+    worktree_path = None;
+    log_path = None;
+    status = Background_task_0_format.Running;
+    runner_session_id = None;
+    session_key = Some (Printf.sprintf "%s:%s:user-1" connector room_id);
+    channel = Some connector;
+    channel_id = Some room_id;
+    pid = None;
+    result_preview = None;
+    created_at = "2026-06-29T00:00:00Z";
+    started_at = None;
+    finished_at = None;
+    automerge = false;
+    use_worktree = false;
+    merge_status = None;
+    retry_count = 0;
+    parent_task_id = None;
+    replaced_by = None;
+    acp = false;
+    agent_name = None;
+    notification_status = None;
+    notification_error = None;
+    notification_attempts = 0;
+    follow_up_prompt = None;
+    description = None;
+    context_snapshot = None;
+    profile_id = None;
+    origin_json = Some (Yojson.Safe.to_string (`Assoc origin_fields));
+    thread_id = None;
+    requester = None;
+    progress_state = None;
+  }
+
+let test_room_progress_records_delivery () =
+  (* Integration test: deliver_progress_update records attempts and outcomes *)
+  with_db (fun db ->
+      let send_called = ref false in
+      let send ~room_id ?thread_id:_ ~text:_ () =
+        send_called := true;
+        Lwt.return "msg-id-123"
+      in
+      let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+      let task =
+        {
+          Background_task_0_format.id = 42;
+          runner = Background_task_0_format.Codex;
+          model = None;
+          repo_path = "/tmp";
+          prompt = "test task";
+          branch = "main";
+          worktree_path = None;
+          log_path = None;
+          status = Background_task_0_format.Running;
+          runner_session_id = None;
+          session_key = Some "telegram:room-42:user-1";
+          channel = Some "telegram";
+          channel_id = Some "room-42";
+          pid = None;
+          result_preview = None;
+          created_at = "2026-06-29T00:00:00Z";
+          started_at = None;
+          finished_at = None;
+          automerge = false;
+          use_worktree = false;
+          merge_status = None;
+          retry_count = 0;
+          parent_task_id = None;
+          replaced_by = None;
+          acp = false;
+          agent_name = None;
+          notification_status = None;
+          notification_error = None;
+          notification_attempts = 0;
+          follow_up_prompt = None;
+          description = None;
+          context_snapshot = None;
+          profile_id = None;
+          origin_json =
+            Some
+              (Yojson.Safe.to_string
+                 (`Assoc
+                    [
+                      ("room_id", `String "room-42");
+                      ("connector", `String "slack");
+                    ]));
+          thread_id = None;
+          requester = None;
+          progress_state = None;
+        }
+      in
+      Lwt_main.run
+        (Room_progress.deliver_progress_update ~send ~edit ~db ~task ());
+      Alcotest.(check bool) "send called" true !send_called;
+      let events = Room_activity_ledger.query ~db ~room_id:"room-42" () in
+      let event_types =
+        List.map (fun e -> e.Room_activity_ledger.event_type) events
+      in
+      Alcotest.(check bool)
+        "attempt recorded" true
+        (List.mem "delivery_attempt" event_types);
+      Alcotest.(check bool)
+        "success recorded" true
+        (List.mem "delivery_success" event_types);
+      let success_event =
+        List.find
+          (fun e -> e.Room_activity_ledger.event_type = "delivery_success")
+          events
+      in
+      Alcotest.(check string)
+        "connector" "slack"
+        (metadata_string "connector" success_event.metadata);
+      Alcotest.(check int)
+        "task_id" 42
+        (metadata_int "task_id" success_event.metadata);
+      Alcotest.(check string)
+        "message_id" "msg-id-123"
+        (metadata_string "message_id" success_event.metadata);
+      Alcotest.(check string)
+        "activity_id" "msg-id-123"
+        (metadata_string "activity_id" success_event.metadata))
+
+let test_room_progress_zero_send_records_failure () =
+  (* Placeholder Teams activity IDs must not be logged as success. *)
+  with_db (fun db ->
+      let send ~room_id:_ ?thread_id:_ ~text:_ () = Lwt.return "0" in
+      let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+      let task =
+        make_room_progress_task ~id:100 ~connector:"teams" ~room_id:"room-100"
+          ()
+      in
+      Lwt_main.run
+        (Room_progress.deliver_progress_update ~send ~edit ~db ~task ());
+      let events = Room_activity_ledger.query ~db ~room_id:"room-100" () in
+      let event_types =
+        List.map (fun e -> e.Room_activity_ledger.event_type) events
+      in
+      Alcotest.(check bool)
+        "attempt recorded" true
+        (List.mem "delivery_attempt" event_types);
+      Alcotest.(check bool)
+        "failure recorded" true
+        (List.mem "delivery_failure" event_types);
+      Alcotest.(check bool)
+        "success NOT recorded" false
+        (List.mem "delivery_success" event_types))
+
+let test_room_progress_raised_send_records_failure () =
+  with_db (fun db ->
+      let send ~room_id:_ ?thread_id:_ ~text:_ () =
+        Lwt.fail (Failure "connector raised key=secret123")
+      in
+      let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+      let task =
+        make_room_progress_task ~id:101 ~connector:"teams" ~room_id:"room-101"
+          ()
+      in
+      Lwt_main.run
+        (Room_progress.deliver_progress_update ~send ~edit ~db ~task ());
+      let events = Room_activity_ledger.query ~db ~room_id:"room-101" () in
+      let event_types =
+        List.map (fun e -> e.Room_activity_ledger.event_type) events
+      in
+      Alcotest.(check bool)
+        "attempt recorded" true
+        (List.mem "delivery_attempt" event_types);
+      Alcotest.(check bool)
+        "failure recorded" true
+        (List.mem "delivery_failure" event_types);
+      Alcotest.(check bool)
+        "success NOT recorded" false
+        (List.mem "delivery_success" event_types);
+      let failure_event =
+        List.find
+          (fun e -> e.Room_activity_ledger.event_type = "delivery_failure")
+          events
+      in
+      let err = metadata_string "error" failure_event.metadata in
+      Alcotest.(check bool) "error present" true (err <> "");
+      Alcotest.(check bool)
+        "key sanitized" true
+        (not (contains_substring err "secret123")))
+
+let test_room_progress_empty_send_records_failure () =
+  (* Empty/failed sends must not be logged as success *)
+  with_db (fun db ->
+      let send ~room_id ?thread_id:_ ~text:_ () =
+        let _ = room_id in
+        Lwt.return ""
+      in
+      let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
+      let task =
+        {
+          Background_task_0_format.id = 99;
+          runner = Background_task_0_format.Codex;
+          model = None;
+          repo_path = "/tmp";
+          prompt = "test task";
+          branch = "main";
+          worktree_path = None;
+          log_path = None;
+          status = Background_task_0_format.Running;
+          runner_session_id = None;
+          session_key = Some "teams:room-99:user-1";
+          channel = Some "teams";
+          channel_id = Some "room-99";
+          pid = None;
+          result_preview = None;
+          created_at = "2026-06-29T00:00:00Z";
+          started_at = None;
+          finished_at = None;
+          automerge = false;
+          use_worktree = false;
+          merge_status = None;
+          retry_count = 0;
+          parent_task_id = None;
+          replaced_by = None;
+          acp = false;
+          agent_name = None;
+          notification_status = None;
+          notification_error = None;
+          notification_attempts = 0;
+          follow_up_prompt = None;
+          description = None;
+          context_snapshot = None;
+          profile_id = None;
+          origin_json =
+            Some
+              (Yojson.Safe.to_string
+                 (`Assoc
+                    [
+                      ("room_id", `String "room-99");
+                      ("connector", `String "teams");
+                    ]));
+          thread_id = None;
+          requester = None;
+          progress_state = None;
+        }
+      in
+      Lwt_main.run
+        (Room_progress.deliver_progress_update ~send ~edit ~db ~task ());
+      let events = Room_activity_ledger.query ~db ~room_id:"room-99" () in
+      let event_types =
+        List.map (fun e -> e.Room_activity_ledger.event_type) events
+      in
+      Alcotest.(check bool)
+        "attempt recorded" true
+        (List.mem "delivery_attempt" event_types);
+      Alcotest.(check bool)
+        "failure recorded" true
+        (List.mem "delivery_failure" event_types);
+      Alcotest.(check bool)
+        "success NOT recorded" false
+        (List.mem "delivery_success" event_types);
+      let failure_event =
+        List.find
+          (fun e -> e.Room_activity_ledger.event_type = "delivery_failure")
+          events
+      in
+      Alcotest.(check string)
+        "connector" "teams"
+        (metadata_string "connector" failure_event.metadata);
+      Alcotest.(check bool)
+        "error present" true
+        (metadata_string "error" failure_event.metadata <> ""))
+
 let suite =
   [
     Alcotest.test_case "append stores event" `Quick test_append_stores_event;
@@ -269,4 +673,25 @@ let suite =
       test_background_task_events_recorded;
     Alcotest.test_case "provider events recorded" `Quick
       test_provider_events_recorded;
+    Alcotest.test_case "delivery attempt records metadata" `Quick
+      test_delivery_attempt_records_metadata;
+    Alcotest.test_case "delivery success records message_id" `Quick
+      test_delivery_success_records_message_id;
+    Alcotest.test_case "delivery failure records sanitized error" `Quick
+      test_delivery_failure_records_sanitized_error;
+    Alcotest.test_case "delivery failure truncates long error" `Quick
+      test_delivery_failure_truncates_long_error;
+    Alcotest.test_case "delivery attempt no thread" `Quick
+      test_delivery_attempt_no_thread;
+    Alcotest.test_case "delivery success rejects invalid message_id" `Quick
+      test_delivery_success_rejects_invalid_message_id;
+    Alcotest.test_case "sanitize error" `Quick test_sanitize_error;
+    Alcotest.test_case "room_progress records delivery" `Quick
+      test_room_progress_records_delivery;
+    Alcotest.test_case "zero send records failure not success" `Quick
+      test_room_progress_zero_send_records_failure;
+    Alcotest.test_case "raised send records failure" `Quick
+      test_room_progress_raised_send_records_failure;
+    Alcotest.test_case "empty send records failure not success" `Quick
+      test_room_progress_empty_send_records_failure;
   ]

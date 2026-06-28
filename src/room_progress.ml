@@ -68,24 +68,66 @@ let extract_room_id_and_thread (task : task) =
 (** Result of a room delivery attempt. *)
 type delivery_result = Delivered | Delivery_failed of string | Skipped
 
+let is_valid_message_id msg_id =
+  let trimmed = String.trim msg_id in
+  trimmed <> "" && trimmed <> "0"
+
+let activity_id_of_message_id = function
+  | Some msg_id when is_valid_message_id msg_id -> Some msg_id
+  | _ -> None
+
+(** Extract connector, room_id, and thread_id from a task's origin metadata. *)
+let connector_and_room_of_task (task : task) =
+  let origin = Option.bind task.origin_json Room_origin.of_json_string_opt in
+  let connector =
+    match origin with
+    | Some o -> Option.value o.Room_origin.connector ~default:""
+    | None -> Option.value task.channel ~default:""
+  in
+  let room_id, thread_id = extract_room_id_and_thread task in
+  (connector, room_id, thread_id)
+
+(** [send_or_edit] performs the actual send/edit cycle and returns the result
+    along with the resolved message ID. A delivery is [Delivered] only when a
+    valid message ID is returned (non-empty, not "0"). Empty or placeholder IDs
+    indicate a failed delivery (e.g. Teams returning empty activity ID on
+    transient errors). *)
 let send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id () =
   let open Lwt.Syntax in
+  let invalid_message_id_error msg_id =
+    if String.trim msg_id = "" then "empty message ID from connector"
+    else "placeholder message ID from connector"
+  in
+  let send_new ?invalid_error () =
+    let* msg_id = send ~room_id ?thread_id ~text () in
+    if is_valid_message_id msg_id then begin
+      Hashtbl.replace progress_msg_ids task_id msg_id;
+      Lwt.return (Delivered, Some msg_id)
+    end
+    else
+      let err =
+        match invalid_error with
+        | Some err -> err
+        | None -> invalid_message_id_error msg_id
+      in
+      Lwt.return (Delivery_failed err, None)
+  in
   match Hashtbl.find_opt progress_msg_ids task_id with
-  | Some msg_id ->
+  | Some msg_id when is_valid_message_id msg_id ->
       Lwt.catch
         (fun () ->
           let* () = edit ~room_id ~msg_id ~text in
-          Lwt.return Delivered)
-        (fun _exn ->
-          let* new_id = send ~room_id ?thread_id ~text () in
-          if new_id <> "" && new_id <> "0" then
-            Hashtbl.replace progress_msg_ids task_id new_id;
-          Lwt.return Delivered)
-  | None ->
-      let* msg_id = send ~room_id ?thread_id ~text () in
-      if msg_id <> "" && msg_id <> "0" then
-        Hashtbl.replace progress_msg_ids task_id msg_id;
-      Lwt.return Delivered
+          Lwt.return (Delivered, Some msg_id))
+        (fun exn ->
+          send_new
+            ~invalid_error:
+              (Printf.sprintf "send failed after edit error: %s"
+                 (Printexc.to_string exn))
+            ())
+  | Some _ ->
+      Hashtbl.remove progress_msg_ids task_id;
+      send_new ()
+  | None -> send_new ()
 
 let deliver_progress_update
     ~(send :
@@ -95,16 +137,56 @@ let deliver_progress_update
        unit ->
        string Lwt.t)
     ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
-    ~(task : task) () =
+    ?(db : Sqlite3.db option) ~(task : task) () =
   let open Lwt.Syntax in
   let text = format_progress_message task in
-  let room_id, thread_id = extract_room_id_and_thread task in
+  let connector, room_id, thread_id = connector_and_room_of_task task in
   if room_id = "" then Lwt.return_unit
-  else
-    let* _result =
-      send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
+  else begin
+    let existing_activity_id =
+      activity_id_of_message_id (Hashtbl.find_opt progress_msg_ids task.id)
     in
-    Lwt.return_unit
+    (* Record delivery attempt in ledger *)
+    (match db with
+    | Some db ->
+        ignore
+          (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
+             ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
+    | None -> ());
+    Lwt.catch
+      (fun () ->
+        let* result, msg_id =
+          send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
+        in
+        let activity_id = activity_id_of_message_id msg_id in
+        (* Record delivery outcome in ledger *)
+        (match (db, result) with
+        | Some db, Delivered ->
+            ignore
+              (Room_activity_ledger.record_delivery_success ~db ~room_id
+                 ~connector ~task_id:task.id
+                 ~message_id:(Option.value msg_id ~default:"")
+                 ?thread_id ?activity_id ())
+        | Some db, Delivery_failed err ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id ?activity_id
+                 ())
+        | Some _, Skipped -> ()
+        | None, _ -> ());
+        Lwt.return_unit)
+      (fun exn ->
+        let err = Printexc.to_string exn in
+        (* Record exception-based failure in ledger *)
+        (match db with
+        | Some db ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None -> ());
+        Lwt.return_unit)
+  end
 
 (** Format a concise final message for a terminal room-origin task. Unlike
     [format_progress_message], this includes the result preview, merge status,
@@ -164,22 +246,58 @@ let deliver_final_message ?summary
        unit ->
        string Lwt.t)
     ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
-    ~(task : task) () : delivery_result Lwt.t =
+    ?(db : Sqlite3.db option) ~(task : task) () : delivery_result Lwt.t =
   let open Lwt.Syntax in
-  let room_id, thread_id = extract_room_id_and_thread task in
+  let connector, room_id, thread_id = connector_and_room_of_task task in
   if room_id = "" then begin
     clear_progress_msg_id ~task_id:task.id;
     Lwt.return Skipped
   end
-  else
+  else begin
     let text = format_final_message ?summary task in
+    let existing_activity_id =
+      activity_id_of_message_id (Hashtbl.find_opt progress_msg_ids task.id)
+    in
+    (* Record delivery attempt in ledger *)
+    (match db with
+    | Some db ->
+        ignore
+          (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
+             ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
+    | None -> ());
     Lwt.catch
       (fun () ->
-        let* result =
+        let* result, msg_id =
           send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
         in
         clear_progress_msg_id ~task_id:task.id;
+        let activity_id = activity_id_of_message_id msg_id in
+        (* Record delivery outcome in ledger *)
+        (match (db, result) with
+        | Some db, Delivered ->
+            ignore
+              (Room_activity_ledger.record_delivery_success ~db ~room_id
+                 ~connector ~task_id:task.id
+                 ~message_id:(Option.value msg_id ~default:"")
+                 ?thread_id ?activity_id ())
+        | Some db, Delivery_failed err ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id ?activity_id
+                 ())
+        | Some _, Skipped -> ()
+        | None, _ -> ());
         Lwt.return result)
       (fun exn ->
         clear_progress_msg_id ~task_id:task.id;
-        Lwt.return (Delivery_failed (Printexc.to_string exn)))
+        let err = Printexc.to_string exn in
+        (* Record exception-based failure in ledger *)
+        (match db with
+        | Some db ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None -> ());
+        Lwt.return (Delivery_failed err))
+  end

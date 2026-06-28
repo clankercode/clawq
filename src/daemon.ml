@@ -1721,7 +1721,8 @@ let run ~(config : Runtime_config.t) =
                       (notify_background_task_finished ~session_manager ~config
                          ~db)
                     ~on_task_started:
-                      (notify_background_task_started ~session_manager ~config)
+                      (notify_background_task_started ~session_manager ~config
+                         ~db)
                     ()
                 in
                 let* () =

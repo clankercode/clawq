@@ -205,3 +205,120 @@ let delete_before ~db ~before_timestamp =
           failwith
             (Printf.sprintf "room_activity_ledger retention cleanup failed: %s"
                (Sqlite3.Rc.to_string rc)))
+
+(** {1 Delivery attempt helpers}
+
+    Convenience functions for recording room-progress delivery attempts and
+    outcomes. Each event carries structured metadata: connector, room_id,
+    thread_id, task_id, activity_id, and a sanitized error on failure. *)
+
+(** Sanitize an error string for safe storage. Strips credentials, tokens, and
+    excessively long content. *)
+let sanitize_error err =
+  let max_len = 500 in
+  let trimmed =
+    if String.length err > max_len then String.sub err 0 max_len ^ "..."
+    else err
+  in
+  (* Redact common credential patterns *)
+  let redacted =
+    Str.global_replace
+      (Str.regexp "Bearer [A-Za-z0-9._+/=-]+")
+      "Bearer [REDACTED]" trimmed
+  in
+  let redacted =
+    Str.global_replace
+      (Str.regexp "token[=:][^ &;]+")
+      "token=[REDACTED]" redacted
+  in
+  let redacted =
+    Str.global_replace (Str.regexp "key[=:][^ &;]+") "key=[REDACTED]" redacted
+  in
+  redacted
+
+(** [record_delivery_attempt ~db ~room_id ~connector ~task_id ?thread_id
+     ?activity_id ()] records that a delivery was initiated. Returns the ledger
+    event. *)
+let record_delivery_attempt ~db ~room_id ~connector ~task_id ?thread_id
+    ?activity_id () =
+  let fields =
+    [
+      ("connector", `String connector);
+      ("room_id", `String room_id);
+      ("task_id", `Int task_id);
+    ]
+  in
+  let fields =
+    match thread_id with
+    | Some tid when String.trim tid <> "" ->
+        ("thread_id", `String tid) :: fields
+    | _ -> fields
+  in
+  let fields =
+    match activity_id with
+    | Some aid when String.trim aid <> "" ->
+        ("activity_id", `String aid) :: fields
+    | _ -> fields
+  in
+  append_now ~db ~room_id ~event_type:"delivery_attempt" ~actor:connector
+    ~metadata:(`Assoc fields)
+
+(** [record_delivery_success ~db ~room_id ~connector ~task_id ~message_id
+     ?thread_id ?activity_id ()] records a successful delivery. The message_id
+    must be non-empty and not a placeholder ("0"). *)
+let record_delivery_success ~db ~room_id ~connector ~task_id ~message_id
+    ?thread_id ?activity_id () =
+  let trimmed_message_id = String.trim message_id in
+  if trimmed_message_id = "" || trimmed_message_id = "0" then
+    invalid_arg
+      "record_delivery_success: message_id must be non-empty and not \"0\"";
+  let fields =
+    [
+      ("connector", `String connector);
+      ("room_id", `String room_id);
+      ("task_id", `Int task_id);
+      ("message_id", `String trimmed_message_id);
+    ]
+  in
+  let fields =
+    match thread_id with
+    | Some tid when String.trim tid <> "" ->
+        ("thread_id", `String tid) :: fields
+    | _ -> fields
+  in
+  let fields =
+    match activity_id with
+    | Some aid when String.trim aid <> "" ->
+        ("activity_id", `String aid) :: fields
+    | _ -> fields
+  in
+  append_now ~db ~room_id ~event_type:"delivery_success" ~actor:connector
+    ~metadata:(`Assoc fields)
+
+(** [record_delivery_failure ~db ~room_id ~connector ~task_id ~error ?thread_id
+     ?activity_id ()] records a failed delivery with a sanitized error. *)
+let record_delivery_failure ~db ~room_id ~connector ~task_id ~error ?thread_id
+    ?activity_id () =
+  let sanitized = sanitize_error error in
+  let fields =
+    [
+      ("connector", `String connector);
+      ("room_id", `String room_id);
+      ("task_id", `Int task_id);
+      ("error", `String sanitized);
+    ]
+  in
+  let fields =
+    match thread_id with
+    | Some tid when String.trim tid <> "" ->
+        ("thread_id", `String tid) :: fields
+    | _ -> fields
+  in
+  let fields =
+    match activity_id with
+    | Some aid when String.trim aid <> "" ->
+        ("activity_id", `String aid) :: fields
+    | _ -> fields
+  in
+  append_now ~db ~room_id ~event_type:"delivery_failure" ~actor:connector
+    ~metadata:(`Assoc fields)

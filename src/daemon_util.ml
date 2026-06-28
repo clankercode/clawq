@@ -739,7 +739,7 @@ let room_progress_connector_supported ~connector (task : Background_task.task) =
       String.lowercase_ascii origin_connector = String.lowercase_ascii connector
   | _ -> true
 
-let deliver_room_progress ~(config : Runtime_config.t)
+let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
     (task : Background_task.task) =
   let open Lwt.Syntax in
   let origin = Option.bind task.origin_json Room_origin.of_json_string_opt in
@@ -761,7 +761,7 @@ let deliver_room_progress ~(config : Runtime_config.t)
       Connector_room_progress.dispatch ~config ~connector ~service_url ()
     with
     | Some { send; edit } ->
-        Room_progress.deliver_progress_update ~send ~edit ~task ()
+        Room_progress.deliver_progress_update ~send ~edit ?db ~task ()
     | None -> Lwt.return_unit
 
 let notify_background_task_finished ?continuation_delay
@@ -828,7 +828,7 @@ let notify_background_task_finished ?continuation_delay
   | _ -> ());
   if skip_notification then Lwt.return_unit
   else
-    let* () = deliver_room_progress ~config task in
+    let* () = deliver_room_progress ~config ?db task in
     (* B712: skip summarizer LLM for subagent tasks (agent_name set +
        no worktree). Use result_preview directly — YAGNI on summarizer. *)
     let* summary =
@@ -912,10 +912,10 @@ let notify_background_task_finished ?continuation_delay
     | None -> Lwt.return_unit
 
 let notify_background_task_started ~(session_manager : Session.t)
-    ~(config : Runtime_config.t) task =
+    ~(config : Runtime_config.t) ?(db : Sqlite3.db option) task =
   let open Lwt.Syntax in
   let message = Background_task.terse_started_message task in
-  let* () = deliver_room_progress ~config task in
+  let* () = deliver_room_progress ~config ?db task in
   match task.Background_task.session_key with
   | Some key ->
       let* _queued =
