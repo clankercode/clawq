@@ -73,6 +73,7 @@ let () =
        ("http_server", Test_http_server.suite);
        ("config_loader", Test_config_loader.suite);
        ("credential_handles", Test_credential_handles.suite);
+       ("credential_lease", Test_credential_lease.suite);
        ("prompt_builder", Test_prompt_builder.suite);
        ("vector", Test_vector.suite);
        ("secret_store", Test_secret_store.suite);
