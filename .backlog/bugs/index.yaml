@@ -724,3 +724,4 @@ bugs:
     - file: B727-telegram-xiaomi-anthropic-stre.todo
     - file: B728-add-default-cache-timeout-per.todo
     - file: B729-move-the-prefix-bang-paragraph.todo
+    - file: B730-quickstart-and-other-docs-site.todo

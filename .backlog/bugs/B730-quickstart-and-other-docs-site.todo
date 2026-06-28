@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B730
+priority: high
+status: pending
+tags: []
+title: Quickstart and other docs (site and llms.txt etc) might be outdated or have outdated install instructions. The npm package is now the easiest way to install clawq. We should update all the docs and make sure that all of the install/getting started stuff is up to date! (Important!)
+---
+
+Quickstart and other docs (site and llms.txt etc) might be outdated or have outdated install instructions. The npm package is now the easiest way to install clawq. We should update all the docs and make sure that all of the install/getting started stuff is up to date! (Important!)
