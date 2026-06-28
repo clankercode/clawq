@@ -20,7 +20,8 @@ tasks:
       file: T001-add-global-and-per-room-github.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add global and per-room GitHub repo grant model
     - complexity: high
       depends_on:

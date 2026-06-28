@@ -350,7 +350,10 @@ let validate_access_bundle_json_shapes json : string list =
                         "access_bundles[%d].repo_grants must be a list" index;
                     ]
               in
-              string_list_issues @ repo_grants_issues
+              let instruction_issues =
+                validate_instruction_shapes ~bundle_index:index fields
+              in
+              string_list_issues @ repo_grants_issues @ instruction_issues
           | _ -> [ Printf.sprintf "access_bundles[%d] must be an object" index ])
       |> List.flatten
   | `Null -> []
