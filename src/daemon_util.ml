@@ -742,47 +742,27 @@ let room_progress_connector_supported ~connector (task : Background_task.task) =
 let deliver_room_progress ~(config : Runtime_config.t)
     (task : Background_task.task) =
   let open Lwt.Syntax in
-  match config.channels.slack with
-  | Some slack_config
-    when room_progress_connector_supported ~connector:"slack" task ->
-      let send ~room_id ?thread_id ~text () =
-        match thread_id with
-        | Some thread_ts ->
-            let uri = "https://slack.com/api/chat.postMessage" in
-            let headers =
-              [ ("Authorization", "Bearer " ^ slack_config.bot_token) ]
-            in
-            let body =
-              `Assoc
-                [
-                  ("channel", `String room_id);
-                  ("text", `String text);
-                  ("thread_ts", `String thread_ts);
-                ]
-              |> Yojson.Safe.to_string
-            in
-            let* _status, resp_body =
-              Http_client.post_json ~uri ~headers ~body
-            in
-            let ts =
-              try
-                let json = Yojson.Safe.from_string resp_body in
-                json
-                |> Yojson.Safe.Util.member "ts"
-                |> Yojson.Safe.Util.to_string
-              with _ -> "0"
-            in
-            Lwt.return ts
-        | None ->
-            Slack.send_message_with_id ~bot_token:slack_config.bot_token
-              ~channel_id:room_id ~text
-      in
-      let edit ~room_id ~msg_id ~text =
-        Slack.edit_message ~bot_token:slack_config.bot_token ~channel_id:room_id
-          ~ts:msg_id ~text
-      in
-      Room_progress.deliver_progress_update ~send ~edit ~task ()
-  | Some _ | None -> Lwt.return_unit
+  let origin = Option.bind task.origin_json Room_origin.of_json_string_opt in
+  let connector =
+    match origin with
+    | Some o -> Option.value o.Room_origin.connector ~default:""
+    | None -> ""
+  in
+  if connector = "" then Lwt.return_unit
+  else if not (room_progress_connector_supported ~connector task) then
+    Lwt.return_unit
+  else
+    let service_url =
+      match origin with
+      | Some o -> Option.value o.Room_origin.service_url ~default:""
+      | None -> ""
+    in
+    match
+      Connector_room_progress.dispatch ~config ~connector ~service_url ()
+    with
+    | Some { send; edit } ->
+        Room_progress.deliver_progress_update ~send ~edit ~task ()
+    | None -> Lwt.return_unit
 
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
