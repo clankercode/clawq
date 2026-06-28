@@ -18,6 +18,10 @@ type event =
     }
   | Other
 
+let should_salute_queued_interrupt ~inbound_text ~response =
+  Connector_status.is_interrupt_ack_message inbound_text
+  && Session.is_queued_message_response response
+
 let current_thinking_message current =
   Printf.sprintf "Current thinking level: %s"
     (Slash_commands.thinking_level_to_string current)
@@ -804,6 +808,14 @@ let handle_event ~(config : Runtime_config.slack_config)
                         ~timestamp ~emoji_name)
                     ~emoji:emoji_name
                 in
+                let add_interrupt_ack_reaction () =
+                  Lwt.catch
+                    (fun () ->
+                      add_reaction ~bot_token:config.bot_token ~channel_id
+                        ~timestamp:ts
+                        ~emoji_name:Connector_status.Slack.interrupt_ack_emoji)
+                    (fun _exn -> Lwt.return_unit)
+                in
                 let set_reaction emoji_name =
                   Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
                     ~set_one:(fun timestamp emoji ->
@@ -1061,6 +1073,13 @@ let handle_event ~(config : Runtime_config.slack_config)
                 match result with
                 | Ok response ->
                     if Session.should_suppress_response response then
+                      let* () =
+                        if
+                          should_salute_queued_interrupt ~inbound_text:text
+                            ~response
+                        then add_interrupt_ack_reaction ()
+                        else Lwt.return_unit
+                      in
                       Lwt.return "ok"
                     else if !response_sent then (
                       let* () =

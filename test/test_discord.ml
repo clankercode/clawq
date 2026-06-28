@@ -502,6 +502,24 @@ let test_parse_message_create_no_attachments () =
   | Some msg ->
       Alcotest.(check int) "no attachments" 0 (List.length msg.attachments)
 
+let test_salute_ack_requires_bang_interrupt_and_queued_response () =
+  Alcotest.(check bool)
+    "bang queued sentinel salutes" true
+    (Discord.should_salute_queued_interrupt ~inbound_text:"!stop"
+       ~response:Session.queued_message_response);
+  Alcotest.(check bool)
+    "normal queued sentinel does not salute" false
+    (Discord.should_salute_queued_interrupt ~inbound_text:"remember this"
+       ~response:Session.queued_message_response);
+  Alcotest.(check bool)
+    "clean admin stop sentinel does not salute" false
+    (Discord.should_salute_queued_interrupt ~inbound_text:"/stop"
+       ~response:Session.queued_message_response);
+  Alcotest.(check bool)
+    "bang non-sentinel response does not salute" false
+    (Discord.should_salute_queued_interrupt ~inbound_text:"!stop"
+       ~response:"Stopped current session.")
+
 let suite : unit Alcotest.test_case list =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -552,4 +570,6 @@ let suite : unit Alcotest.test_case list =
       test_parse_dispatch_message_with_attachments;
     Alcotest.test_case "parse_message_create no attachments" `Quick
       test_parse_message_create_no_attachments;
+    Alcotest.test_case "salute ack requires bang interrupt and queued sentinel"
+      `Quick test_salute_ack_requires_bang_interrupt_and_queued_response;
   ]

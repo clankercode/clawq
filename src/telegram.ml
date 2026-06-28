@@ -1,5 +1,8 @@
 include Telegram_api
 
+let should_salute_queued_interrupt ~inbound_text ~queued =
+  queued && Connector_status.is_interrupt_ack_message inbound_text
+
 let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
     ~(session_mgr : Session.t) ?run_update_command ?chat_limiter
     (update : update) =
@@ -846,7 +849,18 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                  }
                   : Session.queued_message)
             in
-            if early_queued then Lwt.return_unit
+            if early_queued then
+              if
+                should_salute_queued_interrupt ~inbound_text:msg
+                  ~queued:early_queued
+              then
+                Lwt.catch
+                  (fun () ->
+                    set_message_reaction ~bot_token ~chat_id:update.chat_id
+                      ~message_id:update.message_id
+                      ~emoji:reaction_emoji_interrupt_ack ())
+                  (fun _exn -> Lwt.return_unit)
+              else Lwt.return_unit
             else
               let agent_defaults =
                 (Session.get_config session_mgr).agent_defaults

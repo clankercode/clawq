@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-28T06:39:53Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-28T07:16:50Z"
 complexity: medium
 depends_on: []
+duration_minutes: 36.956753024066664
 estimate_hours: 1
 id: B726
 priority: high
 started_at: "2026-06-28T06:39:53Z"
-status: in_progress
+status: done
 tags: []
 title: React with salute emoji on interrupt message processing
 ---

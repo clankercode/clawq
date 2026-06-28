@@ -501,6 +501,24 @@ let test_reply_body_omits_thread_ts () =
     "thread_ts absent" true
     (match json |> member "thread_ts" with `Null -> true | _ -> false)
 
+let test_salute_ack_requires_bang_interrupt_and_queued_response () =
+  Alcotest.(check bool)
+    "bang queued sentinel salutes" true
+    (Slack.should_salute_queued_interrupt ~inbound_text:"!stop"
+       ~response:Session.queued_message_response);
+  Alcotest.(check bool)
+    "normal queued sentinel does not salute" false
+    (Slack.should_salute_queued_interrupt ~inbound_text:"remember this"
+       ~response:Session.queued_message_response);
+  Alcotest.(check bool)
+    "clean admin stop sentinel does not salute" false
+    (Slack.should_salute_queued_interrupt ~inbound_text:"/stop"
+       ~response:Session.queued_message_response);
+  Alcotest.(check bool)
+    "bang non-sentinel response does not salute" false
+    (Slack.should_salute_queued_interrupt ~inbound_text:"!stop"
+       ~response:"Stopped current session.")
+
 let suite =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -543,6 +561,8 @@ let suite =
       test_reply_body_includes_thread_ts;
     Alcotest.test_case "reply body omits thread_ts" `Quick
       test_reply_body_omits_thread_ts;
+    Alcotest.test_case "salute ack requires bang interrupt and queued sentinel"
+      `Quick test_salute_ack_requires_bang_interrupt_and_queued_response;
   ]
 
 let test_resolve_session_key_unprofiled () =

@@ -2,8 +2,12 @@
 
 module type S = sig
   val phase_emoji : Status_phase.t -> string
+  val interrupt_ack_emoji : string
   val status_parse_mode : string
 end
+
+let is_interrupt_ack_message message =
+  String.length message > 0 && message.[0] = '!'
 
 module Telegram : S = struct
   let phase_emoji = function
@@ -12,6 +16,7 @@ module Telegram : S = struct
     | Completed -> "\xF0\x9F\x91\x8D" (* 👍 *)
     | Failed -> "\xF0\x9F\x92\x94" (* 💔 *)
 
+  let interrupt_ack_emoji = "\xF0\x9F\xAB\xA1" (* 🫡 *)
   let status_parse_mode = "HTML"
 end
 
@@ -22,6 +27,7 @@ module Discord : S = struct
     | Completed -> "\xE2\x9C\x85" (* ✅ *)
     | Failed -> "\xE2\x9A\xA0\xEF\xB8\x8F" (* ⚠️ *)
 
+  let interrupt_ack_emoji = "\xF0\x9F\xAB\xA1" (* 🫡 *)
   let status_parse_mode = "Markdown"
 end
 
@@ -32,5 +38,6 @@ module Slack : S = struct
     | Completed -> "white_check_mark"
     | Failed -> "warning"
 
+  let interrupt_ack_emoji = "saluting_face"
   let status_parse_mode = "mrkdwn"
 end

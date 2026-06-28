@@ -31,6 +31,10 @@ webhook-driven integrations such as GitHub and MS Teams.
   when the session becomes idle; if the session is already idle, the message is
   sent immediately as a normal chat message.
 
+  Reaction-capable channels acknowledge accepted busy-session interrupts with a
+  salute reaction. Telegram, Discord, and Slack use this to show that Clawq saw
+  the interrupt and queued or processed it.
+
   If a <code>shell_exec</code> tool call is running when interrupted, the
   process is moved to a background shell instead of being killed. Use
   <code>bg_shell_status</code>, <code>bg_shell_wait</code>, and

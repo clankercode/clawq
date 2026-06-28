@@ -418,7 +418,7 @@ No new configuration needed. The strategy is fully determined by `agent_defaults
 | `src/format_adapter.ml` | 119 | Per-connector text formatting (bold, italic, code, etc.) |
 | `src/typing_indicator.ml` | 87 | Generic typing indicator loop |
 | `src/session_turn.ml` | 841 | Turn dispatch: factory -> consolidated, else -> individual |
-| `src/connector_status.ml` | 37 | Phase-to-emoji mapping per connector |
+| `src/connector_status.ml` | 43 | Status and interrupt-ack emoji mapping per connector |
 | `src/status_phase.ml` | 3 | Status phase ADT (Received, Processing, Completed, Failed) |
 | `src/session_core.ml` | ~700 | Session state, factory registration (line 50, 320) |
 | `src/telegram_api.ml` | ~1100 | Telegram API + `make_status_notifier` (line 1040) |

@@ -1,6 +1,10 @@
 let name = "discord"
 let api_base = "https://discord.com/api/v10"
 
+let should_salute_queued_interrupt ~inbound_text ~response =
+  Connector_status.is_interrupt_ack_message inbound_text
+  && Session.is_queued_message_response response
+
 let current_thinking_message current =
   Printf.sprintf "Current thinking level: %s"
     (Slash_commands.thinking_level_to_string current)
@@ -1062,6 +1066,14 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     ~channel_id:msg.channel_id ~message_id:mid ~emoji)
                 ~emoji
             in
+            let add_interrupt_ack_reaction () =
+              Lwt.catch
+                (fun () ->
+                  add_reaction ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~message_id:msg.id
+                    ~emoji:Connector_status.Discord.interrupt_ack_emoji)
+                (fun _exn -> Lwt.return_unit)
+            in
             let set_reaction emoji =
               Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
                 ~set_one:(fun mid emoji -> set_reaction_on_single mid emoji)
@@ -1317,6 +1329,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             match result with
             | Ok response ->
                 if Session.should_suppress_response response then
+                  let* () =
+                    if
+                      should_salute_queued_interrupt ~inbound_text:msg.content
+                        ~response
+                    then add_interrupt_ack_reaction ()
+                    else Lwt.return_unit
+                  in
                   Lwt.return_unit
                 else if !response_sent then (
                   let* () =

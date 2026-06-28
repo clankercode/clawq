@@ -340,6 +340,7 @@ let reaction_emoji_received = Connector_status.Telegram.phase_emoji Received
 let reaction_emoji_tools = Connector_status.Telegram.phase_emoji Processing
 let reaction_emoji_done = Connector_status.Telegram.phase_emoji Completed
 let reaction_emoji_error = Connector_status.Telegram.phase_emoji Failed
+let reaction_emoji_interrupt_ack = Connector_status.Telegram.interrupt_ack_emoji
 
 let update_dedupe_key (u : update) =
   Printf.sprintf "%s:%d" u.chat_id u.update_id

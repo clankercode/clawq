@@ -293,6 +293,7 @@ Available in chat-integrated channels that support slash commands. Admin-only co
 - A bare `!` becomes the normalized user message `[interrupted]`.
 - While a session is busy, normal messages queue as steering and may be injected before the turn fully idles. `/followup <message>` queues an explicit deferred follow-up instead: it is not injected mid-turn and is delivered one at a time after the session becomes idle.
 - `/followup-append <message>` appends to the latest queued deferred follow-up. If there is no prior queued follow-up, it queues a new deferred follow-up; if the session is idle, it sends immediately as a normal message.
+- Telegram, Discord, and Slack acknowledge accepted busy-session interrupts with a salute reaction when reactions are available.
 - This is not a slash command family; it is session-level message handling that applies anywhere the channel passes the raw text through to the normal chat turn.
 - In practice this works for the web chat/gateway and normal text channels such as Telegram, Discord, Slack, WhatsApp, LINE, Signal, IRC, Nostr, Lark, Matrix, OneBot, Teams, and WebChannel.
 
