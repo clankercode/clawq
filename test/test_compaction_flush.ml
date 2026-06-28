@@ -419,7 +419,7 @@ let test_dispatch_flush_tool_call () =
     "list finds memory" true
     (String.length result.content > 0
     && not (result.content = "No memories found"));
-  (* Test memory_forget *)
+  (* Test memory_forget rejects no-session deletes so memory is preserved. *)
   let tc_forget : Provider.tool_call =
     {
       id = "tc_4";
@@ -428,10 +428,15 @@ let test_dispatch_flush_tool_call () =
     }
   in
   let result = Agent.dispatch_flush_tool_call ~db tc_forget in
-  Alcotest.(check string) "forget result" "Deleted memory: k1" result.content;
-  (* Verify it's gone *)
+  Alcotest.(check string)
+    "forget result"
+    "Error: memory_forget requires an active session context so the deleted \
+     memory can be archived. Retry from an interactive session, or overwrite \
+     the memory with memory_store instead of deleting it."
+    result.content;
+  (* Verify it's preserved. *)
   let memories = Memory.list_core ~db ~category:"test" () in
-  Alcotest.(check int) "memory forgotten" 0 (List.length memories);
+  Alcotest.(check int) "memory preserved" 1 (List.length memories);
   (* Test unknown tool *)
   let tc_unknown : Provider.tool_call =
     { id = "tc_5"; function_name = "unknown_tool"; arguments = "{}" }

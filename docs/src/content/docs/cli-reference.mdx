@@ -79,6 +79,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq mcp` | Start the MCP server (Model Context Protocol) |
 | `clawq runner token --session KEY [--ttl-hours N]` | Generate a runner bearer token for remote question relay |
 | `clawq memory` | Show memory backend configuration |
+| `clawq memory forget KEY` | Delete a memory entry by key. In interactive sessions, `memory_forget` also archives forgotten content under the session workspace as `memory_archive.jsonl` |
 | `clawq migrate` | Run database migrations |
 | `clawq models` | List configured LLM providers and their default models |
 | `clawq onboard` | Interactive setup wizard (or template when not in a TTY) |

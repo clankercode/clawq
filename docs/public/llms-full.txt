@@ -110,6 +110,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `mcp` | Start the MCP server (JSON-RPC via stdio) |
 | `runner token --session KEY [--ttl-hours N]` | Generate a runner bearer token for remote question relay via gateway endpoints |
 | `memory` | Show memory backend config |
+| `memory forget KEY` | Delete a memory entry by key; interactive `memory_forget` calls archive forgotten content to the session workspace as `memory_archive.jsonl` |
 | `session` | Inspect persisted sessions and raw chat-log epochs |
 | `session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] [--main|--non-main] [--include-postmortem]` | List persisted sessions with optional filters; postmortem sessions (`__postmortem_*`) hidden by default, pass `--include-postmortem` to show them; appends `pending_inbound=N` when durable queue rows exist and marks opted-in sessions with `[keepalive]` / `[heartbeat]` |
 | `session epochs SESSION` | List the current and archived chat-log epochs for a session |
@@ -518,7 +519,7 @@ You have up to 45 built-in tools. 16 are always registered; `web_search`, `zai_w
 | `transcribe` | Transcribe an audio file |
 | `memory_store` | Store a persistent key-value memory that survives across sessions (overwrites on key collision) |
 | `memory_recall` | Search persistent memories by full-text query, return matching key-content pairs |
-| `memory_forget` | Delete a persistent memory by its exact key |
+| `memory_forget` | Remove a persistent memory by its exact key and archive the forgotten content in the session workspace |
 | `memory_list` | List all persistent memories, optionally filtered by category |
 | `compact_history` | Compact (summarize) older conversation history to free up context window space. Useful for clearing out old patterns or lots of junk data, and should be done proactively. The agent will be forked and the clone asked to save everything necessary to memory, so compaction can safely be run at any time without fear of losing unremembered things. Returns token usage before and after compaction. |
 | `history_search` | Search your own session's chat history across current and archived epochs |

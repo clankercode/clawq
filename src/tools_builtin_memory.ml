@@ -165,15 +165,30 @@ let memory_forget ~db =
        `memory_store` with the same key.";
     parameters_schema = schema;
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let key = try args |> member "key" |> to_string with _ -> "" in
         if key = "" then
           Lwt.return (param_err "parameter 'key' must be a non-empty string")
         else
-          let deleted = Memory.forget_core ~db ~key in
-          if deleted then Lwt.return (Printf.sprintf "Deleted memory: %s" key)
-          else Lwt.return (Printf.sprintf "No memory found with key: %s" key));
+          let session_key =
+            match context with Some ctx -> ctx.Tool.session_key | None -> None
+          in
+          match session_key with
+          | None ->
+              Lwt.return
+                "Error: memory_forget requires an active session context so \
+                 the deleted memory can be archived. Retry from an interactive \
+                 session, or overwrite the memory with memory_store instead of \
+                 deleting it."
+          | Some session_key ->
+              let deleted =
+                Memory.forget_core_for_session ~db ~key ~session_key
+              in
+              if deleted then
+                Lwt.return (Printf.sprintf "Deleted memory: %s" key)
+              else
+                Lwt.return (Printf.sprintf "No memory found with key: %s" key));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
