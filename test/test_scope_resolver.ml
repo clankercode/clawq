@@ -1266,7 +1266,7 @@ let test_legacy_no_binding_resolves_nothing () =
     Runtime_config.room_profile_tool_denial_for_session cfg
       ~session_key:"slack:C800" ~tool_name:"tool_x"
   in
-  Alcotest.(check bool) "legacy path also denies" true (denial = None)
+  Alcotest.(check bool) "legacy path has no denial" true (denial = None)
 
 let suite =
   [
