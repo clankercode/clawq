@@ -66,11 +66,15 @@ let scoped_memory_of_stmt stmt =
     content = text_opt_col stmt 4;
     reference = text_col stmt 5;
     provenance = text_col stmt 6;
-    created_at = text_col stmt 7;
-    updated_at = text_col stmt 8;
-    redacted_at = text_opt_col stmt 9;
-    redaction_reason = text_opt_col stmt 10;
-    redaction_metadata = text_opt_col stmt 11;
+    visibility =
+      (match text_opt_col stmt 7 with
+      | Some s -> visibility_of_string s
+      | None -> Public);
+    created_at = text_col stmt 8;
+    updated_at = text_col stmt 9;
+    redacted_at = text_opt_col stmt 10;
+    redaction_reason = text_opt_col stmt 11;
+    redaction_metadata = text_opt_col stmt 12;
   }
 
 let get_scope_by_kind_key ~db ~kind ~key =
@@ -248,7 +252,7 @@ let list_scopes ~db ?kind ?limit ?(offset = 0) () =
 let get_scoped_memory ~db ~id =
   let sql =
     "SELECT m.id, m.scope_id, s.kind, s.key, m.content, m.reference, \
-     m.provenance, m.created_at, m.updated_at, m.redacted_at, \
+     m.provenance, m.visibility, m.created_at, m.updated_at, m.redacted_at, \
      m.redaction_reason, m.redaction_metadata FROM scoped_memories m JOIN \
      memory_scopes s ON s.id = m.scope_id WHERE m.id = ?"
   in
@@ -277,35 +281,61 @@ let find_scoped_memory_id ~db ~scope_id ~reference =
       | _ -> None)
 
 let upsert_scoped_memory ~db ~scope_id ~reference ?content
-    ?(provenance = "unknown") () =
+    ?(provenance = "unknown") ?visibility () =
   if reference = "" then failwith "upsert_scoped_memory: reference is required";
   let inserted_or_updated_id = ref None in
   exec_exn db "BEGIN IMMEDIATE";
   (try
      (match find_scoped_memory_id ~db ~scope_id ~reference with
-     | Some id ->
-         let stmt =
-           Sqlite3.prepare db
-             "UPDATE scoped_memories SET content = ?, provenance = ?, \
-              updated_at = datetime('now') WHERE id = ?"
-         in
-         Fun.protect
-           ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-           (fun () ->
-             bind_text_option stmt 1 content;
-             ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT provenance));
-             ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
-             match Sqlite3.step stmt with
-             | Sqlite3.Rc.DONE -> inserted_or_updated_id := Some id
-             | rc ->
-                 failwith
-                   (Printf.sprintf "upsert_scoped_memory update failed: %s"
-                      (Sqlite3.Rc.to_string rc)))
+     | Some id -> (
+         (* Update: only change visibility if explicitly specified *)
+         match visibility with
+         | Some vis ->
+             let stmt =
+               Sqlite3.prepare db
+                 "UPDATE scoped_memories SET content = ?, provenance = ?, \
+                  visibility = ?, updated_at = datetime('now') WHERE id = ?"
+             in
+             Fun.protect
+               ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+               (fun () ->
+                 bind_text_option stmt 1 content;
+                 ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT provenance));
+                 ignore
+                   (Sqlite3.bind stmt 3
+                      (Sqlite3.Data.TEXT (visibility_to_string vis)));
+                 ignore
+                   (Sqlite3.bind stmt 4 (Sqlite3.Data.INT (Int64.of_int id)));
+                 match Sqlite3.step stmt with
+                 | Sqlite3.Rc.DONE -> inserted_or_updated_id := Some id
+                 | rc ->
+                     failwith
+                       (Printf.sprintf "upsert_scoped_memory update failed: %s"
+                          (Sqlite3.Rc.to_string rc)))
+         | None ->
+             let stmt =
+               Sqlite3.prepare db
+                 "UPDATE scoped_memories SET content = ?, provenance = ?, \
+                  updated_at = datetime('now') WHERE id = ?"
+             in
+             Fun.protect
+               ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+               (fun () ->
+                 bind_text_option stmt 1 content;
+                 ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT provenance));
+                 ignore
+                   (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
+                 match Sqlite3.step stmt with
+                 | Sqlite3.Rc.DONE -> inserted_or_updated_id := Some id
+                 | rc ->
+                     failwith
+                       (Printf.sprintf "upsert_scoped_memory update failed: %s"
+                          (Sqlite3.Rc.to_string rc))))
      | None ->
          let stmt =
            Sqlite3.prepare db
              "INSERT INTO scoped_memories (scope_id, content, reference, \
-              provenance) VALUES (?, ?, ?, ?)"
+              provenance, visibility) VALUES (?, ?, ?, ?, ?)"
          in
          Fun.protect
            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -315,6 +345,11 @@ let upsert_scoped_memory ~db ~scope_id ~reference ?content
              bind_text_option stmt 2 content;
              ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT reference));
              ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT provenance));
+             ignore
+               (Sqlite3.bind stmt 5
+                  (Sqlite3.Data.TEXT
+                     (visibility_to_string
+                        (Option.value ~default:Public visibility))));
              match Sqlite3.step stmt with
              | Sqlite3.Rc.DONE ->
                  inserted_or_updated_id :=
@@ -335,7 +370,7 @@ let upsert_scoped_memory ~db ~scope_id ~reference ?content
   | None -> failwith "upsert_scoped_memory: no row stored"
 
 let query_scoped_memories ~db ?scope_kind ?scope_key ?content_search ?provenance
-    ?(limit = 50) ?(offset = 0) () =
+    ?visibility ?(limit = 50) ?(offset = 0) () =
   if limit <= 0 then []
   else
     let clauses = ref [ "m.redacted_at IS NULL" ] in
@@ -358,9 +393,14 @@ let query_scoped_memories ~db ?scope_kind ?scope_key ?content_search ?provenance
     Option.iter
       (fun p -> add_clause "m.provenance = ?" (Sqlite3.Data.TEXT p))
       provenance;
+    Option.iter
+      (fun v ->
+        add_clause "m.visibility = ?"
+          (Sqlite3.Data.TEXT (visibility_to_string v)))
+      visibility;
     let sql =
       "SELECT m.id, m.scope_id, s.kind, s.key, m.content, m.reference, \
-       m.provenance, m.created_at, m.updated_at, m.redacted_at, \
+       m.provenance, m.visibility, m.created_at, m.updated_at, m.redacted_at, \
        m.redaction_reason, m.redaction_metadata FROM scoped_memories m JOIN \
        memory_scopes s ON s.id = m.scope_id WHERE "
       ^ String.concat " AND " (List.rev !clauses)
@@ -480,3 +520,128 @@ let resolve_grants ~db ~scope_id ~principal_kind ~principal_id =
         | _ -> ()
       done;
       List.rev !capabilities)
+
+(* --- team grants (for team visibility) --- *)
+
+let team_grant_of_stmt stmt =
+  {
+    id = int_col stmt 0;
+    memory_id = int_col stmt 1;
+    principal_kind = text_col stmt 2;
+    principal_id = text_col stmt 3;
+    granted_at = text_col stmt 4;
+  }
+
+let add_team_grant ~db ~memory_id ~principal_kind ~principal_id =
+  let sql =
+    "INSERT OR IGNORE INTO memory_team_grants (memory_id, principal_kind, \
+     principal_id) VALUES (?, ?, ?)"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int memory_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | _ -> false)
+
+let remove_team_grant ~db ~memory_id ~principal_kind ~principal_id =
+  let sql =
+    "DELETE FROM memory_team_grants WHERE memory_id = ? AND principal_kind = ? \
+     AND principal_id = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int memory_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | _ -> false)
+
+let list_team_grants ~db ~memory_id =
+  let sql =
+    "SELECT id, memory_id, principal_kind, principal_id, granted_at FROM \
+     memory_team_grants WHERE memory_id = ? ORDER BY id"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let grants = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int memory_id)));
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        grants := team_grant_of_stmt stmt :: !grants
+      done;
+      List.rev !grants)
+
+let has_team_grant ~db ~memory_id ~principal_kind ~principal_id =
+  let sql =
+    "SELECT 1 FROM memory_team_grants WHERE memory_id = ? AND principal_kind = \
+     ? AND principal_id = ? LIMIT 1"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int memory_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
+(** Check if a principal can see a memory based on its visibility.
+    - Public: always visible
+    - Private: only visible if principal is the scope owner (profile_id match)
+    - Team: visible if principal has an explicit team_grant *)
+let can_see_memory ~db ~(scoped_mem : scoped_memory) ~principal_kind
+    ~principal_id ~scope_profile_id =
+  match scoped_mem.visibility with
+  | Public -> true
+  | Private -> (
+      match scope_profile_id with
+      | Some owner_id -> owner_id = principal_id
+      | None -> false)
+  | Team ->
+      has_team_grant ~db ~memory_id:scoped_mem.id ~principal_kind ~principal_id
+
+(** Get the visibility of a memory by its id. Returns [None] if the memory does
+    not exist or is redacted. *)
+let get_memory_visibility ~db ~id =
+  let sql =
+    "SELECT visibility FROM scoped_memories WHERE id = ? AND redacted_at IS \
+     NULL"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT s -> visibility_of_string_opt s
+          | _ -> None)
+      | _ -> None)
+
+(** Set the visibility of a memory. Returns true if the update succeeded. *)
+let set_memory_visibility ~db ~id ~(visibility : memory_visibility) =
+  let stmt =
+    Sqlite3.prepare db
+      "UPDATE scoped_memories SET visibility = ?, updated_at = datetime('now') \
+       WHERE id = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1
+           (Sqlite3.Data.TEXT (visibility_to_string visibility)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | _ -> false)

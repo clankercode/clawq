@@ -1,4 +1,4 @@
-let schema_version = 39
+let schema_version = 40
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -532,6 +532,8 @@ let init_scoped_memory_schema db =
     \     content TEXT,\n\
     \     reference TEXT,\n\
     \     provenance TEXT NOT NULL DEFAULT 'unknown',\n\
+    \     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN      \
+     ('public', 'private', 'team')),\n\
     \     created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     redacted_at TEXT,\n\
@@ -600,7 +602,24 @@ let init_scoped_memory_schema db =
     "INSERT OR IGNORE INTO memory_grants (scope_id, principal_kind, \n\
      principal_id, capability, grantor_kind, grantor_id) SELECT id, 'system', \n\
      'legacy', 'read', 'system', 'seed' FROM memory_scopes WHERE kind = \n\
-     'legacy' AND key = 'core'"
+     'legacy' AND key = 'core'";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS memory_team_grants (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     memory_id INTEGER NOT NULL,\n\
+    \     principal_kind TEXT NOT NULL,\n\
+    \     principal_id TEXT NOT NULL,\n\
+    \     granted_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     UNIQUE(memory_id, principal_kind, principal_id),\n\
+    \     FOREIGN KEY (memory_id) REFERENCES scoped_memories(id) ON DELETE \
+     CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_team_grants_memory ON\n\
+    \     memory_team_grants(memory_id)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_memory_team_grants_principal ON\n\
+    \     memory_team_grants(principal_kind, principal_id)"
 
 let init_session_repos_schema db =
   exec_exn db
@@ -830,6 +849,13 @@ let migrate_step db v =
   | 37 -> init_room_activity_ledger_schema db
   | 38 -> Room_progress_checklist.init_schema db
   | 36 -> Room_budget.init_schema db
+  | 39 ->
+      (* Add visibility column to scoped_memories and create team_grants table *)
+      let try_add sql = try exec_exn db sql with _ -> () in
+      try_add
+        "ALTER TABLE scoped_memories ADD COLUMN visibility TEXT NOT NULL \
+         DEFAULT 'public' CHECK (visibility IN ('public', 'private', 'team'))";
+      init_scoped_memory_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -876,7 +902,10 @@ let repair_missing_columns db =
   Room_progress_checklist.init_schema db;
   Room_budget.init_schema db;
   repair_room_profile_tables db;
-  init_scoped_memory_schema db
+  init_scoped_memory_schema db;
+  try_add
+    "ALTER TABLE scoped_memories ADD COLUMN visibility TEXT NOT NULL DEFAULT \
+     'public' CHECK (visibility IN ('public', 'private', 'team'))"
 
 let migrate_schema db current_version =
   match current_version with
