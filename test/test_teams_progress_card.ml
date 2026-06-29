@@ -653,6 +653,35 @@ let test_item_element_empty_links_omitted () =
     "no link separator" false
     (Test_helpers.string_contains text " — ")
 
+let test_item_element_with_session_record_link () =
+  let item =
+    make_item ~title:"T" ~state:Done
+      ~session_record_id:(Some "rsr_123_000001") ()
+  in
+  let element = Teams_progress_card.render_item_element item in
+  let text = json_string "text" element in
+  Alcotest.(check bool)
+    "has record link" true
+    (Test_helpers.string_contains text "[record]");
+  Alcotest.(check bool)
+    "has record url" true
+    (Test_helpers.string_contains text "/session-records/rsr_123_000001")
+
+let test_item_element_sanitizes_urls () =
+  let item =
+    make_item ~title:"T" ~state:Done
+      ~transcript_url:(Some "https://example.com/tr?token=secret123")
+      ~session_url:(Some "https://example.com/s?key=apikey456") ()
+  in
+  let element = Teams_progress_card.render_item_element item in
+  let text = json_string "text" element in
+  Alcotest.(check bool)
+    "token not exposed" false
+    (Test_helpers.string_contains text "secret123");
+  Alcotest.(check bool)
+    "apikey not exposed" false
+    (Test_helpers.string_contains text "apikey456")
+
 (** {1 Summary line tests} *)
 
 let test_render_summary_line_all_done () =
@@ -966,6 +995,10 @@ let suite =
       test_item_element_with_both_links;
     Alcotest.test_case "item element empty links omitted" `Quick
       test_item_element_empty_links_omitted;
+    Alcotest.test_case "item element with session record link" `Quick
+      test_item_element_with_session_record_link;
+    Alcotest.test_case "item element sanitizes urls" `Quick
+      test_item_element_sanitizes_urls;
     Alcotest.test_case "render summary line all done" `Quick
       test_render_summary_line_all_done;
     Alcotest.test_case "render summary line mixed" `Quick

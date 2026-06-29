@@ -74,7 +74,8 @@ let render_item (item : checklist_item) =
   | _ -> ());
   (match item.session_record_id with
   | Some id_val when String.trim id_val <> "" ->
-      links := Printf.sprintf "<record:%s>" id_val :: !links
+      let record_url = Printf.sprintf "/session-records/%s" id_val in
+      links := Url_sanitize.safe_slack_link record_url "record" :: !links
   | _ -> ());
   (match !links with
   | [] -> ()

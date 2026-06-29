@@ -80,7 +80,8 @@ let render_item_element (item : checklist_item) =
     | _ -> ());
     (match item.session_record_id with
     | Some id_val when String.trim id_val <> "" ->
-        parts := Printf.sprintf "[record](%s)" id_val :: !parts
+        let record_url = Printf.sprintf "/session-records/%s" id_val in
+        parts := Url_sanitize.safe_teams_link record_url "record" :: !parts
     | _ -> ());
     match !parts with [] -> "" | ps -> " — " ^ String.concat " | " ps
   in

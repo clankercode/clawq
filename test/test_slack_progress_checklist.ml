@@ -123,6 +123,33 @@ let test_render_item_empty_links_omitted () =
     "no link separator" false
     (Test_helpers.string_contains rendered " — ")
 
+let test_render_item_with_session_record () =
+  let item =
+    make_item ~title:"Build" ~state:Done
+      ~session_record_id:(Some "rsr_456_000001") ()
+  in
+  let rendered = Slack_progress_checklist.render_item item in
+  Alcotest.(check bool)
+    "has record link" true
+    (Test_helpers.string_contains rendered "|record>");
+  Alcotest.(check bool)
+    "has record url" true
+    (Test_helpers.string_contains rendered "/session-records/rsr_456_000001")
+
+let test_render_item_sanitizes_urls () =
+  let item =
+    make_item ~title:"Task" ~state:Done
+      ~transcript_url:(Some "https://example.com/tr?token=secret789")
+      ~session_url:(Some "https://example.com/s?key=apikey123") ()
+  in
+  let rendered = Slack_progress_checklist.render_item item in
+  Alcotest.(check bool)
+    "token not exposed" false
+    (Test_helpers.string_contains rendered "secret789");
+  Alcotest.(check bool)
+    "apikey not exposed" false
+    (Test_helpers.string_contains rendered "apikey123")
+
 (** {1 Blocked item secrecy tests} *)
 
 let test_blocked_item_no_secrets () =
@@ -400,6 +427,10 @@ let suite =
       test_render_item_with_both_links;
     Alcotest.test_case "render item empty links omitted" `Quick
       test_render_item_empty_links_omitted;
+    Alcotest.test_case "render item with session record" `Quick
+      test_render_item_with_session_record;
+    Alcotest.test_case "render item sanitizes urls" `Quick
+      test_render_item_sanitizes_urls;
     Alcotest.test_case "blocked item no secrets" `Quick
       test_blocked_item_no_secrets;
     Alcotest.test_case "render summary all done" `Quick
