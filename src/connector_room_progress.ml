@@ -98,6 +98,7 @@ let compose_teams_channel_id ~service_url ~conversation_id ~fallback_service_url
 
 let teams_callbacks ~(teams_config : Runtime_config.teams_config)
     ~(service_url : string) : progress_callbacks =
+  let open Lwt.Syntax in
   let send ~room_id ?thread_id ~text () =
     let _ = thread_id in
     let channel_id =

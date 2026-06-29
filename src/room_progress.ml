@@ -87,43 +87,83 @@ let connector_and_room_of_task (task : task) =
   let room_id, thread_id = extract_room_id_and_thread task in
   (connector, room_id, thread_id)
 
+type lifecycle_ctx = {
+  db : Sqlite3.db;
+  room_id : string;
+  connector : string;
+  tracking_id : string;
+  task_id : int;
+  thread_id : string option;
+}
+(** Lifecycle context for Teams delivery tracking. When provided to
+    [send_or_edit], records granular lifecycle state transitions. *)
+
 (** [send_or_edit] performs the actual send/edit cycle and returns the result
     along with the resolved message ID. A delivery is [Delivered] only when a
     valid message ID is returned (non-empty, not "0"). Empty or placeholder IDs
     indicate a failed delivery (e.g. Teams returning empty activity ID on
-    transient errors). *)
-let send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id () =
+    transient errors).
+
+    When [?lifecycle_ctx] is provided (Teams connector), records granular
+    lifecycle states: Attempted on send, Transport_accepted on 2xx,
+    Message_id_recorded on valid ID, Edit_failed on edit exception,
+    Fallback_sent on fallback send, User_visible_unconfirmed on empty ID. *)
+let send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id ?lifecycle_ctx
+    () =
   let open Lwt.Syntax in
   let invalid_message_id_error msg_id =
     if String.trim msg_id = "" then "empty message ID from connector"
     else "placeholder message ID from connector"
   in
-  let send_new ?invalid_error () =
+  let record state ?error ?message_id () =
+    match lifecycle_ctx with
+    | Some ctx ->
+        Teams_delivery_lifecycle.record_lifecycle ~db:ctx.db
+          ~room_id:ctx.room_id ~connector:ctx.connector
+          ~tracking_id:ctx.tracking_id ~state ~task_id:ctx.task_id
+          ?thread_id:ctx.thread_id ?error ?message_id ()
+    | None -> ()
+  in
+  let send_new ?invalid_error ?(is_fallback = false) () =
+    record Teams_delivery_lifecycle.Generated ();
+    record Teams_delivery_lifecycle.Attempted ();
     let* msg_id = send ~room_id ?thread_id ~text () in
+    record Teams_delivery_lifecycle.Transport_accepted ();
+    if is_fallback then record Teams_delivery_lifecycle.Fallback_sent ();
     if is_valid_message_id msg_id then begin
+      record Teams_delivery_lifecycle.Message_id_recorded ~message_id:msg_id ();
       Hashtbl.replace progress_msg_ids task_id msg_id;
       Lwt.return (Delivered, Some msg_id)
     end
-    else
+    else begin
+      let trimmed = String.trim msg_id in
+      if trimmed = "" || trimmed = "0" then
+        record Teams_delivery_lifecycle.User_visible_unconfirmed ();
       let err =
         match invalid_error with
         | Some err -> err
         | None -> invalid_message_id_error msg_id
       in
+      if trimmed <> "" && trimmed <> "0" then
+        record Teams_delivery_lifecycle.Failed ~error:err ();
       Lwt.return (Delivery_failed err, None)
+    end
   in
   match Hashtbl.find_opt progress_msg_ids task_id with
   | Some msg_id when is_valid_message_id msg_id ->
       Lwt.catch
         (fun () ->
           let* () = edit ~room_id ~msg_id ~text in
+          record Teams_delivery_lifecycle.Generated ();
+          record Teams_delivery_lifecycle.Attempted ();
+          record Teams_delivery_lifecycle.Transport_accepted ();
+          record Teams_delivery_lifecycle.Message_id_recorded ~message_id:msg_id
+            ();
           Lwt.return (Delivered, Some msg_id))
         (fun exn ->
-          send_new
-            ~invalid_error:
-              (Printf.sprintf "send failed after edit error: %s"
-                 (Printexc.to_string exn))
-            ())
+          let edit_err = Printexc.to_string exn in
+          record Teams_delivery_lifecycle.Edit_failed ~error:edit_err ();
+          send_new ~is_fallback:true ())
   | Some _ ->
       Hashtbl.remove progress_msg_ids task_id;
       send_new ()
@@ -153,10 +193,30 @@ let deliver_progress_update
           (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
              ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
     | None -> ());
+    (* Generate lifecycle tracking ID for Teams connectors *)
+    let lifecycle_ctx =
+      match db with
+      | Some db when connector = "teams" ->
+          let tracking_id = Teams_delivery_lifecycle.generate_tracking_id () in
+          Teams_delivery_lifecycle.record_scheduled ~db ~room_id ~connector
+            ~tracking_id ~task_id:task.id ?thread_id
+            ?activity_id:existing_activity_id ();
+          Some
+            {
+              db;
+              room_id;
+              connector;
+              tracking_id;
+              task_id = task.id;
+              thread_id;
+            }
+      | _ -> None
+    in
     Lwt.catch
       (fun () ->
         let* result, msg_id =
-          send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
+          send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id
+            ?lifecycle_ctx ()
         in
         let activity_id = activity_id_of_message_id msg_id in
         (* Record delivery outcome in ledger *)
@@ -178,13 +238,21 @@ let deliver_progress_update
       (fun exn ->
         let err = Printexc.to_string exn in
         (* Record exception-based failure in ledger *)
-        (match db with
-        | Some db ->
+        (match (db, lifecycle_ctx) with
+        | Some db, Some ctx ->
+            Teams_delivery_lifecycle.record_failed ~db ~room_id ~connector
+              ~tracking_id:ctx.tracking_id ~task_id:task.id ~error:err
+              ?thread_id ?activity_id:existing_activity_id ();
             ignore
               (Room_activity_ledger.record_delivery_failure ~db ~room_id
                  ~connector ~task_id:task.id ~error:err ?thread_id
                  ?activity_id:existing_activity_id ())
-        | None -> ());
+        | Some db, None ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None, _ -> ());
         Lwt.return_unit)
   end
 
@@ -269,10 +337,30 @@ let deliver_final_message ?summary
           (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
              ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
     | None -> ());
+    (* Generate lifecycle tracking ID for Teams connectors *)
+    let lifecycle_ctx =
+      match db with
+      | Some db when connector = "teams" ->
+          let tracking_id = Teams_delivery_lifecycle.generate_tracking_id () in
+          Teams_delivery_lifecycle.record_scheduled ~db ~room_id ~connector
+            ~tracking_id ~task_id:task.id ?thread_id
+            ?activity_id:existing_activity_id ();
+          Some
+            {
+              db;
+              room_id;
+              connector;
+              tracking_id;
+              task_id = task.id;
+              thread_id;
+            }
+      | _ -> None
+    in
     Lwt.catch
       (fun () ->
         let* result, msg_id =
-          send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id ()
+          send_or_edit ~send ~edit ~room_id ?thread_id ~text ~task_id:task.id
+            ?lifecycle_ctx ()
         in
         clear_progress_msg_id ~task_id:task.id;
         let activity_id = activity_id_of_message_id msg_id in
@@ -296,23 +384,43 @@ let deliver_final_message ?summary
         clear_progress_msg_id ~task_id:task.id;
         let err = Printexc.to_string exn in
         (* Record exception-based failure in ledger *)
-        (match db with
-        | Some db ->
+        (match (db, lifecycle_ctx) with
+        | Some db, Some ctx ->
+            Teams_delivery_lifecycle.record_failed ~db ~room_id ~connector
+              ~tracking_id:ctx.tracking_id ~task_id:task.id ~error:err
+              ?thread_id ?activity_id:existing_activity_id ();
             ignore
               (Room_activity_ledger.record_delivery_failure ~db ~room_id
                  ~connector ~task_id:task.id ~error:err ?thread_id
                  ?activity_id:existing_activity_id ())
-        | None -> ());
+        | Some db, None ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None, _ -> ());
         Lwt.return (Delivery_failed err))
   end
 
 (** {1 Adaptive Card delivery} *)
 
 (** [send_or_edit_card] performs send/edit cycle for Adaptive Cards. Falls back
-    to text if adaptive card callbacks are not available. *)
+    to text if adaptive card callbacks are not available.
+
+    When [?lifecycle_ctx] is provided (Teams connector), records granular
+    lifecycle states for card sends, edits, and fallbacks. *)
 let send_or_edit_card ~send_card ~edit_card ~send_text ~edit_text ~room_id
-    ?thread_id ~card ~fallback_text ~task_id () =
+    ?thread_id ~card ~fallback_text ~task_id ?lifecycle_ctx () =
   let open Lwt.Syntax in
+  let record state ?error ?message_id () =
+    match lifecycle_ctx with
+    | Some ctx ->
+        Teams_delivery_lifecycle.record_lifecycle ~db:ctx.db
+          ~room_id:ctx.room_id ~connector:ctx.connector
+          ~tracking_id:ctx.tracking_id ~state ~task_id:ctx.task_id
+          ?thread_id:ctx.thread_id ?error ?message_id ()
+    | None -> ()
+  in
   match (send_card, edit_card) with
   | Some send_card_fn, _ -> (
       match Hashtbl.find_opt progress_msg_ids task_id with
@@ -322,41 +430,71 @@ let send_or_edit_card ~send_card ~edit_card ~send_text ~edit_text ~room_id
               Lwt.catch
                 (fun () ->
                   let* () = edit_card_fn ~room_id ~msg_id ~card () in
+                  record Teams_delivery_lifecycle.Generated ();
+                  record Teams_delivery_lifecycle.Attempted ();
+                  record Teams_delivery_lifecycle.Transport_accepted ();
+                  record Teams_delivery_lifecycle.Message_id_recorded
+                    ~message_id:msg_id ();
                   Lwt.return (Delivered, Some msg_id))
                 (fun exn ->
                   (* Edit failed, send new card *)
+                  let edit_err = Printexc.to_string exn in
+                  record Teams_delivery_lifecycle.Edit_failed ~error:edit_err ();
+                  record Teams_delivery_lifecycle.Generated ();
+                  record Teams_delivery_lifecycle.Attempted ();
                   let* new_id = send_card_fn ~room_id ?thread_id ~card () in
+                  record Teams_delivery_lifecycle.Transport_accepted ();
                   if is_valid_message_id new_id then begin
+                    record Teams_delivery_lifecycle.Fallback_sent ();
+                    record Teams_delivery_lifecycle.Message_id_recorded
+                      ~message_id:new_id ();
                     Hashtbl.replace progress_msg_ids task_id new_id;
                     Lwt.return (Delivered, Some new_id)
                   end
-                  else
+                  else begin
+                    record Teams_delivery_lifecycle.User_visible_unconfirmed ();
                     Lwt.return
                       ( Delivery_failed
                           (Printf.sprintf
-                             "card send failed after edit error: %s"
-                             (Printexc.to_string exn)),
-                        None ))
+                             "card send failed after edit error: %s" edit_err),
+                        None )
+                  end)
           | None ->
               (* No edit support, send new card *)
+              record Teams_delivery_lifecycle.Generated ();
+              record Teams_delivery_lifecycle.Attempted ();
               let* new_id = send_card_fn ~room_id ?thread_id ~card () in
+              record Teams_delivery_lifecycle.Transport_accepted ();
               if is_valid_message_id new_id then begin
+                record Teams_delivery_lifecycle.Message_id_recorded
+                  ~message_id:new_id ();
                 Hashtbl.replace progress_msg_ids task_id new_id;
                 Lwt.return (Delivered, Some new_id)
               end
-              else Lwt.return (Delivery_failed "empty card message ID", None))
+              else begin
+                record Teams_delivery_lifecycle.User_visible_unconfirmed ();
+                Lwt.return (Delivery_failed "empty card message ID", None)
+              end)
       | _ ->
           (* No existing message, send new card *)
+          record Teams_delivery_lifecycle.Generated ();
+          record Teams_delivery_lifecycle.Attempted ();
           let* new_id = send_card_fn ~room_id ?thread_id ~card () in
+          record Teams_delivery_lifecycle.Transport_accepted ();
           if is_valid_message_id new_id then begin
+            record Teams_delivery_lifecycle.Message_id_recorded
+              ~message_id:new_id ();
             Hashtbl.replace progress_msg_ids task_id new_id;
             Lwt.return (Delivered, Some new_id)
           end
-          else Lwt.return (Delivery_failed "empty card message ID", None))
+          else begin
+            record Teams_delivery_lifecycle.User_visible_unconfirmed ();
+            Lwt.return (Delivery_failed "empty card message ID", None)
+          end)
   | None, _ ->
       (* No adaptive card support, fall back to text *)
       send_or_edit ~send:send_text ~edit:edit_text ~room_id ?thread_id
-        ~text:fallback_text ~task_id ()
+        ~text:fallback_text ~task_id ?lifecycle_ctx ()
 
 (** Deliver a progress update using Adaptive Cards when available. Falls back to
     plain text for connectors without card support. Returns [true] if the card
@@ -405,12 +543,32 @@ let deliver_progress_update_with_card
           (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
              ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
     | None -> ());
+    (* Generate lifecycle tracking ID for Teams connectors *)
+    let lifecycle_ctx =
+      match db with
+      | Some db when connector = "teams" ->
+          let tracking_id = Teams_delivery_lifecycle.generate_tracking_id () in
+          Teams_delivery_lifecycle.record_scheduled ~db ~room_id ~connector
+            ~tracking_id ~task_id:task.id ?thread_id
+            ?activity_id:existing_activity_id ();
+          Some
+            {
+              db;
+              room_id;
+              connector;
+              tracking_id;
+              task_id = task.id;
+              thread_id;
+            }
+      | _ -> None
+    in
     Lwt.catch
       (fun () ->
         let* result, msg_id =
           send_or_edit_card ~send_card:send_adaptive_card
             ~edit_card:edit_adaptive_card ~send_text:send ~edit_text:edit
-            ~room_id ?thread_id ~card ~fallback_text ~task_id:task.id ()
+            ~room_id ?thread_id ~card ~fallback_text ~task_id:task.id
+            ?lifecycle_ctx ()
         in
         let activity_id = activity_id_of_message_id msg_id in
         (* Record delivery outcome in ledger *)
@@ -431,13 +589,21 @@ let deliver_progress_update_with_card
         Lwt.return (result = Delivered))
       (fun exn ->
         let err = Printexc.to_string exn in
-        (match db with
-        | Some db ->
+        (match (db, lifecycle_ctx) with
+        | Some db, Some ctx ->
+            Teams_delivery_lifecycle.record_failed ~db ~room_id ~connector
+              ~tracking_id:ctx.tracking_id ~task_id:task.id ~error:err
+              ?thread_id ?activity_id:existing_activity_id ();
             ignore
               (Room_activity_ledger.record_delivery_failure ~db ~room_id
                  ~connector ~task_id:task.id ~error:err ?thread_id
                  ?activity_id:existing_activity_id ())
-        | None -> ());
+        | Some db, None ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None, _ -> ());
         Lwt.return false)
   end
 
@@ -523,12 +689,32 @@ let deliver_final_message_with_card ?summary
           (Room_activity_ledger.record_delivery_attempt ~db ~room_id ~connector
              ~task_id:task.id ?thread_id ?activity_id:existing_activity_id ())
     | None -> ());
+    (* Generate lifecycle tracking ID for Teams connectors *)
+    let lifecycle_ctx =
+      match db with
+      | Some db when connector = "teams" ->
+          let tracking_id = Teams_delivery_lifecycle.generate_tracking_id () in
+          Teams_delivery_lifecycle.record_scheduled ~db ~room_id ~connector
+            ~tracking_id ~task_id:task.id ?thread_id
+            ?activity_id:existing_activity_id ();
+          Some
+            {
+              db;
+              room_id;
+              connector;
+              tracking_id;
+              task_id = task.id;
+              thread_id;
+            }
+      | _ -> None
+    in
     Lwt.catch
       (fun () ->
         let* result, msg_id =
           send_or_edit_card ~send_card:send_adaptive_card
             ~edit_card:edit_adaptive_card ~send_text:send ~edit_text:edit
-            ~room_id ?thread_id ~card ~fallback_text ~task_id:task.id ()
+            ~room_id ?thread_id ~card ~fallback_text ~task_id:task.id
+            ?lifecycle_ctx ()
         in
         clear_progress_msg_id ~task_id:task.id;
         let activity_id = activity_id_of_message_id msg_id in
@@ -551,12 +737,20 @@ let deliver_final_message_with_card ?summary
       (fun exn ->
         clear_progress_msg_id ~task_id:task.id;
         let err = Printexc.to_string exn in
-        (match db with
-        | Some db ->
+        (match (db, lifecycle_ctx) with
+        | Some db, Some ctx ->
+            Teams_delivery_lifecycle.record_failed ~db ~room_id ~connector
+              ~tracking_id:ctx.tracking_id ~task_id:task.id ~error:err
+              ?thread_id ?activity_id:existing_activity_id ();
             ignore
               (Room_activity_ledger.record_delivery_failure ~db ~room_id
                  ~connector ~task_id:task.id ~error:err ?thread_id
                  ?activity_id:existing_activity_id ())
-        | None -> ());
+        | Some db, None ->
+            ignore
+              (Room_activity_ledger.record_delivery_failure ~db ~room_id
+                 ~connector ~task_id:task.id ~error:err ?thread_id
+                 ?activity_id:existing_activity_id ())
+        | None, _ -> ());
         Lwt.return (Delivery_failed err))
   end
