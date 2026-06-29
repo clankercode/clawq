@@ -21,7 +21,7 @@ epics:
       locked: false
       name: Layered Instructions and Prompt Context
       path: 02-layered-instructions-and-promp
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P14.M1.E3

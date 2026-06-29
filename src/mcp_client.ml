@@ -293,10 +293,10 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
     let credential_handle = client.config.credential_handle in
     let invoke ?context args =
       let open Lwt.Syntax in
-      (* Check room-specific credentials if credential_handle is set *)
-      let* () =
+      (* Resolve room-specific credentials if credential_handle is set *)
+      let* resolved_headers =
         match credential_handle with
-        | None -> Lwt.return_unit
+        | None -> Lwt.return_none
         | Some handle_id -> (
             let session_key =
               match context with
@@ -310,7 +310,7 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
             match
               resolve_mcp_server_credentials ~config ~snapshot client.config
             with
-            | Ok _ -> Lwt.return_unit
+            | Ok headers -> Lwt.return_some headers
             | Error msg ->
                 Lwt.fail_with
                   (Printf.sprintf
@@ -318,9 +318,49 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
                       denied: %s"
                      name server_name msg))
       in
+      (* Use room-specific headers for HTTP transport if available *)
       let* resp =
-        send_request client ~method_:"tools/call"
-          ~params:(`Assoc [ ("name", `String name); ("arguments", args) ])
+        match (client.transport, resolved_headers) with
+        | Http http_transport, Some headers ->
+            (* Use room-specific headers for this call *)
+            let call_headers =
+              headers @ http_transport.headers
+              |> List.fold_left
+                   (fun acc (k, v) ->
+                     (* Room-specific headers take precedence *)
+                     if List.exists (fun (ak, _) -> ak = k) acc then acc
+                     else (k, v) :: acc)
+                   []
+            in
+            let json =
+              jsonrpc_request ~id:(client.next_id + 1000000)
+                ~method_:"tools/call"
+                ~params:(`Assoc [ ("name", `String name); ("arguments", args) ])
+            in
+            let body = Yojson.Safe.to_string json in
+            let* status, response_body, content_type =
+              http_transport.post ~url:http_transport.url ~headers:call_headers
+                ~body
+            in
+            if status < 200 || status >= 300 then
+              Lwt.fail_with
+                (Printf.sprintf "MCP client: HTTP %d from %s" status
+                   http_transport.url)
+            else
+              let resp_json =
+                match parse_http_json_response ~response_body ~content_type with
+                | Ok (Some json) -> json
+                | Ok None -> `Null
+                | Error exn ->
+                    failwith
+                      ("MCP client: failed to parse HTTP response: "
+                     ^ Printexc.to_string exn)
+              in
+              Lwt.return resp_json
+        | _ ->
+            (* Use existing client for stdio or when no room headers *)
+            send_request client ~method_:"tools/call"
+              ~params:(`Assoc [ ("name", `String name); ("arguments", args) ])
       in
       let result = try resp |> member "result" with _ -> `Null in
       let content =

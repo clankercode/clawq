@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-28T23:32:55Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T01:23:46Z"
 complexity: medium
 depends_on:
     - P14.M2.E2.T002
+duration_minutes: 110.85001154301666
 estimate_hours: 2
 id: P14.M2.E2.T003
 priority: high
 started_at: "2026-06-28T23:32:55Z"
-status: in_progress
+status: done
 tags: []
 title: Preserve project-doc refresh behavior with layered prompts
 ---
