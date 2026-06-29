@@ -425,7 +425,8 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       let text =
         match Session.get_db session_mgr with
         | Some db ->
-            Slash_commands.format_cron ~connector ~db ~session_key:key action
+            Slash_commands.format_cron ~connector ~db ~session_key:key
+              ~is_admin:env.is_admin action
         | None -> "Cron is not available (no database)."
       in
       env.send_formatted text

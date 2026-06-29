@@ -101,14 +101,16 @@ let capture_adaptive_card cards ~config:_ ~service_url:_ ~conversation_id:_
 let successful_turn count _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
     ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
     ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id:_ ?cwd:_
-    ?deferred_if_busy:_ ?before_drain:_ ?snapshot_work_type:_ ?has_external_users:_ () =
+    ?deferred_if_busy:_ ?before_drain:_ ?snapshot_work_type:_
+    ?has_external_users:_ () =
   incr count;
   Lwt.return "agent ok"
 
 let failing_turn _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
     ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
     ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id:_ ?cwd:_
-    ?deferred_if_busy:_ ?before_drain:_ ?snapshot_work_type:_ ?has_external_users:_ () =
+    ?deferred_if_busy:_ ?before_drain:_ ?snapshot_work_type:_
+    ?has_external_users:_ () =
   Lwt.fail_with "boom"
 
 let test_parse_activity_returns_record () =

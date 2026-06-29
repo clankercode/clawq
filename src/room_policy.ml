@@ -140,8 +140,7 @@ let evaluate (policy : external_room_policy)
               classification.connector reason
         | _ ->
             let scope_label = room_scope_to_string classification.scope in
-            Printf.sprintf
-              "Work is not allowed in this %s room (scope: %s). %s"
+            Printf.sprintf "Work is not allowed in this %s room (scope: %s). %s"
               classification.connector scope_label reason
       in
       if allow_admin_override then begin

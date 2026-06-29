@@ -20,6 +20,7 @@
   runtime_config
   profile_policy
   room_policy
+  invocation_restrict
   config_loader_support
   config_loader_agent_defaults
   config_loader_channels

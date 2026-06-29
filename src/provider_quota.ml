@@ -1121,7 +1121,8 @@ let fetch_for_provider ~(config : Runtime_config.provider_config) ~name () =
           fetch_codex ~provider_name:name
             ~credentials_file:(auto_cred_path ".codex" "auth.json")
             ()
-        else if is_zai then fetch_zai ~provider_name:name ~api_key:config.api_key ()
+        else if is_zai then
+          fetch_zai ~provider_name:name ~api_key:config.api_key ()
         else if is_kimi then
           let api_key = config.api_key in
           fetch_kimi ~provider_name:name ~api_key ()

@@ -566,133 +566,165 @@ let format_room_memory_save ~connector ~db ~cfg ~channel_id ~is_admin ~reference
     ~content =
   if reference = "" then "Error: memory reference is required."
   else if content = "" then "Error: memory content is required."
-  else
+  else begin
+    (* Check invocation restrictions: memory mutation requires at least member role *)
+    let user_group = if is_admin then Some "admin" else Some "guest" in
     match
-      check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
+      Invocation_restrict.check_role ~user_group ~work_kind:Memory_mutation ()
     with
-    | Error msg -> msg
-    | Ok scope -> (
-        let provenance = if is_admin then "admin-channel" else "channel" in
-        let ledger ~room_id ~event_type ~actor ~metadata =
-          ignore
-            (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor
-               ~metadata)
-        in
-        try
-          let m =
-            Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference
-              ~content ~provenance ~ledger ()
-          in
-          Printf.sprintf "Saved memory '%s' (ID: %d) for this channel."
-            (Format_adapter.escape connector m.reference)
-            m.id
-        with exn ->
-          Printf.sprintf "Error saving memory: %s" (Printexc.to_string exn))
+    | Invocation_restrict.Denied msg -> msg
+    | Invocation_restrict.Allowed -> (
+        match
+          check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
+        with
+        | Error msg -> msg
+        | Ok scope -> (
+            let provenance = if is_admin then "admin-channel" else "channel" in
+            let ledger ~room_id ~event_type ~actor ~metadata =
+              ignore
+                (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor
+                   ~metadata)
+            in
+            try
+              let m =
+                Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference
+                  ~content ~provenance ~ledger ()
+              in
+              Printf.sprintf "Saved memory '%s' (ID: %d) for this channel."
+                (Format_adapter.escape connector m.reference)
+                m.id
+            with exn ->
+              Printf.sprintf "Error saving memory: %s" (Printexc.to_string exn))
+        )
+  end
 
 let format_room_memory_correct ~connector ~db ~cfg ~channel_id ~is_admin
     ~memory_id_str ~content =
-  match int_of_string_opt memory_id_str with
-  | None ->
-      Printf.sprintf "Error: '%s' is not a valid memory ID."
-        (Format_adapter.escape connector memory_id_str)
-  | Some memory_id -> (
-      match
-        check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
-      with
-      | Error msg -> msg
-      | Ok _scope -> (
-          match Memory.get_scoped_memory ~db ~id:memory_id with
-          | None -> Printf.sprintf "Memory #%d not found." memory_id
-          | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id ->
-              Printf.sprintf "Memory #%d does not belong to this channel."
-                memory_id
-          | Some m when m.redacted_at <> None ->
-              Printf.sprintf "Memory #%d is redacted and cannot be corrected."
-                memory_id
-          | Some _ -> (
-              if content = "" then "Error: new memory content is required."
-              else
-                let provenance =
-                  if is_admin then "corrected:admin-channel"
-                  else "corrected:channel"
-                in
-                let ledger ~room_id ~event_type ~actor ~metadata =
-                  ignore
-                    (Room_activity_ledger.append_now ~db ~room_id ~event_type
-                       ~actor ~metadata)
-                in
-                match
-                  Memory.correct_scoped_memory ~db ~id:memory_id ~content
-                    ~provenance ~ledger ()
-                with
-                | None ->
-                    Printf.sprintf "Error: failed to correct memory #%d."
-                      memory_id
-                | Some updated ->
-                    Printf.sprintf
-                      "Corrected memory #%d '%s' for this channel.\n\
-                       Old provenance preserved in correction trail."
-                      updated.id
-                      (Format_adapter.escape connector updated.reference))))
+  (* Check invocation restrictions first *)
+  let user_group = if is_admin then Some "admin" else Some "guest" in
+  match
+    Invocation_restrict.check_role ~user_group ~work_kind:Memory_mutation ()
+  with
+  | Invocation_restrict.Denied msg -> msg
+  | Invocation_restrict.Allowed -> (
+      match int_of_string_opt memory_id_str with
+      | None ->
+          Printf.sprintf "Error: '%s' is not a valid memory ID."
+            (Format_adapter.escape connector memory_id_str)
+      | Some memory_id -> (
+          match
+            check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write"
+              ()
+          with
+          | Error msg -> msg
+          | Ok _scope -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id
+                ->
+                  Printf.sprintf "Memory #%d does not belong to this channel."
+                    memory_id
+              | Some m when m.redacted_at <> None ->
+                  Printf.sprintf
+                    "Memory #%d is redacted and cannot be corrected." memory_id
+              | Some _ -> (
+                  if content = "" then "Error: new memory content is required."
+                  else
+                    let provenance =
+                      if is_admin then "corrected:admin-channel"
+                      else "corrected:channel"
+                    in
+                    let ledger ~room_id ~event_type ~actor ~metadata =
+                      ignore
+                        (Room_activity_ledger.append_now ~db ~room_id
+                           ~event_type ~actor ~metadata)
+                    in
+                    match
+                      Memory.correct_scoped_memory ~db ~id:memory_id ~content
+                        ~provenance ~ledger ()
+                    with
+                    | None ->
+                        Printf.sprintf "Error: failed to correct memory #%d."
+                          memory_id
+                    | Some updated ->
+                        Printf.sprintf
+                          "Corrected memory #%d '%s' for this channel.\n\
+                           Old provenance preserved in correction trail."
+                          updated.id
+                          (Format_adapter.escape connector updated.reference))))
+      )
 
 let format_room_memory_forget ~connector ~db ~cfg ~channel_id ~is_admin
     ~memory_id_str ~flags =
-  match int_of_string_opt memory_id_str with
-  | None ->
-      Printf.sprintf "Error: '%s' is not a valid memory ID."
-        (Format_adapter.escape connector memory_id_str)
-  | Some memory_id -> (
-      match
-        check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write" ()
-      with
-      | Error msg -> msg
-      | Ok _scope -> (
-          match Memory.get_scoped_memory ~db ~id:memory_id with
-          | None -> Printf.sprintf "Memory #%d not found." memory_id
-          | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id ->
-              Printf.sprintf "Memory #%d does not belong to this channel."
-                memory_id
-          | Some m ->
-              let hard_purge = List.mem "--hard" flags in
-              let reason =
-                let non_flags =
-                  List.filter
-                    (fun s -> not (String.starts_with ~prefix:"--" s))
-                    flags
-                in
-                match non_flags with
-                | [] -> "user request"
-                | parts -> String.concat " " parts
-              in
-              let ledger ~room_id ~event_type ~actor ~metadata =
-                ignore
-                  (Room_activity_ledger.append_now ~db ~room_id ~event_type
-                     ~actor ~metadata)
-              in
-              if hard_purge then
-                if is_admin then
-                  if Memory.delete_scoped_memory ~db ~id:memory_id ~ledger ()
+  (* Check invocation restrictions first *)
+  let user_group = if is_admin then Some "admin" else Some "guest" in
+  match
+    Invocation_restrict.check_role ~user_group ~work_kind:Memory_mutation ()
+  with
+  | Invocation_restrict.Denied msg -> msg
+  | Invocation_restrict.Allowed -> (
+      match int_of_string_opt memory_id_str with
+      | None ->
+          Printf.sprintf "Error: '%s' is not a valid memory ID."
+            (Format_adapter.escape connector memory_id_str)
+      | Some memory_id -> (
+          match
+            check_room_grant ~db ~cfg ~channel_id ~is_admin ~capability:"write"
+              ()
+          with
+          | Error msg -> msg
+          | Ok _scope -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> channel_id
+                ->
+                  Printf.sprintf "Memory #%d does not belong to this channel."
+                    memory_id
+              | Some m ->
+                  let hard_purge = List.mem "--hard" flags in
+                  let reason =
+                    let non_flags =
+                      List.filter
+                        (fun s -> not (String.starts_with ~prefix:"--" s))
+                        flags
+                    in
+                    match non_flags with
+                    | [] -> "user request"
+                    | parts -> String.concat " " parts
+                  in
+                  let ledger ~room_id ~event_type ~actor ~metadata =
+                    ignore
+                      (Room_activity_ledger.append_now ~db ~room_id ~event_type
+                         ~actor ~metadata)
+                  in
+                  if hard_purge then
+                    if is_admin then
+                      if
+                        Memory.delete_scoped_memory ~db ~id:memory_id ~ledger ()
+                      then
+                        Printf.sprintf
+                          "Hard-purged memory #%d '%s' for this channel."
+                          memory_id
+                          (Format_adapter.escape connector m.reference)
+                      else
+                        Printf.sprintf "Error: failed to hard-purge memory #%d."
+                          memory_id
+                    else "Error: hard purge requires admin privileges."
+                  else if m.redacted_at <> None then
+                    Printf.sprintf
+                      "Memory #%d is already redacted. Use --hard to purge."
+                      memory_id
+                  else if
+                    Memory.redact_scoped_memory ~db ~id:memory_id ~reason
+                      ~ledger ()
                   then
                     Printf.sprintf
-                      "Hard-purged memory #%d '%s' for this channel." memory_id
+                      "Forgot (redacted) memory #%d '%s' for this channel."
+                      memory_id
                       (Format_adapter.escape connector m.reference)
                   else
-                    Printf.sprintf "Error: failed to hard-purge memory #%d."
-                      memory_id
-                else "Error: hard purge requires admin privileges."
-              else if m.redacted_at <> None then
-                Printf.sprintf
-                  "Memory #%d is already redacted. Use --hard to purge."
-                  memory_id
-              else if
-                Memory.redact_scoped_memory ~db ~id:memory_id ~reason ~ledger ()
-              then
-                Printf.sprintf
-                  "Forgot (redacted) memory #%d '%s' for this channel."
-                  memory_id
-                  (Format_adapter.escape connector m.reference)
-              else
-                Printf.sprintf "Error: failed to redact memory #%d." memory_id))
+                    Printf.sprintf "Error: failed to redact memory #%d."
+                      memory_id)))
 
 let format_room_memories ~connector ~db ~cfg ~channel_id ~is_admin action =
   match action with
@@ -720,7 +752,7 @@ let format_room_memories ~connector ~db ~cfg ~channel_id ~is_admin action =
 
 (* ── Existing format: cron ─────────────────────────────────────────────── *)
 
-let format_cron ~connector ~db ~session_key action =
+let format_cron ~connector ~db ~session_key ?(is_admin = false) action =
   Scheduler.init_schema db;
   match action with
   | CronHelp -> format_cron_usage ~connector
@@ -891,16 +923,26 @@ let format_cron ~connector ~db ~session_key action =
           ^ Format_adapter.escape connector e)
   | CronTrigger name -> (
       Background_task.init_schema db;
-      match Scheduler.trigger_job ~db ~name () with
-      | Ok task_id ->
-          format_cron_confirm ~connector "triggered" name
-          ^ " Enqueued as background task "
-          ^ Format_adapter.code connector (string_of_int task_id)
-          ^ "."
-      | Error e ->
+      (* Check invocation restrictions: routines require at least member role *)
+      let user_group = if is_admin then Some "admin" else Some "guest" in
+      match
+        Invocation_restrict.check_role ~user_group ~work_kind:Routine ()
+      with
+      | Invocation_restrict.Denied msg ->
           Format_adapter.bold connector "Error"
           ^ ": "
-          ^ Format_adapter.escape connector e)
+          ^ Format_adapter.escape connector msg
+      | Invocation_restrict.Allowed -> (
+          match Scheduler.trigger_job ~db ~name () with
+          | Ok task_id ->
+              format_cron_confirm ~connector "triggered" name
+              ^ " Enqueued as background task "
+              ^ Format_adapter.code connector (string_of_int task_id)
+              ^ "."
+          | Error e ->
+              Format_adapter.bold connector "Error"
+              ^ ": "
+              ^ Format_adapter.escape connector e))
   | CronRemove name ->
       if Scheduler.remove_job ~db ~name then
         format_cron_confirm ~connector "removed" name

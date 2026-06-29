@@ -124,6 +124,7 @@ let () =
        ("provider", Test_provider.suite);
        ("profile_policy", Test_profile_policy.suite);
        ("room_policy", Test_room_policy.suite);
+       ("invocation_restrict", Test_invocation_restrict.suite);
        ("provider_quota", Test_provider_quota.suite);
        ("totp", Test_totp.suite);
        ("cost_tracker", Test_cost_tracker.suite);
