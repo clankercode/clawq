@@ -19,7 +19,14 @@ type subscription = {
 }
 
 let default_notification_preferences =
-  { on_open = true; on_close = true; on_comment = true; on_review = true; on_status = true; on_merge = true }
+  {
+    on_open = true;
+    on_close = true;
+    on_comment = true;
+    on_review = true;
+    on_status = true;
+    on_merge = true;
+  }
 
 let notification_preferences_to_json prefs =
   `Assoc
@@ -119,7 +126,8 @@ let subscription_to_json sub =
       ("repo", `String sub.repo);
       ("pr_number", `Int sub.pr_number);
       ("profile_id", `Int sub.profile_id);
-      ("notification_preferences", notification_preferences_to_json sub.notification_preferences);
+      ( "notification_preferences",
+        notification_preferences_to_json sub.notification_preferences );
       ("created_at", `String sub.created_at);
       ("updated_at", `String sub.updated_at);
     ]
@@ -157,8 +165,7 @@ let select_one ~db ~room_id ~repo ~pr_number =
       | Sqlite3.Rc.ROW -> subscription_of_stmt stmt
       | rc ->
           failwith
-            (Printf.sprintf
-               "github_pr_subscriptions select failed: %s"
+            (Printf.sprintf "github_pr_subscriptions select failed: %s"
                (Sqlite3.Rc.to_string rc)))
 
 (** [add ~db ~room_id ~repo ~pr_number ~profile_id ?notification_preferences ()]
@@ -167,7 +174,9 @@ let select_one ~db ~room_id ~repo ~pr_number =
     preferences. Returns the subscription. *)
 let add ~db ~room_id ~repo ~pr_number ~profile_id
     ?(notification_preferences = default_notification_preferences) () =
-  let prefs_json = notification_preferences_to_string notification_preferences in
+  let prefs_json =
+    notification_preferences_to_string notification_preferences
+  in
   let sql =
     "INSERT INTO github_pr_subscriptions (room_id, repo, pr_number, \
      profile_id, notification_preferences) VALUES (?, ?, ?, ?, ?) ON \
@@ -195,8 +204,8 @@ let add ~db ~room_id ~repo ~pr_number ~profile_id
                (Sqlite3.Rc.to_string rc)));
   select_one ~db ~room_id ~repo ~pr_number
 
-(** [remove ~db ~room_id ~repo ~pr_number] removes a subscription.
-    Returns true if a subscription was removed. *)
+(** [remove ~db ~room_id ~repo ~pr_number] removes a subscription. Returns true
+    if a subscription was removed. *)
 let remove ~db ~room_id ~repo ~pr_number =
   let stmt =
     Sqlite3.prepare db
@@ -219,8 +228,8 @@ let remove ~db ~room_id ~repo ~pr_number =
             (Printf.sprintf "github_pr_subscriptions remove failed: %s"
                (Sqlite3.Rc.to_string rc)))
 
-(** [update_preferences ~db ~room_id ~repo ~pr_number ~preferences] updates
-    the notification preferences for a subscription. Returns the updated
+(** [update_preferences ~db ~room_id ~repo ~pr_number ~preferences] updates the
+    notification preferences for a subscription. Returns the updated
     subscription. Raises Not_found if the subscription does not exist. *)
 let update_preferences ~db ~room_id ~repo ~pr_number ~preferences =
   let prefs_json = notification_preferences_to_string preferences in
@@ -242,7 +251,8 @@ let update_preferences ~db ~room_id ~repo ~pr_number ~preferences =
         ];
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE ->
-          if Sqlite3.changes db > 0 then select_one ~db ~room_id ~repo ~pr_number
+          if Sqlite3.changes db > 0 then
+            select_one ~db ~room_id ~repo ~pr_number
           else raise Not_found
       | rc ->
           failwith
@@ -250,7 +260,8 @@ let update_preferences ~db ~room_id ~repo ~pr_number ~preferences =
                "github_pr_subscriptions update_preferences failed: %s"
                (Sqlite3.Rc.to_string rc)))
 
-(** [find ~db ~room_id ~repo ~pr_number] returns the subscription if it exists. *)
+(** [find ~db ~room_id ~repo ~pr_number] returns the subscription if it exists.
+*)
 let find ~db ~room_id ~repo ~pr_number =
   let sql =
     "SELECT id, room_id, repo, pr_number, profile_id, \
@@ -292,8 +303,7 @@ let find_by_room ~db ~room_id =
         | Sqlite3.Rc.DONE -> ()
         | rc ->
             failwith
-              (Printf.sprintf
-                 "github_pr_subscriptions find_by_room failed: %s"
+              (Printf.sprintf "github_pr_subscriptions find_by_room failed: %s"
                  (Sqlite3.Rc.to_string rc))
       in
       loop ());
@@ -320,8 +330,7 @@ let find_by_repo ~db ~repo =
         | Sqlite3.Rc.DONE -> ()
         | rc ->
             failwith
-              (Printf.sprintf
-                 "github_pr_subscriptions find_by_repo failed: %s"
+              (Printf.sprintf "github_pr_subscriptions find_by_repo failed: %s"
                  (Sqlite3.Rc.to_string rc))
       in
       loop ());
@@ -341,10 +350,7 @@ let find_by_repo_pr ~db ~repo ~pr_number =
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       bind_params stmt
-        [
-          Sqlite3.Data.TEXT repo;
-          Sqlite3.Data.INT (Int64.of_int pr_number);
-        ];
+        [ Sqlite3.Data.TEXT repo; Sqlite3.Data.INT (Int64.of_int pr_number) ];
       let rec loop () =
         match Sqlite3.step stmt with
         | Sqlite3.Rc.ROW ->
@@ -360,12 +366,11 @@ let find_by_repo_pr ~db ~repo ~pr_number =
       loop ());
   List.rev !subs
 
-(** [delete_by_room ~db ~room_id] removes all subscriptions for a room.
-    Returns the number of subscriptions removed. *)
+(** [delete_by_room ~db ~room_id] removes all subscriptions for a room. Returns
+    the number of subscriptions removed. *)
 let delete_by_room ~db ~room_id =
   let stmt =
-    Sqlite3.prepare db
-      "DELETE FROM github_pr_subscriptions WHERE room_id = ?"
+    Sqlite3.prepare db "DELETE FROM github_pr_subscriptions WHERE room_id = ?"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -375,16 +380,14 @@ let delete_by_room ~db ~room_id =
       | Sqlite3.Rc.DONE -> Sqlite3.changes db
       | rc ->
           failwith
-            (Printf.sprintf
-               "github_pr_subscriptions delete_by_room failed: %s"
+            (Printf.sprintf "github_pr_subscriptions delete_by_room failed: %s"
                (Sqlite3.Rc.to_string rc)))
 
 (** [delete_by_repo ~db ~repo] removes all subscriptions for a repository.
     Returns the number of subscriptions removed. *)
 let delete_by_repo ~db ~repo =
   let stmt =
-    Sqlite3.prepare db
-      "DELETE FROM github_pr_subscriptions WHERE repo = ?"
+    Sqlite3.prepare db "DELETE FROM github_pr_subscriptions WHERE repo = ?"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -394,8 +397,7 @@ let delete_by_repo ~db ~repo =
       | Sqlite3.Rc.DONE -> Sqlite3.changes db
       | rc ->
           failwith
-            (Printf.sprintf
-               "github_pr_subscriptions delete_by_repo failed: %s"
+            (Printf.sprintf "github_pr_subscriptions delete_by_repo failed: %s"
                (Sqlite3.Rc.to_string rc)))
 
 (** [count ~db ()] returns the total number of subscriptions. *)
@@ -413,15 +415,16 @@ let count ~db () =
           | _ -> 0)
       | _ -> 0)
 
-(** [should_notify ~subscription ~event_type] checks if the subscription
-    should be notified for the given event type. *)
+(** [should_notify ~subscription ~event_type] checks if the subscription should
+    be notified for the given event type. *)
 let should_notify ~(subscription : subscription) ~event_type =
   match event_type with
   | "opened" | "reopened" -> subscription.notification_preferences.on_open
   | "closed" -> subscription.notification_preferences.on_close
   | "comment" | "issue_comment" | "review_comment" ->
       subscription.notification_preferences.on_comment
-  | "review" | "review_requested" -> subscription.notification_preferences.on_review
+  | "review" | "review_requested" ->
+      subscription.notification_preferences.on_review
   | "status" | "check_run" | "check_suite" ->
       subscription.notification_preferences.on_status
   | "merged" -> subscription.notification_preferences.on_merge
