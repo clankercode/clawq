@@ -951,6 +951,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (memory_recall ~db);
       Tool_registry.register registry (memory_forget ~db);
       Tool_registry.register registry (memory_list ~db);
+      register_room_memory_tools ~db registry;
       Tool_registry.register registry (history_search ~db);
       Tool_registry.register registry (thread_summary ~db ~config);
       Tool_registry.register registry (unsummarize ~db);

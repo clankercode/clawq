@@ -1,6 +1,7 @@
 open Tools_builtin_util
 include Tools_builtin_fs
 include Tools_builtin_memory
+include Tools_builtin_room_memory
 
 let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
   if not workspace_only then true

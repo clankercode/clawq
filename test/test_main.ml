@@ -36,6 +36,7 @@ let () =
        ("clawq_core", Test_clawq_core.suite);
        ("agent_loop_conformance", Test_agent_loop_conformance.suite);
        ("agent_scoped_memory", Test_agent_scoped_memory.suite);
+       ("room_memory_tools", Test_room_memory_tools.suite);
        ("cli_exit", Test_cli_exit.suite);
        ("command_bridge", Test_command_bridge.suite);
        ("phase3", Test_phase3.suite);
