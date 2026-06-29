@@ -570,6 +570,22 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
                              ~repo ~pr_number ~event_type:event_type_str
                              ~payload_summary ?snapshot_id
                              ?connector:connector_opt ());
+                        (* Record backlink for audit/provenance *)
+                        let github_url =
+                          match event with
+                          | Github_webhook.PullRequest pr -> Some pr.html_url
+                          | Github_webhook.IssueComment c -> Some c.html_url
+                          | Github_webhook.PrReviewComment r -> Some r.html_url
+                          | Github_webhook.PullRequestReview r ->
+                              Some r.html_url
+                          | Github_webhook.CheckRun c -> Some c.html_url
+                          | Github_webhook.CheckSuite s -> Some s.html_url
+                          | Github_webhook.WorkflowRun w -> Some w.html_url
+                          | _ -> None
+                        in
+                        Room_github_backlinks.record_subscription_delivery ~db
+                          ~repo ~pr_number ~room_id:subscription.room_id
+                          ~event_type:event_type_str ?github_url ?snapshot_id ();
                         Logs.info (fun m ->
                             m
                               "GitHub PR dispatch: notified room %s for %s PR \

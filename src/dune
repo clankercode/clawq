@@ -185,6 +185,7 @@
   room_origin
   room_workspace
   room_activity_ledger
+  room_github_backlinks
   github_pr_subscriptions
   github_pr_policy
   github_review_run

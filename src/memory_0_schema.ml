@@ -1,4 +1,4 @@
-let schema_version = 44
+let schema_version = 45
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -692,7 +692,8 @@ let ensure_all_tables db =
   Github_pr_subscriptions.init_schema db;
   Github_pr_policy.init_schema db;
   Github_review_run.init_schema db;
-  Workflow_run_trigger.init_schema db
+  Workflow_run_trigger.init_schema db;
+  Room_github_backlinks.init_schema db
 
 (* Each step migrates from version [v] to [v + 1].
    All ALTER TABLE operations use try/catch for idempotency.
@@ -878,6 +879,7 @@ let migrate_step db v =
   | 41 -> init_egress_audit_schema db
   | 42 -> Github_pr_policy.init_schema db
   | 43 -> Github_review_run.init_schema db
+  | 44 -> Room_github_backlinks.init_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -929,6 +931,8 @@ let repair_missing_columns db =
   Github_pr_subscriptions.init_schema db;
   Github_pr_policy.init_schema db;
   Github_review_run.init_schema db;
+  Workflow_run_trigger.init_schema db;
+  Room_github_backlinks.init_schema db;
   try_add
     "ALTER TABLE scoped_memories ADD COLUMN visibility TEXT NOT NULL DEFAULT \
      'public' CHECK (visibility IN ('public', 'private', 'team'))"

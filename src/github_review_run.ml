@@ -530,7 +530,14 @@ let trigger_from_label ~db ~repo ~pr_number ~head_sha ~label =
 let trigger_from_room_command ~db ~repo ~pr_number ~head_sha ~run_kind ~room_id
     ~requester_id =
   let trigger = Room_command { room_id; requester_id } in
-  create ~db ~repo ~pr_number ~head_sha ~run_kind ~trigger_source:trigger ()
+  let run =
+    create ~db ~repo ~pr_number ~head_sha ~run_kind ~trigger_source:trigger ()
+  in
+  (* Record backlink from room to GitHub review run *)
+  Room_github_backlinks.record_triggered_run ~db ~repo ~pr_number
+    ~github_item_type:Pr_comment ~room_id ~room_item_type:Review_run
+    ~room_item_id:(string_of_int run.id) ();
+  run
 
 (** {1 Prompt assembly} *)
 
