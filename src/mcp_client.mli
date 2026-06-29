@@ -47,10 +47,13 @@ val connect :
     headers:(string * string) list ->
     body:string ->
     (int * string * string) Lwt.t) ->
+  ?config:Runtime_config.t ->
   server_config ->
   t Lwt.t
 (** [connect cfg] connects to an MCP server without policy checking. Use
-    [connect_with_policy] for snapshot-scoped credential resolution. *)
+    [connect_with_policy] for snapshot-scoped credential resolution. When
+    [config] is provided, MCP tools will resolve room-specific credentials at
+    invocation time. *)
 
 val disconnect : t -> unit Lwt.t
 

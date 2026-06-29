@@ -44,6 +44,6 @@ tasks:
       file: T003-wrap-representative-credential.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Wrap representative credential-sensitive built-in tools

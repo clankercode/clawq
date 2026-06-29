@@ -229,7 +229,57 @@ let initialize_params =
       ("capabilities", `Assoc []);
     ]
 
-let tool_of_mcp_definition ~client (tool_json : Yojson.Safe.t) : Tool.t option =
+(** [resolve_mcp_server_credentials ~config ~snapshot cfg] resolves the
+    credential handle for an MCP server through the snapshot-scoped lease API.
+    Returns [Ok env] with the resolved headers/env vars, or [Error msg] if the
+    handle is missing or unauthorized. When [cfg.credential_handle] is [None],
+    returns [Ok cfg.env] (legacy path). For HTTP servers, credentials are
+    resolved as Authorization headers. For stdio servers, credentials are
+    resolved as MCP_AUTH_TOKEN environment variable. *)
+let resolve_mcp_server_credentials ~(config : Runtime_config.t)
+    ~(snapshot : Access_snapshot.t) (cfg : server_config) :
+    ((string * string) list, string) result =
+  match cfg.credential_handle with
+  | None -> Ok cfg.env
+  | Some handle_id -> (
+      let is_http = is_http_url cfg.command in
+      let header_name = "Authorization" in
+      let env_name = "MCP_AUTH_TOKEN" in
+      match
+        if is_http then
+          Credential_lease.resolve_snapshot_lease ~config ~snapshot ~handle_id
+            ~header_name
+        else
+          Credential_lease.resolve_snapshot_env_lease ~config ~snapshot
+            ~handle_id ~env_name
+      with
+      | Error err ->
+          let msg = Credential_lease.resolution_error_to_string err in
+          Logs.err (fun m ->
+              m "MCP server '%s': credential lease denied for handle '%s': %s"
+                cfg.name handle_id msg);
+          Error msg
+      | Ok lease ->
+          let result = ref [] in
+          if is_http then
+            Credential_lease.apply_headers lease (fun headers ->
+                result := headers)
+          else
+            Credential_lease.apply_env_vars lease (fun env_vars ->
+                result := env_vars);
+          (* Merge with existing env/headers, with resolved credentials taking
+             precedence *)
+          let resolved = !result in
+          let resolved_keys =
+            List.map (fun (k, _) -> k) resolved |> List.sort_uniq compare
+          in
+          let filtered_existing =
+            List.filter (fun (k, _) -> not (List.mem k resolved_keys)) cfg.env
+          in
+          Ok (filtered_existing @ resolved))
+
+let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
+    (tool_json : Yojson.Safe.t) : Tool.t option =
   let open Yojson.Safe.Util in
   try
     let name = tool_json |> member "name" |> to_string in
@@ -239,8 +289,35 @@ let tool_of_mcp_definition ~client (tool_json : Yojson.Safe.t) : Tool.t option =
     let parameters_schema =
       try tool_json |> member "inputSchema" with _ -> `Assoc []
     in
-    let invoke ?context:_ args =
+    let server_name = client.config.name in
+    let credential_handle = client.config.credential_handle in
+    let invoke ?context args =
       let open Lwt.Syntax in
+      (* Check room-specific credentials if credential_handle is set *)
+      let* () =
+        match credential_handle with
+        | None -> Lwt.return_unit
+        | Some handle_id -> (
+            let session_key =
+              match context with
+              | Some ctx -> Option.value ctx.Tool.session_key ~default:""
+              | None -> ""
+            in
+            let snapshot =
+              Access_snapshot.create ~config
+                ~work_type:Access_snapshot.Room_turn ~session_key ()
+            in
+            match
+              resolve_mcp_server_credentials ~config ~snapshot client.config
+            with
+            | Ok _ -> Lwt.return_unit
+            | Error msg ->
+                Lwt.fail_with
+                  (Printf.sprintf
+                     "MCP tool '%s' from server '%s': credential policy \
+                      denied: %s"
+                     name server_name msg))
+      in
       let* resp =
         send_request client ~method_:"tools/call"
           ~params:(`Assoc [ ("name", `String name); ("arguments", args) ])
@@ -319,7 +396,7 @@ let load_server_configs path =
     servers
 
 let connect ?(startup_timeout_s = default_startup_timeout_s)
-    ?(http_post = default_http_post) (cfg : server_config) =
+    ?(http_post = default_http_post) ?config (cfg : server_config) =
   let open Lwt.Syntax in
   let transport =
     if is_http_url cfg.command then
@@ -370,7 +447,7 @@ let connect ?(startup_timeout_s = default_startup_timeout_s)
           with _ -> []
         in
         let tools =
-          List.filter_map (tool_of_mcp_definition ~client) tools_json
+          List.filter_map (tool_of_mcp_definition ~client ?config) tools_json
         in
         client.discovered <- tools;
         Logs.info (fun m ->
@@ -388,55 +465,6 @@ let disconnect t =
   match t.transport with
   | Http _ -> Lwt.return_unit
   | Stdio io -> cleanup_stdio_transport io
-
-(** [resolve_mcp_server_credentials ~config ~snapshot cfg] resolves the
-    credential handle for an MCP server through the snapshot-scoped lease API.
-    Returns [Ok env] with the resolved headers/env vars, or [Error msg] if the
-    handle is missing or unauthorized. When [cfg.credential_handle] is [None],
-    returns [Ok cfg.env] (legacy path). For HTTP servers, credentials are
-    resolved as Authorization headers. For stdio servers, credentials are
-    resolved as MCP_AUTH_TOKEN environment variable. *)
-let resolve_mcp_server_credentials ~(config : Runtime_config.t)
-    ~(snapshot : Access_snapshot.t) (cfg : server_config) :
-    ((string * string) list, string) result =
-  match cfg.credential_handle with
-  | None -> Ok cfg.env
-  | Some handle_id -> (
-      let is_http = is_http_url cfg.command in
-      let header_name = "Authorization" in
-      let env_name = "MCP_AUTH_TOKEN" in
-      match
-        if is_http then
-          Credential_lease.resolve_snapshot_lease ~config ~snapshot ~handle_id
-            ~header_name
-        else
-          Credential_lease.resolve_snapshot_env_lease ~config ~snapshot
-            ~handle_id ~env_name
-      with
-      | Error err ->
-          let msg = Credential_lease.resolution_error_to_string err in
-          Logs.err (fun m ->
-              m "MCP server '%s': credential lease denied for handle '%s': %s"
-                cfg.name handle_id msg);
-          Error msg
-      | Ok lease ->
-          let result = ref [] in
-          if is_http then
-            Credential_lease.apply_headers lease (fun headers ->
-                result := headers)
-          else
-            Credential_lease.apply_env_vars lease (fun env_vars ->
-                result := env_vars);
-          (* Merge with existing env/headers, with resolved credentials taking
-             precedence *)
-          let resolved = !result in
-          let resolved_keys =
-            List.map (fun (k, _) -> k) resolved |> List.sort_uniq compare
-          in
-          let filtered_existing =
-            List.filter (fun (k, _) -> not (List.mem k resolved_keys)) cfg.env
-          in
-          Ok (filtered_existing @ resolved))
 
 (** [connect_with_policy ~config ~snapshot ?startup_timeout_s ?http_post cfg]
     connects to an MCP server after resolving credentials through policy. If
@@ -458,4 +486,4 @@ let connect_with_policy ~(config : Runtime_config.t)
         if cfg.credential_handle <> None then { cfg with env = merged_env }
         else cfg
       in
-      connect ?startup_timeout_s ?http_post cfg_with_creds
+      connect ?startup_timeout_s ?http_post ~config cfg_with_creds
