@@ -144,7 +144,22 @@ let init_schema db =
      room_progress_checklist(task_id, state)";
   exec
     "CREATE INDEX IF NOT EXISTS idx_checklist_last_update ON \
-     room_progress_checklist(last_update)"
+     room_progress_checklist(last_update)";
+  (* Migration: add session_record_id column for existing DBs *)
+  let try_alter sql =
+    match Sqlite3.exec db sql with
+    | Sqlite3.Rc.OK -> ()
+    | Sqlite3.Rc.ERROR
+      when String.starts_with ~prefix:"duplicate column name"
+             (Sqlite3.errmsg db) ->
+        ()
+    | rc ->
+        failwith
+          (Printf.sprintf "room_progress_checklist migration error: %s (sql: %s)"
+             (Sqlite3.Rc.to_string rc) sql)
+  in
+  try_alter
+    "ALTER TABLE room_progress_checklist ADD COLUMN session_record_id TEXT"
 
 (** {1 Helpers} *)
 
