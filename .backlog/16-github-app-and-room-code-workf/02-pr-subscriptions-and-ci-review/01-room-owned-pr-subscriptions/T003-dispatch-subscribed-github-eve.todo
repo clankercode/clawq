@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-06-29T11:44:09Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T13:19:34Z"
 complexity: high
 depends_on:
     - P16.M2.E1.T001
     - P15.M1.E1.T001
     - P16.M2.E1.T002
+duration_minutes: 95.41801557916666
 estimate_hours: 4
 id: P16.M2.E1.T003
 priority: high
 started_at: "2026-06-29T11:44:09Z"
-status: in_progress
+status: done
 tags: []
 title: Dispatch subscribed GitHub events into room threads
 ---
