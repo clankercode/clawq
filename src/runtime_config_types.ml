@@ -814,6 +814,46 @@ type room_profile_binding = {
   active : bool;
 }
 
+(** {1 Guest / External Room Policy}
+
+    Classifies rooms by their external/guest dimensions and applies
+    per-connector policy actions. Connectors that expose guest/shared/external
+    metadata feed it into this model; unsupported connectors return [Rm_unknown]
+    and the default action applies. *)
+
+type room_scope =
+  | Rm_dm  (** Direct message between two internal users. *)
+  | Rm_group  (** Internal group conversation. *)
+  | Rm_external
+      (** Room with external participants (cross-tenant, federated, etc.). *)
+  | Rm_shared  (** Shared room/channel with another organization. *)
+  | Rm_unknown  (** Connector does not expose room classification metadata. *)
+
+type room_classification = {
+  connector : string;
+      (** Lower-case connector name ("teams", "slack", etc.). *)
+  room_id : string;  (** Room/channel identifier. *)
+  scope : room_scope;
+  has_external_users : bool;
+      (** True when the connector detects users from outside the org. *)
+  tenant_id : string option;
+      (** Tenant/organization identifier when available. *)
+}
+
+type external_policy_action =
+  | Policy_allow  (** Proceed without restriction. *)
+  | Policy_warn of string  (** Proceed but show the warning message. *)
+  | Policy_deny of string * bool
+      (** Deny work. The string is the reason; the bool indicates whether admin
+          callers may override the denial. *)
+
+type external_room_policy = {
+  default_action : external_policy_action;
+      (** Action to take for rooms whose connector has no specific override. *)
+  per_connector : (string * external_policy_action) list;
+      (** Per-connector overrides, keyed by lower-case connector name. *)
+}
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -856,4 +896,5 @@ type t = {
   room_profiles : room_profile list;
   room_profile_codebase_grants : (string * string list) list;
   room_profile_bindings : room_profile_binding list;
+  external_room_policy : external_room_policy;
 }

@@ -878,6 +878,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
             team_id;
             text = raw_text;
             is_group;
+            is_external;
+            tenant_id;
             mentioned_ids;
             attachments = parsed_attachments;
           } -> (
@@ -945,6 +947,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     m "Teams: message from user=%s (id=%s) team=%s conv=%s"
                       (if user_name <> "" then user_name else user_id)
                       user_id effective_team_id conversation_id);
+                if is_external || tenant_id <> None then
+                  Logs.info (fun m ->
+                      m
+                        "Teams: external room detected conv=%s is_external=%b \
+                         tenant_id=%s"
+                        conversation_id is_external
+                        (Option.value tenant_id ~default:""));
                 if not (is_team_allowed ~config ~team_id:effective_team_id) then (
                   Logs.warn (fun m ->
                       m "Teams: ignoring message from unauthorized team=%s"

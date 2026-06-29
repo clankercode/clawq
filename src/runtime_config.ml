@@ -283,6 +283,11 @@ let default =
     room_profiles = [];
     room_profile_codebase_grants = [];
     room_profile_bindings = [];
+    external_room_policy =
+      {
+        default_action = Policy_warn "External participants detected.";
+        per_connector = [];
+      };
   }
 
 let is_key_set key =
