@@ -37,7 +37,7 @@ let test_sanitize_url_password_param () =
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "password masked" true
-n    (Test_helpers.string_contains sanitized "supe[redacted]");
+    (Test_helpers.string_contains sanitized "supe[redacted]");
   Alcotest.(check bool)
     "user preserved" true
     (Test_helpers.string_contains sanitized "user=bob")
