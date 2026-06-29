@@ -41,7 +41,7 @@ tasks:
       file: T003-implement-slack-baseline-progr.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement Slack baseline progress checklist renderer
     - complexity: medium
