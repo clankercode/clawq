@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Triggered Review and Security Runs
       path: 01-triggered-review-and-security
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P16.M2.E2
