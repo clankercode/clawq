@@ -4,6 +4,14 @@ type consent_room_context = {
   room_id : string;
   session_key : string;
   profile_name : string;
+  user_group : string;
+      (** "admin" or "guest" — preserved from the requester's policy at card
+          creation time so the background completion uses the same access tier.
+      *)
+  access_snapshot_id : string option;
+      (** Effective-access snapshot ID captured when the consent card was built.
+          Lets the background upload completion continue with the original
+          policy even after config changes. *)
 }
 
 type pending_consent = {
@@ -96,26 +104,38 @@ let consent_room_context_of_json json =
       string_field "roomProfileName" )
   with
   | Some room_id, Some session_key, Some profile_name ->
-      Some { room_id; session_key; profile_name }
+      let user_group =
+        Option.value (string_field "userGroup") ~default:"guest"
+      in
+      let access_snapshot_id = string_field "accessSnapshotId" in
+      Some
+        { room_id; session_key; profile_name; user_group; access_snapshot_id }
   | _ -> None
 
 let consent_context_json ?room_context ~consent_id () =
   let room_fields =
     match room_context with
     | None -> []
-    | Some ctx ->
-        [
-          ("roomId", `String ctx.room_id);
-          ("sessionKey", `String ctx.session_key);
-          ("roomProfileName", `String ctx.profile_name);
-        ]
+    | Some ctx -> (
+        let base =
+          [
+            ("roomId", `String ctx.room_id);
+            ("sessionKey", `String ctx.session_key);
+            ("roomProfileName", `String ctx.profile_name);
+            ("userGroup", `String ctx.user_group);
+          ]
+        in
+        match ctx.access_snapshot_id with
+        | Some sid -> ("accessSnapshotId", `String sid) :: base
+        | None -> base)
   in
   `Assoc (("consentId", `String consent_id) :: room_fields)
 
 let file_consent_description ?room_context description =
   match room_context with
-  | Some { profile_name; _ } when String.trim profile_name <> "" ->
-      Printf.sprintf "%s\nRoom profile: %s" description profile_name
+  | Some { profile_name; user_group; _ } when String.trim profile_name <> "" ->
+      Printf.sprintf "%s\nRoom profile: %s (%s)" description profile_name
+        user_group
   | _ -> description
 
 let build_file_consent_card ?room_context ~filename ~description ~size_bytes
@@ -321,8 +341,9 @@ let handle_file_consent_invoke ~fetch_token ~post_json_throttled ~send_reply
                 Logs.info (fun m ->
                     m
                       "Teams: file consent accept preserved room context \
-                       session=%s profile=%s"
-                      ctx.session_key ctx.profile_name)
+                       session=%s profile=%s user_group=%s snapshot=%s"
+                      ctx.session_key ctx.profile_name ctx.user_group
+                      (Option.value ctx.access_snapshot_id ~default:"none"))
             | None -> ());
             let upload_info =
               try value |> member "uploadInfo" with _ -> `Null
@@ -403,8 +424,11 @@ let handle_file_consent_invoke ~fetch_token ~post_json_throttled ~send_reply
         (match room_context with
         | Some ctx ->
             Logs.info (fun m ->
-                m "Teams: file consent declined for id=%s session=%s profile=%s"
-                  consent_id ctx.session_key ctx.profile_name)
+                m
+                  "Teams: file consent declined for id=%s session=%s \
+                   profile=%s user_group=%s snapshot=%s"
+                  consent_id ctx.session_key ctx.profile_name ctx.user_group
+                  (Option.value ctx.access_snapshot_id ~default:"none"))
         | None ->
             Logs.info (fun m ->
                 m "Teams: file consent declined for id=%s" consent_id));

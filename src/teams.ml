@@ -84,7 +84,8 @@ let record_scoped_room_history_if_bound ~(session_manager : Session.t) ~team_id
       ~channel_type:"teams" ~max:cfg.connector_history.max_messages
       ~sender_name:user_name ~sender_id:user_id ~text ()
 
-let consent_room_context ~(session_manager : Session.t) ~conversation_id =
+let consent_room_context ~(session_manager : Session.t) ~conversation_id
+    ~user_group ?access_snapshot_id () =
   match Session.get_db session_manager with
   | None -> None
   | Some db -> (
@@ -97,6 +98,8 @@ let consent_room_context ~(session_manager : Session.t) ~conversation_id =
               session_key =
                 "teams:" ^ Session.sanitize_session_key conversation_id;
               profile_name = profile.name;
+              user_group;
+              access_snapshot_id;
             })
 
 let slash_command_name token =
@@ -628,16 +631,45 @@ let handle_invoke ~(config : Runtime_config.teams_config)
               ( response.status_code,
                 Teams_file_consent.invoke_response_body response )
         | "task/inspect" | "task/continue" | "task/cancel" -> (
-            (* Handle task control card actions *)
+            (* Handle task control card actions.
+               Resolve room context from the conversation to preserve
+               requester identity, room profile, admin/guest policy, and
+               effective access snapshot through the card action. *)
             let action = parse_card_action json in
-            (* Check room policy *)
-            let session_key =
+            let conversation_id =
               try
-                Some
-                  (Yojson.Safe.Util.(json |> member "from" |> member "id")
-                  |> Yojson.Safe.Util.to_string)
-              with _ -> None
+                Yojson.Safe.Util.(json |> member "conversation" |> member "id")
+                |> Yojson.Safe.Util.to_string
+              with _ -> ""
             in
+            let user_id =
+              try
+                Yojson.Safe.Util.(json |> member "from" |> member "id")
+                |> Yojson.Safe.Util.to_string
+              with _ -> ""
+            in
+            let session_key =
+              if conversation_id <> "" then
+                Some
+                  (resolve_session_key ~session_manager ~team_id:""
+                     ~conversation_id ())
+              else None
+            in
+            let is_admin =
+              match Session.get_db session_manager with
+              | Some db when user_id <> "" ->
+                  Admin.is_admin ~db ~channel:"teams" ~sender_id:user_id
+              | _ -> false
+            in
+            let user_group = if is_admin then "admin" else "guest" in
+            (match session_key with
+            | Some key when conversation_id <> "" ->
+                Logs.info (fun m ->
+                    m
+                      "Teams: card action %s preserving context conv=%s \
+                       session=%s user_group=%s"
+                      name conversation_id key user_group)
+            | _ -> ());
             let policy_result =
               check_card_action_room_policy
                 ~config:(Session.get_config session_manager)
@@ -1853,7 +1885,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               let size_bytes = String.length content in
                               let room_context =
                                 consent_room_context ~session_manager
-                                  ~conversation_id
+                                  ~conversation_id ~user_group
+                                  ?access_snapshot_id:None ()
                               in
                               let consent_id =
                                 store_pending_consent ?room_context ~content

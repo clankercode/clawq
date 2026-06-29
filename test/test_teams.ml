@@ -203,13 +203,16 @@ let test_consent_room_context_uses_room_binding () =
   let mgr = Session.create ~config:Runtime_config.default ~db () in
   match
     Teams.consent_room_context ~session_manager:mgr
-      ~conversation_id:"conv-bound"
+      ~conversation_id:"conv-bound" ~user_group:"admin" ?access_snapshot_id:None
+      ()
   with
   | None -> Alcotest.fail "expected room consent context"
   | Some ctx ->
       Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
       Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
-      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
+      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name;
+      Alcotest.(check string) "user group" "admin" ctx.user_group;
+      Alcotest.(check (option string)) "snapshot id" None ctx.access_snapshot_id
 
 let runtime_config_with_connector_history ?(enabled = true) () =
   {
@@ -882,12 +885,32 @@ let test_build_file_consent_card () =
     "declineContext consentId" "abc123"
     (decline_ctx |> member "consentId" |> to_string)
 
+let test_file_consent_description_with_user_group () =
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-desc";
+      session_key = "teams:conv-desc";
+      profile_name = "ops";
+      user_group = "guest";
+      access_snapshot_id = None;
+    }
+  in
+  let desc = Teams.file_consent_description ~room_context "Upload ready" in
+  Alcotest.(check string)
+    "description includes profile and user group"
+    "Upload ready\nRoom profile: ops (guest)" desc;
+  (* Without room context, description is unchanged *)
+  let desc_none = Teams.file_consent_description "Plain" in
+  Alcotest.(check string) "no context" "Plain" desc_none
+
 let test_build_file_consent_card_includes_room_profile_context () =
   let room_context : Teams.consent_room_context =
     {
       room_id = "conv-room";
       session_key = "teams:conv-room";
       profile_name = "support-room";
+      user_group = "admin";
+      access_snapshot_id = Some "snap_123";
     }
   in
   let body =
@@ -901,7 +924,8 @@ let test_build_file_consent_card_includes_room_profile_context () =
     json |> member "attachments" |> to_list |> List.hd |> member "content"
   in
   Alcotest.(check string)
-    "description names room profile" "Session dump\nRoom profile: support-room"
+    "description names room profile"
+    "Session dump\nRoom profile: support-room (admin)"
     (content |> member "description" |> to_string);
   List.iter
     (fun field ->
@@ -915,7 +939,14 @@ let test_build_file_consent_card_includes_room_profile_context () =
       Alcotest.(check string)
         (field ^ " roomProfileName")
         "support-room"
-        (ctx |> member "roomProfileName" |> to_string))
+        (ctx |> member "roomProfileName" |> to_string);
+      Alcotest.(check string)
+        (field ^ " userGroup") "admin"
+        (ctx |> member "userGroup" |> to_string);
+      Alcotest.(check string)
+        (field ^ " accessSnapshotId")
+        "snap_123"
+        (ctx |> member "accessSnapshotId" |> to_string))
     [ "acceptContext"; "declineContext" ]
 
 let test_build_file_info_card () =
@@ -960,6 +991,8 @@ let test_pending_consent_preserves_room_context () =
       room_id = "conv-bound";
       session_key = "teams:conv-bound";
       profile_name = "incident-room";
+      user_group = "admin";
+      access_snapshot_id = Some "snap_ctx_1";
     }
   in
   let consent_id =
@@ -976,7 +1009,10 @@ let test_pending_consent_preserves_room_context () =
           Alcotest.(check string)
             "session key" "teams:conv-bound" ctx.session_key;
           Alcotest.(check string)
-            "profile name" "incident-room" ctx.profile_name)
+            "profile name" "incident-room" ctx.profile_name;
+          Alcotest.(check string) "user group" "admin" ctx.user_group;
+          Alcotest.(check (option string))
+            "snapshot id" (Some "snap_ctx_1") ctx.access_snapshot_id)
 
 let test_pending_consent_expired () =
   let consent_id =
@@ -1086,6 +1122,8 @@ let test_file_consent_context_roundtrips_from_invoke () =
         ("roomId", `String "conv-bound");
         ("sessionKey", `String "teams:conv-bound");
         ("roomProfileName", `String "incident-room");
+        ("userGroup", `String "admin");
+        ("accessSnapshotId", `String "snap_roundtrip");
       ]
   in
   match Teams.consent_room_context_of_json context with
@@ -1093,7 +1131,10 @@ let test_file_consent_context_roundtrips_from_invoke () =
   | Some ctx ->
       Alcotest.(check string) "room id" "conv-bound" ctx.room_id;
       Alcotest.(check string) "session key" "teams:conv-bound" ctx.session_key;
-      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name
+      Alcotest.(check string) "profile name" "incident-room" ctx.profile_name;
+      Alcotest.(check string) "user group" "admin" ctx.user_group;
+      Alcotest.(check (option string))
+        "snapshot id" (Some "snap_roundtrip") ctx.access_snapshot_id
 
 let test_file_consent_invoke_decline () =
   let consent_id =
@@ -1172,6 +1213,117 @@ let test_handle_invoke_unknown_name_returns_ok () =
   in
   Alcotest.(check int) "handle_invoke unknown status code" 200 status_code;
   check_ok_invoke_response ~msg:"handle_invoke unknown body" body_str
+
+let test_card_action_preserves_room_context () =
+  let config = test_teams_config () in
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"support-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-action-test" ~profile_id;
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  (* Register an admin user *)
+  let code = Admin.generate_otc ~channel:"teams" ~sender_id:"user-admin-1" in
+  let _result =
+    Admin.verify_otc ~db ~channel:"teams" ~sender_id:"user-admin-1" ~code
+  in
+  (* Invoke a task/inspect action with proper conversation context *)
+  let body =
+    `Assoc
+      [
+        ("type", `String "invoke");
+        ("name", `String "task/inspect");
+        ("serviceUrl", `String "https://svc");
+        ("conversation", `Assoc [ ("id", `String "conv-action-test") ]);
+        ("from", `Assoc [ ("id", `String "user-admin-1") ]);
+        ("value", `String "42");
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let status_code, _body_str =
+    Lwt_main.run
+      (Teams.handle_invoke ~config ~session_manager
+         ~auth_header:(bearer_for_config config) body)
+  in
+  (* Should succeed with 200 (task not found is still a 200 with message) *)
+  Alcotest.(check int)
+    "card action with room context returns 200" 200 status_code
+
+let test_card_action_resolve_session_key_from_conversation () =
+  (* Verify that resolve_session_key returns the room-level key for a
+     conversation with a profile binding, not the user-level key. *)
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"ops" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-ops" ~profile_id;
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager ~team_id:""
+      ~conversation_id:"conv-ops" ()
+  in
+  Alcotest.(check string)
+    "room-bound conversation resolves to room key" "teams:conv-ops" key;
+  let key_free =
+    Teams.resolve_session_key ~session_manager ~team_id:"team-1"
+      ~conversation_id:"conv-free" ()
+  in
+  Alcotest.(check string)
+    "unbound conversation resolves to thread key" "teams:team-1:conv-free"
+    key_free
+
+let test_consent_context_json_includes_all_fields () =
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-json";
+      session_key = "teams:conv-json";
+      profile_name = "ops";
+      user_group = "guest";
+      access_snapshot_id = Some "snap_json_1";
+    }
+  in
+  let json = Teams.consent_context_json ~room_context ~consent_id:"cid-1" () in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "consentId" "cid-1"
+    (json |> member "consentId" |> to_string);
+  Alcotest.(check string)
+    "roomId" "conv-json"
+    (json |> member "roomId" |> to_string);
+  Alcotest.(check string)
+    "userGroup" "guest"
+    (json |> member "userGroup" |> to_string);
+  Alcotest.(check string)
+    "accessSnapshotId" "snap_json_1"
+    (json |> member "accessSnapshotId" |> to_string);
+  (* Roundtrip: parse back from JSON *)
+  match Teams.consent_room_context_of_json json with
+  | None -> Alcotest.fail "expected Some on roundtrip"
+  | Some ctx ->
+      Alcotest.(check string) "rt room_id" "conv-json" ctx.room_id;
+      Alcotest.(check string) "rt user_group" "guest" ctx.user_group;
+      Alcotest.(check (option string))
+        "rt snapshot" (Some "snap_json_1") ctx.access_snapshot_id
+
+let test_consent_context_json_minimal () =
+  (* Without optional fields, JSON should still work *)
+  let room_context : Teams.consent_room_context =
+    {
+      room_id = "conv-min";
+      session_key = "teams:conv-min";
+      profile_name = "p";
+      user_group = "admin";
+      access_snapshot_id = None;
+    }
+  in
+  let json = Teams.consent_context_json ~room_context ~consent_id:"cid-2" () in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "consentId" "cid-2"
+    (json |> member "consentId" |> to_string);
+  Alcotest.(check string)
+    "userGroup" "admin"
+    (json |> member "userGroup" |> to_string);
+  (* accessSnapshotId should not be present *)
+  Alcotest.(check bool)
+    "no accessSnapshotId" true
+    (Yojson.Safe.Util.member "accessSnapshotId" json = `Null)
 
 let test_is_retryable_status () =
   Alcotest.(check bool) "429 retryable" true (Teams.is_retryable_status 429);
@@ -1927,6 +2079,8 @@ let suite =
       `Quick test_resolve_session_key_falls_back_to_team_conversation;
     Alcotest.test_case "consent room context uses room binding" `Quick
       test_consent_room_context_uses_room_binding;
+    Alcotest.test_case "file consent description with user group" `Quick
+      test_file_consent_description_with_user_group;
     Alcotest.test_case "room history captures bound room messages" `Quick
       test_room_history_capture_for_bound_room;
     Alcotest.test_case "room history requires room binding" `Quick
@@ -2056,6 +2210,14 @@ let suite =
       test_handle_invoke_file_consent_decline;
     Alcotest.test_case "handle_invoke unknown name returns ok" `Quick
       test_handle_invoke_unknown_name_returns_ok;
+    Alcotest.test_case "card action preserves room context" `Quick
+      test_card_action_preserves_room_context;
+    Alcotest.test_case "card action resolve session key from conversation"
+      `Quick test_card_action_resolve_session_key_from_conversation;
+    Alcotest.test_case "consent context json includes all fields" `Quick
+      test_consent_context_json_includes_all_fields;
+    Alcotest.test_case "consent context json minimal" `Quick
+      test_consent_context_json_minimal;
     Alcotest.test_case "parse_activity with attachments" `Quick
       test_parse_activity_with_attachments;
     Alcotest.test_case "parse_activity card filtered" `Quick

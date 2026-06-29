@@ -155,13 +155,24 @@ let delete_queued_message_row mgr (msg : queued_message) =
   | _ -> ()
 
 let queued_message_payload_json (msg : queued_message) =
-  Yojson.Safe.to_string
-    (`Assoc
-       [
-         ("message", `String msg.message);
-         ("bang", `Bool msg.bang);
-         ("deferred_followup", `Bool msg.deferred_followup);
-       ])
+  let fields =
+    [
+      ("message", `String msg.message);
+      ("bang", `Bool msg.bang);
+      ("deferred_followup", `Bool msg.deferred_followup);
+    ]
+  in
+  let fields =
+    match msg.channel_id with
+    | Some cid -> ("channel_id", `String cid) :: fields
+    | None -> fields
+  in
+  let fields =
+    match msg.user_group with
+    | Some ug -> ("user_group", `String ug) :: fields
+    | None -> fields
+  in
+  Yojson.Safe.to_string (`Assoc fields)
 
 let persist_queued_message mgr ~key ~source (msg : queued_message) =
   match mgr.db with
