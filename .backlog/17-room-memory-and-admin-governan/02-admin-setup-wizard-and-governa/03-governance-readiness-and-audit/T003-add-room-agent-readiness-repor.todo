@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-29T19:35:34Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on:
     - P17.M2.E2.T003
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 3
 id: P17.M2.E3.T003
 priority: high
-status: pending
-tags:
-    - governance
-    - cli
+started_at: "2026-06-29T19:35:34Z"
+status: in_progress
+tags: []
 title: Add room-agent readiness report command
 ---
 Acceptance: one command reports connector, scope, memory, GitHub, budget, audit, routine, ambient, and proxy-readiness status with actionable failures.
