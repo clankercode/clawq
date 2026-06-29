@@ -33,7 +33,7 @@ tasks:
       file: T002-wrap-room-scoped-mcp-connector.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Wrap room-scoped MCP connectors through policy
     - complexity: high
