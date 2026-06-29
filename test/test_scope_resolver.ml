@@ -851,7 +851,7 @@ let test_repo_grants_respect_room_codebase_grants () =
            ignore (Str.search_forward (Str.regexp_string cap) grant_value 0);
            true
          with Not_found -> false))
-    ["read"; "comment"; "branch"; "pr"]
+    [ "read"; "comment"; "branch"; "pr" ]
 
 let suite =
   [

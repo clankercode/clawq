@@ -1298,6 +1298,126 @@ let test_no_spurious_refresh_after_subdir_load () =
       Alcotest.(check bool)
         "no spurious refresh after subdir load" true (event = None))
 
+let make_instruction_item text =
+  {
+    Runtime_config.instruction =
+      Runtime_config_types.default_instruction_record ~text ();
+    provenance =
+      [
+        {
+          Runtime_config_types.layer = "default";
+          source_id = "test";
+          field = "instructions";
+        };
+      ];
+  }
+
+let test_project_docs_dedup_vs_instruction_items () =
+  with_temp_git_repo (fun dir ->
+      let content = "CLAUDE INSTRUCTION CONTENT FOR DEDUP" in
+      write_file (Filename.concat dir "CLAUDE.md") content;
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg ~ws_doc_digests:[]
+          ~instruction_texts:[ content ] ()
+      in
+      match pd.content with
+      | None -> ()
+      | Some c ->
+          Alcotest.(check bool)
+            "deduped CLAUDE.md not in project docs when instruction has same \
+             content"
+            false
+            (Test_helpers.string_contains c
+               "CLAUDE INSTRUCTION CONTENT FOR DEDUP"))
+
+let test_project_docs_not_dedup_vs_different_instruction_items () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "UNIQUE CLAUDE CONTENT";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg ~ws_doc_digests:[]
+          ~instruction_texts:[ "DIFFERENT CONTENT" ] ()
+      in
+      match pd.content with
+      | None -> Alcotest.fail "expected project docs content"
+      | Some c ->
+          Alcotest.(check bool)
+            "project docs present when instruction content differs" true
+            (Test_helpers.string_contains c "UNIQUE CLAUDE CONTENT"))
+
+let test_project_docs_refresh_dedup_vs_instruction_items () =
+  with_temp_git_repo (fun dir ->
+      let content = "REFRESH DEDUP CONTENT" in
+      write_file (Filename.concat dir "CLAUDE.md") content;
+      let instruction_items = [ make_instruction_item content ] in
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg ~instruction_items () in
+      (* The project docs should be deduped at create time *)
+      (match agent.Agent.project_docs_content with
+      | None -> ()
+      | Some c ->
+          Alcotest.(check bool)
+            "create deduped project docs against instruction items" false
+            (Test_helpers.string_contains c "REFRESH DEDUP CONTENT"));
+      (* Modify the file to trigger refresh with new different content *)
+      write_file (Filename.concat dir "CLAUDE.md") "REFRESH NEW CONTENT";
+      let event = Agent.refresh_project_docs_if_changed agent in
+      Alcotest.(check bool) "refresh detected file change" true (event <> None);
+      (* After refresh, new content should appear since it's different from
+         instruction items *)
+      match agent.Agent.project_docs_content with
+      | None -> Alcotest.fail "expected project docs after refresh"
+      | Some c ->
+          Alcotest.(check bool)
+            "refresh picked up new content" true
+            (Test_helpers.string_contains c "REFRESH NEW CONTENT"))
+
+let test_subdir_docs_dedup_vs_instruction_items () =
+  with_temp_git_repo (fun dir ->
+      let content = "SUBDIR INSTRUCTION CONTENT" in
+      let subdir = Filename.concat dir "src" in
+      Unix.mkdir subdir 0o755;
+      write_file (Filename.concat subdir "CLAUDE.md") content;
+      let instruction_items = [ make_instruction_item content ] in
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg ~instruction_items () in
+      let tc : Provider.tool_call =
+        {
+          id = "tc1";
+          function_name = "file_read";
+          arguments =
+            Printf.sprintf {|{"path": "%s"}|} (Filename.concat subdir "foo.ml");
+        }
+      in
+      let events = Agent.observe_project_docs agent tc in
+      Alcotest.(check bool)
+        "subdir docs deduped vs instruction items" true (events = []))
+
 let test_provider_extract_system_prompt_includes_developer () =
   let msgs =
     [
@@ -1412,4 +1532,12 @@ let suite =
       `Quick test_provider_extract_system_prompt_includes_developer;
     Alcotest.test_case "developer role mapped to system in JSON" `Quick
       test_developer_role_mapped_to_system_in_json;
+    Alcotest.test_case "project docs dedup vs instruction items" `Quick
+      test_project_docs_dedup_vs_instruction_items;
+    Alcotest.test_case "project docs not dedup vs different instruction items"
+      `Quick test_project_docs_not_dedup_vs_different_instruction_items;
+    Alcotest.test_case "project docs refresh dedup vs instruction items" `Quick
+      test_project_docs_refresh_dedup_vs_instruction_items;
+    Alcotest.test_case "subdir docs dedup vs instruction items" `Quick
+      test_subdir_docs_dedup_vs_instruction_items;
   ]

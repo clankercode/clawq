@@ -354,7 +354,7 @@ let resolve_project_doc_dir ?effective_cwd () =
       | None -> None)
 
 let build_project_docs_message ~(config : Runtime_config.t) ?effective_cwd
-    ~ws_doc_digests () =
+    ~ws_doc_digests ?(instruction_texts = []) () =
   if not config.prompt.include_project_docs then
     { content = None; digests = []; git_root = None }
   else
@@ -364,6 +364,11 @@ let build_project_docs_message ~(config : Runtime_config.t) ?effective_cwd
         let budget = ref config.prompt.max_project_doc_chars in
         let seen_digests = Hashtbl.create 4 in
         List.iter (fun d -> Hashtbl.replace seen_digests d true) ws_doc_digests;
+        List.iter
+          (fun text ->
+            let d = Digest.to_hex (Digest.string text) in
+            Hashtbl.replace seen_digests d true)
+          instruction_texts;
         let collected_digests = ref [] in
         let blocks = ref [] in
         List.iter
@@ -637,7 +642,7 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
          precedence order. Higher-precedence layers override lower ones for \
          conflicting directives.";
       add "";
-      let layer_order = ["default"; "workspace"; "channel"; "room"] in
+      let layer_order = [ "default"; "workspace"; "channel"; "room" ] in
       let by_layer :
           (string, Runtime_config.effective_instruction_item list) Hashtbl.t =
         Hashtbl.create 8
@@ -653,24 +658,20 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
           Hashtbl.replace by_layer layer (item :: existing))
         instruction_items;
       (* Reverse each layer's list to preserve original order within layer *)
-      Hashtbl.filter_map_inplace
-        (fun _ items -> Some (List.rev items))
-        by_layer;
+      Hashtbl.filter_map_inplace (fun _ items -> Some (List.rev items)) by_layer;
       List.iter
         (fun layer ->
           match Hashtbl.find_opt by_layer layer with
           | None | Some [] -> ()
           | Some items -> begin
               add
-                (Printf.sprintf "### Layer: %s"
-                   (String.uppercase_ascii layer));
+                (Printf.sprintf "### Layer: %s" (String.uppercase_ascii layer));
               add "";
               List.iter
                 (fun (item : Runtime_config.effective_instruction_item) ->
                   let provenance_label =
                     match item.provenance with
-                    | p :: _ ->
-                        Printf.sprintf "[%s/%s]" p.source_id p.field
+                    | p :: _ -> Printf.sprintf "[%s/%s]" p.source_id p.field
                     | [] -> "[unknown]"
                   in
                   add provenance_label;
@@ -681,15 +682,11 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
         layer_order;
       (* Render any layers not in the predefined order *)
       let rendered = Hashtbl.create 8 in
-      List.iter
-        (fun layer -> Hashtbl.replace rendered layer true)
-        layer_order;
+      List.iter (fun layer -> Hashtbl.replace rendered layer true) layer_order;
       Hashtbl.iter
         (fun layer items ->
           if (not (Hashtbl.mem rendered layer)) && items <> [] then begin
-            add
-              (Printf.sprintf "### Layer: %s"
-                 (String.uppercase_ascii layer));
+            add (Printf.sprintf "### Layer: %s" (String.uppercase_ascii layer));
             add "";
             List.iter
               (fun (item : Runtime_config.effective_instruction_item) ->

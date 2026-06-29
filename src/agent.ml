@@ -13,9 +13,15 @@ let create ~config ?tool_registry ?agent_template ?cwd
     | None -> Prompt_builder.workspace_doc_content_digests ~config ()
     | Some _ -> []
   in
+  let instruction_texts =
+    List.map
+      (fun (item : Runtime_config.effective_instruction_item) ->
+        item.instruction.text)
+      instruction_items
+  in
   let pd =
     Prompt_builder.build_project_docs_message ~config ?effective_cwd:cwd
-      ~ws_doc_digests ()
+      ~ws_doc_digests ~instruction_texts ()
   in
   let dirs_seen = Hashtbl.create 16 in
   (match pd.git_root with
