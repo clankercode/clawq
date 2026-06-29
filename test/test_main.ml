@@ -272,6 +272,7 @@ let () =
     @ [ ("github_review_run", Test_github_review_run.suite) ]
     @ [ ("workflow_run_trigger", Test_workflow_run_trigger.suite) ]
     @ [ ("github_pr_lifecycle_leak", Test_github_pr_lifecycle_leak.suite) ]
+    @ [ ("github_backlink_self_loop", Test_github_backlink_self_loop.suite) ]
     @ [
         ("minimal_reload", Test_minimal_reload.suite);
         ( "config_isolation",

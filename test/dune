@@ -59,6 +59,7 @@
   test_github_review_run
   test_workflow_run_trigger
   test_github_pr_lifecycle_leak
+  test_github_backlink_self_loop
   test_group_chat_filter
   test_helpers
   test_history_search
