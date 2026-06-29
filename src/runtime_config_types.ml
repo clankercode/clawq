@@ -398,8 +398,8 @@ type stt_config = {
   language : string option;
   credential_handle : string option;
       (** Optional credential handle ID. When set, the STT API key is resolved
-          through the credential lease API. Missing or unresolvable handles
-          deny before any network call. *)
+          through the credential lease API. Missing or unresolvable handles deny
+          before any network call. *)
 }
 
 type resilience_config = {
@@ -472,8 +472,8 @@ type zai_mcp_config = {
   webfetch_enabled : bool;
   credential_handle : string option;
       (** Optional credential handle ID. When set, the Z.ai API key is resolved
-          through the credential lease API. Missing or unresolvable handles
-          deny before any network call. *)
+          through the credential lease API. Missing or unresolvable handles deny
+          before any network call. *)
 }
 
 type interactive_config = { enable_question_notes : bool }

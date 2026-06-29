@@ -96,7 +96,13 @@ let make_config_with_stt () =
   {
     Runtime_config.default with
     stt =
-      Some { provider = "groq"; model = "whisper-large-v3"; language = None; credential_handle = None };
+      Some
+        {
+          provider = "groq";
+          model = "whisper-large-v3";
+          language = None;
+          credential_handle = None;
+        };
   }
 
 let make_config_without_stt () = Runtime_config.default

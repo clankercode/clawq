@@ -124,8 +124,7 @@ let test_resolve_credential_handle_missing () =
   with
   | Ok _ -> fail "should fail for missing handle"
   | Error msg ->
-      check bool "error contains handle id" true
-        (String.length msg > 0)
+      check bool "error contains handle id" true (String.length msg > 0)
 
 (* Test: resolve_credential_handle returns Error when env var is unset *)
 let test_resolve_credential_handle_env_unset () =
@@ -158,8 +157,7 @@ let test_web_search_uses_credential_handle () =
   let test_var = "CLAWQ_TEST_WS_CRED" in
   Unix.putenv test_var "lease-api-key";
   let config =
-    config_with_web_search_credential ~handle_id:"ws:test"
-      ~api_key_var:test_var
+    config_with_web_search_credential ~handle_id:"ws:test" ~api_key_var:test_var
   in
   (* The web_search tool should resolve the credential handle.
      We can't actually call the network, but we verify the lease resolution
@@ -327,25 +325,48 @@ let test_web_search_config_roundtrip () =
           };
     }
   in
-  let json = Runtime_config_json.to_json ~default_quota_cache_ttl_s:300
-    ~default_log_config:Runtime_config.default.log config in
+  let json =
+    Runtime_config_json.to_json ~default_quota_cache_ttl_s:300
+      ~default_log_config:Runtime_config.default.log config
+  in
   let json_str = Yojson.Safe.to_string json in
-  check bool "contains credential_handle" true
-    (String.length json_str > 0)
+  check bool "contains credential_handle" true (String.length json_str > 0)
 
 let suite =
   [
-    ("resolve_credential_handle_none", `Quick, test_resolve_credential_handle_none);
-    ("resolve_credential_handle_success", `Quick, test_resolve_credential_handle_success);
-    ("resolve_credential_handle_missing", `Quick, test_resolve_credential_handle_missing);
-    ("resolve_credential_handle_env_unset", `Quick, test_resolve_credential_handle_env_unset);
-    ("web_search_uses_credential_handle", `Quick, test_web_search_uses_credential_handle);
-    ("web_search_denies_missing_handle", `Quick, test_web_search_denies_missing_handle);
-    ("zai_websearch_uses_credential_handle", `Quick, test_zai_websearch_uses_credential_handle);
-    ("zai_websearch_denies_missing_handle", `Quick, test_zai_websearch_denies_missing_handle);
-    ("zai_webfetch_uses_credential_handle", `Quick, test_zai_webfetch_uses_credential_handle);
-    ("transcribe_uses_credential_handle", `Quick, test_transcribe_uses_credential_handle);
-    ("transcribe_denies_missing_handle", `Quick, test_transcribe_denies_missing_handle);
+    ( "resolve_credential_handle_none",
+      `Quick,
+      test_resolve_credential_handle_none );
+    ( "resolve_credential_handle_success",
+      `Quick,
+      test_resolve_credential_handle_success );
+    ( "resolve_credential_handle_missing",
+      `Quick,
+      test_resolve_credential_handle_missing );
+    ( "resolve_credential_handle_env_unset",
+      `Quick,
+      test_resolve_credential_handle_env_unset );
+    ( "web_search_uses_credential_handle",
+      `Quick,
+      test_web_search_uses_credential_handle );
+    ( "web_search_denies_missing_handle",
+      `Quick,
+      test_web_search_denies_missing_handle );
+    ( "zai_websearch_uses_credential_handle",
+      `Quick,
+      test_zai_websearch_uses_credential_handle );
+    ( "zai_websearch_denies_missing_handle",
+      `Quick,
+      test_zai_websearch_denies_missing_handle );
+    ( "zai_webfetch_uses_credential_handle",
+      `Quick,
+      test_zai_webfetch_uses_credential_handle );
+    ( "transcribe_uses_credential_handle",
+      `Quick,
+      test_transcribe_uses_credential_handle );
+    ( "transcribe_denies_missing_handle",
+      `Quick,
+      test_transcribe_denies_missing_handle );
     ("web_search_legacy_path", `Quick, test_web_search_legacy_path);
     ("web_search_config_roundtrip", `Quick, test_web_search_config_roundtrip);
   ]

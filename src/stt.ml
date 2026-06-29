@@ -29,7 +29,9 @@ let transcribe ~(config : Runtime_config.t) ?api_key ~audio_data ~filename
           in
           let uri = base_url ^ "/audio/transcriptions" in
           let resolved_api_key =
-            match api_key with Some k when k <> "" -> k | _ -> provider.api_key
+            match api_key with
+            | Some k when k <> "" -> k
+            | _ -> provider.api_key
           in
           let headers = [ ("Authorization", "Bearer " ^ resolved_api_key) ] in
           let parts =

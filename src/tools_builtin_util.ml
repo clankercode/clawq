@@ -714,8 +714,8 @@ let resolve_credential_handle ~(config : Runtime_config.t)
       | Error err ->
           let msg = Credential_lease.resolution_error_to_string err in
           Error
-            (Printf.sprintf
-               "credential lease denied for handle '%s': %s" hid msg)
+            (Printf.sprintf "credential lease denied for handle '%s': %s" hid
+               msg)
       | Ok lease ->
           let result = ref "" in
           Credential_lease.apply_headers lease (fun headers ->

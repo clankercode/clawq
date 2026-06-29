@@ -456,10 +456,9 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
     | Some s ->
         `Assoc
           ([ ("provider", `String s.provider); ("model", `String s.model) ]
-          @
-          (match s.language with
-          | Some l -> [ ("language", `String l) ]
-          | None -> [])
+          @ (match s.language with
+            | Some l -> [ ("language", `String l) ]
+            | None -> [])
           @
           match s.credential_handle with
           | Some h -> [ ("credential_handle", `String h) ]
@@ -742,11 +741,12 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
             ("num_results", `Int ws.num_results);
           ]
           @ (match ws.search_base_url with
-          | Some u -> [ ("base_url", `String u) ]
-          | None -> [])
-          @ (match ws.credential_handle with
+            | Some u -> [ ("base_url", `String u) ]
+            | None -> [])
+          @
+          match ws.credential_handle with
           | Some h -> [ ("credential_handle", `String h) ]
-          | None -> [])
+          | None -> []
         in
         fields @ [ ("web_search", `Assoc ws_fields) ]
     | None -> fields
@@ -763,10 +763,10 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                    ("websearch_enabled", `Bool zm.websearch_enabled);
                    ("webfetch_enabled", `Bool zm.webfetch_enabled);
                  ]
-                 @
-                 match zm.credential_handle with
-                 | Some h -> [ ("credential_handle", `String h) ]
-                 | None -> []) );
+                @
+                match zm.credential_handle with
+                | Some h -> [ ("credential_handle", `String h) ]
+                | None -> []) );
           ]
     | None -> fields
   in

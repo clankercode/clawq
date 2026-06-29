@@ -825,29 +825,29 @@ let transcribe ~(config : Runtime_config.t) =
                 | None -> None
               in
               let api_key_result =
-                resolve_credential_handle ~config
-                  ~handle_id:credential_handle ~header_name:"Authorization"
+                resolve_credential_handle ~config ~handle_id:credential_handle
+                  ~header_name:"Authorization"
               in
               match api_key_result with
               | Error msg -> Lwt.return ("Error: " ^ msg)
               | Ok lease_key ->
-              let file_path = resolve_path ~workspace file_path in
-              let ic = open_in_bin file_path in
-              let n = in_channel_length ic in
-              let buf = Bytes.create n in
-              really_input ic buf 0 n;
-              close_in ic;
-              let audio_data = Bytes.to_string buf in
-              let filename = Filename.basename file_path in
-              let content_type = Stt.content_type_of_ext filename in
-              let api_key =
-                if lease_key <> "" then Some lease_key else None
-              in
-              let* result =
-                Stt.transcribe ~config ?api_key ~audio_data ~filename
-                  ~content_type ()
-              in
-              Lwt.return result.text)
+                  let file_path = resolve_path ~workspace file_path in
+                  let ic = open_in_bin file_path in
+                  let n = in_channel_length ic in
+                  let buf = Bytes.create n in
+                  really_input ic buf 0 n;
+                  close_in ic;
+                  let audio_data = Bytes.to_string buf in
+                  let filename = Filename.basename file_path in
+                  let content_type = Stt.content_type_of_ext filename in
+                  let api_key =
+                    if lease_key <> "" then Some lease_key else None
+                  in
+                  let* result =
+                    Stt.transcribe ~config ?api_key ~audio_data ~filename
+                      ~content_type ()
+                  in
+                  Lwt.return result.text)
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Low;
