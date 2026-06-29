@@ -22,7 +22,7 @@ milestones:
       locked: false
       name: Egress Policy Boundary
       path: 02-egress-policy-boundary
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P18.M2
