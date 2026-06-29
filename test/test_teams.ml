@@ -1751,6 +1751,160 @@ let test_teams_dedup_different_conversations () =
   in
   Alcotest.(check bool) "conv2 same activity not seen" false seen2
 
+(* P15.M2.E1.T002: Bounded context capture tests *)
+
+let test_context_capture_returns_context_for_bound_room () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  let config =
+    {
+      Runtime_config.default with
+      connector_history =
+        {
+          Runtime_config.default.connector_history with
+          enabled = true;
+          persist_to_db = true;
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  Connector_history.record ~db ~persist:true ~key:"teams:conv-ctx"
+    ~room_id:"conv-ctx" ~connector_type:"teams" ~channel_type:"teams" ~max:50
+    ~sender_name:"Alice" ~sender_id:"a1" ~text:"hello" ();
+  Connector_history.record ~db ~persist:true ~key:"teams:conv-ctx"
+    ~room_id:"conv-ctx" ~connector_type:"teams" ~channel_type:"teams" ~max:50
+    ~sender_name:"Bob" ~sender_id:"b1" ~text:"world" ();
+  match
+    Teams_context_capture.capture_room_context ~session_manager
+      ~has_binding:(fun ~conversation_id:_ -> true)
+      ~session_key:"teams:conv-ctx" ~conversation_id:"conv-ctx"
+  with
+  | Some ctx -> (
+      Alcotest.(check bool) "context non-empty" true (String.length ctx > 0);
+      match Str.search_forward (Str.regexp_string "Room context") ctx 0 with
+      | _ -> ()
+      | exception Not_found -> Alcotest.fail "missing Room context header")
+  | None -> Alcotest.fail "expected Some context for bound room"
+
+let test_context_capture_none_for_unbound_room () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  Connector_history.record ~db ~persist:true ~key:"teams:conv-no"
+    ~room_id:"conv-no" ~connector_type:"teams" ~channel_type:"teams" ~max:50
+    ~sender_name:"Alice" ~sender_id:"a1" ~text:"hello" ();
+  let result =
+    Teams_context_capture.capture_room_context ~session_manager
+      ~has_binding:(fun ~conversation_id:_ -> false)
+      ~session_key:"teams:conv-no" ~conversation_id:"conv-no"
+  in
+  Alcotest.(check bool) "unbound returns None" true (result = None)
+
+let test_context_capture_none_when_disabled () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  Connector_history.record ~db ~persist:true ~key:"teams:conv-dis"
+    ~room_id:"conv-dis" ~connector_type:"teams" ~channel_type:"teams" ~max:50
+    ~sender_name:"Alice" ~sender_id:"a1" ~text:"hello" ();
+  let result =
+    Teams_context_capture.capture_room_context ~session_manager
+      ~has_binding:(fun ~conversation_id:_ -> true)
+      ~session_key:"teams:conv-dis" ~conversation_id:"conv-dis"
+  in
+  Alcotest.(check bool) "disabled returns None" true (result = None)
+
+let test_context_capture_none_when_empty () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  let config =
+    {
+      Runtime_config.default with
+      connector_history =
+        {
+          Runtime_config.default.connector_history with
+          enabled = true;
+          persist_to_db = true;
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let result =
+    Teams_context_capture.capture_room_context ~session_manager
+      ~has_binding:(fun ~conversation_id:_ -> true)
+      ~session_key:"teams:conv-empty" ~conversation_id:"conv-empty"
+  in
+  Alcotest.(check bool) "empty returns None" true (result = None)
+
+let test_context_capture_bounded_by_max () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  let config =
+    {
+      Runtime_config.default with
+      connector_history =
+        {
+          Runtime_config.default.connector_history with
+          enabled = true;
+          persist_to_db = true;
+          max_messages = 5;
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  for i = 1 to 50 do
+    Connector_history.record ~db ~persist:true ~key:"teams:conv-bnd"
+      ~room_id:"conv-bnd" ~connector_type:"teams" ~channel_type:"teams" ~max:50
+      ~sender_name:(Printf.sprintf "User%d" i)
+      ~sender_id:(Printf.sprintf "u%d" i)
+      ~text:(Printf.sprintf "message %d" i)
+      ()
+  done;
+  match
+    Teams_context_capture.capture_room_context ~session_manager
+      ~has_binding:(fun ~conversation_id:_ -> true)
+      ~session_key:"teams:conv-bnd" ~conversation_id:"conv-bnd"
+  with
+  | Some ctx -> (
+      (* Header format: "[Room context: N recent messages...]" *)
+      match
+        Str.search_forward (Str.regexp "Room context: \\([0-9]+\\)") ctx 0
+      with
+      | _ ->
+          let n_str = Str.matched_group 1 ctx in
+          let n = int_of_string n_str in
+          Alcotest.(check int) "bounded to max_messages=5" 5 n
+      | exception Not_found ->
+          Alcotest.fail "missing Room context count in header")
+  | None -> Alcotest.fail "expected Some for room with 50 entries"
+
+let test_get_formatted_for_key_roundtrip () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_connector_history_schema db;
+  Connector_history.record ~db ~persist:true ~key:"k1" ~room_id:"r1"
+    ~connector_type:"teams" ~channel_type:"teams" ~max:50 ~sender_name:"A"
+    ~sender_id:"a" ~text:"msg1" ();
+  Connector_history.record ~db ~persist:true ~key:"k1" ~room_id:"r1"
+    ~connector_type:"teams" ~channel_type:"teams" ~max:50 ~sender_name:"B"
+    ~sender_id:"b" ~text:"msg2" ();
+  match Connector_history.get_formatted_for_key ~db ~key:"k1" ~count:10 () with
+  | Some (ctx, n) -> (
+      Alcotest.(check int) "count" 2 n;
+      match Str.search_forward (Str.regexp_string "msg1") ctx 0 with
+      | _ -> ()
+      | exception Not_found -> Alcotest.fail "missing msg1 in context")
+  | None -> Alcotest.fail "expected Some for non-empty key"
+
+let test_get_formatted_for_key_none_for_empty () =
+  Hashtbl.reset Connector_history.buffers;
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_connector_history_schema db;
+  let result =
+    Connector_history.get_formatted_for_key ~db ~key:"no-key" ~count:10 ()
+  in
+  Alcotest.(check bool) "empty returns None" true (result = None)
+
 let suite =
   [
     Alcotest.test_case "B464: send_reply empty text short-circuits" `Quick
@@ -1955,4 +2109,19 @@ let suite =
       test_detect_teams_kind_room;
     Alcotest.test_case "reply URI scheme consistent across room types" `Quick
       test_reply_url_scheme_consistent_across_room_types;
+    (* P15.M2.E1.T002: Bounded context capture *)
+    Alcotest.test_case "context capture for bound room" `Quick
+      test_context_capture_returns_context_for_bound_room;
+    Alcotest.test_case "context capture none for unbound" `Quick
+      test_context_capture_none_for_unbound_room;
+    Alcotest.test_case "context capture none when disabled" `Quick
+      test_context_capture_none_when_disabled;
+    Alcotest.test_case "context capture none when empty" `Quick
+      test_context_capture_none_when_empty;
+    Alcotest.test_case "context capture bounded by max" `Quick
+      test_context_capture_bounded_by_max;
+    Alcotest.test_case "get_formatted_for_key roundtrip" `Quick
+      test_get_formatted_for_key_roundtrip;
+    Alcotest.test_case "get_formatted_for_key empty" `Quick
+      test_get_formatted_for_key_none_for_empty;
   ]

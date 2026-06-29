@@ -269,14 +269,8 @@ let split_message text =
     List.rev !result
   end
 
-(* Build a reply activity JSON body, optionally with an @mention and
-   notification alert control.
-   Always include channelData.notification.alert explicitly: true forces a
-   desktop/mobile toast notification, false suppresses it.
-   mention_mode controls how the mention is rendered:
-     "entity" (default): Teams <at>Name</at> with entity markup (mention badge).
-     "text": plain @Name prefix, no entity (no mention badge).
-     "none" or anything else: no prefix added. *)
+(* Build a reply JSON body with optional @mention and notification alert.
+   mention_mode: "entity" (default), "text" (@Name), "none". *)
 let build_reply_body ~alert ~text ~mention ~mention_mode =
   let text_with_mention, entities =
     match mention with
@@ -328,10 +322,7 @@ let build_reply_body ~alert ~text ~mention ~mention_mode =
   in
   `Assoc fields |> Yojson.Safe.to_string
 
-(* Build the Bot Framework REST API URI for sending an activity.
-   When ~reply_to_id is empty, targets the activities collection (new message).
-   When non-empty, targets a specific activity (threaded reply).
-   Works identically across personal DMs, group chats, and team channels. *)
+(* Build Bot Framework REST API URI: empty reply_to_id = new message, else threaded reply. *)
 let build_reply_uri ~service_url ~conversation_id ~reply_to_id =
   if reply_to_id = "" then
     Printf.sprintf "%s/v3/conversations/%s/activities" (String.trim service_url)
@@ -348,10 +339,7 @@ let build_reply_uri ~service_url ~conversation_id ~reply_to_id =
 let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
     ~service_url ~conversation_id ~reply_to_id ~text ?mention () =
   let open Lwt.Syntax in
-  (* B464: guard against empty payloads — Teams returns HTTP 400 BadSyntax
-     ("Activity must include non empty 'text' field or at least 1 attachment")
-     and we have no attachment surface on this path, so empty text is always
-     a caller defect. Log + short-circuit instead of generating the 400. *)
+  (* B464: guard against empty payloads — Teams rejects empty text with HTTP 400. *)
   if String.trim text = "" then begin
     Logs.warn (fun m ->
         m
@@ -522,11 +510,7 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
         Lwt.return ""
       end
 
-(* Build JSON body for the Bot Framework attachment upload endpoint. *)
-(* --- File Consent Card flow wrappers --- *)
-
-(* Wrappers that bind fetch_token and post_json_throttled for the
-   file consent sub-module functions *)
+(* File Consent Card flow wrappers — bind fetch_token and post_json_throttled *)
 let send_file_consent_card ?room_context ~(config : Runtime_config.teams_config)
     ~service_url ~conversation_id ~reply_to_id ~filename ~description
     ~size_bytes ~consent_id () =
@@ -588,8 +572,6 @@ let is_team_allowed ~(config : Runtime_config.teams_config) ~team_id =
 let is_user_allowed ~(config : Runtime_config.teams_config) ~user_id =
   match config.allow_users with [ "*" ] -> true | ids -> List.mem user_id ids
 
-(* Parse a Teams activity JSON body. Returns relevant fields or None if not a
-   processable user message. *)
 (* Strip <at>...</at> mention tags from Teams message text *)
 let strip_at_mentions text =
   (* Simple state machine to remove <at>...</at> tags *)
@@ -832,7 +814,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                       text,
                                       [],
                                       None ))
-                        | Slash_commands.InjectConnectorHistory count ->
+                        | Slash_commands.InjectConnectorHistory count -> (
                             let cfg = Session.get_config session_manager in
                             let hist_key =
                               resolve_session_key ~session_manager
@@ -844,44 +826,41 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                 Session.get_db session_manager
                               else None
                             in
-                            let entries =
-                              Connector_history.get ?db ~key:hist_key ~count ()
-                            in
-                            if entries = [] then
-                              Lwt.return
-                                ( Slash_commands.Reply
-                                    "No connector history available. Ensure \
-                                     connector_history.enabled is true in \
-                                     config. Buffer captures unaddressed group \
-                                     messages received since daemon started \
-                                     (or from DB if persist_to_db is on).",
-                                  text,
-                                  [],
-                                  None )
-                            else begin
-                              let context =
-                                Connector_history.format_for_context entries
-                              in
-                              let n = List.length entries in
-                              let* _id =
-                                send_reply ~alert:false ~config
-                                  ~service_url:effective_service_url
-                                  ~conversation_id ~reply_to_id:activity_id
-                                  ~text:
-                                    (Printf.sprintf
-                                       "Last %d chat msgs loaded into context" n)
-                                  ()
-                              in
-                              let msg =
-                                Printf.sprintf
-                                  "[Loaded %d messages from channel history]" n
-                              in
-                              Lwt.return
-                                ( Slash_commands.NotACommand,
-                                  msg,
-                                  [ context ],
-                                  None )
-                            end
+                            match
+                              Connector_history.get_formatted_for_key ?db
+                                ~key:hist_key ~count ()
+                            with
+                            | Some (context, n) ->
+                                let* _id =
+                                  send_reply ~alert:false ~config
+                                    ~service_url:effective_service_url
+                                    ~conversation_id ~reply_to_id:activity_id
+                                    ~text:
+                                      (Printf.sprintf
+                                         "Last %d chat msgs loaded into context"
+                                         n)
+                                    ()
+                                in
+                                Lwt.return
+                                  ( Slash_commands.NotACommand,
+                                    Printf.sprintf
+                                      "[Loaded %d messages from channel \
+                                       history]"
+                                      n,
+                                    [ context ],
+                                    None )
+                            | None ->
+                                Lwt.return
+                                  ( Slash_commands.Reply
+                                      "No connector history available. Ensure \
+                                       connector_history.enabled is true in \
+                                       config. Buffer captures unaddressed \
+                                       group messages received since daemon \
+                                       started (or from DB if persist_to_db is \
+                                       on).",
+                                    text,
+                                    [],
+                                    None ))
                         | other -> Lwt.return (other, text, [], None)
                       in
                       let is_admin =
@@ -1053,12 +1032,15 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                             a.content_type)
                                         parsed_attachments
                                     in
-                                    let* token_opt_for_audio =
-                                      if
-                                        audio_atts <> []
-                                        && full_config.security
-                                             .attachment_downloads_enabled
-                                      then fetch_token ~config
+                                    (* Single token fetch for audio + attachment downloads *)
+                                    let needs_token =
+                                      full_config.security
+                                        .attachment_downloads_enabled
+                                      && (audio_atts <> []
+                                        || non_audio_atts <> [])
+                                    in
+                                    let* attachment_token =
+                                      if needs_token then fetch_token ~config
                                       else Lwt.return None
                                     in
                                     let* transcription_prefix =
@@ -1068,7 +1050,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                              .attachment_downloads_enabled
                                       then
                                         let audio_headers =
-                                          match token_opt_for_audio with
+                                          match attachment_token with
                                           | Some tok ->
                                               [
                                                 ( "Authorization",
@@ -1152,9 +1134,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                         && full_config.security
                                              .attachment_downloads_enabled
                                       then
-                                        let* token_opt = fetch_token ~config in
                                         let headers =
-                                          match token_opt with
+                                          match attachment_token with
                                           | Some tok ->
                                               [
                                                 ( "Authorization",
@@ -1207,6 +1188,26 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                           else effective_text
                                         in
                                         Lwt.return ([], [], placeholder)
+                                    in
+                                    (* Auto-inject bounded room context for
+                                       profile-bound rooms with connector
+                                       history enabled. *)
+                                    let skill_injections =
+                                      let ctx_key =
+                                        resolve_session_key ~session_manager
+                                          ~team_id:effective_team_id
+                                          ~conversation_id ()
+                                      in
+                                      match
+                                        Teams_context_capture
+                                        .capture_room_context ~session_manager
+                                          ~has_binding:
+                                            (room_has_profile_binding
+                                               ~session_manager)
+                                          ~session_key:ctx_key ~conversation_id
+                                      with
+                                      | Some ctx -> ctx :: skill_injections
+                                      | None -> skill_injections
                                     in
                                     let* response =
                                       session_turn session_manager ~key ~message

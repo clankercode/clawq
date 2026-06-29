@@ -335,6 +335,7 @@
   teams_file_upload
   teams_adaptive_card
   teams
+  teams_context_capture
   attachment_download
   voice_transcription
   temp_downloads

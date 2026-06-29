@@ -321,6 +321,15 @@ let format_for_context entries =
   in
   String.concat "\n" (List.map format_entry entries)
 
+(** Retrieve and format the last [count] entries for [key], returning
+    [Some formatted] when entries exist or [None] when the buffer/DB is empty.
+    Useful for both manual slash-command injection and automatic room-context
+    injection at the start of a turn. *)
+let get_formatted_for_key ?db ~key ~count () =
+  let entries = get ?db ~key ~count () in
+  if entries = [] then None
+  else Some (format_for_context entries, List.length entries)
+
 let clear ?db ~key () =
   Hashtbl.remove buffers key;
   match db with
