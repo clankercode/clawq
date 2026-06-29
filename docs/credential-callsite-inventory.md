@@ -1,12 +1,16 @@
 # Credential-Bearing Callsite Inventory
 
-**Task:** P18.M1.E1.T001 — Inventory credential-bearing callsites
-**Date:** 2026-06-29
+**Task:** P18.M1.E1.T001 — Inventory credential-bearing callsites  
+**Date:** 2026-06-29  
+**Last updated:** 2026-06-30  
 **Author:** Automated codebase analysis
 
 This document inventories every location in the Clawq codebase where
 credentials (API keys, tokens, secrets, passwords) are used in outbound
 requests, inbound verification, or stored in memory.
+
+**Verification boundaries**: See [`verification-boundaries.md`](verification-boundaries.md)
+for a cross-cutting view of all security-relevant subsystems.
 
 ## Classification Legend
 

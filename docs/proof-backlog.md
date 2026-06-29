@@ -2,6 +2,7 @@
 
 **Status**: Backlog (future work)  
 **Created**: 2026-06-30  
+**Last updated**: 2026-06-30  
 **Owner**: TBD  
 
 This document catalogues invariants from the scope-resolution and memory-policy
@@ -11,6 +12,10 @@ P14–P18 implementation**. Most listed invariants are enforced by runtime code
 and (where noted) covered by executable conformance tests. One known gap
 exists: INV-REDACT-3b (FTS redaction) is documented in the memory-policy
 invariant spec and prioritized in Section 3.1 below.
+
+**Verification boundaries**: See [`verification-boundaries.md`](verification-boundaries.md)
+for a cross-cutting view of all security-relevant subsystems, including
+callsite inventories for credentials and network egress.
 
 ---
 
@@ -341,5 +346,6 @@ Source: [`docs/memory-policy-isolation-invariants.md`](memory-policy-isolation-i
 
 - [Scope Resolution Invariants](scope-resolution-invariants.md)
 - [Memory Policy Isolation Invariants](memory-policy-isolation-invariants.md)
+- [Verification Boundaries](verification-boundaries.md) (cross-cutting overview)
 - [Conformance Tests](../test/test_invariant_conformance.ml) (P18.M3.E1.T003)
 - [Formal Verification Spec Gap Audit](FV_SPEC_IMPL_GAP_AUDIT_2026_03_08.md)

@@ -131,50 +131,61 @@ removed.
 - **Test**: `test_grant_denied_no_event` — non-admin grant produces error, no
   ledger event.
 
-**INV-GRANT-3**: Expired grants are excluded from resolution. Grants with
-`expires_at` in the past are filtered out by the `resolve_grants` SQL query.
+**INV-GRANT-3** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Expired grants are
+excluded from resolution. Grants with `expires_at` in the past are filtered
+out by the `resolve_grants` SQL query.
 
 - **Code**: `resolve_grants` SQL includes
   `AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`.
-- **Test**: No dedicated test for expired grant filtering. The invariant is
-  enforced by the SQL clause.
+- **Tests**: `test_expired_grants_excluded_from_resolution`,
+  `test_non_expired_grants_included_in_resolution`,
+  `test_null_expires_at_grants_never_expire`.
+- **Proof candidate**: Prove expired grants are excluded from resolution.
+  SQL clause correctness.
 
-**INV-GRANT-4**: Revoked grants are excluded from resolution when the
-`revoked_at` column exists. The resolver dynamically checks for column
-existence and adds the `revoked_at IS NULL` clause.
+**INV-GRANT-4** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Revoked grants are
+excluded from resolution when the `revoked_at` column exists. The resolver
+dynamically checks for column existence and adds the `revoked_at IS NULL`
+clause.
 
 - **Code**: `resolve_grants` calls `sqlite_column_exists` to check for
   `revoked_at` column before adding the filter.
-- **Test**: No dedicated test. The invariant is enforced by the dynamic SQL
-  construction.
+- **Tests**: `test_revoked_grants_excluded_when_column_exists`,
+  `test_non_revoked_grants_included_when_column_exists`,
+  `test_grants_included_when_no_revoked_at_column`.
+- **Proof candidate**: Prove revoked grants are excluded when `revoked_at`
+  column exists. Dynamic SQL construction correctness.
 
 ---
 
 ## 4. Credential Non-Disclosure
 
-**INV-CRED-1**: Memory content previews in ledger events have Bearer tokens
-redacted. The `sanitize_content_preview` function replaces patterns matching
-`Bearer [A-Za-z0-9._+/=-]+` with `[REDACTED]`.
+**INV-CRED-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Memory content previews
+in ledger events have Bearer tokens redacted. The `sanitize_content_preview`
+function replaces patterns matching `Bearer [A-Za-z0-9._+/=-]+` with
+`[REDACTED]`.
 
 - **Code**: `sanitize_content_preview` in `memory_scoped.ml` uses
   `Str.global_replace` with `Bearer [A-Za-z0-9._+/=-]+` regex.
 - **Test**: `test_content_preview_sanitizes_bearer_token` — Bearer token
   replaced with `[REDACTED]`, original value absent from preview.
+- **Proof candidate**: Prove Bearer tokens are redacted in content previews.
 
-**INV-CRED-2**: Content previews are truncated to 200 characters (plus `...`
-suffix) to prevent accidental disclosure of long sensitive content in ledger
-events.
+**INV-CRED-2** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Content previews are
+truncated to 200 characters (plus `...` suffix) to prevent accidental
+disclosure of long sensitive content in ledger events.
 
 - **Code**: `sanitize_content_preview` with `~max_len = 200`.
 - **Test**: `test_content_preview_truncates_long_content` — 300-char content
   becomes 203-char preview (200 + "...").
+- **Proof candidate**: Prove content previews are truncated to 200 chars.
 
-**INV-CRED-3**: Redacted (forgotten) memories have their content set to NULL
-and provenance scrubbed of any `prev_content` entries. The original content is
-not recoverable through scoped memory APIs (`get_scoped_memory`,
-`query_scoped_memories`, `room_memory_show`, `room_memory_list`). The FTS
-search path (`Memory.search`) is an exception — see INV-REDACT-3b for the
-current gap.
+**INV-CRED-3** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Redacted (forgotten)
+memories have their content set to NULL and provenance scrubbed of any
+`prev_content` entries. The original content is not recoverable through scoped
+memory APIs (`get_scoped_memory`, `query_scoped_memories`,
+`room_memory_show`, `room_memory_list`). The FTS search path
+(`Memory.search`) is an exception — see INV-REDACT-3b for the current gap.
 
 - **Code**: `redact_scoped_memory` SQL sets `content = NULL`, scrubs
   provenance with `CASE WHEN provenance LIKE '%prev_content:%' THEN
@@ -186,25 +197,30 @@ current gap.
   pre-redaction content (with Bearer tokens redacted and truncated to 200
   chars). Non-Bearer content remains visible through ledger APIs. This is
   intentional for audit trail purposes.
+- **Proof candidate**: Prove redacted memories have content set to NULL and
+  provenance scrubbed.
 
 ---
 
 ## 5. Egress Default-Deny Monotonicity
 
-**INV-EGR-1**: The egress evaluator defaults to `Deny` when no rule matches.
-First-match-wins semantics with deny as the catch-all ensures that new
-destinations are blocked by default.
+**INV-EGR-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: The egress evaluator
+defaults to `Deny` when no rule matches. First-match-wins semantics with deny
+as the catch-all ensures that new destinations are blocked by default.
 
 - **Code**: `evaluate` in `egress_evaluator.ml` returns
   `{ action = Deny; log_policy = Log; matched_rule_index = -1 }` when no
   rule matches.
-- **Test**: No dedicated egress evaluator test file. The invariant is enforced
-  by the `evaluate` function's fallthrough case.
+- **Tests**: `test_egress_unmatched_destinations_default_deny`,
+  `test_egress_rules_first_match_wins`, `test_egress_rules_order_matters`.
+- **Proof candidate**: Prove `evaluate` returns `Deny` when no rule matches.
+  Structural property of fallthrough case.
 
-**INV-EGR-2**: Unmatched destinations remain denied regardless of rule changes.
-Adding a new egress rule can change a previously default-denied destination to
-allowed (if the new rule matches), but destinations that still match no rule
-continue to receive the default-deny action.
+**INV-EGR-2** `[RUNTIME] [PROOF-CANDIDATE]`: Unmatched destinations remain
+denied regardless of rule changes. Adding a new egress rule can change a
+previously default-denied destination to allowed (if the new rule matches),
+but destinations that still match no rule continue to receive the default-deny
+action.
 
 - **Code**: `evaluate` returns `Deny` only from the no-match fallthrough.
   A new matching rule takes precedence over the fallthrough for its specific
@@ -212,105 +228,122 @@ continue to receive the default-deny action.
   destinations.
 - **Note**: This is a structural invariant of the evaluator, not tested
   directly.
+- **Proof candidate**: Prove unmatched destinations remain denied regardless
+  of rule changes.
 
-**INV-EGR-3**: Egress rules are evaluated in declaration order (first match
-wins). Rule ordering in the configuration determines which rule applies to a
-given request.
+**INV-EGR-3** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Egress rules are
+evaluated in declaration order (first match wins). Rule ordering in the
+configuration determines which rule applies to a given request.
 
 - **Code**: `find_first_match` in `evaluate` iterates rules in list order.
-- **Note**: No dedicated test for rule ordering. The invariant is enforced by
-  the list traversal.
+- **Tests**: `test_egress_rules_first_match_wins`,
+  `test_egress_rules_order_matters`.
+- **Proof candidate**: Prove rules are evaluated in declaration order.
 
 ---
 
 ## 6. MCP Filter Soundness
 
-**INV-FILTER-1**: Agent templates filter the tool registry by allowed and
-denied tool lists. Denied tools are removed after allowed filtering, ensuring
-deny wins over allow.
+**INV-FILTER-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Agent templates filter
+the tool registry by allowed and denied tool lists. Denied tools are removed
+after allowed filtering, ensuring deny wins over allow.
 
 - **Code**: `filter_tool_registry` in `agent_template.ml` first filters to
   allowed tools (if non-empty), then removes denied tools from the result.
 - **Test**: `test_layers_merge_deterministically_and_deny_wins` and
   `test_allow_and_deny_same_tool_denies` in `test/test_scope_resolver.ml` —
   deny wins over allow in merged bundles.
+- **Proof candidate**: Prove deny wins over allow in merged bundles.
 
-**INV-FILTER-2**: Skills can filter visible tools via
-`Skills.filter_visible_tools`. This is an additional layer on top of agent
-template filtering.
+**INV-FILTER-2** `[RUNTIME] [PROOF-CANDIDATE]`: Skills can filter visible
+tools via `Skills.filter_visible_tools`. This is an additional layer on top
+of agent template filtering.
 
 - **Code**: `filter_visible_tools` in `skills.ml`.
 - **Test**: No dedicated test for skills filter. Used by Teams connector
   (`teams.ml`).
+- **Proof candidate**: Prove `Skills.filter_visible_tools` is an additional
+  filtering layer that runs after agent template filtering.
 
-**INV-FILTER-3**: MCP client tools are discovered and filtered at connection
-time. `tool_of_mcp_definition` converts MCP tool definitions into the
-internal `Tool.t` representation. Invalid definitions are filtered out
-(`filter_map`).
+**INV-FILTER-3** `[RUNTIME] [PROOF-CANDIDATE]`: MCP client tools are
+discovered and filtered at connection time. `tool_of_mcp_definition` converts
+MCP tool definitions into the internal `Tool.t` representation. Invalid
+definitions are filtered out (`filter_map`).
 
 - **Code**: `mcp_client.ml` uses `List.filter_map` on discovered tools.
 - **Test**: No dedicated MCP filter test. The invariant is enforced by the
   `filter_map` pattern.
+- **Proof candidate**: Prove MCP client tools are filtered at connection time
+  via `filter_map`.
 
 ---
 
 ## 7. Budget Invariants
 
-**INV-BUDG-1**: Room budgets are scoped to room profiles (`profile_id` is the
-primary key). Each profile has at most one budget entry.
+**INV-BUDG-1** `[RUNTIME] [PROOF-CANDIDATE]`: Room budgets are scoped to room
+profiles (`profile_id` is the primary key). Each profile has at most one
+budget entry.
 
 - **Code**: `room_budgets` table has `profile_id INTEGER PRIMARY KEY` with
   `FOREIGN KEY` referencing `room_profiles(id) ON DELETE CASCADE`.
 - **Test**: No dedicated budget invariant test. Schema constraint enforces
   uniqueness.
+- **Proof candidate**: Prove `profile_id` is unique primary key with FK
+  cascade. Schema-level argument.
 
-**INV-BUDG-2**: Budget limits have non-negative constraints.
-`token_limit >= 0` and `cost_limit_usd >= 0.0` are enforced by CHECK
-constraints.
+**INV-BUDG-2** `[RUNTIME] [PROOF-CANDIDATE]`: Budget limits have non-negative
+constraints. `token_limit >= 0` and `cost_limit_usd >= 0.0` are enforced by
+CHECK constraints.
 
 - **Code**: `CREATE TABLE room_budgets ... CHECK(token_limit >= 0) ...
   CHECK(cost_limit_usd >= 0.0)`.
 - **Test**: Schema-level enforcement.
+- **Proof candidate**: Prove non-negative limits are enforced.
 
-**INV-BUDG-3**: Budget enforcement tracks cumulative usage (tokens, cost,
-turns) per profile per reset period. When limits are exceeded, further requests
-are blocked (`limit_exceeded = true`).
+**INV-BUDG-3** `[RUNTIME] [PROOF-CANDIDATE]`: Budget enforcement tracks
+cumulative usage (tokens, cost, turns) per profile per reset period. When
+limits are exceeded, further requests are blocked (`limit_exceeded = true`).
 
 - **Code**: `room_budget.ml` tracks `current_usage` and compares against
   limits.
 - **Test**: No dedicated invariant test. Budget logic is tested through
   integration paths.
+- **Proof candidate**: Prove cumulative usage tracking and limit enforcement.
 
-**INV-BUDG-4**: Soft warning threshold defaults to 80%
-(`default_soft_warn_threshold_pct = 0.8`). When usage exceeds the soft
+**INV-BUDG-4** `[RUNTIME] [PROOF-CANDIDATE]`: Soft warning threshold defaults
+to 80% (`default_soft_warn_threshold_pct = 0.8`). When usage exceeds the soft
 threshold but not the hard limit, a warning is surfaced without blocking.
 
 - **Code**: `default_soft_warn_threshold_pct` constant in `room_budget.ml`.
 - **Test**: Schema default enforces the threshold.
+- **Proof candidate**: Prove soft warning threshold defaults to 80%.
 
-**INV-BUDG-5**: Budget period reset is explicit. `reset_profile_budget` must
-be called to start a new period; it advances `period_started_at` to the
-current time. Usage accumulates within a period and only resets when
-`reset_profile_budget` is invoked. The `limit_exceeded` flag is derived by
-`get_profile_budget` (not persisted), so advancing the period start causes
-usage and derived limit status to be recalculated for the new period.
+**INV-BUDG-5** `[RUNTIME] [PROOF-CANDIDATE]`: Budget period reset is explicit.
+`reset_profile_budget` must be called to start a new period; it advances
+`period_started_at` to the current time. Usage accumulates within a period
+and only resets when `reset_profile_budget` is invoked. The `limit_exceeded`
+flag is derived by `get_profile_budget` (not persisted), so advancing the
+period start causes usage and derived limit status to be recalculated for the
+new period.
 
 - **Code**: `reset_profile_budget` in `room_budget.ml` updates
   `period_started_at` and `updated_at`. `get_profile_budget` derives
   `limit_exceeded` from current usage vs. limits.
 - **Test**: No dedicated invariant test. Budget reset is exercised through
   integration paths.
+- **Proof candidate**: Prove budget period reset advances `period_started_at`
+  and recalculates `limit_exceeded`.
 
 ---
 
 ## 8. Session Lifecycle
 
-**INV-SESS-1**: `clear_session` removes all session data: messages, session
-state, workspace state, inbound queue, session repos, session log epochs (and
-their child messages), and summary store entries. The deletes are sequential
-(not wrapped in a transaction), so a mid-operation failure can leave partial
-data. This is acceptable because `clear_session` is idempotent — re-invoking
-it cleans up remaining rows.
+**INV-SESS-1** `[RUNTIME] [PROOF-CANDIDATE]`: `clear_session` removes all
+session data: messages, session state, workspace state, inbound queue, session
+repos, session log epochs (and their child messages), and summary store
+entries. The deletes are sequential (not wrapped in a transaction), so a
+mid-operation failure can leave partial data. This is acceptable because
+`clear_session` is idempotent — re-invoking it cleans up remaining rows.
 
 - **Code**: `clear_session` in `memory_core.ml` deletes from tables in
   sequence: `session_log_epoch_messages`, `session_log_epochs`,
@@ -318,70 +351,87 @@ it cleans up remaining rows.
   `session_repos`, and calls `Summary_store.delete_for_session`.
 - **Test**: No dedicated session lifecycle invariant test. The function is
   tested through integration paths.
+- **Proof candidate**: Prove `clear_session` is idempotent and deletes from
+  all tables.
 
-**INV-SESS-2**: Session cleanup respects age and message-count limits.
-`cleanup_session` deletes messages older than `max_age_days` and trims to
-`max_messages`, preserving tool-group integrity.
+**INV-SESS-2** `[RUNTIME] [PROOF-CANDIDATE]`: Session cleanup respects age and
+message-count limits. `cleanup_session` deletes messages older than
+`max_age_days` and trims to `max_messages`, preserving tool-group integrity.
 
 - **Code**: `cleanup_session` in `memory_core.ml` uses
   `Message_history.ensure_tool_group_integrity` and
   `Message_history.expand_keep_for_tool_groups` to maintain coherent
   tool-call/result groups during trimming.
 - **Test**: No dedicated cleanup invariant test.
+- **Proof candidate**: Prove `cleanup_session` preserves tool-group integrity
+  during trimming.
 
-**INV-SESS-3**: Message replacement (`replace_session_messages`) archives the
-existing history into session log epochs before deleting and replacing. This
-ensures no message data is lost during context window management.
+**INV-SESS-3** `[RUNTIME] [PROOF-CANDIDATE]`: Message replacement
+(`replace_session_messages`) archives the existing history into session log
+epochs before deleting and replacing. This ensures no message data is lost
+during context window management.
 
 - **Code**: `replace_session_messages` calls `archive_session_epoch` on
   existing messages before `DELETE FROM messages` and re-insert.
 - **Test**: No dedicated archival invariant test.
+- **Proof candidate**: Prove `replace_session_messages` archives before
+  deleting.
 
-**INV-SESS-4**: The `FOREIGN KEY` constraint on
+**INV-SESS-4** `[RUNTIME] [PROOF-CANDIDATE]`: The `FOREIGN KEY` constraint on
 `room_profile_bindings -> room_profiles` with `ON DELETE CASCADE` ensures that
-deleting a room profile cascades to its bindings. The `PRAGMA foreign_keys = ON`
-enforcement at connection init ensures this is active.
+deleting a room profile cascades to its bindings. The
+`PRAGMA foreign_keys = ON` enforcement at connection init ensures this is
+active.
 
 - **Code**: `memory_core.ml` executes `PRAGMA foreign_keys = ON` during
   `init`. `delete_room_profile` in `memory_core.ml` also manually deletes
   bindings before the profile row.
 - **Test**: No dedicated FK cascade test.
+- **Proof candidate**: Prove FK cascade with `ON DELETE CASCADE` is active.
 
 ---
 
 ## 9. Redaction (Forgetting) Invariants
 
-**INV-REDACT-1**: Redaction is idempotent. Redacting an already-redacted
-memory returns `false` (no change). The SQL `WHERE redacted_at IS NULL` clause
-prevents double-redaction.
+**INV-REDACT-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Redaction is idempotent.
+Redacting an already-redacted memory returns `false` (no change). The SQL
+`WHERE redacted_at IS NULL` clause prevents double-redaction.
 
 - **Code**: `redact_scoped_memory` SQL includes
   `WHERE id = ? AND redacted_at IS NULL`.
-- **Test**: `test_forgotten_memory_cannot_be_forgotten_again`.
+- **Test**: `test_redaction_idempotent`,
+  `test_forgotten_memory_cannot_be_forgotten_again`.
+- **Proof candidate**: Prove redaction is idempotent.
 
-**INV-REDACT-2**: Redacted memories cannot be corrected. The `correct`
-operation checks `redacted_at` and rejects corrections to redacted memories.
+**INV-REDACT-2** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Redacted memories
+cannot be corrected. The `correct` operation checks `redacted_at` and rejects
+corrections to redacted memories.
 
 - **Code**: Tool layer in `room_memory_correct` checks
   `m.redacted_at <> None` before allowing correction.
 - **Test**: `test_forgotten_memory_cannot_be_corrected`.
+- **Proof candidate**: Prove redacted memories cannot be corrected.
 
-**INV-REDACT-3**: Redacted memories are excluded from `query_scoped_memories`
-(list, search by content). The `m.redacted_at IS NULL` clause is mandatory in
-that path.
+**INV-REDACT-3** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Redacted memories are
+excluded from `query_scoped_memories` (list, search by content). The
+`m.redacted_at IS NULL` clause is mandatory in that path.
 
 - **Code**: `query_scoped_memories` always includes
   `"m.redacted_at IS NULL"` in the WHERE clause.
-- **Test**: `test_forgotten_memory_not_in_search`,
+- **Test**: `test_redacted_memories_excluded_from_query`,
+  `test_forgotten_memory_not_in_search`,
   `test_forgotten_memory_not_in_list`.
+- **Proof candidate**: Prove redacted memories are excluded from
+  `query_scoped_memories`.
 
-**INV-REDACT-3b**: The `Memory.search` FTS path (`memory_search.ml`) joins
-scoped memories via reference but does **not** filter `sm.redacted_at IS NULL`.
-This is a known gap: `Memory.search` queries `messages_fts` (which indexes
-`messages.content`) and joins `scoped_memories` by reference string. Redacting
-`scoped_memories.content` does **not** clear `messages.content` or its FTS
-index row, so a redacted scoped memory that references an existing message can
-still expose the underlying message content through the FTS search path.
+**INV-REDACT-3b** `[GAP]`: The `Memory.search` FTS path (`memory_search.ml`)
+joins scoped memories via reference but does **not** filter
+`sm.redacted_at IS NULL`. This is a known gap: `Memory.search` queries
+`messages_fts` (which indexes `messages.content`) and joins `scoped_memories`
+by reference string. Redacting `scoped_memories.content` does **not** clear
+`messages.content` or its FTS index row, so a redacted scoped memory that
+references an existing message can still expose the underlying message content
+through the FTS search path.
 
 - **Code**: `search` in `memory_search.ml` — no `redacted_at` filter in the
   scoped-memory join. The join condition matches on reference string, not on
@@ -391,27 +441,34 @@ still expose the underlying message content through the FTS search path.
   dedicated FTS redaction test is needed to surface this gap. A fix would
   add `AND sm.redacted_at IS NULL` to the scoped-memory join or clear
   `messages.content` during redaction.
+- **Proof candidate**: Fix and prove: `Memory.search` FTS path does not filter
+  `sm.redacted_at IS NULL`. **This is the highest-priority proof candidate.**
 
-**INV-REDACT-4**: Redaction clears the content to NULL and sets the
-`redacted_at` timestamp and `redaction_reason`. The reference is preserved
-(or set to `redacted:<id>` if previously NULL) for audit trail continuity.
-Provenance is scrubbed of any `prev_content` entries (set to `'redacted'`).
-Note: `redaction_metadata` is a read-only column (populated by migrations);
-`redact_scoped_memory` does not write to it.
+**INV-REDACT-4** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Redaction clears the
+content to NULL and sets the `redacted_at` timestamp and `redaction_reason`.
+The reference is preserved (or set to `redacted:<id>` if previously NULL) for
+audit trail continuity. Provenance is scrubbed of any `prev_content` entries
+(set to `'redacted'`). Note: `redaction_metadata` is a read-only column
+(populated by migrations); `redact_scoped_memory` does not write to it.
 
 - **Code**: `redact_scoped_memory` SQL sets `content = NULL`,
   `redacted_at = datetime('now')`, `redaction_reason = ?`,
   `reference = COALESCE(reference, 'redacted:' || id)`,
   `provenance = CASE WHEN provenance LIKE '%prev_content:%' THEN 'redacted'
   ELSE provenance END`.
+- **Tests**: `test_redaction_sets_redacted_at_and_clears_content`,
+  `test_redaction_sets_reference_when_null`.
+- **Proof candidate**: Prove redaction clears content to NULL, sets
+  `redacted_at`, and handles NULL reference.
 
 ---
 
 ## 10. Ledger Audit Trail
 
-**INV-LEDGER-1**: All memory mutation operations (save, correct, redact, hard
-delete, grant, revoke, team grant add/remove) emit ledger events when a ledger
-function is provided. No-ledger calls produce no events.
+**INV-LEDGER-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: All memory mutation
+operations (save, correct, redact, hard delete, grant, revoke, team grant
+add/remove) emit ledger events when a ledger function is provided. No-ledger
+calls produce no events.
 
 - **Code**: `emit_memory_event` and `emit_grant_event` in
   `memory_scoped.ml` check for `?ledger = Some _` before emitting.
@@ -420,10 +477,12 @@ function is provided. No-ledger calls produce no events.
   `test_forget_emits_memory_forgotten`,
   `test_hard_delete_emits_memory_hard_purged`,
   `test_save_no_ledger_no_event`.
+- **Proof candidate**: Prove all mutation operations emit ledger events when
+  ledger function is provided.
 
-**INV-LEDGER-2**: Ledger events record the actor, scope kind, scope key,
-memory id, and visibility. Content previews are sanitized (Bearer redaction)
-and truncated.
+**INV-LEDGER-2** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Ledger events record
+the actor, scope kind, scope key, memory id, and visibility. Content previews
+are sanitized (Bearer redaction) and truncated.
 
 - **Code**: `emit_memory_event` constructs metadata with `memory_id`,
   `scope_kind`, `scope_key`, `principal`, `visibility`, `content_preview`.
@@ -431,46 +490,57 @@ and truncated.
 - **Test**: `test_save_emits_memory_saved` — checks all metadata fields.
   `test_content_preview_sanitizes_bearer_token`,
   `test_content_preview_truncates_long_content`.
+- **Proof candidate**: Prove ledger events record all required metadata
+  fields.
 
-**INV-LEDGER-3**: Grant and revoke events record `principal_kind`,
-`principal_id`, and `capability` in metadata.
+**INV-LEDGER-3** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Grant and revoke
+events record `principal_kind`, `principal_id`, and `capability` in metadata.
 
 - **Code**: `emit_grant_event` constructs metadata with scope, principal, and
   capability fields.
 - **Test**: `test_grant_emits_scope_granted`,
   `test_revoke_emits_scope_revoked`.
+- **Proof candidate**: Prove grant/revoke events record principal and
+  capability.
 
 ---
 
 ## 11. Unowned Scope Access
 
-**INV-UNOWNED-1**: Room scopes without a profile binding (unowned) deny
-access by default. The `check_room_access` function requires either a profile
-binding (ownership) or an explicit grant for the requested capability.
+**INV-UNOWNED-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Room scopes without
+a profile binding (unowned) deny access by default. The `check_room_access`
+function requires either a profile binding (ownership) or an explicit grant
+for the requested capability.
 
 - **Code**: `check_room_access` in `tools_builtin_room_memory.ml` checks
   profile binding first, then falls back to direct grant lookup.
 - **Test**: `test_unowned_scope_no_access_without_grant`.
+- **Proof candidate**: Prove unowned scopes deny access by default.
 
-**INV-UNOWNED-2**: Unowned scopes can be accessed via explicit direct grants
-(`grant_access` with `principal_kind:"room"`).
+**INV-UNOWNED-2** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Unowned scopes can
+be accessed via explicit direct grants (`grant_access` with
+`principal_kind:"room"`).
 
 - **Code**: `check_room_access` falls back to direct room grant when no
   profile binding exists.
 - **Test**: `test_unowned_scope_with_direct_grant`.
+- **Proof candidate**: Prove unowned scopes can be accessed via explicit
+  grants.
 
 ---
 
 ## 12. Scope Resolver Isolation
 
-**INV-SRES-1**: The room id resolver produces distinct room ids for distinct
-session keys. `resolve_room_id_for_context` parses the session key or queries
-the session DB to determine the room id.
+**INV-SRES-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: The room id resolver
+produces distinct room ids for distinct session keys.
+`resolve_room_id_for_context` parses the session key or queries the session DB
+to determine the room id.
 
 - **Code**: `resolve_room_id_for_context` in `tools_builtin_room_memory.ml`
   tries `get_session_channel` first, then parses session key format
   `channel:room-id`.
 - **Test**: `test_scope_resolver_isolates_different_room_ids`.
+- **Proof candidate**: Prove distinct session keys produce distinct room ids.
 
 ---
 

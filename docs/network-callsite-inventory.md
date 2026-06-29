@@ -1,12 +1,16 @@
 # Outbound Network Callsite Inventory
 
-**Task:** P18.M2.E1.T003 — Inventory outbound network callsites
-**Date:** 2026-06-29
+**Task:** P18.M2.E1.T003 — Inventory outbound network callsites  
+**Date:** 2026-06-29  
+**Last updated:** 2026-06-30  
 **Prerequisites:** P18.M2.E1.T001 (egress rules), T002 (egress evaluator), T001 (credential inventory)
 
 This document inventories every outbound network callsite in the Clawq
 codebase, including transport mechanism, destination, credential usage,
 redaction status, and enforceability classification for egress policy.
+
+**Verification boundaries**: See [`verification-boundaries.md`](verification-boundaries.md)
+for a cross-cutting view of all security-relevant subsystems.
 
 ---
 
