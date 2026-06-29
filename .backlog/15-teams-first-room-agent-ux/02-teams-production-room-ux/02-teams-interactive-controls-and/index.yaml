@@ -32,7 +32,7 @@ tasks:
       file: T002-preserve-room-context-through.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Preserve room context through Teams card actions and file consent
     - complexity: medium
