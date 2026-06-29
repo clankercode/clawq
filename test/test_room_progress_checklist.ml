@@ -26,13 +26,16 @@ let test_append_with_links () =
       let item =
         Room_progress_checklist.append ~db ~task_id:2 ~title:"Run tests"
           ~transcript_url:"https://example.com/transcript"
-          ~session_url:"https://example.com/session" ()
+          ~session_url:"https://example.com/session"
+          ~session_record_id:"rsr_123_000001" ()
       in
       Alcotest.(check (option string))
         "transcript_url" (Some "https://example.com/transcript")
         item.transcript_url;
       Alcotest.(check (option string))
-        "session_url" (Some "https://example.com/session") item.session_url)
+        "session_url" (Some "https://example.com/session") item.session_url;
+      Alcotest.(check (option string))
+        "session_record_id" (Some "rsr_123_000001") item.session_record_id)
 
 let test_append_without_links () =
   with_db (fun db ->
@@ -41,7 +44,9 @@ let test_append_without_links () =
       in
       Alcotest.(check (option string))
         "transcript_url None" None item.transcript_url;
-      Alcotest.(check (option string)) "session_url None" None item.session_url)
+      Alcotest.(check (option string)) "session_url None" None item.session_url;
+      Alcotest.(check (option string))
+        "session_record_id None" None item.session_record_id)
 
 let test_update_state_transitions () =
   with_db (fun db ->
@@ -107,9 +112,12 @@ let test_set_links () =
       in
       Alcotest.(check (option string))
         "no transcript initially" None item.transcript_url;
+      Alcotest.(check (option string))
+        "no session record initially" None item.session_record_id;
       let updated =
         Room_progress_checklist.set_links ~db ~id:item.id
-          ~transcript_url:"https://example.com/tr" ~session_url:"https://s" ()
+          ~transcript_url:"https://example.com/tr" ~session_url:"https://s"
+          ~session_record_id:"rsr_456_000001" ()
       in
       match updated with
       | None -> Alcotest.fail "expected Some after set_links"
@@ -117,7 +125,9 @@ let test_set_links () =
           Alcotest.(check (option string))
             "transcript set" (Some "https://example.com/tr") u.transcript_url;
           Alcotest.(check (option string))
-            "session set" (Some "https://s") u.session_url)
+            "session set" (Some "https://s") u.session_url;
+          Alcotest.(check (option string))
+            "session record set" (Some "rsr_456_000001") u.session_record_id)
 
 let test_set_links_partial () =
   with_db (fun db ->
@@ -135,7 +145,9 @@ let test_set_links_partial () =
           Alcotest.(check (option string))
             "transcript preserved" (Some "https://t") u.transcript_url;
           Alcotest.(check (option string))
-            "session still None" None u.session_url)
+            "session still None" None u.session_url;
+          Alcotest.(check (option string))
+            "session record still None" None u.session_record_id)
 
 let test_set_delivery_state () =
   with_db (fun db ->
@@ -370,6 +382,7 @@ let test_render_single_item () =
       state = Room_progress_checklist.Done;
       transcript_url = Some "https://example.com/tr";
       session_url = None;
+      session_record_id = None;
       last_update = "2026-06-29T10:00:00Z";
       delivery_state = Room_progress_checklist.Delivery_confirmed;
     }
@@ -397,6 +410,7 @@ let test_render_item_with_session () =
       state = Room_progress_checklist.Current;
       transcript_url = None;
       session_url = Some "https://example.com/s";
+      session_record_id = None;
       last_update = "2026-06-29T10:00:00Z";
       delivery_state = Room_progress_checklist.Delivery_pending;
     }
@@ -411,6 +425,31 @@ let test_render_item_with_session () =
   Alcotest.(check bool)
     "has url" true
     (Test_helpers.string_contains rendered "https://example.com/s")
+
+let test_render_item_with_session_record () =
+  let item =
+    {
+      Room_progress_checklist.id = 3;
+      task_id = 1;
+      title = "Build feature";
+      state = Room_progress_checklist.Done;
+      transcript_url = Some "https://example.com/tr";
+      session_url = None;
+      session_record_id = Some "rsr_789_000001";
+      last_update = "2026-06-29T10:00:00Z";
+      delivery_state = Room_progress_checklist.Delivery_confirmed;
+    }
+  in
+  let rendered = Room_progress_checklist.render_item item in
+  Alcotest.(check bool)
+    "has record" true
+    (Test_helpers.string_contains rendered "record:");
+  Alcotest.(check bool)
+    "has record id" true
+    (Test_helpers.string_contains rendered "rsr_789_000001");
+  Alcotest.(check bool)
+    "has transcript" true
+    (Test_helpers.string_contains rendered "https://example.com/tr")
 
 let test_render_list () =
   with_db (fun db ->
@@ -496,7 +535,8 @@ let test_json_roundtrip () =
   with_db (fun db ->
       let _ =
         Room_progress_checklist.append ~db ~task_id:60 ~title:"JSON test"
-          ~transcript_url:"https://t" ~session_url:"https://s" ()
+          ~transcript_url:"https://t" ~session_url:"https://s"
+          ~session_record_id:"rsr_999_000001" ()
       in
       let items = Room_progress_checklist.query_by_task ~db ~task_id:60 () in
       let json_str = Room_progress_checklist.json_string_of_items items in
@@ -519,7 +559,12 @@ let test_json_roundtrip () =
             Yojson.Safe.Util.member "transcript_url" obj
             |> Yojson.Safe.Util.to_string
           in
-          Alcotest.(check string) "json transcript" "https://t" tr
+          Alcotest.(check string) "json transcript" "https://t" tr;
+          let sr =
+            Yojson.Safe.Util.member "session_record_id" obj
+            |> Yojson.Safe.Util.to_string
+          in
+          Alcotest.(check string) "json session record" "rsr_999_000001" sr
       | _ -> Alcotest.fail "expected single-element JSON array")
 
 let test_state_string_roundtrip () =
@@ -615,11 +660,15 @@ let test_full_lifecycle () =
       (* Create a checklist item *)
       let item =
         Room_progress_checklist.append ~db ~task_id:100
-          ~title:"Implement feature" ~transcript_url:"https://tr" ()
+          ~title:"Implement feature" ~transcript_url:"https://tr"
+          ~session_record_id:"rsr_lifecycle_001" ()
       in
       Alcotest.(check string)
         "initial" "planned"
         (Room_progress_checklist.string_of_item_state item.state);
+      Alcotest.(check (option string))
+        "session record preserved" (Some "rsr_lifecycle_001")
+        item.session_record_id;
       (* Move to current *)
       let current =
         Room_progress_checklist.update_state ~db ~id:item.id
@@ -675,6 +724,9 @@ let test_full_lifecycle () =
             (Room_progress_checklist.string_of_item_state f.state);
           Alcotest.(check (option string))
             "transcript preserved" (Some "https://tr") f.transcript_url;
+          Alcotest.(check (option string))
+            "session record preserved" (Some "rsr_lifecycle_001")
+            f.session_record_id;
           (* Verify delivery state reset to pending after state transition *)
           Alcotest.(check string)
             "delivery pending" "pending"
@@ -723,6 +775,8 @@ let suite =
     Alcotest.test_case "render single item" `Quick test_render_single_item;
     Alcotest.test_case "render item with session" `Quick
       test_render_item_with_session;
+    Alcotest.test_case "render item with session record" `Quick
+      test_render_item_with_session_record;
     Alcotest.test_case "render list" `Quick test_render_list;
     Alcotest.test_case "render empty" `Quick test_render_empty;
     Alcotest.test_case "render summary" `Quick test_render_summary;

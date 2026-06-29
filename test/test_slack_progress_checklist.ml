@@ -2,8 +2,8 @@ open Room_progress_checklist
 
 (** Helper to create a checklist item with defaults. *)
 let make_item ?(id = 1) ?(task_id = 1) ?(transcript_url = None)
-    ?(session_url = None) ?(delivery_state = Delivery_confirmed) ~title ~state
-    () =
+    ?(session_url = None) ?(session_record_id = None)
+    ?(delivery_state = Delivery_confirmed) ~title ~state () =
   {
     id;
     task_id;
@@ -11,6 +11,7 @@ let make_item ?(id = 1) ?(task_id = 1) ?(transcript_url = None)
     state;
     transcript_url;
     session_url;
+    session_record_id;
     last_update = "2026-06-29T10:00:00Z";
     delivery_state;
   }

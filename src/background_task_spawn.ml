@@ -173,7 +173,8 @@ let build_delegate_prompt ~automerge:_ ~goal =
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
     ?(automerge = true) ?(use_worktree = true) ?(acp = false)
     ?(allow_claude = true) ?follow_up_prompt ~db ?preferred_runner ?model
-    ?repo_path ?branch ?access_snapshot_id ~default_repo_path ~goal () =
+    ?repo_path ?branch ?access_snapshot_id ?session_record_id
+    ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -232,7 +233,7 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
                 if Option.is_some origin_json then begin
                   let item =
                     Room_progress_checklist.append ~db ~task_id:id
-                      ~title:"Task accepted" ()
+                      ~title:"Task accepted" ?session_record_id ()
                   in
                   ignore
                     (Room_progress_checklist.update_state ~db ~id:item.id
@@ -858,16 +859,20 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
     else Some (Room_origin.to_compact_json_string origin)
   in
   (* Create room session record when config and snapshot are available. *)
-  (match (config, effective_snapshot_id) with
-  | Some cfg, Some snap_id -> (
-      try
-        ignore
-          (Room_session_record.assemble_and_persist ~db ~config:cfg
-             ~access_snapshot_id:snap_id ~origin ~session_key ~room_id ())
-      with _ ->
-        (* Table may not exist in test/minimal contexts *)
-        ())
-  | _ -> ());
+  let session_record_id =
+    match (config, effective_snapshot_id) with
+    | Some cfg, Some snap_id -> (
+        try
+          let record =
+            Room_session_record.assemble_and_persist ~db ~config:cfg
+              ~access_snapshot_id:snap_id ~origin ~session_key ~room_id ()
+          in
+          Some record.id
+        with _ ->
+          (* Table may not exist in test/minimal contexts *)
+          None)
+    | _ -> None
+  in
   let requester = Some requester_id in
   let default_repo_path = room_default_repo_path room_id in
   match preferred_runner with
@@ -884,7 +889,7 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
           if Option.is_some origin_json then begin
             let item =
               Room_progress_checklist.append ~db ~task_id:id
-                ~title:"Task accepted" ()
+                ~title:"Task accepted" ?session_record_id ()
             in
             ignore
               (Room_progress_checklist.update_state ~db ~id:item.id
@@ -900,7 +905,8 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
       match
         delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
           ~check_available:true ?preferred_runner ?model:model_override
-          ?access_snapshot_id:effective_snapshot_id ~default_repo_path ~goal ()
+          ?access_snapshot_id:effective_snapshot_id ?session_record_id
+          ~default_repo_path ~goal ()
       with
       | Ok (id, _runner, _repo) -> Ok id
       | Error msg -> Error msg)

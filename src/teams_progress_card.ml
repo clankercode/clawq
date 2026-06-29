@@ -72,11 +72,15 @@ let render_item_element (item : checklist_item) =
     let parts = ref [] in
     (match item.transcript_url with
     | Some url when String.trim url <> "" ->
-        parts := Printf.sprintf "[transcript](%s)" url :: !parts
+        parts := Url_sanitize.safe_teams_link url "transcript" :: !parts
     | _ -> ());
     (match item.session_url with
     | Some url when String.trim url <> "" ->
-        parts := Printf.sprintf "[session](%s)" url :: !parts
+        parts := Url_sanitize.safe_teams_link url "session" :: !parts
+    | _ -> ());
+    (match item.session_record_id with
+    | Some id_val when String.trim id_val <> "" ->
+        parts := Printf.sprintf "[record](%s)" id_val :: !parts
     | _ -> ());
     match !parts with [] -> "" | ps -> " — " ^ String.concat " | " ps
   in

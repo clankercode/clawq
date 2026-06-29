@@ -58,6 +58,7 @@ let () =
        ("room_session_record", Test_room_session_record.suite);
        ("slack_progress_checklist", Test_slack_progress_checklist.suite);
        ("teams_progress_card", Test_teams_progress_card.suite);
+       ("url_sanitize", Test_url_sanitize.suite);
        ("room_stale_query", Test_room_stale_query.suite);
        ("room_watcher_decision", Test_room_watcher_decision.suite);
        ("room_ambient_delivery", Test_room_ambient_delivery.suite);

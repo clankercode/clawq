@@ -11,6 +11,7 @@
     - Human-readable title
     - Lifecycle state (planned/current/blocked/done/final)
     - Transcript and session links for drill-down
+    - Session record reference for linking to room session records
     - Last update timestamp
     - Delivery state tracking room notification status *)
 
@@ -96,6 +97,7 @@ type checklist_item = {
   state : item_state;
   transcript_url : string option;
   session_url : string option;
+  session_record_id : string option;
   last_update : string;
   delivery_state : delivery_state;
 }
@@ -107,6 +109,7 @@ type checklist_item = {
     - [state] is the current lifecycle state.
     - [transcript_url] is an optional link to the runner transcript.
     - [session_url] is an optional link to the runner session.
+    - [session_record_id] is an optional reference to a room session record.
     - [last_update] is the ISO-8601 timestamp of the last state change.
     - [delivery_state] tracks whether the room was notified. *)
 
@@ -129,6 +132,7 @@ let init_schema db =
     \     state TEXT NOT NULL DEFAULT 'planned',\n\
     \     transcript_url TEXT,\n\
     \     session_url TEXT,\n\
+    \     session_record_id TEXT,\n\
     \     last_update TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     delivery_state TEXT NOT NULL DEFAULT 'pending'\n\
     \   )";
@@ -157,7 +161,7 @@ let int_column stmt idx =
 
 let item_of_stmt stmt : checklist_item =
   let state_str = text_column_nn stmt 3 in
-  let delivery_str = text_column_nn stmt 7 in
+  let delivery_str = text_column_nn stmt 8 in
   {
     id = int_column stmt 0;
     task_id = int_column stmt 1;
@@ -168,7 +172,8 @@ let item_of_stmt stmt : checklist_item =
       | None -> Planned);
     transcript_url = text_column stmt 4;
     session_url = text_column stmt 5;
-    last_update = text_column_nn stmt 6;
+    session_record_id = text_column stmt 6;
+    last_update = text_column_nn stmt 7;
     delivery_state =
       (match delivery_state_of_string delivery_str with
       | Some s -> s
@@ -189,20 +194,23 @@ let timestamp_now () =
     tm.Unix.tm_sec micros
 
 let select_columns =
-  "id, task_id, title, state, transcript_url, session_url, last_update, \
-   delivery_state"
+  "id, task_id, title, state, transcript_url, session_url, session_record_id, \
+   last_update, delivery_state"
 
 (** {1 Append} *)
 
-(** [append ~db ~task_id ~title ?transcript_url ?session_url ()] adds a new
-    checklist item in [Planned] state. Returns the created item. *)
-let append ~db ~task_id ~title ?transcript_url ?session_url () =
+(** [append ~db ~task_id ~title ?transcript_url ?session_url ?session_record_id
+     ()] adds a new checklist item in [Planned] state. Returns the created
+    item. *)
+let append ~db ~task_id ~title ?transcript_url ?session_url ?session_record_id
+    () =
   let ts = timestamp_now () in
   let sql =
     Printf.sprintf
       "INSERT INTO room_progress_checklist (task_id, title, state, \
-       transcript_url, session_url, last_update, delivery_state) VALUES (?, ?, \
-       'planned', ?, ?, ?, 'pending') RETURNING %s"
+       transcript_url, session_url, session_record_id, last_update, \
+       delivery_state) VALUES (?, ?, 'planned', ?, ?, ?, ?, 'pending') \
+       RETURNING %s"
       select_columns
   in
   let stmt = Sqlite3.prepare db sql in
@@ -218,6 +226,9 @@ let append ~db ~task_id ~title ?transcript_url ?session_url () =
           | None -> Sqlite3.Data.NULL);
           (match session_url with
           | Some url -> Sqlite3.Data.TEXT url
+          | None -> Sqlite3.Data.NULL);
+          (match session_record_id with
+          | Some id_val -> Sqlite3.Data.TEXT id_val
           | None -> Sqlite3.Data.NULL);
           Sqlite3.Data.TEXT ts;
         ];
@@ -261,10 +272,11 @@ let update_state ~db ~id ~state () =
 
 (** {1 Link updates} *)
 
-(** [set_links ~db ~id ?transcript_url ?session_url ()] updates the transcript
-    and/or session URLs for a checklist item. Returns the updated item, or
-    [None] if the item does not exist. *)
-let set_links ~db ~id ?transcript_url ?session_url () =
+(** [set_links ~db ~id ?transcript_url ?session_url ?session_record_id ()]
+    updates the transcript URL, session URL, and/or session record ID for a
+    checklist item. Returns the updated item, or [None] if the item does not
+    exist. *)
+let set_links ~db ~id ?transcript_url ?session_url ?session_record_id () =
   let ts = timestamp_now () in
   let sets = ref [ "last_update = ?"; "delivery_state = 'pending'" ] in
   let params = ref [ Sqlite3.Data.TEXT ts ] in
@@ -277,6 +289,11 @@ let set_links ~db ~id ?transcript_url ?session_url () =
   | Some url ->
       sets := "session_url = ?" :: !sets;
       params := Sqlite3.Data.TEXT url :: !params
+  | None -> ());
+  (match session_record_id with
+  | Some id_val ->
+      sets := "session_record_id = ?" :: !sets;
+      params := Sqlite3.Data.TEXT id_val :: !params
   | None -> ());
   let sql =
     Printf.sprintf
@@ -426,6 +443,12 @@ let render_item (item : checklist_item) =
       Buffer.add_string buf url;
       Buffer.add_char buf ')'
   | _ -> ());
+  (match item.session_record_id with
+  | Some id_val when String.trim id_val <> "" ->
+      Buffer.add_string buf " (record: ";
+      Buffer.add_string buf id_val;
+      Buffer.add_char buf ')'
+  | _ -> ());
   Buffer.contents buf
 
 (** [render items] formats a list of checklist items as a human-readable
@@ -518,6 +541,11 @@ let json_of_item (item : checklist_item) : Yojson.Safe.t =
   let fields =
     match item.session_url with
     | Some url -> ("session_url", `String url) :: fields
+    | None -> fields
+  in
+  let fields =
+    match item.session_record_id with
+    | Some id_val -> ("session_record_id", `String id_val) :: fields
     | None -> fields
   in
   `Assoc fields

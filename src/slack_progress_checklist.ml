@@ -66,11 +66,15 @@ let render_item (item : checklist_item) =
   let links = ref [] in
   (match item.transcript_url with
   | Some url when String.trim url <> "" ->
-      links := Printf.sprintf "<%s|transcript>" url :: !links
+      links := Url_sanitize.safe_slack_link url "transcript" :: !links
   | _ -> ());
   (match item.session_url with
   | Some url when String.trim url <> "" ->
-      links := Printf.sprintf "<%s|session>" url :: !links
+      links := Url_sanitize.safe_slack_link url "session" :: !links
+  | _ -> ());
+  (match item.session_record_id with
+  | Some id_val when String.trim id_val <> "" ->
+      links := Printf.sprintf "<record:%s>" id_val :: !links
   | _ -> ());
   (match !links with
   | [] -> ()
