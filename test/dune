@@ -112,6 +112,7 @@
   test_room_workspace
   test_room_activity_ledger
   test_room_github_backlinks
+  test_room_audit_export
   test_room_progress_checklist
   test_slack_progress_checklist
   test_teams_progress_card

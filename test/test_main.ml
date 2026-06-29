@@ -54,6 +54,7 @@ let () =
        ("room_origin", Test_room_origin.suite);
        ("room_workspace", Test_room_workspace.suite);
        ("room_activity_ledger", Test_room_activity_ledger.suite);
+       ("room_audit_export", Test_room_audit_export.suite);
        ("room_github_backlinks", Test_room_github_backlinks.suite);
        ("room_progress_checklist", Test_room_progress_checklist.suite);
        ("room_session_record", Test_room_session_record.suite);
