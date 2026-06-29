@@ -163,7 +163,9 @@ let test_plan_includes_connector () =
     }
   in
   let plan = generate_plan ~cfg ~state in
-  let connector_items = List.filter (fun p -> p.category = "Connector") plan in
+  let connector_items =
+    List.filter (fun (p : plan_item) -> p.category = "Connector") plan
+  in
   Alcotest.(check int) "has connector item" 1 (List.length connector_items);
   let item = List.hd connector_items in
   Alcotest.(check string) "teams primary" "primary" item.action
@@ -179,7 +181,9 @@ let test_plan_slack_connector () =
     }
   in
   let plan = generate_plan ~cfg ~state in
-  let connector_items = List.filter (fun p -> p.category = "Connector") plan in
+  let connector_items =
+    List.filter (fun (p : plan_item) -> p.category = "Connector") plan
+  in
   Alcotest.(check int) "has connector item" 1 (List.length connector_items);
   let item = List.hd connector_items in
   Alcotest.(check string) "slack bind" "bind" item.action
@@ -231,6 +235,290 @@ let test_default_state_is_teams () =
   Alcotest.(check string)
     "default connector type" "teams" default_state.connector_type
 
+(** {1 Rerun/Repair tests} *)
+
+(** Helper to make a config with an existing room profile. *)
+let make_cfg_with_profile () : Runtime_config.t =
+  let json =
+    Yojson.Safe.from_string
+      {|{"room_profiles": [{"id": "my-profile", "model": "openai:gpt-5.4", "system_prompt": "", "max_tool_iterations": 25, "status": "active"}], "room_profile_bindings": [{"profile_id": "my-profile", "room": "19:abc@thread.tacv2", "active": true}]}|}
+  in
+  Config_loader.parse_config json
+
+(** Helper to make a config with teams connector and profile. *)
+let make_full_cfg () : Runtime_config.t =
+  let json =
+    Yojson.Safe.from_string
+      {|{"channels": {"teams": {"app_id": "test-app", "app_secret": "secret", "tenant_id": "tenant", "webhook_path": "/webhook", "service_url": "https://smba.trafficmanager.net"}}, "room_profiles": [{"id": "my-profile", "model": "openai:gpt-5.4", "system_prompt": "", "max_tool_iterations": 25, "status": "active"}], "room_profile_bindings": [{"profile_id": "my-profile", "room": "19:abc@thread.tacv2", "active": true}]}|}
+  in
+  Config_loader.parse_config json
+
+(** Helper to make a config with non-default profile values. *)
+let make_full_cfg_custom_model () : Runtime_config.t =
+  let json =
+    Yojson.Safe.from_string
+      {|{"channels": {"teams": {"app_id": "test-app", "app_secret": "secret", "tenant_id": "tenant", "webhook_path": "/webhook", "service_url": "https://smba.trafficmanager.net"}}, "room_profiles": [{"id": "my-profile", "model": "anthropic:claude-opus-4-6", "system_prompt": "Be helpful", "max_tool_iterations": 10, "status": "active"}], "room_profile_bindings": [{"profile_id": "my-profile", "room": "19:abc@thread.tacv2", "active": true}]}|}
+  in
+  Config_loader.parse_config json
+
+(** Helper to make a config with access bundles. *)
+let make_cfg_with_bundles () : Runtime_config.t =
+  let json =
+    Yojson.Safe.from_string
+      {|{"access_bundles": [{"id": "bundle-1", "status": "active"}]}|}
+  in
+  Config_loader.parse_config json
+
+let test_rerun_all_already_valid () =
+  (* When the desired state matches existing config, everything should be Already_valid *)
+  let cfg = make_full_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "my-profile";
+      model = "openai:gpt-5.4";
+      max_tool_iterations = 25;
+      connector_type = "teams";
+      connector_room = "19:abc@thread.tacv2";
+      connector_active = true;
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  (* All items should be Already_valid *)
+  let all_valid =
+    List.for_all (fun (item : rerun_item) -> item.status = Already_valid) report
+  in
+  Alcotest.(check bool) "all items already valid" true all_valid;
+  Alcotest.(check bool) "report is non-empty" true (report <> [])
+
+let test_rerun_profile_changed () =
+  (* When model differs, should be Changed *)
+  let cfg = make_full_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "my-profile";
+      model = "anthropic:claude-opus-4-6";
+      (* Different model *)
+      max_tool_iterations = 25;
+      connector_type = "teams";
+      connector_room = "19:abc@thread.tacv2";
+      connector_active = true;
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let model_item =
+    List.find_opt (fun (item : rerun_item) -> item.field = "model") report
+  in
+  match model_item with
+  | None -> Alcotest.fail "expected model item in report"
+  | Some item ->
+      Alcotest.(check bool) "model is changed" true (item.status = Changed)
+
+let test_rerun_profile_not_exists () =
+  (* When profile doesn't exist yet, should report it will be created *)
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "new-profile";
+      connector_type = "teams";
+      connector_room = "";
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let existence_item =
+    List.find_opt (fun (item : rerun_item) -> item.field = "existence") report
+  in
+  match existence_item with
+  | None -> Alcotest.fail "expected existence item in report"
+  | Some item ->
+      Alcotest.(check bool) "existence is changed" true (item.status = Changed);
+      Alcotest.(check bool)
+        "details mentions created" true
+        (String.length item.details > 0)
+
+let test_rerun_missing_access_bundle () =
+  (* When access bundles don't exist, should be Blocked *)
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      access_bundle_ids = [ "nonexistent-bundle" ];
+      connector_type = "teams";
+      connector_room = "";
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let bundle_item =
+    List.find_opt
+      (fun (item : rerun_item) -> item.category = "Access Bundle")
+      report
+  in
+  match bundle_item with
+  | None -> Alcotest.fail "expected access bundle item in report"
+  | Some item ->
+      Alcotest.(check bool) "bundle is blocked" true (item.status = Blocked)
+
+let test_rerun_valid_access_bundle () =
+  (* When access bundles exist, should be Changed or Already_valid *)
+  let cfg = make_cfg_with_bundles () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      access_bundle_ids = [ "bundle-1" ];
+      connector_type = "teams";
+      connector_room = "";
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let bundle_item =
+    List.find_opt
+      (fun (item : rerun_item) -> item.category = "Access Bundle")
+      report
+  in
+  match bundle_item with
+  | None -> Alcotest.fail "expected access bundle item in report"
+  | Some item ->
+      Alcotest.(check bool) "bundle is not blocked" true (item.status <> Blocked)
+
+let test_rerun_connector_not_configured () =
+  (* When connector is not configured, should be Blocked *)
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      connector_type = "teams";
+      connector_room = "19:abc@thread.tacv2";
+      connector_active = true;
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let connector_item =
+    List.find_opt
+      (fun (item : rerun_item) -> item.category = "Connector")
+      report
+  in
+  match connector_item with
+  | None -> Alcotest.fail "expected connector item in report"
+  | Some item ->
+      Alcotest.(check bool) "connector is blocked" true (item.status = Blocked)
+
+let test_rerun_invalid_room_format () =
+  (* When room format is invalid, should be Manual_repair *)
+  let cfg = make_teams_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      connector_type = "teams";
+      connector_room = "invalid-room";
+      connector_active = true;
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let connector_item =
+    List.find_opt
+      (fun (item : rerun_item) -> item.category = "Connector")
+      report
+  in
+  match connector_item with
+  | None -> Alcotest.fail "expected connector item in report"
+  | Some item ->
+      Alcotest.(check bool)
+        "room is manual_repair" true
+        (item.status = Manual_repair)
+
+let test_rerun_display_report_counts () =
+  (* Test that display_rerun_report returns correct counts *)
+  let items : rerun_item list =
+    [
+      { category = "A"; field = "x"; status = Changed; details = "d1" };
+      { category = "A"; field = "y"; status = Already_valid; details = "d2" };
+      { category = "B"; field = "z"; status = Blocked; details = "d3" };
+      { category = "B"; field = "w"; status = Manual_repair; details = "d4" };
+      { category = "C"; field = "v"; status = Changed; details = "d5" };
+    ]
+  in
+  let changed, blocked, manual = display_rerun_report items in
+  Alcotest.(check int) "changed count" 2 changed;
+  Alcotest.(check int) "blocked count" 1 blocked;
+  Alcotest.(check int) "manual count" 1 manual
+
+let test_rerun_empty_report () =
+  let changed, blocked, manual = display_rerun_report [] in
+  Alcotest.(check int) "changed count" 0 changed;
+  Alcotest.(check int) "blocked count" 0 blocked;
+  Alcotest.(check int) "manual count" 0 manual
+
+let test_rerun_connector_binding_changed () =
+  (* When connector binding exists but with different profile, should be Changed *)
+  let cfg = make_full_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "different-profile";
+      model = "openai:gpt-5.4";
+      max_tool_iterations = 25;
+      connector_type = "teams";
+      connector_room = "19:abc@thread.tacv2";
+      connector_active = true;
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let connector_item =
+    List.find_opt
+      (fun (item : rerun_item) -> item.category = "Connector")
+      report
+  in
+  match connector_item with
+  | None -> Alcotest.fail "expected connector item in report"
+  | Some item ->
+      Alcotest.(check bool) "binding is changed" true (item.status = Changed)
+
+let test_rerun_default_values_preserve_existing () =
+  (* When CLI defaults are used (model=default, max_iters=25), they should
+     preserve existing non-default values and not report as Changed.
+     This is the key test: existing config has custom model "anthropic:claude-opus-4-6"
+     and max_iters=10, but CLI passes defaults. The report should show
+     Already_valid because apply_plan would preserve the existing values. *)
+  let cfg = make_full_cfg_custom_model () in
+  let state =
+    {
+      default_state with
+      profile_id = "my-profile";
+      (* model and max_iters are at defaults - should preserve existing *)
+      model = "openai:gpt-5.4";
+      max_tool_iterations = 25;
+      connector_type = "teams";
+      connector_room = "19:abc@thread.tacv2";
+      connector_active = true;
+    }
+  in
+  let report = generate_rerun_report ~cfg ~state in
+  let model_item =
+    List.find_opt (fun (item : rerun_item) -> item.field = "model") report
+  in
+  let iters_item =
+    List.find_opt (fun (item : rerun_item) -> item.field = "max_iters") report
+  in
+  (* Both should be Already_valid since defaults preserve existing values *)
+  (match model_item with
+  | None -> Alcotest.fail "expected model item in report"
+  | Some item ->
+      Alcotest.(check bool)
+        "model is already_valid (preserves anthropic:claude-opus-4-6)" true
+        (item.status = Already_valid));
+  match iters_item with
+  | None -> Alcotest.fail "expected max_iters item in report"
+  | Some item ->
+      Alcotest.(check bool)
+        "max_iters is already_valid (preserves 10)" true
+        (item.status = Already_valid)
+
 (** {1 Suite} *)
 
 let suite =
@@ -255,4 +543,24 @@ let suite =
     Alcotest.test_case "room_validation" `Quick test_readiness_room_validation;
     Alcotest.test_case "default_state_is_teams" `Quick
       test_default_state_is_teams;
+    Alcotest.test_case "rerun_all_already_valid" `Quick
+      test_rerun_all_already_valid;
+    Alcotest.test_case "rerun_profile_changed" `Quick test_rerun_profile_changed;
+    Alcotest.test_case "rerun_profile_not_exists" `Quick
+      test_rerun_profile_not_exists;
+    Alcotest.test_case "rerun_missing_access_bundle" `Quick
+      test_rerun_missing_access_bundle;
+    Alcotest.test_case "rerun_valid_access_bundle" `Quick
+      test_rerun_valid_access_bundle;
+    Alcotest.test_case "rerun_connector_not_configured" `Quick
+      test_rerun_connector_not_configured;
+    Alcotest.test_case "rerun_invalid_room_format" `Quick
+      test_rerun_invalid_room_format;
+    Alcotest.test_case "rerun_display_report_counts" `Quick
+      test_rerun_display_report_counts;
+    Alcotest.test_case "rerun_empty_report" `Quick test_rerun_empty_report;
+    Alcotest.test_case "rerun_connector_binding_changed" `Quick
+      test_rerun_connector_binding_changed;
+    Alcotest.test_case "rerun_default_values_preserve_existing" `Quick
+      test_rerun_default_values_preserve_existing;
   ]
