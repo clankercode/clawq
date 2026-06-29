@@ -251,6 +251,62 @@ let test_format_empty () =
            true
          with Not_found -> false))
 
+(** Inspection with repo grants shows them in format output. *)
+let test_format_includes_repo_grants () =
+  with_db (fun db ->
+      let json =
+        {|{
+          "workspace": "/tmp/test",
+          "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/test/**"]},
+          "access_bundles": [
+            {
+              "id": "github",
+              "codebase_grants": ["/tmp/test/allowed/**"],
+              "repo_grants": [
+                {"repo": "/tmp/test/allowed/app", "capabilities": ["read", "pr"]},
+                {"repo": "/tmp/test/blocked/app", "capabilities": ["read"]}
+              ]
+            }
+          ],
+          "access_scopes": [
+            {"id": "default", "level": "default", "access_bundle_ids": ["github"]}
+          ]
+        }|}
+      in
+      let cfg = Config_loader.parse_config (Yojson.Safe.from_string json) in
+      let r = Ambient_inspection.inspect ~db ~cfg ~room_id:"slack:C1" () in
+      Alcotest.(check int) "1 repo grant" 1 (List.length r.repo_grants);
+      Alcotest.(check int)
+        "1 blocked repo grant" 1
+        (List.length r.blocked_repo_grants);
+      let output = Ambient_inspection.format_inspection r in
+      Alcotest.(check bool)
+        "contains GitHub Grants" true
+        (try
+           ignore (Str.search_forward (Str.regexp "GitHub Grants") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains granted repo" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp "/tmp/test/allowed/app") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains blocked repo" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp "/tmp/test/blocked/app") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains capability" true
+        (try
+           ignore (Str.search_forward (Str.regexp "read") output 0);
+           true
+         with Not_found -> false))
+
 let suite =
   [
     Alcotest.test_case "no profile returns defaults" `Quick test_no_profile;
@@ -265,4 +321,6 @@ let suite =
     Alcotest.test_case "format includes key info" `Quick
       test_format_includes_key_info;
     Alcotest.test_case "format empty shows defaults" `Quick test_format_empty;
+    Alcotest.test_case "format includes repo grants" `Quick
+      test_format_includes_repo_grants;
   ]

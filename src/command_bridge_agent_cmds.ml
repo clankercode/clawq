@@ -1725,6 +1725,66 @@ let cmd_rooms args =
                 (Printf.sprintf "Warning: profile '%s' not found in config."
                    b.profile_id)
           | None -> ()));
+      (* Show GitHub grants for this room *)
+      (try
+         let explanation =
+           Access_explanation.create ~config:cfg ~session_key:room_id ()
+         in
+         let has_grants =
+           explanation.repo_grants <> []
+           || explanation.blocked_repo_grants <> []
+           || explanation.codebase_grants <> []
+           || explanation.blocked_codebase_grants <> []
+         in
+         if has_grants then begin
+           add "";
+           add "--- GitHub Grants ---";
+           if explanation.repo_grants <> [] then begin
+             add "Granted repos:";
+             List.iter
+               (fun (ie : Access_explanation.item_explanation) ->
+                 match Runtime_config.repo_grant_of_json_string ie.value with
+                 | Some rg ->
+                     let caps =
+                       String.concat ", "
+                         (List.map Runtime_config.repo_capability_to_string
+                            rg.capabilities)
+                     in
+                     add (Printf.sprintf "  - %s [%s]" rg.repo caps)
+                 | None -> add (Printf.sprintf "  - %s" ie.value))
+               explanation.repo_grants
+           end;
+           if explanation.blocked_repo_grants <> [] then begin
+             add "Blocked repos:";
+             List.iter
+               (fun (ie : Access_explanation.item_explanation) ->
+                 match Runtime_config.repo_grant_of_json_string ie.value with
+                 | Some rg ->
+                     let caps =
+                       String.concat ", "
+                         (List.map Runtime_config.repo_capability_to_string
+                            rg.capabilities)
+                     in
+                     add (Printf.sprintf "  - %s [%s] (blocked)" rg.repo caps)
+                 | None -> add (Printf.sprintf "  - %s (blocked)" ie.value))
+               explanation.blocked_repo_grants
+           end;
+           if explanation.codebase_grants <> [] then begin
+             add "Codebase grants:";
+             List.iter
+               (fun (ie : Access_explanation.item_explanation) ->
+                 add (Printf.sprintf "  - %s" ie.value))
+               explanation.codebase_grants
+           end;
+           if explanation.blocked_codebase_grants <> [] then begin
+             add "Blocked codebase grants:";
+             List.iter
+               (fun (ie : Access_explanation.item_explanation) ->
+                 add (Printf.sprintf "  - %s (blocked)" ie.value))
+               explanation.blocked_codebase_grants
+           end
+         end
+       with _ -> ());
       String.concat "\n" (List.rev !lines)
   | [ "workspace"; room_id ] ->
       let path = Room_workspace.workspace_path room_id in

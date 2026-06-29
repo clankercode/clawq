@@ -3835,6 +3835,52 @@ let test_rooms_show_unbound () =
         "show unbound mentions not bound" true
         (Test_helpers.string_contains result "not bound"))
 
+let test_rooms_show_with_repo_grants () =
+  with_temp_home (fun home ->
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ],
+  "access_bundles": [
+    {
+      "id": "github",
+      "codebase_grants": ["/tmp/test/**"],
+      "repo_grants": [
+        {"repo": "/tmp/test/app", "capabilities": ["read", "pr"]},
+        {"repo": "/tmp/test/blocked", "capabilities": ["read"]}
+      ]
+    }
+  ],
+  "access_scopes": [
+    {"id": "default", "level": "default", "access_bundle_ids": ["github"]}
+  ]
+}|});
+      let result = Command_bridge.handle [ "rooms"; "show"; "slack:C1" ] in
+      Alcotest.(check bool)
+        "show mentions GitHub Grants" true
+        (Test_helpers.string_contains result "GitHub Grants");
+      Alcotest.(check bool)
+        "show mentions granted repo" true
+        (Test_helpers.string_contains result "/tmp/test/app");
+      Alcotest.(check bool)
+        "show mentions read capability" true
+        (Test_helpers.string_contains result "read");
+      Alcotest.(check bool)
+        "show mentions pr capability" true
+        (Test_helpers.string_contains result "pr");
+      Alcotest.(check bool)
+        "show mentions blocked repo" true
+        (Test_helpers.string_contains result "/tmp/test/blocked");
+      Alcotest.(check bool)
+        "show mentions blocked marker" true
+        (Test_helpers.string_contains result "blocked"))
+
 let test_rooms_memory_save_creates_scope_for_first_admin_memory () =
   with_temp_home (fun home ->
       let db = session_db home in
@@ -5739,6 +5785,8 @@ let suite =
       test_rooms_unbind_no_binding;
     Alcotest.test_case "rooms show bound" `Quick test_rooms_show_bound;
     Alcotest.test_case "rooms show unbound" `Quick test_rooms_show_unbound;
+    Alcotest.test_case "rooms show with repo grants" `Quick
+      test_rooms_show_with_repo_grants;
     Alcotest.test_case "rooms memory save creates first admin scope" `Quick
       test_rooms_memory_save_creates_scope_for_first_admin_memory;
     Alcotest.test_case "rooms memory save stores owner and allows read" `Quick
