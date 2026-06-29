@@ -171,6 +171,102 @@ let test_delivery_mode_edit () =
   let mode = Teams_what_can_do.delivery_mode_of_caps caps in
   Alcotest.(check string) "teams delivery" "edit in place" mode
 
+let test_delivery_mode_buffered () =
+  let caps = Connector_capabilities.plain in
+  let mode = Teams_what_can_do.delivery_mode_of_caps caps in
+  Alcotest.(check string) "plain delivery" "buffered" mode
+
+(** {1 Text fallback determinism tests} *)
+
+let test_text_fallback_deterministic () =
+  (* Calling build_text twice with the same snapshot must produce
+     identical output. This is the core invariant for non-card connectors
+     that rely on text fallback. *)
+  let snap =
+    make_status ~memory_available:true ~profile_bound:true
+      ~connector_history_enabled:true ~connector_history_persist:true
+      ~github_configured:true ~history_capture:true ~edit:false ~delete:false
+      ~react:false ~typing_indicator:false ~status_messages:false
+      ~file_sending:false ~adaptive_cards:false ~buttons:false
+      ~delivery_mode:"buffered" ~max_message_length:2000 ()
+  in
+  let first = Teams_what_can_do.build_text ~snap () in
+  let second = Teams_what_can_do.build_text ~snap () in
+  Alcotest.(check string) "text output is deterministic" first second
+
+let test_text_fallback_for_discord_profile () =
+  (* Verify text fallback works with Discord-like capabilities. *)
+  let caps = Connector_capabilities.discord in
+  let snap =
+    Teams_what_can_do.snapshot ~caps
+      ~session_manager:(Session.create ~config:Runtime_config.default ())
+      ~conversation_id:"test-conv" ()
+  in
+  let text = Teams_what_can_do.build_text ~snap () in
+  Alcotest.(check bool)
+    "text contains connector capabilities" true
+    (Astring.String.is_infix ~affix:"Connector Capabilities" text);
+  Alcotest.(check bool)
+    "text contains room state" true
+    (Astring.String.is_infix ~affix:"Room" text)
+
+let test_text_fallback_for_slack_profile () =
+  let caps = Connector_capabilities.slack in
+  let snap =
+    Teams_what_can_do.snapshot ~caps
+      ~session_manager:(Session.create ~config:Runtime_config.default ())
+      ~conversation_id:"test-conv" ()
+  in
+  let text = Teams_what_can_do.build_text ~snap () in
+  Alcotest.(check bool)
+    "slack text has capabilities" true
+    (Astring.String.is_infix ~affix:"Connector Capabilities" text)
+
+let test_text_fallback_for_telegram_profile () =
+  let caps = Connector_capabilities.telegram in
+  let snap =
+    Teams_what_can_do.snapshot ~caps
+      ~session_manager:(Session.create ~config:Runtime_config.default ())
+      ~conversation_id:"test-conv" ()
+  in
+  let text = Teams_what_can_do.build_text ~snap () in
+  Alcotest.(check bool)
+    "telegram text has capabilities" true
+    (Astring.String.is_infix ~affix:"Connector Capabilities" text)
+
+let test_text_fallback_for_plain_profile () =
+  let caps = Connector_capabilities.plain in
+  let snap =
+    Teams_what_can_do.snapshot ~caps
+      ~session_manager:(Session.create ~config:Runtime_config.default ())
+      ~conversation_id:"test-conv" ()
+  in
+  let text = Teams_what_can_do.build_text ~snap () in
+  Alcotest.(check bool)
+    "plain text has capabilities" true
+    (Astring.String.is_infix ~affix:"Connector Capabilities" text);
+  Alcotest.(check bool)
+    "plain shows no adaptive cards" true
+    (Astring.String.is_infix ~affix:"no" text)
+
+let test_text_fallback_no_cards_no_buttons () =
+  (* A connector with neither cards nor buttons must produce a usable
+     text fallback that still contains all capability info. *)
+  let snap =
+    make_status ~adaptive_cards:false ~buttons:false ~edit:false ~delete:false
+      ~react:false ~file_sending:false ()
+  in
+  let text = Teams_what_can_do.build_text ~snap () in
+  Alcotest.(check bool)
+    "text has Edit messages" true
+    (Astring.String.is_infix ~affix:"Edit messages" text);
+  Alcotest.(check bool)
+    "text has Adaptive Cards" true
+    (Astring.String.is_infix ~affix:"Adaptive Cards" text);
+  Alcotest.(check bool)
+    "text has Readiness" true
+    (Astring.String.is_infix ~affix:"Readiness" text)
+
 (** {1 Suite} *)
 
 let suite =
@@ -193,4 +289,18 @@ let suite =
       test_text_contains_capabilities;
     Alcotest.test_case "text degraded" `Quick test_text_contains_degraded;
     Alcotest.test_case "delivery mode" `Quick test_delivery_mode_edit;
+    Alcotest.test_case "delivery mode buffered" `Quick
+      test_delivery_mode_buffered;
+    Alcotest.test_case "text fallback deterministic" `Quick
+      test_text_fallback_deterministic;
+    Alcotest.test_case "text fallback discord" `Quick
+      test_text_fallback_for_discord_profile;
+    Alcotest.test_case "text fallback slack" `Quick
+      test_text_fallback_for_slack_profile;
+    Alcotest.test_case "text fallback telegram" `Quick
+      test_text_fallback_for_telegram_profile;
+    Alcotest.test_case "text fallback plain" `Quick
+      test_text_fallback_for_plain_profile;
+    Alcotest.test_case "text fallback no cards no buttons" `Quick
+      test_text_fallback_no_cards_no_buttons;
   ]

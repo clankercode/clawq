@@ -19,7 +19,12 @@
    ForkAnd, Debate, Rig), Compact (connector-specific status notifier), BashRun
    and DebugDumpChat (different truncation / upload paths), Model (Telegram uses a
    different send mechanism per sub-command), and the free-form NotACommand turn.
-   Calling [dispatch] with one of those is a no-op (they are never routed here). *)
+   Calling [dispatch] with one of those is a no-op (they are never routed here).
+
+   [WhatCanDo] is handled here for all non-Teams connectors. It produces a
+   deterministic plain-text capability report via [Teams_what_can_do.build_text],
+   using [Connector_capabilities.of_name] to look up the correct connector
+   profile. Teams handles its own Adaptive Card variant in [teams.ml]. *)
 
 type dispatch_env = {
   connector : Format_adapter.connector;
@@ -468,17 +473,17 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       let text = Access_explanation.to_text explanation in
       env.send_formatted (Format_adapter.code_block connector text)
   | WhatCanDo ->
-      (* Teams sends an Adaptive Card; other connectors get plain text. *)
+      (* Non-card connectors get plain text; Teams handles Adaptive Cards
+         in its own match. Use Connector_capabilities.of_name so that every
+         recognised connector receives its own capability snapshot rather than
+         a hard-coded subset. *)
       let caps =
-        match env.connector_name with
-        | "teams" -> Some Connector_capabilities.teams
-        | "discord" -> Some Connector_capabilities.discord
-        | "slack" -> Some Connector_capabilities.slack
-        | "telegram" -> Some Connector_capabilities.telegram
-        | _ -> None
+        Option.value
+          (Connector_capabilities.of_name env.connector_name)
+          ~default:Connector_capabilities.plain
       in
       let snap =
-        Teams_what_can_do.snapshot ?caps ~session_manager:session_mgr
+        Teams_what_can_do.snapshot ~caps ~session_manager:session_mgr
           ~conversation_id:env.channel_id ()
       in
       let text = Teams_what_can_do.build_text ~snap () in
