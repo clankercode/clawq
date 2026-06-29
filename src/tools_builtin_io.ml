@@ -818,6 +818,19 @@ let transcribe ~(config : Runtime_config.t) =
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
+              (* Resolve API key through credential lease API when handle is set *)
+              let credential_handle =
+                match config.stt with
+                | Some stt_cfg -> stt_cfg.credential_handle
+                | None -> None
+              in
+              let api_key_result =
+                resolve_credential_handle ~config
+                  ~handle_id:credential_handle ~header_name:"Authorization"
+              in
+              match api_key_result with
+              | Error msg -> Lwt.return ("Error: " ^ msg)
+              | Ok lease_key ->
               let file_path = resolve_path ~workspace file_path in
               let ic = open_in_bin file_path in
               let n = in_channel_length ic in
@@ -827,8 +840,12 @@ let transcribe ~(config : Runtime_config.t) =
               let audio_data = Bytes.to_string buf in
               let filename = Filename.basename file_path in
               let content_type = Stt.content_type_of_ext filename in
+              let api_key =
+                if lease_key <> "" then Some lease_key else None
+              in
               let* result =
-                Stt.transcribe ~config ~audio_data ~filename ~content_type ()
+                Stt.transcribe ~config ?api_key ~audio_data ~filename
+                  ~content_type ()
               in
               Lwt.return result.text)
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));

@@ -26,6 +26,7 @@
   test_config_loader
   test_credential_handles
   test_credential_lease
+  test_builtin_credential_lease
   test_config_set
   test_config_show
   test_config_tree

@@ -6,6 +6,8 @@
    Web Search endpoint: https://api.z.ai/api/mcp/web_search_prime/mcp
    Web Reader endpoint: https://api.z.ai/api/mcp/web_reader/mcp *)
 
+open Tools_builtin_util
+
 let zai_starts_with_ci ~prefix s =
   let p = String.lowercase_ascii prefix in
   let v = String.lowercase_ascii s in
@@ -256,7 +258,24 @@ let zai_websearch_with_post ~http_post ~(config : Runtime_config.t) =
             "Error: parameter \"query\" is required. Provide a search query \
              string, e.g. {\"query\": \"OCaml MCP server\"}."
         else
-          let api_key = zai_mcp_api_key config in
+          (* Resolve API key through credential lease API when handle is set *)
+          let credential_handle =
+            match config.zai_mcp with
+            | Some zm -> zm.credential_handle
+            | None -> None
+          in
+          let api_key_result =
+            resolve_credential_handle ~config
+              ~handle_id:credential_handle ~header_name:"Authorization"
+          in
+          let lease_key =
+            match api_key_result with
+            | Ok key -> key
+            | Error _ -> ""
+          in
+          let api_key =
+            if lease_key <> "" then lease_key else zai_mcp_api_key config
+          in
           if not (Runtime_config.is_key_set api_key) then
             Lwt.return
               "Error: Z.ai API key not configured. Add a \"zai_mcp\" section \
@@ -321,7 +340,24 @@ let zai_webfetch_with_post ~http_post ~(config : Runtime_config.t) =
             "Error: parameter \"url\" is required. Provide a fully-formed URL \
              string, e.g. {\"url\": \"https://example.com\"}."
         else
-          let api_key = zai_mcp_api_key config in
+          (* Resolve API key through credential lease API when handle is set *)
+          let credential_handle =
+            match config.zai_mcp with
+            | Some zm -> zm.credential_handle
+            | None -> None
+          in
+          let api_key_result =
+            resolve_credential_handle ~config
+              ~handle_id:credential_handle ~header_name:"Authorization"
+          in
+          let lease_key =
+            match api_key_result with
+            | Ok key -> key
+            | Error _ -> ""
+          in
+          let api_key =
+            if lease_key <> "" then lease_key else zai_mcp_api_key config
+          in
           if not (Runtime_config.is_key_set api_key) then
             Lwt.return
               "Error: Z.ai API key not configured. Add a \"zai_mcp\" section \

@@ -362,7 +362,17 @@ let web_search ~(config : Runtime_config.t) =
                  section to ~/.clawq/config.json with provider and api_key."
           | Some ws ->
               let provider = ws.search_provider in
-              let api_key = ws.search_api_key in
+              (* Resolve API key through credential lease API when handle is set *)
+              let api_key_result =
+                resolve_credential_handle ~config ~handle_id:ws.credential_handle
+                  ~header_name:"X-Subscription-Token"
+              in
+              match api_key_result with
+              | Error msg -> Lwt.return ("Error: " ^ msg)
+              | Ok lease_key ->
+              let api_key =
+                if lease_key <> "" then lease_key else ws.search_api_key
+              in
               Lwt.catch
                 (fun () ->
                   let open Lwt.Syntax in

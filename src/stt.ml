@@ -11,8 +11,8 @@ let content_type_of_ext filename =
   | ".flac" -> "audio/flac"
   | _ -> "application/octet-stream"
 
-let transcribe ~(config : Runtime_config.t) ~audio_data ~filename ~content_type
-    () =
+let transcribe ~(config : Runtime_config.t) ?api_key ~audio_data ~filename
+    ~content_type () =
   let open Lwt.Syntax in
   match config.stt with
   | None -> Lwt.fail_with "No STT config found"
@@ -28,7 +28,10 @@ let transcribe ~(config : Runtime_config.t) ~audio_data ~filename ~content_type
             | None -> "https://api.groq.com/openai/v1"
           in
           let uri = base_url ^ "/audio/transcriptions" in
-          let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+          let resolved_api_key =
+            match api_key with Some k when k <> "" -> k | _ -> provider.api_key
+          in
+          let headers = [ ("Authorization", "Bearer " ^ resolved_api_key) ] in
           let parts =
             [
               Http_client.File

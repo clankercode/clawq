@@ -396,6 +396,10 @@ type stt_config = {
   provider : string;
   model : string;
   language : string option;
+  credential_handle : string option;
+      (** Optional credential handle ID. When set, the STT API key is resolved
+          through the credential lease API. Missing or unresolvable handles
+          deny before any network call. *)
 }
 
 type resilience_config = {
@@ -454,6 +458,10 @@ type web_search_config = {
   num_results : int;
   search_base_url : string option;
       (** Override API endpoint (e.g. for SearXNG) *)
+  credential_handle : string option;
+      (** Optional credential handle ID. When set, the web search API key is
+          resolved through the credential lease API. Missing or unresolvable
+          handles deny before any network call. *)
 }
 
 type zai_mcp_config = {
@@ -462,6 +470,10 @@ type zai_mcp_config = {
           or providers.zai_coding. *)
   websearch_enabled : bool;
   webfetch_enabled : bool;
+  credential_handle : string option;
+      (** Optional credential handle ID. When set, the Z.ai API key is resolved
+          through the credential lease API. Missing or unresolvable handles
+          deny before any network call. *)
 }
 
 type interactive_config = { enable_question_notes : bool }

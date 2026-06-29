@@ -697,3 +697,37 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     risk_level = High;
     deferred = false;
   }
+
+(** [resolve_credential_handle ~config ~handle_id ~header_name] resolves a
+    credential handle through the credential lease API. Returns [Ok value] with
+    the resolved credential value, or [Error msg] if the handle is missing or
+    unresolvable. When [handle_id] is [None], returns [Ok ""] (legacy path). *)
+let resolve_credential_handle ~(config : Runtime_config.t)
+    ~(handle_id : string option) ~(header_name : string) :
+    (string, string) result =
+  match handle_id with
+  | None -> Ok ""
+  | Some hid -> (
+      match
+        Credential_lease.resolve_lease ~config ~handle_id:hid ~header_name
+      with
+      | Error err ->
+          let msg = Credential_lease.resolution_error_to_string err in
+          Error
+            (Printf.sprintf
+               "credential lease denied for handle '%s': %s" hid msg)
+      | Ok lease ->
+          let result = ref "" in
+          Credential_lease.apply_headers lease (fun headers ->
+              result :=
+                List.fold_left
+                  (fun acc (name, value) ->
+                    if name = header_name then value else acc)
+                  "" headers);
+          if !result = "" then
+            Error
+              (Printf.sprintf
+                 "credential lease for handle '%s' resolved but produced no %s \
+                  header"
+                 hid header_name)
+          else Ok !result)
