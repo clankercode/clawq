@@ -41,7 +41,7 @@ tasks:
       file: T003-enforce-repo-grants-for-github.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Enforce repo grants for GitHub and room-triggered work
     - complexity: medium
