@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Room-Owned PR Subscriptions
       path: 01-room-owned-pr-subscriptions
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P16.M2.E1
