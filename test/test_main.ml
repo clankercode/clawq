@@ -93,6 +93,7 @@ let () =
        ("vector", Test_vector.suite);
        ("secret_store", Test_secret_store.suite);
        ("scope_resolver", Test_scope_resolver.suite);
+       ("invariant_conformance", Test_invariant_conformance.suite);
        ("access_snapshot", Test_access_snapshot.suite);
        ("access_explanation", Test_access_explanation.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
