@@ -1559,6 +1559,7 @@ let run ~(config : Runtime_config.t) =
                     Memory.cleanup_connector_history ~db
                       ~max_age_days:cur_config.connector_history.max_age_days
                       ~max_messages:cur_config.connector_history.max_messages;
+                  Memory.cleanup_teams_dedup ~db ~max_age_days:30;
                   let purged =
                     Summary_store.purge_older_than ~db
                       ~max_age_days:cur_config.summarizer.max_age_days

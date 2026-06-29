@@ -60,6 +60,7 @@ let init ~db_path ?(search_enabled = false) () =
   Summary_store.init_schema db;
   init_session_archive_schema db;
   init_attachment_log_schema db;
+  init_teams_dedup_schema db;
   Admin.init_schema db;
   Pair_coding_state.init_schema db;
   Held_items.init_db db;
@@ -954,3 +955,44 @@ let list_room_profile_bindings_all ~db =
           :: !bindings
       done);
   List.rev !bindings
+
+(** [teams_dedup_check_and_mark ~db ~conversation_id ~activity_id] checks if an
+    activity has been processed before. If not, marks it as processed and
+    returns [false]. If it has been processed, returns [true]. This provides
+    persistent deduplication across bot restarts.
+
+    Uses atomic INSERT OR IGNORE + changes() to prevent race conditions with
+    concurrent duplicate webhook deliveries. *)
+let teams_dedup_check_and_mark ~db ~conversation_id ~activity_id =
+  if activity_id = "" then false
+  else
+    let sql =
+      "INSERT OR IGNORE INTO teams_dedup (conversation_id, activity_id) VALUES \
+       (?, ?)"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT conversation_id));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT activity_id));
+        ignore (Sqlite3.step stmt);
+        (* If changes() = 1, the INSERT succeeded (new activity).
+           If changes() = 0, the INSERT was ignored (duplicate). *)
+        let changes = Sqlite3.changes db in
+        changes = 0)
+
+(** [cleanup_teams_dedup ~db ~max_age_days] removes old deduplication entries to
+    prevent unbounded table growth. *)
+let cleanup_teams_dedup ~db ~max_age_days =
+  let sql =
+    "DELETE FROM teams_dedup WHERE processed_at < datetime('now', '-' || ? || \
+     ' days')"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (string_of_int max_age_days)));
+      ignore (Sqlite3.step stmt))

@@ -655,8 +655,8 @@ let test_item_element_empty_links_omitted () =
 
 let test_item_element_with_session_record_link () =
   let item =
-    make_item ~title:"T" ~state:Done
-      ~session_record_id:(Some "rsr_123_000001") ()
+    make_item ~title:"T" ~state:Done ~session_record_id:(Some "rsr_123_000001")
+      ()
   in
   let element = Teams_progress_card.render_item_element item in
   let text = json_string "text" element in
