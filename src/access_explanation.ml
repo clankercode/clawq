@@ -22,6 +22,15 @@ type credential_info = {
   status : string;
 }
 
+type egress_rule_explanation = {
+  host : string;
+  path : string option;
+  method_ : string option;
+  action : Runtime_config.egress_rule_action;
+  log_policy : Runtime_config.egress_rule_log_policy;
+  index : int;
+}
+
 type t = {
   scopes : scope_info list;
   allowed_tools : item_explanation list;
@@ -38,6 +47,7 @@ type t = {
   instructions : string list;
   memory_grants : item_explanation list;
   budget_refs : item_explanation list;
+  egress_rules : egress_rule_explanation list;
   summary : string;
 }
 
@@ -97,7 +107,7 @@ let generate_summary (explanation : t) : string =
   let blocked_repo_grant_count = List.length explanation.blocked_repo_grants in
   Printf.sprintf
     "tools:%d/%d grants:%d+%d servers:%d skills:%d repos:%d repo_grants:%d+%d \
-     domains:%d credentials:%d instructions:%d"
+     domains:%d credentials:%d instructions:%d egress_rules:%d"
     tool_count deny_count grant_count blocked_count
     (List.length explanation.mcp_servers)
     (List.length explanation.skills)
@@ -106,6 +116,7 @@ let generate_summary (explanation : t) : string =
     (List.length explanation.domains)
     (List.length explanation.credential_handles)
     (List.length explanation.instructions)
+    (List.length explanation.egress_rules)
 
 let create ~(config : Runtime_config.t) ~session_key () : t =
   let access = Runtime_config.resolve_effective_access config ~session_key () in
@@ -132,6 +143,19 @@ let create ~(config : Runtime_config.t) ~session_key () : t =
       (fun (item : Runtime_config.effective_access_item) -> item.value)
       access.instructions
   in
+  let egress_rules =
+    List.mapi
+      (fun idx (rule : Runtime_config.egress_rule) ->
+        {
+          host = rule.host;
+          path = rule.path;
+          method_ = rule.method_;
+          action = rule.action;
+          log_policy = rule.log_policy;
+          index = idx;
+        })
+      access.egress_rules
+  in
   let explanation =
     {
       scopes = matching_scopes;
@@ -151,6 +175,7 @@ let create ~(config : Runtime_config.t) ~session_key () : t =
       instructions = instruction_texts;
       memory_grants = List.map item_to_explanation access.memory_grants;
       budget_refs = List.map item_to_explanation access.budget_refs;
+      egress_rules;
       summary = "";
     }
   in
@@ -194,6 +219,21 @@ let credential_info_to_json (ci : credential_info) : Yojson.Safe.t =
       ("status", `String ci.status);
     ]
 
+let egress_rule_explanation_to_json (er : egress_rule_explanation) :
+    Yojson.Safe.t =
+  `Assoc
+    [
+      ("host", `String er.host);
+      ("path", match er.path with Some p -> `String p | None -> `Null);
+      ("method_", match er.method_ with Some m -> `String m | None -> `Null);
+      ( "action",
+        `String (Runtime_config.egress_rule_action_to_string er.action) );
+      ( "log_policy",
+        `String (Runtime_config.egress_rule_log_policy_to_string er.log_policy)
+      );
+      ("index", `Int er.index);
+    ]
+
 let to_json (explanation : t) : Yojson.Safe.t =
   `Assoc
     [
@@ -228,6 +268,9 @@ let to_json (explanation : t) : Yojson.Safe.t =
         `List (List.map item_explanation_to_json explanation.memory_grants) );
       ( "budget_refs",
         `List (List.map item_explanation_to_json explanation.budget_refs) );
+      ( "egress_rules",
+        `List
+          (List.map egress_rule_explanation_to_json explanation.egress_rules) );
       ("summary", `String explanation.summary);
     ]
 
@@ -255,6 +298,14 @@ let format_scope_short (si : scope_info) : string =
 
 let format_credential_short (ci : credential_info) : string =
   Printf.sprintf "%s (%s) %s" ci.id ci.provider_type ci.status
+
+let format_egress_rule_short (er : egress_rule_explanation) : string =
+  let action_str = Runtime_config.egress_rule_action_to_string er.action in
+  let log_str = Runtime_config.egress_rule_log_policy_to_string er.log_policy in
+  let method_str = match er.method_ with Some m -> m | None -> "*" in
+  let path_str = match er.path with Some p -> p | None -> "/*" in
+  Printf.sprintf "[%d] %s %s %s -> %s (log: %s)" er.index method_str er.host
+    path_str action_str log_str
 
 let to_text (explanation : t) : string =
   let buf = Buffer.create 4096 in
@@ -387,6 +438,14 @@ let to_text (explanation : t) : string =
     List.iter
       (fun ie -> add (Printf.sprintf "  - %s" (format_item_with_sources ie)))
       explanation.budget_refs;
+    add ""
+  end;
+  (* Egress rules *)
+  if explanation.egress_rules <> [] then begin
+    add "Egress Rules:";
+    List.iter
+      (fun er -> add (Printf.sprintf "  - %s" (format_egress_rule_short er)))
+      explanation.egress_rules;
     add ""
   end;
   add (Printf.sprintf "Summary: %s" explanation.summary);
