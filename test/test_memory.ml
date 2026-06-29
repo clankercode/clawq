@@ -2182,10 +2182,10 @@ let test_scoped_memory_delete_and_boundaries () =
   in
   Alcotest.(check bool)
     "deleted existing row" true
-    (Memory.delete_scoped_memory ~db ~id:row.id);
+    (Memory.delete_scoped_memory ~db ~id:row.id ());
   Alcotest.(check bool)
     "delete missing row is false" false
-    (Memory.delete_scoped_memory ~db ~id:row.id);
+    (Memory.delete_scoped_memory ~db ~id:row.id ());
   Alcotest.(check int)
     "deleted row not queried" 0
     (List.length (Memory.query_scoped_memories ~db ~limit:10 ()));
@@ -2611,7 +2611,7 @@ let test_team_grants_crud () =
   Alcotest.(check bool)
     "add grant" true
     (Memory.add_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
-       ~principal_id:"alice");
+       ~principal_id:"alice" ());
   Alcotest.(check bool)
     "has grant" true
     (Memory.has_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
@@ -2627,12 +2627,12 @@ let test_team_grants_crud () =
   Alcotest.(check bool)
     "duplicate add" false
     (Memory.add_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
-       ~principal_id:"alice");
+       ~principal_id:"alice" ());
   (* Remove grant *)
   Alcotest.(check bool)
     "remove grant" true
     (Memory.remove_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
-       ~principal_id:"alice");
+       ~principal_id:"alice" ());
   Alcotest.(check bool)
     "grant gone" false
     (Memory.has_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
@@ -2641,7 +2641,7 @@ let test_team_grants_crud () =
   Alcotest.(check bool)
     "remove nonexistent" false
     (Memory.remove_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
-       ~principal_id:"alice")
+       ~principal_id:"alice" ())
 
 let test_can_see_memory_logic () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -2687,7 +2687,7 @@ let test_can_see_memory_logic () =
        ~scope_profile_id:(Some (string_of_int profile_id)));
   ignore
     (Memory.add_team_grant ~db ~memory_id:team_mem.id ~principal_kind:"user"
-       ~principal_id:"alice");
+       ~principal_id:"alice" ());
   Alcotest.(check bool)
     "team visible with grant" true
     (Memory.can_see_memory ~db ~scoped_mem:team_mem ~principal_kind:"user"

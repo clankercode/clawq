@@ -36,6 +36,11 @@ let require_admin_audited ~room_id ~action =
 let cmd_rooms_memory (cfg : Runtime_config.t) args =
   let db = get_db () in
   let is_admin = is_admin_cli () in
+  Room_activity_ledger.init_schema db;
+  let ledger ~room_id ~event_type ~actor ~metadata =
+    ignore
+      (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor ~metadata)
+  in
   let reconcile_error =
     try
       ignore (Memory.reconcile_room_profiles ~db ~config:cfg);
@@ -421,7 +426,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                   try
                     let m =
                       Memory.upsert_scoped_memory ~db ~scope_id:scope.id
-                        ~reference ~content ~provenance ?visibility ()
+                        ~reference ~content ~provenance ?visibility ~ledger ()
                     in
                     let vis_str =
                       match m.visibility with
@@ -470,7 +475,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                     in
                     match
                       Memory.correct_scoped_memory ~db ~id:memory_id ~content
-                        ~provenance ()
+                        ~provenance ~ledger ()
                     with
                     | None ->
                         Printf.sprintf "Error: failed to correct memory #%d."
@@ -515,7 +520,10 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                     with
                     | Some err -> err
                     | None ->
-                        if Memory.delete_scoped_memory ~db ~id:memory_id then
+                        if
+                          Memory.delete_scoped_memory ~db ~id:memory_id ~ledger
+                            ()
+                        then
                           Printf.sprintf
                             "Hard-purged memory #%d '%s' for room '%s'."
                             memory_id m.reference
@@ -529,7 +537,8 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                       "Memory #%d is already redacted. Use --hard to purge."
                       memory_id
                   else if
-                    Memory.redact_scoped_memory ~db ~id:memory_id ~reason ()
+                    Memory.redact_scoped_memory ~db ~id:memory_id ~reason
+                      ~ledger ()
                   then
                     Printf.sprintf
                       "Forgot (redacted) memory #%d '%s' for room '%s'. \
@@ -566,7 +575,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
               | Some _ -> (
                   match
                     Memory.add_team_grant ~db ~memory_id ~principal_kind
-                      ~principal_id
+                      ~principal_id ~ledger ()
                   with
                   | true ->
                       Printf.sprintf
@@ -594,7 +603,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
               | Some _ ->
                   if
                     Memory.remove_team_grant ~db ~memory_id ~principal_kind
-                      ~principal_id
+                      ~principal_id ~ledger ()
                   then
                     Printf.sprintf
                       "Removed team grant for '%s:%s' on memory #%d."
@@ -672,7 +681,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
               match
                 Memory.grant_access ~db ~is_admin:true ~scope_id:scope.id
                   ~principal_kind ~principal_id:resolved_principal_id
-                  ~capability ()
+                  ~capability ~ledger ()
               with
               | Ok () ->
                   Printf.sprintf
@@ -700,7 +709,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
               match
                 Memory.revoke_access ~db ~is_admin:true ~scope_id:scope.id
                   ~principal_kind ~principal_id:resolved_principal_id
-                  ~capability ()
+                  ~capability ~ledger ()
               with
               | Ok 0 ->
                   Printf.sprintf

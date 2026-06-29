@@ -72,6 +72,7 @@ let () =
        ("skills", Test_skills.suite);
        ("skills_cmd_inject", Test_skills_cmd_inject.suite);
        ("memory_search", Test_memory_search.suite);
+       ("memory_ledger", Test_memory_ledger.suite);
        ("history_search", Test_history_search.suite);
        ("streaming", Test_streaming.suite);
        ("stream_visibility", Test_stream_visibility.suite);
