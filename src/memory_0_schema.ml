@@ -398,6 +398,18 @@ let init_connector_history_schema db =
     "CREATE INDEX IF NOT EXISTS idx_connector_history_connector_created ON \
      connector_history (connector_type, created_at)"
 
+let init_teams_dedup_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS teams_dedup (\n\
+    \     conversation_id TEXT NOT NULL,\n\
+    \     activity_id TEXT NOT NULL,\n\
+    \     processed_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     PRIMARY KEY (conversation_id, activity_id)\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_teams_dedup_processed ON teams_dedup \
+     (processed_at)"
+
 let init_attachment_log_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS attachment_log (\n\

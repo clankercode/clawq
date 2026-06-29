@@ -1,5 +1,4 @@
 (* MS Teams channel via Microsoft Bot Framework webhook *)
-(* See src/TEAMS_API.md for protocol and auth details *)
 
 include Teams_auth
 include Teams_file_consent
@@ -9,6 +8,12 @@ let dedup = Channel_util.Lru_dedup.create 500
 
 let session_key ~team_id ~conversation_id =
   Printf.sprintf "teams:%s:%s" team_id conversation_id
+
+(** Generate a thread-aware session key. *)
+let thread_session_key ~team_id ~conversation_id ~reply_to_id =
+  if reply_to_id = "" then session_key ~team_id ~conversation_id
+  else
+    Printf.sprintf "teams:%s:%s:thread:%s" team_id conversation_id reply_to_id
 
 let incoming_rate_limited_message =
   "Please slow down, I can only process a limited number of messages per \
@@ -43,9 +48,7 @@ let user_facing_error_of_exn = function
 let agent_error_message err =
   Printf.sprintf "Sorry, an error occurred processing your message: %s" err
 
-(** Resolve the session key for a Teams conversation. If the conversation has an
-    active room profile binding, use the shared room session "teams:CONV".
-    Otherwise fall back to the existing team+conversation session key. *)
+(** Resolve the session key for a Teams conversation. *)
 let room_has_profile_binding ~(session_manager : Session.t) ~conversation_id =
   match Session.get_db session_manager with
   | Some db -> (
@@ -55,10 +58,10 @@ let room_has_profile_binding ~(session_manager : Session.t) ~conversation_id =
   | None -> false
 
 let resolve_session_key ~(session_manager : Session.t) ~team_id ~conversation_id
-    =
+    ?(reply_to_id = "") () =
   if room_has_profile_binding ~session_manager ~conversation_id then
     "teams:" ^ Session.sanitize_session_key conversation_id
-  else session_key ~team_id ~conversation_id
+  else thread_session_key ~team_id ~conversation_id ~reply_to_id
 
 let record_scoped_room_history_if_bound ~(session_manager : Session.t) ~team_id
     ~conversation_id ~user_id ~user_name ~text =
@@ -69,7 +72,9 @@ let record_scoped_room_history_if_bound ~(session_manager : Session.t) ~team_id
     && Connector_capabilities.should_capture_history
          ~enabled:cfg.connector_history.enabled Connector_capabilities.teams
   then
-    let key = resolve_session_key ~session_manager ~team_id ~conversation_id in
+    let key =
+      resolve_session_key ~session_manager ~team_id ~conversation_id ()
+    in
     let db =
       if cfg.connector_history.persist_to_db then Session.get_db session_manager
       else None
@@ -139,10 +144,17 @@ type mention = { mention_id : string; mention_name : string }
 let dedup_seen id =
   if id = "" then false else Channel_util.Lru_dedup.check_and_mark dedup id
 
+(** [dedup_seen_persistent ~db ~conversation_id ~activity_id] checks if an
+    activity has been processed before using persistent storage. *)
+let dedup_seen_persistent ~db ~conversation_id ~activity_id =
+  if activity_id = "" then false
+  else
+    match db with
+    | Some db ->
+        Memory.teams_dedup_check_and_mark ~db ~conversation_id ~activity_id
+    | None -> dedup_seen activity_id
+
 (* --- Teams Bot Framework outbound rate limiting --- *)
-(* Bot Framework enforces ~1 write/sec per conversation and returns HTTP 429
-   when exceeded. We enforce client-side throttling + server-side 429 retry.
-   Also retry on 412, 502, 504 per Microsoft recommendations. *)
 
 let conv_last_request : (string, float) Hashtbl.t = Hashtbl.create 32
 
@@ -195,8 +207,7 @@ let delete_throttled ~conversation_id ~uri ~headers =
     ~f:(fun () -> Http_client.delete ~uri ~headers ~body:"")
     ()
 
-(* Send a typing indicator via Bot Framework REST API.
-   Posts a {"type":"typing"} activity to the conversation. *)
+(* Send a typing indicator via Bot Framework REST API. *)
 let send_typing_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id =
   let open Lwt.Syntax in
@@ -645,6 +656,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
             activity_id;
             service_url;
             conversation_id;
+            reply_to_id;
             user_id;
             user_name;
             team_id;
@@ -653,7 +665,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
             mentioned_ids;
             attachments = parsed_attachments;
           } -> (
-          if dedup_seen activity_id then Lwt.return_unit
+          let db = Session.get_db session_manager in
+          if dedup_seen_persistent ~db ~conversation_id ~activity_id then
+            Lwt.return_unit
           else
             let text = strip_at_mentions raw_text in
             if text = "" && parsed_attachments = [] then Lwt.return_unit
@@ -692,7 +706,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                    then begin
                      let hist_key =
                        resolve_session_key ~session_manager ~team_id:eff_tid
-                         ~conversation_id
+                         ~conversation_id ~reply_to_id ()
                      in
                      let db =
                        if cfg.connector_history.persist_to_db then
@@ -734,7 +748,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                   in
                   let key =
                     resolve_session_key ~session_manager
-                      ~team_id:effective_team_id ~conversation_id
+                      ~team_id:effective_team_id ~conversation_id ~reply_to_id
+                      ()
                   in
                   let sender_name =
                     if user_name = "" then None else Some user_name
@@ -822,6 +837,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             let hist_key =
                               resolve_session_key ~session_manager
                                 ~team_id:effective_team_id ~conversation_id
+                                ~reply_to_id ()
                             in
                             let db =
                               if cfg.connector_history.persist_to_db then

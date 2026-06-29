@@ -183,7 +183,7 @@ let test_resolve_session_key_uses_room_binding () =
   let mgr = Session.create ~config:Runtime_config.default ~db () in
   let key =
     Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
-      ~conversation_id:"conv-bound"
+      ~conversation_id:"conv-bound" ()
   in
   Alcotest.(check string) "bound room key" "teams:conv-bound" key
 
@@ -192,7 +192,7 @@ let test_resolve_session_key_falls_back_to_team_conversation () =
   let mgr = Session.create ~config:Runtime_config.default ~db () in
   let key =
     Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
-      ~conversation_id:"conv-free"
+      ~conversation_id:"conv-free" ()
   in
   Alcotest.(check string) "unbound key" "teams:team-1:conv-free" key
 
@@ -1596,10 +1596,187 @@ let test_edit_activity_empty_text_short_circuits () =
        ~service_url:"https://smba.trafficmanager.net/au/test/"
        ~conversation_id:"19:test@thread.v2" ~activity_id:"act-1" ~text:"" ())
 
+(* P15.M2.E1.T001: Thread-aware session key tests *)
+let test_thread_session_key_with_reply_to_id () =
+  let key =
+    Teams.thread_session_key ~team_id:"team-1" ~conversation_id:"conv-1"
+      ~reply_to_id:"msg-123"
+  in
+  Alcotest.(check string) "thread key" "teams:team-1:conv-1:thread:msg-123" key
+
+let test_thread_session_key_without_reply_to_id () =
+  let key =
+    Teams.thread_session_key ~team_id:"team-1" ~conversation_id:"conv-1"
+      ~reply_to_id:""
+  in
+  Alcotest.(check string) "non-thread key" "teams:team-1:conv-1" key
+
+let test_resolve_session_key_with_thread () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-1" ~reply_to_id:"msg-456" ()
+  in
+  Alcotest.(check string) "thread key" "teams:team-1:conv-1:thread:msg-456" key
+
+let test_resolve_session_key_without_thread () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-1" ()
+  in
+  Alcotest.(check string) "non-thread key" "teams:team-1:conv-1" key
+
+let test_resolve_session_key_thread_with_room_binding () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"teams-room" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"conv-bound" ~profile_id;
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key =
+    Teams.resolve_session_key ~session_manager:mgr ~team_id:"team-1"
+      ~conversation_id:"conv-bound" ~reply_to_id:"msg-789" ()
+  in
+  (* Room binding takes precedence over thread key *)
+  Alcotest.(check string) "bound room key" "teams:conv-bound" key
+
+(* P15.M2.E1.T001: Persistent deduplication tests *)
+let test_teams_dedup_persistent_check_and_mark () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_teams_dedup_schema db;
+  (* First call should return false (not seen) *)
+  let seen1 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-1"
+      ~activity_id:"act-1"
+  in
+  Alcotest.(check bool) "first call not seen" false seen1;
+  (* Second call should return true (already seen) *)
+  let seen2 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-1"
+      ~activity_id:"act-1"
+  in
+  Alcotest.(check bool) "second call seen" true seen2;
+  (* Different activity should return false *)
+  let seen3 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-1"
+      ~activity_id:"act-2"
+  in
+  Alcotest.(check bool) "different activity not seen" false seen3
+
+let test_teams_dedup_persistent_empty_id () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_teams_dedup_schema db;
+  (* Empty activity_id should always return false *)
+  let seen1 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-1"
+      ~activity_id:""
+  in
+  Alcotest.(check bool) "empty id not seen" false seen1;
+  let seen2 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-1"
+      ~activity_id:""
+  in
+  Alcotest.(check bool) "empty id still not seen" false seen2
+
+let test_teams_dedup_persistent_cleanup () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_teams_dedup_schema db;
+  (* Insert an old entry directly *)
+  let stmt =
+    Sqlite3.prepare db
+      "INSERT INTO teams_dedup (conversation_id, activity_id, processed_at) \
+       VALUES (?, ?, datetime('now', '-2 days'))"
+  in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT "conv-old"));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT "act-old"));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt);
+  (* Cleanup with 1 day should remove it *)
+  Memory.cleanup_teams_dedup ~db ~max_age_days:1;
+  (* Should not be seen anymore *)
+  let seen =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-old"
+      ~activity_id:"act-old"
+  in
+  Alcotest.(check bool) "after cleanup not seen" false seen
+
+let test_teams_dedup_persistent_survives_restart () =
+  let db_path = Filename.temp_file "teams_dedup" ".db" in
+  let db = Memory.init ~db_path () in
+  Memory.init_teams_dedup_schema db;
+  (* Mark an activity *)
+  let _ =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-persist"
+      ~activity_id:"act-persist"
+  in
+  (* Close and reopen database *)
+  ignore (Sqlite3.db_close db);
+  let db2 = Memory.init ~db_path () in
+  (* Should still be seen *)
+  let seen =
+    Memory.teams_dedup_check_and_mark ~db:db2 ~conversation_id:"conv-persist"
+      ~activity_id:"act-persist"
+  in
+  Alcotest.(check bool) "survives restart" true seen;
+  ignore (Sqlite3.db_close db2);
+  Sys.remove db_path
+
+let test_teams_dedup_persistent_fallback_to_lru () =
+  (* When no database, should fall back to in-memory LRU *)
+  let seen1 =
+    Teams.dedup_seen_persistent ~db:None ~conversation_id:"conv-lru"
+      ~activity_id:"act-lru"
+  in
+  Alcotest.(check bool) "first call not seen" false seen1;
+  let seen2 =
+    Teams.dedup_seen_persistent ~db:None ~conversation_id:"conv-lru"
+      ~activity_id:"act-lru"
+  in
+  Alcotest.(check bool) "second call seen" true seen2
+
+let test_teams_dedup_different_conversations () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.init_teams_dedup_schema db;
+  (* Mark an activity in conversation 1 *)
+  let seen1 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-1"
+      ~activity_id:"act-same"
+  in
+  Alcotest.(check bool) "conv1 first call not seen" false seen1;
+  (* Same activity_id in different conversation should NOT be deduplicated *)
+  let seen2 =
+    Memory.teams_dedup_check_and_mark ~db ~conversation_id:"conv-2"
+      ~activity_id:"act-same"
+  in
+  Alcotest.(check bool) "conv2 same activity not seen" false seen2
+
 let suite =
   [
     Alcotest.test_case "B464: send_reply empty text short-circuits" `Quick
       test_send_reply_empty_text_short_circuits;
+    Alcotest.test_case "thread_session_key with reply_to_id" `Quick
+      test_thread_session_key_with_reply_to_id;
+    Alcotest.test_case "thread_session_key without reply_to_id" `Quick
+      test_thread_session_key_without_reply_to_id;
+    Alcotest.test_case "resolve_session_key with thread" `Quick
+      test_resolve_session_key_with_thread;
+    Alcotest.test_case "resolve_session_key without thread" `Quick
+      test_resolve_session_key_without_thread;
+    Alcotest.test_case "resolve_session_key thread with room binding" `Quick
+      test_resolve_session_key_thread_with_room_binding;
+    Alcotest.test_case "teams_dedup persistent check_and_mark" `Quick
+      test_teams_dedup_persistent_check_and_mark;
+    Alcotest.test_case "teams_dedup persistent empty id" `Quick
+      test_teams_dedup_persistent_empty_id;
+    Alcotest.test_case "teams_dedup persistent cleanup" `Quick
+      test_teams_dedup_persistent_cleanup;
+    Alcotest.test_case "teams_dedup persistent survives restart" `Quick
+      test_teams_dedup_persistent_survives_restart;
+    Alcotest.test_case "teams_dedup persistent fallback to LRU" `Quick
+      test_teams_dedup_persistent_fallback_to_lru;
+    Alcotest.test_case "teams_dedup different conversations" `Quick
+      test_teams_dedup_different_conversations;
     Alcotest.test_case "B464: send_reply whitespace short-circuits" `Quick
       test_send_reply_whitespace_only_short_circuits;
     Alcotest.test_case "B464: edit_activity empty text short-circuits" `Quick

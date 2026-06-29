@@ -13,6 +13,7 @@ type teams_activity = {
   activity_id : string;
   service_url : string;
   conversation_id : string;
+  reply_to_id : string;
   user_id : string;
   user_name : string;
   team_id : string;
@@ -76,6 +77,9 @@ let parse_activity body_str =
           |> to_string
         with _ -> ""
       in
+      let reply_to_id =
+        try json |> member "replyToId" |> to_string with _ -> ""
+      in
       let attachments =
         try
           json |> member "attachments" |> to_list
@@ -104,6 +108,7 @@ let parse_activity body_str =
             activity_id;
             service_url;
             conversation_id;
+            reply_to_id;
             user_id;
             user_name;
             team_id;
