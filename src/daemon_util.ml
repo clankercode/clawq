@@ -1222,7 +1222,7 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
       Session.drain_queued_messages session_manager ~key:session_key agent
         interrupt ())
 
-let setup_mcp_clients ?connect_client ~registry ~mcp_clients ?config ?snapshot
+let setup_mcp_clients ?connect_client ~registry ~mcp_clients ~config ~snapshot
     () =
   let servers_path = mcp_servers_path () in
   if not (Sys.file_exists servers_path) then Lwt.return_unit
@@ -1233,22 +1233,32 @@ let setup_mcp_clients ?connect_client ~registry ~mcp_clients ?config ?snapshot
       (fun cfg ->
         Lwt.catch
           (fun () ->
-            let* client =
-              match (connect_client, config, snapshot) with
-              | Some f, _, _ -> f cfg
-              | None, Some config, Some snapshot ->
-                  Mcp_client.connect_with_policy ~config ~snapshot cfg
-              | _ -> Mcp_client.connect cfg
+            (* Check if MCP server is authorized by the snapshot *)
+            let is_authorized =
+              snapshot.Access_snapshot.mcp_servers = []
+              || List.mem cfg.Mcp_client.name
+                   snapshot.Access_snapshot.mcp_servers
             in
-            mcp_clients := client :: !mcp_clients;
-            List.iter
-              (fun t ->
-                Tool_registry.register registry t;
-                Logs.info (fun m ->
-                    m "MCP tool registered: %s (from %s)" t.Tool.name
-                      cfg.Mcp_client.name))
-              (Mcp_client.discovered_tools client);
-            Lwt.return_unit)
+            if not is_authorized then (
+              Logs.warn (fun m ->
+                  m "MCP server '%s' not authorized by access policy, skipping"
+                    cfg.Mcp_client.name);
+              Lwt.return_unit)
+            else
+              let* client =
+                match connect_client with
+                | Some f -> f cfg
+                | None -> Mcp_client.connect_with_policy ~config ~snapshot cfg
+              in
+              mcp_clients := client :: !mcp_clients;
+              List.iter
+                (fun t ->
+                  Tool_registry.register registry t;
+                  Logs.info (fun m ->
+                      m "MCP tool registered: %s (from %s)" t.Tool.name
+                        cfg.Mcp_client.name))
+                (Mcp_client.discovered_tools client);
+              Lwt.return_unit)
           (fun exn ->
             Logs.warn (fun m ->
                 m "MCP client '%s' failed to connect: %s" cfg.Mcp_client.name
@@ -1264,8 +1274,15 @@ let run_mcp_setup_stage ?(now = Unix.gettimeofday)
       | Some registry, true ->
           Lwt.catch
             (fun () ->
+              (* Create an access snapshot for MCP setup. At daemon startup
+                 there is no room context, so we use Background_task work type
+                 with no session key. *)
+              let snapshot =
+                Access_snapshot.create ~config
+                  ~work_type:Access_snapshot.Background_task ()
+              in
               setup_mcp_clients ?connect_client ~registry ~mcp_clients ~config
-                ())
+                ~snapshot ())
             (fun exn ->
               Logs.warn (fun m ->
                   m "Failed to load MCP servers config: %s"

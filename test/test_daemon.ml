@@ -264,8 +264,14 @@ let test_setup_mcp_clients_loads_configs_and_registers_tools () =
         in
         Lwt.return client
       in
+      let config = Runtime_config.default in
+      let snapshot =
+        Access_snapshot.create ~config
+          ~work_type:Access_snapshot.Background_task ()
+      in
       Lwt_main.run
-        (Daemon.setup_mcp_clients ~connect_client ~registry ~mcp_clients ());
+        (Daemon.setup_mcp_clients ~connect_client ~registry ~mcp_clients ~config
+           ~snapshot ());
       let connected = List.rev !connected in
       Alcotest.(check int) "two configs loaded" 2 (List.length connected);
       let local_cfg = List.nth connected 0 in

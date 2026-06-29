@@ -393,18 +393,25 @@ let disconnect t =
     credential handle for an MCP server through the snapshot-scoped lease API.
     Returns [Ok env] with the resolved headers/env vars, or [Error msg] if the
     handle is missing or unauthorized. When [cfg.credential_handle] is [None],
-    returns [Ok cfg.env] (legacy path). *)
+    returns [Ok cfg.env] (legacy path). For HTTP servers, credentials are
+    resolved as Authorization headers. For stdio servers, credentials are
+    resolved as MCP_AUTH_TOKEN environment variable. *)
 let resolve_mcp_server_credentials ~(config : Runtime_config.t)
     ~(snapshot : Access_snapshot.t) (cfg : server_config) :
     ((string * string) list, string) result =
   match cfg.credential_handle with
   | None -> Ok cfg.env
   | Some handle_id -> (
-      (* Resolve as Authorization header for HTTP, then convert to env/header
-         pairs *)
+      let is_http = is_http_url cfg.command in
+      let header_name = "Authorization" in
+      let env_name = "MCP_AUTH_TOKEN" in
       match
-        Credential_lease.resolve_snapshot_lease ~config ~snapshot ~handle_id
-          ~header_name:"Authorization"
+        if is_http then
+          Credential_lease.resolve_snapshot_lease ~config ~snapshot ~handle_id
+            ~header_name
+        else
+          Credential_lease.resolve_snapshot_env_lease ~config ~snapshot
+            ~handle_id ~env_name
       with
       | Error err ->
           let msg = Credential_lease.resolution_error_to_string err in
@@ -414,9 +421,22 @@ let resolve_mcp_server_credentials ~(config : Runtime_config.t)
           Error msg
       | Ok lease ->
           let result = ref [] in
-          Credential_lease.apply_headers lease (fun headers ->
-              result := headers);
-          Ok !result)
+          if is_http then
+            Credential_lease.apply_headers lease (fun headers ->
+                result := headers)
+          else
+            Credential_lease.apply_env_vars lease (fun env_vars ->
+                result := env_vars);
+          (* Merge with existing env/headers, with resolved credentials taking
+             precedence *)
+          let resolved = !result in
+          let resolved_keys =
+            List.map (fun (k, _) -> k) resolved |> List.sort_uniq compare
+          in
+          let filtered_existing =
+            List.filter (fun (k, _) -> not (List.mem k resolved_keys)) cfg.env
+          in
+          Ok (filtered_existing @ resolved))
 
 (** [connect_with_policy ~config ~snapshot ?startup_timeout_s ?http_post cfg]
     connects to an MCP server after resolving credentials through policy. If
@@ -432,10 +452,10 @@ let connect_with_policy ~(config : Runtime_config.t)
       Lwt.fail_with
         (Printf.sprintf "MCP server '%s': credential policy denied: %s" cfg.name
            msg)
-  | Ok resolved_env ->
-      (* Apply resolved credentials to the config *)
+  | Ok merged_env ->
+      (* Apply merged credentials to the config (existing + resolved) *)
       let cfg_with_creds =
-        if cfg.credential_handle <> None then { cfg with env = resolved_env }
+        if cfg.credential_handle <> None then { cfg with env = merged_env }
         else cfg
       in
       connect ?startup_timeout_s ?http_post cfg_with_creds
