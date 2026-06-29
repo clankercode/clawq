@@ -9,6 +9,9 @@ This document enumerates the invariants guaranteed by the scope resolver
 (`Access_snapshot`). Most invariants link to runtime tests that enforce them;
 exceptions are noted explicitly.
 
+**Proof backlog**: See [`proof-backlog.md`](proof-backlog.md) for a catalogue
+of invariants that are candidates for formal proof or stronger verification.
+
 ---
 
 ## 1. Resolver Determinism
