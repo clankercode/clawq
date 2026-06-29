@@ -85,16 +85,10 @@ let sanitize_query_params query =
 (** [mask_userinfo uri] masks credentials in the userinfo portion of a URI.
     Handles both [user:pass@host] and [token@host] patterns. *)
 let mask_userinfo uri =
-  match Uri.user uri with
-  | Some _user -> (
-      match Uri.password uri with
-      | Some _ ->
-          (* user:password format - mask password *)
-          let uri = Uri.with_password uri (Some "REDACTED") in
-          Uri.with_user uri (Some "REDACTED")
-      | None ->
-          (* token-only format (e.g., ghp_xxx@github.com) - mask entire user *)
-          Uri.with_user uri (Some "REDACTED"))
+  match Uri.userinfo uri with
+  | Some _userinfo ->
+      (* Mask entire userinfo to prevent token leakage *)
+      Uri.with_userinfo uri (Some "REDACTED")
   | None -> uri
 
 (** [sanitize_url url] is the main entry point for URL sanitization. Strips
