@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-06-29T07:20:16Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T08:48:54Z"
 complexity: medium
 depends_on:
     - P18.M2.E1.T002
     - P14.M2.E1.T001
     - P18.M2.E1.T003
+duration_minutes: 88.63621311986667
 estimate_hours: 2
 id: P18.M2.E1.T004
 priority: high
 started_at: "2026-06-29T07:20:16Z"
-status: in_progress
+status: done
 tags: []
 title: Show egress rules in explain-access output
 ---

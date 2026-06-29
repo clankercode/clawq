@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Egress Policy Model and Inventory
       path: 01-egress-policy-model-and-invent
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P18.M2.E1
