@@ -1681,10 +1681,25 @@ let cmd_rooms args =
       in
       if as_json then Room_readiness_report.format_json report
       else Room_readiness_report.format_text report
+  | "audit-export" :: room_id :: flags -> (
+      match require_admin () with
+      | Some err -> err
+      | None ->
+          let db = get_db () in
+          let as_jsonl = List.mem "--jsonl" flags in
+          let as_json = List.mem "--json" flags || as_jsonl in
+          Room_activity_ledger.init_schema db;
+          let exp = Room_audit_export.generate ~cfg ~db ~room_id () in
+          if as_jsonl then Room_audit_export.export_to_jsonl exp
+          else if as_json then Room_audit_export.export_to_json_string exp
+          else Room_audit_export.format_text exp)
+  | "audit-export" :: _ ->
+      "Error: audit-export requires a room_id.\n\n\
+       Usage: clawq rooms audit-export <room_id> [--json|--jsonl]"
   | "wizard" :: rest -> Setup_room_wizard.run rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|readiness|wizard>\n\n\
+       <list|show|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|readiness|audit-export|wizard>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
@@ -1717,6 +1732,8 @@ let cmd_rooms args =
       \                              Query room session records (admin-only)\n\
       \  readiness [--room-id R] [--profile-id P] [--json]\n\
       \                              Show room-agent readiness report\n\
+      \  audit-export <room_id> [--json|--jsonl]\n\
+      \                              Export room governance audit (admin-only)\n\
       \  wizard [interactive|plan|apply] [options]\n\
       \                              Room-agent pilot wizard with plan/apply \
        flow"
