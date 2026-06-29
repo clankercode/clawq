@@ -1649,6 +1649,233 @@ let credential_lease_suite =
       denied_lease_makes_no_http_request;
   ]
 
+(* ---- Provenance tests ---- *)
+
+let provenance_empty_produces_none () =
+  let result = Github.format_provenance_footer Github.empty_provenance in
+  Alcotest.(check (option string)) "empty provenance" None result
+
+let provenance_connector_only () =
+  let prov = { Github.empty_provenance with connector = Some "slack" } in
+  match Github.format_provenance_footer prov with
+  | Some footer ->
+      Alcotest.(check bool)
+        "contains Slack" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "Slack") footer 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains clawq-provenance" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "<!-- clawq-provenance:")
+                footer 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains connector JSON" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "\"connector\"") footer 0);
+           true
+         with Not_found -> false)
+  | None -> Alcotest.fail "expected Some footer for connector-only provenance"
+
+let provenance_full_context () =
+  let prov =
+    {
+      Github.empty_provenance with
+      connector = Some "slack";
+      room_name = Some "general";
+      requester_id = Some "alice";
+      task_id = Some 42;
+    }
+  in
+  match Github.format_provenance_footer prov with
+  | Some footer ->
+      Alcotest.(check bool)
+        "contains Slack" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "Slack") footer 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains #general" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "#general") footer 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains @alice" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "@alice") footer 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains Task #42" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "Task #42") footer 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains separator" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string " | ") footer 0);
+           true
+         with Not_found -> false)
+  | None -> Alcotest.fail "expected Some footer for full provenance"
+
+let provenance_room_id_slack_channel () =
+  let prov = { Github.empty_provenance with room_id = Some "C12345" } in
+  match Github.format_provenance_footer prov with
+  | Some footer ->
+      (* Slack channel IDs starting with C should be included *)
+      Alcotest.(check bool)
+        "contains room_id JSON" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "\"room_id\"") footer 0);
+           true
+         with Not_found -> false)
+  | None -> Alcotest.fail "expected Some footer for Slack channel ID"
+
+let provenance_no_leak_private_content () =
+  let prov =
+    {
+      Github.empty_provenance with
+      connector = Some "slack";
+      room_id = Some "C12345";
+      requester_id = Some "U67890";
+    }
+  in
+  match Github.format_provenance_footer prov with
+  | Some footer ->
+      (* Verify no message content is included *)
+      Alcotest.(check bool)
+        "no message content" true
+        (not
+           (try
+              ignore (Str.search_forward (Str.regexp_string "message") footer 0);
+              true
+            with Not_found -> false));
+      Alcotest.(check bool)
+        "no body content" true
+        (not
+           (try
+              ignore (Str.search_forward (Str.regexp_string "body") footer 0);
+              true
+            with Not_found -> false))
+  | None -> Alcotest.fail "expected Some footer"
+
+let format_reply_with_provenance_none () =
+  let result =
+    Github.format_reply_with_provenance ~command:"test" ~response:"ok"
+      ~provenance:None
+  in
+  Alcotest.(check bool)
+    "contains bot_reply_marker" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "<!-- clawq-reply -->")
+            result 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "no provenance" true
+    (not
+       (try
+          ignore
+            (Str.search_forward
+               (Str.regexp_string "<!-- clawq-provenance:")
+               result 0);
+          true
+        with Not_found -> false))
+
+let format_reply_with_provenance_some () =
+  let prov =
+    {
+      Github.empty_provenance with
+      connector = Some "discord";
+      room_name = Some "dev";
+    }
+  in
+  let result =
+    Github.format_reply_with_provenance ~command:"review" ~response:"looks good"
+      ~provenance:(Some prov)
+  in
+  Alcotest.(check bool)
+    "contains bot_reply_marker" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "<!-- clawq-reply -->")
+            result 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains provenance" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "<!-- clawq-provenance:")
+            result 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains Discord" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Discord") result 0);
+       true
+     with Not_found -> false);
+  (* Verify provenance comes before bot_reply_marker *)
+  let prov_pos =
+    Str.search_forward (Str.regexp_string "<!-- clawq-provenance:") result 0
+  in
+  let marker_pos =
+    Str.search_forward (Str.regexp_string "<!-- clawq-reply -->") result 0
+  in
+  Alcotest.(check bool) "provenance before marker" true (prov_pos < marker_pos)
+
+let is_provenance_comment_detected () =
+  let text =
+    "Response\n\
+     ---\n\
+     <sub>Slack</sub>\n\
+     <!-- clawq-provenance: \"x\" -->\n\
+     <!-- clawq-reply -->"
+  in
+  Alcotest.(check bool)
+    "provenance detected" true
+    (Github.is_provenance_comment text)
+
+let is_provenance_comment_not_in_plain () =
+  Alcotest.(check bool)
+    "no provenance in plain text" false
+    (Github.is_provenance_comment "just a regular comment")
+
+let provenance_suite =
+  [
+    Alcotest.test_case "empty provenance produces None" `Quick
+      provenance_empty_produces_none;
+    Alcotest.test_case "connector only" `Quick provenance_connector_only;
+    Alcotest.test_case "full context" `Quick provenance_full_context;
+    Alcotest.test_case "room_id slack channel" `Quick
+      provenance_room_id_slack_channel;
+    Alcotest.test_case "no leak private content" `Quick
+      provenance_no_leak_private_content;
+    Alcotest.test_case "format_reply with no provenance" `Quick
+      format_reply_with_provenance_none;
+    Alcotest.test_case "format_reply with provenance" `Quick
+      format_reply_with_provenance_some;
+    Alcotest.test_case "is_provenance_comment detected" `Quick
+      is_provenance_comment_detected;
+    Alcotest.test_case "is_provenance_comment not in plain" `Quick
+      is_provenance_comment_not_in_plain;
+  ]
+
 let suites =
   [
     ("github_webhook_sig", sig_suite);
@@ -1662,4 +1889,5 @@ let suites =
     ("github_session_integration", session_integration_suite);
     ("github_lifecycle", lifecycle_suite);
     ("github_credential_lease", credential_lease_suite);
+    ("github_provenance", provenance_suite);
   ]

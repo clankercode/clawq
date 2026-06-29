@@ -411,7 +411,8 @@ let default_session_key prepared =
 let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
     ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
-    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~context_json
+    ?(egress_audit = Policy_http_client.no_audit)
+    ?(provenance_footer = (None : string option)) ~api_limiter ~context_json
     ~response () =
   let open Lwt.Syntax in
   let owner, repo =
@@ -448,7 +449,11 @@ let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
               Rate_limiter.check_and_consume api_limiter
                 ~key:(Printf.sprintf "github:%s/%s" owner repo)
             in
-            let body = response ^ "\n<!-- clawq-reply -->" in
+            let body =
+              match provenance_footer with
+              | Some footer -> response ^ footer ^ "\n<!-- clawq-reply -->"
+              | None -> response ^ "\n<!-- clawq-reply -->"
+            in
             Github_api.post_comment
               ~app_token:(Github_app_token.resolve_app_token ())
               ~auth:github_config.auth ~resolve_headers ~egress_rules

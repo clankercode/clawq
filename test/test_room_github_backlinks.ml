@@ -167,10 +167,10 @@ let test_delete_before () =
       let insert_with_ts ts id =
         let sql =
           "INSERT INTO room_github_backlinks (repo, github_item_type, \
-           github_item_id, room_id, \
-           room_item_type, direction, relationship, created_at) VALUES \
-           ('owner/repo', 'pr_comment', '" ^ id ^ "', 'room-1', 'message', \
-           'github_to_room', 'subscription_delivery', ?)"
+           github_item_id, room_id, room_item_type, direction, relationship, \
+           created_at) VALUES ('owner/repo', 'pr_comment', '" ^ id
+          ^ "', 'room-1', 'message', 'github_to_room', \
+             'subscription_delivery', ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect

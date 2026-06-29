@@ -4,6 +4,109 @@ type webhook_result = Ok of string | BadSignature
 
 let bot_reply_marker = "<!-- clawq-reply -->"
 
+type provenance = {
+  connector : string option;  (** e.g. "slack", "discord", "teams" *)
+  room_id : string option;  (** Room/channel identifier *)
+  room_name : string option;  (** Human-readable room name if available *)
+  requester_id : string option;  (** User who triggered the request *)
+  thread_id : string option;  (** Thread context if applicable *)
+  task_id : int option;  (** Background task ID if applicable *)
+}
+(** Provenance context for bot-authored GitHub comments. Identifies where a
+    request originated without leaking private room content. *)
+
+let empty_provenance =
+  {
+    connector = None;
+    room_id = None;
+    room_name = None;
+    requester_id = None;
+    thread_id = None;
+    task_id = None;
+  }
+
+(** [provenance_of_room_origin origin ?task_id ()] builds a provenance from a
+    {!Room_origin.t}. The [room_id] is sanitized to avoid leaking internal IDs
+    when no human-readable name is available. *)
+let provenance_of_room_origin ?task_id (origin : Room_origin.t) () =
+  {
+    connector = origin.connector;
+    room_id = origin.room_id;
+    room_name = None;
+    requester_id =
+      (match origin.requester_name with
+      | Some _ -> origin.requester_name
+      | None -> origin.requester_id);
+    thread_id = origin.thread_id;
+    task_id;
+  }
+
+(** [connector_display_name connector] returns a human-readable connector name.
+*)
+let connector_display_name = function
+  | Some "slack" -> "Slack"
+  | Some "discord" -> "Discord"
+  | Some "teams" -> "Teams"
+  | Some "telegram" -> "Telegram"
+  | Some "web" -> "Web"
+  | Some "github" -> "GitHub"
+  | Some s -> s
+  | None -> "CLI"
+
+(** [format_provenance_footer prov] formats a non-intrusive provenance footer
+    for a GitHub comment. Returns [None] if provenance is empty. The footer
+    includes a visible subtext line and an HTML comment with structured data for
+    programmatic parsing. Private room content is never included.
+
+    The HTML comment uses [<!-- clawq-provenance: ... -->] format and must
+    appear before the [<!-- clawq-reply -->] self-loop marker. *)
+let format_provenance_footer (prov : provenance) =
+  if prov = empty_provenance then None
+  else
+    let visible_parts = ref [] in
+    let json_fields = ref [] in
+    Option.iter
+      (fun c ->
+        visible_parts := connector_display_name (Some c) :: !visible_parts;
+        json_fields := ("connector", `String c) :: !json_fields)
+      prov.connector;
+    (match prov.room_name with
+    | Some name ->
+        visible_parts := Printf.sprintf "#%s" name :: !visible_parts;
+        json_fields := ("room_name", `String name) :: !json_fields
+    | None ->
+        Option.iter
+          (fun rid ->
+            (* Include room_id in visible output for Slack-style channel IDs
+               (C=channel, G=group, DM=D, or #-prefixed names). Internal IDs
+               that don't match these patterns are JSON-only for privacy. *)
+            if
+              String.length rid > 0
+              && (rid.[0] = '#'
+                 || rid.[0] = 'C'
+                 || rid.[0] = 'G'
+                 || rid.[0] = 'D')
+            then visible_parts := Printf.sprintf "#%s" rid :: !visible_parts;
+            json_fields := ("room_id", `String rid) :: !json_fields)
+          prov.room_id);
+    Option.iter
+      (fun r ->
+        visible_parts := Printf.sprintf "by @%s" r :: !visible_parts;
+        json_fields := ("requester", `String r) :: !json_fields)
+      prov.requester_id;
+    Option.iter
+      (fun tid ->
+        visible_parts := Printf.sprintf "Task #%d" tid :: !visible_parts;
+        json_fields := ("task_id", `Int tid) :: !json_fields)
+      prov.task_id;
+    if !visible_parts = [] then None
+    else
+      let visible = String.concat " | " (List.rev !visible_parts) in
+      let json_str = `Assoc (List.rev !json_fields) |> Yojson.Safe.to_string in
+      Some
+        (Printf.sprintf "\n---\n<sub>%s</sub>\n<!-- clawq-provenance: %s -->"
+           visible json_str)
+
 let format_reply ~command ~response =
   let base =
     if command = "" then response
@@ -11,9 +114,34 @@ let format_reply ~command ~response =
   in
   base ^ "\n" ^ bot_reply_marker
 
+(** [format_reply_with_provenance ~command ~response ~provenance] formats a
+    reply with optional provenance footer. The provenance appears between the
+    response and the self-loop marker. *)
+let format_reply_with_provenance ~command ~response
+    ~(provenance : provenance option) =
+  let base =
+    if command = "" then response
+    else Printf.sprintf "> /clawq %s\n\n%s" command response
+  in
+  match provenance with
+  | None -> base ^ "\n" ^ bot_reply_marker
+  | Some prov -> (
+      match format_provenance_footer prov with
+      | None -> base ^ "\n" ^ bot_reply_marker
+      | Some footer -> base ^ footer ^ "\n" ^ bot_reply_marker)
+
 let is_bot_reply text =
   try
     ignore (Str.search_forward (Str.regexp_string bot_reply_marker) text 0);
+    true
+  with Not_found -> false
+
+(** [is_provenance_comment text] checks if text contains a provenance HTML
+    comment. *)
+let is_provenance_comment text =
+  try
+    ignore
+      (Str.search_forward (Str.regexp_string "<!-- clawq-provenance:") text 0);
     true
   with Not_found -> false
 

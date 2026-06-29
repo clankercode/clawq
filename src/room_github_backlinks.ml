@@ -130,7 +130,7 @@ let backlink_to_json bl =
     [
       ("id", `Int bl.id);
       ("repo", `String bl.repo);
-      ("pr_number", (match bl.pr_number with Some n -> `Int n | None -> `Null));
+      ("pr_number", match bl.pr_number with Some n -> `Int n | None -> `Null);
       ( "commit_sha",
         match bl.commit_sha with Some s -> `String s | None -> `Null );
       ( "github_item_type",
@@ -262,8 +262,8 @@ let bind_params stmt params =
     (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
     params
 
-(** Convert an optional string to a TEXT value, using empty string for None
-    to ensure the UNIQUE constraint deduplicates correctly. *)
+(** Convert an optional string to a TEXT value, using empty string for None to
+    ensure the UNIQUE constraint deduplicates correctly. *)
 let opt_to_text = function
   | Some s -> Sqlite3.Data.TEXT s
   | None -> Sqlite3.Data.TEXT ""
@@ -275,8 +275,8 @@ let opt_to_text = function
      ~relationship ?snapshot_id ()] inserts a backlink record. Uses INSERT OR
     IGNORE for idempotency -- duplicate composite keys are silently skipped.
     Optional ID fields use empty string defaults so the UNIQUE constraint works
-    correctly (SQLite NULL != NULL would break idempotency).
-    Returns [true] if a new row was inserted, [false] if it was a duplicate. *)
+    correctly (SQLite NULL != NULL would break idempotency). Returns [true] if a
+    new row was inserted, [false] if it was a duplicate. *)
 let insert ~db ~repo ?pr_number ?commit_sha ~github_item_type ?github_item_id
     ?github_url ~room_id ?thread_id ~room_item_type ?room_item_id ~direction
     ~relationship ?snapshot_id () =
@@ -472,8 +472,8 @@ let delete_before ~db ~before_timestamp () =
 (** {1 Convenience insert helpers} *)
 
 (** [record_subscription_delivery ~db ~repo ~pr_number ?github_item_id
-     ?github_url ~room_id ~event_type ?snapshot_id ?thread_id ()] records that
-    a GitHub PR event was delivered to a room via subscription. The
+     ?github_url ~room_id ~event_type ?snapshot_id ?thread_id ()] records that a
+    GitHub PR event was delivered to a room via subscription. The
     [github_item_id] should be the actual GitHub identifier (comment_id,
     review_id, etc.) for durable lookup. *)
 let record_subscription_delivery ~db ~repo ~pr_number ?github_item_id
@@ -517,11 +517,11 @@ let record_triggered_run ~db ~repo ~pr_number ~github_item_type ?github_url
 (** [record_room_to_room ~db ~room_id ?thread_id ~room_item_type ~room_item_id
      ~linked_room_item_type ~linked_room_item_id ?snapshot_id ()] records a
     backlink between two room-side items (e.g., background task -> review run).
-    Uses empty strings for repo/github fields since this is not a GitHub link. *)
+    Uses empty strings for repo/github fields since this is not a GitHub link.
+*)
 let record_room_to_room ~db ~room_id ?thread_id ~room_item_type ~room_item_id
     ~linked_room_item_type ~linked_room_item_id ?snapshot_id () =
   ignore
     (insert ~db ~repo:"" ~github_item_type:Commit ~room_id ?thread_id
-       ~room_item_type:linked_room_item_type
-       ~room_item_id:linked_room_item_id ~direction:Room_to_github
-       ~relationship:Triggered_run ?snapshot_id ())
+       ~room_item_type:linked_room_item_type ~room_item_id:linked_room_item_id
+       ~direction:Room_to_github ~relationship:Triggered_run ?snapshot_id ())
