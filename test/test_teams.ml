@@ -1133,6 +1133,7 @@ let test_handle_invoke_file_consent_decline () =
       ~content_type:"application/json" ~ttl_s:60.0 ()
   in
   let config = test_teams_config () in
+  let session_manager = Session.create ~config:Runtime_config.default () in
   let body =
     `Assoc
       [
@@ -1151,20 +1152,23 @@ let test_handle_invoke_file_consent_decline () =
   in
   let status_code, body_str =
     Lwt_main.run
-      (Teams.handle_invoke ~config ~auth_header:(bearer_for_config config) body)
+      (Teams.handle_invoke ~config ~session_manager
+         ~auth_header:(bearer_for_config config) body)
   in
   Alcotest.(check int) "handle_invoke decline status code" 200 status_code;
   check_ok_invoke_response ~msg:"handle_invoke decline body" body_str
 
 let test_handle_invoke_unknown_name_returns_ok () =
   let config = test_teams_config () in
+  let session_manager = Session.create ~config:Runtime_config.default () in
   let body =
     `Assoc [ ("type", `String "invoke"); ("name", `String "unknown/invoke") ]
     |> Yojson.Safe.to_string
   in
   let status_code, body_str =
     Lwt_main.run
-      (Teams.handle_invoke ~config ~auth_header:(bearer_for_config config) body)
+      (Teams.handle_invoke ~config ~session_manager
+         ~auth_header:(bearer_for_config config) body)
   in
   Alcotest.(check int) "handle_invoke unknown status code" 200 status_code;
   check_ok_invoke_response ~msg:"handle_invoke unknown body" body_str

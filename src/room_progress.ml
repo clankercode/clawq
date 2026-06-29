@@ -514,7 +514,7 @@ let deliver_progress_update_with_card
        Room_progress_checklist.checklist_item list ->
        string)
        option) ~(checklist_items : Room_progress_checklist.checklist_item list)
-    ~(task : task) () : bool Lwt.t =
+    ?room_policy ~(task : task) () : bool Lwt.t =
   let open Lwt.Syntax in
   let connector, room_id, thread_id = connector_and_room_of_task task in
   if room_id = "" then Lwt.return false
@@ -524,7 +524,7 @@ let deliver_progress_update_with_card
     (* Build the adaptive card *)
     let card =
       Teams_progress_card.build_card ~task_id:task.id ~task_label
-        ~items:checklist_items ~elapsed ()
+        ~items:checklist_items ~elapsed ?room_policy ()
     in
     let fallback_text =
       match format_checklist with
@@ -625,8 +625,8 @@ let deliver_final_message_with_card ?summary
        Room_progress_checklist.checklist_item list ->
        string)
        option) ~(checklist_items : Room_progress_checklist.checklist_item list)
-    ~(task_actions : Teams_progress_card.task_actions option) ~(task : task) ()
-    : delivery_result Lwt.t =
+    ?room_policy ~(task_actions : Teams_progress_card.task_actions option)
+    ~(task : task) () : delivery_result Lwt.t =
   let open Lwt.Syntax in
   let connector, room_id, thread_id = connector_and_room_of_task task in
   if room_id = "" then begin
@@ -663,7 +663,7 @@ let deliver_final_message_with_card ?summary
     let card =
       Teams_progress_card.build_card ~task_id:task.id ~task_label
         ~items:checklist_items ~actions:task_actions ~elapsed
-        ?summary:summary_text ?task_outcome ()
+        ?summary:summary_text ?task_outcome ?room_policy ()
     in
     let fallback_text =
       match format_checklist with

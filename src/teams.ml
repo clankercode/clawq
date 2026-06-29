@@ -536,10 +536,208 @@ let handle_file_consent_invoke ~(config : Runtime_config.teams_config) json =
   Teams_file_consent.handle_file_consent_invoke ~fetch_token
     ~post_json_throttled ~send_reply:file_consent_send_reply ~config json
 
-let handle_invoke ~(config : Runtime_config.teams_config) ~auth_header body_str
-    =
-  Teams_file_consent.handle_invoke ~fetch_token ~post_json_throttled
-    ~send_reply:file_consent_send_reply ~config ~auth_header body_str
+(** {1 Card action invoke handling} *)
+
+(** Supported card action names for task controls. *)
+type card_action =
+  | TaskInspect of int
+  | TaskContinue of int
+  | TaskCancel of int
+  | Unsupported
+
+(** [parse_card_action json] extracts a card action from an invoke JSON payload.
+    Returns [Unsupported] for unrecognized actions. *)
+let parse_card_action (json : Yojson.Safe.t) : card_action =
+  let open Yojson.Safe.Util in
+  let name = try json |> member "name" |> to_string with _ -> "" in
+  let value = try json |> member "value" |> to_string with _ -> "" in
+  match name with
+  | "task/inspect" -> (
+      match int_of_string_opt value with
+      | Some id -> TaskInspect id
+      | None -> Unsupported)
+  | "task/continue" -> (
+      match int_of_string_opt value with
+      | Some id -> TaskContinue id
+      | None -> Unsupported)
+  | "task/cancel" -> (
+      match int_of_string_opt value with
+      | Some id -> TaskCancel id
+      | None -> Unsupported)
+  | _ -> Unsupported
+
+(** [tool_name_for_card_action action] returns the room policy tool name
+    required for a given card action. *)
+let tool_name_for_card_action = function
+  | TaskInspect _ -> "background_task_list"
+  | TaskContinue _ -> "background_task_resume"
+  | TaskCancel _ -> "background_task_cancel"
+  | Unsupported -> ""
+
+(** [check_card_action_room_policy ~config ~session_key action] checks if the
+    card action is allowed by room policy. Returns [Ok ()] if allowed,
+    [Error msg] if denied. *)
+let check_card_action_room_policy ~(config : Runtime_config.t) ?session_key
+    (action : card_action) =
+  let tool_name = tool_name_for_card_action action in
+  if tool_name = "" then Ok ()
+  else
+    match session_key with
+    | Some key ->
+        if
+          Option.is_some
+            (Runtime_config.room_profile_tool_denial_for_session config
+               ~session_key:key ~tool_name)
+        then Error (Printf.sprintf "Action denied by room policy: %s" tool_name)
+        else Ok ()
+    | None -> Ok ()
+
+(** [format_card_action_feedback action result] formats feedback for a card
+    action result. Returns a human-readable message. *)
+let format_card_action_feedback (action : card_action)
+    (result : (string, string) result) =
+  match (action, result) with
+  | TaskInspect _, Ok msg -> Printf.sprintf "Inspect: %s" msg
+  | TaskContinue _, Ok msg -> Printf.sprintf "Continue: %s" msg
+  | TaskCancel _, Ok msg -> Printf.sprintf "Cancel: %s" msg
+  | _, Error msg -> Printf.sprintf "Denied: %s" msg
+  | Unsupported, _ -> "Unsupported action"
+
+let handle_invoke ~(config : Runtime_config.teams_config)
+    ~(session_manager : Session.t) ~auth_header body_str =
+  let open Lwt.Syntax in
+  let* auth_result = verify_auth ~config auth_header in
+  match auth_result with
+  | Error reason ->
+      Logs.warn (fun m -> m "Teams: invoke auth failed: %s" reason);
+      let response = Teams_file_consent.unauthorized_invoke_response () in
+      Lwt.return
+        (response.status_code, Teams_file_consent.invoke_response_body response)
+  | Ok () -> (
+      try
+        let json = Yojson.Safe.from_string body_str in
+        let name =
+          try Yojson.Safe.Util.(json |> member "name" |> to_string)
+          with _ -> ""
+        in
+        (* Route to appropriate handler *)
+        match name with
+        | "fileConsent/invoke" ->
+            let* response = handle_file_consent_invoke ~config json in
+            Lwt.return
+              ( response.status_code,
+                Teams_file_consent.invoke_response_body response )
+        | "task/inspect" | "task/continue" | "task/cancel" -> (
+            (* Handle task control card actions *)
+            let action = parse_card_action json in
+            (* Check room policy *)
+            let session_key =
+              try
+                Some
+                  (Yojson.Safe.Util.(json |> member "from" |> member "id")
+                  |> Yojson.Safe.Util.to_string)
+              with _ -> None
+            in
+            let policy_result =
+              check_card_action_room_policy
+                ~config:(Session.get_config session_manager)
+                ?session_key action
+            in
+            match policy_result with
+            | Error msg ->
+                (* Return 403 Forbidden for denied actions *)
+                let response =
+                  Teams_file_consent.make_invoke_response
+                    ~body:(`Assoc [ ("message", `String msg) ])
+                    403
+                in
+                Lwt.return
+                  ( response.status_code,
+                    Teams_file_consent.invoke_response_body response )
+            | Ok () ->
+                (* Action allowed — process it *)
+                let feedback =
+                  match action with
+                  | TaskInspect id ->
+                      (* Return task details *)
+                      let task_info =
+                        match Session.get_db session_manager with
+                        | Some db -> (
+                            match Background_task.get_task ~db ~id with
+                            | Some task ->
+                                let status_str =
+                                  Background_task.string_of_status task.status
+                                in
+                                Printf.sprintf
+                                  "Task #%d: %s\nStatus: %s\nRunner: %s" id
+                                  (Option.value task.description
+                                     ~default:"No description")
+                                  status_str
+                                  (Background_task.string_of_runner task.runner)
+                            | None -> Printf.sprintf "Task #%d not found" id)
+                        | None -> "Database not available"
+                      in
+                      Ok task_info
+                  | TaskContinue id ->
+                      (* Resume task *)
+                      let result =
+                        match Session.get_db session_manager with
+                        | Some db -> (
+                            match
+                              Background_task.request_resume ~message:None ~db
+                                ~id
+                            with
+                            | Ok msg -> Ok msg
+                            | Error msg -> Error msg)
+                        | None -> Error "Database not available"
+                      in
+                      result
+                  | TaskCancel id ->
+                      (* Cancel task *)
+                      let result =
+                        match Session.get_db session_manager with
+                        | Some db -> (
+                            match
+                              Background_task.cancel_with_signal
+                                ~send_signal:Unix.kill ~db ~id ()
+                            with
+                            | Ok msg -> Ok msg
+                            | Error msg -> Error msg)
+                        | None -> Error "Database not available"
+                      in
+                      result
+                  | Unsupported -> Error "Unsupported action"
+                in
+                let status_code =
+                  match feedback with Ok _ -> 200 | Error _ -> 400
+                in
+                let response =
+                  Teams_file_consent.make_invoke_response
+                    ~body:
+                      (`Assoc
+                         [
+                           ( "message",
+                             `String
+                               (format_card_action_feedback action feedback) );
+                         ])
+                    status_code
+                in
+                Lwt.return
+                  ( response.status_code,
+                    Teams_file_consent.invoke_response_body response ))
+        | _ ->
+            Logs.debug (fun m -> m "Teams: unhandled invoke name=%s" name);
+            let response = Teams_file_consent.ok_invoke_response () in
+            Lwt.return
+              ( response.status_code,
+                Teams_file_consent.invoke_response_body response )
+      with exn ->
+        Logs.err (fun m ->
+            m "Teams: invoke handler error: %s" (Printexc.to_string exn));
+        let response = Teams_file_consent.ok_invoke_response () in
+        Lwt.return
+          ( response.status_code,
+            Teams_file_consent.invoke_response_body response ))
 
 let make_status_notifier ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~reply_to_id : Status_message.notifier =

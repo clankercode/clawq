@@ -128,16 +128,29 @@ type task_actions = {
   show_retry : bool;
   show_logs : bool;
   show_finalize : bool;
+  show_inspect : bool;
+  show_continue : bool;
+  show_cancel : bool;
   log_path : string option;
 }
 (** Build action buttons for a task.
     - [retry] shown when task failed
     - [logs] shown when task has a log path
-    - [finalize] shown when task has dirty worktree *)
+    - [finalize] shown when task has dirty worktree
+    - [inspect] shown to view task details
+    - [continue] shown when task can be resumed
+    - [cancel] shown when task is running or queued *)
 
-let render_actions (actions : task_actions) =
+type room_policy_check = tool_name:string -> bool
+(** Room policy check function type. Returns [true] if the tool is allowed. *)
+
+(** Default room policy check that allows everything. *)
+let default_room_policy_check ~tool_name:_ = true
+
+let render_actions ?(room_policy = default_room_policy_check)
+    (actions : task_actions) =
   let buttons = ref [] in
-  if actions.show_retry then
+  if actions.show_retry && room_policy ~tool_name:"background_task_enqueue" then
     buttons :=
       `Assoc
         [
@@ -158,7 +171,7 @@ let render_actions (actions : task_actions) =
               ] );
         ]
       :: !buttons;
-  if actions.show_logs then
+  if actions.show_logs && room_policy ~tool_name:"background_task_logs" then
     buttons :=
       `Assoc
         [
@@ -179,7 +192,7 @@ let render_actions (actions : task_actions) =
               ] );
         ]
       :: !buttons;
-  if actions.show_finalize then
+  if actions.show_finalize && room_policy ~tool_name:"background_finalize" then
     buttons :=
       `Assoc
         [
@@ -195,6 +208,70 @@ let render_actions (actions : task_actions) =
                       ( "value",
                         `String
                           (Printf.sprintf "/background finalize %d"
+                             actions.task_id) );
+                    ] );
+              ] );
+        ]
+      :: !buttons;
+  if actions.show_inspect && room_policy ~tool_name:"background_task_list" then
+    buttons :=
+      `Assoc
+        [
+          ("type", `String "Action.Submit");
+          ("title", `String "Inspect");
+          ( "data",
+            `Assoc
+              [
+                ( "msteams",
+                  `Assoc
+                    [
+                      ("type", `String "imBack");
+                      ( "value",
+                        `String
+                          (Printf.sprintf "/background show %d" actions.task_id)
+                      );
+                    ] );
+              ] );
+        ]
+      :: !buttons;
+  if actions.show_continue && room_policy ~tool_name:"background_task_resume"
+  then
+    buttons :=
+      `Assoc
+        [
+          ("type", `String "Action.Submit");
+          ("title", `String "Continue");
+          ( "data",
+            `Assoc
+              [
+                ( "msteams",
+                  `Assoc
+                    [
+                      ("type", `String "imBack");
+                      ( "value",
+                        `String
+                          (Printf.sprintf "/background resume %d"
+                             actions.task_id) );
+                    ] );
+              ] );
+        ]
+      :: !buttons;
+  if actions.show_cancel && room_policy ~tool_name:"background_task_cancel" then
+    buttons :=
+      `Assoc
+        [
+          ("type", `String "Action.Submit");
+          ("title", `String "Cancel");
+          ( "data",
+            `Assoc
+              [
+                ( "msteams",
+                  `Assoc
+                    [
+                      ("type", `String "imBack");
+                      ( "value",
+                        `String
+                          (Printf.sprintf "/background cancel %d"
                              actions.task_id) );
                     ] );
               ] );
@@ -235,7 +312,7 @@ let style_of_outcome = function
     - [~summary] optional override summary text
     - [~task_outcome] optional terminal task outcome for styling *)
 let build_card ~task_id ~task_label ~items ?(actions = None) ?elapsed ?summary
-    ?task_outcome () =
+    ?task_outcome ?room_policy () =
   let style =
     match task_outcome with
     | Some outcome -> style_of_outcome outcome
@@ -307,7 +384,7 @@ let build_card ~task_id ~task_label ~items ?(actions = None) ?elapsed ?summary
   (* Add action controls if present *)
   let body_elements =
     match actions with
-    | Some act -> body_elements @ render_actions act
+    | Some act -> body_elements @ render_actions ?room_policy act
     | None -> body_elements
   in
   (* Wrap in the Bot Framework attachment envelope *)
@@ -342,7 +419,7 @@ let build_card ~task_id ~task_label ~items ?(actions = None) ?elapsed ?summary
     structure as [build_card] but without the envelope wrapper — used when
     editing an existing Adaptive Card in place. *)
 let build_update_card ~task_id ~task_label ~items ?(actions = None) ?elapsed
-    ?summary ?task_outcome () =
+    ?summary ?task_outcome ?room_policy () =
   let style =
     match task_outcome with
     | Some outcome -> style_of_outcome outcome
@@ -412,7 +489,7 @@ let build_update_card ~task_id ~task_label ~items ?(actions = None) ?elapsed
   in
   let body_elements =
     match actions with
-    | Some act -> body_elements @ render_actions act
+    | Some act -> body_elements @ render_actions ?room_policy act
     | None -> body_elements
   in
   `Assoc

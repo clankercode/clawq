@@ -810,6 +810,9 @@ let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
                       task.status = Failed || task.status = DirtyWorktree;
                     show_logs = Option.is_some task.log_path;
                     show_finalize = task.status = DirtyWorktree;
+                    show_inspect = true;
+                    show_continue = false;
+                    show_cancel = false;
                     log_path = task.log_path;
                   }
             in
@@ -818,11 +821,16 @@ let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
                 Some Slack_progress_checklist.format_final_for_room_progress
               else None
             in
+            let room_policy =
+              Some
+                (Slash_commands_manifest.make_room_policy_check ~config
+                   ?session_key:task.session_key ())
+            in
             let* result =
               Room_progress.deliver_final_message_with_card ?summary:None ~send
                 ~edit ?send_adaptive_card ?edit_adaptive_card ?db
-                ?format_checklist ~checklist_items:updated_items ~task_actions
-                ~task ()
+                ?format_checklist ~checklist_items:updated_items ?room_policy
+                ~task_actions ~task ()
             in
             Lwt.return (result = Room_progress.Delivered)
           end
@@ -832,9 +840,14 @@ let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
                 Some Slack_progress_checklist.format_for_room_progress
               else None
             in
+            let room_policy =
+              Some
+                (Slash_commands_manifest.make_room_policy_check ~config
+                   ?session_key:task.session_key ())
+            in
             Room_progress.deliver_progress_update_with_card ~send ~edit
               ?send_adaptive_card ?edit_adaptive_card ?db ?format_checklist
-              ~checklist_items:updated_items ~task ()
+              ~checklist_items:updated_items ?room_policy ~task ()
         end
         else begin
           let* () =

@@ -390,7 +390,8 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
               Lwt.catch
                 (fun () ->
                   let* status_code, resp_body =
-                    Teams.handle_invoke ~config:tc ~auth_header body_str
+                    Teams.handle_invoke ~config:tc ~session_manager ~auth_header
+                      body_str
                   in
                   let status = Cohttp.Code.status_of_code status_code in
                   Cohttp_lwt_unix.Server.respond_string ~status

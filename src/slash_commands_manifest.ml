@@ -21,6 +21,12 @@ let room_tool_allowed ?config ?session_key tool_name =
            ~tool_name)
   | _ -> true
 
+(** [make_room_policy_check ?config ?session_key ()] creates a room policy check
+    function suitable for passing to [Teams_progress_card.build_card]. *)
+let make_room_policy_check ?config ?session_key () :
+    Teams_progress_card.room_policy_check =
+ fun ~tool_name -> room_tool_allowed ?config ?session_key tool_name
+
 let command_required_tools name =
   match String.lowercase_ascii name with
   | "bg" | "background" ->
