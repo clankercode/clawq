@@ -39,3 +39,4 @@ npm-pkg/bin/
 .maint/
 room-agent-campaign/
 .docs-audit/
+__pycache__/
