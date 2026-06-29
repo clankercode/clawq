@@ -20,7 +20,7 @@ tasks:
       file: T001-define-public-private-room-mem.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Define public private room memory semantics
     - complexity: medium
