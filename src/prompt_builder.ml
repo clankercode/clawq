@@ -354,7 +354,7 @@ let resolve_project_doc_dir ?effective_cwd () =
       | None -> None)
 
 let build_project_docs_message ~(config : Runtime_config.t) ?effective_cwd
-    ~ws_doc_digests () =
+    ~ws_doc_digests ?(instruction_texts = []) () =
   if not config.prompt.include_project_docs then
     { content = None; digests = []; git_root = None }
   else
@@ -364,6 +364,11 @@ let build_project_docs_message ~(config : Runtime_config.t) ?effective_cwd
         let budget = ref config.prompt.max_project_doc_chars in
         let seen_digests = Hashtbl.create 4 in
         List.iter (fun d -> Hashtbl.replace seen_digests d true) ws_doc_digests;
+        List.iter
+          (fun text ->
+            let d = Digest.to_hex (Digest.string text) in
+            Hashtbl.replace seen_digests d true)
+          instruction_texts;
         let collected_digests = ref [] in
         let blocks = ref [] in
         List.iter

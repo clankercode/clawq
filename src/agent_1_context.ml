@@ -311,9 +311,15 @@ let refresh_project_docs_if_changed agent =
           Prompt_builder.workspace_doc_content_digests ~config:agent.config ()
       | Some _ -> []
     in
+    let instruction_texts =
+      List.map
+        (fun (item : Runtime_config.effective_instruction_item) ->
+          item.instruction.text)
+        agent.instruction_items
+    in
     let pd =
       Prompt_builder.build_project_docs_message ~config:agent.config
-        ?effective_cwd:agent.effective_cwd ~ws_doc_digests ()
+        ?effective_cwd:agent.effective_cwd ~ws_doc_digests ~instruction_texts ()
     in
     let new_digests = pd.digests in
     (* Reload state when the docs change OR the resolved root moves (e.g. a
@@ -403,9 +409,16 @@ let observe_project_docs agent (tc : Provider.tool_call) =
                 in
                 if content <> "" then begin
                   let digest = Digest.to_hex (Digest.string content) in
+                  let instruction_digests =
+                    List.map
+                      (fun (item : Runtime_config.effective_instruction_item) ->
+                        Digest.to_hex (Digest.string item.instruction.text))
+                      agent.instruction_items
+                  in
                   if
                     List.mem digest agent.project_docs_digests
                     || List.mem digest agent.project_docs_subdir_digests
+                    || List.mem digest instruction_digests
                   then None
                   else begin
                     agent.project_docs_subdir_digests <-
