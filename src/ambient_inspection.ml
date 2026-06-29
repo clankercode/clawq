@@ -18,6 +18,10 @@ type inspection_result = {
   decision_summary : Room_watcher_decision.decision_summary;
   delivery_failures : Room_activity_ledger.event list;
   deliveries_this_hour : int;
+  repo_grants : Access_explanation.item_explanation list;
+  blocked_repo_grants : Access_explanation.item_explanation list;
+  codebase_grants : Access_explanation.item_explanation list;
+  blocked_codebase_grants : Access_explanation.item_explanation list;
 }
 
 (** {1 Inspection} *)
@@ -78,6 +82,11 @@ let inspect ~db ~cfg ~room_id ?(decision_limit = 20) () =
   let deliveries_this_hour =
     Room_ambient_delivery.count_deliveries_this_hour ~db ~room_id
   in
+  (* Resolve effective access grants *)
+  let explanation =
+    try Access_explanation.create ~config:cfg ~session_key:room_id ()
+    with _ -> Access_explanation.create ~config:cfg ~session_key:room_id ()
+  in
   {
     room_id;
     profile_name;
@@ -88,6 +97,10 @@ let inspect ~db ~cfg ~room_id ?(decision_limit = 20) () =
     decision_summary;
     delivery_failures;
     deliveries_this_hour;
+    repo_grants = explanation.repo_grants;
+    blocked_repo_grants = explanation.blocked_repo_grants;
+    codebase_grants = explanation.codebase_grants;
+    blocked_codebase_grants = explanation.blocked_codebase_grants;
   }
 
 (** {1 Formatting} *)
@@ -176,4 +189,59 @@ let format_inspection (r : inspection_result) =
         in
         add (Printf.sprintf "  %s  %s" e.timestamp error_msg))
       r.delivery_failures;
+  (* GitHub grants *)
+  let has_grants =
+    r.repo_grants <> []
+    || r.blocked_repo_grants <> []
+    || r.codebase_grants <> []
+    || r.blocked_codebase_grants <> []
+  in
+  if has_grants then begin
+    add "";
+    add "GitHub Grants:";
+    if r.repo_grants <> [] then begin
+      add "  Granted repos:";
+      List.iter
+        (fun (ie : Access_explanation.item_explanation) ->
+          match Runtime_config.repo_grant_of_json_string ie.value with
+          | Some rg ->
+              let caps =
+                String.concat ", "
+                  (List.map Runtime_config.repo_capability_to_string
+                     rg.capabilities)
+              in
+              add (Printf.sprintf "    - %s [%s]" rg.repo caps)
+          | None -> add (Printf.sprintf "    - %s" ie.value))
+        r.repo_grants
+    end;
+    if r.blocked_repo_grants <> [] then begin
+      add "  Blocked repos:";
+      List.iter
+        (fun (ie : Access_explanation.item_explanation) ->
+          match Runtime_config.repo_grant_of_json_string ie.value with
+          | Some rg ->
+              let caps =
+                String.concat ", "
+                  (List.map Runtime_config.repo_capability_to_string
+                     rg.capabilities)
+              in
+              add (Printf.sprintf "    - %s [%s] (blocked)" rg.repo caps)
+          | None -> add (Printf.sprintf "    - %s (blocked)" ie.value))
+        r.blocked_repo_grants
+    end;
+    if r.codebase_grants <> [] then begin
+      add "  Codebase grants:";
+      List.iter
+        (fun (ie : Access_explanation.item_explanation) ->
+          add (Printf.sprintf "    - %s" ie.value))
+        r.codebase_grants
+    end;
+    if r.blocked_codebase_grants <> [] then begin
+      add "  Blocked codebase grants:";
+      List.iter
+        (fun (ie : Access_explanation.item_explanation) ->
+          add (Printf.sprintf "    - %s (blocked)" ie.value))
+        r.blocked_codebase_grants
+    end
+  end;
   String.concat "\n" (List.rev !lines)
