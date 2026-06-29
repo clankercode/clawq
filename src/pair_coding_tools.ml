@@ -35,6 +35,7 @@ let enqueue_to_role ctx ~(target_role : Pair_coding_types.role) ~message =
       bang = false;
       deferred_followup = false;
       snapshot_work_type = None;
+      has_external_users = false;
     }
   in
   let open Lwt.Syntax in

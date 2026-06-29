@@ -3201,6 +3201,7 @@ let test_subagent_result_tool_uses_session_mgr_for_queued_interrupts () =
             bang = false;
             deferred_followup = false;
             snapshot_work_type = None;
+            has_external_users = false;
           };
         ];
       let tool =

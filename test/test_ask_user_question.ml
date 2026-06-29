@@ -55,6 +55,7 @@ let dummy_queued_message message : Session.queued_message =
     bang = false;
     deferred_followup = false;
     snapshot_work_type = None;
+    has_external_users = false;
   }
 
 let test_enqueue_intercepts_pending_question () =

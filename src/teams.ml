@@ -1463,7 +1463,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                           (encode_channel_id
                                              ~service_url:effective_service_url
                                              ~conversation_id)
-                                        ~sender_id:user_id ?sender_name ()
+                                        ~sender_id:user_id ?sender_name
+                                        ~has_external_users:is_external ()
                                     in
                                     Lwt.return (Ok response))
                                   (fun exn ->

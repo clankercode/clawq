@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-29T17:35:27Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P16.M1.E2.T004
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 3
 id: P17.M2.E2.T001
 priority: high
-status: pending
-tags:
-    - setup
-    - github
+started_at: "2026-06-29T17:35:27Z"
+status: in_progress
+tags: []
 title: Validate GitHub App and repo grants in wizard
 ---
 Acceptance: wizard checks installation, repo grants, webhook reachability, and room backlink readiness with exact repair commands.

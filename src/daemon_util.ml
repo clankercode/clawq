@@ -1035,6 +1035,7 @@ let notify_background_task_started ~(session_manager : Session.t)
             bang = false;
             deferred_followup = false;
             snapshot_work_type = None;
+            has_external_users = false;
           }
       in
       Lwt.return_unit

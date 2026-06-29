@@ -274,6 +274,7 @@ let start_session ~db ~(session_mgr : Session_core.t)
           bang = false;
           deferred_followup = false;
           snapshot_work_type = None;
+          has_external_users = false;
         }
       in
       let open Lwt.Syntax in

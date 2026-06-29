@@ -22,7 +22,8 @@ tasks:
       file: T001-validate-github-app-and-repo-g.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Validate GitHub App and repo grants in wizard
     - complexity: medium
       depends_on:

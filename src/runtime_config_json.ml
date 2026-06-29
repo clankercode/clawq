@@ -1329,10 +1329,19 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
     let per_connector_json =
       List.map
         (fun (name, action) ->
-          `Assoc
-            [
-              ("connector", `String name); ("action_obj", action_to_json action);
-            ])
+          let action_fields =
+            match action with
+            | Policy_allow -> [ ("action", `String "allow") ]
+            | Policy_warn msg ->
+                [ ("action", `String "warn"); ("message", `String msg) ]
+            | Policy_deny (reason, allow_admin) ->
+                [
+                  ("action", `String "deny");
+                  ("reason", `String reason);
+                  ("allow_admin_override", `Bool allow_admin);
+                ]
+          in
+          `Assoc (("connector", `String name) :: action_fields))
         erp.per_connector
     in
     let is_default =

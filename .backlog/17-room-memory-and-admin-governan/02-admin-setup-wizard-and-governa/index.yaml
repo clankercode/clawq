@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Pilot Room Wizard Core
       path: 01-pilot-room-wizard-core
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P17.M2.E1

@@ -104,6 +104,7 @@ let queued_followup ?channel_name ?channel_type ?sender_name ?message_id
     bang = false;
     deferred_followup = true;
     snapshot_work_type = Some Access_snapshot.Room_turn;
+    has_external_users = false;
   }
 
 let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id

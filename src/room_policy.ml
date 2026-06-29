@@ -116,18 +116,33 @@ let evaluate (policy : external_room_policy)
   match action with
   | Policy_allow -> Proceed
   | Policy_warn msg ->
-      let scope_label = room_scope_to_string classification.scope in
       let full_msg =
-        Printf.sprintf
-          "Notice: This %s room has external participants (scope: %s). %s"
-          classification.connector scope_label msg
+        match classification.scope with
+        | Rm_unknown ->
+            Printf.sprintf
+              "Notice: The '%s' connector does not report guest or external \
+               room metadata. Room classification is unknown. %s"
+              classification.connector msg
+        | _ ->
+            let scope_label = room_scope_to_string classification.scope in
+            Printf.sprintf
+              "Notice: This %s room has external participants (scope: %s). %s"
+              classification.connector scope_label msg
       in
       Proceed_with_warning full_msg
   | Policy_deny (reason, allow_admin_override) ->
-      let scope_label = room_scope_to_string classification.scope in
       let base_msg =
-        Printf.sprintf "Work is not allowed in this %s room (scope: %s). %s"
-          classification.connector scope_label reason
+        match classification.scope with
+        | Rm_unknown ->
+            Printf.sprintf
+              "Work is not allowed in this %s room (classification unknown: \
+               connector does not report metadata). %s"
+              classification.connector reason
+        | _ ->
+            let scope_label = room_scope_to_string classification.scope in
+            Printf.sprintf
+              "Work is not allowed in this %s room (scope: %s). %s"
+              classification.connector scope_label reason
       in
       if allow_admin_override then begin
         if is_admin then

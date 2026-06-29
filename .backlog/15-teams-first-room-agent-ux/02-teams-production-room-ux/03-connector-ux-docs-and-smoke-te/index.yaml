@@ -12,7 +12,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -43,6 +43,6 @@ tasks:
       file: T003-surface-recent-delivery-failur.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Surface recent delivery failures in room commands

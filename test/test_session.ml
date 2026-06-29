@@ -1285,8 +1285,9 @@ let test_drain_queued_messages_marks_live_activity () =
                    bang = false;
                    deferred_followup = false;
                    snapshot_work_type = None;
+                   has_external_users = false;
                  }
-             in
+                            in
              Alcotest.(check bool) "message queued" true queued;
              let on_drain_progress : Session.drain_progress =
                {
@@ -1329,6 +1330,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name
     bang = false;
     deferred_followup;
     snapshot_work_type = None;
+    has_external_users = false;
   }
 
 let stop_interrupt_token_for_test = Agent.stop_interrupt_token
@@ -4221,6 +4223,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       bang = false;
       deferred_followup = false;
       snapshot_work_type = None;
+      has_external_users = false;
     }
   in
   ignore

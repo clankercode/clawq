@@ -22,6 +22,9 @@ type queued_message = {
   bang : bool;
   deferred_followup : bool;
   snapshot_work_type : Access_snapshot.work_type option;
+  has_external_users : bool;
+      (** True when the connector detects external/guest participants in the
+          room. Used by the room policy model to classify the room. *)
 }
 
 type continuation_state = {

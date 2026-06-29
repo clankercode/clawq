@@ -847,6 +847,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                    bang = false;
                    deferred_followup = false;
                    snapshot_work_type = Some Access_snapshot.Room_turn;
+                   has_external_users = false;
                  }
                   : Session.queued_message)
             in

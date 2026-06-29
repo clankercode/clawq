@@ -548,12 +548,12 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       end;
       Lwt.return response
 
-(** [evaluate_room_policy config ~key ~channel ~channel_id ~user_group ()]
-    evaluates the external room policy for the current turn. Returns
-    [Ok (classification, decision_string)] if work should proceed, or
-    [Error msg] if work should be denied. *)
+(** [evaluate_room_policy config ~key ~channel ~channel_id ~user_group
+    ?has_external_users ()] evaluates the external room policy for the current
+    turn. Returns [Ok (classification, decision_string)] if work should
+    proceed, or [Error msg] if work should be denied. *)
 let evaluate_room_policy (config : Runtime_config.t) ~key ~channel ~channel_id
-    ~user_group () =
+    ~user_group ?(has_external_users = false) () =
   let open Runtime_config_types in
   let connector =
     match channel with
@@ -573,7 +573,7 @@ let evaluate_room_policy (config : Runtime_config.t) ~key ~channel ~channel_id
   in
   let classification =
     Room_policy.classification_from_context ~connector ~room_id ~session_key:key
-      ~is_group:false ~has_external_users:false ()
+      ~is_group:false ~has_external_users ()
   in
   let is_admin = user_group = Some "admin" in
   let result =
@@ -628,7 +628,8 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
             match
               evaluate_room_policy mgr.Session_core.config ~key
                 ~channel:queued.channel ~channel_id:queued.channel_id
-                ~user_group:queued.user_group ()
+                ~user_group:queued.user_group
+                ~has_external_users:queued.has_external_users ()
             with
             | Ok (cls, dec) -> (cls.scope, dec)
             | Error msg ->
@@ -706,7 +707,8 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
 let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
     ?user_group ?channel ?channel_id ?message_id ?cwd
-    ?(deferred_if_busy = false) ?before_drain ?snapshot_work_type () =
+    ?(deferred_if_busy = false) ?before_drain ?snapshot_work_type
+    ?(has_external_users = false) () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -725,7 +727,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
           let policy_denial =
             match
               evaluate_room_policy mgr.Session_core.config ~key ~channel
-                ~channel_id ~user_group ()
+                ~channel_id ~user_group ~has_external_users ()
             with
             | Ok _ -> None
             | Error msg -> Some msg
@@ -750,6 +752,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                   bang = false;
                   deferred_followup = deferred_if_busy;
                   snapshot_work_type;
+                  has_external_users;
                 }
               in
               let on_draining () =
@@ -769,7 +772,8 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     let room_classification_for_snap, room_decision_for_snap =
                       match
                         evaluate_room_policy mgr.Session_core.config ~key
-                          ~channel ~channel_id ~user_group ()
+                          ~channel ~channel_id ~user_group
+                          ~has_external_users ()
                       with
                       | Ok (cls, dec) -> (cls.scope, dec)
                       | Error _msg -> (Runtime_config_types.Rm_unknown, "denied")
@@ -1261,6 +1265,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               bang = false;
               deferred_followup = false;
               snapshot_work_type;
+              has_external_users = false;
             }
           in
           let* queued =
@@ -1286,7 +1291,8 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     let room_classification_for_snap, room_decision_for_snap =
                       match
                         evaluate_room_policy mgr.Session_core.config ~key
-                          ~channel ~channel_id ~user_group ()
+                          ~channel ~channel_id ~user_group
+                          ~has_external_users:false ()
                       with
                       | Ok (cls, dec) -> (cls.scope, dec)
                       | Error _msg -> (Runtime_config_types.Rm_unknown, "denied")

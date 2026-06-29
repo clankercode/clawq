@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 56
 id: P15
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -22,7 +22,7 @@ milestones:
       locked: false
       name: Teams Production Room UX
       path: 02-teams-production-room-ux
-      status: pending
+      status: done
 name: Teams-First Room-Agent UX
 stats:
     blocked: 0
@@ -30,5 +30,5 @@ stats:
     in_progress: 0
     pending: 21
     total_tasks: 21
-status: pending
+status: done
 weeks: 4

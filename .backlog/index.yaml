@@ -202,11 +202,11 @@ phases:
       description: 'Teams-first production room-agent UX with Slack as the Claude Tag baseline: shared delivery contracts, progress cards/checklists, durable session records, context capture, and delivery observability.'
       estimate_hours: 56
       id: P15
-      locked: false
+      locked: true
       name: Teams-First Room-Agent UX
       path: 15-teams-first-room-agent-ux
       priority: high
-      status: pending
+      status: done
       weeks: 4
     - depends_on: []
       description: GitHub App/bot identity, global and per-room repo grants, PR subscriptions, CI/review update reporting, triggered review/security runs, and backlinks.

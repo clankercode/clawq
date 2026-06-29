@@ -1,14 +1,17 @@
 ---
-completed_at: null
+claimed_at: "2026-06-29T17:02:19Z"
+claimed_by: cli-user
+completed_at: "2026-06-29T17:35:15Z"
 complexity: medium
 depends_on:
     - P15.M2.E1.T003
     - P15.M2.E3.T002
+duration_minutes: 32.94792859901667
 estimate_hours: 2
 id: P15.M2.E3.T003
 priority: high
-started_at: null
-status: pending
+started_at: "2026-06-29T17:02:19Z"
+status: done
 tags: []
 title: Surface recent delivery failures in room commands
 ---
