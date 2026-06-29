@@ -35,6 +35,7 @@ type pr_review_comment_event = {
   file_path : string;
   pr_title : string;
   html_url : string;
+  head_sha : string;
 }
 
 type pr_review_event = {
@@ -46,6 +47,7 @@ type pr_review_event = {
   state : string;
   body : string;
   html_url : string;
+  head_sha : string;
 }
 
 type check_run_event = {
@@ -56,6 +58,9 @@ type check_run_event = {
   conclusion : string;
   pr_number : int option;
   html_url : string;
+  head_sha : string;
+  actor : string;
+  details_url : string;
 }
 
 type check_suite_event = {
@@ -65,6 +70,8 @@ type check_suite_event = {
   conclusion : string;
   pr_number : int option;
   html_url : string;
+  head_sha : string;
+  actor : string;
 }
 
 type workflow_run_event = {
@@ -75,6 +82,8 @@ type workflow_run_event = {
   conclusion : string;
   pr_number : int option;
   html_url : string;
+  head_sha : string;
+  actor : string;
 }
 
 type parsed_event =
@@ -96,6 +105,9 @@ type ci_summary = {
   repo : string;
   pr_number : int option;
   html_url : string;
+  head_sha : string;
+  actor : string;
+  details_url : string;
 }
 (** Normalized CI summary: stable typed representation of check_run,
     check_suite, and workflow_run events. *)
@@ -119,6 +131,7 @@ type review_summary = {
   repo : string;
   pr_number : int;
   html_url : string;
+  head_sha : string;
 }
 
 (** Mergeability-relevant change detected from PR events. *)
@@ -148,6 +161,9 @@ let ci_summary_of_event event =
           repo = e.repo;
           pr_number = e.pr_number;
           html_url = e.html_url;
+          head_sha = e.head_sha;
+          actor = e.actor;
+          details_url = e.details_url;
         }
   | CheckSuite e ->
       Some
@@ -160,6 +176,9 @@ let ci_summary_of_event event =
           repo = e.repo;
           pr_number = e.pr_number;
           html_url = e.html_url;
+          head_sha = e.head_sha;
+          actor = e.actor;
+          details_url = "";
         }
   | WorkflowRun e ->
       Some
@@ -172,6 +191,9 @@ let ci_summary_of_event event =
           repo = e.repo;
           pr_number = e.pr_number;
           html_url = e.html_url;
+          head_sha = e.head_sha;
+          actor = e.actor;
+          details_url = "";
         }
   | PullRequest _ | IssueComment _ | PrReviewComment _ | PullRequestReview _
   | Ignored ->
@@ -201,6 +223,7 @@ let review_summary_of_event event =
           repo = e.repo;
           pr_number = e.pr_number;
           html_url = e.html_url;
+          head_sha = e.head_sha;
         }
   | PrReviewComment e ->
       Some
@@ -213,6 +236,7 @@ let review_summary_of_event event =
           repo = e.repo;
           pr_number = e.pr_number;
           html_url = e.html_url;
+          head_sha = e.head_sha;
         }
   | PullRequest _ | IssueComment _ | CheckRun _ | CheckSuite _ | WorkflowRun _
   | Ignored ->
@@ -513,6 +537,10 @@ let parse_event ~event_type ~body =
             let html_url =
               try comment |> member "html_url" |> to_string with _ -> ""
             in
+            let head_sha =
+              try pr |> member "head" |> member "sha" |> to_string
+              with _ -> ""
+            in
             PrReviewComment
               {
                 owner;
@@ -526,6 +554,7 @@ let parse_event ~event_type ~body =
                 file_path;
                 pr_title;
                 html_url;
+                head_sha;
               }
         | _ -> Ignored)
     | "pull_request_review" -> (
@@ -549,6 +578,10 @@ let parse_event ~event_type ~body =
             let html_url =
               try review |> member "html_url" |> to_string with _ -> ""
             in
+            let head_sha =
+              try pr |> member "head" |> member "sha" |> to_string
+              with _ -> ""
+            in
             PullRequestReview
               {
                 owner;
@@ -559,6 +592,7 @@ let parse_event ~event_type ~body =
                 state;
                 body;
                 html_url;
+                head_sha;
               }
         | _ -> Ignored)
     | "check_run" -> (
@@ -585,8 +619,29 @@ let parse_event ~event_type ~body =
                  |> member "number" |> to_int)
               with _ -> None
             in
+            let head_sha =
+              try check_run |> member "head_sha" |> to_string with _ -> ""
+            in
+            let actor =
+              try json |> member "sender" |> member "login" |> to_string
+              with _ -> ""
+            in
+            let details_url =
+              try check_run |> member "details_url" |> to_string with _ -> ""
+            in
             CheckRun
-              { owner; repo; name; status; conclusion; pr_number; html_url }
+              {
+                owner;
+                repo;
+                name;
+                status;
+                conclusion;
+                pr_number;
+                html_url;
+                head_sha;
+                actor;
+                details_url;
+              }
         | _ -> Ignored)
     | "check_suite" -> (
         let action = try json |> member "action" |> to_string with _ -> "" in
@@ -609,7 +664,24 @@ let parse_event ~event_type ~body =
                  |> member "number" |> to_int)
               with _ -> None
             in
-            CheckSuite { owner; repo; status; conclusion; pr_number; html_url }
+            let head_sha =
+              try check_suite |> member "head_sha" |> to_string with _ -> ""
+            in
+            let actor =
+              try json |> member "sender" |> member "login" |> to_string
+              with _ -> ""
+            in
+            CheckSuite
+              {
+                owner;
+                repo;
+                status;
+                conclusion;
+                pr_number;
+                html_url;
+                head_sha;
+                actor;
+              }
         | _ -> Ignored)
     | "workflow_run" -> (
         let action = try json |> member "action" |> to_string with _ -> "" in
@@ -636,8 +708,27 @@ let parse_event ~event_type ~body =
                  |> member "number" |> to_int)
               with _ -> None
             in
+            let head_sha =
+              try workflow_run |> member "head_sha" |> to_string with _ -> ""
+            in
+            let actor =
+              try workflow_run |> member "actor" |> member "login" |> to_string
+              with _ -> (
+                try json |> member "sender" |> member "login" |> to_string
+                with _ -> "")
+            in
             WorkflowRun
-              { owner; repo; name; status; conclusion; pr_number; html_url }
+              {
+                owner;
+                repo;
+                name;
+                status;
+                conclusion;
+                pr_number;
+                html_url;
+                head_sha;
+                actor;
+              }
         | _ -> Ignored)
     | _ -> Ignored
   with _ -> Ignored
@@ -778,6 +869,8 @@ let extract_clawq ~event ~pr_files =
                 (Printf.sprintf "PR #%d review by @%s\n" e.pr_number
                    e.review_author);
               Buffer.add_string buf (Printf.sprintf "State: %s\n" e.state);
+              if e.head_sha <> "" then
+                Buffer.add_string buf (Printf.sprintf "SHA: %s\n" e.head_sha);
               if e.body <> "" then
                 Buffer.add_string buf
                   (Printf.sprintf "Review body: %s\n" (truncate e.body 2000));
@@ -788,18 +881,36 @@ let extract_clawq ~event ~pr_files =
               Buffer.add_string buf
                 (Printf.sprintf "Status: %s | Conclusion: %s\n" e.status
                    e.conclusion);
+              if e.head_sha <> "" then
+                Buffer.add_string buf (Printf.sprintf "SHA: %s\n" e.head_sha);
+              if e.actor <> "" then
+                Buffer.add_string buf (Printf.sprintf "Actor: %s\n" e.actor);
+              if
+                e.details_url <> ""
+                && (e.conclusion = "failure" || e.conclusion = "timed_out")
+              then
+                Buffer.add_string buf
+                  (Printf.sprintf "Failing job: %s\n" e.details_url);
               Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
           | CheckSuite e ->
               Buffer.add_string buf (Printf.sprintf "Check suite\n");
               Buffer.add_string buf
                 (Printf.sprintf "Status: %s | Conclusion: %s\n" e.status
                    e.conclusion);
+              if e.head_sha <> "" then
+                Buffer.add_string buf (Printf.sprintf "SHA: %s\n" e.head_sha);
+              if e.actor <> "" then
+                Buffer.add_string buf (Printf.sprintf "Actor: %s\n" e.actor);
               Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
           | WorkflowRun e ->
               Buffer.add_string buf (Printf.sprintf "Workflow: %s\n" e.name);
               Buffer.add_string buf
                 (Printf.sprintf "Status: %s | Conclusion: %s\n" e.status
                    e.conclusion);
+              if e.head_sha <> "" then
+                Buffer.add_string buf (Printf.sprintf "SHA: %s\n" e.head_sha);
+              if e.actor <> "" then
+                Buffer.add_string buf (Printf.sprintf "Actor: %s\n" e.actor);
               Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
           | Ignored -> ());
           if pr_files <> [] then begin

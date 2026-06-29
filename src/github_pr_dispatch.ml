@@ -103,12 +103,42 @@ let format_ci_summary (ci : Github_webhook.ci_summary) action =
   let conclusion_str =
     if ci.conclusion <> "" then ci.conclusion else ci.status
   in
+  let sha_str =
+    if ci.head_sha <> "" then
+      let short =
+        if String.length ci.head_sha > 7 then String.sub ci.head_sha 0 7
+        else ci.head_sha
+      in
+      Printf.sprintf "\nSHA: `%s`" short
+    else ""
+  in
+  let actor_str =
+    if ci.actor <> "" then Printf.sprintf "\nActor: @%s" ci.actor else ""
+  in
+  let pr_str =
+    match ci.pr_number with
+    | Some n -> Printf.sprintf "\nPR: #%d" n
+    | None -> ""
+  in
+  let job_link =
+    if
+      ci.details_url <> ""
+      && (ci.conclusion = "failure"
+         || ci.conclusion = "timed_out"
+         || ci.conclusion = "cancelled")
+    then Printf.sprintf "\nFailing job: %s" ci.details_url
+    else ""
+  in
   Printf.sprintf
-    "%s **%s%s** %s\nRepository: %s/%s\nStatus: %s | Conclusion: %s\nURL: %s"
+    "%s **%s%s** %s\n\
+     Repository: %s/%s%s%s%s\n\
+     Status: %s | Conclusion: %s%s\n\
+     URL: %s"
     (match ci.kind with
     | `WorkflowRun -> "\xE2\x9A\x99\xEF\xB8\x8F"
     | _ -> "\xF0\x9F\x94\xA7")
-    kind_str label action ci.owner ci.repo ci.status conclusion_str ci.html_url
+    kind_str label action ci.owner ci.repo pr_str sha_str actor_str ci.status
+    conclusion_str job_link ci.html_url
 
 let format_review_summary (review : Github_webhook.review_summary) =
   let state_emoji =
@@ -120,10 +150,29 @@ let format_review_summary (review : Github_webhook.review_summary) =
     | Github_webhook.Pending -> "\xE2\x8F\xB3"
     | Github_webhook.Unknown_review_state _ -> "\xF0\x9F\x93\x8C"
   in
+  let sha_str =
+    if review.head_sha <> "" then
+      let short =
+        if String.length review.head_sha > 7 then String.sub review.head_sha 0 7
+        else review.head_sha
+      in
+      Printf.sprintf "\nSHA: `%s`" short
+    else ""
+  in
+  let body_snippet =
+    if review.body <> "" then
+      let truncated =
+        if String.length review.body > 120 then
+          String.sub review.body 0 117 ^ "..."
+        else review.body
+      in
+      Printf.sprintf "\n> %s" truncated
+    else ""
+  in
   Printf.sprintf
-    "%s **PR review #%d** by @%s\nRepository: %s/%s\nState: %s\nURL: %s"
+    "%s **PR #%d review** by @%s\nRepository: %s/%s\nState: %s%s%s\nURL: %s"
     state_emoji review.pr_number review.reviewer review.owner review.repo
-    review.raw_state review.html_url
+    review.raw_state sha_str body_snippet review.html_url
 
 let format_mergeability_change = function
   | Github_webhook.MergeableStateChanged { mergeable } ->
@@ -147,6 +196,105 @@ let format_mergeability_change = function
       Some
         (Printf.sprintf "Checks: %d total, %d passed, %d failed, %d pending"
            total passed failed pending)
+
+(** {1 Slack mrkdwn formatters}
+
+    Use [<url|label>] link syntax instead of markdown [label](url). *)
+
+let format_ci_summary_for_slack (ci : Github_webhook.ci_summary) action =
+  let kind_str =
+    match ci.kind with
+    | `CheckRun -> "Check run"
+    | `CheckSuite -> "Check suite"
+    | `WorkflowRun -> "Workflow"
+  in
+  let label = if ci.name <> "" then Printf.sprintf ": %s" ci.name else "" in
+  let conclusion_str =
+    if ci.conclusion <> "" then ci.conclusion else ci.status
+  in
+  let icon =
+    match ci.kind with
+    | `WorkflowRun -> "\xE2\x9A\x99\xEF\xB8\x8F"
+    | _ -> "\xF0\x9F\x94\xA7"
+  in
+  let sha_str =
+    if ci.head_sha <> "" then
+      let short =
+        if String.length ci.head_sha > 7 then String.sub ci.head_sha 0 7
+        else ci.head_sha
+      in
+      Printf.sprintf "\nSHA: `%s`" short
+    else ""
+  in
+  let actor_str =
+    if ci.actor <> "" then Printf.sprintf "\nActor: @%s" ci.actor else ""
+  in
+  let pr_str =
+    match ci.pr_number with
+    | Some n -> Printf.sprintf "\nPR: #%d" n
+    | None -> ""
+  in
+  let job_link =
+    if
+      ci.details_url <> ""
+      && (ci.conclusion = "failure"
+         || ci.conclusion = "timed_out"
+         || ci.conclusion = "cancelled")
+    then Printf.sprintf "\n<%s|Failing job>" ci.details_url
+    else ""
+  in
+  Printf.sprintf
+    "%s *%s%s* %s\n%s/%s%s%s%s\nStatus: %s | Conclusion: %s%s\n<%s|View>" icon
+    kind_str label action ci.owner ci.repo pr_str sha_str actor_str ci.status
+    conclusion_str job_link ci.html_url
+
+let format_review_summary_for_slack (review : Github_webhook.review_summary) =
+  let state_emoji =
+    match review.state with
+    | Github_webhook.Approved -> "\xE2\x9C\x85"
+    | Github_webhook.ChangesRequested -> "\xF0\x9F\x94\xB4"
+    | Github_webhook.Commented -> "\xF0\x9F\x92\xAC"
+    | Github_webhook.Dismissed -> "\xF0\x9F\x9A\xAB"
+    | Github_webhook.Pending -> "\xE2\x8F\xB3"
+    | Github_webhook.Unknown_review_state _ -> "\xF0\x9F\x93\x8C"
+  in
+  let sha_str =
+    if review.head_sha <> "" then
+      let short =
+        if String.length review.head_sha > 7 then String.sub review.head_sha 0 7
+        else review.head_sha
+      in
+      Printf.sprintf "\nSHA: `%s`" short
+    else ""
+  in
+  let body_snippet =
+    if review.body <> "" then
+      let truncated =
+        if String.length review.body > 120 then
+          String.sub review.body 0 117 ^ "..."
+        else review.body
+      in
+      Printf.sprintf "\n> %s" truncated
+    else ""
+  in
+  Printf.sprintf "%s *PR #%d review* by @%s\n%s/%s\nState: %s%s%s\n<%s|View>"
+    state_emoji review.pr_number review.reviewer review.owner review.repo
+    review.raw_state sha_str body_snippet review.html_url
+
+(** Format a PR event notification using Slack mrkdwn links for CI and review
+    events. Falls back to standard formatting for other event types. *)
+let format_pr_event_notification_for_slack
+    ~(event : Github_webhook.parsed_event) ~(action : string) =
+  match event with
+  | CheckRun _ | CheckSuite _ | WorkflowRun _ -> (
+      match Github_webhook.ci_summary_of_event event with
+      | Some ci -> format_ci_summary_for_slack ci action
+      | None -> format_pr_event_notification ~event ~action)
+  | PullRequestReview _ | PrReviewComment _ -> (
+      match Github_webhook.review_summary_of_event event with
+      | Some review -> format_review_summary_for_slack review
+      | None -> format_pr_event_notification ~event ~action)
+  | _ -> format_pr_event_notification ~event ~action
 
 (** Map a GitHub webhook event type to a subscription notification preference
     key. Returns [None] if the event type doesn't match any preference. *)
@@ -187,6 +335,7 @@ let should_notify_subscription
     Returns the number of rooms notified. *)
 let dispatch_to_subscriptions ~(db : Sqlite3.db)
     ~(event : Github_webhook.parsed_event) ~(delivery_id : string)
+    ?(connector : string = "")
     ~(send_message : room_id:string -> text:string -> unit -> unit Lwt.t) () =
   let open Lwt.Syntax in
   (* Deduplicate by delivery_id *)
@@ -246,7 +395,21 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
               if run.conclusion <> "" then run.conclusion else run.status
           | Github_webhook.Ignored -> "unknown"
         in
-        let text = format_pr_event_notification ~event ~action in
+        let is_slack = String.lowercase_ascii connector = "slack" in
+        let text =
+          if is_slack then format_pr_event_notification_for_slack ~event ~action
+          else
+            match event with
+            | CheckRun _ | CheckSuite _ | WorkflowRun _ -> (
+                match Github_webhook.ci_summary_of_event event with
+                | Some ci -> format_ci_summary ci action
+                | None -> format_pr_event_notification ~event ~action)
+            | PullRequestReview _ | PrReviewComment _ -> (
+                match Github_webhook.review_summary_of_event event with
+                | Some review -> format_review_summary review
+                | None -> format_pr_event_notification ~event ~action)
+            | _ -> format_pr_event_notification ~event ~action
+        in
         if text = "" then Lwt.return 0
         else
           let* count =
