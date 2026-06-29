@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-29T13:38:54Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P16.M2.E1.T003
 estimate_hours: 3
 id: P16.M2.E2.T001
 priority: high
-status: pending
-tags:
-    - github
-    - webhooks
+started_at: "2026-06-29T13:38:54Z"
+status: in_progress
+tags: []
 title: Normalize workflow run check suite and review events
 ---
 Acceptance: GitHub webhook parsing produces stable typed summaries for CI, workflow run, check suite, review requested/submitted, review comments, and mergeability-relevant changes.
