@@ -12,21 +12,25 @@ let dedup = Channel_util.Lru_dedup.create 500
     edit-in-place delivery. Key format: [room_id:repo:ci_kind:ci_key]. *)
 let ci_msg_ids : (string, string) Hashtbl.t = Hashtbl.create 32
 
-(** [ci_notification_key ~room_id ~repo ~event] computes a stable key for
-    tracking CI notification message IDs. Uses room_id, repo, and CI-specific
-    identifiers (name + head_sha) to group related status updates. *)
-let ci_notification_key ~room_id ~repo (event : Github_webhook.parsed_event) =
+(** [ci_notification_key ~room_id ~repo ~pr_number ~event] computes a stable key
+    for tracking CI notification message IDs. Uses room_id, repo, pr_number, and
+    CI-specific identifiers (name + head_sha) to group related status updates.
+*)
+let ci_notification_key ~room_id ~repo ~pr_number
+    (event : Github_webhook.parsed_event) =
   match event with
   | CheckRun check ->
       Some
-        (Printf.sprintf "%s:%s:check_run:%s:%s" room_id repo check.name
-           check.head_sha)
+        (Printf.sprintf "%s:%s:%d:check_run:%s:%s" room_id repo pr_number
+           check.name check.head_sha)
   | CheckSuite suite ->
-      Some (Printf.sprintf "%s:%s:check_suite:%s" room_id repo suite.head_sha)
+      Some
+        (Printf.sprintf "%s:%s:%d:check_suite:%s" room_id repo pr_number
+           suite.head_sha)
   | WorkflowRun run ->
       Some
-        (Printf.sprintf "%s:%s:workflow_run:%s:%s" room_id repo run.name
-           run.head_sha)
+        (Printf.sprintf "%s:%s:%d:workflow_run:%s:%s" room_id repo pr_number
+           run.name run.head_sha)
   | _ -> None
 
 (** [is_ci_terminal event] returns [true] if the CI event is in a terminal state
@@ -84,6 +88,46 @@ let format_backlink_footer ~repo ~pr_number
   | PullRequest pr ->
       if pr.html_url <> "" then
         parts := Printf.sprintf "[PR](%s)" pr.html_url :: !parts
+  | Ignored -> ());
+  match !parts with
+  | [] -> ""
+  | links -> Printf.sprintf "\n\n---\n%s" (String.concat " | " (List.rev links))
+
+(** [format_backlink_footer_for_slack ~repo ~pr_number event] renders a backlink
+    footer for Slack rooms using [<url|label>] link syntax. Returns [""] if no
+    backlinks are available. *)
+let format_backlink_footer_for_slack ~repo ~pr_number
+    (event : Github_webhook.parsed_event) =
+  let parts = ref [] in
+  if pr_number > 0 then
+    parts :=
+      Printf.sprintf "<https://github.com/%s/pull/%d|PR #%d>" repo pr_number
+        pr_number
+      :: !parts;
+  (match event with
+  | CheckRun check ->
+      if check.html_url <> "" then
+        parts :=
+          Printf.sprintf "<%s|Check: %s>" check.html_url check.name :: !parts
+  | CheckSuite suite ->
+      if suite.html_url <> "" then
+        parts := Printf.sprintf "<%s|Check suite>" suite.html_url :: !parts
+  | WorkflowRun run ->
+      if run.html_url <> "" then
+        parts :=
+          Printf.sprintf "<%s|Workflow: %s>" run.html_url run.name :: !parts
+  | PullRequestReview review ->
+      if review.html_url <> "" then
+        parts := Printf.sprintf "<%s|Review>" review.html_url :: !parts
+  | PrReviewComment review ->
+      if review.html_url <> "" then
+        parts := Printf.sprintf "<%s|Review comment>" review.html_url :: !parts
+  | IssueComment comment ->
+      if comment.html_url <> "" then
+        parts := Printf.sprintf "<%s|Comment>" comment.html_url :: !parts
+  | PullRequest pr ->
+      if pr.html_url <> "" then
+        parts := Printf.sprintf "<%s|PR>" pr.html_url :: !parts
   | Ignored -> ());
   match !parts with
   | [] -> ""
@@ -591,7 +635,8 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
           | _ -> format_pr_event_notification ~event ~action
       in
       let footer =
-        if is_slack then "" else format_backlink_footer ~repo ~pr_number event
+        if is_slack then format_backlink_footer_for_slack ~repo ~pr_number event
+        else format_backlink_footer ~repo ~pr_number event
       in
       let text = base_text ^ footer in
       if text = "" then Lwt.return 0
@@ -648,7 +693,7 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
                         (* For CI terminal events, try edit-in-place *)
                         let ci_key =
                           ci_notification_key ~room_id:subscription.room_id
-                            ~repo event
+                            ~repo ~pr_number event
                         in
                         let existing_msg_id =
                           Option.bind ci_key (Hashtbl.find_opt ci_msg_ids)

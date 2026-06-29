@@ -1085,10 +1085,27 @@ let test_backlink_footer_format () =
   in
   Alcotest.(check bool)
     "footer contains PR link" true
-    (String.contains footer 'P' && String.contains footer 'R');
+    (String.contains footer
+       (String.get "https://github.com/owner/repo/pull/42" 0));
   Alcotest.(check bool)
     "footer contains check link" true
-    (String.length footer > 10);
+    (String.contains footer
+       (String.get "https://github.com/owner/repo/runs/123" 0));
+  (* Verify exact PR link *)
+  Alcotest.(check bool)
+    "footer has PR URL" true
+    (let s = Buffer.create 64 in
+     Buffer.add_string s footer;
+     let str = Buffer.contents s in
+     let len = String.length str in
+     let target = "https://github.com/owner/repo/pull/42" in
+     let tlen = String.length target in
+     let rec search i =
+       if i + tlen > len then false
+       else if String.sub str i tlen = target then true
+       else search (i + 1)
+     in
+     search 0);
   (* Test workflow run *)
   let workflow_event =
     Github_webhook.WorkflowRun
@@ -1109,8 +1126,34 @@ let test_backlink_footer_format () =
       workflow_event
   in
   Alcotest.(check bool)
-    "workflow footer non-empty" true
-    (String.length workflow_footer > 0)
+    "workflow footer has workflow URL" true
+    (let s = workflow_footer in
+     let len = String.length s in
+     let target = "https://github.com/owner/repo/actions/runs/456" in
+     let tlen = String.length target in
+     let rec search i =
+       if i + tlen > len then false
+       else if String.sub s i tlen = target then true
+       else search (i + 1)
+     in
+     search 0);
+  (* Test Slack footer *)
+  let slack_footer =
+    Github_pr_dispatch.format_backlink_footer_for_slack ~repo:"owner/repo"
+      ~pr_number:42 workflow_event
+  in
+  Alcotest.(check bool)
+    "slack footer has PR link" true
+    (let s = slack_footer in
+     let len = String.length s in
+     let target = "<https://github.com/owner/repo/pull/42|PR" in
+     let tlen = String.length target in
+     let rec search i =
+       if i + tlen > len then false
+       else if String.sub s i tlen = target then true
+       else search (i + 1)
+     in
+     search 0)
 
 let test_ci_edit_in_place () =
   with_db (fun db ->
