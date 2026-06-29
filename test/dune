@@ -119,6 +119,7 @@
   test_teams_delivery_regression
   test_teams_what_can_do
   test_setup_room_wizard
+  test_setup_room_wizard_validate
   test_url_sanitize
   test_room_stale_query
   test_room_watcher_decision

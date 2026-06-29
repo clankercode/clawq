@@ -581,6 +581,30 @@ let run_readiness_checks ~(cfg : Runtime_config.t) ~(db : Sqlite3.db option)
   in
   add "Room Backlink" rb_ok rb_msg;
 
+  (* Audit/ledger/delivery visibility checks *)
+  (match db with
+  | Some db -> (
+      (* Verify room activity ledger is queryable *)
+      (try
+         let _events =
+           Room_activity_ledger.query ~db ~room_id:"__wizard_probe" ()
+         in
+         add "Activity Ledger" true "Schema accessible"
+       with exn ->
+         add "Activity Ledger" false
+           (Printf.sprintf "Ledger query failed: %s" (Printexc.to_string exn)));
+      (* Verify egress audit is queryable *)
+      try
+        let _events = Egress_audit.query ~db ~limit:1 () in
+        add "Egress Audit" true "Schema accessible"
+      with exn ->
+        add "Egress Audit" false
+          (Printf.sprintf "Egress audit query failed: %s"
+             (Printexc.to_string exn)))
+  | None ->
+      add "Activity Ledger" true "skip (no DB)";
+      add "Egress Audit" true "skip (no DB)");
+
   List.rev !checks
 
 (* ── Plan display ───────────────────────────────────────────────── *)
@@ -1755,15 +1779,32 @@ let run args =
                 Printf.sprintf
                   "Error: --max-iters must be a valid integer, got '%s'."
                   max_iters_str))
+  | "validate-delivery" :: flags ->
+      let cfg = Command_bridge_helpers.get_config () in
+      let get_flag name default =
+        let rec find = function
+          | k :: v :: _ when k = name -> v
+          | _ :: rest -> find rest
+          | [] -> default
+        in
+        find flags
+      in
+      let profile_id = get_flag "--profile-id" "" in
+      let connector = get_flag "--connector" (default_connector cfg) in
+      let room_id = get_flag "--room" "" in
+      Setup_room_wizard_validate.run ~profile_id ~connector ~room_id ()
   | _ ->
-      "Usage: clawq rooms wizard [interactive|plan|apply|rerun] [options]\n\n\
+      "Usage: clawq rooms wizard \
+       [interactive|plan|apply|rerun|validate-delivery] [options]\n\n\
        Modes:\n\
       \  interactive              Interactive wizard (default)\n\
       \  plan [options]           Show what would happen (no side effects)\n\
       \  apply [options]          Apply configuration changes\n\
       \  rerun [options]          Compare desired state vs current config; \
-       report changed/blocked/valid items\n\n\
-       Options (for plan/apply/rerun):\n\
+       report changed/blocked/valid items\n\
+      \  validate-delivery [opts] Simulate delivery and show \
+       audit/ledger/delivery traces\n\n\
+       Options (for plan/apply/rerun/validate-delivery):\n\
       \  --profile-id ID          Room profile ID (required)\n\
       \  --model M                Model identifier\n\
       \  --system-prompt P        System prompt text\n\

@@ -396,6 +396,7 @@
   setup_zai_mcp
   setup_memory
   setup_room_wizard
+  setup_room_wizard_validate
   setup_connector_history
   setup_prompt
   setup_resilience
