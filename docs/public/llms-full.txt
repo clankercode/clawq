@@ -421,7 +421,7 @@ Use `/model set-force <name>` to bypass model name validation when setting custo
 
 **channels.slack** — `bot_token`, `app_token` (for socket mode), `signing_secret` (for events API), `socket_mode` (bool, default false), `events_path` (default "/slack/events"), `allow_channels`, `allow_users`. Enabled by presence in config.
 
-**channels.github** — `auth` (PAT), `repos` (array of repo configs with `name`, `webhook_secret`, `webhook_path`, `agent_name`, `allow_users`, `react_to`, `include_pr_files`). Session keys: `github:{owner}/{repo}:pr:{n}` for PR events/comments, `github:{owner}/{repo}:issue:{n}` for issue comments. Repeated `/clawq` interactions on the same thread resume the same session. Comment lifecycle: acknowledge with eyes reaction, post placeholder comment (for issue/PR comments), process asynchronously, edit placeholder with final response. All bot replies include a `<!-- clawq-reply -->` marker for self-loop protection. Duplicate deliveries are suppressed via an LRU set keyed by X-GitHub-Delivery header.
+**channels.github** — `auth` (PAT or GitHub App installation token; see GitHub App Integration below), `repos` (array of repo configs with `name`, `webhook_secret`, `webhook_path`, `agent_name`, `allow_users`, `react_to`, `include_pr_files`). Session keys: `github:{owner}/{repo}:pr:{n}` for PR events/comments, `github:{owner}/{repo}:issue:{n}` for issue comments. Repeated `/clawq` interactions on the same thread resume the same session. Comment lifecycle: acknowledge with eyes reaction, post placeholder comment (for issue/PR comments), process asynchronously, edit placeholder with final response. All bot replies include a `<!-- clawq-reply -->` marker for self-loop protection. Duplicate deliveries are suppressed via an LRU set keyed by X-GitHub-Delivery header. `allow_users` gates all webhook events except a small explicit system-event subset (`workflow_job`, `workflow_run`, `check_run`, `check_suite`, `ping`), so events with arbitrary user-controlled text such as `push` remain allowlisted. Hook payload snapshots are written on every verified delivery under `~/.clawq/workspace/tmp/github-deliveries/`, cleaned up opportunistically, and exposed to the agent via `payload_path` plus inline fallback JSON. File-backed event hooks from `~/.clawq/workspace/gh-hooks/` require explicit `repo` and `event` frontmatter and use exact-match `match:` fields. The webhook path must be unique per repo — ambiguous bindings return `409`.
 
 **channels.whatsapp** — `phone_number_id`, `access_token`, `verify_token`, `allow_from`.
 
@@ -719,6 +719,313 @@ Configured profiles live in `room_profiles`; active room bindings live in
   command surfaces. See `docs/src/content/docs/room-agents.mdx` for full
   operator guidance.
 
+## Room Access Policy and Scope Bundles
+
+Room profiles define access policy through `access_bundles` (permission sets) and `access_scopes` (layered overrides). This system controls tool access, codebase grants, repo grants, memory grants, and egress rules.
+
+### Access Bundles
+
+An access bundle (`access_bundles` in config) is a named permission set with:
+- `allowed_tools` / `denied_tools` — tool allow/deny lists
+- `codebase_grants` — filesystem path patterns the agent may access
+- `repo_grants` — repository access with capabilities (`Read`, `Write`)
+- `memory_grants` — cross-scope memory access grants
+- `egress_rules` — network egress rules (allow/deny host/path/method patterns)
+
+Bundles are referenced by ID from scopes and profiles. A missing bundle reference causes fail-closed behavior (zero grants from that scope/profile).
+
+### Access Scopes
+
+Scopes layer bundles with precedence. Four scope levels exist with fixed priority:
+
+| Level | Rank | Description |
+|-------|------|-------------|
+| Default | 0 | System-wide defaults |
+| Workspace | 1 | Workspace-level overrides |
+| Channel | 2 | Channel-type overrides (e.g., all Slack rooms) |
+| Room | 3 | Room-specific overrides (highest priority) |
+
+Scopes are merged in rank order (ascending), then lexicographically by scope ID within the same level. Profile bundles (from `room_profiles`) are treated as the room layer and appended after scope bundles.
+
+### Merge Rules
+
+- **Deny wins over allow**: If a tool appears in `denied_tools` anywhere in merged bundles, it is removed from `allowed_tools`.
+- **Same-bundle deny wins**: deny within a single bundle overrides allow in the same bundle.
+- **Room deny overrides workspace allow**: Room-level deny takes precedence over workspace-level allow for the same tool.
+- **Duplicate bundles**: References to the same bundle from multiple scopes merge provenance but do not duplicate values.
+- **Declaration order preserved**: Within the same scope, bundles referenced by `access_bundle_ids` are merged in list order.
+
+### Global Security Caps
+
+When `security.workspace_only = true`, codebase grants outside the workspace (and `extra_allowed_paths`) are blocked. Inherited grants do not weaken global security. `allowed_cwd_patterns` provides an additional ceiling.
+
+### Repo Grant Resolution
+
+- Explicit `repo_grants` suppress legacy `repositories` for the same repo key.
+- Repo grants are subject to global security checks.
+- Repo grants require codebase grant coverage when `codebase_grants` is non-empty.
+- Wildcard repo grants require exact codebase grant match (not glob).
+- Legacy `repositories` become read-only (`[Read]`) repo grants.
+
+### Effective Access Snapshots
+
+An `Access_snapshot` captures the effective access for a session at a point in time. Snapshots are:
+- **Immutable**: Once created, the record is not mutated.
+- **Auditable**: Carry a `config_hash` (SHA-256 of serialized config) and full provenance (`bundle_sources` recording which bundle/layer/field contributed each grant).
+- **Tool-gating**: `tool_denial` matches the resolver's allowed/denied lists exactly.
+- **Persisted**: Written to DB for audit trail; reloaded on restart.
+
+### Channel Isolation
+
+Room scopes with a `channel` selector only match sessions from that channel type. Missing layer selectors are not wildcards — a workspace scope without a `workspace` field matches nothing.
+
+### Config Reload
+
+Config reload re-parses from disk, picking up changes to bundles, scopes, and profiles. Existing room profiles survive reload intact. Invalid JSON does not crash the runtime. Tool access decisions are stable across reload when config is unchanged. Malformed access policy triggers fail-closed.
+
+## Room Memory
+
+Room-scoped memory provides per-room persistent storage with visibility controls, grant-based cross-scope access, and audit logging.
+
+### CRUD Operations
+
+- **save** (`rooms memory save ROOM_ID REFERENCE CONTENT`) — create or update a memory; first saves create scopes for bound rooms or admins
+- **list** (`rooms memory list ROOM_ID`) — list memories the room can see
+- **show** (`rooms memory show ROOM_ID MEMORY_ID`) — show a specific memory
+- **correct** — update memory content (via tool)
+- **forget** — redact a memory (sets content to NULL, archives to workspace)
+
+All CRUD operations are gated by `check_room_access` which requires either a profile binding (ownership) or an explicit grant. Raw API calls (`query_scoped_memories`, `correct_scoped_memory`, `delete_scoped_memory`) do not enforce scope isolation by themselves — isolation is enforced at the tool layer.
+
+### Visibility Levels
+
+Three levels: `Public` (default, visible to all in scope), `Private` (visible only to scope owner), `Team` (visible only to principals with an explicit team grant via `memory_team_grants` table). Team grants do not override scope isolation. Visibility is preserved on upsert when not explicitly provided.
+
+### Grants
+
+Memory grants are direct, not transitive. Grant mutations require admin privileges. Expired grants (`expires_at` in the past) and revoked grants (`revoked_at IS NULL`) are excluded from resolution.
+
+### Redaction (Forgetting)
+
+- Redaction is idempotent; redacted memories cannot be corrected.
+- Redacted memories are excluded from `query_scoped_memories` (list, content-search).
+- Redaction clears content to NULL, sets `redacted_at` timestamp, scrubs provenance of `prev_content` entries.
+- Bearer tokens are redacted in content previews; previews truncated to 200 chars.
+- **Known gap**: `Memory.search` FTS path does not filter `sm.redacted_at IS NULL`. See `docs/verification-boundaries.md`.
+
+### Ledger Audit Trail
+
+All mutation operations (save, correct, redact, hard delete, grant, revoke) emit ledger events when a ledger function is provided. Events record actor, scope, memory id, visibility, and sanitized content preview.
+
+## GitHub App Integration
+
+Clawq supports GitHub Apps for authentication, repository access, PR subscriptions, CI dispatch, review runs, and backlinks.
+
+### Authentication
+
+- **PAT mode**: Set `channels.github.auth` to a personal access token with `repo` scope.
+- **GitHub App mode**: Use an installation token. The app must be installed on target repos with appropriate permissions (contents: read, pull requests: write, issues: write, checks: read).
+
+### Repository Grants
+
+Repo grants control which repos the agent can access. Each grant specifies:
+- **Repo identifier**: `owner/repo` format or local path
+- **Capabilities**: `Read`, `Write` (legacy `repositories` entries become read-only)
+- **Codebase coverage**: Repo grants must intersect `codebase_grants` when codebase grants are non-empty
+
+### PR Subscriptions
+
+When a PR event arrives via webhook:
+1. Webhook is verified (HMAC signature or app webhook secret)
+2. Duplicate deliveries suppressed via LRU set keyed on `X-GitHub-Delivery`
+3. `allow_users` gates events (except system events like `workflow_job`, `check_run`)
+4. Session key: `github:{owner}/{repo}:pr:{n}` — repeated interactions on the same thread resume the same session
+5. Comment lifecycle: eyes reaction → placeholder comment → async processing → edit placeholder with final response
+6. All bot replies include `<!-- clawq-reply -->` marker for self-loop protection
+
+### CI Dispatch
+
+GitHub Actions can be triggered by the agent via the checks API. The agent can inspect workflow runs, check suites, and check runs through webhook events.
+
+### Review Runs
+
+Background coding tasks can produce PR review comments. The `background finalize` workflow rebases, fast-forward merges, and cleans up the worktree. Completion notifications include git status (dirty/clean, commit count, rebased) and LLM-generated summaries.
+
+### Backlinks
+
+Hook payload snapshots are written to `~/.clawq/workspace/tmp/github-deliveries/` on every verified delivery. File-backed event hooks from `~/.clawq/workspace/gh-hooks/` allow custom processing with explicit `repo` and `event` frontmatter.
+
+## Egress Policy
+
+The egress evaluator controls outbound network access with default-deny semantics.
+
+### Rules
+
+Egress rules are defined in access bundles and merged with scope precedence (profile > room > channel > workspace > default). Each rule specifies:
+- **Host pattern**: glob or exact match
+- **Path pattern**: URL path glob
+- **Method**: HTTP method (GET, POST, etc.)
+- **Action**: `Allow` or `Deny`
+- **Log policy**: `Log` or `No_log`
+
+### Evaluator
+
+- **Default-deny**: When no rule matches, the action is `Deny`.
+- **First-match-wins**: Rules are evaluated in declaration order; the first matching rule determines the action.
+- **Profile-first ordering**: Profile bundle rules come before scope rules. Within scope rules, order is room > channel > workspace > default.
+
+### Audit
+
+Egress decisions can be logged. Denied requests are always logged. Allowed requests follow the rule's `log_policy`.
+
+## Credential Management
+
+Clawq manages credentials through handles, provider configs, and a lease API.
+
+### Credential Handles
+
+Credentials are stored in config under provider-specific keys (`providers.*.api_key`, `channels.*.bot_token`, etc.). Secrets can be encrypted at rest using AES-256-GCM with `CLAWQ_MASTER_KEY`.
+
+### Providers
+
+Each provider has:
+- `api_key` (required for API-key providers; OAuth providers use provider-specific credentials)
+- `base_url` (provider-specific defaults built-in for openrouter, mistral, xai, deepseek, cohere, zai, kimi, minimax, xiaomi, etc.)
+- `kind` (optional, for provider-specific request formatting)
+- `default_model` (provider-specific model name, not `provider:model` format)
+
+### Lease API
+
+Runner bearer tokens are generated via `clawq runner token --session KEY [--ttl-hours N]`. Tokens are:
+- Localhost-only
+- SHA256-hashed in memory
+- TTL-based (default 24h)
+- Used for remote question relay via `/runner/ask` and MCP endpoints
+
+The daemon auto-sets `CLAWQ_RUNNER_TOKEN`, `CLAWQ_MCP_URL`, and `CLAWQ_RUNNER_ASK_URL` env vars in background task runner processes.
+
+### Redaction
+
+Config display (`config show`, `config tree`) redacts all secrets. HTTP debug logs (`debug http`) redact tokens. Most connector credentials lack redaction in normal log paths (known infrastructure gap).
+
+## Room Readiness Checks
+
+The pilot setup wizard (`clawq rooms wizard`) runs readiness checks before applying changes. Checks include:
+
+| Check | Validation |
+|-------|------------|
+| Profile ID | Lowercase alphanumeric with hyphens/underscores, max 64 chars |
+| Model | Non-empty |
+| Access Bundles | All referenced bundles exist in config |
+| Connector Available | Connector has usable credentials configured |
+| Connector Room | Room ID matches connector format (Teams: `19:` prefix or `@thread.tacv2` suffix; Slack: `C`/`G`/`D`/`#` prefix; Discord/Telegram: non-empty) |
+| Budget | Limits are non-negative |
+| Max Tool Iterations | Between 1 and 1000 |
+| Budget Reset Period | One of: daily, weekly, monthly, yearly |
+
+Readiness check results appear in `wizard rerun` output with status categories: **Changed** (will update), **Already valid** (no action), **Blocked** (missing dependency), **Manual repair** (needs human intervention).
+
+## Invocation Restrictions
+
+Room profiles can restrict agent invocation through tool allow/deny lists, token budgets, cost budgets, and iteration limits.
+
+### Tool Policy
+
+Per-profile `allowed_tools` and `denied_tools` lists are enforced at the tool registry level. Deny wins over allow. Card action buttons (Inspect, Continue, Cancel, Retry, View Logs, Finalize) check room policy before executing — buttons for denied tools are omitted from rendered cards.
+
+### Budgets
+
+Room budgets track cumulative usage (tokens, cost, turns) per profile per reset period:
+- `token_limit` and `cost_limit_usd` (non-negative, 0 = disabled)
+- `reset_period`: daily, weekly, monthly, yearly
+- Soft warning at 80% (configurable)
+- When limits exceeded, further requests are blocked (`limit_exceeded = true`)
+- Budget period resets are explicit via `reset_profile_budget`
+
+### Iteration Limits
+
+`max_tool_iterations` (1-1000, default 25) caps the number of tool calls per agent turn.
+
+## Teams Delivery Lifecycle and Progress Cards
+
+Teams is the primary design target for room-origin background task delivery. The delivery lifecycle tracks every outbound message through granular states recorded to the room activity ledger.
+
+### Lifecycle States
+
+```
+Scheduled -> Generated -> Attempted -> Transport_accepted -> Message_id_recorded
+                                                                |
+                                              Edit_failed ------+-> Fallback_sent
+                                                                |
+                                              Failed ------------+
+                                                                |
+                                              User_visible_unconfirmed
+```
+
+Each state transition includes a `tracking_id` (format: `dlv_<timestamp>_<random>`), task ID, room ID, connector name, and optional metadata (thread ID, activity ID, message ID, error message).
+
+### Progress Checklists
+
+The checklist model (`room_progress_checklist.ml`) is a durable, append-only model backed by SQLite. Each item tracks: `task_id`, `title`, `state`, `transcript_url`, `session_url`, `session_record_id`, `delivery_state`.
+
+**Item states**: Planned (white square), Current (arrows), Blocked (prohibited), Done (check), Final (flag). State transitions reset delivery state to pending.
+
+**Delivery states**: pending, sent, confirmed, failed.
+
+### Teams Adaptive Cards
+
+On Teams, progress is rendered as an Adaptive Card (v1.3) with:
+- Color-coded header by overall state (blue = working, green = done, red = blocked)
+- Summary line with compact count by state
+- Elapsed time
+- Checklist container with icons, titles, and clickable links
+- Action buttons: Inspect, Continue, Cancel, Retry, View Logs, Finalize
+
+Buttons are `Action.Submit` with `imBack` data values. Room policy is applied at render time — buttons for denied tools are omitted. Edit-in-place updates existing cards; fallback sends new card on edit failure.
+
+### Slack Baseline
+
+Slack renders checklists as formatted mrkdwn text (no Adaptive Cards). Links use Slack's `<url|label>` syntax. Supported features: edit, delete, reactions, status messages, native thread replies, ambient history capture.
+
+### Rate Limiting
+
+- **Inbound**: Per-conversation+user rate limiting with 60-second warning cooldowns.
+- **Outbound**: Per-conversation throttling (1 req/s minimum interval) with exponential backoff retry (up to 3 attempts) on 429, 412, 502, 504.
+
+### File Consent Flow
+
+Teams file uploads use a consent card: filename + description + size → user accepts/declines → upload or temp download URL fallback.
+
+## What-Can-Do Capability Introspection
+
+The `/whatcando` command shows a real-time snapshot of room capabilities.
+
+### Capabilities Reported
+
+- **Connector capabilities**: edit, delete, reactions, typing, status, file sending, cards, buttons
+- **Room state**: profile binding, history capture, history persistence, delivery mode, max message length
+- **Readiness**: database availability, GitHub configuration
+- **Degraded behaviors**: explanations for missing features
+
+### Rendering
+
+On Teams: Adaptive Card with FactSets. On other connectors: markdown text.
+
+### Connector Capability Matrix
+
+| Feature | Teams | Slack | Discord | IRC/Email/etc. |
+|---------|-------|-------|---------|----------------|
+| Edit messages | Yes | Yes | Yes | Varies |
+| Delete messages | Yes | Yes | Yes | Varies |
+| Reactions | No | Yes | Yes | Varies |
+| Typing indicator | Yes | No | No | No |
+| Adaptive Cards | Yes | No | No | No |
+| Buttons | Yes | No | No | No |
+| Thread replies | Thread-like | Native | Native | Varies |
+| Max message length | 28672 | 4000 | 2000 | Varies |
+
+Progress updates are only dispatched for Slack, Teams, and Discord. All other connectors receive no progress updates (dispatch returns `None`).
+
 ## Heartbeats
 
 - Heartbeats are controlled by `heartbeat.enabled`, `heartbeat.interval_seconds`, `heartbeat.quiet_start`, and `heartbeat.quiet_end`.
@@ -947,6 +1254,52 @@ Tell users:
 8. Use `clawq otp-show` to get the pairing code if pairing is enabled
 
 The current npm release artifact is built on Linux. On other platforms, use the source build path for now: clone the repo, install opam plus system SQLite headers, run `make bootstrap`, then `make build` and `make test`.
+
+## Pilot Setup Wizard
+
+The `clawq rooms wizard` command configures room-agent profiles with a plan/apply/rerun flow. Teams-first rollout with Slack baseline support.
+
+### Modes
+
+| Mode | Admin Required | Description |
+|------|---------------|-------------|
+| `interactive` (default) | Yes (`CLAWQ_ADMIN=1`) | Prompts for all configuration options |
+| `plan` | No | Read-only; shows what would happen |
+| `apply` | Yes | Applies configuration changes |
+| `rerun` | No (read); Yes (`--apply`) | Compares desired state vs current config |
+
+### Rerun Status Categories
+
+- **Changed** — value differs from current config; will be updated
+- **Already valid** — value matches; no action needed
+- **Blocked** — missing dependency (e.g., access bundles not created, connector not configured)
+- **Manual repair** — needs human intervention (e.g., invalid room format, inconsistent budget)
+
+### Options
+
+`--profile-id`, `--model`, `--system-prompt`, `--max-iters`, `--allowed-tools`, `--denied-tools`, `--access-bundles`, `--token-limit`, `--cost-limit`, `--reset-period`, `--connector` (default: teams), `--room`, `--inactive`, `--apply` (rerun only).
+
+### Merge Semantics
+
+Default values preserve existing config. Explicit values override. Empty values preserve existing. Safe to re-run with only the fields you want to change.
+
+### Usage
+
+```bash
+# Interactive
+CLAWQ_ADMIN=1 clawq rooms wizard
+
+# Plan (read-only, use '--' before wizard options)
+clawq rooms -- wizard plan --profile-id my-agent --connector teams --room "19:abc@thread.tacv2"
+
+# Apply
+CLAWQ_ADMIN=1 clawq rooms -- wizard apply --profile-id my-agent --connector teams --room "19:abc@thread.tacv2"
+
+# Rerun with auto-apply
+CLAWQ_ADMIN=1 clawq rooms -- wizard rerun --profile-id my-agent --connector teams --room "19:abc@thread.tacv2" --apply
+```
+
+Not available in the minimal build (`clawq-min`). Requires the full `clawq` binary.
 
 ## Troubleshooting
 

@@ -29,3 +29,9 @@
 - [Verification Status](https://clawq.org/formal-verification): Machine-checked Coq verification status across 22 phases (374 theorems)
 - [Verification Audit](https://clawq.org/formal-verification-audit-2026-03-07): Detailed audit of verified properties
 - [Verification Roadmap](https://clawq.org/formal-verification-roadmap-2026-03-07): Planned verification expansions
+- [Verification Boundaries](https://clawq.org/verification-boundaries): Cross-cutting view of verification status across all security-relevant subsystems (scope resolution, memory policy, credentials, egress, MCP filtering, sessions)
+- [Scope Resolution Invariants](https://clawq.org/scope-resolution-invariants): Invariants for the scope resolver and access snapshots — determinism, precedence, conflict resolution, global security caps, repo/memory/channel grants, reload and backward compat
+- [Memory Policy Isolation Invariants](https://clawq.org/memory-policy-isolation-invariants): Invariants for scoped memory CRUD, visibility levels, grant resolution, credential non-disclosure, egress default-deny, MCP filter soundness, budget, session lifecycle, redaction, ledger audit trail
+- [Proof Backlog](https://clawq.org/proof-backlog): Catalogue of invariants that are candidates for formal proof or stronger verification across scope resolution and memory policy subsystems
+- [Pilot Setup Wizard](https://clawq.org/pilot-setup-wizard): Interactive and non-interactive room-agent profile configuration with plan/apply/rerun modes, Teams-first rollout
+- [Teams-First Room-Agent UX](https://clawq.org/teams-first-room-agent-ux): Room-origin background task delivery through chat connectors — progress cards, Adaptive Cards, delivery lifecycle, capability introspection, Slack baseline

@@ -180,6 +180,9 @@ clawq reset-agent      Wipe all session history, cron jobs, and workspace files
 clawq reset-workspace  Reset workspace files without clearing sessions
 clawq runtime          Manage native and Docker runtimes
 clawq service          Manage the clawq system service (start/stop/restart)
+clawq rooms            Manage room agents (list, show, workspace, inspect, ledger, deliveries,
+                           gc, bind, rename, delete, unbind, routine, memory, explain-access,
+                           session, readiness, audit-export, wizard)
 clawq session          Manage agent sessions (list, show, inject, pending, keepalive, heartbeat, epochs, compact)
 clawq setup            Interactive setup wizards for individual integrations
 clawq skills           Manage agent skills (shell-script tool extensions)
@@ -250,6 +253,53 @@ clawq background cancel 3
 The full daemon picks up queued background tasks automatically. Each task gets its own git worktree under `~/.clawq/background-worktrees/` and a log file under `~/.clawq/background-logs/` for later inspection.
 
 Once a worktree-backed task has started, `clawq background resume <id>` uses the runner's native continue/resume support, and `clawq background message <id> ...` durably queues a new user-style chat message that is replayed into the resumed task conversation in FIFO order.
+
+## Room Agent Features
+
+Clawq's room-agent system (P14–P18) provides scoped, policy-aware AI agents for Teams and Slack rooms. These features build on the room-agent primitives from P11–P13.
+
+### Access Policy (P14)
+
+- **Scope bundles** — composable access bundles (credentials, repos, plugins, instructions) that inherit across scopes (default → workspace → channel).
+- **Effective access snapshots** — deterministic, pure-function resolution of merged access for a given config, session key, and room profile.
+- **`clawq rooms explain-access`** — inspect the resolved effective access for any room, showing which scope/bundle contributed each grant.
+- **Scoped instructions** — layered instructions merged from scope bundles, with precedence rules and provenance tracking.
+
+### Teams-First UX (P15)
+
+- **Delivery lifecycle** — full state tracking (pending → sent → confirmed/failed) for room notifications, with automatic retry.
+- **Progress cards** — Teams Adaptive Cards showing background task checklists with icons, elapsed time, and action buttons (Inspect, Continue, Cancel, Retry).
+- **`/whatcando`** — capability introspection command showing what the agent can do in the current room binding.
+- **Context capture** — ambient connector history capture for room sessions (configurable per profile).
+- **Delivery failure surfacing** — recent delivery failures surfaced in room status and readiness reports.
+
+### GitHub Integration (P16)
+
+- **GitHub App auth** — room-owned GitHub App installation tokens with automatic refresh, replacing PAT-based auth for production use.
+- **Repo grants** — per-room repository access grants resolved through scope bundles.
+- **PR subscriptions** — rooms subscribe to PR events (comments, reviews, status checks) with configurable notification filters.
+- **CI/review dispatch** — PR label-triggered review runs (e.g., "review", "security" labels) launched as background tasks.
+- **Review runs** — structured review artifacts with kind, status, and room delivery.
+- **Workflow triggers** — GitHub Actions workflow dispatch from room commands.
+- **Backlinks** — bidirectional link records between GitHub items (PRs, issues, commits, review runs) and room items (sessions, deliveries, memories).
+
+### Room Memory & Governance (P17)
+
+- **Memory CRUD** — room-scoped memory operations: save, list, show, correct, forget. Isolation enforced at the tool layer.
+- **Memory grants** — scope-bundle grants controlling which rooms can access shared memory namespaces.
+- **Visibility** — per-memory visibility levels: `public`, `private`, `team`. Controls cross-principal access within a room.
+- **Setup wizard** — `clawq rooms wizard` interactive TUI for configuring room-agent profiles (plan/apply/rerun modes, Teams-first defaults).
+- **Readiness report** — `clawq rooms readiness` checks room configuration health: profile binding, memory backend, delivery path, egress policy.
+- **Audit export** — `clawq rooms audit-export` exports room activity ledger (delivery lifecycle, memory operations, access events) for compliance.
+- **Invocation restrictions** — scope-enforced restrictions on which tools and agents a room can invoke.
+
+### Credential & Egress (P18)
+
+- **Credential handles** — named credential references in config, resolved at runtime without exposing secrets to the model or sandbox.
+- **Credential lease** — scoped, time-bounded credential leases derived from effective access snapshots. Leases inject via environment variables or HTTP headers.
+- **Egress rules** — per-room host/path/method rules controlling outbound network access. Default-deny with explicit allow-lists.
+- **Egress audit** — policy-aware HTTP client (`Policy_http_client`) that logs all outbound requests with credential exposure classification and enforceability status.
+- **Policy-aware HTTP** — all first-party HTTP surfaces (GitHub, LLM providers, MCP, webhook callbacks) route through the egress evaluator and audit layer.
 
 ## Make Targets
 
