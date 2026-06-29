@@ -426,7 +426,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                     match Session.get_db session_manager with
                     | Some db ->
                         Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-                          ~delivery_id
+                          ~delivery_id ~snapshot_id:egress_audit.snapshot_id
                           ~send_message:(fun ~room_id ~text () ->
                             (* Try to find a notifier for this room *)
                             match
@@ -482,7 +482,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
             match Session.get_db session_manager with
             | Some db ->
                 Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-                  ~delivery_id
+                  ~delivery_id ~snapshot_id:egress_audit.snapshot_id
                   ~send_message:(fun ~room_id ~text () ->
                     (* Try to find a notifier for this room *)
                     match

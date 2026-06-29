@@ -197,6 +197,49 @@ let format_mergeability_change = function
         (Printf.sprintf "Checks: %d total, %d passed, %d failed, %d pending"
            total passed failed pending)
 
+(** Sanitize a GitHub payload for safe ledger storage. Truncates excessively
+    long content and produces a human-readable summary. *)
+let sanitize_payload_summary (event : Github_webhook.parsed_event) =
+  let max_len = 200 in
+  let truncate s =
+    if String.length s > max_len then String.sub s 0 (max_len - 3) ^ "..."
+    else s
+  in
+  match event with
+  | PullRequest pr ->
+      truncate
+        (Printf.sprintf "PR #%d: %s by @%s" pr.pr_number pr.pr_title
+           pr.pr_author)
+  | IssueComment comment when comment.is_pr ->
+      truncate
+        (Printf.sprintf "Comment on PR #%d by @%s" comment.issue_number
+           comment.comment_author)
+  | PrReviewComment review ->
+      truncate
+        (Printf.sprintf "Review comment on PR #%d by @%s in %s" review.pr_number
+           review.comment_author review.file_path)
+  | PullRequestReview review ->
+      truncate
+        (Printf.sprintf "Review on PR #%d by @%s: %s" review.pr_number
+           review.review_author review.state)
+  | CheckRun check ->
+      truncate
+        (Printf.sprintf "Check run: %s %s" check.name
+           (if check.conclusion <> "" then check.conclusion else check.status))
+  | CheckSuite suite ->
+      truncate
+        (Printf.sprintf "Check suite %s"
+           (if suite.conclusion <> "" then suite.conclusion else suite.status))
+  | WorkflowRun run ->
+      truncate
+        (Printf.sprintf "Workflow: %s %s" run.name
+           (if run.conclusion <> "" then run.conclusion else run.status))
+  | IssueComment comment ->
+      truncate
+        (Printf.sprintf "Comment on issue #%d by @%s" comment.issue_number
+           comment.comment_author)
+  | Ignored -> "ignored"
+
 (** {1 Slack mrkdwn formatters}
 
     Use [<url|label>] link syntax instead of markdown [label](url). *)
@@ -368,145 +411,180 @@ let should_notify_subscription
     Returns the number of rooms notified. *)
 let dispatch_to_subscriptions ~(db : Sqlite3.db)
     ~(event : Github_webhook.parsed_event) ~(delivery_id : string)
-    ?(connector : string = "")
+    ?(connector : string = "") ?(snapshot_id : string option = None)
     ?(quiet_start : int = Github_pr_policy.default_quiet_start)
     ?(quiet_end : int = Github_pr_policy.default_quiet_end)
     ?(max_per_hour : int = 0) ?(dedupe_seconds : int = 60)
     ~(send_message : room_id:string -> text:string -> unit -> unit Lwt.t) () =
   let open Lwt.Syntax in
-  (* Deduplicate by delivery_id (in-memory LRU for fast path) *)
-  if
-    delivery_id <> "" && Channel_util.Lru_dedup.check_and_mark dedup delivery_id
-  then (
-    Logs.debug (fun m ->
-        m "GitHub PR dispatch: ignoring duplicate delivery %s" delivery_id);
-    Lwt.return 0)
+  let repo, pr_number =
+    match event with
+    | Github_webhook.PullRequest pr -> (pr.owner ^ "/" ^ pr.repo, pr.pr_number)
+    | Github_webhook.IssueComment comment when comment.is_pr ->
+        (comment.owner ^ "/" ^ comment.repo, comment.issue_number)
+    | Github_webhook.PrReviewComment review ->
+        (review.owner ^ "/" ^ review.repo, review.pr_number)
+    | Github_webhook.PullRequestReview review ->
+        (review.owner ^ "/" ^ review.repo, review.pr_number)
+    | Github_webhook.CheckRun check -> (
+        match check.pr_number with
+        | Some pr_n -> (check.owner ^ "/" ^ check.repo, pr_n)
+        | None -> ("", 0))
+    | Github_webhook.CheckSuite suite -> (
+        match suite.pr_number with
+        | Some pr_n -> (suite.owner ^ "/" ^ suite.repo, pr_n)
+        | None -> ("", 0))
+    | Github_webhook.WorkflowRun run -> (
+        match run.pr_number with
+        | Some pr_n -> (run.owner ^ "/" ^ run.repo, pr_n)
+        | None -> ("", 0))
+    | _ -> ("", 0)
+  in
+  if repo = "" || pr_number <= 0 then Lwt.return 0
   else
-    let repo, pr_number =
-      match event with
-      | Github_webhook.PullRequest pr -> (pr.owner ^ "/" ^ pr.repo, pr.pr_number)
-      | Github_webhook.IssueComment comment when comment.is_pr ->
-          (comment.owner ^ "/" ^ comment.repo, comment.issue_number)
-      | Github_webhook.PrReviewComment review ->
-          (review.owner ^ "/" ^ review.repo, review.pr_number)
-      | Github_webhook.PullRequestReview review ->
-          (review.owner ^ "/" ^ review.repo, review.pr_number)
-      | Github_webhook.CheckRun check -> (
-          match check.pr_number with
-          | Some pr_n -> (check.owner ^ "/" ^ check.repo, pr_n)
-          | None -> ("", 0))
-      | Github_webhook.CheckSuite suite -> (
-          match suite.pr_number with
-          | Some pr_n -> (suite.owner ^ "/" ^ suite.repo, pr_n)
-          | None -> ("", 0))
-      | Github_webhook.WorkflowRun run -> (
-          match run.pr_number with
-          | Some pr_n -> (run.owner ^ "/" ^ run.repo, pr_n)
-          | None -> ("", 0))
-      | _ -> ("", 0)
+    (* Find all subscriptions for this repo/PR *)
+    let subscriptions =
+      Github_pr_subscriptions.find_by_repo_pr ~db ~repo ~pr_number
     in
-    if repo = "" || pr_number <= 0 then Lwt.return 0
+    let event_type_str = Github_webhook.event_type_string event in
+    let payload_summary = sanitize_payload_summary event in
+    let connector_opt = if connector = "" then None else Some connector in
+    (* Deduplicate by delivery_id (in-memory LRU for fast path) *)
+    if
+      delivery_id <> ""
+      && Channel_util.Lru_dedup.check_and_mark dedup delivery_id
+    then (
+      Logs.debug (fun m ->
+          m "GitHub PR dispatch: ignoring duplicate delivery %s" delivery_id);
+      (* Record denied event for duplicate *)
+      List.iter
+        (fun sub ->
+          ignore
+            (Room_activity_ledger.record_github_update_denied ~db
+               ~room_id:sub.Github_pr_subscriptions.room_id ~delivery_id ~repo
+               ~pr_number ~event_type:event_type_str ~deny_reason:"duplicate"
+               ~payload_summary ?snapshot_id ?connector:connector_opt ()))
+        subscriptions;
+      Lwt.return 0)
+    else if subscriptions = [] then (
+      Logs.debug (fun m ->
+          m "GitHub PR dispatch: no subscriptions for %s PR #%d" repo pr_number);
+      (* Record skipped event for no subscriptions *)
+      ignore
+        (Room_activity_ledger.record_github_update_skipped ~db
+           ~room_id:"__global__" ~delivery_id ~repo ~pr_number
+           ~event_type:event_type_str ~reason:"no_subscriptions"
+           ~payload_summary ?snapshot_id ?connector:connector_opt ());
+      Lwt.return 0)
     else
-      (* Find all subscriptions for this repo/PR *)
-      let subscriptions =
-        Github_pr_subscriptions.find_by_repo_pr ~db ~repo ~pr_number
+      let action =
+        match event with
+        | Github_webhook.PullRequest pr -> pr.action
+        | Github_webhook.IssueComment _ -> "comment"
+        | Github_webhook.PrReviewComment _ -> "review_comment"
+        | Github_webhook.PullRequestReview review -> review.state
+        | Github_webhook.CheckRun check ->
+            if check.conclusion <> "" then check.conclusion else check.status
+        | Github_webhook.CheckSuite suite ->
+            if suite.conclusion <> "" then suite.conclusion else suite.status
+        | Github_webhook.WorkflowRun run ->
+            if run.conclusion <> "" then run.conclusion else run.status
+        | Github_webhook.Ignored -> "unknown"
       in
-      if subscriptions = [] then (
-        Logs.debug (fun m ->
-            m "GitHub PR dispatch: no subscriptions for %s PR #%d" repo
-              pr_number);
-        Lwt.return 0)
-      else
-        let action =
-          match event with
-          | Github_webhook.PullRequest pr -> pr.action
-          | Github_webhook.IssueComment _ -> "comment"
-          | Github_webhook.PrReviewComment _ -> "review_comment"
-          | Github_webhook.PullRequestReview review -> review.state
-          | Github_webhook.CheckRun check ->
-              if check.conclusion <> "" then check.conclusion else check.status
-          | Github_webhook.CheckSuite suite ->
-              if suite.conclusion <> "" then suite.conclusion else suite.status
-          | Github_webhook.WorkflowRun run ->
-              if run.conclusion <> "" then run.conclusion else run.status
-          | Github_webhook.Ignored -> "unknown"
-        in
-        let is_slack = String.lowercase_ascii connector = "slack" in
-        let text =
-          if is_slack then format_pr_event_notification_for_slack ~event ~action
-          else
-            match event with
-            | CheckRun _ | CheckSuite _ | WorkflowRun _ -> (
-                match Github_webhook.ci_summary_of_event event with
-                | Some ci -> format_ci_summary ci action
-                | None -> format_pr_event_notification ~event ~action)
-            | PullRequestReview _ | PrReviewComment _ -> (
-                match Github_webhook.review_summary_of_event event with
-                | Some review -> format_review_summary review
-                | None -> format_pr_event_notification ~event ~action)
-            | _ -> format_pr_event_notification ~event ~action
-        in
-        if text = "" then Lwt.return 0
+      let is_slack = String.lowercase_ascii connector = "slack" in
+      let text =
+        if is_slack then format_pr_event_notification_for_slack ~event ~action
         else
-          (* Pre-compute CI info and dedup key once for all subscriptions *)
-          let ci = ci_info_of_event event in
-          let event_type_str = Github_webhook.event_type_string event in
-          let now_hour =
-            let tm = Unix.localtime (Unix.gettimeofday ()) in
-            tm.Unix.tm_hour
-          in
-          let* count =
-            Lwt_list.fold_left_s
-              (fun acc subscription ->
-                if not (should_notify_subscription ~subscription ~event) then
-                  Lwt.return acc
-                else
-                  (* Apply policy gates (dedup + quiet hours + rate limit) *)
-                  let dedup_key =
-                    Github_pr_policy.make_dedup_key ~repo ~pr_number
-                      ~ci_name:ci.ci_name ~ci_conclusion:ci.ci_conclusion
-                      ~is_ci:ci.is_ci ~delivery_id
-                  in
-                  let policy_result =
-                    Github_pr_policy.decide ~db ~dedup_key
-                      ~room_id:subscription.room_id ~hour:now_hour ~quiet_start
-                      ~quiet_end ~max_per_hour ~dedupe_seconds ()
-                  in
-                  match policy_result with
-                  | Github_pr_policy.Denied reason ->
-                      Logs.info (fun m ->
-                          m
-                            "GitHub PR dispatch: policy denied room %s for %s \
-                             PR #%d: %s"
-                            subscription.room_id repo pr_number
-                            (Github_pr_policy.reason_to_string reason));
-                      Lwt.return acc
-                  | Github_pr_policy.Allowed ->
-                      Lwt.catch
-                        (fun () ->
-                          let* () =
-                            send_message ~room_id:subscription.room_id ~text ()
-                          in
-                          Github_pr_policy.record_delivery ~db ~dedup_key
-                            ~room_id:subscription.room_id ~repo ~pr_number
-                            ~event_type:event_type_str;
-                          Logs.info (fun m ->
-                              m
-                                "GitHub PR dispatch: notified room %s for %s \
-                                 PR #%d"
-                                subscription.room_id repo pr_number);
-                          Lwt.return (acc + 1))
-                        (fun exn ->
-                          Logs.err (fun m ->
-                              m
-                                "GitHub PR dispatch: failed to notify room %s: \
-                                 %s"
-                                subscription.room_id (Printexc.to_string exn));
-                          Lwt.return acc))
-              0 subscriptions
-          in
-          if count > 0 then
-            Logs.info (fun m ->
-                m "GitHub PR dispatch: notified %d rooms for %s PR #%d" count
-                  repo pr_number);
-          Lwt.return count
+          match event with
+          | CheckRun _ | CheckSuite _ | WorkflowRun _ -> (
+              match Github_webhook.ci_summary_of_event event with
+              | Some ci -> format_ci_summary ci action
+              | None -> format_pr_event_notification ~event ~action)
+          | PullRequestReview _ | PrReviewComment _ -> (
+              match Github_webhook.review_summary_of_event event with
+              | Some review -> format_review_summary review
+              | None -> format_pr_event_notification ~event ~action)
+          | _ -> format_pr_event_notification ~event ~action
+      in
+      if text = "" then Lwt.return 0
+      else
+        (* Pre-compute CI info and dedup key once for all subscriptions *)
+        let ci = ci_info_of_event event in
+        let now_hour =
+          let tm = Unix.localtime (Unix.gettimeofday ()) in
+          tm.Unix.tm_hour
+        in
+        let* count =
+          Lwt_list.fold_left_s
+            (fun acc subscription ->
+              if not (should_notify_subscription ~subscription ~event) then (
+                (* Record skipped event for preference mismatch *)
+                ignore
+                  (Room_activity_ledger.record_github_update_skipped ~db
+                     ~room_id:subscription.room_id ~delivery_id ~repo ~pr_number
+                     ~event_type:event_type_str ~reason:"preference_mismatch"
+                     ~payload_summary ?snapshot_id ?connector:connector_opt ());
+                Lwt.return acc)
+              else
+                (* Apply policy gates (dedup + quiet hours + rate limit) *)
+                let dedup_key =
+                  Github_pr_policy.make_dedup_key ~repo ~pr_number
+                    ~ci_name:ci.ci_name ~ci_conclusion:ci.ci_conclusion
+                    ~is_ci:ci.is_ci ~delivery_id
+                in
+                let policy_result =
+                  Github_pr_policy.decide ~db ~dedup_key
+                    ~room_id:subscription.room_id ~hour:now_hour ~quiet_start
+                    ~quiet_end ~max_per_hour ~dedupe_seconds ()
+                in
+                match policy_result with
+                | Github_pr_policy.Denied reason ->
+                    Logs.info (fun m ->
+                        m
+                          "GitHub PR dispatch: policy denied room %s for %s PR \
+                           #%d: %s"
+                          subscription.room_id repo pr_number
+                          (Github_pr_policy.reason_to_string reason));
+                    (* Record denied event *)
+                    ignore
+                      (Room_activity_ledger.record_github_update_denied ~db
+                         ~room_id:subscription.room_id ~delivery_id ~repo
+                         ~pr_number ~event_type:event_type_str
+                         ~deny_reason:(Github_pr_policy.reason_to_string reason)
+                         ~payload_summary ?snapshot_id ?connector:connector_opt
+                         ());
+                    Lwt.return acc
+                | Github_pr_policy.Allowed ->
+                    Lwt.catch
+                      (fun () ->
+                        let* () =
+                          send_message ~room_id:subscription.room_id ~text ()
+                        in
+                        Github_pr_policy.record_delivery ~db ~dedup_key
+                          ~room_id:subscription.room_id ~repo ~pr_number
+                          ~event_type:event_type_str;
+                        (* Record delivered event *)
+                        ignore
+                          (Room_activity_ledger.record_github_update_delivered
+                             ~db ~room_id:subscription.room_id ~delivery_id
+                             ~repo ~pr_number ~event_type:event_type_str
+                             ~payload_summary ?snapshot_id
+                             ?connector:connector_opt ());
+                        Logs.info (fun m ->
+                            m
+                              "GitHub PR dispatch: notified room %s for %s PR \
+                               #%d"
+                              subscription.room_id repo pr_number);
+                        Lwt.return (acc + 1))
+                      (fun exn ->
+                        Logs.err (fun m ->
+                            m "GitHub PR dispatch: failed to notify room %s: %s"
+                              subscription.room_id (Printexc.to_string exn));
+                        Lwt.return acc))
+            0 subscriptions
+        in
+        if count > 0 then
+          Logs.info (fun m ->
+              m "GitHub PR dispatch: notified %d rooms for %s PR #%d" count repo
+                pr_number);
+        Lwt.return count
