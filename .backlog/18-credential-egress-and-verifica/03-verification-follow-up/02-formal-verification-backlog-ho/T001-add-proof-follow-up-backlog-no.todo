@@ -1,14 +1,17 @@
 ---
+claimed_at: "2026-06-29T15:00:26Z"
+claimed_by: cli-user
+completed_at: "2026-06-29T15:09:21Z"
 complexity: medium
 depends_on:
     - P18.M3.E1.T003
+duration_minutes: 8.92644257575
 estimate_hours: 2
 id: P18.M3.E2.T001
 priority: medium
-status: pending
-tags:
-    - verification
-    - backlog
+started_at: "2026-06-29T15:00:26Z"
+status: done
+tags: []
 title: Add proof follow-up backlog notes for selected invariants
 ---
 Acceptance: future proof work is linked from docs/backlog without claiming proofs exist or blocking P14-P18 implementation.

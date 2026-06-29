@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-29T16:11:45Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P16.M1.E2.T003
 estimate_hours: 3
 id: P16.M3.E1.T001
 priority: high
-status: pending
-tags:
-    - github
-    - runs
+started_at: "2026-06-29T16:11:45Z"
+status: in_progress
+tags: []
 title: Add explicit GitHub review run trigger model
 ---
 Acceptance: /clawq, labels, subscription rules, or room commands can request bounded review/security/code tasks against granted repos/PRs with idempotency by repo/PR/head SHA/run kind.

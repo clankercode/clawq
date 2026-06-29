@@ -1,14 +1,17 @@
 ---
+claimed_at: "2026-06-29T15:00:26Z"
+claimed_by: cli-user
+completed_at: "2026-06-29T15:38:22Z"
 complexity: medium
 depends_on:
     - P16.M2.E2.T002
+duration_minutes: 37.9369350917
 estimate_hours: 3
 id: P16.M2.E2.T003
 priority: high
-status: pending
-tags:
-    - github
-    - policy
+started_at: "2026-06-29T15:00:26Z"
+status: done
+tags: []
 title: Add backoff dedupe and quiet-hour policy for GitHub updates
 ---
 Acceptance: noisy CI churn is coalesced; quiet hours, budget, and policy gates are enforced; denials and skips are inspectable.

@@ -22,7 +22,7 @@ milestones:
       locked: false
       name: PR Subscriptions and CI Review Reporting
       path: 02-pr-subscriptions-and-ci-review
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P16.M2

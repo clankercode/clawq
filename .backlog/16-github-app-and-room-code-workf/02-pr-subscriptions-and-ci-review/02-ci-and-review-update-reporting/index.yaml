@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -41,7 +41,8 @@ tasks:
       file: T003-add-backoff-dedupe-and-quiet-h.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add backoff dedupe and quiet-hour policy for GitHub updates
     - complexity: medium
       depends_on:
@@ -51,6 +52,6 @@ tasks:
       file: T004-record-github-update-ledger-ev.todo
       id: T004
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Record GitHub update ledger events

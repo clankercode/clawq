@@ -21,7 +21,7 @@ epics:
       locked: false
       name: CI and Review Update Reporting
       path: 02-ci-and-review-update-reporting
-      status: pending
+      status: done
 estimate_hours: 24
 id: P16.M2
 locked: false
@@ -32,4 +32,4 @@ stats:
     in_progress: 0
     pending: 8
     total_tasks: 8
-status: pending
+status: done

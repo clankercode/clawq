@@ -22,7 +22,8 @@ tasks:
       file: T001-add-slack-and-teams-room-ux-sm.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add Slack and Teams room UX smoke tests
     - complexity: medium
       depends_on:

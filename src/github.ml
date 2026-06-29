@@ -268,6 +268,46 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
         author log_result);
   Lwt.return (Ok log_result)
 
+(** Detect and trigger review runs from label events. When a PR is labeled
+    with a review-trigger label (e.g., "review", "security"), creates a review
+    run record. Returns the number of review runs triggered. *)
+let trigger_review_runs_from_labels ~(db : Sqlite3.db) ~event_type ~body =
+  if event_type <> "pull_request" then 0
+  else
+    try
+      let json = Yojson.Safe.from_string body in
+      let open Yojson.Safe.Util in
+      let action = json |> member "action" |> to_string in
+      if action <> "labeled" then 0
+      else
+        let label = json |> member "label" in
+        let label_name = label |> member "name" |> to_string in
+        let pr = json |> member "pull_request" in
+        let pr_number = pr |> member "number" |> to_int in
+        let repo_full_name =
+          json |> member "repository" |> member "full_name" |> to_string
+        in
+        let head_sha =
+          pr |> member "head" |> member "sha" |> to_string
+        in
+        match
+          Github_review_run.trigger_from_label ~db ~repo:repo_full_name
+            ~pr_number ~head_sha ~label:label_name
+        with
+        | Some run ->
+            Logs.info (fun m ->
+                m
+                  "GitHub: triggered %s review run for %s PR #%d (label: %s)"
+                  (Github_review_run.run_kind_to_string run.run_kind)
+                  repo_full_name pr_number label_name);
+            1
+        | None -> 0
+    with exn ->
+      Logs.debug (fun m ->
+          m "GitHub: label trigger detection failed: %s"
+            (Printexc.to_string exn));
+      0
+
 let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
     ~(github_config : Runtime_config.github_config)
     ?(config : Runtime_config.t option) ~(session_manager : Session.t)
@@ -442,6 +482,15 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                                       room_id);
                                 Lwt.return_unit)
                           ()
+                    | None -> Lwt.return 0
+                  in
+                  (* Trigger review runs from label events *)
+                  let* _review_runs =
+                    match Session.get_db session_manager with
+                    | Some db ->
+                        Lwt.return
+                          (trigger_review_runs_from_labels ~db ~event_type
+                             ~body)
                     | None -> Lwt.return 0
                   in
                   let author =

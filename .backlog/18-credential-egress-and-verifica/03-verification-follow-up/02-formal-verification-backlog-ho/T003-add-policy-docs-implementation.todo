@@ -1,15 +1,16 @@
 ---
+claimed_at: "2026-06-29T16:11:45Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on:
     - P18.M3.E2.T002
 estimate_hours: 3
 id: P18.M3.E2.T003
 priority: medium
-status: pending
-tags:
-    - verification
-    - docs
-    - tests
+started_at: "2026-06-29T16:11:45Z"
+status: in_progress
+tags: []
 title: Add policy docs implementation drift check
 ---
 Acceptance: docs/check command or test catches stale claims about policy, proxy, or proof status.

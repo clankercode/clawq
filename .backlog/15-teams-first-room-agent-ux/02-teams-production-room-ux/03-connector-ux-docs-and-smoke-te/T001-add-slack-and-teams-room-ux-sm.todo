@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-29T16:11:45Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P15.M2.E2.T003
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 3
 id: P15.M2.E3.T001
 priority: high
-status: pending
-tags:
-    - teams
-    - tests
+started_at: "2026-06-29T16:11:45Z"
+status: in_progress
+tags: []
 title: Add Slack and Teams room UX smoke tests
 ---
 Acceptance: smoke tests cover one Teams production path and one Slack baseline path for room task progress, explanation, and final artifacts.

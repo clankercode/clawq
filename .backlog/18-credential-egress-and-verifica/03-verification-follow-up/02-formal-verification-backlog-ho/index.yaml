@@ -20,7 +20,8 @@ tasks:
       file: T001-add-proof-follow-up-backlog-no.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add proof follow-up backlog notes for selected invariants
     - complexity: medium
       depends_on:
@@ -29,7 +30,8 @@ tasks:
       file: T002-update-verification-documentat.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Update verification documentation boundaries
     - complexity: medium
       depends_on:
@@ -38,5 +40,6 @@ tasks:
       file: T003-add-policy-docs-implementation.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Add policy docs implementation drift check

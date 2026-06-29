@@ -31,7 +31,8 @@ tasks:
       file: T002-add-teams-first-wizard-path-wi.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add Teams-first wizard path with Slack baseline
     - complexity: high
       depends_on:
@@ -41,7 +42,7 @@ tasks:
       file: T003-add-idempotent-rerun-and-repai.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Add idempotent rerun and repair behavior
     - complexity: medium
