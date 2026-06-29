@@ -184,6 +184,7 @@
   slack_progress_checklist
   room_budget
   room_request_classifier
+  room_session_record
   daemon_status
   benchmark
   debate

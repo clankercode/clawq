@@ -65,6 +65,7 @@
   test_room_profile_reconcile
   test_room_budget
   test_room_request_classifier
+  test_room_session_record
   test_memory_retention
   test_memory_search
   test_migrate

@@ -308,6 +308,7 @@ let run ~(config : Runtime_config.t) =
         Logs.info (fun m -> m "Audit trail enabled")
       end;
       Access_snapshot.init_schema db;
+      Room_session_record.init_schema db;
       Logs.info (fun m ->
           m "SQLite memory initialized at %s (vector index enabled)" db_path);
       Some db

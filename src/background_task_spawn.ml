@@ -857,6 +857,17 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
     if Room_origin.is_empty origin then None
     else Some (Room_origin.to_compact_json_string origin)
   in
+  (* Create room session record when config and snapshot are available. *)
+  (match (config, effective_snapshot_id) with
+  | Some cfg, Some snap_id -> (
+      try
+        ignore
+          (Room_session_record.assemble_and_persist ~db ~config:cfg
+             ~access_snapshot_id:snap_id ~origin ~session_key ~room_id ())
+      with _ ->
+        (* Table may not exist in test/minimal contexts *)
+        ())
+  | _ -> ());
   let requester = Some requester_id in
   let default_repo_path = room_default_repo_path room_id in
   match preferred_runner with
