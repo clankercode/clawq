@@ -195,14 +195,14 @@ let test_readiness_connector_available () =
   let state =
     { default_state with connector_type = "teams"; connector_room = "19:abc" }
   in
-  let checks = run_readiness_checks ~cfg:base_cfg ~state in
+  let checks = run_readiness_checks ~cfg:base_cfg ~db:None ~state in
   let connector_check =
     List.find (fun c -> c.name = "Connector Available") checks
   in
   Alcotest.(check bool) "teams not available" false connector_check.passed;
   (* Now with teams configured *)
   let cfg_with_teams = make_teams_cfg () in
-  let checks2 = run_readiness_checks ~cfg:cfg_with_teams ~state in
+  let checks2 = run_readiness_checks ~cfg:cfg_with_teams ~db:None ~state in
   let connector_check2 =
     List.find (fun c -> c.name = "Connector Available") checks2
   in
@@ -218,14 +218,14 @@ let test_readiness_room_validation () =
       connector_room = "19:abc@thread.tacv2";
     }
   in
-  let checks = run_readiness_checks ~cfg ~state:state_valid in
+  let checks = run_readiness_checks ~cfg ~db:None ~state:state_valid in
   let room_check = List.find (fun c -> c.name = "Connector Room") checks in
   Alcotest.(check bool) "valid teams room passes" true room_check.passed;
   (* Invalid slack room (doesn't start with C/G/D/#) *)
   let state_invalid =
     { default_state with connector_type = "slack"; connector_room = "invalid" }
   in
-  let checks2 = run_readiness_checks ~cfg ~state:state_invalid in
+  let checks2 = run_readiness_checks ~cfg ~db:None ~state:state_invalid in
   let room_check2 = List.find (fun c -> c.name = "Connector Room") checks2 in
   Alcotest.(check bool) "invalid slack room fails" false room_check2.passed
 
@@ -519,6 +519,227 @@ let test_rerun_default_values_preserve_existing () =
         "max_iters is already_valid (preserves 10)" true
         (item.status = Already_valid)
 
+(** {1 Budget state readiness check tests} *)
+
+let test_readiness_budget_state_no_db () =
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      token_limit = 1000;
+      cost_limit_usd = 10.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:None ~state in
+  (* Without DB, budget state check should not appear *)
+  let budget_state_check =
+    List.find_opt (fun c -> c.name = "Budget State") checks
+  in
+  Alcotest.(check bool)
+    "no budget state check without db" true
+    (Option.is_none budget_state_check)
+
+let test_readiness_budget_denial_message () =
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      token_limit = 1000;
+      cost_limit_usd = 10.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:None ~state in
+  let denial_check =
+    List.find_opt (fun c -> c.name = "Budget Denial Msg") checks
+  in
+  match denial_check with
+  | None -> Alcotest.fail "expected budget denial msg check"
+  | Some check ->
+      Alcotest.(check bool) "denial msg check passes" true check.passed;
+      Alcotest.(check bool)
+        "denial msg indicates safe" true
+        (String_util.string_contains check.message "Redacted msg safe")
+
+let test_readiness_budget_denial_no_leak () =
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      token_limit = 12345;
+      cost_limit_usd = 99.99;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:None ~state in
+  let denial_check =
+    List.find_opt (fun c -> c.name = "Budget Denial Msg") checks
+  in
+  match denial_check with
+  | None -> Alcotest.fail "expected budget denial msg check"
+  | Some check ->
+      Alcotest.(check bool) "denial msg check passes" true check.passed;
+      (* Redacted message should not leak token limit or cost *)
+      Alcotest.(check bool)
+        "no token limit in redacted" true
+        (not (String_util.string_contains check.message "12345"));
+      Alcotest.(check bool)
+        "no cost limit in redacted" true
+        (not (String_util.string_contains check.message "99.99"))
+
+let test_readiness_budget_denial_no_budget () =
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      token_limit = 0;
+      cost_limit_usd = 0.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:None ~state in
+  let denial_check =
+    List.find_opt (fun c -> c.name = "Budget Denial Msg") checks
+  in
+  Alcotest.(check bool)
+    "no denial check when no budget" true
+    (Option.is_none denial_check)
+
+let test_readiness_budget_denial_cost_only () =
+  let cfg = make_empty_cfg () in
+  let state =
+    {
+      default_state with
+      profile_id = "test-profile";
+      token_limit = 0;
+      cost_limit_usd = 25.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:None ~state in
+  let denial_check =
+    List.find_opt (fun c -> c.name = "Budget Denial Msg") checks
+  in
+  match denial_check with
+  | None -> Alcotest.fail "expected budget denial msg check for cost-only"
+  | Some check ->
+      Alcotest.(check bool) "cost-only denial msg passes" true check.passed;
+      Alcotest.(check bool)
+        "cost-only msg indicates safe" true
+        (String_util.string_contains check.message "Redacted msg safe")
+
+let test_readiness_budget_state_with_db () =
+  let cfg = make_empty_cfg () in
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"budget-test-profile" in
+  Room_budget.init_schema db;
+  Room_budget.init_profile_budget ~db ~profile_id ~token_limit:1000
+    ~cost_limit_usd:10.0 ~reset_period:"monthly"
+    ~period_started_at:"2026-01-01 00:00:00" ();
+  (* Record some usage *)
+  Request_stats.record ~db ~session_key:"test-session" ~profile_id
+    ~provider:"openai" ~model:"gpt-5.4" ~prompt_tokens:300
+    ~completion_tokens:200 ~cost_usd:2.50 ();
+  let state =
+    {
+      default_state with
+      profile_id = "budget-test-profile";
+      token_limit = 1000;
+      cost_limit_usd = 10.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:(Some db) ~state in
+  let budget_state_check =
+    List.find_opt (fun c -> c.name = "Budget State") checks
+  in
+  match budget_state_check with
+  | None -> Alcotest.fail "expected budget state check with db"
+  | Some check ->
+      Alcotest.(check bool) "budget state passes" true check.passed;
+      Alcotest.(check bool)
+        "shows token usage" true
+        (String_util.string_contains check.message "500");
+      Alcotest.(check bool)
+        "shows token limit" true
+        (String_util.string_contains check.message "1000");
+      Alcotest.(check bool)
+        "shows cost usage" true
+        (String_util.string_contains check.message "2.50");
+      Alcotest.(check bool)
+        "shows period" true
+        (String_util.string_contains check.message "monthly");
+      Alcotest.(check bool)
+        "shows soft threshold" true
+        (String_util.string_contains check.message "80%")
+
+let test_readiness_budget_state_exceeded () =
+  let cfg = make_empty_cfg () in
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id =
+    Memory.insert_room_profile ~db ~name:"budget-exceeded-profile"
+  in
+  Room_budget.init_schema db;
+  Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+    ~cost_limit_usd:1.0 ~reset_period:"daily"
+    ~period_started_at:"2026-01-01 00:00:00" ();
+  (* Exceed the budget *)
+  Request_stats.record ~db ~session_key:"test-session" ~profile_id
+    ~provider:"openai" ~model:"gpt-5.4" ~prompt_tokens:80 ~completion_tokens:30
+    ~cost_usd:1.20 ();
+  let state =
+    {
+      default_state with
+      profile_id = "budget-exceeded-profile";
+      token_limit = 100;
+      cost_limit_usd = 1.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:(Some db) ~state in
+  let budget_state_check =
+    List.find_opt (fun c -> c.name = "Budget State") checks
+  in
+  match budget_state_check with
+  | None -> Alcotest.fail "expected budget state check"
+  | Some check ->
+      Alcotest.(check bool)
+        "budget state fails when exceeded" false check.passed;
+      Alcotest.(check bool)
+        "shows hard limit exceeded" true
+        (String_util.string_contains check.message "HARD LIMIT EXCEEDED")
+
+let test_readiness_budget_state_soft_warning () =
+  let cfg = make_empty_cfg () in
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"budget-soft-profile" in
+  Room_budget.init_schema db;
+  Room_budget.clear_all_soft_warn_debounce ();
+  Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+    ~cost_limit_usd:10.0 ~reset_period:"daily"
+    ~period_started_at:"2026-01-01 00:00:00" ();
+  (* 85% usage - above 80% soft threshold but below 100% hard limit *)
+  Request_stats.record ~db ~session_key:"test-session" ~profile_id
+    ~provider:"openai" ~model:"gpt-5.4" ~prompt_tokens:50 ~completion_tokens:35
+    ~cost_usd:0.40 ();
+  let state =
+    {
+      default_state with
+      profile_id = "budget-soft-profile";
+      token_limit = 100;
+      cost_limit_usd = 10.0;
+    }
+  in
+  let checks = run_readiness_checks ~cfg ~db:(Some db) ~state in
+  let budget_state_check =
+    List.find_opt (fun c -> c.name = "Budget State") checks
+  in
+  match budget_state_check with
+  | None -> Alcotest.fail "expected budget state check"
+  | Some check ->
+      Alcotest.(check bool) "budget state passes (soft only)" true check.passed;
+      Alcotest.(check bool)
+        "shows soft limit warning" true
+        (String_util.string_contains check.message "SOFT LIMIT WARNING")
+
 (** {1 Suite} *)
 
 let suite =
@@ -563,4 +784,20 @@ let suite =
       test_rerun_connector_binding_changed;
     Alcotest.test_case "rerun_default_values_preserve_existing" `Quick
       test_rerun_default_values_preserve_existing;
+    Alcotest.test_case "readiness_budget_state_no_db" `Quick
+      test_readiness_budget_state_no_db;
+    Alcotest.test_case "readiness_budget_denial_message" `Quick
+      test_readiness_budget_denial_message;
+    Alcotest.test_case "readiness_budget_denial_no_leak" `Quick
+      test_readiness_budget_denial_no_leak;
+    Alcotest.test_case "readiness_budget_denial_no_budget" `Quick
+      test_readiness_budget_denial_no_budget;
+    Alcotest.test_case "readiness_budget_denial_cost_only" `Quick
+      test_readiness_budget_denial_cost_only;
+    Alcotest.test_case "readiness_budget_state_with_db" `Quick
+      test_readiness_budget_state_with_db;
+    Alcotest.test_case "readiness_budget_state_exceeded" `Quick
+      test_readiness_budget_state_exceeded;
+    Alcotest.test_case "readiness_budget_state_soft_warning" `Quick
+      test_readiness_budget_state_soft_warning;
   ]

@@ -370,8 +370,8 @@ let generate_plan ~(cfg : Runtime_config.t) ~(state : wizard_state) :
 
 (* ── Readiness checks ───────────────────────────────────────────── *)
 
-let run_readiness_checks ~(cfg : Runtime_config.t) ~(state : wizard_state) :
-    readiness_check list =
+let run_readiness_checks ~(cfg : Runtime_config.t) ~(db : Sqlite3.db option)
+    ~(state : wizard_state) : readiness_check list =
   let checks = ref [] in
   let add name passed message =
     checks := { name; passed; message } :: !checks
@@ -441,6 +441,112 @@ let run_readiness_checks ~(cfg : Runtime_config.t) ~(state : wizard_state) :
     (state.token_limit >= 0 && state.cost_limit_usd >= 0.0)
     (if state.token_limit >= 0 && state.cost_limit_usd >= 0.0 then "Valid"
      else "Limits must be non-negative");
+
+  (* Check existing budget state when DB is available and profile exists *)
+  (match db with
+  | Some db when state.profile_id <> "" -> (
+      match Memory_core.get_room_profile_by_name ~db ~name:state.profile_id with
+      | Some rp -> (
+          match Room_budget.get_profile_budget ~db ~profile_id:rp.id with
+          | Some budget_state ->
+              let usage_pct tokens limit =
+                if limit > 0 then
+                  Float.of_int tokens /. Float.of_int limit *. 100.0
+                else 0.0
+              in
+              let token_pct =
+                usage_pct budget_state.current_usage.total_tokens
+                  budget_state.token_limit
+              in
+              let cost_pct =
+                usage_pct
+                  (int_of_float (budget_state.current_usage.cost_usd *. 100.0))
+                  (int_of_float (budget_state.cost_limit_usd *. 100.0))
+              in
+              let status_msg =
+                Printf.sprintf
+                  "tokens: %d/%d (%.1f%%), cost: $%.4f/$%.2f (%.1f%%), period: \
+                   %s, soft threshold: %.0f%%"
+                  budget_state.current_usage.total_tokens
+                  budget_state.token_limit token_pct
+                  budget_state.current_usage.cost_usd
+                  budget_state.cost_limit_usd cost_pct budget_state.reset_period
+                  (budget_state.soft_warn_threshold_pct *. 100.0)
+              in
+              let limit_msg =
+                if budget_state.limit_exceeded then " [HARD LIMIT EXCEEDED]"
+                else if budget_state.soft_limit_exceeded then
+                  " [SOFT LIMIT WARNING]"
+                else ""
+              in
+              add "Budget State"
+                (not budget_state.limit_exceeded)
+                (status_msg ^ limit_msg)
+          | None ->
+              add "Budget State" true "No budget configured for this profile")
+      | None ->
+          add "Budget State" true
+            "Profile not yet in DB (will be created on apply)")
+  | _ -> ());
+
+  (* Validate budget denial message redaction when budget is configured *)
+  if state.token_limit > 0 || state.cost_limit_usd > 0.0 then begin
+    let test_state : Room_budget.state =
+      {
+        profile_id = 0;
+        token_limit = state.token_limit;
+        cost_limit_usd = state.cost_limit_usd;
+        current_usage =
+          {
+            prompt_tokens = 0;
+            completion_tokens = 0;
+            total_tokens = 0;
+            cost_usd = 0.0;
+            turns = 0;
+          };
+        reset_period = state.budget_reset_period;
+        period_started_at = "";
+        token_limit_exceeded = true;
+        cost_limit_exceeded = true;
+        limit_exceeded = true;
+        soft_warn_threshold_pct = 0.8;
+        soft_limit_exceeded = false;
+        created_at = "";
+        updated_at = "";
+      }
+    in
+    let redacted_msg =
+      Room_budget.budget_exceeded_message_redacted test_state
+    in
+    let token_leak =
+      state.token_limit > 0
+      && String_util.string_contains redacted_msg
+           (string_of_int state.token_limit)
+    in
+    let cost_leak =
+      state.cost_limit_usd > 0.0
+      && String_util.string_contains redacted_msg
+           (string_of_float state.cost_limit_usd)
+    in
+    let no_leak =
+      not
+        (token_leak || cost_leak
+        || String_util.string_contains redacted_msg "USD"
+        || String_util.string_contains redacted_msg "limits")
+    in
+    let has_profile_id =
+      String_util.string_contains redacted_msg "budget exceeded"
+    in
+    add "Budget Denial Msg"
+      (no_leak && has_profile_id)
+      (if not no_leak then
+         Printf.sprintf "Redacted message leaks sensitive budget details: %s"
+           redacted_msg
+       else if not has_profile_id then
+         Printf.sprintf "Redacted message missing budget exceeded indicator: %s"
+           redacted_msg
+       else Printf.sprintf "Redacted msg safe (no details leaked)")
+  end;
 
   (* Check max tool iterations *)
   add "Max Tool Iterations"
@@ -1261,7 +1367,7 @@ let run_wizard () =
           display_plan plan;
 
           (* Run readiness checks *)
-          let checks = run_readiness_checks ~cfg ~state:!state in
+          let checks = run_readiness_checks ~cfg ~db:(Some db) ~state:!state in
           let all_ready = display_readiness checks in
 
           if not all_ready then begin
@@ -1326,7 +1432,7 @@ let run_plan ~(profile_id : string) ~(model : string) ~(system_prompt : string)
     let has_slack = connector_is_configured cfg "slack" in
     if has_slack then display_capability_comparison ()
   end;
-  let checks = run_readiness_checks ~cfg ~state in
+  let checks = run_readiness_checks ~cfg ~db:None ~state in
   let all_ready = display_readiness checks in
   if all_ready then "Plan is ready. All readiness checks passed."
   else "Plan has warnings. Review readiness checks above."
@@ -1384,7 +1490,7 @@ let run_rerun ~(profile_id : string) ~(model : string) ~(system_prompt : string)
       changed already_valid
   else begin
     (* Run readiness checks before applying *)
-    let checks = run_readiness_checks ~cfg ~state in
+    let checks = run_readiness_checks ~cfg ~db:None ~state in
     let all_ready = List.for_all (fun c -> c.passed) checks in
     if not all_ready then begin
       ignore (display_readiness checks);
@@ -1562,7 +1668,7 @@ let run args =
                     connector_active;
                   }
                 in
-                let checks = run_readiness_checks ~cfg ~state in
+                let checks = run_readiness_checks ~cfg ~db:(Some db) ~state in
                 let all_ready = List.for_all (fun c -> c.passed) checks in
                 if not all_ready then begin
                   ignore (display_readiness checks);
