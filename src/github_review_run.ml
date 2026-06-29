@@ -45,57 +45,22 @@ type review_run = {
 }
 (** A review run record with full context. *)
 
-(** {1 Serialization} *)
-
-let run_kind_to_string = function
-  | Code_review -> "code_review"
-  | Security_scan -> "security_scan"
-  | Custom name -> "custom:" ^ name
-
-let run_kind_of_string = function
-  | "code_review" -> Code_review
-  | "security_scan" -> Security_scan
-  | s when String.length s > 7 && String.sub s 0 7 = "custom:" ->
-      Custom (String.sub s 7 (String.length s - 7))
-  | _ -> Code_review (* Default fallback *)
-
-let trigger_source_to_string = function
-  | Label label -> "label:" ^ label
-  | Subscription_rule -> "subscription_rule"
-  | Room_command { room_id; requester_id } ->
-      Printf.sprintf "room_command:%s:%s" room_id requester_id
-  | Manual -> "manual"
-
-let trigger_source_of_string s =
-  if s = "subscription_rule" then Subscription_rule
-  else if s = "manual" then Manual
-  else if String.length s > 6 && String.sub s 0 6 = "label:" then
-    Label (String.sub s 6 (String.length s - 6))
-  else if String.length s > 13 && String.sub s 0 13 = "room_command:" then
-    match String.split_on_char ':' s with
-    | [ _; room_id; requester_id ] -> Room_command { room_id; requester_id }
-    | _ -> Manual
-  else Manual
-
-let run_status_to_string = function
-  | Pending -> "pending"
-  | Running -> "running"
-  | Completed -> "completed"
-  | Failed -> "failed"
-
-let run_status_of_string = function
-  | "pending" -> Pending
-  | "running" -> Running
-  | "completed" -> Completed
-  | "failed" -> Failed
-  | _ -> Pending
-
 (** {1 JSON serialization} *)
 
-let run_kind_to_json kind = `String (run_kind_to_string kind)
+let run_kind_to_json kind =
+  `String
+    (match kind with
+    | Code_review -> "code_review"
+    | Security_scan -> "security_scan"
+    | Custom name -> "custom:" ^ name)
 
 let run_kind_of_json json =
-  match json with `String s -> run_kind_of_string s | _ -> Code_review
+  match json with
+  | `String "code_review" -> Code_review
+  | `String "security_scan" -> Security_scan
+  | `String s when String.length s > 7 && String.sub s 0 7 = "custom:" ->
+      Custom (String.sub s 7 (String.length s - 7))
+  | _ -> Code_review
 
 let trigger_source_to_json = function
   | Label label ->
@@ -143,7 +108,13 @@ let review_run_to_json run =
       ("head_sha", `String run.head_sha);
       ("run_kind", run_kind_to_json run.run_kind);
       ("trigger_source", trigger_source_to_json run.trigger_source);
-      ("status", `String (run_status_to_string run.status));
+      ( "status",
+        `String
+          (match run.status with
+          | Pending -> "pending"
+          | Running -> "running"
+          | Completed -> "completed"
+          | Failed -> "failed") );
       ("task_id", match run.task_id with Some id -> `Int id | None -> `Null);
       ( "result_preview",
         match run.result_preview with Some s -> `String s | None -> `Null );
@@ -157,6 +128,60 @@ let review_run_to_json run =
     ]
 
 let review_run_to_string run = Yojson.Safe.to_string (review_run_to_json run)
+
+(** {1 String serialization (legacy format)} *)
+
+let run_kind_to_string = function
+  | Code_review -> "code_review"
+  | Security_scan -> "security_scan"
+  | Custom name -> "custom:" ^ name
+
+let run_kind_of_string = function
+  | "code_review" -> Code_review
+  | "security_scan" -> Security_scan
+  | s when String.length s > 7 && String.sub s 0 7 = "custom:" ->
+      Custom (String.sub s 7 (String.length s - 7))
+  | _ -> Code_review
+
+let trigger_source_to_string = function
+  | Label label -> "label:" ^ label
+  | Subscription_rule -> "subscription_rule"
+  | Room_command { room_id; requester_id } ->
+      Printf.sprintf "room_command:%s:%s" room_id requester_id
+  | Manual -> "manual"
+
+let trigger_source_of_string s =
+  (* Try JSON parsing first (new format used in DB) *)
+  (try Some (trigger_source_of_json (Yojson.Safe.from_string s))
+   with _ -> None)
+  |> function
+  | Some source -> source
+  | None ->
+      if
+        (* Fall back to legacy string format *)
+        s = "subscription_rule"
+      then Subscription_rule
+      else if s = "manual" then Manual
+      else if String.length s > 6 && String.sub s 0 6 = "label:" then
+        Label (String.sub s 6 (String.length s - 6))
+      else if String.length s > 13 && String.sub s 0 13 = "room_command:" then
+        match String.split_on_char ':' s with
+        | [ _; room_id; requester_id ] -> Room_command { room_id; requester_id }
+        | _ -> Manual
+      else Manual
+
+let run_status_to_string = function
+  | Pending -> "pending"
+  | Running -> "running"
+  | Completed -> "completed"
+  | Failed -> "failed"
+
+let run_status_of_string = function
+  | "pending" -> Pending
+  | "running" -> Running
+  | "completed" -> Completed
+  | "failed" -> Failed
+  | _ -> Pending
 
 (** {1 Database schema} *)
 
@@ -282,41 +307,33 @@ let find_pending_by_identity ~db ~repo ~pr_number ~head_sha ~run_kind =
 (** [create ~db ~repo ~pr_number ~head_sha ~run_kind ~trigger_source ()] creates
     a new review run. If one already exists with the same identity
     (repo/PR/head_sha/run_kind), returns the existing one instead (idempotency).
-*)
+    Uses INSERT OR IGNORE for race safety. *)
 let create ~db ~repo ~pr_number ~head_sha ~run_kind ~trigger_source () =
+  let trigger_json =
+    Yojson.Safe.to_string (trigger_source_to_json trigger_source)
+  in
+  (* Use INSERT OR IGNORE for race-safe idempotency *)
+  let sql =
+    "INSERT OR IGNORE INTO github_review_runs (repo, pr_number, head_sha, \
+     run_kind, trigger_source, status) VALUES (?, ?, ?, ?, ?, 'pending')"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      bind_params stmt
+        [
+          Sqlite3.Data.TEXT repo;
+          Sqlite3.Data.INT (Int64.of_int pr_number);
+          Sqlite3.Data.TEXT head_sha;
+          Sqlite3.Data.TEXT (run_kind_to_string run_kind);
+          Sqlite3.Data.TEXT trigger_json;
+        ];
+      ignore (Sqlite3.step stmt : Sqlite3.Rc.t));
+  (* Always retrieve the record (either newly inserted or existing) *)
   match find_by_identity ~db ~repo ~pr_number ~head_sha ~run_kind with
-  | Some existing -> existing
-  | None -> (
-      let trigger_json =
-        Yojson.Safe.to_string (trigger_source_to_json trigger_source)
-      in
-      let sql =
-        "INSERT INTO github_review_runs (repo, pr_number, head_sha, run_kind, \
-         trigger_source, status) VALUES (?, ?, ?, ?, ?, 'pending')"
-      in
-      let stmt = Sqlite3.prepare db sql in
-      Fun.protect
-        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-        (fun () ->
-          bind_params stmt
-            [
-              Sqlite3.Data.TEXT repo;
-              Sqlite3.Data.INT (Int64.of_int pr_number);
-              Sqlite3.Data.TEXT head_sha;
-              Sqlite3.Data.TEXT (run_kind_to_string run_kind);
-              Sqlite3.Data.TEXT trigger_json;
-            ];
-          match Sqlite3.step stmt with
-          | Sqlite3.Rc.DONE -> ()
-          | rc ->
-              failwith
-                (Printf.sprintf "github_review_run create failed: %s"
-                   (Sqlite3.Rc.to_string rc)));
-      (* Retrieve the created record *)
-      match find_by_identity ~db ~repo ~pr_number ~head_sha ~run_kind with
-      | Some run -> run
-      | None ->
-          failwith "github_review_run create: record not found after insert")
+  | Some run -> run
+  | None -> failwith "github_review_run create: record not found after insert"
 
 (** [set_running ~db ~id ~task_id] marks a review run as running and associates
     it with a background task. Returns true if updated. *)
