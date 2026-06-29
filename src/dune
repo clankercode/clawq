@@ -385,6 +385,7 @@
   setup_observer
   setup_zai_mcp
   setup_memory
+  setup_room_wizard
   setup_connector_history
   setup_prompt
   setup_resilience
