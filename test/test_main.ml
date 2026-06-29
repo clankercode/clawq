@@ -252,6 +252,7 @@ let () =
     @ [ ("github_app_token", Test_github_app_token.suite) ]
     @ [ ("github_pr_subscriptions", Test_github_pr_subscriptions.suite) ]
     @ [ ("github_pr_dispatch", Test_github_pr_dispatch.suite) ]
+    @ [ ("github_pr_lifecycle_leak", Test_github_pr_lifecycle_leak.suite) ]
     @ [
         ("minimal_reload", Test_minimal_reload.suite);
         ( "config_isolation",
