@@ -284,7 +284,13 @@ let create ~db ~pipeline_name ~pipeline_version ~inputs ~trigger_source ~room_id
       ignore (Sqlite3.step stmt : Sqlite3.Rc.t));
   let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
   match find_by_id ~db ~id with
-  | Some run -> run
+  | Some run ->
+      (* Record backlink from room to workflow run *)
+      Room_github_backlinks.record_triggered_run ~db ~repo:pipeline_name
+        ~pr_number:0 ~github_item_type:Workflow_run ~room_id
+        ~room_item_type:Workflow_run_room ~room_item_id:(string_of_int run.id)
+        ();
+      run
   | None ->
       failwith "workflow_run_trigger create: record not found after insert"
 
