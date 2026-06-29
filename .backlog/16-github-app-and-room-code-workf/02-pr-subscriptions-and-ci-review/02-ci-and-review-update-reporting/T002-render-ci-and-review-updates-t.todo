@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-29T14:20:28Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T15:00:08Z"
 complexity: high
 depends_on:
     - P16.M2.E2.T001
     - P15.M1.E2.T001
+duration_minutes: 39.67730533103333
 estimate_hours: 3
 id: P16.M2.E2.T002
 priority: high
 started_at: "2026-06-29T14:20:28Z"
-status: in_progress
+status: done
 tags: []
 title: Render CI and review updates through room UX
 ---

@@ -31,7 +31,7 @@ tasks:
       file: T002-render-ci-and-review-updates-t.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Render CI and review updates through room UX
     - complexity: medium
