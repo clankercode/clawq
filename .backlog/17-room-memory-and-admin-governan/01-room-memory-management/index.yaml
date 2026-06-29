@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Memory Provenance Grants and Isolation
       path: 02-memory-provenance-grants-and-i
-      status: pending
+      status: done
 estimate_hours: 24
 id: P17.M1
 locked: false
@@ -30,4 +30,4 @@ stats:
     in_progress: 0
     pending: 8
     total_tasks: 8
-status: pending
+status: done

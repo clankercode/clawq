@@ -32,7 +32,8 @@ tasks:
       file: T002-emit-egress-audit-and-ledger-e.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Emit egress audit and ledger events
     - complexity: high
       depends_on:

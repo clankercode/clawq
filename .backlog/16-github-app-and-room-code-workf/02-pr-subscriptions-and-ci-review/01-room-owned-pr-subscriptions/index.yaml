@@ -30,7 +30,8 @@ tasks:
       file: T002-add-admin-cli-for-pr-subscript.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add admin CLI for PR subscription lifecycle
     - complexity: high
       depends_on:

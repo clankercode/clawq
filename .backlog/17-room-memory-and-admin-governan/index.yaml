@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Room Memory Management
       path: 01-room-memory-management
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P17.M1

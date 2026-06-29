@@ -31,7 +31,8 @@ tasks:
       file: T002-add-bounded-teams-room-context.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add bounded Teams room context capture
     - complexity: high
       depends_on:
