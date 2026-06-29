@@ -1701,6 +1701,21 @@ let held_items_cmd =
       `I ("reject ID [--by ADMIN] [--notes TEXT]", "Reject a pending item.");
     ]
 
+let subscriptions_cmd =
+  with_args "subscriptions"
+    "Manage GitHub PR subscriptions (admin-only, requires CLAWQ_ADMIN=1)."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "list [--room ROOM | --repo REPO]",
+          "List all subscriptions, optionally filtered." );
+      `I ("show ID", "Show details of a specific subscription.");
+      `I ("add ROOM REPO PR# [--profile P]", "Add a subscription for a PR.");
+      `I ("disable ID", "Disable a subscription.");
+      `I ("enable ID", "Enable a subscription.");
+      `I ("remove ID", "Remove a subscription.");
+    ]
+
 let debate_cmd =
   with_args "debate"
     "Route a prompt to multiple models and synthesize a consensus."
@@ -1815,6 +1830,7 @@ let () =
       ec_run_cmd;
       manifest_cmd;
       held_items_cmd;
+      subscriptions_cmd;
       debate_cmd;
       pipeline_cmd;
     ]

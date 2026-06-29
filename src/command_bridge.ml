@@ -1088,6 +1088,8 @@ let handle args =
   | "ec-run" :: rest -> Command_bridge_debug.cmd_ec_run rest
   | "manifest" :: rest -> Command_bridge_debug.cmd_manifest rest
   | "held-items" :: rest -> cmd_held_items rest
+  | "subscriptions" :: rest ->
+      Github_pr_subscriptions_cli.cmd_subscriptions rest
   | "debate" :: rest -> Debate.cmd_debate ~get_config ~get_db rest
   | "pipeline" :: rest -> Command_bridge_session.cmd_pipeline rest
   | _ -> Clawq_core.dispatch args
