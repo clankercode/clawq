@@ -20,7 +20,8 @@ tasks:
       file: T001-add-room-agent-pilot-wizard-pl.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add room-agent pilot wizard plan/apply flow
     - complexity: medium
       depends_on:

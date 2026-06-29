@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-29T11:44:09Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P14.M1.E2.T001
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 4
 id: P17.M2.E1.T001
 priority: high
-status: pending
-tags:
-    - setup
-    - wizard
+started_at: "2026-06-29T11:44:09Z"
+status: in_progress
+tags: []
 title: Add room-agent pilot wizard plan/apply flow
 ---
 Acceptance: wizard can plan/apply room profile, access bundle, memory scope, budget, connector binding, and readiness checks without side effects in plan mode.

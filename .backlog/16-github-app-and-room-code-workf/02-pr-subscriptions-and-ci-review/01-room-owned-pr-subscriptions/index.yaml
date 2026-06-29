@@ -42,7 +42,7 @@ tasks:
       file: T003-dispatch-subscribed-github-eve.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Dispatch subscribed GitHub events into room threads
     - complexity: medium

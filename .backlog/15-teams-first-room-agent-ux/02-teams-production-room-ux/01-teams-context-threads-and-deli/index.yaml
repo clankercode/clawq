@@ -43,7 +43,7 @@ tasks:
       file: T003-record-teams-delivery-lifecycl.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Record Teams delivery lifecycle states
     - complexity: medium

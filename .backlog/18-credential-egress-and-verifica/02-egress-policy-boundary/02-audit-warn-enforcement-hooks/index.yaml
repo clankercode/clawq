@@ -45,7 +45,7 @@ tasks:
       file: T003-add-deny-mode-for-wrapped-gith.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Add deny mode for wrapped GitHub and MCP paths
     - complexity: medium
@@ -55,5 +55,6 @@ tasks:
       file: T004-add-egress-decision-and-redact.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add egress decision and redaction tests
