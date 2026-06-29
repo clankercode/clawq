@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B732
+priority: high
+status: pending
+tags: []
+title: usage rate checking is too frequent for kimi -- 429 errors
+---
+
+usage rate checking is too frequent for kimi -- 429 errors
