@@ -198,6 +198,36 @@ let revoke_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
       with exn ->
         Error ("failed to revoke memory grant: " ^ Printexc.to_string exn))
 
+let scope_grant_of_stmt stmt =
+  {
+    id = int_col stmt 0;
+    scope_id = int_col stmt 1;
+    principal_kind = text_col stmt 2;
+    principal_id = text_col stmt 3;
+    capability = text_col stmt 4;
+    grantor_kind = text_col stmt 5;
+    grantor_id = text_col stmt 6;
+    created_at = text_col stmt 7;
+    expires_at = text_opt_col stmt 8;
+  }
+
+let list_grants ~db ~scope_id =
+  let sql =
+    "SELECT id, scope_id, principal_kind, principal_id, capability, \
+     grantor_kind, grantor_id, created_at, expires_at FROM memory_grants WHERE \
+     scope_id = ? ORDER BY id"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let grants = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int scope_id)));
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        grants := scope_grant_of_stmt stmt :: !grants
+      done;
+      List.rev !grants)
+
 let list_scopes ~db ?kind ?limit ?(offset = 0) () =
   match limit with
   | Some n when n <= 0 -> []
