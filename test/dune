@@ -71,6 +71,7 @@
   test_memory_retention
   test_memory_search
   test_memory_ledger
+  test_memory_isolation
   test_minimal_reload
   test_migrate
   test_model_preferences

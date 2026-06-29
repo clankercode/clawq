@@ -100,6 +100,7 @@ let () =
        ("resilience", Test_resilience.suite);
        ("perf", Test_perf.suite);
        ("memory_retention", Test_memory_retention.suite);
+       ("memory_isolation", Test_memory_isolation.suite);
        ("landlock", Test_landlock.suite);
        ("rate_limiter", Test_rate_limiter.suite);
        ("slack", Test_slack.suite);
