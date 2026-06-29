@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 56
 id: P17
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -23,7 +23,7 @@ milestones:
       locked: false
       name: Admin Setup Wizard and Governance Readiness
       path: 02-admin-setup-wizard-and-governa
-      status: pending
+      status: done
 name: Room Memory and Admin Governance
 stats:
     blocked: 0
@@ -31,5 +31,5 @@ stats:
     in_progress: 0
     pending: 19
     total_tasks: 19
-status: pending
+status: done
 weeks: 4

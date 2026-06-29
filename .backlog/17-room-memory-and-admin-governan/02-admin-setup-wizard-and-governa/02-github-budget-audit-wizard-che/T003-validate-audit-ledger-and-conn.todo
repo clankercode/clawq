@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-06-29T20:16:33Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T20:16:33Z"
 complexity: high
 depends_on:
     - P15.M2.E1.T003
     - P17.M2.E1.T001
     - P17.M2.E2.T002
+duration_minutes: 0.007324022633333333
 estimate_hours: 3
 id: P17.M2.E2.T003
 priority: high
 started_at: "2026-06-29T20:16:33Z"
-status: in_progress
+status: done
 tags: []
 title: Validate audit ledger and connector delivery in wizard
 ---

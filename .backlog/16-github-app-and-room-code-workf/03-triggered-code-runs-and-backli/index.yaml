@@ -22,7 +22,7 @@ epics:
       locked: false
       name: Bidirectional Backlinks and Provenance
       path: 02-bidirectional-backlinks-and-pr
-      status: pending
+      status: done
 estimate_hours: 24
 id: P16.M3
 locked: false
@@ -33,4 +33,4 @@ stats:
     in_progress: 0
     pending: 8
     total_tasks: 8
-status: pending
+status: done

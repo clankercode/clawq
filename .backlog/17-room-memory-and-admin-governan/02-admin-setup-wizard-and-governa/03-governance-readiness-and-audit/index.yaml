@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -30,7 +30,8 @@ tasks:
       file: T002-enforce-invocation-restriction.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Enforce invocation restrictions by scope
     - complexity: medium
       depends_on:
@@ -50,5 +51,6 @@ tasks:
       file: T004-polish-room-audit-export-for-g.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Polish room audit export for governance events

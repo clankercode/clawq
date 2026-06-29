@@ -12,7 +12,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -21,7 +21,8 @@ tasks:
       file: T001-add-room-github-backlink-recor.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add room GitHub backlink records
     - complexity: high
       depends_on:
@@ -31,7 +32,8 @@ tasks:
       file: T002-post-github-comments-with-room.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Post GitHub comments with room provenance
     - complexity: medium
       depends_on:
@@ -42,7 +44,7 @@ tasks:
       file: T003-render-room-side-backlinks-for.todo
       id: T003
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Render room-side backlinks for GitHub actions
     - complexity: medium
@@ -53,5 +55,6 @@ tasks:
       file: T004-add-backlink-self-loop-and-aud.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add backlink self-loop and audit tests

@@ -43,4 +43,4 @@ stats:
     in_progress: 0
     pending: 11
     total_tasks: 11
-status: pending
+status: done

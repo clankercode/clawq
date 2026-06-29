@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-29T21:01:18Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T21:25:36Z"
 complexity: medium
 depends_on:
     - P16.M3.E2.T002
     - P16.M3.E2.T003
+duration_minutes: 24.312075171583334
 estimate_hours: 2
 id: P16.M3.E2.T004
 priority: high
 started_at: "2026-06-29T21:01:18Z"
-status: in_progress
+status: done
 tags: []
 title: Add backlink self-loop and audit tests
 ---

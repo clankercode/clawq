@@ -212,21 +212,21 @@ phases:
       description: GitHub App/bot identity, global and per-room repo grants, PR subscriptions, CI/review update reporting, triggered review/security runs, and backlinks.
       estimate_hours: 72
       id: P16
-      locked: false
+      locked: true
       name: GitHub App and Room Code Workflows
       path: 16-github-app-and-room-code-workf
       priority: high
-      status: pending
+      status: done
       weeks: 5
     - depends_on: []
       description: Room-scoped memory CRUD/provenance, private/public semantics, pilot setup wizard, governance restrictions, readiness report, and audit export.
       estimate_hours: 56
       id: P17
-      locked: false
+      locked: true
       name: Room Memory and Admin Governance
       path: 17-room-memory-and-admin-governan
       priority: high
-      status: pending
+      status: done
       weeks: 4
     - depends_on: []
       description: Staged credential handle/proxy boundary, explicit egress policy wrappers, room-scoped MCP policy, audit/warn enforcement, and verification follow-up specs without formal proof implementation.

@@ -1,15 +1,18 @@
 ---
-completed_at: null
+claimed_at: "2026-06-29T20:31:23Z"
+claimed_by: cli-user
+completed_at: "2026-06-29T21:01:10Z"
 complexity: medium
 depends_on:
     - P16.M3.E2.T001
     - P15.M1.E3.T003
     - P16.M3.E2.T002
+duration_minutes: 29.7916479768
 estimate_hours: 2
 id: P16.M3.E2.T003
 priority: high
-started_at: null
-status: pending
+started_at: "2026-06-29T20:31:23Z"
+status: done
 tags: []
 title: Render room-side backlinks for GitHub actions
 ---
