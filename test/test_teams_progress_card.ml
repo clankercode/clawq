@@ -234,6 +234,9 @@ let test_build_card_with_actions () =
       show_retry = true;
       show_logs = true;
       show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = Some "/tmp/log.txt";
     }
   in
@@ -260,6 +263,9 @@ let test_build_card_with_finalize_action () =
       show_retry = false;
       show_logs = false;
       show_finalize = true;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = None;
     }
   in
@@ -736,6 +742,9 @@ let test_render_actions_retry_and_logs () =
       show_retry = true;
       show_logs = true;
       show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = Some "/tmp/log.txt";
     }
   in
@@ -759,6 +768,9 @@ let test_render_actions_empty () =
       show_retry = false;
       show_logs = false;
       show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = None;
     }
   in
@@ -772,6 +784,9 @@ let test_render_actions_retry_command () =
       show_retry = true;
       show_logs = false;
       show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = None;
     }
   in
@@ -788,6 +803,9 @@ let test_render_actions_finalize_command () =
       show_retry = false;
       show_logs = false;
       show_finalize = true;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = None;
     }
   in
@@ -804,6 +822,9 @@ let test_render_actions_logs_command () =
       show_retry = false;
       show_logs = true;
       show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = Some "/tmp/out.log";
     }
   in
@@ -844,6 +865,9 @@ let test_teams_card_imback_action_format () =
       show_retry = true;
       show_logs = false;
       show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = false;
       log_path = None;
     }
   in
@@ -899,6 +923,111 @@ let test_fallback_text_plain_format () =
   Alcotest.(check bool)
     "no mrkdwn bold" false
     (Test_helpers.string_contains text "*Step*")
+
+(** {1 Inspect/Continue/Cancel action tests} *)
+
+let test_render_actions_inspect () =
+  let actions : Teams_progress_card.task_actions =
+    {
+      task_id = 42;
+      show_retry = false;
+      show_logs = false;
+      show_finalize = false;
+      show_inspect = true;
+      show_continue = false;
+      show_cancel = false;
+      log_path = None;
+    }
+  in
+  let elements = Teams_progress_card.render_actions actions in
+  Alcotest.(check int) "one ActionSet" 1 (List.length elements);
+  let json_str = Yojson.Safe.to_string (`List elements) in
+  Alcotest.(check bool)
+    "has Inspect button" true
+    (Test_helpers.string_contains json_str "Inspect");
+  Alcotest.(check bool)
+    "has show command" true
+    (Test_helpers.string_contains json_str "/background show 42")
+
+let test_render_actions_continue () =
+  let actions : Teams_progress_card.task_actions =
+    {
+      task_id = 15;
+      show_retry = false;
+      show_logs = false;
+      show_finalize = false;
+      show_inspect = false;
+      show_continue = true;
+      show_cancel = false;
+      log_path = None;
+    }
+  in
+  let elements = Teams_progress_card.render_actions actions in
+  Alcotest.(check int) "one ActionSet" 1 (List.length elements);
+  let json_str = Yojson.Safe.to_string (`List elements) in
+  Alcotest.(check bool)
+    "has Continue button" true
+    (Test_helpers.string_contains json_str "Continue");
+  Alcotest.(check bool)
+    "has resume command" true
+    (Test_helpers.string_contains json_str "/background resume 15")
+
+let test_render_actions_cancel () =
+  let actions : Teams_progress_card.task_actions =
+    {
+      task_id = 99;
+      show_retry = false;
+      show_logs = false;
+      show_finalize = false;
+      show_inspect = false;
+      show_continue = false;
+      show_cancel = true;
+      log_path = None;
+    }
+  in
+  let elements = Teams_progress_card.render_actions actions in
+  Alcotest.(check int) "one ActionSet" 1 (List.length elements);
+  let json_str = Yojson.Safe.to_string (`List elements) in
+  Alcotest.(check bool)
+    "has Cancel button" true
+    (Test_helpers.string_contains json_str "Cancel");
+  Alcotest.(check bool)
+    "has cancel command" true
+    (Test_helpers.string_contains json_str "/background cancel 99")
+
+let test_render_actions_all_controls () =
+  let actions : Teams_progress_card.task_actions =
+    {
+      task_id = 7;
+      show_retry = true;
+      show_logs = true;
+      show_finalize = true;
+      show_inspect = true;
+      show_continue = true;
+      show_cancel = true;
+      log_path = Some "/tmp/log.txt";
+    }
+  in
+  let elements = Teams_progress_card.render_actions actions in
+  let json_str = Yojson.Safe.to_string (`List elements) in
+  Alcotest.(check bool)
+    "has retry" true
+    (Test_helpers.string_contains json_str "Retry Task");
+  Alcotest.(check bool)
+    "has logs" true
+    (Test_helpers.string_contains json_str "View Logs");
+  Alcotest.(check bool)
+    "has finalize" true
+    (Test_helpers.string_contains json_str "Finalize");
+  Alcotest.(check bool)
+    "has inspect" true
+    (Test_helpers.string_contains json_str "Inspect");
+  Alcotest.(check bool)
+    "has continue" true
+    (Test_helpers.string_contains json_str "Continue");
+  Alcotest.(check bool)
+    "has cancel" true
+    (Test_helpers.string_contains json_str "Cancel")
 
 let suite =
   [
@@ -1024,4 +1153,11 @@ let suite =
       test_slack_renderer_uses_mrkdwn_format;
     Alcotest.test_case "fallback text plain format" `Quick
       test_fallback_text_plain_format;
+    Alcotest.test_case "render actions inspect" `Quick
+      test_render_actions_inspect;
+    Alcotest.test_case "render actions continue" `Quick
+      test_render_actions_continue;
+    Alcotest.test_case "render actions cancel" `Quick test_render_actions_cancel;
+    Alcotest.test_case "render actions all controls" `Quick
+      test_render_actions_all_controls;
   ]
