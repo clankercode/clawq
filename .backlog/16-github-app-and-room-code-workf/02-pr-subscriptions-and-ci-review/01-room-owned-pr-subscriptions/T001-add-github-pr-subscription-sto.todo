@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-29T06:24:27Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P16.M1.E2.T003
 estimate_hours: 3
 id: P16.M2.E1.T001
 priority: high
-status: pending
-tags:
-    - github
-    - subscriptions
+started_at: "2026-06-29T06:24:27Z"
+status: in_progress
+tags: []
 title: Add GitHub PR subscription storage model
 ---
 Acceptance: subscriptions record room/profile, owner/repo, PR selector/event filters, creator, thread, policy snapshot, enabled state, dedupe key, and rate-limit state.

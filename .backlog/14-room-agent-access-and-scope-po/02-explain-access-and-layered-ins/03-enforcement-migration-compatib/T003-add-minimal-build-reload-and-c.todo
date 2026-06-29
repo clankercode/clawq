@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-29T03:11:37Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T04:09:18Z"
 complexity: medium
 depends_on:
     - P14.M2.E3.T002
+duration_minutes: 57.699378474283336
 estimate_hours: 2
 id: P14.M2.E3.T003
 priority: high
 started_at: "2026-06-29T03:11:37Z"
-status: in_progress
+status: done
 tags: []
 title: Add minimal-build reload and compatibility tests
 ---

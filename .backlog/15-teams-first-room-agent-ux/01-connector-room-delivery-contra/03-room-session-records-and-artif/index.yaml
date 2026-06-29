@@ -43,5 +43,6 @@ tasks:
       file: T003-link-artifacts-and-records-fro.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Link artifacts and records from Teams and Slack messages

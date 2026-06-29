@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Repo Grants and Room Authorization
       path: 02-repo-grants-and-room-authoriza
-      status: pending
+      status: done
 estimate_hours: 24
 id: P16.M1
 locked: false
@@ -30,4 +30,4 @@ stats:
     in_progress: 0
     pending: 8
     total_tasks: 8
-status: pending
+status: done

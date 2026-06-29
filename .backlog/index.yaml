@@ -192,11 +192,11 @@ phases:
       description: 'Claude Tag parity follow-on: access bundles, default/workspace/channel/room inheritance, effective-access snapshots, layered instructions, and redacted explain-access surfaces. Source plan: docs/ultra-plans/claude-tag-parity-next/.'
       estimate_hours: 56
       id: P14
-      locked: false
+      locked: true
       name: Room Agent Access and Scope Policy
       path: 14-room-agent-access-and-scope-po
       priority: high
-      status: pending
+      status: done
       weeks: 4
     - depends_on: []
       description: 'Teams-first production room-agent UX with Slack as the Claude Tag baseline: shared delivery contracts, progress cards/checklists, durable session records, context capture, and delivery observability.'

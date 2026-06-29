@@ -33,7 +33,7 @@ epics:
       locked: false
       name: Enforcement Migration Compatibility
       path: 03-enforcement-migration-compatib
-      status: pending
+      status: done
 estimate_hours: 28
 id: P14.M2
 locked: false
@@ -44,4 +44,4 @@ stats:
     in_progress: 0
     pending: 10
     total_tasks: 10
-status: pending
+status: done

@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: GitHub App Identity and Repo Grants
       path: 01-github-app-identity-and-repo-g
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P16.M1

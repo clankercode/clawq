@@ -3,7 +3,7 @@ depends_on:
     - P13
 estimate_hours: 56
 id: P14
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -23,7 +23,7 @@ milestones:
       locked: false
       name: Explain Access and Layered Instructions
       path: 02-explain-access-and-layered-ins
-      status: pending
+      status: done
 name: Room Agent Access and Scope Policy
 stats:
     blocked: 0
@@ -31,5 +31,5 @@ stats:
     in_progress: 0
     pending: 13
     total_tasks: 19
-status: pending
+status: done
 weeks: 4
