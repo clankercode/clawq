@@ -359,6 +359,7 @@
   provider_init
   config_validate
   setup_github
+  github_wizard_checks
   setup_discord
   setup_slack
   setup_teams

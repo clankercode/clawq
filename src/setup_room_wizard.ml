@@ -457,6 +457,24 @@ let run_readiness_checks ~(cfg : Runtime_config.t) ~(state : wizard_state) :
        state.budget_reset_period
      else "Must be: daily, weekly, monthly, or yearly");
 
+  (* GitHub App and repo grant checks *)
+  let gh_token_ok, gh_token_msg =
+    Github_wizard_checks.check_github_app_token cfg
+  in
+  add "GitHub App" gh_token_ok gh_token_msg;
+
+  let rg_ok, rg_msg = Github_wizard_checks.check_repo_grants cfg in
+  add "Repo Grants" rg_ok rg_msg;
+
+  let wh_ok, wh_msg = Github_wizard_checks.check_webhook_reachability cfg in
+  add "Webhook Config" wh_ok wh_msg;
+
+  let rb_ok, rb_msg =
+    Github_wizard_checks.check_room_backlink ~cfg ~profile_id:state.profile_id
+      ~access_bundle_ids:state.access_bundle_ids
+  in
+  add "Room Backlink" rb_ok rb_msg;
+
   List.rev !checks
 
 (* ── Plan display ───────────────────────────────────────────────── *)
