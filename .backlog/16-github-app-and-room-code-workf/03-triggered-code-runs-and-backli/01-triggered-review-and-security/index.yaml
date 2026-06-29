@@ -20,7 +20,7 @@ tasks:
       file: T001-add-explicit-github-review-run.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add explicit GitHub review run trigger model
     - complexity: high

@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-29T16:11:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T16:54:25Z"
 complexity: high
 depends_on:
     - P16.M1.E2.T003
+duration_minutes: 42.6682256721
 estimate_hours: 3
 id: P16.M3.E1.T001
 priority: high
 started_at: "2026-06-29T16:11:45Z"
-status: in_progress
+status: done
 tags: []
 title: Add explicit GitHub review run trigger model
 ---
