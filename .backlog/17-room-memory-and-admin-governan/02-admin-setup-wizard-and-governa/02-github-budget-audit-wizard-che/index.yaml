@@ -33,7 +33,7 @@ tasks:
       file: T002-validate-room-budget-and-spend.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Validate room budget and spend warnings in wizard
     - complexity: high
