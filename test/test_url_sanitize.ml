@@ -23,14 +23,20 @@ let test_sanitize_url_token_param () =
     (Test_helpers.string_contains sanitized "name=foo");
   Alcotest.(check bool)
     "secret not exposed" false
-    (Test_helpers.string_contains sanitized "abc123secret")
+    (Test_helpers.string_contains sanitized "abc123secret");
+  Alcotest.(check bool)
+    "token value replaced" true
+    (Test_helpers.string_contains sanitized "REDACTED")
 
 let test_sanitize_url_api_key_param () =
   let url = "https://example.com/api?key=sk_live_abc123def456" in
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "full key not exposed" false
-    (Test_helpers.string_contains sanitized "sk_live_abc123def456")
+    (Test_helpers.string_contains sanitized "sk_live_abc123def456");
+  Alcotest.(check bool)
+    "key value replaced" true
+    (Test_helpers.string_contains sanitized "REDACTED")
 
 let test_sanitize_url_password_param () =
   let url = "https://example.com/login?password=supersecret123&user=bob" in
@@ -40,7 +46,10 @@ let test_sanitize_url_password_param () =
     (Test_helpers.string_contains sanitized "supersecret123");
   Alcotest.(check bool)
     "user preserved" true
-    (Test_helpers.string_contains sanitized "user=bob")
+    (Test_helpers.string_contains sanitized "user=bob");
+  Alcotest.(check bool)
+    "password value replaced" true
+    (Test_helpers.string_contains sanitized "REDACTED")
 
 let test_sanitize_url_multiple_sensitive () =
   let url = "https://example.com/api?token=abc&secret=xyz&safe=keep" in
@@ -55,7 +64,6 @@ let test_sanitize_url_multiple_sensitive () =
 let test_sanitize_url_suffix_patterns () =
   let url = "https://example.com/api?my_token=val1&api_secret=val2" in
   let sanitized = Url_sanitize.sanitize_url url in
-  (* Sensitive params should be masked *)
   Alcotest.(check bool)
     "val1 not exposed" false
     (Test_helpers.string_contains sanitized "val1");
@@ -68,10 +76,21 @@ let test_sanitize_url_userinfo () =
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "password masked" true
-    (Test_helpers.string_contains sanitized "redacted");
+    (Test_helpers.string_contains sanitized "REDACTED");
   Alcotest.(check bool)
     "full password not exposed" false
-    (Test_helpers.string_contains sanitized "password123")
+    (Test_helpers.string_contains sanitized "password123");
+  Alcotest.(check bool)
+    "user preserved" true
+    (Test_helpers.string_contains sanitized "user")
+
+let test_sanitize_url_no_partial_exposure () =
+  (* Verify that no part of the secret is exposed *)
+  let url = "https://example.com/page?token=abcdefghij" in
+  let sanitized = Url_sanitize.sanitize_url url in
+  Alcotest.(check bool)
+    "no partial secret" false
+    (Test_helpers.string_contains sanitized "abcdefgh")
 
 let test_safe_teams_link () =
   let link = Url_sanitize.safe_teams_link "https://example.com/tr" "transcript"
@@ -132,6 +151,8 @@ let suite =
     Alcotest.test_case "sanitize url suffix patterns" `Quick
       test_sanitize_url_suffix_patterns;
     Alcotest.test_case "sanitize url userinfo" `Quick test_sanitize_url_userinfo;
+    Alcotest.test_case "no partial secret exposure" `Quick
+      test_sanitize_url_no_partial_exposure;
     Alcotest.test_case "safe teams link" `Quick test_safe_teams_link;
     Alcotest.test_case "safe slack link" `Quick test_safe_slack_link;
     Alcotest.test_case "safe teams link sanitizes" `Quick

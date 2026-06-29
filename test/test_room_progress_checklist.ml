@@ -633,6 +633,51 @@ let test_migration_adds_schema () =
           in
           Alcotest.(check string) "title" "migration test" item.title))
 
+let test_migration_adds_session_record_id () =
+  Test_helpers.with_temp_dir (fun dir ->
+      let db_path = Filename.concat dir "memory.db" in
+      let db = Sqlite3.db_open db_path in
+      Memory.exec_exn db
+        "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      Memory.exec_exn db "INSERT INTO schema_version (version) VALUES (37)";
+      (* Create old table without session_record_id *)
+      Memory.exec_exn db
+        "CREATE TABLE room_progress_checklist (\
+         id INTEGER PRIMARY KEY AUTOINCREMENT,\
+         task_id INTEGER NOT NULL,\
+         title TEXT NOT NULL,\
+         state TEXT NOT NULL DEFAULT 'planned',\
+         transcript_url TEXT,\
+         session_url TEXT,\
+         last_update TEXT NOT NULL DEFAULT (datetime('now')),\
+         delivery_state TEXT NOT NULL DEFAULT 'pending')";
+      (* Insert an item without session_record_id *)
+      Memory.exec_exn db
+        "INSERT INTO room_progress_checklist (task_id, title) VALUES (1, 'old item')";
+      ignore (Sqlite3.db_close db);
+      (* Re-open with migration *)
+      let migrated = Memory.init ~db_path () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close migrated))
+        (fun () ->
+          (* Old item should still be queryable *)
+          let items =
+            Room_progress_checklist.query_by_task ~db:migrated ~task_id:1 ()
+          in
+          Alcotest.(check int) "old item exists" 1 (List.length items);
+          let old_item = List.hd items in
+          Alcotest.(check string) "old title" "old item" old_item.title;
+          Alcotest.(check (option string))
+            "old item has no session_record_id" None old_item.session_record_id;
+          (* New items should support session_record_id *)
+          let new_item =
+            Room_progress_checklist.append ~db:migrated ~task_id:2
+              ~title:"new item" ~session_record_id:"rsr_new_001" ()
+          in
+          Alcotest.(check (option string))
+            "new item has session_record_id"
+            (Some "rsr_new_001") new_item.session_record_id))
+
 let test_state_icon () =
   let open Room_progress_checklist in
   Alcotest.(check string) "planned icon" "[ ]" (state_icon Planned);
@@ -793,6 +838,8 @@ let suite =
     Alcotest.test_case "delivery state of string invalid" `Quick
       test_delivery_state_of_string_invalid;
     Alcotest.test_case "migration adds schema" `Quick test_migration_adds_schema;
+    Alcotest.test_case "migration adds session_record_id" `Quick
+      test_migration_adds_session_record_id;
     Alcotest.test_case "state icon" `Quick test_state_icon;
     Alcotest.test_case "is terminal item state" `Quick
       test_is_terminal_item_state;
