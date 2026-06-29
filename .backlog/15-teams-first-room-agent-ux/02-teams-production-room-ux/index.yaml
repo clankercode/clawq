@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Teams Context Threads and Delivery Proof
       path: 01-teams-context-threads-and-deli
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P15.M2.E1
