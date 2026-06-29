@@ -85,36 +85,14 @@ let sanitize_query_params query =
       else (name, values))
     query
 
-(** [mask_userinfo uri_string] masks credentials in the userinfo portion of a
-    URL string. Handles patterns like [user:pass@host]. *)
-let mask_userinfo uri_string =
-  let at_pos = String.index_opt uri_string '@' in
-  match at_pos with
-  | Some at when at > 0 ->
-      (* Look for :// to find scheme end *)
-      let scheme_sep = String.index_opt uri_string ':' in
-      (match scheme_sep with
-      | Some colon when colon + 2 < String.length uri_string
-        && String.sub uri_string (colon + 1) 2 = "//" ->
-          let host_start = colon + 3 in
-          if host_start < at then
-            (* Check if there's a password (user:pass@host) *)
-            let user_pass = String.sub uri_string host_start (at - host_start) in
-            (match String.index_opt user_pass ':' with
-            | Some colon_in_userinfo ->
-                let user_part =
-                  String.sub user_pass 0 colon_in_userinfo
-                in
-                let after_at =
-                  String.sub uri_string (at + 1)
-                    (String.length uri_string - at - 1)
-                in
-                let scheme = String.sub uri_string 0 host_start in
-                scheme ^ user_part ^ ":***@" ^ after_at
-            | None -> uri_string)
-          else uri_string
-      | _ -> uri_string)
-  | _ -> uri_string
+(** [mask_userinfo uri] masks credentials in the userinfo portion of a URI. *)
+let mask_userinfo uri =
+  match Uri.user uri with
+  | Some _user -> (
+      match Uri.password uri with
+      | Some _ -> Uri.with_password uri (Some "***")
+      | None -> uri)
+  | None -> uri
 
 (** [sanitize_url url] is the main entry point for URL sanitization. Strips
     sensitive query parameters and masks credentials in userinfo.
@@ -129,9 +107,9 @@ let sanitize_url (url : string) =
   if trimmed = "" then ""
   else
     try
-      (* First mask userinfo if present *)
-      let masked = mask_userinfo trimmed in
-      let uri = Uri.of_string masked in
+      let uri = Uri.of_string trimmed in
+      (* Mask userinfo if present *)
+      let uri = mask_userinfo uri in
       (* Sanitize query parameters *)
       let query = Uri.query uri in
       let sanitized = sanitize_query_params query in
