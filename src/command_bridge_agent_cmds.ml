@@ -1659,10 +1659,32 @@ let cmd_rooms args =
   | "memory" :: rest -> cmd_rooms_memory cfg rest
   | "explain-access" :: rest -> cmd_rooms_explain_access cfg rest
   | "session" :: rest -> Room_session_cli.cmd_rooms_session rest
+  | "readiness" :: flags ->
+      let get_flag name default =
+        let rec find = function
+          | k :: v :: _ when k = name -> v
+          | _ :: rest -> find rest
+          | [] -> default
+        in
+        find flags
+      in
+      let room_id_str = get_flag "--room-id" "" in
+      let profile_id_str = get_flag "--profile-id" "" in
+      let as_json = List.mem "--json" flags in
+      let room_id = if room_id_str = "" then None else Some room_id_str in
+      let profile_id =
+        if profile_id_str = "" then None else Some profile_id_str
+      in
+      let db = try Some (get_db ()) with _ -> None in
+      let report =
+        Room_readiness_report.generate ~cfg ~db ?room_id ?profile_id ()
+      in
+      if as_json then Room_readiness_report.format_json report
+      else Room_readiness_report.format_text report
   | "wizard" :: rest -> Setup_room_wizard.run rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|wizard>\n\n\
+       <list|show|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|readiness|wizard>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
@@ -1693,6 +1715,8 @@ let cmd_rooms args =
        (admin-only)\n\
       \  session <list|show|get-latest> [args]\n\
       \                              Query room session records (admin-only)\n\
+      \  readiness [--room-id R] [--profile-id P] [--json]\n\
+      \                              Show room-agent readiness report\n\
       \  wizard [interactive|plan|apply] [options]\n\
       \                              Room-agent pilot wizard with plan/apply \
        flow"

@@ -397,6 +397,7 @@
   setup_memory
   setup_room_wizard
   setup_room_wizard_validate
+  room_readiness_report
   setup_connector_history
   setup_prompt
   setup_resilience
