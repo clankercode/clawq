@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 56
 id: P18
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -32,7 +32,7 @@ milestones:
       locked: false
       name: Verification Follow-Up
       path: 03-verification-follow-up
-      status: pending
+      status: done
 name: Credential Egress and Verification Boundary
 stats:
     blocked: 0
@@ -40,5 +40,5 @@ stats:
     in_progress: 0
     pending: 21
     total_tasks: 21
-status: pending
+status: done
 weeks: 4

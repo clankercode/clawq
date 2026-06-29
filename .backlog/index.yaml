@@ -232,11 +232,11 @@ phases:
       description: Staged credential handle/proxy boundary, explicit egress policy wrappers, room-scoped MCP policy, audit/warn enforcement, and verification follow-up specs without formal proof implementation.
       estimate_hours: 56
       id: P18
-      locked: false
+      locked: true
       name: Credential Egress and Verification Boundary
       path: 18-credential-egress-and-verifica
       priority: high
-      status: pending
+      status: done
       weeks: 4
 project: Clawq
 stats:

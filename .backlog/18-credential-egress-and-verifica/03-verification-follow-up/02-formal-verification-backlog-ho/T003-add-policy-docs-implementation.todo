@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-29T16:11:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T16:30:02Z"
 complexity: medium
 depends_on:
     - P18.M3.E2.T002
+duration_minutes: 18.290521466033333
 estimate_hours: 3
 id: P18.M3.E2.T003
 priority: medium
 started_at: "2026-06-29T16:11:45Z"
-status: in_progress
+status: done
 tags: []
 title: Add policy docs implementation drift check
 ---

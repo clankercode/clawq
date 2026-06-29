@@ -20,7 +20,7 @@ epics:
       locked: false
       name: Formal Verification Backlog Hooks
       path: 02-formal-verification-backlog-ho
-      status: pending
+      status: done
 estimate_hours: 16
 id: P18.M3
 locked: false
@@ -31,4 +31,4 @@ stats:
     in_progress: 0
     pending: 6
     total_tasks: 6
-status: pending
+status: done

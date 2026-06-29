@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -40,6 +40,6 @@ tasks:
       file: T003-add-policy-docs-implementation.todo
       id: T003
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Add policy docs implementation drift check
