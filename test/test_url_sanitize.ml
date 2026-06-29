@@ -14,7 +14,7 @@ let test_sanitize_url_token_param () =
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "token masked" true
-    (Test_helpers.string_contains sanitized "abc1***");
+    (Test_helpers.string_contains sanitized "abc1[redacted]");
   Alcotest.(check bool)
     "name preserved" true
     (Test_helpers.string_contains sanitized "name=foo");
@@ -27,7 +27,7 @@ let test_sanitize_url_api_key_param () =
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "key masked" true
-    (Test_helpers.string_contains sanitized "sk_l***");
+    (Test_helpers.string_contains sanitized "sk_l[redacted]");
   Alcotest.(check bool)
     "full key not exposed" false
     (Test_helpers.string_contains sanitized "sk_live_abc123def456")
@@ -37,7 +37,7 @@ let test_sanitize_url_password_param () =
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "password masked" true
-    (Test_helpers.string_contains sanitized "supe***");
+n    (Test_helpers.string_contains sanitized "supe[redacted]");
   Alcotest.(check bool)
     "user preserved" true
     (Test_helpers.string_contains sanitized "user=bob")
@@ -69,7 +69,7 @@ let test_sanitize_url_userinfo () =
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "password masked" true
-    (Test_helpers.string_contains sanitized "***");
+    (Test_helpers.string_contains sanitized "[redacted]");
   Alcotest.(check bool)
     "full password not exposed" false
     (Test_helpers.string_contains sanitized "password123")
