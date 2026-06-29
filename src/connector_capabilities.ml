@@ -189,3 +189,27 @@ let supports_rich_questions (caps : t) =
   caps.can_send_buttons
   && (caps.connector = Format_adapter.Telegram_html
      || caps.connector = Format_adapter.Teams)
+
+(** Look up the capability profile for a named connector. Returns [None] for
+    unrecognised names. *)
+let of_name = function
+  | "telegram" -> Some telegram
+  | "discord" -> Some discord
+  | "slack" -> Some slack
+  | "teams" -> Some teams
+  | "matrix" -> Some matrix
+  | "irc" -> Some irc
+  | "mattermost" -> Some mattermost
+  | "lark" -> Some lark
+  | "line" -> Some line
+  | "dingtalk" -> Some dingtalk
+  | "onebot" -> Some onebot
+  | "nostr" -> Some nostr
+  | "imessage" -> Some imessage
+  | "email" -> Some email
+  | "github" -> Some github
+  | "signal" -> Some signal
+  | "whatsapp" -> Some whatsapp
+  | "web" -> Some web_channel
+  | "plain" -> Some plain
+  | _ -> None

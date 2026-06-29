@@ -252,6 +252,90 @@ let test_history_capture_strategies () =
        Connector_capabilities.plain
     = Connector_capabilities.Skip_history_capture)
 
+(** {1 of_name lookup tests} *)
+
+let test_of_name_known () =
+  let check name expected =
+    match Connector_capabilities.of_name name with
+    | Some caps ->
+        Alcotest.(check string)
+          (name ^ " parse_mode") expected.Connector_capabilities.parse_mode
+          caps.parse_mode
+    | None -> Alcotest.fail (name ^ " should be recognised")
+  in
+  check "telegram" Connector_capabilities.telegram;
+  check "discord" Connector_capabilities.discord;
+  check "slack" Connector_capabilities.slack;
+  check "teams" Connector_capabilities.teams;
+  check "matrix" Connector_capabilities.matrix;
+  check "irc" Connector_capabilities.irc;
+  check "mattermost" Connector_capabilities.mattermost;
+  check "github" Connector_capabilities.github;
+  check "signal" Connector_capabilities.signal;
+  check "web" Connector_capabilities.web_channel
+
+let test_of_name_unknown () =
+  Alcotest.(check bool)
+    "unknown returns None" true
+    (Connector_capabilities.of_name "nonexistent" = None);
+  Alcotest.(check bool)
+    "empty returns None" true
+    (Connector_capabilities.of_name "" = None);
+  Alcotest.(check bool)
+    "case sensitive" true
+    (Connector_capabilities.of_name "Telegram" = None)
+
+(** {1 Capability fallback tests for unsupported paths} *)
+
+let test_card_strategy_fallback_all_non_card () =
+  (* Every connector that cannot send cards or buttons must fall back to
+     text. This is the core invariant for non-card connector fallback. *)
+  let non_card_names =
+    [
+      "discord";
+      "slack";
+      "matrix";
+      "irc";
+      "mattermost";
+      "lark";
+      "line";
+      "dingtalk";
+      "onebot";
+      "nostr";
+      "imessage";
+      "email";
+      "github";
+      "signal";
+      "whatsapp";
+      "web";
+    ]
+  in
+  List.iter
+    (fun name ->
+      match Connector_capabilities.of_name name with
+      | Some caps ->
+          let strategy = Connector_capabilities.card_strategy caps in
+          Alcotest.(check bool)
+            (name ^ " uses text fallback when no cards/buttons")
+            true
+            (strategy = Connector_capabilities.Use_text_fallback)
+      | None -> Alcotest.fail (name ^ " should be recognised"))
+    non_card_names
+
+let test_card_strategy_cards_for_card_capable () =
+  (* Connectors with can_send_cards must use cards, not text fallback. *)
+  Alcotest.(check bool)
+    "teams uses cards" true
+    (Connector_capabilities.card_strategy Connector_capabilities.teams
+    = Connector_capabilities.Use_cards)
+
+let test_card_strategy_buttons_for_button_only () =
+  (* Connectors with can_send_buttons but not can_send_cards use buttons. *)
+  Alcotest.(check bool)
+    "telegram uses buttons" true
+    (Connector_capabilities.card_strategy Connector_capabilities.telegram
+    = Connector_capabilities.Use_buttons)
+
 let tests =
   [
     Alcotest.test_case "telegram profile" `Quick test_telegram_profile;
@@ -283,4 +367,12 @@ let tests =
       test_card_button_strategies;
     Alcotest.test_case "history capture strategies" `Quick
       test_history_capture_strategies;
+    Alcotest.test_case "of_name known connectors" `Quick test_of_name_known;
+    Alcotest.test_case "of_name unknown connectors" `Quick test_of_name_unknown;
+    Alcotest.test_case "card strategy fallback all non-card" `Quick
+      test_card_strategy_fallback_all_non_card;
+    Alcotest.test_case "card strategy cards for card-capable" `Quick
+      test_card_strategy_cards_for_card_capable;
+    Alcotest.test_case "card strategy buttons for button-only" `Quick
+      test_card_strategy_buttons_for_button_only;
   ]
