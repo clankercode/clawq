@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-29T08:49:55Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T10:01:36Z"
 complexity: high
 depends_on:
     - P18.M2.E1.T002
     - P18.M1.E1.T003
+duration_minutes: 71.68477694411666
 estimate_hours: 3
 id: P18.M2.E2.T001
 priority: high
 started_at: "2026-06-29T08:49:55Z"
-status: in_progress
+status: done
 tags: []
 title: Add policy-aware HTTP client wrapper for explicit tools
 ---
