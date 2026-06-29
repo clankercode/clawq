@@ -104,19 +104,22 @@ let test_find_by_repo_pr () =
   with_db (fun db ->
       ignore
         (Room_github_backlinks.insert ~db ~repo:"owner/repo" ~pr_number:42
-           ~github_item_type:Room_github_backlinks.Pr_comment ~room_id:"room-1"
+           ~github_item_type:Room_github_backlinks.Pr_comment
+           ~github_item_id:"comment-1" ~room_id:"room-1"
            ~room_item_type:Room_github_backlinks.Message
            ~direction:Room_github_backlinks.Github_to_room
            ~relationship:Room_github_backlinks.Subscription_delivery ());
       ignore
         (Room_github_backlinks.insert ~db ~repo:"owner/repo" ~pr_number:42
-           ~github_item_type:Room_github_backlinks.Check_run ~room_id:"room-2"
+           ~github_item_type:Room_github_backlinks.Check_run
+           ~github_item_id:"check-1" ~room_id:"room-2"
            ~room_item_type:Room_github_backlinks.Message
            ~direction:Room_github_backlinks.Github_to_room
            ~relationship:Room_github_backlinks.Ci_notification ());
       ignore
         (Room_github_backlinks.insert ~db ~repo:"owner/repo" ~pr_number:99
-           ~github_item_type:Room_github_backlinks.Pr_comment ~room_id:"room-1"
+           ~github_item_type:Room_github_backlinks.Pr_comment
+           ~github_item_id:"comment-2" ~room_id:"room-1"
            ~room_item_type:Room_github_backlinks.Message
            ~direction:Room_github_backlinks.Github_to_room
            ~relationship:Room_github_backlinks.Subscription_delivery ());
@@ -161,12 +164,13 @@ let test_count_by_room () =
 let test_delete_before () =
   with_db (fun db ->
       (* Insert with explicit timestamps *)
-      let insert_with_ts ts =
+      let insert_with_ts ts id =
         let sql =
-          "INSERT INTO room_github_backlinks (repo, github_item_type, room_id, \
+          "INSERT INTO room_github_backlinks (repo, github_item_type, \
+           github_item_id, room_id, \
            room_item_type, direction, relationship, created_at) VALUES \
-           ('owner/repo', 'pr_comment', 'room-1', 'message', 'github_to_room', \
-           'subscription_delivery', ?)"
+           ('owner/repo', 'pr_comment', '" ^ id ^ "', 'room-1', 'message', \
+           'github_to_room', 'subscription_delivery', ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -175,9 +179,9 @@ let test_delete_before () =
             ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT ts));
             ignore (Sqlite3.step stmt))
       in
-      insert_with_ts "2026-06-20T10:00:00Z";
-      insert_with_ts "2026-06-25T10:00:00Z";
-      insert_with_ts "2026-06-29T10:00:00Z";
+      insert_with_ts "2026-06-20T10:00:00Z" "del-1";
+      insert_with_ts "2026-06-25T10:00:00Z" "del-2";
+      insert_with_ts "2026-06-29T10:00:00Z" "del-3";
       let deleted =
         Room_github_backlinks.delete_before ~db
           ~before_timestamp:"2026-06-25T10:00:00Z" ()
