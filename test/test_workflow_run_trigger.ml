@@ -326,6 +326,115 @@ let test_format_workflow_run_list () =
       let formatted = Workflow_run_trigger.format_workflow_run_list runs in
       Alcotest.(check bool) "not empty" true (String.length formatted > 0))
 
+(* --- idempotency and state guards --- *)
+
+(** Duplicate creates produce distinct records: workflow_run_trigger does not
+    deduplicate by SHA — each trigger creates a new row. *)
+let test_create_distinct_records () =
+  with_db (fun db ->
+      Workflow_run_trigger.init_schema db;
+      let run1 =
+        Workflow_run_trigger.create ~db ~pipeline_name:"deploy"
+          ~pipeline_version:"1.0"
+          ~inputs:[ ("env", "prod") ]
+          ~trigger_source:Manual ~room_id:"r" ~requester_id:"u" ()
+      in
+      let run2 =
+        Workflow_run_trigger.create ~db ~pipeline_name:"deploy"
+          ~pipeline_version:"1.0"
+          ~inputs:[ ("env", "prod") ]
+          ~trigger_source:Manual ~room_id:"r" ~requester_id:"u" ()
+      in
+      Alcotest.(check bool) "distinct ids" true (run1.id <> run2.id);
+      Alcotest.(check int)
+        "total pending" 2
+        (List.length (Workflow_run_trigger.find_pending ~db ())))
+
+(** A completed run cannot be set back to running. *)
+let test_completed_cannot_restart () =
+  with_db (fun db ->
+      Workflow_run_trigger.init_schema db;
+      let run =
+        Workflow_run_trigger.create ~db ~pipeline_name:"test"
+          ~pipeline_version:"1.0" ~inputs:[] ~trigger_source:Manual ~room_id:"r"
+          ~requester_id:"u" ()
+      in
+      ignore (Workflow_run_trigger.set_running ~db ~id:run.id ~task_id:100);
+      ignore
+        (Workflow_run_trigger.set_completed ~db ~id:run.id
+           ~result_preview:"done" ());
+      let updated =
+        Workflow_run_trigger.set_running ~db ~id:run.id ~task_id:200
+      in
+      Alcotest.(check bool) "not updated" false updated;
+      match Workflow_run_trigger.find_by_id ~db ~id:run.id with
+      | Some r ->
+          Alcotest.(check string)
+            "still completed" "completed"
+            (Workflow_run_trigger.run_status_to_string r.status)
+      | None -> Alcotest.fail "record not found")
+
+(** A failed run cannot be set back to running. *)
+let test_failed_cannot_restart () =
+  with_db (fun db ->
+      Workflow_run_trigger.init_schema db;
+      let run =
+        Workflow_run_trigger.create ~db ~pipeline_name:"test"
+          ~pipeline_version:"1.0" ~inputs:[] ~trigger_source:Manual ~room_id:"r"
+          ~requester_id:"u" ()
+      in
+      ignore (Workflow_run_trigger.set_running ~db ~id:run.id ~task_id:100);
+      ignore
+        (Workflow_run_trigger.set_failed ~db ~id:run.id
+           ~error_message:"step failed");
+      let updated =
+        Workflow_run_trigger.set_running ~db ~id:run.id ~task_id:200
+      in
+      Alcotest.(check bool) "not updated" false updated;
+      match Workflow_run_trigger.find_by_id ~db ~id:run.id with
+      | Some r ->
+          Alcotest.(check string)
+            "still failed" "failed"
+            (Workflow_run_trigger.run_status_to_string r.status)
+      | None -> Alcotest.fail "record not found")
+
+(** Only pending runs appear in find_pending; running/completed/failed are
+    excluded. *)
+let test_find_pending_excludes_terminal () =
+  with_db (fun db ->
+      Workflow_run_trigger.init_schema db;
+      let run1 =
+        Workflow_run_trigger.create ~db ~pipeline_name:"p1"
+          ~pipeline_version:"1.0" ~inputs:[] ~trigger_source:Manual ~room_id:"r"
+          ~requester_id:"u" ()
+      in
+      let run2 =
+        Workflow_run_trigger.create ~db ~pipeline_name:"p2"
+          ~pipeline_version:"1.0" ~inputs:[] ~trigger_source:Manual ~room_id:"r"
+          ~requester_id:"u" ()
+      in
+      let run3 =
+        Workflow_run_trigger.create ~db ~pipeline_name:"p3"
+          ~pipeline_version:"1.0" ~inputs:[] ~trigger_source:Manual ~room_id:"r"
+          ~requester_id:"u" ()
+      in
+      let run4 =
+        Workflow_run_trigger.create ~db ~pipeline_name:"p4"
+          ~pipeline_version:"1.0" ~inputs:[] ~trigger_source:Manual ~room_id:"r"
+          ~requester_id:"u" ()
+      in
+      ignore (Workflow_run_trigger.set_running ~db ~id:run1.id ~task_id:100);
+      ignore
+        (Workflow_run_trigger.set_completed ~db ~id:run2.id
+           ~result_preview:"done" ());
+      ignore
+        (Workflow_run_trigger.set_failed ~db ~id:run3.id ~error_message:"err");
+      let pending = Workflow_run_trigger.find_pending ~db () in
+      Alcotest.(check int) "only p4 pending" 1 (List.length pending);
+      match pending with
+      | [ r ] -> Alcotest.(check int) "is run4" run4.id r.id
+      | _ -> Alcotest.fail "expected exactly one pending")
+
 (* --- suite --- *)
 
 let suite =
@@ -356,4 +465,11 @@ let suite =
       `Quick,
       test_format_workflow_run_list_empty );
     ("format_workflow_run_list", `Quick, test_format_workflow_run_list);
+    (* idempotency and state guards *)
+    ("create produces distinct records", `Quick, test_create_distinct_records);
+    ("completed cannot restart", `Quick, test_completed_cannot_restart);
+    ("failed cannot restart", `Quick, test_failed_cannot_restart);
+    ( "find_pending excludes terminal",
+      `Quick,
+      test_find_pending_excludes_terminal );
   ]

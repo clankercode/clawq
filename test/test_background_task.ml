@@ -5980,7 +5980,11 @@ let test_launch_room_bg_task_denied_when_blocked_repo_grants () =
         (Test_helpers.string_contains msg "blocked");
       Alcotest.(check bool)
         "error mentions repo grant" true
-        (Test_helpers.string_contains msg "repo grant")
+        (Test_helpers.string_contains msg "repo grant");
+      (* No background task should have been enqueued *)
+      Alcotest.(check int)
+        "no tasks enqueued" 0
+        (List.length (Background_task.list_tasks ~db))
 
 let test_launch_room_bg_task_no_config_backward_compat () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -5998,6 +6002,314 @@ let test_launch_room_bg_task_no_config_backward_compat () =
           (* Without config, no access snapshot should be auto-created *)
           Alcotest.(check (option string))
             "no auto snapshot without config" None task.access_snapshot_id)
+
+(** Unsupported runner: launch_room_bg_task returns Error when the preferred
+    runner binary is not in PATH. *)
+let test_launch_room_bg_task_unsupported_runner () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let old_path = try Some (Sys.getenv "PATH") with Not_found -> None in
+  Fun.protect
+    (fun () ->
+      (* Empty PATH so no runner binary is found *)
+      Unix.putenv "PATH" "";
+      match
+        Background_task.launch_room_bg_task ~db ~session_key:"slack:C-UNSUP:U1"
+          ~connector:"slack" ~room_id:"C-UNSUP" ~requester_id:"U1"
+          ~goal:"no runner available" ~preferred_runner:Background_task.Kimi ()
+      with
+      | Ok _ -> Alcotest.fail "expected Error for unsupported runner"
+      | Error msg ->
+          let mentions_runner =
+            Test_helpers.string_contains msg "Runner"
+            || Test_helpers.string_contains msg "runner"
+          in
+          let mentions_not_available =
+            Test_helpers.string_contains msg "not available"
+            || Test_helpers.string_contains msg "is not available"
+          in
+          Alcotest.(check bool) "error mentions runner" true mentions_runner;
+          Alcotest.(check bool)
+            "error mentions not available" true mentions_not_available;
+          (* No background task should have been enqueued *)
+          Alcotest.(check int)
+            "no tasks enqueued" 0
+            (List.length (Background_task.list_tasks ~db)))
+    ~finally:(fun () ->
+      match old_path with
+      | Some path -> Unix.putenv "PATH" path
+      | None -> Unix.putenv "PATH" "")
+
+(** launch_triggered_run denies when repo is not in the room's granted
+    repositories. *)
+let test_launch_triggered_run_denies_repo_not_in_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  Github_review_run.init_schema db;
+  Access_snapshot.init_schema db;
+  let config_json =
+    {|{
+      "workspace": "/tmp/test-grants",
+      "access_bundles": [
+        {
+          "id": "limited",
+          "repo_grants": [
+            {"repo": "other/repo", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["limited"]}
+      ]
+    }|}
+  in
+  let cfg = Config_loader.parse_config (Yojson.Safe.from_string config_json) in
+  let review_run =
+    Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+      ~head_sha:"abc123" ~run_kind:Code_review
+      ~trigger_source:(Github_review_run.Label "review") ()
+  in
+  match
+    Background_task.launch_triggered_run ~db ~config:cfg ~review_run
+      ~room_id:"C-GRANT" ~requester_id:"U1" ~pr_title:"Add feature"
+      ~pr_author:"dev" ~pr_body:"" ~base_branch:"main" ~head_branch:"feature"
+      ~pr_files:[] ()
+  with
+  | Ok _ -> Alcotest.fail "expected Error for repo not in grants"
+  | Error msg -> (
+      Alcotest.(check bool)
+        "error mentions denied" true
+        (Test_helpers.string_contains msg "Access denied");
+      Alcotest.(check bool)
+        "error mentions repo" true
+        (Test_helpers.string_contains msg "owner/repo");
+      (* No background task should have been enqueued *)
+      Alcotest.(check int)
+        "no tasks enqueued" 0
+        (List.length (Background_task.list_tasks ~db));
+      (* Review run should be marked as failed *)
+      (match Github_review_run.find_by_id ~db ~id:review_run.id with
+      | Some r ->
+          Alcotest.(check string)
+            "review run failed" "failed"
+            (Github_review_run.run_status_to_string r.status)
+      | None -> Alcotest.fail "review run not found");
+      (* Error message stored in review_run *)
+      match Github_review_run.find_by_id ~db ~id:review_run.id with
+      | Some r ->
+          Alcotest.(check bool)
+            "error_message mentions denied" true
+            (match r.error_message with
+            | Some msg -> Test_helpers.string_contains msg "Access denied"
+            | None -> false)
+      | None -> ())
+
+(** launch_triggered_run denies when no repo_grants are configured at all. *)
+let test_launch_triggered_run_denies_empty_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  Github_review_run.init_schema db;
+  Access_snapshot.init_schema db;
+  let config_json =
+    {|{
+      "workspace": "/tmp/test-empty",
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["file_read"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let cfg = Config_loader.parse_config (Yojson.Safe.from_string config_json) in
+  let review_run =
+    Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+      ~head_sha:"abc123" ~run_kind:Code_review
+      ~trigger_source:(Github_review_run.Label "review") ()
+  in
+  match
+    Background_task.launch_triggered_run ~db ~config:cfg ~review_run
+      ~room_id:"C-EMPTY" ~requester_id:"U1" ~pr_title:"Fix" ~pr_author:"dev"
+      ~pr_body:"" ~base_branch:"main" ~head_branch:"fix" ~pr_files:[] ()
+  with
+  | Ok _ -> Alcotest.fail "expected Error for empty grants"
+  | Error msg ->
+      Alcotest.(check bool)
+        "error mentions Access denied" true
+        (Test_helpers.string_contains msg "Access denied");
+      (* No background task should have been enqueued *)
+      Alcotest.(check int)
+        "no tasks enqueued" 0
+        (List.length (Background_task.list_tasks ~db));
+      (* Review run should be marked as failed *)
+      begin match Github_review_run.find_by_id ~db ~id:review_run.id with
+      | Some r ->
+          Alcotest.(check string)
+            "review run failed" "failed"
+            (Github_review_run.run_status_to_string r.status)
+      | None -> Alcotest.fail "review run not found"
+      end;
+      ()
+
+(** launch_triggered_run succeeds when repo IS in grants. Uses a fake runner in
+    PATH so no external binary is required. *)
+let test_launch_triggered_run_succeeds_with_granted_repo () =
+  with_fake_supported_runner (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      Github_review_run.init_schema db;
+      Access_snapshot.init_schema db;
+      let config_json =
+        {|{
+      "workspace": "/tmp/test-granted",
+      "access_bundles": [
+        {
+          "id": "full",
+          "repo_grants": [
+            {"repo": "owner/repo", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["full"]}
+      ]
+    }|}
+      in
+      let cfg =
+        Config_loader.parse_config (Yojson.Safe.from_string config_json)
+      in
+      let review_run =
+        Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+          ~head_sha:"abc123" ~run_kind:Code_review
+          ~trigger_source:(Github_review_run.Label "review") ()
+      in
+      match
+        Background_task.launch_triggered_run ~db ~config:cfg ~review_run
+          ~room_id:"C-GRANTED" ~requester_id:"U1" ~pr_title:"Add feature"
+          ~pr_author:"dev" ~pr_body:"" ~base_branch:"main"
+          ~head_branch:"feature"
+          ~pr_files:[ ("src/main.ml", "modified", 10, 2) ]
+          ()
+      with
+      | Error msg -> Alcotest.failf "launch failed: %s" msg
+      | Ok task_id -> (
+          Alcotest.(check bool) "task_id > 0" true (task_id > 0);
+          (* Exactly one background task was enqueued *)
+          Alcotest.(check int)
+            "one task enqueued" 1
+            (List.length (Background_task.list_tasks ~db));
+          (* Review run should be running *)
+          match Github_review_run.find_by_id ~db ~id:review_run.id with
+          | Some r ->
+              Alcotest.(check string)
+                "review run running" "running"
+                (Github_review_run.run_status_to_string r.status);
+              Alcotest.(check (option int))
+                "task_id set" (Some task_id) r.task_id
+          | None -> Alcotest.fail "review run not found"))
+
+(** Idempotent triggered run: second launch for same SHA+run_kind returns the
+    existing review run record (INSERT OR IGNORE). Uses a fake runner in PATH so
+    no external binary is required. *)
+let test_launch_triggered_run_idempotent_by_sha () =
+  with_fake_supported_runner (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      Github_review_run.init_schema db;
+      Access_snapshot.init_schema db;
+      let config_json =
+        {|{
+      "workspace": "/tmp/test-idem",
+      "access_bundles": [
+        {
+          "id": "full",
+          "repo_grants": [
+            {"repo": "owner/repo", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["full"]}
+      ]
+    }|}
+      in
+      let cfg =
+        Config_loader.parse_config (Yojson.Safe.from_string config_json)
+      in
+      (* First create for a SHA *)
+      let run1 =
+        Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+          ~head_sha:"abc123" ~run_kind:Code_review
+          ~trigger_source:(Github_review_run.Label "review") ()
+      in
+      (* Second create for same identity returns same record *)
+      let run2 =
+        Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+          ~head_sha:"abc123" ~run_kind:Code_review
+          ~trigger_source:(Github_review_run.Label "review") ()
+      in
+      Alcotest.(check int) "same id" run1.id run2.id;
+      (* Different SHA creates a new run *)
+      let run3 =
+        Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+          ~head_sha:"def456" ~run_kind:Code_review
+          ~trigger_source:(Github_review_run.Label "review") ()
+      in
+      Alcotest.(check bool) "different id" true (run1.id <> run3.id);
+      (* The first run can be launched; the second launch for same identity
+         reuses the existing record. Since set_running only succeeds from
+         pending, the second launch cannot re-set it to running. *)
+      match
+        Background_task.launch_triggered_run ~db ~config:cfg ~review_run:run1
+          ~room_id:"C-IDEM" ~requester_id:"U1" ~pr_title:"PR" ~pr_author:"dev"
+          ~pr_body:"" ~base_branch:"main" ~head_branch:"feat" ~pr_files:[] ()
+      with
+      | Error msg -> Alcotest.failf "first launch failed: %s" msg
+      | Ok task_id -> (
+          Alcotest.(check bool) "task_id > 0" true (task_id > 0);
+          (* Exactly one background task was enqueued so far *)
+          Alcotest.(check int)
+            "one task after first launch" 1
+            (List.length (Background_task.list_tasks ~db));
+          (* Review run is now running *)
+          (match Github_review_run.find_by_id ~db ~id:run1.id with
+          | Some r ->
+              Alcotest.(check string)
+                "running" "running"
+                (Github_review_run.run_status_to_string r.status)
+          | None -> Alcotest.fail "review run not found");
+          (* Second launch for same identity: run2 has same id as run1, so
+             set_running will fail (status already running). The
+             launch_room_bg_task succeeds but the review_run attachment logs
+             a message. *)
+          match
+            Background_task.launch_triggered_run ~db ~config:cfg
+              ~review_run:run2 ~room_id:"C-IDEM" ~requester_id:"U1"
+              ~pr_title:"PR" ~pr_author:"dev" ~pr_body:"" ~base_branch:"main"
+              ~head_branch:"feat" ~pr_files:[] ()
+          with
+          | Error _msg ->
+              (* Second launch failed — no second bg task should exist *)
+              Alcotest.(check int)
+                "still only one bg task" 1
+                (List.length (Background_task.list_tasks ~db))
+          | Ok _second_task_id ->
+              (* Both launches succeeded but only one review_run record
+                 exists per SHA+run_kind *)
+              let all_runs =
+                Github_review_run.find_by_repo_pr ~db ~repo:"owner/repo"
+                  ~pr_number:42
+              in
+              let code_review_runs =
+                List.filter
+                  (fun (r : Github_review_run.review_run) ->
+                    r.run_kind = Github_review_run.Code_review
+                    && r.head_sha = "abc123")
+                  all_runs
+              in
+              Alcotest.(check int)
+                "only one code_review run for this SHA" 1
+                (List.length code_review_runs)))
 
 let test_set_progress_state_persists () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -6840,4 +7152,14 @@ let suite =
       `Quick test_launch_room_bg_task_denied_when_blocked_repo_grants;
     Alcotest.test_case "launch_room_bg_task no config backward compat" `Quick
       test_launch_room_bg_task_no_config_backward_compat;
+    Alcotest.test_case "launch_room_bg_task unsupported runner" `Quick
+      test_launch_room_bg_task_unsupported_runner;
+    Alcotest.test_case "launch_triggered_run denies repo not in grants" `Quick
+      test_launch_triggered_run_denies_repo_not_in_grants;
+    Alcotest.test_case "launch_triggered_run denies empty grants" `Quick
+      test_launch_triggered_run_denies_empty_grants;
+    Alcotest.test_case "launch_triggered_run succeeds with granted repo" `Quick
+      test_launch_triggered_run_succeeds_with_granted_repo;
+    Alcotest.test_case "launch_triggered_run idempotent by SHA" `Quick
+      test_launch_triggered_run_idempotent_by_sha;
   ]
