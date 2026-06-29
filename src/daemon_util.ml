@@ -813,16 +813,27 @@ let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
                     log_path = task.log_path;
                   }
             in
+            let format_checklist =
+              if connector = "slack" then
+                Some Slack_progress_checklist.format_final_for_room_progress
+              else None
+            in
             let* result =
               Room_progress.deliver_final_message_with_card ?summary:None ~send
                 ~edit ?send_adaptive_card ?edit_adaptive_card ?db
-                ~checklist_items:updated_items ~task_actions ~task ()
+                ?format_checklist ~checklist_items:updated_items ~task_actions
+                ~task ()
             in
             Lwt.return (result = Room_progress.Delivered)
           end
           else
+            let format_checklist =
+              if connector = "slack" then
+                Some Slack_progress_checklist.format_for_room_progress
+              else None
+            in
             Room_progress.deliver_progress_update_with_card ~send ~edit
-              ?send_adaptive_card ?edit_adaptive_card ?db
+              ?send_adaptive_card ?edit_adaptive_card ?db ?format_checklist
               ~checklist_items:updated_items ~task ()
         end
         else begin

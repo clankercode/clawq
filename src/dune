@@ -181,6 +181,7 @@
   room_activity_ledger
   room_progress_checklist
   teams_progress_card
+  slack_progress_checklist
   room_budget
   room_request_classifier
   daemon_status

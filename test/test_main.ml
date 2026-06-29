@@ -55,6 +55,7 @@ let () =
        ("room_workspace", Test_room_workspace.suite);
        ("room_activity_ledger", Test_room_activity_ledger.suite);
        ("room_progress_checklist", Test_room_progress_checklist.suite);
+       ("slack_progress_checklist", Test_slack_progress_checklist.suite);
        ("room_stale_query", Test_room_stale_query.suite);
        ("room_watcher_decision", Test_room_watcher_decision.suite);
        ("room_ambient_delivery", Test_room_ambient_delivery.suite);

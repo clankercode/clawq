@@ -370,7 +370,12 @@ let deliver_progress_update_with_card
        string Lwt.t)
     ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
     ?send_adaptive_card ?edit_adaptive_card ?(db : Sqlite3.db option)
-    ~(checklist_items : Room_progress_checklist.checklist_item list)
+    ?(format_checklist :
+       (task_label:string ->
+       elapsed:string ->
+       Room_progress_checklist.checklist_item list ->
+       string)
+       option) ~(checklist_items : Room_progress_checklist.checklist_item list)
     ~(task : task) () : bool Lwt.t =
   let open Lwt.Syntax in
   let connector, room_id, thread_id = connector_and_room_of_task task in
@@ -384,8 +389,11 @@ let deliver_progress_update_with_card
         ~items:checklist_items ~elapsed ()
     in
     let fallback_text =
-      Teams_progress_card.build_fallback_text ~task_label ~items:checklist_items
-        ()
+      match format_checklist with
+      | Some f -> f ~task_label ~elapsed checklist_items
+      | None ->
+          Teams_progress_card.build_fallback_text ~task_label
+            ~items:checklist_items ()
     in
     let existing_activity_id =
       activity_id_of_message_id (Hashtbl.find_opt progress_msg_ids task.id)
@@ -444,7 +452,13 @@ let deliver_final_message_with_card ?summary
        string Lwt.t)
     ~(edit : room_id:string -> msg_id:string -> text:string -> unit Lwt.t)
     ?send_adaptive_card ?edit_adaptive_card ?(db : Sqlite3.db option)
-    ~(checklist_items : Room_progress_checklist.checklist_item list)
+    ?(format_checklist :
+       (task_label:string ->
+       ?summary:string ->
+       ?task_status:string ->
+       Room_progress_checklist.checklist_item list ->
+       string)
+       option) ~(checklist_items : Room_progress_checklist.checklist_item list)
     ~(task_actions : Teams_progress_card.task_actions option) ~(task : task) ()
     : delivery_result Lwt.t =
   let open Lwt.Syntax in
@@ -485,7 +499,20 @@ let deliver_final_message_with_card ?summary
         ~items:checklist_items ~actions:task_actions ~elapsed
         ?summary:summary_text ?task_outcome ()
     in
-    let fallback_text = format_final_message ?summary task in
+    let fallback_text =
+      match format_checklist with
+      | Some f ->
+          let task_status_str =
+            match task.status with
+            | Succeeded -> Some "succeeded"
+            | Failed -> Some "failed"
+            | DirtyWorktree -> Some "dirty_worktree"
+            | Cancelled -> Some "cancelled"
+            | _ -> None
+          in
+          f ~task_label ?summary ?task_status:task_status_str checklist_items
+      | None -> format_final_message ?summary task
+    in
     let existing_activity_id =
       activity_id_of_message_id (Hashtbl.find_opt progress_msg_ids task.id)
     in
