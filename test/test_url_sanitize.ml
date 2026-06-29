@@ -71,7 +71,7 @@ let test_sanitize_url_suffix_patterns () =
     "val2 not exposed" false
     (Test_helpers.string_contains sanitized "val2")
 
-let test_sanitize_url_userinfo () =
+let test_sanitize_url_userinfo_password () =
   let url = "https://user:password123@host.com/path" in
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
@@ -79,10 +79,17 @@ let test_sanitize_url_userinfo () =
     (Test_helpers.string_contains sanitized "REDACTED");
   Alcotest.(check bool)
     "full password not exposed" false
-    (Test_helpers.string_contains sanitized "password123");
+    (Test_helpers.string_contains sanitized "password123")
+
+let test_sanitize_url_userinfo_token_only () =
+  let url = "https://ghp_secret_token@github.com/org/repo" in
+  let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
-    "user preserved" true
-    (Test_helpers.string_contains sanitized "user")
+    "token masked" true
+    (Test_helpers.string_contains sanitized "REDACTED");
+  Alcotest.(check bool)
+    "full token not exposed" false
+    (Test_helpers.string_contains sanitized "ghp_secret_token")
 
 let test_sanitize_url_no_partial_exposure () =
   (* Verify that no part of the secret is exposed *)
@@ -150,7 +157,10 @@ let suite =
       test_sanitize_url_multiple_sensitive;
     Alcotest.test_case "sanitize url suffix patterns" `Quick
       test_sanitize_url_suffix_patterns;
-    Alcotest.test_case "sanitize url userinfo" `Quick test_sanitize_url_userinfo;
+    Alcotest.test_case "sanitize url userinfo password" `Quick
+      test_sanitize_url_userinfo_password;
+    Alcotest.test_case "sanitize url userinfo token only" `Quick
+      test_sanitize_url_userinfo_token_only;
     Alcotest.test_case "no partial secret exposure" `Quick
       test_sanitize_url_no_partial_exposure;
     Alcotest.test_case "safe teams link" `Quick test_safe_teams_link;
