@@ -50,6 +50,9 @@ type t = {
   credential_handles : string list;
   memory_grants : string list;
   budget_refs : string list;
+  egress_rules_count : int;
+      (** Number of egress rules in the snapshot. Full rules are not
+          serialized to avoid leaking host/path patterns. *)
   instruction_digests : string list;
   redacted_summary : string;
 }
@@ -229,6 +232,7 @@ let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
     credential_handles = item_values access.credential_handles;
     memory_grants = item_values access.memory_grants;
     budget_refs = item_values access.budget_refs;
+    egress_rules_count = List.length access.egress_rules;
     instruction_digests = extract_instruction_digests access;
     redacted_summary = redacted_summary_of_access access;
   }
@@ -263,6 +267,21 @@ let ensure_json_column db column_name =
           (Printf.sprintf "Access_snapshot schema migration error: %s"
              (Sqlite3.Rc.to_string rc))
 
+let ensure_int_column db column_name ~default =
+  if not (sqlite_column_exists ~db ~table_name:"access_snapshots" ~column_name)
+  then
+    let sql =
+      Printf.sprintf
+        "ALTER TABLE access_snapshots ADD COLUMN %s INTEGER NOT NULL DEFAULT %d"
+        column_name default
+    in
+    match Sqlite3.exec db sql with
+    | Sqlite3.Rc.OK -> ()
+    | rc ->
+        failwith
+          (Printf.sprintf "Access_snapshot schema migration error: %s"
+             (Sqlite3.Rc.to_string rc))
+
 let init_schema db =
   let sql =
     "CREATE TABLE IF NOT EXISTS access_snapshots (\n\
@@ -287,6 +306,7 @@ let init_schema db =
     \  credential_handles_json TEXT NOT NULL DEFAULT '[]',\n\
     \  memory_grants_json TEXT NOT NULL DEFAULT '[]',\n\
     \  budget_refs_json TEXT NOT NULL DEFAULT '[]',\n\
+    \  egress_rules_count INTEGER NOT NULL DEFAULT 0,\n\
     \  instruction_digests_json TEXT NOT NULL DEFAULT '[]',\n\
     \  redacted_summary TEXT NOT NULL DEFAULT ''\n\
      )"
@@ -308,7 +328,8 @@ let init_schema db =
       "credential_handles_json";
       "memory_grants_json";
       "budget_refs_json";
-    ]
+    ];
+  ensure_int_column db "egress_rules_count" ~default:0
 
 let list_to_json strings = `List (List.map (fun s -> `String s) strings)
 
@@ -326,7 +347,8 @@ let snapshot_select_columns =
    codebase_grants_json, blocked_codebase_grants_json, mcp_servers_json, \
    skills_json, repositories_json, repo_grants_json, blocked_repo_grants_json, \
    domains_json, credential_handles_json, memory_grants_json, \
-   budget_refs_json, instruction_digests_json, redacted_summary"
+   budget_refs_json, egress_rules_count, instruction_digests_json, \
+   redacted_summary"
 
 let persist ~(db : Sqlite3.db) (snap : t) =
   let stmt =
@@ -337,8 +359,9 @@ let persist ~(db : Sqlite3.db) (snap : t) =
        blocked_codebase_grants_json, mcp_servers_json, skills_json, \
        repositories_json, repo_grants_json, blocked_repo_grants_json, \
        domains_json, credential_handles_json, memory_grants_json, \
-       budget_refs_json, instruction_digests_json, redacted_summary) VALUES \
-       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+       budget_refs_json, egress_rules_count, instruction_digests_json, \
+       redacted_summary) VALUES \
+       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -376,9 +399,12 @@ let persist ~(db : Sqlite3.db) (snap : t) =
         (Yojson.Safe.to_string (list_to_json snap.credential_handles));
       bind_text 20 (Yojson.Safe.to_string (list_to_json snap.memory_grants));
       bind_text 21 (Yojson.Safe.to_string (list_to_json snap.budget_refs));
-      bind_text 22
+      ignore
+        (Sqlite3.bind stmt 22
+           (Sqlite3.Data.INT (Int64.of_int snap.egress_rules_count)));
+      bind_text 23
         (Yojson.Safe.to_string (list_to_json snap.instruction_digests));
-      bind_text 23 snap.redacted_summary;
+      bind_text 24 snap.redacted_summary;
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
@@ -450,8 +476,12 @@ let row_of_stmt stmt : t =
     credential_handles = json_list 18;
     memory_grants = json_list 19;
     budget_refs = json_list 20;
-    instruction_digests = json_list 21;
-    redacted_summary = text 22;
+    egress_rules_count =
+      (match Sqlite3.column stmt 21 with
+      | Sqlite3.Data.INT n -> Int64.to_int n
+      | _ -> 0);
+    instruction_digests = json_list 22;
+    redacted_summary = text 23;
   }
 
 let query ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
@@ -555,6 +585,7 @@ let to_json (snap : t) : Yojson.Safe.t =
       ("credential_handles", list_to_json snap.credential_handles);
       ("memory_grants", list_to_json snap.memory_grants);
       ("budget_refs", list_to_json snap.budget_refs);
+      ("egress_rules_count", `Int snap.egress_rules_count);
       ("instruction_digests", list_to_json snap.instruction_digests);
       ("redacted_summary", `String snap.redacted_summary);
     ]

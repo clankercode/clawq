@@ -185,6 +185,7 @@ let test_credential_handle_validate_refs () =
             repositories = [];
             repo_grants = [];
             domains = [];
+            egress_rules = [];
             credential_handles = [ "valid-handle"; "missing-handle" ];
             instructions = [];
             memory_grants = [];

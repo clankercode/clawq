@@ -659,6 +659,60 @@ type repo_grant = {
 (** A repo grant attaches a set of capabilities to a repository pattern within
     an access bundle. *)
 
+type egress_rule_action = Allow | Deny
+
+let egress_rule_action_to_string = function
+  | Allow -> "allow"
+  | Deny -> "deny"
+
+let egress_rule_action_of_string = function
+  | "allow" -> Some Allow
+  | "deny" -> Some Deny
+  | _ -> None
+
+type egress_rule_log_policy = Log | No_log
+
+let egress_rule_log_policy_to_string = function
+  | Log -> "log"
+  | No_log -> "no_log"
+
+let egress_rule_log_policy_of_string = function
+  | "log" -> Some Log
+  | "no_log" -> Some No_log
+  | _ -> None
+
+type egress_rule = {
+  host : string;
+      (** Host pattern to match. Supports glob-style wildcards:
+          - "*.example.com" matches any subdomain of example.com
+          - "api.example.com" matches exactly
+          - "*" matches any host *)
+  path : string option;
+      (** Optional path pattern. Supports glob-style wildcards:
+          - "/api/*" matches any path under /api/
+          - "/v1/users" matches exactly
+          - None matches any path *)
+  method_ : string option;
+      (** Optional HTTP method pattern (GET, POST, etc.).
+          Case-insensitive matching. None matches any method. *)
+  action : egress_rule_action;
+      (** Allow or deny the matching request. *)
+  log_policy : egress_rule_log_policy;
+      (** Whether to log matching requests. *)
+}
+(** An egress rule matches outbound HTTP requests by host, path, and method.
+    When multiple rules match, the first match wins. The default policy for
+    unmatched destinations is deny. *)
+
+let default_egress_rule : egress_rule =
+  {
+    host = "*";
+    path = None;
+    method_ = None;
+    action = Deny;
+    log_policy = Log;
+  }
+
 type access_bundle = {
   id : string;
   display_name : string option;
@@ -675,6 +729,10 @@ type access_bundle = {
   repo_grants : repo_grant list;
       (** GitHub repository grants with fine-grained capabilities. *)
   domains : string list;
+  egress_rules : egress_rule list;
+      (** Egress rules for outbound HTTP requests. Rules are evaluated in
+          order; first match wins. Default policy is deny unknown destinations.
+          An empty list means all outbound requests are denied. *)
   credential_handles : string list;
   instructions : instruction_record list;
   memory_grants : string list;
@@ -733,6 +791,10 @@ type effective_access = {
           source_scope, author, enabled, digest, and edit_policy. *)
   memory_grants : effective_access_item list;
   budget_refs : effective_access_item list;
+  egress_rules : egress_rule list;
+      (** Resolved egress rules from all matching bundles. Rules from higher-
+          priority scopes (Room > Channel > Workspace > Default) come first.
+          Default policy: deny unknown destinations. *)
 }
 
 type room_profile = {

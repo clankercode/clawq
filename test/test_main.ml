@@ -76,6 +76,7 @@ let () =
        ("connector_tool_calls", Test_connector_tool_calls.suite);
        ("http_server", Test_http_server.suite);
        ("config_loader", Test_config_loader.suite);
+       ("egress_rules", Test_egress_rules.suite);
        ("credential_handles", Test_credential_handles.suite);
        ("credential_lease", Test_credential_lease.suite);
        ("builtin_credential_lease", Test_builtin_credential_lease.suite);

@@ -41,6 +41,7 @@
   test_dot_dir
   test_discord
   test_discord_gateway
+  test_egress_rules
   test_email
   test_format_adapter
   test_github

@@ -1075,6 +1075,35 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                                 (List.map (fun d -> `String d) bundle.domains)
                             );
                           ])
+                     @ (if bundle.egress_rules = [] then []
+                        else
+                          [
+                            ( "egress_rules",
+                              `List
+                                (List.map
+                                   (fun (r :
+                                          Runtime_config_types.egress_rule) ->
+                                     `Assoc
+                                       ([
+                                          ("host", `String r.host);
+                                          ( "action",
+                                            `String
+                                              (egress_rule_action_to_string
+                                                 r.action) );
+                                          ( "log_policy",
+                                            `String
+                                              (egress_rule_log_policy_to_string
+                                                 r.log_policy) );
+                                        ]
+                                       @ (match r.path with
+                                         | Some p -> [ ("path", `String p) ]
+                                         | None -> [])
+                                       @
+                                       match r.method_ with
+                                       | Some m -> [ ("method", `String m) ]
+                                       | None -> []))
+                                   bundle.egress_rules) );
+                          ])
                      @ (if bundle.credential_handles = [] then []
                         else
                           [

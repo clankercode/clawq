@@ -588,6 +588,7 @@ let legacy_access_bundle_for_profile (cfg : t) (profile : room_profile) =
          repositories = [];
          repo_grants = [];
          domains = [];
+         egress_rules = [];
          credential_handles = [];
          instructions = [];
          memory_grants = [];
@@ -989,6 +990,29 @@ let resolve_effective_access (cfg : t) ~session_key ?room_profile () :
     instruction_items;
     memory_grants = collect "memory_grants" (fun b -> b.memory_grants);
     budget_refs = collect "budget_refs" (fun b -> b.budget_refs);
+    egress_rules =
+      (* For egress rules, higher-priority scopes (Room > Channel >
+         Workspace > Default) should come first since first match wins.
+         profile_bundles are already from room profiles (highest priority).
+         We group scope_bundles by scope and reverse the scope groups,
+         preserving bundle order within each scope. *)
+      let scope_groups =
+        let table = Hashtbl.create 8 in
+        let order = ref [] in
+        List.iter
+          (fun ((layer, source_id, _bundle) as entry) ->
+            let key = source_id in
+            if not (Hashtbl.mem table key) then order := !order @ [ key ];
+            Hashtbl.replace table key
+              (Option.value ~default:[] (Hashtbl.find_opt table key) @ [ entry ]))
+          scope_bundles;
+        List.rev !order
+        |> List.concat_map (fun key ->
+            Option.value ~default:[] (Hashtbl.find_opt table key))
+      in
+      (scope_groups @ profile_bundles)
+      |> List.concat_map (fun (_layer, _source_id, (bundle : access_bundle)) ->
+          bundle.egress_rules);
   }
 
 let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =

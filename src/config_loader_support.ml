@@ -350,10 +350,101 @@ let validate_access_bundle_json_shapes json : string list =
                         "access_bundles[%d].repo_grants must be a list" index;
                     ]
               in
+              let egress_rules_issues =
+                match List.assoc_opt "egress_rules" fields with
+                | None -> []
+                | Some (`List rules) ->
+                    rules
+                    |> List.mapi (fun ri r ->
+                        match r with
+                        | `Assoc rf ->
+                            let host_ok =
+                              match List.assoc_opt "host" rf with
+                              | Some (`String _) -> true
+                              | _ -> false
+                            in
+                            let action_ok =
+                              match List.assoc_opt "action" rf with
+                              | None -> true
+                              | Some (`String ("allow" | "deny")) -> true
+                              | _ -> false
+                            in
+                            let log_policy_ok =
+                              match List.assoc_opt "log_policy" rf with
+                              | None -> true
+                              | Some (`String ("log" | "no_log")) -> true
+                              | _ -> false
+                            in
+                            let path_ok =
+                              match List.assoc_opt "path" rf with
+                              | None | Some (`String _) -> true
+                              | _ -> false
+                            in
+                            let method_ok =
+                              match List.assoc_opt "method" rf with
+                              | None | Some (`String _) -> true
+                              | _ -> false
+                            in
+                            (if not host_ok then
+                               [
+                                 Printf.sprintf
+                                   "access_bundles[%d].egress_rules[%d].host \
+                                    must be a string"
+                                   index ri;
+                               ]
+                             else [])
+                            @ (if not action_ok then
+                                 [
+                                   Printf.sprintf
+                                     "access_bundles[%d].egress_rules[%d].action \
+                                      must be 'allow' or 'deny'"
+                                     index ri;
+                                 ]
+                               else [])
+                            @ (if not log_policy_ok then
+                                 [
+                                   Printf.sprintf
+                                     "access_bundles[%d].egress_rules[%d].log_policy \
+                                      must be 'log' or 'no_log'"
+                                     index ri;
+                                 ]
+                               else [])
+                            @ (if not path_ok then
+                                 [
+                                   Printf.sprintf
+                                     "access_bundles[%d].egress_rules[%d].path \
+                                      must be a string"
+                                     index ri;
+                                 ]
+                               else [])
+                            @
+                            if not method_ok then
+                              [
+                                Printf.sprintf
+                                  "access_bundles[%d].egress_rules[%d].method \
+                                   must be a string"
+                                  index ri;
+                              ]
+                            else []
+                        | _ ->
+                            [
+                              Printf.sprintf
+                                "access_bundles[%d].egress_rules[%d] must be \
+                                 an object"
+                                index ri;
+                            ])
+                    |> List.flatten
+                | Some _ ->
+                    [
+                      Printf.sprintf
+                        "access_bundles[%d].egress_rules must be a list" index;
+                    ]
+              in
               let instruction_issues =
                 validate_instruction_shapes ~bundle_index:index fields
               in
-              string_list_issues @ repo_grants_issues @ instruction_issues
+              string_list_issues @ repo_grants_issues @ egress_rules_issues
+              @ instruction_issues
           | _ -> [ Printf.sprintf "access_bundles[%d] must be an object" index ])
       |> List.flatten
   | `Null -> []

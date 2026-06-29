@@ -1215,6 +1215,7 @@ let test_room_profiles_roundtrip () =
             repositories = [];
             repo_grants = [];
             domains = [];
+            egress_rules = [];
             credential_handles = [ "github-app:main" ];
             instructions = [];
             memory_grants = [];

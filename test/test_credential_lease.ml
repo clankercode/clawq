@@ -314,6 +314,7 @@ let effective_access_with_credentials credential_handles :
     instruction_items = [];
     memory_grants = [];
     budget_refs = [];
+    egress_rules = [];
   }
 
 let test_scoped_lease_denies_unlisted_handle_before_provider_resolution () =

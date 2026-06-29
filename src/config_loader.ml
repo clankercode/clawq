@@ -1138,6 +1138,38 @@ let parse_config ?(resolve_secrets = true) json =
                   items
             | _ -> []
           in
+          let egress_rules =
+            try
+              b |> member "egress_rules" |> to_list
+              |> List.filter_map (fun r ->
+                  let host =
+                    try r |> member "host" |> to_string with _ -> "*"
+                  in
+                  let path =
+                    try Some (r |> member "path" |> to_string) with _ -> None
+                  in
+                  let method_ =
+                    try Some (r |> member "method" |> to_string) with _ -> None
+                  in
+                  let action =
+                    try
+                      r |> member "action" |> to_string
+                      |> Runtime_config.egress_rule_action_of_string
+                      |> Option.value ~default:Runtime_config.Deny
+                    with _ -> Runtime_config.Deny
+                  in
+                  let log_policy =
+                    try
+                      r |> member "log_policy" |> to_string
+                      |> Runtime_config.egress_rule_log_policy_of_string
+                      |> Option.value ~default:Runtime_config.Log
+                    with _ -> Runtime_config.Log
+                  in
+                  Some
+                    ({ host; path; method_; action; log_policy }
+                      : Runtime_config.egress_rule))
+            with _ -> []
+          in
           ({
              id;
              display_name;
@@ -1150,6 +1182,7 @@ let parse_config ?(resolve_secrets = true) json =
              repositories = string_list b "repositories";
              repo_grants;
              domains = string_list b "domains";
+             egress_rules;
              credential_handles = string_list b "credential_handles";
              instructions = parse_instructions b;
              memory_grants = string_list b "memory_grants";
