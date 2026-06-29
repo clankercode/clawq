@@ -100,6 +100,7 @@ type result =
   | Memories of memories_action
   | RoomsMemory of room_memory_action
   | ExplainAccess
+  | WhatCanDo
   | Followup of followup_action
   | DebugDumpChat
   | BashRun of string
@@ -184,6 +185,12 @@ let commands =
       name = "access";
       description = "Show what Clawq can access here: /access";
       priority = 46;
+    };
+    {
+      name = "what-can-do";
+      description =
+        "Show connector capabilities, room state, readiness, and degraded ";
+      priority = 45;
     };
     {
       name = "tasks";

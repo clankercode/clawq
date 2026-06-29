@@ -111,6 +111,7 @@
   test_teams_progress_card
   test_teams_delivery_lifecycle
   test_teams_delivery_regression
+  test_teams_what_can_do
   test_url_sanitize
   test_room_stale_query
   test_room_watcher_decision

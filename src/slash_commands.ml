@@ -297,6 +297,7 @@ let handle ?(skill_names = []) text =
             else
               FormattedReply (fun connector -> format_memories_usage ~connector)
         | "access" -> ExplainAccess
+        | "what-can-do" | "what_can_do" | "whatcando" -> WhatCanDo
         | "memory" -> (
             match args with
             | [] ->

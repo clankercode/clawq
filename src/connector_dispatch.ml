@@ -467,6 +467,22 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
       in
       let text = Access_explanation.to_text explanation in
       env.send_formatted (Format_adapter.code_block connector text)
+  | WhatCanDo ->
+      (* Teams sends an Adaptive Card; other connectors get plain text. *)
+      let caps =
+        match env.connector_name with
+        | "teams" -> Some Connector_capabilities.teams
+        | "discord" -> Some Connector_capabilities.discord
+        | "slack" -> Some Connector_capabilities.slack
+        | "telegram" -> Some Connector_capabilities.telegram
+        | _ -> None
+      in
+      let snap =
+        Teams_what_can_do.snapshot ?caps ~session_manager:session_mgr
+          ~conversation_id:env.channel_id ()
+      in
+      let text = Teams_what_can_do.build_text ~snap () in
+      env.send_formatted text
   (* Commands with per-connector behaviour are handled by each connector's own
      match and never routed here; treat as a no-op for totality. *)
   | Compact | Delegate _ | ForkAnd _ | AgentInvoke _ | Debate _ | BashRun _
