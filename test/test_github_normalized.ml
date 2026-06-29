@@ -11,6 +11,9 @@ let ci_summary_of_check_run () =
         conclusion = "failure";
         pr_number = Some 42;
         html_url = "https://github.com/acme/backend/actions";
+        head_sha = "abc123";
+        actor = "bot";
+        details_url = "";
       }
   in
   match Github_webhook.ci_summary_of_event event with
@@ -33,6 +36,8 @@ let ci_summary_of_workflow_run () =
         conclusion = "success";
         pr_number = None;
         html_url = "https://github.com/acme/backend/actions/runs/55";
+        head_sha = "def456";
+        actor = "ci-bot";
       }
   in
   match Github_webhook.ci_summary_of_event event with
@@ -52,6 +57,8 @@ let ci_summary_of_check_suite () =
         conclusion = "success";
         pr_number = Some 10;
         html_url = "https://github.com/acme/backend";
+        head_sha = "ghi789";
+        actor = "ci-bot";
       }
   in
   match Github_webhook.ci_summary_of_event event with
@@ -145,6 +152,9 @@ let review_summary_of_non_review_event () =
         conclusion = "success";
         pr_number = None;
         html_url = "";
+        head_sha = "";
+        actor = "";
+        details_url = "";
       }
   in
   match Github_webhook.review_summary_of_event event with

@@ -69,6 +69,7 @@ let make_review_event ~repo ~pr_number =
       html_url =
         Printf.sprintf "https://github.com/%s/pull/%d#discussion_r200" repo
           pr_number;
+      head_sha = "";
     }
 
 let track_sent () =

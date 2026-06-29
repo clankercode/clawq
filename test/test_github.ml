@@ -339,6 +339,7 @@ let session_key_review_comment () =
         file_path = "src/foo.ml";
         pr_title = "Fix";
         html_url = "https://github.com/acme/backend/pull/42#discussion_r200";
+        head_sha = "";
       }
   in
   Alcotest.(check string)

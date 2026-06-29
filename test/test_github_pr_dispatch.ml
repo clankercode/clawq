@@ -92,6 +92,7 @@ let test_should_notify_subscription () =
             file_path = "test.ml";
             pr_title = "Test PR";
             html_url = "https://github.com/owner/repo/pull/42#discussion-456";
+            head_sha = "";
           }
       in
       Alcotest.(check bool)
@@ -190,6 +191,7 @@ let test_format_review_comment_notification () =
         file_path = "test.ml";
         pr_title = "Test PR";
         html_url = "https://github.com/owner/repo/pull/42#discussion-456";
+        head_sha = "";
       }
   in
   let notification =
@@ -462,6 +464,207 @@ let test_dispatch_notification_preferences () =
       in
       Alcotest.(check int) "comment dispatch count" 1 result3)
 
+let test_format_ci_summary () =
+  let ci =
+    {
+      Github_webhook.kind = `WorkflowRun;
+      name = "CI";
+      status = "completed";
+      conclusion = "failure";
+      owner = "acme";
+      repo = "backend";
+      pr_number = Some 42;
+      html_url = "https://github.com/acme/backend/actions/runs/99";
+      head_sha = "abc123def456";
+      actor = "ci-bot";
+      details_url = "https://github.com/acme/backend/actions/runs/99/jobs/1";
+    }
+  in
+  let text = Github_pr_dispatch.format_ci_summary ci "completed" in
+  Alcotest.(check bool)
+    "contains SHA" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "abc123d") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains actor" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "ci-bot") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains PR" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "#42") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains failing job link" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "actions/runs/99/jobs/1")
+            text 0);
+       true
+     with Not_found -> false)
+
+let test_format_ci_summary_for_slack () =
+  let ci =
+    {
+      Github_webhook.kind = `CheckRun;
+      name = "test";
+      status = "completed";
+      conclusion = "failure";
+      owner = "acme";
+      repo = "backend";
+      pr_number = Some 42;
+      html_url = "https://github.com/acme/backend/actions";
+      head_sha = "abc123def456";
+      actor = "bot";
+      details_url = "https://github.com/acme/backend/actions/jobs/1";
+    }
+  in
+  let text = Github_pr_dispatch.format_ci_summary_for_slack ci "completed" in
+  Alcotest.(check bool)
+    "uses slack link syntax" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "<https://") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains actor" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "@bot") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains failing job link" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Failing job") text 0);
+       true
+     with Not_found -> false)
+
+let test_format_review_summary () =
+  let review =
+    {
+      Github_webhook.state = Github_webhook.Approved;
+      raw_state = "approved";
+      reviewer = "bob";
+      body = "LGTM";
+      owner = "acme";
+      repo = "backend";
+      pr_number = 42;
+      html_url = "https://github.com/acme/backend/pull/42";
+      head_sha = "abc123def456";
+    }
+  in
+  let text = Github_pr_dispatch.format_review_summary review in
+  Alcotest.(check bool)
+    "contains SHA" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "abc123d") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains reviewer" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "bob") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains body snippet" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "LGTM") text 0);
+       true
+     with Not_found -> false)
+
+let test_format_review_summary_for_slack () =
+  let review =
+    {
+      Github_webhook.state = Github_webhook.ChangesRequested;
+      raw_state = "changes_requested";
+      reviewer = "carol";
+      body = "fix this please";
+      owner = "acme";
+      repo = "backend";
+      pr_number = 7;
+      html_url = "https://github.com/acme/backend/pull/7";
+      head_sha = "deadbeef0123";
+    }
+  in
+  let text = Github_pr_dispatch.format_review_summary_for_slack review in
+  Alcotest.(check bool)
+    "uses slack link syntax" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "<https://") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains reviewer" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "carol") text 0);
+       true
+     with Not_found -> false)
+
+let test_format_review_comment_enhanced () =
+  let review =
+    {
+      Github_webhook.state = Github_webhook.Commented;
+      raw_state = "commented";
+      reviewer = "alice";
+      body = "Looks good but fix the typo";
+      owner = "acme";
+      repo = "backend";
+      pr_number = 42;
+      html_url = "https://github.com/acme/backend/pull/42#discussion_r100";
+      head_sha = "deadbeef1234567";
+    }
+  in
+  let text = Github_pr_dispatch.format_review_summary review in
+  Alcotest.(check bool)
+    "contains SHA" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "deadbee") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains reviewer" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "alice") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains body" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "fix the typo") text 0);
+       true
+     with Not_found -> false)
+
+let test_parse_event_check_run_extracts_fields () =
+  let body =
+    {|{"action":"completed","check_run":{"name":"test","status":"completed","conclusion":"failure","head_sha":"abc123","details_url":"https://github.com/acme/backend/runs/1","html_url":"https://github.com/acme/backend/checks","pull_requests":[{"number":42}]},"sender":{"login":"ci-bot"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+  in
+  match Github_webhook.parse_event ~event_type:"check_run" ~body with
+  | Github_webhook.CheckRun e ->
+      Alcotest.(check string) "head_sha" "abc123" e.head_sha;
+      Alcotest.(check string) "actor" "ci-bot" e.actor;
+      Alcotest.(check string)
+        "details_url" "https://github.com/acme/backend/runs/1" e.details_url;
+      Alcotest.(check string) "conclusion" "failure" e.conclusion;
+      Alcotest.(check (option int)) "pr_number" (Some 42) e.pr_number
+  | _ -> Alcotest.fail "expected CheckRun"
+
+let test_parse_event_review_extracts_head_sha () =
+  let body =
+    {|{"action":"submitted","review":{"id":1,"user":{"login":"bob"},"state":"approved","body":"LGTM"},"pull_request":{"number":42,"head":{"sha":"abc123def"}},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+  in
+  match Github_webhook.parse_event ~event_type:"pull_request_review" ~body with
+  | Github_webhook.PullRequestReview e ->
+      Alcotest.(check string) "head_sha" "abc123def" e.head_sha;
+      Alcotest.(check string) "review_author" "bob" e.review_author
+  | _ -> Alcotest.fail "expected PullRequestReview"
+
 let suite =
   [
     Alcotest.test_case "should notify subscription" `Quick
@@ -472,6 +675,18 @@ let suite =
       test_format_comment_notification;
     Alcotest.test_case "format review comment notification" `Quick
       test_format_review_comment_notification;
+    Alcotest.test_case "format CI summary" `Quick test_format_ci_summary;
+    Alcotest.test_case "format CI summary for Slack" `Quick
+      test_format_ci_summary_for_slack;
+    Alcotest.test_case "format review summary" `Quick test_format_review_summary;
+    Alcotest.test_case "format review summary for Slack" `Quick
+      test_format_review_summary_for_slack;
+    Alcotest.test_case "format review comment enhanced" `Quick
+      test_format_review_comment_enhanced;
+    Alcotest.test_case "parse check_run extracts fields" `Quick
+      test_parse_event_check_run_extracts_fields;
+    Alcotest.test_case "parse review extracts head_sha" `Quick
+      test_parse_event_review_extracts_head_sha;
     Alcotest.test_case "dispatch dedup" `Quick test_dispatch_dedup;
     Alcotest.test_case "dispatch no subscriptions" `Quick
       test_dispatch_no_subscriptions;
