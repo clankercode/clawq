@@ -190,19 +190,16 @@ let render_final ~task_label ?elapsed ?summary ?task_status
 
 (** {1 Integration with room_progress} *)
 
-(** [format_for_room_progress ~task_label ~items] produces a Slack-formatted
-    progress message suitable for use with
-    [Room_progress.deliver_progress_update].
+(** [format_for_room_progress ~task_label ~elapsed ~items] produces a Slack-
+    formatted progress message suitable for use with
+    [Room_progress.deliver_progress_update_with_card]. *)
+let format_for_room_progress ~task_label ~elapsed (items : checklist_item list)
+    =
+  render_checklist ~task_label ~elapsed items
 
-    This is the primary integration point: call this from the Slack connector's
-    progress delivery path instead of [Room_progress.format_progress_message].
-*)
-let format_for_room_progress ~task_label (items : checklist_item list) =
-  render_checklist ~task_label items
-
-(** [format_final_for_room_progress ~task_label ~items ?summary ?task_status]
+(** [format_final_for_room_progress ~task_label ?summary ?task_status ~items]
     produces a Slack-formatted final message suitable for use with
-    [Room_progress.deliver_final_message]. *)
+    [Room_progress.deliver_final_message_with_card]. *)
 let format_final_for_room_progress ~task_label ?summary ?task_status
     (items : checklist_item list) =
   render_final ~task_label ?summary ?task_status items

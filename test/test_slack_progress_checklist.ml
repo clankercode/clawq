@@ -362,7 +362,7 @@ let test_format_for_room_progress () =
   in
   let msg =
     Slack_progress_checklist.format_for_room_progress
-      ~task_label:"Build feature" items
+      ~task_label:"Build feature" ~elapsed:"5m" items
   in
   Alcotest.(check bool)
     "has task label" true
