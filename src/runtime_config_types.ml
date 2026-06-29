@@ -661,9 +661,7 @@ type repo_grant = {
 
 type egress_rule_action = Allow | Deny
 
-let egress_rule_action_to_string = function
-  | Allow -> "allow"
-  | Deny -> "deny"
+let egress_rule_action_to_string = function Allow -> "allow" | Deny -> "deny"
 
 let egress_rule_action_of_string = function
   | "allow" -> Some Allow
@@ -693,25 +691,17 @@ type egress_rule = {
           - "/v1/users" matches exactly
           - None matches any path *)
   method_ : string option;
-      (** Optional HTTP method pattern (GET, POST, etc.).
-          Case-insensitive matching. None matches any method. *)
-  action : egress_rule_action;
-      (** Allow or deny the matching request. *)
-  log_policy : egress_rule_log_policy;
-      (** Whether to log matching requests. *)
+      (** Optional HTTP method pattern (GET, POST, etc.). Case-insensitive
+          matching. None matches any method. *)
+  action : egress_rule_action;  (** Allow or deny the matching request. *)
+  log_policy : egress_rule_log_policy;  (** Whether to log matching requests. *)
 }
 (** An egress rule matches outbound HTTP requests by host, path, and method.
     When multiple rules match, the first match wins. The default policy for
     unmatched destinations is deny. *)
 
 let default_egress_rule : egress_rule =
-  {
-    host = "*";
-    path = None;
-    method_ = None;
-    action = Deny;
-    log_policy = Log;
-  }
+  { host = "*"; path = None; method_ = None; action = Deny; log_policy = Log }
 
 type access_bundle = {
   id : string;
@@ -730,9 +720,9 @@ type access_bundle = {
       (** GitHub repository grants with fine-grained capabilities. *)
   domains : string list;
   egress_rules : egress_rule list;
-      (** Egress rules for outbound HTTP requests. Rules are evaluated in
-          order; first match wins. Default policy is deny unknown destinations.
-          An empty list means all outbound requests are denied. *)
+      (** Egress rules for outbound HTTP requests. Rules are evaluated in order;
+          first match wins. Default policy is deny unknown destinations. An
+          empty list means all outbound requests are denied. *)
   credential_handles : string list;
   instructions : instruction_record list;
   memory_grants : string list;

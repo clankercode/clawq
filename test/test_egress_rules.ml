@@ -63,8 +63,7 @@ let test_default_policy () =
   in
   let cfg = Config_loader.parse_config json in
   let bundle = List.nth cfg.access_bundles 0 in
-  Alcotest.(check int)
-    "empty egress rules" 0 (List.length bundle.egress_rules);
+  Alcotest.(check int) "empty egress rules" 0 (List.length bundle.egress_rules);
   (* Verify effective access has no rules = deny all *)
   let access =
     Runtime_config.resolve_effective_access cfg ~session_key:"test:room" ()
@@ -87,7 +86,9 @@ let test_validation () =
     Yojson.Safe.from_string
       {|{"access_bundles": [{"id": "b", "egress_rules": [{"host": 123}]}]}|}
   in
-  let issues = Config_loader_support.validate_access_bundle_json_shapes bad_host in
+  let issues =
+    Config_loader_support.validate_access_bundle_json_shapes bad_host
+  in
   Alcotest.(check bool)
     "invalid host rejected" true
     (List.exists
@@ -98,18 +99,23 @@ let test_validation () =
     Yojson.Safe.from_string
       {|{"access_bundles": [{"id": "b", "egress_rules": [{"host": "x", "action": "block"}]}]}|}
   in
-  let issues2 = Config_loader_support.validate_access_bundle_json_shapes bad_action in
+  let issues2 =
+    Config_loader_support.validate_access_bundle_json_shapes bad_action
+  in
   Alcotest.(check bool)
     "invalid action rejected" true
     (List.exists
-       (fun s -> Test_helpers.string_contains s "action must be 'allow' or 'deny'")
+       (fun s ->
+         Test_helpers.string_contains s "action must be 'allow' or 'deny'")
        issues2);
   (* Invalid log_policy *)
   let bad_log =
     Yojson.Safe.from_string
       {|{"access_bundles": [{"id": "b", "egress_rules": [{"host": "x", "log_policy": "silent"}]}]}|}
   in
-  let issues3 = Config_loader_support.validate_access_bundle_json_shapes bad_log in
+  let issues3 =
+    Config_loader_support.validate_access_bundle_json_shapes bad_log
+  in
   Alcotest.(check bool)
     "invalid log_policy rejected" true
     (List.exists
@@ -153,7 +159,9 @@ let test_rules_in_effective_access () =
     (List.length access.egress_rules);
   (* Both bundles are in the same default scope, so order is preserved *)
   let hosts =
-    List.map (fun (r : Runtime_config.egress_rule) -> r.host) access.egress_rules
+    List.map
+      (fun (r : Runtime_config.egress_rule) -> r.host)
+      access.egress_rules
   in
   Alcotest.(check (list string))
     "rules from both bundles present"
@@ -203,17 +211,15 @@ let test_scope_priority_ordering () =
     (List.length access.egress_rules);
   (* Room scope rules should come first (higher priority) *)
   let r0 = List.nth access.egress_rules 0 in
-  Alcotest.(check string)
-    "room rule comes first" "api.example.com" r0.host;
+  Alcotest.(check string) "room rule comes first" "api.example.com" r0.host;
   (match r0.action with
   | Runtime_config.Allow -> ()
   | _ -> Alcotest.fail "room rule should be Allow");
   let r1 = List.nth access.egress_rules 1 in
-  Alcotest.(check string)
-    "default rule comes second" "*" r1.host;
-  (match r1.action with
+  Alcotest.(check string) "default rule comes second" "*" r1.host;
+  match r1.action with
   | Runtime_config.Deny -> ()
-  | _ -> Alcotest.fail "default rule should be Deny")
+  | _ -> Alcotest.fail "default rule should be Deny"
 
 let suite =
   [
