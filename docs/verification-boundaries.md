@@ -66,7 +66,7 @@ covered by tests. All are proof candidates for future hardening. No gaps.
 | MCP Filter | INV-FILTER-1..3 | Yes | Yes (1 of 3 tested) | Yes (3) | 0 |
 | Budget | INV-BUDG-1..5 | Yes | No | Yes (5) | 0 |
 | Session Lifecycle | INV-SESS-1..4 | Yes | No | Yes (4) | 0 |
-| Redaction | INV-REDACT-1..4 | Yes | Yes (5 tests) | Yes (4) | **1 (REDACT-3b)** |
+| Redaction | INV-REDACT-1..4, 3b | Yes (4 of 5) | Yes (4 of 5 tested) | Yes (5) | **1 (REDACT-3b)** |
 | Ledger | INV-LEDGER-1..3 | Yes | Yes (5 tests) | Yes (3) | 0 |
 | Unowned Scope | INV-UNOWNED-1..2 | Yes | Yes (2 tests) | Yes (2) | 0 |
 | Scope Resolver | INV-SRES-1 | Yes | Yes (1 test) | Yes (1) | 0 |

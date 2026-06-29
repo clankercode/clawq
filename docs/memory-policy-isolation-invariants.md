@@ -424,7 +424,7 @@ excluded from `query_scoped_memories` (list, search by content). The
 - **Proof candidate**: Prove redacted memories are excluded from
   `query_scoped_memories`.
 
-**INV-REDACT-3b** `[GAP]`: The `Memory.search` FTS path (`memory_search.ml`)
+**INV-REDACT-3b** `[GAP] [PROOF-CANDIDATE]`: The `Memory.search` FTS path (`memory_search.ml`)
 joins scoped memories via reference but does **not** filter
 `sm.redacted_at IS NULL`. This is a known gap: `Memory.search` queries
 `messages_fts` (which indexes `messages.content`) and joins `scoped_memories`
