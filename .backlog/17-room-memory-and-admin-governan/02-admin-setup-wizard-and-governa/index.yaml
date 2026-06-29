@@ -32,7 +32,7 @@ epics:
       locked: false
       name: Governance Readiness and Audit Export
       path: 03-governance-readiness-and-audit
-      status: pending
+      status: done
 estimate_hours: 32
 id: P17.M2
 locked: false
