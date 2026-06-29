@@ -51,8 +51,8 @@ type t = {
   memory_grants : string list;
   budget_refs : string list;
   egress_rules_count : int;
-      (** Number of egress rules in the snapshot. Full rules are not
-          serialized to avoid leaking host/path patterns. *)
+      (** Number of egress rules in the snapshot. Full rules are not serialized
+          to avoid leaking host/path patterns. *)
   instruction_digests : string list;
   redacted_summary : string;
 }
@@ -360,8 +360,8 @@ let persist ~(db : Sqlite3.db) (snap : t) =
        repositories_json, repo_grants_json, blocked_repo_grants_json, \
        domains_json, credential_handles_json, memory_grants_json, \
        budget_refs_json, egress_rules_count, instruction_digests_json, \
-       redacted_summary) VALUES \
-       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+       redacted_summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+       ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
