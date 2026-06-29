@@ -312,6 +312,7 @@
   github_hooks
   github
   github_webhook
+  github_pr_dispatch
   github_api
   github_app_token
   tunnel_manager

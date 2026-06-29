@@ -37,10 +37,54 @@ type pr_review_comment_event = {
   html_url : string;
 }
 
+type pr_review_event = {
+  owner : string;
+  repo : string;
+  pr_number : int;
+  review_id : int;
+  review_author : string;
+  state : string;
+  body : string;
+  html_url : string;
+}
+
+type check_run_event = {
+  owner : string;
+  repo : string;
+  name : string;
+  status : string;
+  conclusion : string;
+  pr_number : int option;
+  html_url : string;
+}
+
+type check_suite_event = {
+  owner : string;
+  repo : string;
+  status : string;
+  conclusion : string;
+  pr_number : int option;
+  html_url : string;
+}
+
+type workflow_run_event = {
+  owner : string;
+  repo : string;
+  name : string;
+  status : string;
+  conclusion : string;
+  pr_number : int option;
+  html_url : string;
+}
+
 type parsed_event =
   | PullRequest of pr_event
   | IssueComment of issue_comment_event
   | PrReviewComment of pr_review_comment_event
+  | PullRequestReview of pr_review_event
+  | CheckRun of check_run_event
+  | CheckSuite of check_suite_event
+  | WorkflowRun of workflow_run_event
   | Ignored
 
 let verify_signature ~secret ~body ~signature_header =
@@ -70,7 +114,8 @@ let parse_event ~event_type ~body =
     | "pull_request" -> (
         let action = try json |> member "action" |> to_string with _ -> "" in
         match action with
-        | "opened" | "edited" | "reopened" | "synchronize" ->
+        | "opened" | "edited" | "reopened" | "synchronize" | "ready_for_review"
+        | "closed" ->
             let pr = json |> member "pull_request" in
             let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
             let pr_title =
@@ -199,6 +244,117 @@ let parse_event ~event_type ~body =
                 html_url;
               }
         | _ -> Ignored)
+    | "pull_request_review" -> (
+        let action = try json |> member "action" |> to_string with _ -> "" in
+        match action with
+        | "submitted" | "edited" ->
+            let review = json |> member "review" in
+            let pr = json |> member "pull_request" in
+            let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
+            let review_id = try review |> member "id" |> to_int with _ -> 0 in
+            let review_author =
+              try review |> member "user" |> member "login" |> to_string
+              with _ -> ""
+            in
+            let state =
+              try review |> member "state" |> to_string with _ -> ""
+            in
+            let body =
+              try review |> member "body" |> to_string with _ -> ""
+            in
+            let html_url =
+              try review |> member "html_url" |> to_string with _ -> ""
+            in
+            PullRequestReview
+              {
+                owner;
+                repo;
+                pr_number;
+                review_id;
+                review_author;
+                state;
+                body;
+                html_url;
+              }
+        | _ -> Ignored)
+    | "check_run" -> (
+        let action = try json |> member "action" |> to_string with _ -> "" in
+        match action with
+        | "completed" | "created" | "requested_action" ->
+            let check_run = json |> member "check_run" in
+            let name =
+              try check_run |> member "name" |> to_string with _ -> ""
+            in
+            let status =
+              try check_run |> member "status" |> to_string with _ -> ""
+            in
+            let conclusion =
+              try check_run |> member "conclusion" |> to_string with _ -> ""
+            in
+            let html_url =
+              try check_run |> member "html_url" |> to_string with _ -> ""
+            in
+            let pr_number =
+              try
+                Some
+                  (check_run |> member "pull_requests" |> to_list |> List.hd
+                 |> member "number" |> to_int)
+              with _ -> None
+            in
+            CheckRun
+              { owner; repo; name; status; conclusion; pr_number; html_url }
+        | _ -> Ignored)
+    | "check_suite" -> (
+        let action = try json |> member "action" |> to_string with _ -> "" in
+        match action with
+        | "completed" | "requested" | "rerequested" ->
+            let check_suite = json |> member "check_suite" in
+            let status =
+              try check_suite |> member "status" |> to_string with _ -> ""
+            in
+            let conclusion =
+              try check_suite |> member "conclusion" |> to_string with _ -> ""
+            in
+            let html_url =
+              try check_suite |> member "html_url" |> to_string with _ -> ""
+            in
+            let pr_number =
+              try
+                Some
+                  (check_suite |> member "pull_requests" |> to_list |> List.hd
+                 |> member "number" |> to_int)
+              with _ -> None
+            in
+            CheckSuite { owner; repo; status; conclusion; pr_number; html_url }
+        | _ -> Ignored)
+    | "workflow_run" -> (
+        let action = try json |> member "action" |> to_string with _ -> "" in
+        match action with
+        | "completed" | "requested" | "in_progress" ->
+            let workflow_run = json |> member "workflow_run" in
+            let name =
+              try workflow_run |> member "name" |> to_string with _ -> ""
+            in
+            let status =
+              try workflow_run |> member "status" |> to_string with _ -> ""
+            in
+            let conclusion =
+              try workflow_run |> member "conclusion" |> to_string
+              with _ -> ""
+            in
+            let html_url =
+              try workflow_run |> member "html_url" |> to_string with _ -> ""
+            in
+            let pr_number =
+              try
+                Some
+                  (workflow_run |> member "pull_requests" |> to_list |> List.hd
+                 |> member "number" |> to_int)
+              with _ -> None
+            in
+            WorkflowRun
+              { owner; repo; name; status; conclusion; pr_number; html_url }
+        | _ -> Ignored)
     | _ -> Ignored
   with _ -> Ignored
 
@@ -212,6 +368,13 @@ let session_key event =
       else Printf.sprintf "github:%s/%s:issue:%d" e.owner e.repo e.issue_number
   | PrReviewComment e ->
       Printf.sprintf "github:%s/%s:pr:%d" e.owner e.repo e.pr_number
+  | PullRequestReview e ->
+      Printf.sprintf "github:%s/%s:pr:%d" e.owner e.repo e.pr_number
+  | CheckRun e ->
+      Printf.sprintf "github:%s/%s:check_run:%s" e.owner e.repo e.name
+  | CheckSuite e -> Printf.sprintf "github:%s/%s:check_suite" e.owner e.repo
+  | WorkflowRun e ->
+      Printf.sprintf "github:%s/%s:workflow:%s" e.owner e.repo e.name
   | Ignored -> "github:unknown"
 
 let repo_of_event event =
@@ -219,6 +382,10 @@ let repo_of_event event =
   | PullRequest e -> (e.owner, e.repo)
   | IssueComment e -> (e.owner, e.repo)
   | PrReviewComment e -> (e.owner, e.repo)
+  | PullRequestReview e -> (e.owner, e.repo)
+  | CheckRun e -> (e.owner, e.repo)
+  | CheckSuite e -> (e.owner, e.repo)
+  | WorkflowRun e -> (e.owner, e.repo)
   | Ignored -> ("", "")
 
 let author_of_event event =
@@ -226,6 +393,8 @@ let author_of_event event =
   | PullRequest e -> e.pr_author
   | IssueComment e -> e.comment_author
   | PrReviewComment e -> e.comment_author
+  | PullRequestReview e -> e.review_author
+  | CheckRun _ | CheckSuite _ | WorkflowRun _ -> "github-app"
   | Ignored -> ""
 
 let event_type_string event =
@@ -233,6 +402,10 @@ let event_type_string event =
   | PullRequest _ -> "pull_request"
   | IssueComment _ -> "issue_comment"
   | PrReviewComment _ -> "pull_request_review_comment"
+  | PullRequestReview _ -> "pull_request_review"
+  | CheckRun _ -> "check_run"
+  | CheckSuite _ -> "check_suite"
+  | WorkflowRun _ -> "workflow_run"
   | Ignored -> "ignored"
 
 let extract_clawq ~event ~pr_files =
@@ -241,6 +414,8 @@ let extract_clawq ~event ~pr_files =
     | PullRequest e -> e.pr_body
     | IssueComment e -> e.comment_body
     | PrReviewComment e -> e.comment_body
+    | PullRequestReview e -> e.body
+    | CheckRun _ | CheckSuite _ | WorkflowRun _ -> ""
     | Ignored -> ""
   in
   let lines = String.split_on_char '\n' text in
@@ -314,6 +489,34 @@ let extract_clawq ~event ~pr_files =
                    (truncate e.comment_body 2000));
               Buffer.add_string buf
                 (Printf.sprintf "Comment URL: %s\n" e.html_url)
+          | PullRequestReview e ->
+              Buffer.add_string buf
+                (Printf.sprintf "PR #%d review by @%s\n" e.pr_number
+                   e.review_author);
+              Buffer.add_string buf (Printf.sprintf "State: %s\n" e.state);
+              if e.body <> "" then
+                Buffer.add_string buf
+                  (Printf.sprintf "Review body: %s\n" (truncate e.body 2000));
+              Buffer.add_string buf
+                (Printf.sprintf "Review URL: %s\n" e.html_url)
+          | CheckRun e ->
+              Buffer.add_string buf (Printf.sprintf "Check run: %s\n" e.name);
+              Buffer.add_string buf
+                (Printf.sprintf "Status: %s | Conclusion: %s\n" e.status
+                   e.conclusion);
+              Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
+          | CheckSuite e ->
+              Buffer.add_string buf (Printf.sprintf "Check suite\n");
+              Buffer.add_string buf
+                (Printf.sprintf "Status: %s | Conclusion: %s\n" e.status
+                   e.conclusion);
+              Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
+          | WorkflowRun e ->
+              Buffer.add_string buf (Printf.sprintf "Workflow: %s\n" e.name);
+              Buffer.add_string buf
+                (Printf.sprintf "Status: %s | Conclusion: %s\n" e.status
+                   e.conclusion);
+              Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
           | Ignored -> ());
           if pr_files <> [] then begin
             let count = List.length pr_files in
@@ -336,7 +539,8 @@ let extract_clawq ~event ~pr_files =
               | PullRequest e -> e.pr_number
               | PrReviewComment e -> e.pr_number
               | IssueComment e -> e.issue_number
-              | Ignored -> 0
+              | PullRequestReview e -> e.pr_number
+              | CheckRun _ | CheckSuite _ | WorkflowRun _ | Ignored -> 0
             in
             Buffer.add_string buf
               (Printf.sprintf

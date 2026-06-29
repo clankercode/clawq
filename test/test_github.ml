@@ -166,8 +166,8 @@ let parse_review_submitted () =
     {|{"action":"submitted","review":{"id":1,"user":{"login":"x"},"body":"LGTM"},"pull_request":{"number":1},"repository":{"name":"y","owner":{"login":"x"}}}|}
   in
   match Github_webhook.parse_event ~event_type:"pull_request_review" ~body with
-  | Github_webhook.Ignored -> ()
-  | _ -> Alcotest.fail "expected Ignored for pull_request_review"
+  | Github_webhook.PullRequestReview _ -> ()
+  | _ -> Alcotest.fail "expected PullRequestReview for pull_request_review"
 
 let parse_malformed () =
   match

@@ -47,7 +47,10 @@ let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
       | Github_webhook.PullRequest e -> e.pr_number
       | Github_webhook.PrReviewComment e -> e.pr_number
       | Github_webhook.IssueComment e -> if e.is_pr then e.issue_number else 0
-      | Github_webhook.Ignored -> 0
+      | Github_webhook.PullRequestReview e -> e.pr_number
+      | Github_webhook.CheckRun _ | Github_webhook.CheckSuite _
+      | Github_webhook.WorkflowRun _ | Github_webhook.Ignored ->
+          0
     in
     if pr_n <= 0 then Lwt.return []
     else
@@ -69,7 +72,11 @@ let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
 let comment_body_of_event = function
   | Github_webhook.IssueComment e -> Some e.comment_body
   | Github_webhook.PrReviewComment e -> Some e.comment_body
-  | Github_webhook.PullRequest _ | Github_webhook.Ignored -> None
+  | Github_webhook.PullRequestReview e -> Some e.body
+  | Github_webhook.PullRequest _ | Github_webhook.CheckRun _
+  | Github_webhook.CheckSuite _ | Github_webhook.WorkflowRun _
+  | Github_webhook.Ignored ->
+      None
 
 let acknowledge_reaction ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
@@ -106,7 +113,10 @@ let issue_number_of_event = function
   | Github_webhook.PullRequest e -> e.pr_number
   | Github_webhook.IssueComment e -> e.issue_number
   | Github_webhook.PrReviewComment e -> e.pr_number
-  | Github_webhook.Ignored -> 0
+  | Github_webhook.PullRequestReview e -> e.pr_number
+  | Github_webhook.CheckRun _ | Github_webhook.CheckSuite _
+  | Github_webhook.WorkflowRun _ | Github_webhook.Ignored ->
+      0
 
 let post_reply ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
@@ -146,7 +156,15 @@ let post_reply ~(github_config : Runtime_config.github_config)
                 ~auth:github_config.auth ~resolve_headers ~egress_rules
                 ~egress_audit ~owner ~repo ~issue_number:e.issue_number
                 ~body:reply_text ()
-          | Github_webhook.Ignored -> Lwt.return_unit))
+          | Github_webhook.PullRequestReview e ->
+              Github_api.post_comment
+                ~app_token:(Github_app_token.resolve_app_token ())
+                ~auth:github_config.auth ~resolve_headers ~egress_rules
+                ~egress_audit ~owner ~repo ~issue_number:e.pr_number
+                ~body:reply_text ()
+          | Github_webhook.CheckRun _ | Github_webhook.CheckSuite _
+          | Github_webhook.WorkflowRun _ | Github_webhook.Ignored ->
+              Lwt.return_unit))
     (fun exn ->
       Logs.err (fun m ->
           m "GitHub: failed to post reply: %s" (Printexc.to_string exn));
@@ -403,6 +421,29 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                     Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
                   else Lwt.return (Ok "ignored")
               | _ -> (
+                  (* Dispatch to subscribed rooms/threads *)
+                  let* _dispatched =
+                    match Session.get_db session_manager with
+                    | Some db ->
+                        Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+                          ~delivery_id
+                          ~send_message:(fun ~room_id ~text () ->
+                            (* Try to find a notifier for this room *)
+                            match
+                              Session.find_registered_notifier session_manager
+                                ~key:room_id
+                            with
+                            | Some notifier -> notifier text
+                            | None ->
+                                Logs.debug (fun m ->
+                                    m
+                                      "GitHub PR dispatch: no notifier for \
+                                       room %s"
+                                      room_id);
+                                Lwt.return_unit)
+                          ()
+                    | None -> Lwt.return 0
+                  in
                   let author =
                     let parsed = Github_webhook.author_of_event event in
                     if parsed <> "" then parsed else prepared.sender_login
@@ -434,6 +475,29 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                         Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
                       else Lwt.return (Ok "no /clawq command"))
         else
+          (* Non-user-generated events (check_run, workflow_run, etc.) *)
+          let event = Github_webhook.parse_event ~event_type ~body in
+          (* Dispatch to subscribed rooms/threads *)
+          let* _dispatched =
+            match Session.get_db session_manager with
+            | Some db ->
+                Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+                  ~delivery_id
+                  ~send_message:(fun ~room_id ~text () ->
+                    (* Try to find a notifier for this room *)
+                    match
+                      Session.find_registered_notifier session_manager
+                        ~key:room_id
+                    with
+                    | Some notifier -> notifier text
+                    | None ->
+                        Logs.debug (fun m ->
+                            m "GitHub PR dispatch: no notifier for room %s"
+                              room_id);
+                        Lwt.return_unit)
+                  ()
+            | None -> Lwt.return 0
+          in
           let* hook_count =
             Github_hooks.run_matching_hooks ~session_manager ~prepared
               ~github_config:(Some github_config) ~resolve_headers ~egress_rules
