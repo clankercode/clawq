@@ -306,6 +306,93 @@ let trigger_review_runs_from_labels ~(db : Sqlite3.db) ~event_type ~body =
             (Printexc.to_string exn));
       0
 
+(** [launch_triggered_review_runs ~db ~config ~session_manager ~event ~pr_files]
+    finds pending review runs for the event's repo/PR and launches them as
+    background tasks under each subscribed room's profile policy. The run prompt
+    includes PR metadata, changed files, the access snapshot, room origin, and
+    runner policy.
+
+    Should be called after [trigger_review_runs_from_labels] creates the review
+    run record and after PR files have been fetched.
+
+    Returns the number of runs launched. *)
+let launch_triggered_review_runs ~(db : Sqlite3.db) ~(config : Runtime_config.t)
+    ~(session_manager : Session.t) ~(event : Github_webhook.parsed_event)
+    ~(pr_files : (string * string * int * int) list) =
+  let open Lwt.Syntax in
+  let repo, pr_number =
+    match event with
+    | Github_webhook.PullRequest pr -> (pr.owner ^ "/" ^ pr.repo, pr.pr_number)
+    | _ -> ("", 0)
+  in
+  if repo = "" || pr_number <= 0 then Lwt.return 0
+  else
+    let all_runs = Github_review_run.find_by_repo_pr ~db ~repo ~pr_number in
+    let pending =
+      List.filter
+        (fun (r : Github_review_run.review_run) ->
+          r.status = Github_review_run.Pending)
+        all_runs
+    in
+    if pending = [] then Lwt.return 0
+    else
+      (* Filter to enabled subscriptions only *)
+      let subscriptions =
+        Github_pr_subscriptions.find_by_repo_pr ~db ~repo ~pr_number
+        |> List.filter (fun (sub : Github_pr_subscriptions.subscription) ->
+            sub.enabled)
+      in
+      if subscriptions = [] then (
+        List.iter
+          (fun (run : Github_review_run.review_run) ->
+            ignore
+              (Github_review_run.set_failed ~db ~id:run.id
+                 ~error_message:"No enabled room subscriptions for this PR"))
+          pending;
+        Lwt.return 0)
+      else
+        match event with
+        | Github_webhook.PullRequest pr ->
+            let* count =
+              Lwt_list.fold_left_s
+                (fun acc (run : Github_review_run.review_run) ->
+                  let results =
+                    List.filter_map
+                      (fun (sub : Github_pr_subscriptions.subscription) ->
+                        match
+                          Session.find_registered_notifier session_manager
+                            ~key:sub.room_id
+                        with
+                        | None ->
+                            Logs.debug (fun m ->
+                                m "Review run launch: no notifier for room %s"
+                                  sub.room_id);
+                            None
+                        | Some _ ->
+                            let requester_id =
+                              "github:" ^ Github_webhook.author_of_event event
+                            in
+                            Some
+                              (Background_task.launch_triggered_run ~db ~config
+                                 ~review_run:run ~room_id:sub.room_id
+                                 ~requester_id ~pr_title:pr.pr_title
+                                 ~pr_author:pr.pr_author ~pr_body:pr.pr_body
+                                 ~base_branch:pr.base_branch
+                                 ~head_branch:pr.head_branch ~pr_files ()))
+                      subscriptions
+                  in
+                  let launched =
+                    List.fold_left
+                      (fun acc r ->
+                        match r with Result.Ok _ -> acc + 1 | _ -> acc)
+                      0 results
+                  in
+                  Lwt.return (acc + launched))
+                0 pending
+            in
+            Lwt.return count
+        | _ -> Lwt.return 0
+
 let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
     ~(github_config : Runtime_config.github_config)
     ?(config : Runtime_config.t option) ~(session_manager : Session.t)
@@ -482,7 +569,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                           ()
                     | None -> Lwt.return 0
                   in
-                  (* Trigger review runs from label events *)
+                  (* Trigger review runs from label events (creates DB records) *)
                   let* _review_runs =
                     match Session.get_db session_manager with
                     | Some db ->
@@ -503,6 +590,15 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                     fetch_pr_files ~repo_config ~github_config ~resolve_headers
                       ~egress_rules ~egress_audit ~api_limiter ~owner ~repo
                       event
+                  in
+                  (* Launch triggered review runs as background tasks under
+                     room profile policy. Requires PR files and config. *)
+                  let* _launched_runs =
+                    match (Session.get_db session_manager, config) with
+                    | Some db, Some cfg ->
+                        launch_triggered_review_runs ~db ~config:cfg
+                          ~session_manager ~event ~pr_files
+                    | _ -> Lwt.return 0
                   in
                   match Github_webhook.extract_clawq ~event ~pr_files with
                   | Some (user_message, preamble) ->
