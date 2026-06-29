@@ -549,9 +549,9 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       Lwt.return response
 
 (** [evaluate_room_policy config ~key ~channel ~channel_id ~user_group
-    ?has_external_users ()] evaluates the external room policy for the current
-    turn. Returns [Ok (classification, decision_string)] if work should
-    proceed, or [Error msg] if work should be denied. *)
+     ?has_external_users ()] evaluates the external room policy for the current
+    turn. Returns [Ok (classification, decision_string)] if work should proceed,
+    or [Error msg] if work should be denied. *)
 let evaluate_room_policy (config : Runtime_config.t) ~key ~channel ~channel_id
     ~user_group ?(has_external_users = false) () =
   let open Runtime_config_types in
@@ -772,8 +772,8 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     let room_classification_for_snap, room_decision_for_snap =
                       match
                         evaluate_room_policy mgr.Session_core.config ~key
-                          ~channel ~channel_id ~user_group
-                          ~has_external_users ()
+                          ~channel ~channel_id ~user_group ~has_external_users
+                          ()
                       with
                       | Ok (cls, dec) -> (cls.scope, dec)
                       | Error _msg -> (Runtime_config_types.Rm_unknown, "denied")

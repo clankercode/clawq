@@ -921,6 +921,27 @@ let notify_background_task_finished ?continuation_delay
   | _ -> ());
   if skip_notification then Lwt.return_unit
   else
+    (* Sync workflow run status from completed background task *)
+    let () =
+      match db with
+      | Some db -> (
+          let bg_status =
+            match task.Background_task.status with
+            | Background_task.Succeeded -> Some `Succeeded
+            | Background_task.Failed -> Some `Failed
+            | Background_task.DirtyWorktree -> Some `Succeeded
+            | _ -> None
+          in
+          match bg_status with
+          | Some status ->
+              ignore
+                (Workflow_run_trigger.sync_from_background_task ~db
+                   ~task_id:task.Background_task.id ~status
+                   ~result_preview:task.Background_task.result_preview
+                   ~error_message:task.Background_task.result_preview)
+          | None -> ())
+      | None -> ()
+    in
     let* card_delivered = deliver_room_progress ~config ?db task in
     (* Send channel notification if card was not delivered successfully *)
     let* () =

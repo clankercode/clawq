@@ -57,6 +57,7 @@
   test_github_pr_dispatch
   test_github_pr_policy
   test_github_review_run
+  test_workflow_run_trigger
   test_github_pr_lifecycle_leak
   test_group_chat_filter
   test_helpers

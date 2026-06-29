@@ -691,7 +691,8 @@ let ensure_all_tables db =
   init_scoped_memory_schema db;
   Github_pr_subscriptions.init_schema db;
   Github_pr_policy.init_schema db;
-  Github_review_run.init_schema db
+  Github_review_run.init_schema db;
+  Workflow_run_trigger.init_schema db
 
 (* Each step migrates from version [v] to [v + 1].
    All ALTER TABLE operations use try/catch for idempotency.

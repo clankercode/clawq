@@ -1287,7 +1287,7 @@ let test_drain_queued_messages_marks_live_activity () =
                    snapshot_work_type = None;
                    has_external_users = false;
                  }
-                            in
+             in
              Alcotest.(check bool) "message queued" true queued;
              let on_drain_progress : Session.drain_progress =
                {

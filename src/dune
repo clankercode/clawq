@@ -187,6 +187,7 @@
   github_pr_subscriptions
   github_pr_policy
   github_review_run
+  workflow_run_trigger
   room_progress_checklist
   teams_progress_card
   slack_progress_checklist

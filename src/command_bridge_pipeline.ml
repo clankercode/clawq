@@ -270,14 +270,81 @@ let cmd_pipeline args =
         | Some run ->
             let steps = Structured_pipeline.get_run_steps ~db ~run_id:id in
             Structured_pipeline.format_run_detail ~run ~steps)
+  | "trigger" :: name :: rest -> (
+      Workflow_run_trigger.init_schema db;
+      match Structured_pipeline.find_pipeline name with
+      | None ->
+          Printf.sprintf
+            "Pipeline \"%s\" not found. Use 'clawq pipeline list' to see \
+             available pipelines."
+            name
+      | Some _pipeline -> (
+          let inputs = parse_pipeline_run_inputs rest in
+          let config = get_config () in
+          let find_flag flag lst =
+            let rec go = function
+              | [] -> None
+              | f :: value :: _ when f = flag -> Some value
+              | _ :: rest -> go rest
+            in
+            go lst
+          in
+          let room_id =
+            match find_flag "--room" rest with
+            | Some rid -> rid
+            | None -> "__cli__"
+          in
+          let requester_id =
+            match find_flag "--requester" rest with
+            | Some rid -> rid
+            | None -> "cli"
+          in
+          match
+            Background_task.trigger_workflow_from_room_command ~db ~config
+              ~pipeline_name:name ~inputs ~room_id ~requester_id ()
+          with
+          | Ok (run, task_id) ->
+              Printf.sprintf
+                "Workflow run #%d created for pipeline \"%s\". Background task \
+                 #%d launched.\n\
+                 Use 'clawq pipeline workflow-result %d' to check status."
+                run.id name task_id run.id
+          | Error msg -> Printf.sprintf "Error: %s" msg))
+  | "workflow-result" :: id_s :: _ -> (
+      Workflow_run_trigger.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: run id must be a positive integer"
+      else
+        match Workflow_run_trigger.find_by_id ~db ~id with
+        | None -> Printf.sprintf "Workflow run #%d not found." id
+        | Some run -> Workflow_run_trigger.format_workflow_run run)
+  | "workflow-runs" :: rest ->
+      Workflow_run_trigger.init_schema db;
+      let room_id =
+        let rec find = function
+          | "--room" :: rid :: _ -> Some rid
+          | _ :: rest -> find rest
+          | [] -> None
+        in
+        find rest
+      in
+      let runs =
+        match room_id with
+        | Some rid -> Workflow_run_trigger.find_by_room ~db ~room_id:rid ()
+        | None -> Workflow_run_trigger.find_pending ~db ()
+      in
+      Workflow_run_trigger.format_workflow_run_list runs
   | _ ->
       "Usage: clawq pipeline <subcommand>\n\n\
        Subcommands:\n\
-      \  list                          List available pipelines\n\
-      \  show <name>                   Show pipeline definition\n\
-      \  run <name> [--input k=v ...]  Execute a pipeline\n\
-      \  validate <name>               Validate pipeline definition\n\
-      \  create <name>                 Scaffold a new pipeline YAML\n\
-      \  wizard                        Interactive pipeline builder\n\
-      \  history [--pipeline <name>]   List past runs\n\
-      \  result <run-id>               Show run results"
+      \  list                            List available pipelines\n\
+      \  show <name>                     Show pipeline definition\n\
+      \  run <name> [--input k=v ...]    Execute a pipeline synchronously\n\
+      \  trigger <name> [--input k=v ...] Trigger pipeline as background task\n\
+      \  validate <name>                 Validate pipeline definition\n\
+      \  create <name>                   Scaffold a new pipeline YAML\n\
+      \  wizard                          Interactive pipeline builder\n\
+      \  history [--pipeline <name>]     List past runs\n\
+      \  result <run-id>                 Show run results\n\
+      \  workflow-result <run-id>        Show workflow run status\n\
+      \  workflow-runs [--room <id>]     List workflow runs"
