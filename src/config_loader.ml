@@ -1149,7 +1149,8 @@ let parse_config ?(resolve_secrets = true) json =
                     try Some (r |> member "path" |> to_string) with _ -> None
                   in
                   let method_ =
-                    try Some (r |> member "method" |> to_string) with _ -> None
+                    try Some (r |> member "method" |> to_string)
+                    with _ -> None
                   in
                   let action =
                     try
