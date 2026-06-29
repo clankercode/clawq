@@ -45,6 +45,6 @@ tasks:
       file: T003-validate-audit-ledger-and-conn.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Validate audit ledger and connector delivery in wizard
