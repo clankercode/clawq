@@ -181,6 +181,7 @@
   room_origin
   room_workspace
   room_activity_ledger
+  github_pr_subscriptions
   room_progress_checklist
   teams_progress_card
   slack_progress_checklist

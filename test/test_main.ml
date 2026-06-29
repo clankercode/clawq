@@ -244,6 +244,7 @@ let () =
     @ Test_github.suites
     @ [ ("github_app_config", Test_github_app_config.suite) ]
     @ [ ("github_app_token", Test_github_app_token.suite) ]
+    @ [ ("github_pr_subscriptions", Test_github_pr_subscriptions.suite) ]
     @ [
         ("minimal_reload", Test_minimal_reload.suite);
         ( "config_isolation",
