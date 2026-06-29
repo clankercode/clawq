@@ -36,7 +36,9 @@ let split_repo_full_name repo_full_name =
 let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
     ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
-    ~api_limiter ~owner ~repo event =
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~owner ~repo
+    event =
   let open Lwt.Syntax in
   if not repo_config.include_pr_files then Lwt.return []
   else
@@ -57,8 +59,8 @@ let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
           in
           Github_api.get_pr_files
             ~app_token:(Github_app_token.resolve_app_token ())
-            ~auth:github_config.auth ~resolve_headers ~owner ~repo
-            ~pull_number:pr_n ())
+            ~auth:github_config.auth ~resolve_headers ~egress_rules
+            ~egress_audit ~owner ~repo ~pull_number:pr_n ())
         (fun exn ->
           Logs.warn (fun m ->
               m "GitHub: failed to fetch PR files: %s" (Printexc.to_string exn));
@@ -71,7 +73,9 @@ let comment_body_of_event = function
 
 let acknowledge_reaction ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
-    ~api_limiter ~owner ~repo event =
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~owner ~repo
+    event =
   Lwt.catch
     (fun () ->
       let open Lwt.Syntax in
@@ -83,13 +87,15 @@ let acknowledge_reaction ~(github_config : Runtime_config.github_config)
       | Github_webhook.IssueComment e ->
           Github_api.add_reaction
             ~app_token:(Github_app_token.resolve_app_token ())
-            ~auth:github_config.auth ~resolve_headers ~owner ~repo
-            ~comment_id:e.comment_id ~content:"eyes" ~comment_type:`Issue ()
+            ~auth:github_config.auth ~resolve_headers ~egress_rules
+            ~egress_audit ~owner ~repo ~comment_id:e.comment_id ~content:"eyes"
+            ~comment_type:`Issue ()
       | Github_webhook.PrReviewComment e ->
           Github_api.add_reaction
             ~app_token:(Github_app_token.resolve_app_token ())
-            ~auth:github_config.auth ~resolve_headers ~owner ~repo
-            ~comment_id:e.comment_id ~content:"eyes" ~comment_type:`Review ()
+            ~auth:github_config.auth ~resolve_headers ~egress_rules
+            ~egress_audit ~owner ~repo ~comment_id:e.comment_id ~content:"eyes"
+            ~comment_type:`Review ()
       | _ -> Lwt.return_unit)
     (fun exn ->
       Logs.warn (fun m ->
@@ -104,7 +110,9 @@ let issue_number_of_event = function
 
 let post_reply ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
-    ~api_limiter ~owner ~repo ~placeholder_id event ~reply_text =
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~owner ~repo
+    ~placeholder_id event ~reply_text =
   let open Lwt.Syntax in
   Lwt.catch
     (fun () ->
@@ -116,26 +124,28 @@ let post_reply ~(github_config : Runtime_config.github_config)
       | Some cid ->
           Github_api.edit_comment
             ~app_token:(Github_app_token.resolve_app_token ())
-            ~auth:github_config.auth ~resolve_headers ~owner ~repo
-            ~comment_id:cid ~body:reply_text ()
+            ~auth:github_config.auth ~resolve_headers ~egress_rules
+            ~egress_audit ~owner ~repo ~comment_id:cid ~body:reply_text ()
       | None -> (
           match event with
           | Github_webhook.PrReviewComment e ->
               Github_api.reply_to_review_comment
                 ~app_token:(Github_app_token.resolve_app_token ())
-                ~auth:github_config.auth ~resolve_headers ~owner ~repo
-                ~pull_number:e.pr_number ~comment_id:e.comment_id
-                ~body:reply_text ()
+                ~auth:github_config.auth ~resolve_headers ~egress_rules
+                ~egress_audit ~owner ~repo ~pull_number:e.pr_number
+                ~comment_id:e.comment_id ~body:reply_text ()
           | Github_webhook.PullRequest e ->
               Github_api.post_comment
                 ~app_token:(Github_app_token.resolve_app_token ())
-                ~auth:github_config.auth ~resolve_headers ~owner ~repo
-                ~issue_number:e.pr_number ~body:reply_text ()
+                ~auth:github_config.auth ~resolve_headers ~egress_rules
+                ~egress_audit ~owner ~repo ~issue_number:e.pr_number
+                ~body:reply_text ()
           | Github_webhook.IssueComment e ->
               Github_api.post_comment
                 ~app_token:(Github_app_token.resolve_app_token ())
-                ~auth:github_config.auth ~resolve_headers ~owner ~repo
-                ~issue_number:e.issue_number ~body:reply_text ()
+                ~auth:github_config.auth ~resolve_headers ~egress_rules
+                ~egress_audit ~owner ~repo ~issue_number:e.issue_number
+                ~body:reply_text ()
           | Github_webhook.Ignored -> Lwt.return_unit))
     (fun exn ->
       Logs.err (fun m ->
@@ -144,16 +154,17 @@ let post_reply ~(github_config : Runtime_config.github_config)
 
 let run_clawq_command ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
-    ~(session_manager : Session.t) ~api_limiter ~owner ~repo ~author event
-    ~user_message ~preamble =
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~(session_manager : Session.t)
+    ~api_limiter ~owner ~repo ~author event ~user_message ~preamble =
   let open Lwt.Syntax in
   let key = Github_webhook.session_key event in
   let full_message = preamble ^ "\n\n" ^ user_message in
   let gh_channel_name = "github:" ^ owner ^ "/" ^ repo in
   (* Acknowledge with eyes reaction *)
   let* () =
-    acknowledge_reaction ~github_config ~resolve_headers ~api_limiter ~owner
-      ~repo event
+    acknowledge_reaction ~github_config ~resolve_headers ~egress_rules
+      ~egress_audit ~api_limiter ~owner ~repo event
   in
   (* Post placeholder comment for non-review-comment events *)
   let* placeholder_id =
@@ -175,8 +186,9 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
               in
               Github_api.post_comment_returning_id
                 ~app_token:(Github_app_token.resolve_app_token ())
-                ~auth:github_config.auth ~resolve_headers ~owner ~repo
-                ~issue_number:issue_n ~body:placeholder ())
+                ~auth:github_config.auth ~resolve_headers ~egress_rules
+                ~egress_audit ~owner ~repo ~issue_number:issue_n
+                ~body:placeholder ())
             (fun exn ->
               Logs.warn (fun m ->
                   m "GitHub: failed to post placeholder: %s"
@@ -194,8 +206,8 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
             (fun () ->
               Github_api.post_comment
                 ~app_token:(Github_app_token.resolve_app_token ())
-                ~auth:github_config.auth ~resolve_headers ~owner ~repo
-                ~issue_number:issue_n ~body ())
+                ~auth:github_config.auth ~resolve_headers ~egress_rules
+                ~egress_audit ~owner ~repo ~issue_number:issue_n ~body ())
             (fun exn ->
               Logs.err (fun m ->
                   m "GitHub: channel notifier failed: %s"
@@ -229,8 +241,8 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
   in
   (* Edit placeholder or post new comment with final response *)
   let* () =
-    post_reply ~github_config ~resolve_headers ~api_limiter ~owner ~repo
-      ~placeholder_id event ~reply_text
+    post_reply ~github_config ~resolve_headers ~egress_rules ~egress_audit
+      ~api_limiter ~owner ~repo ~placeholder_id event ~reply_text
   in
   Logs.info (fun m ->
       m "GitHub: %s/%s %s by @%s -> %s" owner repo
@@ -289,21 +301,35 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
            policy. GitHub API calls resolve credentials through this snapshot,
            denying missing or unauthorized handles before any API call.
            When config is not provided (e.g. in tests), skip lease-based auth. *)
-        let resolve_headers =
+        let resolve_headers, egress_rules, egress_audit =
           match config with
           | Some config ->
+              let session_key = "github:" ^ prepared.repo_full_name in
               let snapshot =
                 Access_snapshot.create ~config
-                  ~work_type:Access_snapshot.GitHub_trigger
-                  ~session_key:("github:" ^ prepared.repo_full_name)
-                  ()
+                  ~work_type:Access_snapshot.GitHub_trigger ~session_key ()
               in
-              Some
-                (fun repo_full_name ->
-                  Github_api.resolve_github_auth_headers ~config ~snapshot
-                    ~app_token:(Github_app_token.resolve_app_token ())
-                    ~repo_full_name github_config)
-          | None -> None
+              let access =
+                Runtime_config.resolve_effective_access config ~session_key ()
+              in
+              let egress_rules = access.egress_rules in
+              let egress_audit =
+                {
+                  Policy_http_client.no_audit with
+                  session_key = Some session_key;
+                  snapshot_id = Some snapshot.Access_snapshot.id;
+                  profile_id = snapshot.Access_snapshot.profile_id;
+                  tool_name = Some "github";
+                }
+              in
+              ( Some
+                  (fun repo_full_name ->
+                    Github_api.resolve_github_auth_headers ~config ~snapshot
+                      ~app_token:(Github_app_token.resolve_app_token ())
+                      ~repo_full_name ~egress_rules ~egress_audit github_config),
+                egress_rules,
+                egress_audit )
+          | None -> (None, [], Policy_http_client.no_audit)
         in
         (* Installation identity check: for GitHub App auth, verify that the
            installation_id in the webhook payload matches a configured
@@ -371,7 +397,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                   let* hook_count =
                     Github_hooks.run_matching_hooks ~session_manager ~prepared
                       ~github_config:(Some github_config) ~resolve_headers
-                      ~api_limiter ()
+                      ~egress_rules ~egress_audit ~api_limiter ()
                   in
                   if hook_count > 0 then
                     Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
@@ -388,18 +414,21 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                   in
                   let* pr_files =
                     fetch_pr_files ~repo_config ~github_config ~resolve_headers
-                      ~api_limiter ~owner ~repo event
+                      ~egress_rules ~egress_audit ~api_limiter ~owner ~repo
+                      event
                   in
                   match Github_webhook.extract_clawq ~event ~pr_files with
                   | Some (user_message, preamble) ->
                       run_clawq_command ~github_config ~resolve_headers
-                        ~session_manager ~api_limiter ~owner ~repo ~author event
-                        ~user_message ~preamble
+                        ~egress_rules ~egress_audit ~session_manager
+                        ~api_limiter ~owner ~repo ~author event ~user_message
+                        ~preamble
                   | None ->
                       let* hook_count =
                         Github_hooks.run_matching_hooks ~session_manager
                           ~prepared ~github_config:(Some github_config)
-                          ~resolve_headers ~api_limiter ()
+                          ~resolve_headers ~egress_rules ~egress_audit
+                          ~api_limiter ()
                       in
                       if hook_count > 0 then
                         Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
@@ -407,8 +436,8 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
         else
           let* hook_count =
             Github_hooks.run_matching_hooks ~session_manager ~prepared
-              ~github_config:(Some github_config) ~resolve_headers ~api_limiter
-              ()
+              ~github_config:(Some github_config) ~resolve_headers ~egress_rules
+              ~egress_audit ~api_limiter ()
           in
           if hook_count > 0 then
             Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))

@@ -172,7 +172,9 @@ let parse_iso8601_utc s =
   in
   float_of_int total_seconds
 
-let fetch_installation_token ~jwt ~installation_id ~repos () =
+let fetch_installation_token ~jwt ~installation_id ~repos
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) () =
   let uri =
     Printf.sprintf "%s/app/installations/%d/access_tokens" (github_api_base ())
       installation_id
@@ -202,41 +204,60 @@ let fetch_installation_token ~jwt ~installation_id ~repos () =
           ]
         |> Yojson.Safe.to_string
   in
-  let* status, resp_body = Http_client.post_json ~uri ~headers ~body in
-  if status < 200 || status >= 300 then begin
-    Logs.warn (fun m ->
-        m
-          "GitHub App: installation token request for installation %d returned \
-           %d"
-          installation_id status);
-    Lwt.return (Error (Printf.sprintf "GitHub API returned %d" status))
-  end
-  else
-    try
-      let json = Yojson.Safe.from_string resp_body in
-      let open Yojson.Safe.Util in
-      let token = json |> member "token" |> to_string in
-      let expires_at_str = json |> member "expires_at" |> to_string in
-      (* Parse ISO 8601 timestamp *)
-      let expires_at =
-        try parse_iso8601_utc expires_at_str
-        with _ ->
-          (* Fallback: use 55 min from now *)
-          Unix.gettimeofday () +. (55.0 *. 60.0)
+  (* Use policy-aware HTTP when egress rules are provided *)
+  let* result =
+    match egress_rules with
+    | [] ->
+        let* r = Http_client.post_json ~uri ~headers ~body in
+        Lwt.return (Ok r)
+    | _ ->
+        Policy_http_client.post_json ~rules:egress_rules ~uri ~headers ~body
+          ~audit:egress_audit ()
+  in
+  match result with
+  | Error err ->
+      let msg =
+        Printf.sprintf "GitHub App: egress denied for installation %d: %s"
+          installation_id
+          (Policy_http_client.policy_error_to_string err)
       in
-      Logs.info (fun m ->
-          m
-            "GitHub App: minted installation token for installation %d (repos: \
-             %s), expires %s, token=%s"
-            installation_id
-            (if repos = [] then "all" else String.concat "," repos)
-            expires_at_str (redact token));
-      Lwt.return (Ok (token, expires_at))
-    with exn ->
-      Logs.warn (fun m ->
-          m "GitHub App: failed to parse installation token response: %s"
-            (Printexc.to_string exn));
-      Lwt.return (Error "Failed to parse token response")
+      Logs.warn (fun m -> m "%s" msg);
+      Lwt.return (Error msg)
+  | Ok (status, resp_body) -> (
+      if status < 200 || status >= 300 then begin
+        Logs.warn (fun m ->
+            m
+              "GitHub App: installation token request for installation %d \
+               returned %d"
+              installation_id status);
+        Lwt.return (Error (Printf.sprintf "GitHub API returned %d" status))
+      end
+      else
+        try
+          let json = Yojson.Safe.from_string resp_body in
+          let open Yojson.Safe.Util in
+          let token = json |> member "token" |> to_string in
+          let expires_at_str = json |> member "expires_at" |> to_string in
+          (* Parse ISO 8601 timestamp *)
+          let expires_at =
+            try parse_iso8601_utc expires_at_str
+            with _ ->
+              (* Fallback: use 55 min from now *)
+              Unix.gettimeofday () +. (55.0 *. 60.0)
+          in
+          Logs.info (fun m ->
+              m
+                "GitHub App: minted installation token for installation %d \
+                 (repos: %s), expires %s, token=%s"
+                installation_id
+                (if repos = [] then "all" else String.concat "," repos)
+                expires_at_str (redact token));
+          Lwt.return (Ok (token, expires_at))
+        with exn ->
+          Logs.warn (fun m ->
+              m "GitHub App: failed to parse installation token response: %s"
+                (Printexc.to_string exn));
+          Lwt.return (Error "Failed to parse token response"))
 
 (* ---- Public interface ---- *)
 
@@ -258,7 +279,9 @@ let create ~(config : Runtime_config.github_app_config) () =
                 config.app_id config.private_key_path);
           Ok { config; key; cache = create_cache () })
 
-let get_installation_token t ~installation_id ~repos =
+let get_installation_token t ~installation_id ~repos
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) () =
   match lookup_cache t.cache ~installation_id ~repos with
   | Some token ->
       Logs.debug (fun m ->
@@ -272,7 +295,10 @@ let get_installation_token t ~installation_id ~repos =
       Logs.debug (fun m ->
           m "GitHub App: fetching installation token for installation %d"
             installation_id);
-      let* result = fetch_installation_token ~jwt ~installation_id ~repos () in
+      let* result =
+        fetch_installation_token ~jwt ~installation_id ~repos ~egress_rules
+          ~egress_audit ()
+      in
       match result with
       | Error _ as e -> Lwt.return e
       | Ok (token, expires_at) ->
