@@ -298,6 +298,39 @@ let format_pr_event_notification_for_slack
 
 (** Map a GitHub webhook event type to a subscription notification preference
     key. Returns [None] if the event type doesn't match any preference. *)
+
+(** {1 CI event info extraction}
+
+    Helpers to extract fields needed for dedup key construction, keeping
+    [Github_pr_policy] free of [Github_webhook] dependencies. *)
+
+type ci_info = { ci_name : string; ci_conclusion : string; is_ci : bool }
+
+let ci_info_of_event (event : Github_webhook.parsed_event) =
+  match event with
+  | CheckRun check ->
+      {
+        ci_name = check.name;
+        ci_conclusion =
+          (if check.conclusion <> "" then check.conclusion else check.status);
+        is_ci = true;
+      }
+  | CheckSuite suite ->
+      {
+        ci_name = "";
+        ci_conclusion =
+          (if suite.conclusion <> "" then suite.conclusion else suite.status);
+        is_ci = true;
+      }
+  | WorkflowRun run ->
+      {
+        ci_name = run.name;
+        ci_conclusion =
+          (if run.conclusion <> "" then run.conclusion else run.status);
+        is_ci = true;
+      }
+  | _ -> { ci_name = ""; ci_conclusion = ""; is_ci = false }
+
 let event_type_to_preference_key (event : Github_webhook.parsed_event) =
   match event with
   | PullRequest pr -> (
@@ -336,9 +369,12 @@ let should_notify_subscription
 let dispatch_to_subscriptions ~(db : Sqlite3.db)
     ~(event : Github_webhook.parsed_event) ~(delivery_id : string)
     ?(connector : string = "")
+    ?(quiet_start : int = Github_pr_policy.default_quiet_start)
+    ?(quiet_end : int = Github_pr_policy.default_quiet_end)
+    ?(max_per_hour : int = 0) ?(dedupe_seconds : int = 60)
     ~(send_message : room_id:string -> text:string -> unit -> unit Lwt.t) () =
   let open Lwt.Syntax in
-  (* Deduplicate by delivery_id *)
+  (* Deduplicate by delivery_id (in-memory LRU for fast path) *)
   if
     delivery_id <> "" && Channel_util.Lru_dedup.check_and_mark dedup delivery_id
   then (
@@ -412,26 +448,61 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
         in
         if text = "" then Lwt.return 0
         else
+          (* Pre-compute CI info and dedup key once for all subscriptions *)
+          let ci = ci_info_of_event event in
+          let event_type_str = Github_webhook.event_type_string event in
+          let now_hour =
+            let tm = Unix.localtime (Unix.gettimeofday ()) in
+            tm.Unix.tm_hour
+          in
           let* count =
             Lwt_list.fold_left_s
               (fun acc subscription ->
                 if not (should_notify_subscription ~subscription ~event) then
                   Lwt.return acc
                 else
-                  Lwt.catch
-                    (fun () ->
-                      let* () =
-                        send_message ~room_id:subscription.room_id ~text ()
-                      in
+                  (* Apply policy gates (dedup + quiet hours + rate limit) *)
+                  let dedup_key =
+                    Github_pr_policy.make_dedup_key ~repo ~pr_number
+                      ~ci_name:ci.ci_name ~ci_conclusion:ci.ci_conclusion
+                      ~is_ci:ci.is_ci ~delivery_id
+                  in
+                  let policy_result =
+                    Github_pr_policy.decide ~db ~dedup_key
+                      ~room_id:subscription.room_id ~hour:now_hour ~quiet_start
+                      ~quiet_end ~max_per_hour ~dedupe_seconds ()
+                  in
+                  match policy_result with
+                  | Github_pr_policy.Denied reason ->
                       Logs.info (fun m ->
-                          m "GitHub PR dispatch: notified room %s for %s PR #%d"
-                            subscription.room_id repo pr_number);
-                      Lwt.return (acc + 1))
-                    (fun exn ->
-                      Logs.err (fun m ->
-                          m "GitHub PR dispatch: failed to notify room %s: %s"
-                            subscription.room_id (Printexc.to_string exn));
-                      Lwt.return acc))
+                          m
+                            "GitHub PR dispatch: policy denied room %s for %s \
+                             PR #%d: %s"
+                            subscription.room_id repo pr_number
+                            (Github_pr_policy.reason_to_string reason));
+                      Lwt.return acc
+                  | Github_pr_policy.Allowed ->
+                      Lwt.catch
+                        (fun () ->
+                          let* () =
+                            send_message ~room_id:subscription.room_id ~text ()
+                          in
+                          Github_pr_policy.record_delivery ~db ~dedup_key
+                            ~room_id:subscription.room_id ~repo ~pr_number
+                            ~event_type:event_type_str;
+                          Logs.info (fun m ->
+                              m
+                                "GitHub PR dispatch: notified room %s for %s \
+                                 PR #%d"
+                                subscription.room_id repo pr_number);
+                          Lwt.return (acc + 1))
+                        (fun exn ->
+                          Logs.err (fun m ->
+                              m
+                                "GitHub PR dispatch: failed to notify room %s: \
+                                 %s"
+                                subscription.room_id (Printexc.to_string exn));
+                          Lwt.return acc))
               0 subscriptions
           in
           if count > 0 then

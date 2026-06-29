@@ -55,6 +55,7 @@
   test_github_app_config
   test_github_pr_subscriptions
   test_github_pr_dispatch
+  test_github_pr_policy
   test_github_pr_lifecycle_leak
   test_group_chat_filter
   test_helpers

@@ -83,7 +83,7 @@ let track_sent () =
 let dispatch db event delivery_id send_message =
   Lwt_main.run
     (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event ~delivery_id
-       ~send_message ())
+       ~quiet_start:0 ~quiet_end:0 ~send_message ())
 
 (* ---- disabled subscription does not leak ---- *)
 

@@ -248,7 +248,8 @@ let test_dispatch_dedup () =
       let result1 =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-             ~delivery_id:"test-delivery-1" ~send_message ())
+             ~delivery_id:"test-delivery-1" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "first dispatch count" 1 result1;
       Alcotest.(check int) "sent count" 1 (List.length !sent);
@@ -257,10 +258,58 @@ let test_dispatch_dedup () =
       let result2 =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-             ~delivery_id:"test-delivery-1" ~send_message ())
+             ~delivery_id:"test-delivery-1" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "second dispatch count" 0 result2;
       Alcotest.(check int) "sent count after dedup" 0 (List.length !sent))
+
+let test_dispatch_send_failure_does_not_poison_policy_dedup () =
+  with_db (fun db ->
+      let _sub =
+        Github_pr_subscriptions.add ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42 ~profile_id:1 ()
+      in
+      let event =
+        Github_webhook.CheckRun
+          {
+            owner = "owner";
+            repo = "repo";
+            name = "test";
+            status = "completed";
+            conclusion = "failure";
+            html_url = "https://github.com/owner/repo/checks/1";
+            pr_number = Some 42;
+            head_sha = "abc123";
+            details_url = "https://github.com/owner/repo/runs/1";
+            actor = "ci-bot";
+          }
+      in
+      let fail_first = ref true in
+      let sent = ref [] in
+      let send_message ~room_id ~text () =
+        if !fail_first then (
+          fail_first := false;
+          Lwt.fail (Failure "temporary send failure"))
+        else (
+          sent := (room_id, text) :: !sent;
+          Lwt.return_unit)
+      in
+      let result1 =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ci-fail-1" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
+      in
+      Alcotest.(check int) "failed dispatch not counted" 0 result1;
+      let result2 =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ci-fail-2" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
+      in
+      Alcotest.(check int) "retry after failed send dispatched" 1 result2;
+      Alcotest.(check int) "retry sent message" 1 (List.length !sent))
 
 let test_dispatch_no_subscriptions () =
   with_db (fun db ->
@@ -287,7 +336,8 @@ let test_dispatch_no_subscriptions () =
       let result =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-             ~delivery_id:"test-delivery-2" ~send_message ())
+             ~delivery_id:"test-delivery-2" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "dispatch count" 0 result;
       Alcotest.(check int) "sent count" 0 (List.length !sent))
@@ -326,7 +376,8 @@ let test_dispatch_multiple_rooms () =
       let result =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-             ~delivery_id:"test-delivery-3" ~send_message ())
+             ~delivery_id:"test-delivery-3" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "dispatch count" 2 result;
       Alcotest.(check int) "sent count" 2 (List.length !sent);
@@ -368,7 +419,8 @@ let test_dispatch_disabled_subscription () =
       let result =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-             ~delivery_id:"test-delivery-4" ~send_message ())
+             ~delivery_id:"test-delivery-4" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "dispatch count" 0 result;
       Alcotest.(check int) "sent count" 0 (List.length !sent))
@@ -414,7 +466,8 @@ let test_dispatch_notification_preferences () =
       let result1 =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event:opened_event
-             ~delivery_id:"test-delivery-5a" ~send_message ())
+             ~delivery_id:"test-delivery-5a" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "opened dispatch count" 1 result1;
       (* Should not notify for closed *)
@@ -437,7 +490,8 @@ let test_dispatch_notification_preferences () =
       let result2 =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event:closed_event
-             ~delivery_id:"test-delivery-5b" ~send_message ())
+             ~delivery_id:"test-delivery-5b" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "closed dispatch count" 0 result2;
       Alcotest.(check int) "sent count for closed" 0 (List.length !sent);
@@ -460,7 +514,8 @@ let test_dispatch_notification_preferences () =
       let result3 =
         Lwt_main.run
           (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event:comment_event
-             ~delivery_id:"test-delivery-5c" ~send_message ())
+             ~delivery_id:"test-delivery-5c" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
       in
       Alcotest.(check int) "comment dispatch count" 1 result3)
 
@@ -688,6 +743,8 @@ let suite =
     Alcotest.test_case "parse review extracts head_sha" `Quick
       test_parse_event_review_extracts_head_sha;
     Alcotest.test_case "dispatch dedup" `Quick test_dispatch_dedup;
+    Alcotest.test_case "dispatch send failure does not poison policy dedup"
+      `Quick test_dispatch_send_failure_does_not_poison_policy_dedup;
     Alcotest.test_case "dispatch no subscriptions" `Quick
       test_dispatch_no_subscriptions;
     Alcotest.test_case "dispatch multiple rooms" `Quick
