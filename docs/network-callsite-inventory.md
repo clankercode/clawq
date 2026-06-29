@@ -211,6 +211,8 @@ All Telegram API calls embed the bot token in the URL path: `https://api.telegra
 | `telegram_api.ml:1414` | `Telegram_api` | `https://api.telegram.org/bot{token}/getFile` | Token in URL path | URL-PATH | EXISTING |
 | `telegram_api.ml:1423` | `Telegram_api` | `https://api.telegram.org/file/bot{token}/{file_path}` | Token in URL path | URL-PATH | EXISTING |
 | `telegram_api.ml:1483` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendDocument` (multipart) | Token in URL path | URL-PATH | EXISTING |
+| `telegram.ml:211` | `Telegram` | `https://api.telegram.org/bot{token}/getFile` | Token in URL path | URL-PATH | EXISTING |
+| `telegram.ml:224` | `Telegram` | `https://api.telegram.org/file/bot{token}/{file_path}` | Token in URL path | URL-PATH | EXISTING |
 
 ---
 
@@ -530,7 +532,22 @@ Tunnel managers spawn external processes that make their own outbound network co
 
 ---
 
-## 37. Debug Server (Local)
+## 37. Additional Subprocess-Based Callsites
+
+These modules spawn external processes that may make their own network connections. They are not interceptable by Clawq's egress evaluator.
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `acp_client.ml:566` | `Acp_client` | Agent subprocess (user-configured command) | None (env inherited) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `acp_terminals.ml:31` | `Acp_terminals` | Terminal subprocess (user-configured command) | None (env inherited) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `imessage.ml:98` | `Imessage` | `osascript` (local AppleScript, no network) | None | N/A | LOCAL |
+| `mcp_client.ml:451` | `Mcp_client` | MCP stdio subprocess (user-configured command) | None (env inherited) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `tools_builtin_proc.ml:162` | `Tools_builtin_proc` | Shell command execution (user-supplied) | None (env inherited) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `runtime_docker.ml:22` | `Runtime_docker` | Docker CLI commands | None (Docker daemon handles auth) | N/A (subprocess) | NOT-ENFORCEABLE |
+
+---
+
+## 38. Debug Server (Local)
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
@@ -548,7 +565,7 @@ Tunnel managers spawn external processes that make their own outbound network co
 | HTTP-direct (Cohttp) | 3 | `openai_codex_oauth.ml`, `teams_auth.ml`, `mcp_client.ml` |
 | WebSocket (Ws_client) | 8 | Discord gateway, Slack socket, Lark, DingTalk, Mattermost, OneBot |
 | TCP/TLS (raw) | 6 | IRC (3 paths), Email IMAP/SMTP (3 paths) |
-| Subprocess | ~14 | Nostr via `nak` CLI, Vertex via `gcloud`, tunnels via `cloudflared`/`ngrok`/`tailscale` |
+| Subprocess | ~20 | Nostr via `nak`, Vertex via `gcloud`, tunnels, ACP, MCP stdio, shell exec, Docker |
 
 ## Summary by Enforceability
 
