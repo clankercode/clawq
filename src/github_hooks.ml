@@ -410,7 +410,9 @@ let default_session_key prepared =
 
 let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
-    ~api_limiter ~context_json ~response () =
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~context_json
+    ~response () =
   let open Lwt.Syntax in
   let owner, repo =
     match Webhook_handler.first_string context_json [ "repo" ] with
@@ -449,8 +451,8 @@ let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
             let body = response ^ "\n<!-- clawq-reply -->" in
             Github_api.post_comment
               ~app_token:(Github_app_token.resolve_app_token ())
-              ~auth:github_config.auth ~resolve_headers ~owner ~repo
-              ~issue_number:n ~body ())
+              ~auth:github_config.auth ~resolve_headers ~egress_rules
+              ~egress_audit ~owner ~repo ~issue_number:n ~body ())
           (fun exn ->
             Logs.err (fun m ->
                 m "GitHub hooks: post_back_to_github failed for %s/%s#%d: %s"
@@ -460,7 +462,8 @@ let post_hook_response_to_github ~(github_config : Runtime_config.github_config)
 let run_matching_hooks ~(session_manager : Session.t)
     ~(github_config : Runtime_config.github_config option)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
-    ~api_limiter ~prepared () =
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~prepared () =
   let open Lwt.Syntax in
   match prepared.context_json with
   | None -> Lwt.return 0
@@ -503,8 +506,8 @@ let run_matching_hooks ~(session_manager : Session.t)
                   | Some gc when hook.post_back_to_github ->
                       let* () =
                         post_hook_response_to_github ~github_config:gc
-                          ~resolve_headers ~api_limiter ~context_json ~response
-                          ()
+                          ~resolve_headers ~egress_rules ~egress_audit
+                          ~api_limiter ~context_json ~response ()
                       in
                       Lwt.return 1
                   | _ ->

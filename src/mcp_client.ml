@@ -293,6 +293,48 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
     let credential_handle = client.config.credential_handle in
     let invoke ?context args =
       let open Lwt.Syntax in
+      (* Check egress policy before calling MCP server. For HTTP transport,
+         evaluate the server URL against the egress rules from the tool
+         context. When rules are non-empty and the server URL is denied,
+         return an error without making the outbound request. For stdio
+         transport, no outbound HTTP occurs at this layer. *)
+      let egress_rules =
+        match context with Some c -> c.Tool.egress_rules | None -> []
+      in
+      let egress_audit_db =
+        match context with Some c -> c.Tool.egress_audit_db | None -> None
+      in
+      let egress_audit : Policy_http_client.audit_context =
+        {
+          Policy_http_client.db = egress_audit_db;
+          session_key =
+            (match context with Some c -> c.Tool.session_key | None -> None);
+          snapshot_id =
+            (match context with Some c -> c.Tool.snapshot_id | None -> None);
+          tool_name = Some ("mcp:" ^ name);
+          profile_id =
+            (match context with Some c -> c.Tool.profile_id | None -> None);
+          credential_handle_ids = [];
+        }
+      in
+      (* For HTTP transport, check egress policy against the server URL *)
+      let* () =
+        match client.transport with
+        | Http http_transport when egress_rules <> [] -> (
+            let result =
+              Policy_http_client.check_policy ~rules:egress_rules
+                ~uri:http_transport.url ~method_:"POST" ~audit:egress_audit ()
+            in
+            match result with
+            | Ok () -> Lwt.return_unit
+            | Error err ->
+                Lwt.fail_with
+                  (Printf.sprintf
+                     "MCP tool '%s' from server '%s': egress denied: %s" name
+                     server_name
+                     (Policy_http_client.policy_error_to_string err)))
+        | _ -> Lwt.return_unit
+      in
       (* Resolve room-specific credentials if credential_handle is set *)
       let* resolved_headers =
         match credential_handle with
@@ -515,6 +557,41 @@ let connect_with_policy ~(config : Runtime_config.t)
     ~(snapshot : Access_snapshot.t) ?startup_timeout_s ?http_post
     (cfg : server_config) =
   let open Lwt.Syntax in
+  let session_key =
+    match
+      (snapshot.Access_snapshot.session_key, snapshot.Access_snapshot.room_id)
+    with
+    | Some key, _ -> key
+    | None, Some room_id -> room_id
+    | None, None -> "__anonymous__"
+  in
+  let access = Runtime_config.resolve_effective_access config ~session_key () in
+  let egress_rules = access.egress_rules in
+  let egress_audit : Policy_http_client.audit_context =
+    {
+      Policy_http_client.no_audit with
+      session_key = Some session_key;
+      snapshot_id = Some snapshot.Access_snapshot.id;
+      profile_id = snapshot.Access_snapshot.profile_id;
+      tool_name = Some ("mcp:" ^ cfg.name);
+      credential_handle_ids =
+        (match cfg.credential_handle with Some id -> [ id ] | None -> []);
+    }
+  in
+  let* () =
+    match (cfg.command, egress_rules) with
+    | url, _ :: _ when is_http_url url -> (
+        match
+          Policy_http_client.check_policy ~rules:egress_rules ~uri:url
+            ~method_:"POST" ~audit:egress_audit ()
+        with
+        | Ok () -> Lwt.return_unit
+        | Error err ->
+            Lwt.fail_with
+              (Printf.sprintf "MCP server '%s': egress denied: %s" cfg.name
+                 (Policy_http_client.policy_error_to_string err)))
+    | _ -> Lwt.return_unit
+  in
   match resolve_mcp_server_credentials ~config ~snapshot cfg with
   | Error msg ->
       Lwt.fail_with

@@ -259,7 +259,7 @@ let cache_hit_returns_same_token () =
           let result =
             Lwt_main.run
               (Github_app_token.get_installation_token tok ~installation_id:1
-                 ~repos:[])
+                 ~repos:[] ())
           in
           match result with
           | Ok token ->
@@ -407,7 +407,7 @@ let fetch_installation_token_mock () =
              let* () = Lwt_unix.sleep 0.05 in
              let* result =
                Github_app_token.get_installation_token tok ~installation_id:999
-                 ~repos:[ "acme/app" ]
+                 ~repos:[ "acme/app" ] ()
              in
              let* () = Lwt_unix.sleep 0.1 in
              (match previous_api_base with
@@ -459,7 +459,7 @@ let fetch_installation_token_api_error () =
              let* () = Lwt_unix.sleep 0.05 in
              let* result =
                Github_app_token.get_installation_token tok ~installation_id:888
-                 ~repos:[]
+                 ~repos:[] ()
              in
              let* () = Lwt_unix.sleep 0.1 in
              (match previous_api_base with
