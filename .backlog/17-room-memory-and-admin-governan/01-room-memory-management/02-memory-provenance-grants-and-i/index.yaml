@@ -41,7 +41,7 @@ tasks:
       file: T003-emit-ledger-events-for-memory.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Emit ledger events for memory mutations and grants
     - complexity: high
