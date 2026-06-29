@@ -853,6 +853,421 @@ let test_repo_grants_respect_room_codebase_grants () =
          with Not_found -> false))
     [ "read"; "comment"; "branch"; "pr" ]
 
+(* ---- P14.M2.E3.T002: Backward-compatibility tests for P11-P13 configs ----
+   These tests verify that room profiles and bundles that predate scope
+   inheritance still work without config changes, and that the new resolver
+   produces the same effective access as the legacy path. *)
+
+let test_legacy_config_no_scopes_no_bundles () =
+  (* A pure P11-P13 config: room_profiles with inline fields, no
+     access_bundle_ids, no access_bundles, no access_scopes.
+     workspace_only is disabled so codebase grants are not blocked. *)
+  let json =
+    {|{
+      "security": {"workspace_only": false, "allowed_cwd_patterns": []},
+      "room_profiles": [
+        {
+          "id": "legacy-prod",
+          "model": "openai:gpt-4o",
+          "system_prompt": "You are a production assistant.",
+          "allowed_tools": ["file_read", "file_write"],
+          "denied_tools": ["shell_exec"]
+        }
+      ],
+      "room_profile_codebase_grants": [
+        {"profile_id": "legacy-prod", "patterns": ["/tmp/clawq-compat-ws/**"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "legacy-prod", "room": "prod-room", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:prod-room"
+      ()
+  in
+  Alcotest.(check (list string))
+    "legacy allowed tools"
+    [ "file_read"; "file_write" ]
+    (item_values effective.allowed_tools);
+  Alcotest.(check (list string))
+    "legacy denied tools" [ "shell_exec" ]
+    (item_values effective.denied_tools);
+  Alcotest.(check (list string))
+    "legacy codebase grants"
+    [ "/tmp/clawq-compat-ws/**" ]
+    (item_values effective.codebase_grants);
+  (* No access_scopes means no scope-level bundles *)
+  Alcotest.(check int) "no mcp servers" 0 (List.length effective.mcp_servers);
+  Alcotest.(check int) "no skills" 0 (List.length effective.skills);
+  Alcotest.(check int) "no repositories" 0 (List.length effective.repositories);
+  assert_all_provenance "legacy allowed" effective.allowed_tools
+
+let test_legacy_effective_matches_tool_denial () =
+  (* For every tool, verify the new resolver's allowed/denied list matches the
+     legacy room_profile_tool_denial_for_session path. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "compat",
+          "model": "openai:gpt-4o",
+          "allowed_tools": ["file_read", "file_write", "browse"],
+          "denied_tools": ["shell_exec", "eval"]
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "compat", "room": "C100", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let session_key = "slack:C100" in
+  let effective = Runtime_config.resolve_effective_access cfg ~session_key () in
+  let allowed_set =
+    List.map
+      (fun (i : Runtime_config.effective_access_item) -> i.value)
+      effective.allowed_tools
+  in
+  let denied_set =
+    List.map
+      (fun (i : Runtime_config.effective_access_item) -> i.value)
+      effective.denied_tools
+  in
+  let test_tools =
+    [
+      "file_read"; "file_write"; "browse"; "shell_exec"; "eval"; "unknown_tool";
+    ]
+  in
+  List.iter
+    (fun tool ->
+      let legacy_denial =
+        Runtime_config.room_profile_tool_denial_for_session cfg ~session_key
+          ~tool_name:tool
+      in
+      let resolver_denied =
+        List.mem tool denied_set
+        || (allowed_set <> [] && not (List.mem tool allowed_set))
+      in
+      match legacy_denial with
+      | Some _msg ->
+          Alcotest.(check bool) ("resolver denies " ^ tool) true resolver_denied
+      | None ->
+          Alcotest.(check bool)
+            ("resolver allows " ^ tool)
+            true (not resolver_denied))
+    test_tools
+
+let test_legacy_hybrid_explicit_and_implicit_bundles () =
+  (* A profile with both access_bundle_ids and inline legacy fields should
+     produce effective access from BOTH the explicit bundles AND the implicit
+     legacy bundle. workspace_only disabled for codebase grant testing. *)
+  let json =
+    {|{
+      "security": {"workspace_only": false, "allowed_cwd_patterns": []},
+      "access_bundles": [
+        {"id": "explicit", "allowed_tools": ["extra_tool"], "denied_tools": ["blocked_tool"]}
+      ],
+      "room_profiles": [
+        {
+          "id": "hybrid",
+          "model": "openai:gpt-4o",
+          "system_prompt": "Hybrid prompt",
+          "allowed_tools": ["legacy_tool"],
+          "denied_tools": ["legacy_denied"],
+          "access_bundle_ids": ["explicit"]
+        }
+      ],
+      "room_profile_codebase_grants": [
+        {"profile_id": "hybrid", "patterns": ["/tmp/clawq-compat-ws/legacy/**"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "hybrid", "room": "C200", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C200" ()
+  in
+  let allowed = item_values effective.allowed_tools in
+  let denied = item_values effective.denied_tools in
+  Alcotest.(check bool)
+    "explicit allowed tool present" true
+    (List.mem "extra_tool" allowed);
+  Alcotest.(check bool)
+    "legacy allowed tool present" true
+    (List.mem "legacy_tool" allowed);
+  Alcotest.(check bool)
+    "explicit denied tool present" true
+    (List.mem "blocked_tool" denied);
+  Alcotest.(check bool)
+    "legacy denied tool present" true
+    (List.mem "legacy_denied" denied);
+  Alcotest.(check (list string))
+    "legacy codebase grant present"
+    [ "/tmp/clawq-compat-ws/legacy/**" ]
+    (item_values effective.codebase_grants)
+
+let test_empty_legacy_profile_resolves_cleanly () =
+  (* A legacy profile with no tools, no grants, no system_prompt should
+     resolve to empty effective access without errors. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "empty-profile",
+          "model": "openai:gpt-4o"
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "empty-profile", "room": "C300", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C300" ()
+  in
+  Alcotest.(check int)
+    "no allowed tools" 0
+    (List.length effective.allowed_tools);
+  Alcotest.(check int) "no denied tools" 0 (List.length effective.denied_tools);
+  Alcotest.(check int)
+    "no codebase grants" 0
+    (List.length effective.codebase_grants);
+  (* Empty allowed_tools means ALL tools are permitted by the legacy path *)
+  let denial =
+    Runtime_config.room_profile_tool_denial_for_session cfg
+      ~session_key:"slack:C300" ~tool_name:"any_tool"
+  in
+  Alcotest.(check bool) "legacy path also allows" true (denial = None)
+
+let test_multiple_legacy_profiles_do_not_interfere () =
+  (* Two legacy profiles bound to different rooms should not leak tools or
+     denials into each other's effective access. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "profile-a",
+          "model": "openai:gpt-4o",
+          "allowed_tools": ["tool_a"],
+          "denied_tools": ["denied_a"]
+        },
+        {
+          "id": "profile-b",
+          "model": "anthropic:claude-sonnet-4-6",
+          "allowed_tools": ["tool_b"],
+          "denied_tools": ["denied_b"]
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "profile-a", "room": "room-a", "active": true},
+        {"profile_id": "profile-b", "room": "room-b", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let eff_a =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:room-a" ()
+  in
+  let eff_b =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:room-b" ()
+  in
+  Alcotest.(check (list string))
+    "room-a allowed" [ "tool_a" ]
+    (item_values eff_a.allowed_tools);
+  Alcotest.(check (list string))
+    "room-a denied" [ "denied_a" ]
+    (item_values eff_a.denied_tools);
+  Alcotest.(check (list string))
+    "room-b allowed" [ "tool_b" ]
+    (item_values eff_b.allowed_tools);
+  Alcotest.(check (list string))
+    "room-b denied" [ "denied_b" ]
+    (item_values eff_b.denied_tools);
+  (* room-a should not see tool_b *)
+  Alcotest.(check bool)
+    "room-a no tool_b" false
+    (List.mem "tool_b" (item_values eff_a.allowed_tools));
+  Alcotest.(check bool)
+    "room-b no tool_a" false
+    (List.mem "tool_a" (item_values eff_b.allowed_tools))
+
+let test_legacy_codebase_grants_match_codebase_grants_for_profile () =
+  (* room_profile_codebase_grants should produce the same codebase grant list
+     through resolve_effective_access as through
+     room_profile_codebase_grants_for_profile. *)
+  let json =
+    {|{
+      "workspace": "/tmp/clawq-compat-ws",
+      "room_profiles": [
+        {
+          "id": "cg-test",
+          "model": "openai:gpt-4o"
+        }
+      ],
+      "room_profile_codebase_grants": [
+        {"profile_id": "cg-test", "patterns": ["/tmp/clawq-compat-ws/src/**", "/tmp/clawq-compat-ws/lib/**"]}
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "cg-test", "room": "C400", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let legacy_grants =
+    Runtime_config.room_profile_codebase_grants_for_profile cfg
+      ~profile_id:"cg-test"
+  in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C400" ()
+  in
+  let effective_grants = item_values effective.codebase_grants in
+  Alcotest.(check (list string))
+    "codebase grants match" legacy_grants effective_grants
+
+let test_legacy_system_prompt_flows_through_bundle () =
+  (* The system_prompt from a legacy profile should be carried in the
+     implicit legacy bundle and be retrievable from access_bundles_for_profile. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "sp-test",
+          "model": "openai:gpt-4o",
+          "system_prompt": "Custom system prompt for testing",
+          "allowed_tools": ["file_read"]
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "sp-test", "room": "C500", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let profile = List.nth cfg.room_profiles 0 in
+  let bundles = Runtime_config.access_bundles_for_profile cfg profile in
+  Alcotest.(check int) "one legacy bundle" 1 (List.length bundles);
+  let bundle = List.nth bundles 0 in
+  Alcotest.(check (option string))
+    "system prompt carried" (Some "Custom system prompt for testing")
+    bundle.system_prompt;
+  (* Verify it shows up through resolve_effective_access too *)
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C500" ()
+  in
+  Alcotest.(check (list string))
+    "allowed tools via resolver" [ "file_read" ]
+    (item_values effective.allowed_tools)
+
+let test_legacy_config_with_empty_bundle_ids () =
+  (* A profile with explicit but empty access_bundle_ids should still
+     produce a legacy implicit bundle. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "empty-ids",
+          "model": "openai:gpt-4o",
+          "allowed_tools": ["tool_x"],
+          "access_bundle_ids": []
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "empty-ids", "room": "C600", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C600" ()
+  in
+  Alcotest.(check (list string))
+    "empty bundle_ids still resolves tools" [ "tool_x" ]
+    (item_values effective.allowed_tools)
+
+let test_legacy_snapshot_matches_resolver () =
+  (* An access snapshot created from a legacy config should carry the same
+     effective allowed/denied tools as the resolver itself. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "snap-test",
+          "model": "openai:gpt-4o",
+          "allowed_tools": ["read", "write"],
+          "denied_tools": ["delete"]
+        }
+      ],
+      "room_profile_bindings": [
+        {"profile_id": "snap-test", "room": "C700", "active": true}
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let session_key = "slack:C700" in
+  let effective = Runtime_config.resolve_effective_access cfg ~session_key () in
+  let snap =
+    Access_snapshot.create ~config:cfg ~work_type:Room_turn ~session_key ()
+  in
+  Alcotest.(check (list string))
+    "snapshot allowed matches resolver"
+    (item_values effective.allowed_tools)
+    snap.allowed_tools;
+  Alcotest.(check (list string))
+    "snapshot denied matches resolver"
+    (item_values effective.denied_tools)
+    snap.denied_tools;
+  (* Verify snapshot tool denial matches resolver *)
+  List.iter
+    (fun tool ->
+      let snap_denial = Access_snapshot.tool_denial snap ~tool_name:tool in
+      let is_denied_by_resolver =
+        List.mem tool (item_values effective.denied_tools)
+        ||
+        let allowed = item_values effective.allowed_tools in
+        allowed <> [] && not (List.mem tool allowed)
+      in
+      match snap_denial with
+      | Some _ ->
+          Alcotest.(check bool)
+            ("snap denies " ^ tool) true is_denied_by_resolver
+      | None ->
+          Alcotest.(check bool)
+            ("snap allows " ^ tool) true
+            (not is_denied_by_resolver))
+    [ "read"; "write"; "delete"; "unknown" ]
+
+let test_legacy_no_binding_resolves_nothing () =
+  (* A legacy profile without a matching binding should produce empty
+     effective access for that session key. *)
+  let json =
+    {|{
+      "room_profiles": [
+        {
+          "id": "unbound",
+          "model": "openai:gpt-4o",
+          "allowed_tools": ["tool_x"]
+        }
+      ]
+    }|}
+  in
+  let cfg = parse json in
+  let effective =
+    Runtime_config.resolve_effective_access cfg ~session_key:"slack:C800" ()
+  in
+  Alcotest.(check int)
+    "no allowed tools" 0
+    (List.length effective.allowed_tools);
+  let denial =
+    Runtime_config.room_profile_tool_denial_for_session cfg
+      ~session_key:"slack:C800" ~tool_name:"tool_x"
+  in
+  Alcotest.(check bool) "legacy path also denies" true (denial = None)
+
 let suite =
   [
     Alcotest.test_case "layers merge deterministically and deny wins" `Quick
@@ -912,4 +1327,25 @@ let suite =
       test_repo_grants_blocked_by_global_security;
     Alcotest.test_case "repo grants respect room codebase grants" `Quick
       test_repo_grants_respect_room_codebase_grants;
+    Alcotest.test_case "P11-P13 legacy config with no scopes resolves correctly"
+      `Quick test_legacy_config_no_scopes_no_bundles;
+    Alcotest.test_case "P11-P13 legacy effective matches tool_denial path"
+      `Quick test_legacy_effective_matches_tool_denial;
+    Alcotest.test_case "P11-P13 hybrid explicit and implicit bundles" `Quick
+      test_legacy_hybrid_explicit_and_implicit_bundles;
+    Alcotest.test_case "P11-P13 empty legacy profile resolves cleanly" `Quick
+      test_empty_legacy_profile_resolves_cleanly;
+    Alcotest.test_case "P11-P13 multiple legacy profiles do not interfere"
+      `Quick test_multiple_legacy_profiles_do_not_interfere;
+    Alcotest.test_case
+      "P11-P13 legacy codebase grants match codebase_grants_for_profile" `Quick
+      test_legacy_codebase_grants_match_codebase_grants_for_profile;
+    Alcotest.test_case "P11-P13 legacy system_prompt flows through bundle"
+      `Quick test_legacy_system_prompt_flows_through_bundle;
+    Alcotest.test_case "P11-P13 legacy config with empty bundle_ids" `Quick
+      test_legacy_config_with_empty_bundle_ids;
+    Alcotest.test_case "P11-P13 legacy snapshot matches resolver" `Quick
+      test_legacy_snapshot_matches_resolver;
+    Alcotest.test_case "P11-P13 legacy no binding resolves nothing" `Quick
+      test_legacy_no_binding_resolves_nothing;
   ]
