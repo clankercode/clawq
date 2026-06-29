@@ -14,7 +14,7 @@ redaction status, and enforceability classification for egress policy.
 
 - **Transport**: HTTP (Http_client), HTTP-direct (Cohttp_lwt_unix.Client), WebSocket (Ws_client), TCP/TLS (raw socket), Subprocess (Lwt_process)
 - **Credential**: What credential is used (if any)
-- **Redaction**: How the credential is redacted in logs — NONE, HEADER (Http_debug redacts header), URL-PATH (token embedded in URL), CLI-ARG (visible in process list)
+- **Credential Exposure**: How the credential may be exposed — NONE (no credential), HEADER-REDACTED (Http_debug redacts this header in debug logs), HEADER-UNREDACTED (credential in header, not redacted), URL-PATH (token embedded in URL, may leak to access logs/referrers), CLI-ARG (visible in process listings via `ps aux`)
 - **Enforceability**: EXISTING = egress evaluator can enforce (host is known/static); DYNAMIC = host is user/config-provided (evaluator can enforce if host is supplied at eval time); LOCAL = loopback/local only (egress policy not applicable)
 
 ---
@@ -80,7 +80,7 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `provider_openai_codex.ml:813` | `Provider_openai_codex` | `https://chatgpt.com/backend-api/conversation` (Responses API) | `Authorization: Bearer {access_token}` (OAuth) | NONE | EXISTING (host is `chatgpt.com`) |
+| `provider_openai_codex.ml:813` | `Provider_openai_codex` | `https://chatgpt.com/backend-api/codex/responses` (Responses API) | `Authorization: Bearer {access_token}` (OAuth) | HEADER-UNREDACTED | EXISTING (host is `chatgpt.com`)
 
 ---
 
@@ -109,8 +109,8 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `openai_codex_oauth.ml:471` | `Openai_codex_oauth` | `https://auth0.openai.com/oauth/token` (via `form_post`) | `client_id` + `code`/`refresh_token` in POST body | NONE | EXISTING |
-| `openai_codex_oauth.ml:516` | `Openai_codex_oauth` | `https://auth0.openai.com/oauth/token` (refresh) | `client_id` + `refresh_token` in POST body | NONE | EXISTING |
+| `openai_codex_oauth.ml:471` | `Openai_codex_oauth` | `https://auth.openai.com/oauth/token` (via `form_post`) | `client_id` + `code`/`refresh_token` in POST body | NONE | EXISTING |
+| `openai_codex_oauth.ml:516` | `Openai_codex_oauth` | `https://auth.openai.com/oauth/token` (refresh) | `client_id` + `refresh_token` in POST body | NONE | EXISTING |
 
 **Note:** Uses `Cohttp_lwt_unix.Client.post` directly, bypassing `Http_client`.
 
@@ -176,7 +176,7 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 | `slack.ml:170` | `Slack` | `https://slack.com/api/chat.delete` | `Authorization: Bearer {token}` | NONE | EXISTING |
 | `slack.ml:199` | `Slack` | `https://slack.com/api/reactions.add` | `Authorization: Bearer {token}` | NONE | EXISTING |
 | `slack.ml:215` | `Slack` | `https://slack.com/api/reactions.remove` | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:983` | `Slack` | `https://slack.com/api/conversations.info` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack.ml:983` | `Slack` | `{file.url_private_download}` (Slack file download) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
 
 ### 7.2 Slack Socket Mode (WebSocket)
 
@@ -204,13 +204,13 @@ All Telegram API calls embed the bot token in the URL path: `https://api.telegra
 | `telegram_api.ml:1010` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` (inline keyboard) | Token in URL path | URL-PATH | EXISTING |
 | `telegram_api.ml:1034` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` (fallback) | Token in URL path | URL-PATH | EXISTING |
 | `telegram_api.ml:1059` | `Telegram_api` | `https://api.telegram.org/bot{token}/deleteMessage` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1158` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendPhoto` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1179` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendDocument` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1269` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendVoice` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1323` | `Telegram_api` | `https://api.telegram.org/bot{token}/answerCallbackQuery` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1158` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMessageReaction` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1179` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMessageReaction` (clear) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1269` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendPoll` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1323` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMyCommands` | Token in URL path | URL-PATH | EXISTING |
 | `telegram_api.ml:1414` | `Telegram_api` | `https://api.telegram.org/bot{token}/getFile` | Token in URL path | URL-PATH | EXISTING |
 | `telegram_api.ml:1423` | `Telegram_api` | `https://api.telegram.org/file/bot{token}/{file_path}` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1483` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendAudio` (multipart) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1483` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendDocument` (multipart) | Token in URL path | URL-PATH | EXISTING |
 
 ---
 
@@ -444,11 +444,93 @@ Nostr uses the `nak` CLI tool via `Lwt_process.open_process_full`. Network calls
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
 | `runtime_docker.ml:100` | `Runtime_docker` | `http://localhost:{port}/health` | None | N/A | LOCAL |
-| `runtime_native.ml:50` | `Runtime_native` | `http://{host}:{port}/health` | None | N/A | LOCAL |
+| `runtime_native.ml:50` | `Runtime_native` | `http://{host}:{port}/health` | None | N/A | DYNAMIC |
 
 ---
 
-## 29. Debug Server (Local)
+## 29. Vector Embeddings
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `vector.ml:97` | `Vector` | `{base_url}/v1/embeddings` (default: `https://api.openai.com/v1/embeddings`) | `Authorization: Bearer {api_key}` | HEADER-UNREDACTED | DYNAMIC |
+
+---
+
+## 30. Text-to-Speech (TTS)
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `tts.ml:47` | `Tts` | `{base_url}/audio/speech` (default: `https://api.openai.com/v1/audio/speech`) | `Authorization: Bearer {api_key}` | HEADER-UNREDACTED | DYNAMIC |
+
+---
+
+## 31. Speech-to-Text (STT)
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `stt.ml:51` | `Stt` | `{base_url}/audio/transcriptions` (default: `https://api.groq.com/openai/v1/audio/transcriptions`) | `Authorization: Bearer {api_key}` | HEADER-UNREDACTED | DYNAMIC |
+
+---
+
+## 32. Telemetry (OTLP)
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `telemetry.ml:174` | `Telemetry` | `{endpoint}` (user-configured OTLP endpoint) | Configured OTLP headers | HEADER-UNREDACTED | DYNAMIC |
+
+---
+
+## 33. Tools Built-in IO (http_get)
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `tools_builtin_io.ml:755` | `Tools_builtin_io` | `{url}` (user-supplied URL for `http_get` tool) | None | N/A | DYNAMIC |
+
+---
+
+## 34. Command Bridge Auth (Gateway Pairing)
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `command_bridge_auth.ml:265` | `Command_bridge_auth` | `http://{host}:{port}/pair` (gateway pairing endpoint) | None (pairing token in POST body) | NONE | DYNAMIC |
+
+---
+
+## 35. Microsoft Teams Bot Framework API
+
+All Teams Bot Framework calls use `Authorization: Bearer {oauth_token}` (from `teams_auth.ml` OAuth flow). Destination is `{service_url}/v3/conversations/...` where `service_url` is provided by the inbound activity.
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `teams.ml:185` | `Teams` | `{service_url}/v3/conversations/{id}/activities` (POST) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams.ml:190` | `Teams` | `{service_url}/v3/conversations/{id}/activities/{id}` (PUT) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams.ml:195` | `Teams` | `{service_url}/v3/conversations/{id}/activities/{id}` (DELETE) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams.ml:217` | `Teams` | `{service_url}/v3/conversations/{id}/activities` (typing) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams.ml:1091` | `Teams` | `{content_url}` (attachment/audio download) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_file_upload.ml:56` | `Teams_file_upload` | `{service_url}/v3/conversations/{id}/attachments` (upload) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_file_upload.ml:101` | `Teams_file_upload` | `{service_url}/v3/conversations/{id}/activities` (send with attachment) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_file_consent.ml:185` | `Teams_file_consent` | `{upload_url}` (OneDrive file upload) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_adaptive_card.ml:26` | `Teams_adaptive_card` | `{service_url}/v3/conversations/{id}/activities/{id}` (update card) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+
+---
+
+## 36. Tunnel Subprocesses
+
+Tunnel managers spawn external processes that make their own outbound network connections. These are not interceptable by Clawq's egress evaluator.
+
+| Callsite | Module | Destination | Credential | Exposure | Enforceability |
+|----------|--------|-------------|------------|----------|----------------|
+| `tunnel_cloudflare.ml:115` | `Tunnel_cloudflare` | Cloudflare tunnel endpoint (via `cloudflared` subprocess) | Cloudflare tunnel token (in env/config) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `tunnel_cloudflare.ml:193` | `Tunnel_cloudflare` | Cloudflare tunnel endpoint (via `cloudflared` subprocess) | Cloudflare tunnel token | N/A (subprocess) | NOT-ENFORCEABLE |
+| `tunnel_ngrok.ml:41` | `Tunnel_ngrok` | `http://localhost:4040/api/tunnels` (ngrok local API check) | None | N/A | LOCAL |
+| `tunnel_ngrok.ml:74` | `Tunnel_ngrok` | ngrok tunnel endpoint (via `ngrok` subprocess) | ngrok auth token (in config) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `tunnel_tailscale.ml:61` | `Tunnel_tailscale` | Tailscale funnel endpoint (via `tailscale` subprocess) | Tailscale auth (in system config) | N/A (subprocess) | NOT-ENFORCEABLE |
+| `tunnel_tailscale.ml:93` | `Tunnel_tailscale` | Tailscale status (via `tailscale status --json`) | Tailscale auth | N/A (subprocess) | NOT-ENFORCEABLE |
+| `tunnel_custom.ml:64` | `Tunnel_custom` | User-defined tunnel command (via `/bin/sh -c`) | Whatever the custom command uses | N/A (subprocess) | NOT-ENFORCEABLE |
+
+---
+
+## 37. Debug Server (Local)
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
@@ -462,28 +544,30 @@ Nostr uses the `nak` CLI tool via `Lwt_process.open_process_full`. Network calls
 
 | Transport | Count | Description |
 |-----------|-------|-------------|
-| HTTP (Http_client) | ~95 | Most outbound calls go through `Http_client.*` |
+| HTTP (Http_client) | ~115 | Most outbound calls go through `Http_client.*` |
 | HTTP-direct (Cohttp) | 3 | `openai_codex_oauth.ml`, `teams_auth.ml`, `mcp_client.ml` |
 | WebSocket (Ws_client) | 8 | Discord gateway, Slack socket, Lark, DingTalk, Mattermost, OneBot |
 | TCP/TLS (raw) | 6 | IRC (3 paths), Email IMAP/SMTP (3 paths) |
-| Subprocess | 7 | Nostr via `nak` CLI, Vertex via `gcloud` |
+| Subprocess | ~14 | Nostr via `nak` CLI, Vertex via `gcloud`, tunnels via `cloudflared`/`ngrok`/`tailscale` |
 
 ## Summary by Enforceability
 
 | Class | Count | Description |
 |-------|-------|-------------|
-| EXISTING | ~65 | Host is known/static (e.g. `api.github.com`, `discord.com`, `api.telegram.org`) |
-| DYNAMIC | ~45 | Host is user/config-provided; egress evaluator can enforce if host is supplied at eval time |
+| EXISTING | ~70 | Host is known/static (e.g. `api.github.com`, `discord.com`, `api.telegram.org`) |
+| DYNAMIC | ~55 | Host is user/config-provided; egress evaluator can enforce if host is supplied at eval time |
 | LOCAL | ~5 | Loopback/local only; egress policy not applicable |
+| NOT-ENFORCEABLE | ~7 | Subprocess-based network calls that cannot be intercepted by the OCaml egress evaluator |
 
 ## Summary by Redaction Status
 
 | Class | Count | Description |
 |-------|-------|-------------|
-| NONE | ~80 | No redaction in request/logging path |
-| URL-PATH | ~18 | Token embedded in URL path (Telegram) |
-| CLI-ARG | ~7 | Credential visible in process list (Nostr) |
-| HEADER | ~6 | `Http_debug` redacts auth headers (GitHub) |
+| HEADER-UNREDACTED | ~85 | Credential in HTTP header, not redacted in normal log paths |
+| URL-PATH | ~18 | Token embedded in URL path (Telegram); may leak to access logs/referrers |
+| CLI-ARG | ~7 | Credential visible in process listings via `ps aux` (Nostr) |
+| HEADER-REDACTED | ~10 | `Http_debug` redacts auth headers in debug logs (GitHub) |
+| NONE | ~20 | No credential used (local APIs, public endpoints) |
 
 ## Key Observations for Egress Policy Enforcement
 
@@ -499,4 +583,6 @@ Nostr uses the `nak` CLI tool via `Lwt_process.open_process_full`. Network calls
 
 6. **Signal is local-only**: All Signal calls go to `localhost:{port}` (signal-cli REST API), which is not subject to egress policy.
 
-7. **No centralized outbound request interceptor**: Each module makes its own network calls independently. A centralized middleware that evaluates egress policy before any outbound request would need to intercept all three transport paths (Http_client, Cohttp direct, Ws_client) plus raw TCP/TLS connections.
+7. **Tunnel subprocesses bypass egress control**: Cloudflare, ngrok, Tailscale, and custom tunnels spawn external processes that make their own network connections. These are not interceptable by Clawq's OCaml-level egress evaluator and require OS-level controls (network namespaces, iptables) for enforcement.
+
+8. **No centralized outbound request interceptor**: Each module makes its own network calls independently. A centralized middleware that evaluates egress policy before any outbound request would need to intercept all three transport paths (Http_client, Cohttp direct, Ws_client) plus raw TCP/TLS connections.
