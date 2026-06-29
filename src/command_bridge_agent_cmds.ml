@@ -1647,9 +1647,10 @@ let cmd_rooms args =
   | "memory" :: rest -> cmd_rooms_memory cfg rest
   | "explain-access" :: rest -> cmd_rooms_explain_access cfg rest
   | "session" :: rest -> Room_session_cli.cmd_rooms_session rest
+  | "wizard" :: rest -> Setup_room_wizard.run rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine|memory|explain-access|session>\n\n\
+       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|wizard>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
@@ -1676,7 +1677,10 @@ let cmd_rooms args =
       \                              Explain effective access for a room \
        (admin-only)\n\
       \  session <list|show|get-latest> [args]\n\
-      \                              Query room session records (admin-only)"
+      \                              Query room session records (admin-only)\n\
+      \  wizard [interactive|plan|apply] [options]\n\
+      \                              Room-agent pilot wizard with plan/apply \
+       flow"
 
 let cmd_rig args =
   match args with
