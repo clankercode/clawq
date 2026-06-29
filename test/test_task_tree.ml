@@ -817,6 +817,7 @@ let test_tool_invoke_round_trip () =
       inject_system_messages = None;
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
@@ -2390,6 +2391,7 @@ let test_tool_notify_called_on_success () =
       inject_system_messages = None;
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
@@ -2431,6 +2433,7 @@ let test_tool_notify_not_called_on_error () =
       inject_system_messages = None;
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
@@ -2459,6 +2462,7 @@ let test_tool_no_notify_when_none () =
       inject_system_messages = None;
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in

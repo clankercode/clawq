@@ -155,7 +155,8 @@ let init_schema db =
         ()
     | rc ->
         failwith
-          (Printf.sprintf "room_progress_checklist migration error: %s (sql: %s)"
+          (Printf.sprintf
+             "room_progress_checklist migration error: %s (sql: %s)"
              (Sqlite3.Rc.to_string rc) sql)
   in
   try_alter
@@ -215,8 +216,8 @@ let select_columns =
 (** {1 Append} *)
 
 (** [append ~db ~task_id ~title ?transcript_url ?session_url ?session_record_id
-     ()] adds a new checklist item in [Planned] state. Returns the created
-    item. *)
+     ()] adds a new checklist item in [Planned] state. Returns the created item.
+*)
 let append ~db ~task_id ~title ?transcript_url ?session_url ?session_record_id
     () =
   let ts = timestamp_now () in

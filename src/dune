@@ -15,6 +15,7 @@
   phase2
   runtime_config_types
   egress_evaluator
+  policy_http_client
   runtime_config_json
   runtime_config
   profile_policy

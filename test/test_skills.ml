@@ -262,6 +262,7 @@ let test_skill_interrupt_kills_descendants () =
                        inject_system_messages = None;
                        effective_cwd = None;
                        request_cwd_change = None;
+                       egress_rules = [];
                      }
                    (`Assoc [])
                in
@@ -735,6 +736,7 @@ let test_use_skill_tool_found () =
       inject_system_messages = Some (fun msgs -> injected := !injected @ msgs);
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result =
@@ -1045,6 +1047,7 @@ let test_use_skill_with_injection () =
       inject_system_messages = Some (fun msgs -> injected := !injected @ msgs);
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result =

@@ -122,6 +122,7 @@ let () =
        ("signal", Test_signal.suite);
        ("http_client", Test_http_client.suite);
        ("http_debug", Test_http_debug.suite);
+       ("policy_http_client", Test_policy_http_client.suite);
        ("matrix", Test_matrix.suite);
        ("irc", Test_irc.suite);
        ("email", Test_email.suite);

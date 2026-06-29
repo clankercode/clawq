@@ -65,7 +65,7 @@ let http_request ~workspace_only =
           (truncated at 20KB). For reading web pages use web_fetch.");
     parameters_schema = schema;
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
         let meth =
@@ -80,6 +80,9 @@ let http_request ~workspace_only =
           with _ -> []
         in
         let body = try args |> member "body" |> to_string with _ -> "" in
+        let rules =
+          match context with Some c -> c.Tool.egress_rules | None -> []
+        in
         if url = "" then
           Lwt.return (param_err "parameter 'url' must be a non-empty string")
         else if workspace_only && not (is_localhost_url url) then
@@ -88,20 +91,29 @@ let http_request ~workspace_only =
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let* status, resp_body =
+              let* result =
                 match meth with
-                | "POST" -> Http_client.post_json ~uri:url ~headers ~body
-                | "PUT" -> Http_client.put_json ~uri:url ~headers ~body
-                | "PATCH" -> Http_client.patch_json ~uri:url ~headers ~body
-                | "DELETE" -> Http_client.delete ~uri:url ~headers ~body
-                | "GET" | _ -> Http_client.get ~uri:url ~headers
+                | "POST" ->
+                    Policy_http_client.post_json ~rules ~uri:url ~headers ~body
+                | "PUT" ->
+                    Policy_http_client.put_json ~rules ~uri:url ~headers ~body
+                | "PATCH" ->
+                    Policy_http_client.patch_json ~rules ~uri:url ~headers ~body
+                | "DELETE" ->
+                    Policy_http_client.delete ~rules ~uri:url ~headers ~body
+                | "GET" | _ -> Policy_http_client.get ~rules ~uri:url ~headers
               in
-              let truncated =
-                if String.length resp_body > 20000 then
-                  String.sub resp_body 0 20000 ^ "\n... (truncated)"
-                else resp_body
-              in
-              Lwt.return (Printf.sprintf "HTTP %d\n%s" status truncated))
+              match result with
+              | Ok (status, resp_body) ->
+                  let truncated =
+                    if String.length resp_body > 20000 then
+                      String.sub resp_body 0 20000 ^ "\n... (truncated)"
+                    else resp_body
+                  in
+                  Lwt.return (Printf.sprintf "HTTP %d\n%s" status truncated)
+              | Error err ->
+                  Lwt.return
+                    ("Error: " ^ Policy_http_client.policy_error_to_string err))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Medium;
@@ -263,9 +275,12 @@ let web_fetch ~workspace_only =
           web pages. For raw API responses use http_get or http_request.");
     parameters_schema = schema;
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
+        let rules =
+          match context with Some c -> c.Tool.egress_rules | None -> []
+        in
         if url = "" then
           Lwt.return (param_err "parameter 'url' must be a non-empty string")
         else if workspace_only && not (is_localhost_url url) then
@@ -274,17 +289,25 @@ let web_fetch ~workspace_only =
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let* status, body = Http_client.get ~uri:url ~headers:[] in
-              if status >= 400 then
-                Lwt.return (Printf.sprintf "Error: HTTP %d from %s" status url)
-              else
-                let text = strip_html_to_text body in
-                let truncated =
-                  if String.length text > 20000 then
-                    String.sub text 0 20000 ^ "\n... (truncated)"
-                  else text
-                in
-                Lwt.return truncated)
+              let* result =
+                Policy_http_client.get ~rules ~uri:url ~headers:[]
+              in
+              match result with
+              | Error err ->
+                  Lwt.return
+                    ("Error: " ^ Policy_http_client.policy_error_to_string err)
+              | Ok (status, body) ->
+                  if status >= 400 then
+                    Lwt.return
+                      (Printf.sprintf "Error: HTTP %d from %s" status url)
+                  else
+                    let text = strip_html_to_text body in
+                    let truncated =
+                      if String.length text > 20000 then
+                        String.sub text 0 20000 ^ "\n... (truncated)"
+                      else text
+                    in
+                    Lwt.return truncated)
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Medium;

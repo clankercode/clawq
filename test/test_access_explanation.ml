@@ -889,16 +889,12 @@ let test_egress_rules_in_explanation () =
   let explanation =
     Access_explanation.create ~config:cfg ~session_key:"slack:C123" ()
   in
-  Alcotest.(check int)
-    "2 egress rules" 2
-    (List.length explanation.egress_rules);
+  Alcotest.(check int) "2 egress rules" 2 (List.length explanation.egress_rules);
   let first = List.hd explanation.egress_rules in
-  Alcotest.(check string)
-    "first rule host" "api.example.com" first.host;
+  Alcotest.(check string) "first rule host" "api.example.com" first.host;
   Alcotest.(check int) "first rule index" 0 first.index;
   let second = List.nth explanation.egress_rules 1 in
-  Alcotest.(check string)
-    "second rule host" "*.blocked.com" second.host;
+  Alcotest.(check string) "second rule host" "*.blocked.com" second.host;
   Alcotest.(check int) "second rule index" 1 second.index
 
 let test_egress_rules_json_output () =
@@ -943,9 +939,7 @@ let test_egress_rules_json_output () =
   Alcotest.(check string)
     "first rule log_policy" "log"
     (first |> member "log_policy" |> to_string);
-  Alcotest.(check int)
-    "first rule index" 0
-    (first |> member "index" |> to_int);
+  Alcotest.(check int) "first rule index" 0 (first |> member "index" |> to_int);
   let second = List.nth rules 1 in
   Alcotest.(check string)
     "second rule host" "*"
@@ -956,9 +950,7 @@ let test_egress_rules_json_output () =
   Alcotest.(check string)
     "second rule log_policy" "no_log"
     (second |> member "log_policy" |> to_string);
-  Alcotest.(check int)
-    "second rule index" 1
-    (second |> member "index" |> to_int)
+  Alcotest.(check int) "second rule index" 1 (second |> member "index" |> to_int)
 
 let test_egress_rules_text_output () =
   let json =
@@ -1101,22 +1093,27 @@ let test_egress_rules_priority_order () =
   let explanation =
     Access_explanation.create ~config:cfg ~session_key:"slack:C123" ()
   in
-  Alcotest.(check int)
-    "4 egress rules" 4
-    (List.length explanation.egress_rules);
+  Alcotest.(check int) "4 egress rules" 4 (List.length explanation.egress_rules);
   (* Priority order: room > channel > workspace > default *)
   let rules = explanation.egress_rules in
-  let hosts = List.map (fun (r : Access_explanation.egress_rule_explanation) -> r.host) rules in
+  let hosts =
+    List.map
+      (fun (r : Access_explanation.egress_rule_explanation) -> r.host)
+      rules
+  in
   Alcotest.(check (list string))
     "priority order: room, channel, workspace, default"
-    [ "room.example.com"; "channel.example.com"; "workspace.example.com"; "default.example.com" ]
+    [
+      "room.example.com";
+      "channel.example.com";
+      "workspace.example.com";
+      "default.example.com";
+    ]
     hosts;
   (* Verify indices are sequential *)
   List.iteri
     (fun idx (rule : Access_explanation.egress_rule_explanation) ->
-      Alcotest.(check int)
-        (Printf.sprintf "rule %d index" idx)
-        idx rule.index)
+      Alcotest.(check int) (Printf.sprintf "rule %d index" idx) idx rule.index)
     rules
 
 let test_no_matching_scope_no_leak () =

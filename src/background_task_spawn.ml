@@ -173,8 +173,8 @@ let build_delegate_prompt ~automerge:_ ~goal =
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
     ?(automerge = true) ?(use_worktree = true) ?(acp = false)
     ?(allow_claude = true) ?follow_up_prompt ~db ?preferred_runner ?model
-    ?repo_path ?branch ?access_snapshot_id ?session_record_id
-    ~default_repo_path ~goal () =
+    ?repo_path ?branch ?access_snapshot_id ?session_record_id ~default_repo_path
+    ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path

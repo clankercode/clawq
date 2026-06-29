@@ -402,6 +402,7 @@ let test_compact_history_tool () =
       inject_system_messages = None;
       effective_cwd = None;
       request_cwd_change = None;
+      egress_rules = [];
     }
   in
   let result = Lwt_main.run (tool.invoke ~context:ctx (`Assoc [])) in

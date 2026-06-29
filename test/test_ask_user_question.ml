@@ -155,6 +155,7 @@ let test_empty_questions_error () =
            inject_system_messages = None;
            effective_cwd = None;
            request_cwd_change = None;
+           egress_rules = [];
          }
      in
      let open Lwt.Syntax in
@@ -219,6 +220,7 @@ let test_multi_question_sequential () =
          inject_system_messages = None;
          effective_cwd = None;
          request_cwd_change = None;
+         egress_rules = [];
        }
      in
      let* result = tool.Tool.invoke ~context:ctx args in
