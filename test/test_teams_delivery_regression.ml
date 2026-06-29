@@ -82,8 +82,8 @@ let make_task ?(id = 100) ?(channel = Some "teams")
 
 (** {1 Empty activity ID / empty message ID regression tests} *)
 
-(** When [send] returns an empty string, [deliver_progress_update] must record
-    a [User_visible_unconfirmed] lifecycle event. *)
+(** When [send] returns an empty string, [deliver_progress_update] must record a
+    [User_visible_unconfirmed] lifecycle event. *)
 let test_empty_message_id_records_user_visible_unconfirmed () =
   with_db (fun db ->
       Hashtbl.remove Room_progress.progress_msg_ids 200;
@@ -114,8 +114,8 @@ let test_empty_message_id_records_user_visible_unconfirmed () =
         (List.mem "teams_delivery_user_visible_unconfirmed" event_types);
       Hashtbl.remove Room_progress.progress_msg_ids 200)
 
-(** When [send] returns "0" (a placeholder), [deliver_progress_update] must
-    also record [User_visible_unconfirmed]. *)
+(** When [send] returns "0" (a placeholder), [deliver_progress_update] must also
+    record [User_visible_unconfirmed]. *)
 let test_placeholder_message_id_zero_records_unconfirmed () =
   with_db (fun db ->
       Hashtbl.remove Room_progress.progress_msg_ids 201;
@@ -160,8 +160,8 @@ let test_send_reply_no_scheme_service_url () =
   let config = Test_teams.test_teams_config () in
   let result =
     Lwt_main.run
-      (Teams.send_reply ~config ~service_url:"not-a-url" ~conversation_id:"conv-1"
-         ~reply_to_id:"" ~text:"hello" ())
+      (Teams.send_reply ~config ~service_url:"not-a-url"
+         ~conversation_id:"conv-1" ~reply_to_id:"" ~text:"hello" ())
   in
   Alcotest.(check string) "no-scheme service_url returns empty" "" result
 
@@ -179,8 +179,8 @@ let test_send_reply_ftp_scheme_service_url () =
 (** {1 Card update failure / fallback send tests} *)
 
 (** When [edit_adaptive_card] raises an exception, [send_or_edit_card] must
-    record [Edit_failed], fall back to [send_card], and record
-    [Fallback_sent] + [Message_id_recorded]. *)
+    record [Edit_failed], fall back to [send_card], and record [Fallback_sent] +
+    [Message_id_recorded]. *)
 let test_card_edit_failure_falls_back_to_send () =
   with_db (fun db ->
       Hashtbl.remove Room_progress.progress_msg_ids 300;
@@ -217,8 +217,7 @@ let test_card_edit_failure_falls_back_to_send () =
              ~room_id:"room-card" ~card ~fallback_text:"fallback" ~task_id:300
              ~lifecycle_ctx ())
       in
-      Alcotest.(check bool)
-        "card_sent after edit failure" true !card_sent;
+      Alcotest.(check bool) "card_sent after edit failure" true !card_sent;
       (match result with
       | Room_progress.Delivered -> ()
       | _ -> Alcotest.fail "expected Delivered after fallback");
@@ -229,9 +228,7 @@ let test_card_edit_failure_falls_back_to_send () =
         Teams_delivery_lifecycle.query_by_tracking_id ~db ~tracking_id ()
       in
       let event_types =
-        List.map
-          (fun (e : Room_activity_ledger.event) -> e.event_type)
-          events
+        List.map (fun (e : Room_activity_ledger.event) -> e.event_type) events
       in
       Alcotest.(check bool)
         "has edit_failed" true
@@ -294,9 +291,7 @@ let test_card_edit_failure_send_also_fails () =
         Teams_delivery_lifecycle.query_by_tracking_id ~db ~tracking_id ()
       in
       let event_types =
-        List.map
-          (fun (e : Room_activity_ledger.event) -> e.event_type)
-          events
+        List.map (fun (e : Room_activity_ledger.event) -> e.event_type) events
       in
       Alcotest.(check bool)
         "has user_visible_unconfirmed" true
@@ -344,9 +339,7 @@ let test_edit_failure_falls_back_to_send () =
         Teams_delivery_lifecycle.query_by_tracking_id ~db ~tracking_id ()
       in
       let event_types =
-        List.map
-          (fun (e : Room_activity_ledger.event) -> e.event_type)
-          events
+        List.map (fun (e : Room_activity_ledger.event) -> e.event_type) events
       in
       Alcotest.(check bool)
         "has edit_failed" true
@@ -356,8 +349,8 @@ let test_edit_failure_falls_back_to_send () =
         (List.mem "teams_delivery_fallback_sent" event_types);
       Hashtbl.remove Room_progress.progress_msg_ids 400)
 
-(** When [edit] raises and [send] returns empty, delivery is
-    [Delivery_failed]. *)
+(** When [edit] raises and [send] returns empty, delivery is [Delivery_failed].
+*)
 let test_edit_failure_send_also_fails () =
   with_db (fun db ->
       Hashtbl.replace Room_progress.progress_msg_ids 401 "existing-id";
@@ -388,9 +381,7 @@ let test_edit_failure_send_also_fails () =
         Teams_delivery_lifecycle.query_by_tracking_id ~db ~tracking_id ()
       in
       let event_types =
-        List.map
-          (fun (e : Room_activity_ledger.event) -> e.event_type)
-          events
+        List.map (fun (e : Room_activity_ledger.event) -> e.event_type) events
       in
       Alcotest.(check bool)
         "has edit_failed" true
@@ -400,8 +391,8 @@ let test_edit_failure_send_also_fails () =
         (List.mem "teams_delivery_user_visible_unconfirmed" event_types);
       Hashtbl.remove Room_progress.progress_msg_ids 401)
 
-(** Successful edit records [Message_id_recorded] with the original message
-    ID — no fallback needed. *)
+(** Successful edit records [Message_id_recorded] with the original message ID —
+    no fallback needed. *)
 let test_successful_edit_records_message_id_recorded () =
   with_db (fun db ->
       Hashtbl.replace Room_progress.progress_msg_ids 402 "known-msg-id";
@@ -434,9 +425,7 @@ let test_successful_edit_records_message_id_recorded () =
         Teams_delivery_lifecycle.query_by_tracking_id ~db ~tracking_id ()
       in
       let event_types =
-        List.map
-          (fun (e : Room_activity_ledger.event) -> e.event_type)
-          events
+        List.map (fun (e : Room_activity_ledger.event) -> e.event_type) events
       in
       Alcotest.(check bool)
         "has message_id_recorded" true
@@ -470,9 +459,7 @@ let test_two_deliveries_produce_distinct_tracking_ids () =
       in
       Lwt_main.run
         (Room_progress.deliver_progress_update ~send ~edit ~db ~task:task2 ());
-      let all_events =
-        Room_activity_ledger.query ~db ~room_id:"room-100" ()
-      in
+      let all_events = Room_activity_ledger.query ~db ~room_id:"room-100" () in
       let lifecycle_events =
         List.filter
           (fun (e : Room_activity_ledger.event) ->
@@ -492,8 +479,7 @@ let test_two_deliveries_produce_distinct_tracking_ids () =
         |> List.sort_uniq String.compare
       in
       Alcotest.(check int)
-        "two distinct tracking IDs" 2
-        (List.length tracking_ids);
+        "two distinct tracking IDs" 2 (List.length tracking_ids);
       (* Each tracking ID should have events from the same delivery *)
       List.iter
         (fun tid ->
@@ -520,9 +506,7 @@ let test_non_teams_connector_no_lifecycle () =
       let task = make_task ~id:600 ~channel:(Some "slack") () in
       Lwt_main.run
         (Room_progress.deliver_progress_update ~send ~edit ~db ~task ());
-      let all_events =
-        Room_activity_ledger.query ~db ~room_id:"room-100" ()
-      in
+      let all_events = Room_activity_ledger.query ~db ~room_id:"room-100" () in
       let lifecycle_events =
         List.filter
           (fun (e : Room_activity_ledger.event) ->
@@ -546,8 +530,8 @@ let test_no_database_no_lifecycle_no_crash () =
     (Room_progress.deliver_progress_update ~send ~edit ?db:None ~task ());
   Hashtbl.remove Room_progress.progress_msg_ids 700
 
-(** Empty room_id in origin metadata causes [Skipped] — no delivery
-    attempted. *)
+(** Empty room_id in origin metadata causes [Skipped] — no delivery attempted.
+*)
 let test_empty_room_id_skips_delivery () =
   with_db (fun db ->
       Hashtbl.remove Room_progress.progress_msg_ids 710;
@@ -558,23 +542,20 @@ let test_empty_room_id_skips_delivery () =
       in
       let edit ~room_id:_ ~msg_id:_ ~text:_ = Lwt.return_unit in
       let task =
-        make_task ~id:710 ~channel_id:None
-          ~channel:(Some "teams")
-          ()
+        make_task ~id:710 ~channel_id:None ~channel:(Some "teams") ()
       in
       (* Override origin_json to have empty room_id *)
       let task = { task with origin_json = Some {|{"connector":"teams"}|} } in
       Lwt_main.run
         (Room_progress.deliver_progress_update ~send ~edit ~db ~task ());
       Alcotest.(check bool)
-        "send not called for empty room_id" false
-        !send_called;
+        "send not called for empty room_id" false !send_called;
       Hashtbl.remove Room_progress.progress_msg_ids 710)
 
 (** {1 Lifecycle event error sanitization tests} *)
 
-(** Edit failure with a bearer token in the error must have the token
-    redacted. *)
+(** Edit failure with a bearer token in the error must have the token redacted.
+*)
 let test_edit_failure_error_redacts_tokens () =
   with_db (fun db ->
       Hashtbl.replace Room_progress.progress_msg_ids 800 "old-id";
@@ -582,8 +563,8 @@ let test_edit_failure_error_redacts_tokens () =
       let edit ~room_id:_ ~msg_id:_ ~text:_ =
         Lwt.fail
           (Failure
-             "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0 \
-              HTTP 401 Unauthorized")
+             "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0 HTTP 401 \
+              Unauthorized")
       in
       let tracking_id = Teams_delivery_lifecycle.generate_tracking_id () in
       let lifecycle_ctx : Room_progress.lifecycle_ctx =
@@ -642,9 +623,7 @@ let test_final_message_records_lifecycle () =
       (match result with
       | Room_progress.Delivered -> ()
       | _ -> Alcotest.fail "expected Delivered for final message");
-      let all_events =
-        Room_activity_ledger.query ~db ~room_id:"room-100" ()
-      in
+      let all_events = Room_activity_ledger.query ~db ~room_id:"room-100" () in
       let lifecycle_events =
         List.filter
           (fun (e : Room_activity_ledger.event) ->
@@ -701,8 +680,7 @@ let test_progress_msg_id_tracking_across_deliveries () =
       (match result1 with
       | Room_progress.Delivered -> ()
       | _ -> Alcotest.fail "first delivery should succeed");
-      Alcotest.(check (option string))
-        "first msg_id" (Some "msg-1") msg1;
+      Alcotest.(check (option string)) "first msg_id" (Some "msg-1") msg1;
       Alcotest.(check int) "send called once" 1 !send_count;
       Alcotest.(check int) "edit not called" 0 !edit_calls;
       (* Second call: should use tracked msg_id and edit *)
@@ -735,11 +713,9 @@ let test_progress_msg_id_tracking_across_deliveries () =
 
 let suite =
   [
-    Alcotest.test_case
-      "empty message id records user_visible_unconfirmed" `Quick
-      test_empty_message_id_records_user_visible_unconfirmed;
-    Alcotest.test_case
-      "placeholder message id 0 records unconfirmed" `Quick
+    Alcotest.test_case "empty message id records user_visible_unconfirmed"
+      `Quick test_empty_message_id_records_user_visible_unconfirmed;
+    Alcotest.test_case "placeholder message id 0 records unconfirmed" `Quick
       test_placeholder_message_id_zero_records_unconfirmed;
     Alcotest.test_case "send_reply empty service_url" `Quick
       test_send_reply_empty_service_url;

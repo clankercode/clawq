@@ -2088,6 +2088,18 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           let text = Access_explanation.to_text explanation in
                           send_text
                             (Format_adapter.code_block Format_adapter.Teams text)
+                      | WhatCanDo ->
+                          let snap =
+                            Teams_what_can_do.snapshot ~session_manager
+                              ~conversation_id ()
+                          in
+                          let card = Teams_what_can_do.build_card ~snap () in
+                          let* _id =
+                            send_adaptive_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id ~card ()
+                          in
+                          Lwt.return_unit
                       | Rig action -> (
                           match action with
                           | RigList ->

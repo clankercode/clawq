@@ -1288,7 +1288,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
           | ThinkingMenu | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu
           | Tools | Tasks | TasksFull | Costs _ | Session _ | Usage _ | Active
           | Bg _ | Cron _ | Bl _ | HeldItems _ | Memories _ | RoomsMemory _
-          | ExplainAccess | Repo _ | Followup _ ) as r ->
+          | ExplainAccess | WhatCanDo | Repo _ | Followup _ ) as r ->
             Connector_dispatch.dispatch env r
 
 (* Poll loop, dispatch, and start_polling are in Telegram_poll *)

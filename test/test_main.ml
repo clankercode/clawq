@@ -60,6 +60,7 @@ let () =
        ("teams_progress_card", Test_teams_progress_card.suite);
        ("teams_delivery_lifecycle", Test_teams_delivery_lifecycle.suite);
        ("teams_delivery_regression", Test_teams_delivery_regression.suite);
+       ("teams_what_can_do", Test_teams_what_can_do.suite);
        ("url_sanitize", Test_url_sanitize.suite);
        ("room_stale_query", Test_room_stale_query.suite);
        ("room_watcher_decision", Test_room_watcher_decision.suite);

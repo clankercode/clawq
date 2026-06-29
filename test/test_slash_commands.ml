@@ -199,6 +199,7 @@ let rec result_to_string = function
           ^ ")")
   | Slash_commands.NotACommand -> "NotACommand"
   | Slash_commands.ExplainAccess -> "ExplainAccess"
+  | Slash_commands.WhatCanDo -> "WhatCanDo"
 
 let rec result_eq a b =
   match (a, b) with
@@ -265,6 +266,7 @@ let rec result_eq a b =
   | Slash_commands.RoomsMemory a, Slash_commands.RoomsMemory b -> a = b
   | Slash_commands.Followup a, Slash_commands.Followup b -> a = b
   | Slash_commands.ExplainAccess, Slash_commands.ExplainAccess -> true
+  | Slash_commands.WhatCanDo, Slash_commands.WhatCanDo -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -3162,6 +3164,24 @@ let test_memories_still_workspace () =
         (Printf.sprintf "Expected Memories(oldest=false page=1), got %s"
            (result_to_string other))
 
+let test_what_can_do_handle () =
+  Alcotest.check result_testable "/what-can-do" Slash_commands.WhatCanDo
+    (Slash_commands.handle "/what-can-do")
+
+let test_what_can_do_underscore () =
+  Alcotest.check result_testable "/what_can_do" Slash_commands.WhatCanDo
+    (Slash_commands.handle "/what_can_do")
+
+let test_what_can_do_in_commands_list () =
+  let names =
+    List.map
+      (fun (cmd : Slash_commands.command) -> cmd.name)
+      Slash_commands.commands
+  in
+  Alcotest.(check bool)
+    "/what-can-do in commands" true
+    (List.mem "what-can-do" names)
+
 let test_access_handle () =
   Alcotest.check result_testable "/access" Slash_commands.ExplainAccess
     (Slash_commands.handle "/access")
@@ -3566,6 +3586,11 @@ let suite =
       test_memory_in_commands_list;
     Alcotest.test_case "/memories still workspace" `Quick
       test_memories_still_workspace;
+    Alcotest.test_case "/what-can-do handle" `Quick test_what_can_do_handle;
+    Alcotest.test_case "/what_can_do underscore" `Quick
+      test_what_can_do_underscore;
+    Alcotest.test_case "/what-can-do in commands list" `Quick
+      test_what_can_do_in_commands_list;
     Alcotest.test_case "/access handle" `Quick test_access_handle;
     Alcotest.test_case "/access in commands list" `Quick
       test_access_in_commands_list;

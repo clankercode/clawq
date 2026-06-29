@@ -25,7 +25,7 @@ let rec classify (result : Slash_commands.result) : classification =
   | TasksFull | Costs _ | Usage _ | Active | Bg _ | Cron _ | Bl _ | Session _
   | Menu _ | AgentMenu _ | ModelMenu _ | ThinkingMenu | ConfigMenu _
   | SkillsMenu _ | CostsMenu | BgMenu | Repo _ | HeldItems _ | Memories _
-  | RoomsMemory _ | ExplainAccess | RegisterAsAdminOtc _
+  | RoomsMemory _ | ExplainAccess | WhatCanDo | RegisterAsAdminOtc _
   | InjectConnectorHistory _ | SkillInvoke _ | Context | Followup _ ->
       QuickReply
   (* AdminRequired wraps another result — classify the inner result *)
