@@ -169,7 +169,7 @@ let room_memory_list ~db =
             | Some room_id -> (
                 match check_room_access ~db ~room_id ~capability:"list" with
                 | Error msg -> Lwt.return ("Error: " ^ msg)
-                | Ok _scope -> (
+                | Ok scope -> (
                     let open Yojson.Safe.Util in
                     let limit_result =
                       try
@@ -186,7 +186,19 @@ let room_memory_list ~db =
                           Memory.query_scoped_memories ~db ~scope_kind:"room"
                             ~scope_key:room_id ~limit ()
                         in
-                        if memories = [] then
+                        (* Filter by visibility: only show memories the caller can see *)
+                        let scope_profile_id =
+                          Option.map string_of_int scope.profile_id
+                        in
+                        let visible_memories =
+                          List.filter
+                            (fun (m : Memory_types.scoped_memory) ->
+                              Memory.can_see_memory ~db ~scoped_mem:m
+                                ~principal_kind:"room" ~principal_id:room_id
+                                ~scope_profile_id)
+                            memories
+                        in
+                        if visible_memories = [] then
                           Lwt.return
                             (Printf.sprintf
                                "No memories found for this room (%s)." room_id)
@@ -199,9 +211,16 @@ let room_memory_list ~db =
                                   | Some c -> clip_content c 80
                                   | None -> "(empty)"
                                 in
-                                Printf.sprintf "#%d [%s] %s (updated: %s)" m.id
-                                  m.reference preview m.updated_at)
-                              memories
+                                let vis =
+                                  match m.visibility with
+                                  | Memory_types.Public -> ""
+                                  | v ->
+                                      Printf.sprintf " [%s]"
+                                        (Memory_types.visibility_to_string v)
+                                in
+                                Printf.sprintf "#%d [%s]%s %s (updated: %s)"
+                                  m.id m.reference vis preview m.updated_at)
+                              visible_memories
                           in
                           Lwt.return
                             (Printf.sprintf "Room memories (%s):\n%s" room_id
@@ -256,7 +275,7 @@ let room_memory_show ~db =
             | Some room_id -> (
                 match check_room_access ~db ~room_id ~capability:"read" with
                 | Error msg -> Lwt.return ("Error: " ^ msg)
-                | Ok _scope -> (
+                | Ok scope -> (
                     let open Yojson.Safe.Util in
                     let memory_id =
                       try args |> member "memory_id" |> to_int with _ -> -1
@@ -276,30 +295,50 @@ let room_memory_show ~db =
                                "Memory #%d does not belong to this room."
                                memory_id)
                       | Some m ->
-                          let lines = ref [] in
-                          let add s = lines := s :: !lines in
-                          add (Printf.sprintf "Room:       %s" room_id);
-                          add (Printf.sprintf "ID:         %d" m.id);
-                          add (Printf.sprintf "Reference:  %s" m.reference);
-                          add (Printf.sprintf "Provenance: %s" m.provenance);
-                          add (Printf.sprintf "Created:    %s" m.created_at);
-                          add (Printf.sprintf "Updated:    %s" m.updated_at);
-                          (match m.content with
-                          | Some c ->
-                              add "";
-                              add "--- Content ---";
-                              add c
-                          | None -> add "Content:    (empty)");
-                          (match m.redacted_at with
-                          | Some ts ->
-                              add "";
-                              add (Printf.sprintf "Redacted:   %s" ts);
-                              Option.iter
-                                (fun r ->
-                                  add (Printf.sprintf "Reason:     %s" r))
-                                m.redaction_reason
-                          | None -> ());
-                          Lwt.return (String.concat "\n" (List.rev !lines))))));
+                          (* Check visibility before showing content *)
+                          let scope_profile_id =
+                            Option.map string_of_int scope.profile_id
+                          in
+                          if
+                            not
+                              (Memory.can_see_memory ~db ~scoped_mem:m
+                                 ~principal_kind:"room" ~principal_id:room_id
+                                 ~scope_profile_id)
+                          then
+                            Lwt.return
+                              (Printf.sprintf
+                                 "Memory #%d is not visible to this room \
+                                  (visibility: %s)."
+                                 memory_id
+                                 (Memory_types.visibility_to_string m.visibility))
+                          else
+                            let lines = ref [] in
+                            let add s = lines := s :: !lines in
+                            add (Printf.sprintf "Room:       %s" room_id);
+                            add (Printf.sprintf "ID:         %d" m.id);
+                            add (Printf.sprintf "Reference:  %s" m.reference);
+                            add
+                              (Printf.sprintf "Visibility: %s"
+                                 (Memory_types.visibility_to_string m.visibility));
+                            add (Printf.sprintf "Provenance: %s" m.provenance);
+                            add (Printf.sprintf "Created:    %s" m.created_at);
+                            add (Printf.sprintf "Updated:    %s" m.updated_at);
+                            (match m.content with
+                            | Some c ->
+                                add "";
+                                add "--- Content ---";
+                                add c
+                            | None -> add "Content:    (empty)");
+                            (match m.redacted_at with
+                            | Some ts ->
+                                add "";
+                                add (Printf.sprintf "Redacted:   %s" ts);
+                                Option.iter
+                                  (fun r ->
+                                    add (Printf.sprintf "Reason:     %s" r))
+                                  m.redaction_reason
+                            | None -> ());
+                            Lwt.return (String.concat "\n" (List.rev !lines))))));
     invoke_stream = None;
     risk_level = Tool.Low;
     deferred = false;
@@ -329,6 +368,20 @@ let room_memory_save ~db =
                   [
                     ("type", `String "string");
                     ("description", `String "Content to store (required)");
+                  ] );
+              ( "visibility",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String
+                        "Visibility level: 'public' (default, visible to all \
+                         room members), 'private' (owner only), 'team' \
+                         (explicit grant set)." );
+                    ( "enum",
+                      `List
+                        [ `String "public"; `String "private"; `String "team" ]
+                    );
                   ] );
             ] );
         ("required", `List [ `String "reference"; `String "content" ]);
@@ -379,16 +432,32 @@ let room_memory_save ~db =
                            "parameter 'content' must be a non-empty string")
                     else
                       let provenance = "agent-tool" in
+                      let visibility =
+                        try
+                          match args |> member "visibility" |> to_string with
+                          | "public" -> Memory_types.Public
+                          | "private" -> Memory_types.Private
+                          | "team" -> Memory_types.Team
+                          | _ -> Memory_types.Public
+                        with _ -> Memory_types.Public
+                      in
                       Lwt.catch
                         (fun () ->
                           let m =
                             Memory.upsert_scoped_memory ~db ~scope_id:scope.id
-                              ~reference ~content ~provenance ()
+                              ~reference ~content ~provenance ~visibility ()
+                          in
+                          let vis_str =
+                            match m.visibility with
+                            | Memory_types.Public -> ""
+                            | v ->
+                                Printf.sprintf " (visibility: %s)"
+                                  (Memory_types.visibility_to_string v)
                           in
                           Lwt.return
                             (Printf.sprintf
-                               "Saved memory '%s' (ID: %d) for room %s."
-                               m.reference m.id room_id))
+                               "Saved memory '%s' (ID: %d) for room %s.%s"
+                               m.reference m.id room_id vis_str))
                         (fun exn ->
                           Lwt.return
                             (Printf.sprintf "Error saving memory: %s"

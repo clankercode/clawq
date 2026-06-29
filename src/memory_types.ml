@@ -79,6 +79,26 @@ type memory_scope = {
   updated_at : string;
 }
 
+type memory_visibility = Public | Private | Team
+
+let visibility_to_string = function
+  | Public -> "public"
+  | Private -> "private"
+  | Team -> "team"
+
+let visibility_of_string = function
+  | "public" -> Public
+  | "private" -> Private
+  | "team" -> Team
+  | other ->
+      failwith
+        (Printf.sprintf
+           "unknown memory visibility: %s (expected public, private, or team)"
+           other)
+
+let visibility_of_string_opt s =
+  try Some (visibility_of_string s) with Failure _ -> None
+
 type scoped_memory = {
   id : int;
   scope_id : int;
@@ -87,9 +107,18 @@ type scoped_memory = {
   content : string option;
   reference : string;
   provenance : string;
+  visibility : memory_visibility;
   created_at : string;
   updated_at : string;
   redacted_at : string option;
   redaction_reason : string option;
   redaction_metadata : string option;
+}
+
+type team_grant = {
+  id : int;
+  memory_id : int;
+  principal_kind : string;
+  principal_id : string;
+  granted_at : string;
 }

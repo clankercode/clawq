@@ -2492,6 +2492,208 @@ let test_upsert_room_profile_binding_orphan_rejection () =
   | `Fail -> ()
   | `Ok -> Alcotest.fail "expected orphan binding to fail"
 
+(* --- visibility tests --- *)
+
+let test_visibility_type_roundtrip () =
+  Alcotest.(check string)
+    "public" "public"
+    (Memory.visibility_to_string Memory.Public);
+  Alcotest.(check string)
+    "private" "private"
+    (Memory.visibility_to_string Memory.Private);
+  Alcotest.(check string)
+    "team" "team"
+    (Memory.visibility_to_string Memory.Team);
+  Alcotest.(check bool)
+    "public parses" true
+    (Memory.visibility_of_string "public" = Memory.Public);
+  Alcotest.(check bool)
+    "private parses" true
+    (Memory.visibility_of_string "private" = Memory.Private);
+  Alcotest.(check bool)
+    "team parses" true
+    (Memory.visibility_of_string "team" = Memory.Team);
+  (match Memory.visibility_of_string_opt "public" with
+  | Some Memory.Public -> ()
+  | _ -> Alcotest.fail "expected Some Public");
+  match Memory.visibility_of_string_opt "invalid" with
+  | None -> ()
+  | _ -> Alcotest.fail "expected None"
+
+let test_upsert_with_visibility () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"test-profile" in
+  let scope =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-vis" ~profile_id
+      ~provenance:"test" ()
+  in
+  (* Default visibility is public *)
+  let m1 =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"pub-note"
+      ~content:"public content" ~provenance:"test" ()
+  in
+  Alcotest.(check bool) "default is public" true (m1.visibility = Memory.Public);
+  (* Explicit private *)
+  let m2 =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"priv-note"
+      ~content:"private content" ~provenance:"test" ~visibility:Memory.Private
+      ()
+  in
+  Alcotest.(check bool) "private stored" true (m2.visibility = Memory.Private);
+  (* Explicit team *)
+  let m3 =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"team-note"
+      ~content:"team content" ~provenance:"test" ~visibility:Memory.Team ()
+  in
+  Alcotest.(check bool) "team stored" true (m3.visibility = Memory.Team);
+  (* Upsert changes visibility *)
+  let m1_upd =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"pub-note"
+      ~content:"now private" ~provenance:"test" ~visibility:Memory.Private ()
+  in
+  Alcotest.(check bool)
+    "visibility updated on upsert" true
+    (m1_upd.visibility = Memory.Private)
+
+let test_query_by_visibility () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"test-profile" in
+  let scope =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-qvis" ~profile_id
+      ~provenance:"test" ()
+  in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"pub"
+       ~content:"public" ~provenance:"test" ~visibility:Memory.Public ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"priv"
+       ~content:"private" ~provenance:"test" ~visibility:Memory.Private ());
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"team"
+       ~content:"team" ~provenance:"test" ~visibility:Memory.Team ());
+  (* Query all *)
+  let all =
+    Memory.query_scoped_memories ~db ~scope_kind:"room" ~scope_key:"room-qvis"
+      ~limit:100 ()
+  in
+  Alcotest.(check int) "all memories" 3 (List.length all);
+  (* Query by visibility *)
+  let public_only =
+    Memory.query_scoped_memories ~db ~scope_kind:"room" ~scope_key:"room-qvis"
+      ~visibility:Memory.Public ~limit:100 ()
+  in
+  Alcotest.(check int) "public only" 1 (List.length public_only);
+  let team_only =
+    Memory.query_scoped_memories ~db ~scope_kind:"room" ~scope_key:"room-qvis"
+      ~visibility:Memory.Team ~limit:100 ()
+  in
+  Alcotest.(check int) "team only" 1 (List.length team_only)
+
+let test_team_grants_crud () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"test-profile" in
+  let scope =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-tg" ~profile_id
+      ~provenance:"test" ()
+  in
+  let mem =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"team-mem"
+      ~content:"team content" ~provenance:"test" ~visibility:Memory.Team ()
+  in
+  (* No grants initially *)
+  let grants = Memory.list_team_grants ~db ~memory_id:mem.id in
+  Alcotest.(check int) "no initial grants" 0 (List.length grants);
+  Alcotest.(check bool)
+    "no grant check" false
+    (Memory.has_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  (* Add grant *)
+  Alcotest.(check bool)
+    "add grant" true
+    (Memory.add_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  Alcotest.(check bool)
+    "has grant" true
+    (Memory.has_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  Alcotest.(check bool)
+    "other has no grant" false
+    (Memory.has_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"bob");
+  (* List grants *)
+  let grants = Memory.list_team_grants ~db ~memory_id:mem.id in
+  Alcotest.(check int) "one grant" 1 (List.length grants);
+  (* Duplicate add returns false *)
+  Alcotest.(check bool)
+    "duplicate add" false
+    (Memory.add_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  (* Remove grant *)
+  Alcotest.(check bool)
+    "remove grant" true
+    (Memory.remove_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  Alcotest.(check bool)
+    "grant gone" false
+    (Memory.has_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  (* Remove nonexistent returns false *)
+  Alcotest.(check bool)
+    "remove nonexistent" false
+    (Memory.remove_team_grant ~db ~memory_id:mem.id ~principal_kind:"user"
+       ~principal_id:"alice")
+
+let test_can_see_memory_logic () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let profile_id = Memory.insert_room_profile ~db ~name:"test-profile" in
+  let scope =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-cansee" ~profile_id
+      ~provenance:"test" ()
+  in
+  (* Public memory: everyone can see *)
+  let pub_mem =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"pub"
+      ~content:"public" ~provenance:"test" ~visibility:Memory.Public ()
+  in
+  Alcotest.(check bool)
+    "public visible to all" true
+    (Memory.can_see_memory ~db ~scoped_mem:pub_mem ~principal_kind:"user"
+       ~principal_id:"anyone"
+       ~scope_profile_id:(Some (string_of_int profile_id)));
+  (* Private memory: only owner can see *)
+  let priv_mem =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"priv"
+      ~content:"private" ~provenance:"test" ~visibility:Memory.Private ()
+  in
+  Alcotest.(check bool)
+    "private visible to owner" true
+    (Memory.can_see_memory ~db ~scoped_mem:priv_mem ~principal_kind:"user"
+       ~principal_id:(string_of_int profile_id)
+       ~scope_profile_id:(Some (string_of_int profile_id)));
+  Alcotest.(check bool)
+    "private not visible to other" false
+    (Memory.can_see_memory ~db ~scoped_mem:priv_mem ~principal_kind:"user"
+       ~principal_id:"other"
+       ~scope_profile_id:(Some (string_of_int profile_id)));
+  (* Team memory: only granted users can see *)
+  let team_mem =
+    Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference:"team"
+      ~content:"team" ~provenance:"test" ~visibility:Memory.Team ()
+  in
+  Alcotest.(check bool)
+    "team not visible without grant" false
+    (Memory.can_see_memory ~db ~scoped_mem:team_mem ~principal_kind:"user"
+       ~principal_id:"alice"
+       ~scope_profile_id:(Some (string_of_int profile_id)));
+  ignore
+    (Memory.add_team_grant ~db ~memory_id:team_mem.id ~principal_kind:"user"
+       ~principal_id:"alice");
+  Alcotest.(check bool)
+    "team visible with grant" true
+    (Memory.can_see_memory ~db ~scoped_mem:team_mem ~principal_kind:"user"
+       ~principal_id:"alice"
+       ~scope_profile_id:(Some (string_of_int profile_id)))
+
 let suite =
   [
     Alcotest.test_case "init sets busy_timeout" `Quick
@@ -2707,4 +2909,12 @@ let suite =
       test_repair_legacy_room_profile_tables;
     Alcotest.test_case "upsert room profile binding orphan rejection" `Quick
       test_upsert_room_profile_binding_orphan_rejection;
+    (* Visibility tests *)
+    Alcotest.test_case "visibility type roundtrip" `Quick
+      test_visibility_type_roundtrip;
+    Alcotest.test_case "upsert with visibility" `Quick
+      test_upsert_with_visibility;
+    Alcotest.test_case "query by visibility" `Quick test_query_by_visibility;
+    Alcotest.test_case "team grants CRUD" `Quick test_team_grants_crud;
+    Alcotest.test_case "can see memory logic" `Quick test_can_see_memory_logic;
   ]

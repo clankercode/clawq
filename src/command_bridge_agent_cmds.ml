@@ -1240,6 +1240,12 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                     flex = false;
                   };
                   {
+                    header = "VISIBILITY";
+                    align = Left;
+                    min_width = 8;
+                    flex = false;
+                  };
+                  {
                     header = "CONTENT";
                     align = Left;
                     min_width = 20;
@@ -1272,6 +1278,7 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                   [
                     string_of_int m.id;
                     m.reference;
+                    Memory.visibility_to_string m.visibility;
                     content_preview;
                     m.provenance;
                     m.updated_at;
@@ -1305,6 +1312,9 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
                        (room_display_name room_id));
                   add (Printf.sprintf "ID:         %d" m.id);
                   add (Printf.sprintf "Reference:  %s" m.reference);
+                  add
+                    (Printf.sprintf "Visibility: %s"
+                       (Memory.visibility_to_string m.visibility));
                   add (Printf.sprintf "Provenance: %s" m.provenance);
                   add (Printf.sprintf "Created:    %s" m.created_at);
                   add (Printf.sprintf "Updated:    %s" m.updated_at);
@@ -1327,27 +1337,60 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
       if reference = "" then "Error: memory reference is required."
       else if content_parts = [] then "Error: memory content is required."
       else
-        match ensure_room_scope ~room_id with
-        | Error msg -> msg
-        | Ok _scope -> (
-            match check_grant ~room_id ~capability:"write" with
-            | Error msg -> msg
-            | Ok scope -> (
-                let content = String.concat " " content_parts in
-                let provenance = if is_admin then "admin-cli" else "cli" in
-                try
-                  let m =
-                    Memory.upsert_scoped_memory ~db ~scope_id:scope.id
-                      ~reference ~content ~provenance ()
-                  in
-                  Printf.sprintf "Saved memory '%s' (ID: %d) for room '%s'."
-                    m.reference m.id
-                    (room_display_name room_id)
-                with exn ->
-                  Printf.sprintf "Error saving memory: %s"
-                    (Printexc.to_string exn))))
+        let visibility, content_parts =
+          let rec extract_vis acc = function
+            | "--visibility" :: v :: rest ->
+                ( Some
+                    (match v with
+                    | "public" -> Memory.Public
+                    | "private" -> Memory.Private
+                    | "team" -> Memory.Team
+                    | other ->
+                        failwith
+                          (Printf.sprintf
+                             "invalid visibility '%s' (use public, private, or \
+                              team)"
+                             other)),
+                  List.rev_append acc rest )
+            | x :: rest -> extract_vis (x :: acc) rest
+            | [] -> (None, List.rev acc)
+          in
+          extract_vis [] content_parts
+        in
+        if content_parts = [] then "Error: memory content is required."
+        else
+          match ensure_room_scope ~room_id with
+          | Error msg -> msg
+          | Ok _scope -> (
+              match check_grant ~room_id ~capability:"write" with
+              | Error msg -> msg
+              | Ok scope -> (
+                  let content = String.concat " " content_parts in
+                  let provenance = if is_admin then "admin-cli" else "cli" in
+                  try
+                    let m =
+                      Memory.upsert_scoped_memory ~db ~scope_id:scope.id
+                        ~reference ~content ~provenance ?visibility ()
+                    in
+                    let vis_str =
+                      match m.visibility with
+                      | Memory.Public -> ""
+                      | v ->
+                          Printf.sprintf " (visibility: %s)"
+                            (Memory.visibility_to_string v)
+                    in
+                    Printf.sprintf "Saved memory '%s' (ID: %d) for room '%s'.%s"
+                      m.reference m.id
+                      (room_display_name room_id)
+                      vis_str
+                  with
+                  | Failure msg -> Printf.sprintf "Error: %s" msg
+                  | exn ->
+                      Printf.sprintf "Error saving memory: %s"
+                        (Printexc.to_string exn))))
   | "save" :: _ ->
-      "Usage: clawq rooms memory save <room_id> <reference> <content>"
+      "Usage: clawq rooms memory save <room_id> <reference> <content> \
+       [--visibility V]"
   | "correct" :: room_id :: memory_id_str :: content_parts -> (
       match check_grant ~room_id ~capability:"write" with
       | Error msg -> msg
@@ -1448,19 +1491,113 @@ let cmd_rooms_memory (cfg : Runtime_config.t) args =
   | "forget" :: _ ->
       "Usage: clawq rooms memory forget <room_id> <id> [-- --hard] [reason]\n\
        Note: use -- separator before flags when invoking from CLI."
+  | "team-grant" :: "add" :: room_id :: memory_id_str :: principal_kind
+    :: principal_id :: _ -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          match int_of_string_opt memory_id_str with
+          | None ->
+              Printf.sprintf "Error: '%s' is not a valid memory ID."
+                memory_id_str
+          | Some memory_id -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> room_id ->
+                  Printf.sprintf "Memory #%d does not belong to room '%s'."
+                    memory_id room_id
+              | Some m when m.visibility <> Memory.Team ->
+                  Printf.sprintf
+                    "Memory #%d has visibility '%s', not 'team'. Team grants \
+                     only apply to team-visible memories."
+                    memory_id
+                    (Memory.visibility_to_string m.visibility)
+              | Some _ -> (
+                  match
+                    Memory.add_team_grant ~db ~memory_id ~principal_kind
+                      ~principal_id
+                  with
+                  | true ->
+                      Printf.sprintf
+                        "Added team grant for '%s:%s' on memory #%d."
+                        principal_kind principal_id memory_id
+                  | false ->
+                      Printf.sprintf
+                        "Team grant already exists for '%s:%s' on memory #%d."
+                        principal_kind principal_id memory_id))))
+  | "team-grant" :: "remove" :: room_id :: memory_id_str :: principal_kind
+    :: principal_id :: _ -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          match int_of_string_opt memory_id_str with
+          | None ->
+              Printf.sprintf "Error: '%s' is not a valid memory ID."
+                memory_id_str
+          | Some memory_id -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> room_id ->
+                  Printf.sprintf "Memory #%d does not belong to room '%s'."
+                    memory_id room_id
+              | Some _ ->
+                  if
+                    Memory.remove_team_grant ~db ~memory_id ~principal_kind
+                      ~principal_id
+                  then
+                    Printf.sprintf
+                      "Removed team grant for '%s:%s' on memory #%d."
+                      principal_kind principal_id memory_id
+                  else
+                    Printf.sprintf
+                      "No team grant found for '%s:%s' on memory #%d."
+                      principal_kind principal_id memory_id)))
+  | "team-grant" :: "list" :: room_id :: memory_id_str :: _ -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          match int_of_string_opt memory_id_str with
+          | None ->
+              Printf.sprintf "Error: '%s' is not a valid memory ID."
+                memory_id_str
+          | Some memory_id -> (
+              match Memory.get_scoped_memory ~db ~id:memory_id with
+              | None -> Printf.sprintf "Memory #%d not found." memory_id
+              | Some m when m.scope_kind <> "room" || m.scope_key <> room_id ->
+                  Printf.sprintf "Memory #%d does not belong to room '%s'."
+                    memory_id room_id
+              | Some _ ->
+                  let grants = Memory.list_team_grants ~db ~memory_id in
+                  if grants = [] then
+                    Printf.sprintf "No team grants for memory #%d." memory_id
+                  else
+                    let lines =
+                      List.map
+                        (fun (g : Memory.team_grant) ->
+                          Printf.sprintf "  %s:%s (granted %s)" g.principal_kind
+                            g.principal_id g.granted_at)
+                        grants
+                    in
+                    Printf.sprintf "Team grants for memory #%d:\n%s" memory_id
+                      (String.concat "\n" lines))))
+  | "team-grant" :: _ ->
+      "Usage: clawq rooms memory team-grant <add|remove|list> <room_id> \
+       <memory_id> [principal_kind principal_id]"
   | _ ->
-      "Usage: clawq rooms memory <list|show|save|correct|forget> <room_id> \
-       [args...]\n\n\
+      "Usage: clawq rooms memory <list|show|save|correct|forget|team-grant> \
+       <room_id> [args...]\n\n\
        Subcommands:\n\
       \  list <room_id>              List memories in a room scope\n\
       \  show <room_id> <id>         Show details of a specific memory\n\
-      \  save <room_id> <ref> <content>\n\
+      \  save <room_id> <ref> <content> [--visibility V]\n\
       \                              Save or update a room-scoped memory\n\
       \  correct <room_id> <id> <content>\n\
       \                              Correct a memory (preserves old provenance)\n\
       \  forget <room_id> <id> [-- --hard] [reason]\n\
       \                              Forget (redact) a memory (admin: --hard \
-       for purge)"
+       for purge)\n\
+      \  team-grant <add|remove|list> <room_id> <id> [kind id]\n\
+      \                              Manage team grants (admin-only)"
 
 let cmd_rooms_explain_access cfg args =
   match require_admin () with
@@ -1986,7 +2123,7 @@ let cmd_rooms args =
       \  unbind <room_id>            Remove room binding (preserves profile)\n\
       \  routine <create|list|show|edit|remove|enable|disable|trigger>   \
        Manage room routines (admin-only)\n\
-      \  memory <list|show|save> <room_id> [args...]\n\
+      \  memory <list|show|save|correct|forget|team-grant> <room_id> [args...]\n\
       \                              Manage room-scoped memories\n\
       \  explain-access <room_id> [--json]\n\
       \                              Explain effective access for a room \
