@@ -2045,7 +2045,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             | Some db ->
                                 Slash_commands.format_cron
                                   ~connector:Format_adapter.Teams ~db
-                                  ~session_key:key action
+                                  ~session_key:key
+                                  ~is_admin:(user_group = "admin") action
                             | None -> "Cron is not available (no database)."
                           in
                           send_text text

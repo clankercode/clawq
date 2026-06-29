@@ -551,47 +551,14 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
 (** [evaluate_room_policy config ~key ~channel ~channel_id ~user_group
      ?has_external_users ()] evaluates the external room policy for the current
     turn. Returns [Ok (classification, decision_string)] if work should proceed,
-    or [Error msg] if work should be denied. *)
+    or [Error msg] if work should be denied.
+
+    This function now also enforces invocation restrictions by scope, checking
+    role/member/admin rules before allowing work to proceed. *)
 let evaluate_room_policy (config : Runtime_config.t) ~key ~channel ~channel_id
     ~user_group ?(has_external_users = false) () =
-  let open Runtime_config_types in
-  let connector =
-    match channel with
-    | Some c -> c
-    | None -> (
-        match String.index_opt key ':' with
-        | Some i -> String.sub key 0 i
-        | None -> "unknown")
-  in
-  let room_id =
-    match channel_id with
-    | Some id -> id
-    | None -> (
-        match String.split_on_char ':' key with
-        | _ :: rid :: _ -> rid
-        | _ -> key)
-  in
-  let classification =
-    Room_policy.classification_from_context ~connector ~room_id ~session_key:key
-      ~is_group:false ~has_external_users ()
-  in
-  let is_admin = user_group = Some "admin" in
-  let result =
-    Room_policy.evaluate config.external_room_policy ~classification ~is_admin
-      ()
-  in
-  match result with
-  | Room_policy.Proceed -> Ok (classification, "allow")
-  | Room_policy.Proceed_with_warning msg ->
-      Logs.warn (fun m -> m "Room policy warning: %s" msg);
-      Ok (classification, "warn: " ^ msg)
-  | Room_policy.Denied msg -> Error msg
-  | Room_policy.Denied_admin_override msg ->
-      if is_admin then begin
-        Logs.warn (fun m -> m "Room policy admin override: %s" msg);
-        Ok (classification, "admin_override: " ^ msg)
-      end
-      else Error msg
+  Invocation_restrict.check_room_policy_and_role ~config ~key ~channel
+    ~channel_id ~user_group ~has_external_users ~work_kind:Room_work ()
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
     ~drained_any () =

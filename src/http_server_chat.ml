@@ -188,7 +188,7 @@ let dispatch_common ~session_manager ~key ~emit cmd_result =
            (match Session.get_db session_manager with
            | Some db ->
                Slash_commands.format_cron ~connector:Format_adapter.Plain ~db
-                 ~session_key:key action
+                 ~session_key:key ~is_admin:true action
            | None -> "Cron is not available (no database)."))
   | Slash_commands.Bl action ->
       Some

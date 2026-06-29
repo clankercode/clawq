@@ -97,6 +97,7 @@
   test_provider
   test_profile_policy
   test_room_policy
+  test_invocation_restrict
   test_provider_anthropic
   test_provider_minimax
   test_provider_openai_codex
