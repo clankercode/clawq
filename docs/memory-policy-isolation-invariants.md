@@ -11,6 +11,9 @@ room budget system (`room_budget.ml`), the egress evaluator
 `skills.ml`), and session lifecycle management. Most invariants link to runtime
 tests that enforce them; exceptions are noted explicitly.
 
+**Proof backlog**: See [`proof-backlog.md`](proof-backlog.md) for a catalogue
+of invariants that are candidates for formal proof or stronger verification.
+
 ---
 
 ## 1. Memory Scope Isolation
