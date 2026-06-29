@@ -42,7 +42,7 @@ tasks:
       file: T003-add-idempotent-rerun-and-repai.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add idempotent rerun and repair behavior
     - complexity: medium

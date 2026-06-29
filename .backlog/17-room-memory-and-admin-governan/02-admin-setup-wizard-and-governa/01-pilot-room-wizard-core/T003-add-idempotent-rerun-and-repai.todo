@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-29T16:11:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T16:49:11Z"
 complexity: high
 depends_on:
     - P17.M2.E1.T001
     - P17.M2.E1.T002
+duration_minutes: 37.447427887016666
 estimate_hours: 3
 id: P17.M2.E1.T003
 priority: high
 started_at: "2026-06-29T16:11:45Z"
-status: in_progress
+status: done
 tags: []
 title: Add idempotent rerun and repair behavior
 ---
