@@ -667,7 +667,12 @@ let parse_config ?(resolve_secrets = true) json =
       let language =
         try Some (s |> member "language" |> to_string) with _ -> None
       in
-      Some ({ provider; model; language } : Runtime_config.stt_config)
+      let credential_handle =
+        try Some (s |> member "credential_handle" |> to_string) with _ -> None
+      in
+      Some
+        ({ provider; model; language; credential_handle }
+          : Runtime_config.stt_config)
     with _ -> None
   in
   let mcp =
@@ -1241,6 +1246,10 @@ let parse_config ?(resolve_secrets = true) json =
          let base_url =
            try Some (ws |> member "base_url" |> to_string) with _ -> None
          in
+         let credential_handle =
+           try Some (ws |> member "credential_handle" |> to_string)
+           with _ -> None
+         in
          if provider <> "" then
            Some
              ({
@@ -1248,6 +1257,7 @@ let parse_config ?(resolve_secrets = true) json =
                 search_api_key = api_key;
                 num_results;
                 search_base_url = base_url;
+                credential_handle;
               }
                : Runtime_config.web_search_config)
          else None
@@ -1281,8 +1291,17 @@ let parse_config ?(resolve_secrets = true) json =
            let webfetch_enabled =
              try zm |> member "webfetch_enabled" |> to_bool with _ -> true
            in
+           let credential_handle =
+             try Some (zm |> member "credential_handle" |> to_string)
+             with _ -> None
+           in
            Some
-             ({ key = api_key; websearch_enabled; webfetch_enabled }
+             ({
+                key = api_key;
+                websearch_enabled;
+                webfetch_enabled;
+                credential_handle;
+              }
                : Runtime_config.zai_mcp_config)
        with _ -> None);
     quota_cache_ttl_s =

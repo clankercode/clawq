@@ -1157,6 +1157,7 @@ let test_web_search_reads_live_config_after_registry_refresh () =
             num_results = 7;
             search_base_url =
               Some "https://brave.example.invalid/res/v1/web/search";
+            credential_handle = None;
           };
     }
   in
@@ -1277,6 +1278,7 @@ let test_registry_remove_drops_tool () =
             search_api_key = "k";
             num_results = 5;
             search_base_url = None;
+            credential_handle = None;
           };
     }
   in
@@ -1381,6 +1383,7 @@ let test_zai_websearch_success_invokes_mcp () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = true;
+            credential_handle = None;
           };
     }
   in
@@ -1445,6 +1448,7 @@ let test_zai_webfetch_success_invokes_mcp () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = true;
+            credential_handle = None;
           };
     }
   in
@@ -1483,6 +1487,7 @@ let test_zai_websearch_negative_paths () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = true;
+            credential_handle = None;
           };
     }
   in
@@ -1540,6 +1545,7 @@ let test_zai_webfetch_negative_paths () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = true;
+            credential_handle = None;
           };
     }
   in
@@ -1617,6 +1623,7 @@ let test_zai_websearch_discovery_failure_falls_back () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = true;
+            credential_handle = None;
           };
     }
   in
@@ -1717,6 +1724,7 @@ let test_zai_websearch_cache_hit () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = true;
+            credential_handle = None;
           };
     }
   in
@@ -1793,6 +1801,7 @@ let test_register_builtin_tools_includes_enabled_zai_tools () =
             Runtime_config.key = "sk-zai";
             websearch_enabled = true;
             webfetch_enabled = false;
+            credential_handle = None;
           };
     }
   in
@@ -1819,6 +1828,7 @@ let test_refresh_replaces_config_bound_tools () =
             Runtime_config.provider = "openai";
             model = "whisper-1";
             language = None;
+            credential_handle = None;
           };
     }
   in
@@ -3650,6 +3660,7 @@ let test_every_builtin_tool_required_description_matches_schema () =
             search_api_key = "";
             num_results = 5;
             search_base_url = None;
+            credential_handle = None;
           };
     }
   in
@@ -3728,6 +3739,7 @@ let test_tool_schemas_roundtrip_openai_and_anthropic () =
             search_api_key = "";
             num_results = 5;
             search_base_url = None;
+            credential_handle = None;
           };
     }
   in
@@ -3863,6 +3875,7 @@ let test_every_required_param_is_enforced_at_runtime () =
             search_api_key = "";
             num_results = 5;
             search_base_url = None;
+            credential_handle = None;
           };
     }
   in

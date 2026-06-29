@@ -129,6 +129,7 @@ let health_check_brave_empty_key () =
         search_api_key = "";
         num_results = 5;
         search_base_url = None;
+        credential_handle = None;
       }
   in
   let result =
@@ -153,6 +154,7 @@ let health_check_unknown_provider () =
         search_api_key = "irrelevant";
         num_results = 5;
         search_base_url = None;
+        credential_handle = None;
       }
   in
   let result =

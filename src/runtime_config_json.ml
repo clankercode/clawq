@@ -456,9 +456,12 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
     | Some s ->
         `Assoc
           ([ ("provider", `String s.provider); ("model", `String s.model) ]
+          @ (match s.language with
+            | Some l -> [ ("language", `String l) ]
+            | None -> [])
           @
-          match s.language with
-          | Some l -> [ ("language", `String l) ]
+          match s.credential_handle with
+          | Some h -> [ ("credential_handle", `String h) ]
           | None -> [])
   in
   let gateway_fields =
@@ -737,9 +740,12 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
             ("api_key", `String ws.search_api_key);
             ("num_results", `Int ws.num_results);
           ]
+          @ (match ws.search_base_url with
+            | Some u -> [ ("base_url", `String u) ]
+            | None -> [])
           @
-          match ws.search_base_url with
-          | Some u -> [ ("base_url", `String u) ]
+          match ws.credential_handle with
+          | Some h -> [ ("credential_handle", `String h) ]
           | None -> []
         in
         fields @ [ ("web_search", `Assoc ws_fields) ]
@@ -752,11 +758,15 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
         @ [
             ( "zai_mcp",
               `Assoc
-                [
-                  ("api_key", `String zm.key);
-                  ("websearch_enabled", `Bool zm.websearch_enabled);
-                  ("webfetch_enabled", `Bool zm.webfetch_enabled);
-                ] );
+                ([
+                   ("api_key", `String zm.key);
+                   ("websearch_enabled", `Bool zm.websearch_enabled);
+                   ("webfetch_enabled", `Bool zm.webfetch_enabled);
+                 ]
+                @
+                match zm.credential_handle with
+                | Some h -> [ ("credential_handle", `String h) ]
+                | None -> []) );
           ]
     | None -> fields
   in

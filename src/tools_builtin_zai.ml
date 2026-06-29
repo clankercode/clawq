@@ -6,6 +6,8 @@
    Web Search endpoint: https://api.z.ai/api/mcp/web_search_prime/mcp
    Web Reader endpoint: https://api.z.ai/api/mcp/web_reader/mcp *)
 
+open Tools_builtin_util
+
 let zai_starts_with_ci ~prefix s =
   let p = String.lowercase_ascii prefix in
   let v = String.lowercase_ascii s in
@@ -256,29 +258,74 @@ let zai_websearch_with_post ~http_post ~(config : Runtime_config.t) =
             "Error: parameter \"query\" is required. Provide a search query \
              string, e.g. {\"query\": \"OCaml MCP server\"}."
         else
-          let api_key = zai_mcp_api_key config in
-          if not (Runtime_config.is_key_set api_key) then
-            Lwt.return
-              "Error: Z.ai API key not configured. Add a \"zai_mcp\" section \
-               to ~/.clawq/config.json with \"enabled\": true, or set \
-               providers.zai.api_key / providers.zai_coding.api_key."
-          else
-            let open Lwt.Syntax in
-            let endpoint = "https://api.z.ai/api/mcp/web_search_prime/mcp" in
-            let arguments = `Assoc [ ("query", `String query) ] in
-            let* discovered =
-              zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
-                ~cache:discovery_cache
-            in
-            let tool_name =
-              match discovered with
-              | Ok name -> name
-              | Error _ -> "webSearchPrime"
-            in
-            Lwt.catch
-              (fun () ->
-                zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments)
-              (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+          (* Resolve API key through credential lease API when handle is set *)
+          let credential_handle =
+            match config.zai_mcp with
+            | Some zm -> zm.credential_handle
+            | None -> None
+          in
+          match credential_handle with
+          | Some hid -> (
+              (* Credential handle is set - must resolve or deny *)
+              match
+                resolve_credential_handle ~config ~handle_id:(Some hid)
+                  ~header_name:"Authorization"
+              with
+              | Error msg -> Lwt.return ("Error: " ^ msg)
+              | Ok api_key ->
+                  if not (Runtime_config.is_key_set api_key) then
+                    Lwt.return
+                      "Error: Z.ai credential lease resolved but produced no \
+                       API key."
+                  else
+                    let open Lwt.Syntax in
+                    let endpoint =
+                      "https://api.z.ai/api/mcp/web_search_prime/mcp"
+                    in
+                    let arguments = `Assoc [ ("query", `String query) ] in
+                    let* discovered =
+                      zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+                        ~cache:discovery_cache
+                    in
+                    let tool_name =
+                      match discovered with
+                      | Ok name -> name
+                      | Error _ -> "webSearchPrime"
+                    in
+                    Lwt.catch
+                      (fun () ->
+                        zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name
+                          ~arguments)
+                      (fun exn ->
+                        Lwt.return ("Error: " ^ Printexc.to_string exn)))
+          | None ->
+              (* No credential handle - use legacy key *)
+              let api_key = zai_mcp_api_key config in
+              if not (Runtime_config.is_key_set api_key) then
+                Lwt.return
+                  "Error: Z.ai API key not configured. Add a \"zai_mcp\" \
+                   section to ~/.clawq/config.json with \"enabled\": true, or \
+                   set providers.zai.api_key / providers.zai_coding.api_key."
+              else
+                let open Lwt.Syntax in
+                let endpoint =
+                  "https://api.z.ai/api/mcp/web_search_prime/mcp"
+                in
+                let arguments = `Assoc [ ("query", `String query) ] in
+                let* discovered =
+                  zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+                    ~cache:discovery_cache
+                in
+                let tool_name =
+                  match discovered with
+                  | Ok name -> name
+                  | Error _ -> "webSearchPrime"
+                in
+                Lwt.catch
+                  (fun () ->
+                    zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name
+                      ~arguments)
+                  (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
@@ -321,27 +368,70 @@ let zai_webfetch_with_post ~http_post ~(config : Runtime_config.t) =
             "Error: parameter \"url\" is required. Provide a fully-formed URL \
              string, e.g. {\"url\": \"https://example.com\"}."
         else
-          let api_key = zai_mcp_api_key config in
-          if not (Runtime_config.is_key_set api_key) then
-            Lwt.return
-              "Error: Z.ai API key not configured. Add a \"zai_mcp\" section \
-               to ~/.clawq/config.json with \"enabled\": true, or set \
-               providers.zai.api_key / providers.zai_coding.api_key."
-          else
-            let open Lwt.Syntax in
-            let endpoint = "https://api.z.ai/api/mcp/web_reader/mcp" in
-            let arguments = `Assoc [ ("url", `String url) ] in
-            let* discovered =
-              zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
-                ~cache:discovery_cache
-            in
-            let tool_name =
-              match discovered with Ok name -> name | Error _ -> "webReader"
-            in
-            Lwt.catch
-              (fun () ->
-                zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments)
-              (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+          (* Resolve API key through credential lease API when handle is set *)
+          let credential_handle =
+            match config.zai_mcp with
+            | Some zm -> zm.credential_handle
+            | None -> None
+          in
+          match credential_handle with
+          | Some hid -> (
+              (* Credential handle is set - must resolve or deny *)
+              match
+                resolve_credential_handle ~config ~handle_id:(Some hid)
+                  ~header_name:"Authorization"
+              with
+              | Error msg -> Lwt.return ("Error: " ^ msg)
+              | Ok api_key ->
+                  if not (Runtime_config.is_key_set api_key) then
+                    Lwt.return
+                      "Error: Z.ai credential lease resolved but produced no \
+                       API key."
+                  else
+                    let open Lwt.Syntax in
+                    let endpoint = "https://api.z.ai/api/mcp/web_reader/mcp" in
+                    let arguments = `Assoc [ ("url", `String url) ] in
+                    let* discovered =
+                      zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+                        ~cache:discovery_cache
+                    in
+                    let tool_name =
+                      match discovered with
+                      | Ok name -> name
+                      | Error _ -> "webReader"
+                    in
+                    Lwt.catch
+                      (fun () ->
+                        zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name
+                          ~arguments)
+                      (fun exn ->
+                        Lwt.return ("Error: " ^ Printexc.to_string exn)))
+          | None ->
+              (* No credential handle - use legacy key *)
+              let api_key = zai_mcp_api_key config in
+              if not (Runtime_config.is_key_set api_key) then
+                Lwt.return
+                  "Error: Z.ai API key not configured. Add a \"zai_mcp\" \
+                   section to ~/.clawq/config.json with \"enabled\": true, or \
+                   set providers.zai.api_key / providers.zai_coding.api_key."
+              else
+                let open Lwt.Syntax in
+                let endpoint = "https://api.z.ai/api/mcp/web_reader/mcp" in
+                let arguments = `Assoc [ ("url", `String url) ] in
+                let* discovered =
+                  zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+                    ~cache:discovery_cache
+                in
+                let tool_name =
+                  match discovered with
+                  | Ok name -> name
+                  | Error _ -> "webReader"
+                in
+                Lwt.catch
+                  (fun () ->
+                    zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name
+                      ~arguments)
+                  (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
