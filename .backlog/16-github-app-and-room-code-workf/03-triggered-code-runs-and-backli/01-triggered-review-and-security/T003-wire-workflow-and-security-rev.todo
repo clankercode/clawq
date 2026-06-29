@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-29T20:16:23Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T20:16:23Z"
 complexity: high
 depends_on:
     - P16.M3.E1.T002
+duration_minutes: 0.009834322883333333
 estimate_hours: 3
 id: P16.M3.E1.T003
 priority: high
 started_at: "2026-06-29T20:16:23Z"
-status: in_progress
+status: done
 tags: []
 title: Wire workflow and security-review triggered run entrypoints
 ---

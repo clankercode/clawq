@@ -41,7 +41,7 @@ tasks:
       file: T003-wire-workflow-and-security-rev.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Wire workflow and security-review triggered run entrypoints
     - complexity: medium
