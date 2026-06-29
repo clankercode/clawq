@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-06-29T04:09:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T09:18:03Z"
 complexity: medium
 depends_on:
     - P15.M1.E3.T002
     - P15.M1.E2.T002
     - P15.M1.E2.T003
+duration_minutes: 308.30466652856666
 estimate_hours: 2
 id: P15.M1.E3.T003
 priority: high
 started_at: "2026-06-29T04:09:45Z"
-status: in_progress
+status: done
 tags: []
 title: Link artifacts and records from Teams and Slack messages
 ---

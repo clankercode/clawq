@@ -29,7 +29,7 @@ epics:
       locked: false
       name: Room Session Records and Artifact Links
       path: 03-room-session-records-and-artif
-      status: pending
+      status: done
 estimate_hours: 24
 id: P15.M1
 locked: false
@@ -40,4 +40,4 @@ stats:
     in_progress: 0
     pending: 10
     total_tasks: 10
-status: pending
+status: done

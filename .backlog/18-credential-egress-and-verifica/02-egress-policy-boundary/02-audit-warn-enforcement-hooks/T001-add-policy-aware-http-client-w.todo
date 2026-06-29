@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-29T08:49:55Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P18.M2.E1.T002
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 3
 id: P18.M2.E2.T001
 priority: high
-status: pending
-tags:
-    - security
-    - egress
+started_at: "2026-06-29T08:49:55Z"
+status: in_progress
+tags: []
 title: Add policy-aware HTTP client wrapper for explicit tools
 ---
 Acceptance: http_get/http_request/web_fetch/browser/MCP HTTP paths can call through policy-aware wrappers in audit/warn mode with fake-HTTP tests and no live network dependency.

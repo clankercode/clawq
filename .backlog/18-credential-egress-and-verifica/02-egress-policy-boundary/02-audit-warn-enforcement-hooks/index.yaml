@@ -22,7 +22,8 @@ tasks:
       file: T001-add-policy-aware-http-client-w.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add policy-aware HTTP client wrapper for explicit tools
     - complexity: medium
       depends_on:

@@ -20,7 +20,8 @@ tasks:
       file: T001-harden-teams-room-and-thread-s.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Harden Teams room and thread session mapping
     - complexity: high
       depends_on:

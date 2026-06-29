@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Connector Room Delivery Contract
       path: 01-connector-room-delivery-contra
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P15.M1

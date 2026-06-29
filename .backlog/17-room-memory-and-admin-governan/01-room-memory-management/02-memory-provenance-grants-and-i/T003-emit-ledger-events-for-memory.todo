@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-06-29T08:26:09Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on:
     - P17.M1.E1.T002
@@ -6,10 +9,9 @@ depends_on:
 estimate_hours: 2
 id: P17.M1.E2.T003
 priority: high
-status: pending
-tags:
-    - memory
-    - ledger
+started_at: "2026-06-29T08:26:09Z"
+status: in_progress
+tags: []
 title: Emit ledger events for memory mutations and grants
 ---
 Acceptance: save/correct/forget/grant changes record actor, channel, thread/message id, timestamp, source, snapshot, and redacted content preview.
