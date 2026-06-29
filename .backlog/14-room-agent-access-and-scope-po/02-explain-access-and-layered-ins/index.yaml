@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Explain Access Surface
       path: 01-explain-access-surface
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P14.M1.E2
