@@ -35,11 +35,18 @@ let resolve_tool_search agent (tc : Provider.tool_call) =
       Provider.make_tool_search_result ~tool_call_id:tc.id ~tools_json
 
 let room_profile_tool_denial agent ~session_key ~tool_name =
-  match session_key with
-  | None -> None
-  | Some session_key ->
-      Runtime_config.room_profile_tool_denial_for_session agent.config
-        ~session_key ~tool_name
+  (* P14.M2.E3.T001: when an access snapshot is set on the agent, use its
+     resolved allowed/denied tools instead of re-resolving from the live
+     config. This ensures config changes during execution don't alter
+     in-flight access. *)
+  match agent.access_snapshot with
+  | Some snap -> Access_snapshot.tool_denial snap ~tool_name
+  | None -> (
+      match session_key with
+      | None -> None
+      | Some session_key ->
+          Runtime_config.room_profile_tool_denial_for_session agent.config
+            ~session_key ~tool_name)
 
 let normalized_tool_call_json (tc : Provider.tool_call) =
   `Assoc

@@ -35,6 +35,12 @@ type t = {
      labels for deterministic ordering: default → workspace → channel → room.
      Passed to Prompt_builder.build for injection into the system prompt. *)
   mutable instruction_items : Runtime_config.effective_instruction_item list;
+  (* P14.M2.E3.T001: effective-access snapshot. When set, access checks
+     during this turn use the snapshot's resolved values instead of
+     re-resolving from the live config. Ensures config changes during
+     execution don't alter in-flight access. *)
+  mutable access_snapshot_id : string option;
+  mutable access_snapshot : Access_snapshot.t option;
 }
 
 exception Interrupted of string

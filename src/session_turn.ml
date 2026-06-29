@@ -575,17 +575,24 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
                    ?sender_name:queued.sender_name ?user_group:queued.user_group
                    ())
           in
-          (* Record effective-access snapshot when queued work begins. *)
+          (* Record effective-access snapshot when queued work begins and
+             store the snapshot on the agent. Clear any stale snapshot from
+             a previous turn when no snapshot_work_type is set. *)
           (match queued.snapshot_work_type with
           | Some work_type -> (
               match mgr.Session_core.db with
               | Some db ->
-                  ignore
-                    (Access_snapshot.record_for_work ~db
-                       ~config:mgr.Session_core.config ~work_type
-                       ~session_key:key ?room_id:queued.channel_id ())
+                  let snap =
+                    Access_snapshot.create_and_persist ~db
+                      ~config:mgr.Session_core.config ~work_type
+                      ~session_key:key ?room_id:queued.channel_id ()
+                  in
+                  agent.Agent.access_snapshot_id <- Some snap.id;
+                  agent.Agent.access_snapshot <- Some snap
               | None -> ())
-          | None -> ());
+          | None ->
+              agent.Agent.access_snapshot_id <- None;
+              agent.Agent.access_snapshot <- None);
           let* response =
             run_locked_turn mgr ~key agent interrupt ~message:turn_message
               ~content_parts:queued.content_parts
@@ -682,17 +689,26 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
           in
           let run_with_lock agent interrupt =
             Session_core.with_in_flight mgr (fun () ->
-                (* Record effective-access snapshot when work begins *)
+                (* Record effective-access snapshot when work begins and
+                   store the snapshot on the agent so tools can use
+                   snapshot-scoped access instead of re-resolving from
+                   the live config. Clear any stale snapshot from a
+                   previous turn when no snapshot_work_type is set. *)
                 (match snapshot_work_type with
                 | Some work_type -> (
                     match mgr.Session_core.db with
                     | Some db ->
-                        ignore
-                          (Access_snapshot.record_for_work ~db
-                             ~config:mgr.Session_core.config ~work_type
-                             ~session_key:key ?room_id:channel_id ())
+                        let snap =
+                          Access_snapshot.create_and_persist ~db
+                            ~config:mgr.Session_core.config ~work_type
+                            ~session_key:key ?room_id:channel_id ()
+                        in
+                        agent.Agent.access_snapshot_id <- Some snap.id;
+                        agent.Agent.access_snapshot <- Some snap
                     | None -> ())
-                | None -> ());
+                | None ->
+                    agent.Agent.access_snapshot_id <- None;
+                    agent.Agent.access_snapshot <- None);
                 (match cwd with
                 | Some c ->
                     Session_core.apply_cwd_change_for_turn mgr ~key agent ~cwd:c
@@ -1177,17 +1193,25 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                 | None -> Lwt.return Session_core.draining_message)
               (fun agent interrupt ->
                 Session_core.with_in_flight mgr (fun () ->
-                    (* Record effective-access snapshot when work begins *)
+                    (* Record effective-access snapshot when work begins and
+                       store the snapshot on the agent. Clear any stale
+                       snapshot from a previous turn when no snapshot_work_type
+                       is set. *)
                     (match snapshot_work_type with
                     | Some work_type -> (
                         match mgr.Session_core.db with
                         | Some db ->
-                            ignore
-                              (Access_snapshot.record_for_work ~db
-                                 ~config:mgr.Session_core.config ~work_type
-                                 ~session_key:key ?room_id:channel_id ())
+                            let snap =
+                              Access_snapshot.create_and_persist ~db
+                                ~config:mgr.Session_core.config ~work_type
+                                ~session_key:key ?room_id:channel_id ()
+                            in
+                            agent.Agent.access_snapshot_id <- Some snap.id;
+                            agent.Agent.access_snapshot <- Some snap
                         | None -> ())
-                    | None -> ());
+                    | None ->
+                        agent.Agent.access_snapshot_id <- None;
+                        agent.Agent.access_snapshot <- None);
                     (match cwd with
                     | Some c ->
                         Session_core.apply_cwd_change_for_turn mgr ~key agent

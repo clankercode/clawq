@@ -92,9 +92,23 @@ let run_local_background_turn ~(session_manager : Session.t) ~key ~message
             Session_core.resolve_instruction_items_for_session session_manager
               ~key
           in
+          (* P14.M2.E3.T001: create an access snapshot for this background task
+             so tools use snapshot-scoped access instead of the live config. *)
+          let access_snapshot =
+            match session_manager.Session_core.db with
+            | Some db ->
+                Some
+                  (Access_snapshot.create_and_persist ~db
+                     ~config:session_manager.Session_core.config
+                     ~work_type:Background_task ~session_key:key ())
+            | None -> None
+          in
           let agent =
             Agent.create ~config ?tool_registry ~agent_template:tmpl
-              ~instruction_items ()
+              ~instruction_items
+              ?access_snapshot_id:
+                (Option.map (fun s -> s.Access_snapshot.id) access_snapshot)
+              ?access_snapshot ()
           in
           (match session_manager.Session_core.db with
           | Some db ->

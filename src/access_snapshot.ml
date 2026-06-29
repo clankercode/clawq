@@ -568,6 +568,36 @@ let record_for_work ~(db : Sqlite3.db) ~(config : Runtime_config.t) ~work_type
      ());
   snap.id
 
+(** [create_and_persist ~db ~config ~work_type ...] creates a snapshot, persists
+    it, and returns the full snapshot record. Used when the caller needs both
+    the snapshot ID and the resolved access fields (e.g. to store on the agent
+    for snapshot-scoped access during execution). *)
+let create_and_persist ~(db : Sqlite3.db) ~(config : Runtime_config.t)
+    ~work_type ?session_key ?room_id ?profile_id () =
+  let snap = create ~config ~work_type ?session_key ?room_id ?profile_id () in
+  (try persist ~db snap with _ -> ());
+  snap
+
+(** [tool_denial snap ~tool_name] checks whether a tool should be denied based
+    on the snapshot's resolved allowed/denied tools. Returns [Some msg] if
+    denied, [None] if allowed. When the snapshot has a non-empty allowed_tools
+    list, the tool must be present in it. If the tool is in denied_tools, it is
+    always denied. *)
+let tool_denial (snap : t) ~tool_name : string option =
+  if List.mem tool_name snap.denied_tools then
+    Some
+      (Printf.sprintf
+         "Error: Tool '%s' is denied by the access snapshot policy." tool_name)
+  else if
+    snap.allowed_tools <> [] && not (List.mem tool_name snap.allowed_tools)
+  then
+    Some
+      (Printf.sprintf
+         "Error: Tool '%s' is not in the allowed tools list for this access \
+          snapshot."
+         tool_name)
+  else None
+
 let export_json ~(db : Sqlite3.db) ?(limit = 100) ?work_type ?session_key
     ?room_id ?config_hash ~path () =
   let snaps =
