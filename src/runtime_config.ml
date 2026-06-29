@@ -1011,7 +1011,7 @@ let resolve_effective_access (cfg : t) ~session_key ?room_profile () :
          |> List.concat_map (fun key ->
              Option.value ~default:[] (Hashtbl.find_opt table key))
        in
-       profile_bundles @ scope_groups
+       scope_groups @ profile_bundles
        |> List.concat_map (fun (_layer, _source_id, (bundle : access_bundle)) ->
            bundle.egress_rules));
   }

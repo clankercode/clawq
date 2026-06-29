@@ -280,6 +280,7 @@
   command_bridge_session
   command_bridge_debug
   command_bridge_agent_cmds
+  room_session_cli
   command_bridge_bgcmd
   command_bridge_tunnel
   mcp_server
