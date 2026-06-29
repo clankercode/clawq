@@ -11,8 +11,8 @@
 
 (** {1 Sensitive parameter detection} *)
 
-(** List of query parameter names that are considered sensitive. Case-insensitive
-    matching is used. *)
+(** List of query parameter names that are considered sensitive.
+    Case-insensitive matching is used. *)
 let sensitive_param_names =
   [
     "token";
@@ -61,10 +61,8 @@ let is_sensitive_param name =
   List.exists
     (fun sensitive -> String.equal lower sensitive)
     sensitive_param_names
-  || contains "_token" lower
-  || contains "_secret" lower
-  || contains "_key" lower
-  || contains "_password" lower
+  || contains "_token" lower || contains "_secret" lower
+  || contains "_key" lower || contains "_password" lower
 
 (** {1 URL sanitization} *)
 
@@ -72,8 +70,7 @@ let is_sensitive_param name =
     Shows only the first 4 characters followed by "***". *)
 let mask_value value =
   let len = String.length value in
-  if len <= 4 then "***"
-  else String.sub value 0 4 ^ "***"
+  if len <= 4 then "***" else String.sub value 0 4 ^ "***"
 
 (** [sanitize_query_params query] masks sensitive query parameters. *)
 let sanitize_query_params query =
@@ -98,10 +95,10 @@ let mask_userinfo uri =
     sensitive query parameters and masks credentials in userinfo.
 
     Examples:
-    - [sanitize_url "https://example.com/page?token=abc123&name=foo"]
-      returns ["https://example.com/page?token=abc***&name=foo"]
-    - [sanitize_url "https://user:password@host/path"]
-      returns ["https://user:***@host/path"] *)
+    - [sanitize_url "https://example.com/page?token=abc123&name=foo"] returns
+      ["https://example.com/page?token=abc***&name=foo"]
+    - [sanitize_url "https://user:password@host/path"] returns
+      ["https://user:***@host/path"] *)
 let sanitize_url (url : string) =
   let trimmed = String.trim url in
   if trimmed = "" then ""

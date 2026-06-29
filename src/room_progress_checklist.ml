@@ -200,8 +200,8 @@ let select_columns =
 (** {1 Append} *)
 
 (** [append ~db ~task_id ~title ?transcript_url ?session_url ?session_record_id
-     ()] adds a new checklist item in [Planned] state. Returns the created
-    item. *)
+     ()] adds a new checklist item in [Planned] state. Returns the created item.
+*)
 let append ~db ~task_id ~title ?transcript_url ?session_url ?session_record_id
     () =
   let ts = timestamp_now () in

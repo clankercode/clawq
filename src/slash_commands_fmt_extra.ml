@@ -573,10 +573,15 @@ let format_room_memory_save ~connector ~db ~cfg ~channel_id ~is_admin ~reference
     | Error msg -> msg
     | Ok scope -> (
         let provenance = if is_admin then "admin-channel" else "channel" in
+        let ledger ~room_id ~event_type ~actor ~metadata =
+          ignore
+            (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor
+               ~metadata)
+        in
         try
           let m =
             Memory.upsert_scoped_memory ~db ~scope_id:scope.id ~reference
-              ~content ~provenance ()
+              ~content ~provenance ~ledger ()
           in
           Printf.sprintf "Saved memory '%s' (ID: %d) for this channel."
             (Format_adapter.escape connector m.reference)
@@ -611,9 +616,14 @@ let format_room_memory_correct ~connector ~db ~cfg ~channel_id ~is_admin
                   if is_admin then "corrected:admin-channel"
                   else "corrected:channel"
                 in
+                let ledger ~room_id ~event_type ~actor ~metadata =
+                  ignore
+                    (Room_activity_ledger.append_now ~db ~room_id ~event_type
+                       ~actor ~metadata)
+                in
                 match
                   Memory.correct_scoped_memory ~db ~id:memory_id ~content
-                    ~provenance ()
+                    ~provenance ~ledger ()
                 with
                 | None ->
                     Printf.sprintf "Error: failed to correct memory #%d."
@@ -654,9 +664,15 @@ let format_room_memory_forget ~connector ~db ~cfg ~channel_id ~is_admin
                 | [] -> "user request"
                 | parts -> String.concat " " parts
               in
+              let ledger ~room_id ~event_type ~actor ~metadata =
+                ignore
+                  (Room_activity_ledger.append_now ~db ~room_id ~event_type
+                     ~actor ~metadata)
+              in
               if hard_purge then
                 if is_admin then
-                  if Memory.delete_scoped_memory ~db ~id:memory_id then
+                  if Memory.delete_scoped_memory ~db ~id:memory_id ~ledger ()
+                  then
                     Printf.sprintf
                       "Hard-purged memory #%d '%s' for this channel." memory_id
                       (Format_adapter.escape connector m.reference)
@@ -668,7 +684,8 @@ let format_room_memory_forget ~connector ~db ~cfg ~channel_id ~is_admin
                 Printf.sprintf
                   "Memory #%d is already redacted. Use --hard to purge."
                   memory_id
-              else if Memory.redact_scoped_memory ~db ~id:memory_id ~reason ()
+              else if
+                Memory.redact_scoped_memory ~db ~id:memory_id ~reason ~ledger ()
               then
                 Printf.sprintf
                   "Forgot (redacted) memory #%d '%s' for this channel."

@@ -345,7 +345,10 @@ let room_memory_show ~db =
   }
 
 (** [room_memory_save] tool: save or update a room memory. *)
-let room_memory_save ~db =
+let no_op_ledger : Memory.ledger_fn =
+ fun ~room_id:_ ~event_type:_ ~actor:_ ~metadata:_ -> ()
+
+let room_memory_save ~db ~ledger =
   let schema =
     `Assoc
       [
@@ -445,7 +448,8 @@ let room_memory_save ~db =
                         (fun () ->
                           let m =
                             Memory.upsert_scoped_memory ~db ~scope_id:scope.id
-                              ~reference ~content ~provenance ~visibility ()
+                              ~reference ~content ~provenance ~visibility
+                              ~ledger ()
                           in
                           let vis_str =
                             match m.visibility with
@@ -468,7 +472,7 @@ let room_memory_save ~db =
   }
 
 (** [room_memory_correct] tool: correct an existing room memory. *)
-let room_memory_correct ~db =
+let room_memory_correct ~db ~ledger =
   let schema =
     `Assoc
       [
@@ -555,7 +559,7 @@ let room_memory_correct ~db =
                           let provenance = "corrected:agent-tool" in
                           match
                             Memory.correct_scoped_memory ~db ~id:memory_id
-                              ~content ~provenance ()
+                              ~content ~provenance ~ledger ()
                           with
                           | None ->
                               Lwt.return
@@ -575,7 +579,7 @@ let room_memory_correct ~db =
   }
 
 (** [room_memory_forget] tool: redact (soft-delete) a room memory. *)
-let room_memory_forget ~db =
+let room_memory_forget ~db ~ledger =
   let schema =
     `Assoc
       [
@@ -659,7 +663,7 @@ let room_memory_forget ~db =
                       | Some _ ->
                           if
                             Memory.redact_scoped_memory ~db ~id:memory_id
-                              ~reason ()
+                              ~reason ~ledger ()
                           then
                             Lwt.return
                               (Printf.sprintf
@@ -676,9 +680,9 @@ let room_memory_forget ~db =
   }
 
 (** Register all room memory tools. *)
-let register_room_memory_tools ~db registry =
+let register_room_memory_tools ~db ?(ledger = no_op_ledger) registry =
   Tool_registry.register registry (room_memory_list ~db);
   Tool_registry.register registry (room_memory_show ~db);
-  Tool_registry.register registry (room_memory_save ~db);
-  Tool_registry.register registry (room_memory_correct ~db);
-  Tool_registry.register registry (room_memory_forget ~db)
+  Tool_registry.register registry (room_memory_save ~db ~ledger);
+  Tool_registry.register registry (room_memory_correct ~db ~ledger);
+  Tool_registry.register registry (room_memory_forget ~db ~ledger)

@@ -728,9 +728,14 @@ let cmd_memory args =
         | Error msg -> msg
         | Ok scope_id -> (
             let db = get_db () in
+            let ledger ~room_id ~event_type ~actor ~metadata =
+              ignore
+                (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor
+                   ~metadata)
+            in
             match
               Memory.grant_access ~db ~is_admin ~scope_id ~principal_kind
-                ~principal_id ~capability ()
+                ~principal_id ~capability ~ledger ()
             with
             | Ok () -> "Created memory grant"
             | Error msg -> "Error: " ^ msg))
@@ -743,9 +748,14 @@ let cmd_memory args =
         | Error msg -> msg
         | Ok scope_id -> (
             let db = get_db () in
+            let ledger ~room_id ~event_type ~actor ~metadata =
+              ignore
+                (Room_activity_ledger.append_now ~db ~room_id ~event_type ~actor
+                   ~metadata)
+            in
             match
               Memory.revoke_access ~db ~is_admin ~scope_id ~principal_kind
-                ~principal_id ~capability ()
+                ~principal_id ~capability ~ledger ()
             with
             | Ok removed -> Printf.sprintf "Revoked %d memory grant(s)" removed
             | Error msg -> "Error: " ^ msg))

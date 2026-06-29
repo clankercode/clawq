@@ -30,6 +30,62 @@ let bind_int_option stmt index = function
       ignore (Sqlite3.bind stmt index (Sqlite3.Data.INT (Int64.of_int value)))
   | None -> ignore (Sqlite3.bind stmt index Sqlite3.Data.NULL)
 
+let sanitize_content_preview ?(max_len = 200) content =
+  let s =
+    if String.length content > max_len then String.sub content 0 max_len ^ "..."
+    else content
+  in
+  Str.global_replace (Str.regexp "Bearer [A-Za-z0-9._+/=-]+") "[REDACTED]" s
+
+type ledger_fn =
+  room_id:string ->
+  event_type:string ->
+  actor:string ->
+  metadata:Yojson.Safe.t ->
+  unit
+
+let emit_memory_event ?ledger ~scope_kind ~scope_key ~event_type ~actor
+    ~memory_id ?visibility ?content_preview () =
+  match ledger with
+  | None -> ()
+  | Some emit ->
+      let fields =
+        [
+          ("memory_id", `Int memory_id);
+          ("scope_kind", `String scope_kind);
+          ("scope_key", `String scope_key);
+          ("principal", `String actor);
+        ]
+      in
+      let fields =
+        match visibility with
+        | Some v -> ("visibility", `String (visibility_to_string v)) :: fields
+        | None -> fields
+      in
+      let fields =
+        match content_preview with
+        | Some p -> ("content_preview", `String p) :: fields
+        | None -> fields
+      in
+      emit ~room_id:scope_key ~event_type ~actor ~metadata:(`Assoc fields)
+
+let emit_grant_event ?ledger ~scope_kind ~scope_key ~event_type ~actor
+    ~principal_kind ~principal_id ~capability () =
+  match ledger with
+  | None -> ()
+  | Some emit ->
+      let metadata =
+        `Assoc
+          [
+            ("scope_kind", `String scope_kind);
+            ("scope_key", `String scope_key);
+            ("principal_kind", `String principal_kind);
+            ("principal_id", `String principal_id);
+            ("capability", `String capability);
+          ]
+      in
+      emit ~room_id:scope_key ~event_type ~actor ~metadata
+
 let sqlite_column_exists ~db ~table_name ~column_name =
   let stmt =
     Sqlite3.prepare db (Printf.sprintf "PRAGMA table_info(%s)" table_name)
@@ -140,7 +196,7 @@ let require_memory_grant_admin ~is_admin =
   if is_admin then Ok () else Error memory_grant_admin_error
 
 let grant_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
-    ~capability ?(grantor_kind = "admin") ?(grantor_id = "cli") () =
+    ~capability ?(grantor_kind = "admin") ?(grantor_id = "cli") ?ledger () =
   match require_memory_grant_admin ~is_admin with
   | Error _ as err -> err
   | Ok () -> (
@@ -162,7 +218,15 @@ let grant_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
             ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT grantor_kind));
             ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT grantor_id));
             match Sqlite3.step stmt with
-            | Sqlite3.Rc.DONE -> Ok ()
+            | Sqlite3.Rc.DONE ->
+                (match get_scope ~db ~id:scope_id with
+                | Some scope ->
+                    emit_grant_event ?ledger ~scope_kind:scope.kind
+                      ~scope_key:scope.key ~event_type:"scope_granted"
+                      ~actor:grantor_id ~principal_kind ~principal_id
+                      ~capability ()
+                | None -> ());
+                Ok ()
             | rc ->
                 Error
                   (Printf.sprintf "failed to create memory grant: %s"
@@ -171,7 +235,7 @@ let grant_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
         Error ("failed to create memory grant: " ^ Printexc.to_string exn))
 
 let revoke_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
-    ~capability () =
+    ~capability ?ledger () =
   match require_memory_grant_admin ~is_admin with
   | Error _ as err -> err
   | Ok () -> (
@@ -190,7 +254,17 @@ let revoke_access ~db ~is_admin ~scope_id ~principal_kind ~principal_id
             ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
             ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT capability));
             match Sqlite3.step stmt with
-            | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+            | Sqlite3.Rc.DONE ->
+                let changes = Sqlite3.changes db in
+                (if changes > 0 then
+                   match get_scope ~db ~id:scope_id with
+                   | Some scope ->
+                       emit_grant_event ?ledger ~scope_kind:scope.kind
+                         ~scope_key:scope.key ~event_type:"scope_revoked"
+                         ~actor:"admin" ~principal_kind ~principal_id
+                         ~capability ()
+                   | None -> ());
+                Ok changes
             | rc ->
                 Error
                   (Printf.sprintf "failed to revoke memory grant: %s"
@@ -311,7 +385,7 @@ let find_scoped_memory_id ~db ~scope_id ~reference =
       | _ -> None)
 
 let upsert_scoped_memory ~db ~scope_id ~reference ?content
-    ?(provenance = "unknown") ?visibility () =
+    ?(provenance = "unknown") ?visibility ?ledger () =
   if reference = "" then failwith "upsert_scoped_memory: reference is required";
   let inserted_or_updated_id = ref None in
   exec_exn db "BEGIN IMMEDIATE";
@@ -395,7 +469,13 @@ let upsert_scoped_memory ~db ~scope_id ~reference ?content
   match !inserted_or_updated_id with
   | Some id -> (
       match get_scoped_memory ~db ~id with
-      | Some row -> row
+      | Some row ->
+          emit_memory_event ?ledger ~scope_kind:row.scope_kind
+            ~scope_key:row.scope_key ~event_type:"memory_saved"
+            ~actor:provenance ~memory_id:row.id ~visibility:row.visibility
+            ?content_preview:(Option.map sanitize_content_preview content)
+            ();
+          row
       | None -> failwith "upsert_scoped_memory: stored row was not found")
   | None -> failwith "upsert_scoped_memory: no row stored"
 
@@ -459,20 +539,34 @@ let query_scoped_memories ~db ?scope_kind ?scope_key ?content_search ?provenance
         done);
     List.rev !rows
 
-let delete_scoped_memory ~db ~id =
+let delete_scoped_memory ~db ~id ?ledger () =
+  let existing = get_scoped_memory ~db ~id in
   let stmt = Sqlite3.prepare db "DELETE FROM scoped_memories WHERE id = ?" in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | Sqlite3.Rc.DONE ->
+          let success = Sqlite3.changes db > 0 in
+          if success then
+            Option.iter
+              (fun (m : scoped_memory) ->
+                emit_memory_event ?ledger ~scope_kind:m.scope_kind
+                  ~scope_key:m.scope_key ~event_type:"memory_hard_purged"
+                  ~actor:"admin" ~memory_id:m.id ~visibility:m.visibility
+                  ?content_preview:
+                    (Option.map sanitize_content_preview m.content)
+                  ())
+              existing;
+          success
       | _ -> false)
 
 (** Update the content of an existing scoped memory, preserving the old content
     in provenance metadata. Returns the updated memory row or [None] if the
     memory does not exist. *)
-let correct_scoped_memory ~db ~id ~content ?(provenance = "corrected") () =
+let correct_scoped_memory ~db ~id ~content ?(provenance = "corrected") ?ledger
+    () =
   match get_scoped_memory ~db ~id with
   | None -> None
   | Some existing ->
@@ -497,14 +591,26 @@ let correct_scoped_memory ~db ~id ~content ?(provenance = "corrected") () =
           ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT new_provenance));
           ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
           match Sqlite3.step stmt with
-          | Sqlite3.Rc.DONE -> get_scoped_memory ~db ~id
+          | Sqlite3.Rc.DONE ->
+              let result = get_scoped_memory ~db ~id in
+              Option.iter
+                (fun (row : scoped_memory) ->
+                  emit_memory_event ?ledger ~scope_kind:row.scope_kind
+                    ~scope_key:row.scope_key ~event_type:"memory_corrected"
+                    ~actor:provenance ~memory_id:row.id
+                    ~visibility:row.visibility
+                    ~content_preview:(sanitize_content_preview content)
+                    ())
+                result;
+              result
           | _ -> None)
 
 (** Soft-delete (redact) a scoped memory by setting [redacted_at],
     [redaction_reason], clearing the content, and redacting any provenance that
     may contain previous content. The row remains in the database for audit
     purposes but content is no longer visible. *)
-let redact_scoped_memory ~db ~id ?(reason = "user request") () =
+let redact_scoped_memory ~db ~id ?(reason = "user request") ?ledger () =
+  let existing = get_scoped_memory ~db ~id in
   let stmt =
     Sqlite3.prepare db
       "UPDATE scoped_memories SET redacted_at = datetime('now'), \
@@ -519,7 +625,19 @@ let redact_scoped_memory ~db ~id ?(reason = "user request") () =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT reason));
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | Sqlite3.Rc.DONE ->
+          let success = Sqlite3.changes db > 0 in
+          if success then
+            Option.iter
+              (fun (m : scoped_memory) ->
+                emit_memory_event ?ledger ~scope_kind:m.scope_kind
+                  ~scope_key:m.scope_key ~event_type:"memory_forgotten"
+                  ~actor:"user" ~memory_id:m.id ~visibility:m.visibility
+                  ?content_preview:
+                    (Option.map sanitize_content_preview m.content)
+                  ())
+              existing;
+          success
       | _ -> false)
 
 let resolve_grants ~db ~scope_id ~principal_kind ~principal_id =
@@ -562,7 +680,7 @@ let team_grant_of_stmt stmt =
     granted_at = text_col stmt 4;
   }
 
-let add_team_grant ~db ~memory_id ~principal_kind ~principal_id =
+let add_team_grant ~db ~memory_id ~principal_kind ~principal_id ?ledger () =
   let sql =
     "INSERT OR IGNORE INTO memory_team_grants (memory_id, principal_kind, \
      principal_id) VALUES (?, ?, ?)"
@@ -575,10 +693,22 @@ let add_team_grant ~db ~memory_id ~principal_kind ~principal_id =
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
       ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | Sqlite3.Rc.DONE ->
+          let success = Sqlite3.changes db > 0 in
+          if success then
+            Option.iter
+              (fun (m : scoped_memory) ->
+                emit_memory_event ?ledger ~scope_kind:m.scope_kind
+                  ~scope_key:m.scope_key ~event_type:"team_grant_added"
+                  ~actor:"admin" ~memory_id:m.id ~visibility:m.visibility
+                  ?content_preview:
+                    (Option.map sanitize_content_preview m.content)
+                  ())
+              (get_scoped_memory ~db ~id:memory_id);
+          success
       | _ -> false)
 
-let remove_team_grant ~db ~memory_id ~principal_kind ~principal_id =
+let remove_team_grant ~db ~memory_id ~principal_kind ~principal_id ?ledger () =
   let sql =
     "DELETE FROM memory_team_grants WHERE memory_id = ? AND principal_kind = ? \
      AND principal_id = ?"
@@ -591,7 +721,19 @@ let remove_team_grant ~db ~memory_id ~principal_kind ~principal_id =
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_kind));
       ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> Sqlite3.changes db > 0
+      | Sqlite3.Rc.DONE ->
+          let success = Sqlite3.changes db > 0 in
+          if success then
+            Option.iter
+              (fun (m : scoped_memory) ->
+                emit_memory_event ?ledger ~scope_kind:m.scope_kind
+                  ~scope_key:m.scope_key ~event_type:"team_grant_removed"
+                  ~actor:"admin" ~memory_id:m.id ~visibility:m.visibility
+                  ?content_preview:
+                    (Option.map sanitize_content_preview m.content)
+                  ())
+              (get_scoped_memory ~db ~id:memory_id);
+          success
       | _ -> false)
 
 let list_team_grants ~db ~memory_id =

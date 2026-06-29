@@ -4279,7 +4279,7 @@ let test_rooms_memory_show_hides_team_grants_from_non_admin () =
       in
       ignore
         (Memory.add_team_grant ~db ~memory_id:team_memory.id
-           ~principal_kind:"profile" ~principal_id:(string_of_int profile_id));
+           ~principal_kind:"profile" ~principal_id:(string_of_int profile_id) ());
       Unix.putenv "CLAWQ_ADMIN" "";
       let show_result =
         Command_bridge.handle

@@ -69,6 +69,7 @@
   test_room_session_record
   test_memory_retention
   test_memory_search
+  test_memory_ledger
   test_minimal_reload
   test_migrate
   test_model_preferences

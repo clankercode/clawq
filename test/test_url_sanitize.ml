@@ -43,9 +43,7 @@ let test_sanitize_url_password_param () =
     (Test_helpers.string_contains sanitized "user=bob")
 
 let test_sanitize_url_multiple_sensitive () =
-  let url =
-    "https://example.com/api?token=abc&secret=xyz&safe=keep"
-  in
+  let url = "https://example.com/api?token=abc&secret=xyz&safe=keep" in
   let sanitized = Url_sanitize.sanitize_url url in
   Alcotest.(check bool)
     "safe preserved" true
@@ -75,7 +73,8 @@ let test_sanitize_url_userinfo () =
     (Test_helpers.string_contains sanitized "password123")
 
 let test_safe_teams_link () =
-  let link = Url_sanitize.safe_teams_link "https://example.com/tr" "transcript"
+  let link =
+    Url_sanitize.safe_teams_link "https://example.com/tr" "transcript"
   in
   Alcotest.(check bool)
     "has label" true
@@ -85,7 +84,8 @@ let test_safe_teams_link () =
     (Test_helpers.string_contains link "https://example.com/tr")
 
 let test_safe_slack_link () =
-  let link = Url_sanitize.safe_slack_link "https://example.com/tr" "transcript"
+  let link =
+    Url_sanitize.safe_slack_link "https://example.com/tr" "transcript"
   in
   Alcotest.(check bool)
     "has label" true
@@ -118,7 +118,8 @@ let test_safe_slack_link_sanitizes () =
 let suite =
   [
     Alcotest.test_case "sanitize url empty" `Quick test_sanitize_url_empty;
-    Alcotest.test_case "sanitize url no params" `Quick test_sanitize_url_no_params;
+    Alcotest.test_case "sanitize url no params" `Quick
+      test_sanitize_url_no_params;
     Alcotest.test_case "sanitize url safe params" `Quick
       test_sanitize_url_safe_params;
     Alcotest.test_case "sanitize url token param" `Quick
