@@ -93,6 +93,7 @@
   room_stale_query
   room_watcher_decision
   delivery_types
+  teams_delivery_lifecycle
   room_ambient_delivery
   ambient_inspection
   room_progress

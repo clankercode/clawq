@@ -105,6 +105,7 @@
   test_room_progress_checklist
   test_slack_progress_checklist
   test_teams_progress_card
+  test_teams_delivery_lifecycle
   test_url_sanitize
   test_room_stale_query
   test_room_watcher_decision

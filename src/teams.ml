@@ -420,14 +420,14 @@ let edit_activity ~(config : Runtime_config.teams_config) ~service_url
           "Teams: refusing to edit activity %s with empty text (conv=%s); \
            Teams would reject with HTTP 400 BadSyntax"
           activity_id conversation_id);
-    Lwt.return_unit
+    Lwt.fail (Failure "Teams edit_activity: empty text")
   end
   else
     let* token_opt = fetch_token ~config in
     match token_opt with
     | None ->
         Logs.err (fun m -> m "Teams: cannot edit activity, no OAuth token");
-        Lwt.return_unit
+        Lwt.fail (Failure "Teams edit_activity: no OAuth token")
     | Some token ->
         let uri =
           Printf.sprintf "%s/v3/conversations/%s/activities/%s"
@@ -448,11 +448,15 @@ let edit_activity ~(config : Runtime_config.teams_config) ~service_url
         let* status, resp =
           put_json_throttled ~conversation_id ~uri ~headers ~body
         in
-        if status < 200 || status >= 300 then
+        if status < 200 || status >= 300 then begin
           Logs.warn (fun m ->
               m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
                 status conversation_id activity_id resp);
-        Lwt.return_unit
+          Lwt.fail
+            (Failure
+               (Printf.sprintf "Teams edit_activity HTTP %d: %s" status resp))
+        end
+        else Lwt.return_unit
 
 let delete_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~activity_id () =
