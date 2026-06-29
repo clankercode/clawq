@@ -1081,8 +1081,8 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                             ( "egress_rules",
                               `List
                                 (List.map
-                                   (fun (r :
-                                          Runtime_config_types.egress_rule) ->
+                                   (fun (r : Runtime_config_types.egress_rule)
+                                      ->
                                      `Assoc
                                        ([
                                           ("host", `String r.host);
