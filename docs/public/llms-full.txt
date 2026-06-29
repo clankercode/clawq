@@ -154,6 +154,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `rooms routine enable NAME` | Enable a disabled room routine. Admin-only |
 | `rooms routine disable NAME` | Disable a room routine without removing it. Admin-only |
 | `rooms routine trigger NAME` | Trigger a room routine immediately. Admin-only |
+| `rooms wizard [interactive\|plan\|apply\|rerun] [options]` | Pilot setup wizard for room-agent profiles. Teams-first rollout with Slack baseline support. Interactive mode requires `CLAWQ_ADMIN=1`; plan mode is read-only. Options: `--profile-id`, `--model`, `--system-prompt`, `--max-iters`, `--allowed-tools`, `--denied-tools`, `--access-bundles`, `--token-limit`, `--cost-limit`, `--reset-period`, `--connector`, `--room`, `--inactive`, `--apply` (rerun only). See `docs/pilot-setup-wizard.md` |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
 | `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (auto-backs up workspace first; leaves cron jobs and config.json intact) |
 | `runtime` | Manage native and Docker runtimes (default: status) |
@@ -974,6 +975,11 @@ The current npm release artifact is built on Linux. On other platforms, use the 
 - **No providers configured**: ensure `providers` section exists in config with either a valid api_key or a configured subscription provider such as `openai-codex`, and `agent_defaults.primary_model` is set to a `provider:model` string (e.g. `"openrouter:openai/gpt-4o"` or `"openai-codex:gpt-5.4"`).
 - **LLM API errors**: verify API key validity, try a different model, check base_url matches provider.
 - **Config not found**: run `clawq onboard` to create the initial config, or `clawq config wizard` after a config already exists.
+- **`clawq rooms wizard` requires admin**: set `CLAWQ_ADMIN=1` in your environment. Plan mode is read-only and does not require admin.
+- **Wizard shows "Connector not configured"**: the connector you specified doesn't have usable credentials. Run `clawq config show channels` to verify. Teams requires `app_id` and `app_secret`; Slack requires `bot_token` and `signing_secret`.
+- **Wizard shows "Room ID format is invalid"**: each connector has specific room ID requirements. Teams: must start with `19:` or end with `@thread.tacv2`. Slack: must start with `C`, `G`, `D`, or `#`.
+- **Wizard rerun shows "Blocked" items**: missing dependencies (e.g., access bundles not created, connector not configured). Resolve the dependency first, then re-run.
+- **Wizard not available in minimal build**: the pilot setup wizard requires the full `clawq` binary. Use `clawq` instead of `clawq-min`.
 - **Check health**: `curl http://127.0.0.1:13451/health`.
 - **Pairing confusion in browser**: use `clawq otp-show`, then `GET /pair` to inspect pairing status if needed; `POST /pair/regenerate` requires existing auth.
 - **Reset state**: `clawq reset-agent` (wipes sessions + cron + workspace) or `clawq reset-workspace` (lighter, keeps cron). Both auto-backup workspace files before resetting; restore with `clawq workspace restore <name>`.
