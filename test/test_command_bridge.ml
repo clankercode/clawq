@@ -3925,7 +3925,17 @@ let test_rooms_memory_save_bound_room_sets_owner_and_allows_read () =
 }|});
       let save_result =
         Command_bridge.handle
-          [ "rooms"; "memory"; "save"; "slack:C1"; "guideline"; "Use"; "TDD" ]
+          [
+            "rooms";
+            "memory";
+            "save";
+            "slack:C1";
+            "guideline";
+            "Use";
+            "TDD";
+            "--visibility";
+            "private";
+          ]
       in
       Alcotest.(check bool)
         "bound room owner can save first memory" true
@@ -4160,6 +4170,134 @@ let test_rooms_memory_existing_owner_is_not_overwritten () =
       Alcotest.(check (option int))
         "existing owner profile is not overwritten" (Some old_profile_id)
         scope.profile_id)
+
+let test_rooms_memory_list_and_show_filter_team_visibility () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      ignore
+        (Command_bridge.handle
+           [
+             "rooms";
+             "memory";
+             "save";
+             "slack:C1";
+             "public-note";
+             "visible";
+             "fact";
+           ]);
+      ignore
+        (Command_bridge.handle
+           [
+             "rooms";
+             "memory";
+             "save";
+             "slack:C1";
+             "team-secret";
+             "secret-token";
+             "--visibility";
+             "team";
+           ]);
+      let team_memory =
+        Memory.query_scoped_memories ~db ~scope_kind:"room"
+          ~scope_key:"slack:C1" ~limit:10 ()
+        |> List.find (fun (m : Memory.scoped_memory) ->
+            m.reference = "team-secret")
+      in
+      Unix.putenv "CLAWQ_ADMIN" "";
+      let list_result =
+        Command_bridge.handle [ "rooms"; "memory"; "list"; "slack:C1" ]
+      in
+      Alcotest.(check bool)
+        "list includes visible memory" true
+        (Test_helpers.string_contains list_result "public-note");
+      Alcotest.(check bool)
+        "list hides team memory without team grant" true
+        (not (Test_helpers.string_contains list_result "team-secret"));
+      Alcotest.(check bool)
+        "list hides team memory content without team grant" true
+        (not (Test_helpers.string_contains list_result "secret-token"));
+      let show_result =
+        Command_bridge.handle
+          [
+            "rooms"; "memory"; "show"; "slack:C1"; string_of_int team_memory.id;
+          ]
+      in
+      Alcotest.(check bool)
+        "show denies invisible team memory" true
+        (Test_helpers.string_contains show_result "not visible");
+      Alcotest.(check bool)
+        "show does not leak invisible team memory content" true
+        (not (Test_helpers.string_contains show_result "secret-token")))
+
+let test_rooms_memory_show_hides_team_grants_from_non_admin () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "room_profiles": [
+    {"id": "coding", "model": "gpt-5", "system_prompt": "", "max_tool_iterations": 10}
+  ],
+  "room_profile_bindings": [
+    {"profile_id": "coding", "room": "slack:C1", "active": true}
+  ]
+}|});
+      Unix.putenv "CLAWQ_ADMIN" "1";
+      ignore
+        (Command_bridge.handle
+           [
+             "rooms";
+             "memory";
+             "save";
+             "slack:C1";
+             "team-shared";
+             "shared-secret";
+             "--visibility";
+             "team";
+           ]);
+      let team_memory =
+        Memory.query_scoped_memories ~db ~scope_kind:"room"
+          ~scope_key:"slack:C1" ~limit:10 ()
+        |> List.find (fun (m : Memory.scoped_memory) ->
+            m.reference = "team-shared")
+      in
+      let profile_id =
+        match Memory.get_room_profile_binding ~db ~room_id:"slack:C1" with
+        | Some binding -> binding.profile_id
+        | None -> Alcotest.fail "expected room profile binding"
+      in
+      ignore
+        (Memory.add_team_grant ~db ~memory_id:team_memory.id
+           ~principal_kind:"profile" ~principal_id:(string_of_int profile_id));
+      Unix.putenv "CLAWQ_ADMIN" "";
+      let show_result =
+        Command_bridge.handle
+          [
+            "rooms"; "memory"; "show"; "slack:C1"; string_of_int team_memory.id;
+          ]
+      in
+      Alcotest.(check bool)
+        "show still displays visible team memory content" true
+        (Test_helpers.string_contains show_result "shared-secret");
+      Alcotest.(check bool)
+        "show hides team grant heading from non-admin" true
+        (not (Test_helpers.string_contains show_result "--- Team Grants ---"));
+      Alcotest.(check bool)
+        "show hides team grant principal from non-admin" true
+        (not
+           (Test_helpers.string_contains show_result
+              (Printf.sprintf "profile:%d" profile_id))))
 
 let find_loaded_room_profile id =
   let cfg = Config_loader.load () in
@@ -5803,6 +5941,10 @@ let suite =
       `Quick test_rooms_memory_duplicate_config_binding_fails_closed;
     Alcotest.test_case "rooms memory existing owner not overwritten" `Quick
       test_rooms_memory_existing_owner_is_not_overwritten;
+    Alcotest.test_case "rooms memory filters team visibility" `Quick
+      test_rooms_memory_list_and_show_filter_team_visibility;
+    Alcotest.test_case "rooms memory hides grants from non-admin" `Quick
+      test_rooms_memory_show_hides_team_grants_from_non_admin;
     Alcotest.test_case "rooms usage" `Quick test_rooms_usage;
     Alcotest.test_case "rooms bind rejected without admin" `Quick
       test_rooms_bind_rejected_without_admin;

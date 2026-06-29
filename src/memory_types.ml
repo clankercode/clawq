@@ -122,3 +122,15 @@ type team_grant = {
   principal_id : string;
   granted_at : string;
 }
+
+type scope_grant = {
+  id : int;
+  scope_id : int;
+  principal_kind : string;
+  principal_id : string;
+  capability : string;
+  grantor_kind : string;
+  grantor_id : string;
+  created_at : string;
+  expires_at : string option;
+}
