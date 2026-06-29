@@ -69,11 +69,11 @@ let is_sensitive_param name =
 (** {1 URL sanitization} *)
 
 (** [mask_value _value] returns a masked representation of a sensitive value.
-    Shows only the first 4 characters followed by "***". *)
+    Shows only the first 4 characters followed by "[redacted]". *)
 let mask_value value =
   let len = String.length value in
-  if len <= 4 then "***"
-  else String.sub value 0 4 ^ "***"
+  if len <= 4 then "[redacted]"
+  else String.sub value 0 4 ^ "[redacted]"
 
 (** [sanitize_query_params query] masks sensitive query parameters. *)
 let sanitize_query_params query =
@@ -90,7 +90,7 @@ let mask_userinfo uri =
   match Uri.user uri with
   | Some _user -> (
       match Uri.password uri with
-      | Some _ -> Uri.with_password uri (Some "***")
+      | Some _ -> Uri.with_password uri (Some "[redacted]")
       | None -> uri)
   | None -> uri
 
