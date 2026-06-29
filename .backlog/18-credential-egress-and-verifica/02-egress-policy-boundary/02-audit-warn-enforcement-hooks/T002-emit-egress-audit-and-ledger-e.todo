@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-06-29T11:03:20Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T11:29:11Z"
 complexity: medium
 depends_on:
     - P18.M2.E2.T001
+duration_minutes: 25.860712554
 estimate_hours: 2
 id: P18.M2.E2.T002
 priority: high
 started_at: "2026-06-29T11:03:20Z"
-status: in_progress
+status: done
 tags: []
 title: Emit egress audit and ledger events
 ---
