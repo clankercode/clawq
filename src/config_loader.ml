@@ -1623,6 +1623,52 @@ let parse_config ?(resolve_secrets = true) json =
              ({ profile_id; room; active }
                : Runtime_config.room_profile_binding))
        with _ -> []);
+    external_room_policy =
+      (try
+         let erp = json |> member "external_room_policy" in
+         let parse_action json =
+           let action_type =
+             try json |> member "action" |> to_string with _ -> "warn"
+           in
+           match action_type with
+           | "allow" -> Runtime_config.Policy_allow
+           | "deny" ->
+               let reason =
+                 try json |> member "reason" |> to_string
+                 with _ -> "External room access denied."
+               in
+               let allow_admin =
+                 try json |> member "allow_admin_override" |> to_bool
+                 with _ -> false
+               in
+               Runtime_config.Policy_deny (reason, allow_admin)
+           | _ ->
+               (* "warn" or unknown *)
+               let msg =
+                 try json |> member "message" |> to_string
+                 with _ -> "External participants detected."
+               in
+               Runtime_config.Policy_warn msg
+         in
+         let default_action =
+           try parse_action (erp |> member "default")
+           with _ ->
+             Runtime_config.Policy_warn "External participants detected."
+         in
+         let per_connector =
+           try
+             erp |> member "per_connector" |> to_list
+             |> List.filter_map (fun entry ->
+                 try
+                   let name = entry |> member "connector" |> to_string in
+                   let action = parse_action entry in
+                   Some (name, action)
+                 with _ -> None)
+           with _ -> []
+         in
+         ({ default_action; per_connector }
+           : Runtime_config.external_room_policy)
+       with _ -> Runtime_config.default.external_room_policy);
   }
 
 (** Validate room_profiles and room_profile_bindings. Returns a list of issue

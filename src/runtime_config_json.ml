@@ -1311,4 +1311,45 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                  cfg.room_profile_bindings) );
         ]
   in
+  let fields =
+    let erp = cfg.external_room_policy in
+    let action_to_json (action : external_policy_action) =
+      match action with
+      | Policy_allow -> `Assoc [ ("action", `String "allow") ]
+      | Policy_warn msg ->
+          `Assoc [ ("action", `String "warn"); ("message", `String msg) ]
+      | Policy_deny (reason, allow_admin) ->
+          `Assoc
+            [
+              ("action", `String "deny");
+              ("reason", `String reason);
+              ("allow_admin_override", `Bool allow_admin);
+            ]
+    in
+    let per_connector_json =
+      List.map
+        (fun (name, action) ->
+          `Assoc
+            [
+              ("connector", `String name); ("action_obj", action_to_json action);
+            ])
+        erp.per_connector
+    in
+    let is_default =
+      match erp.default_action with
+      | Policy_warn "External participants detected." -> true
+      | _ -> false
+    in
+    if is_default && erp.per_connector = [] then fields
+    else
+      fields
+      @ [
+          ( "external_room_policy",
+            `Assoc
+              ([ ("default", action_to_json erp.default_action) ]
+              @
+              if per_connector_json = [] then []
+              else [ ("per_connector", `List per_connector_json) ]) );
+        ]
+  in
   `Assoc fields

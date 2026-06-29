@@ -55,6 +55,11 @@ type t = {
           to avoid leaking host/path patterns. *)
   instruction_digests : string list;
   redacted_summary : string;
+  room_classification : Runtime_config_types.room_scope;
+      (** Classification of the room at the time work began. *)
+  room_policy_decision : string;
+      (** Human-readable policy decision (e.g., "allow", "warn: ...", "deny:
+          ..."). Empty when no policy evaluation was performed. *)
 }
 
 let room_id_from_session_key key =
@@ -189,7 +194,7 @@ let access_session_key ?session_key room_id =
   | None, None -> "__anonymous__"
 
 let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
-    ?profile_id () : t =
+    ?profile_id ?room_classification ?(room_policy_decision = "") () : t =
   let derived_room_id =
     match room_id with
     | Some _ -> room_id
@@ -235,6 +240,9 @@ let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
     egress_rules_count = List.length access.egress_rules;
     instruction_digests = extract_instruction_digests access;
     redacted_summary = redacted_summary_of_access access;
+    room_classification =
+      Option.value room_classification ~default:Runtime_config_types.Rm_unknown;
+    room_policy_decision;
   }
 
 let sqlite_column_exists ~db ~table_name ~column_name =
@@ -329,7 +337,9 @@ let init_schema db =
       "memory_grants_json";
       "budget_refs_json";
     ];
-  ensure_int_column db "egress_rules_count" ~default:0
+  ensure_int_column db "egress_rules_count" ~default:0;
+  ignore (ensure_json_column db "room_classification");
+  ensure_json_column db "room_policy_decision"
 
 let list_to_json strings = `List (List.map (fun s -> `String s) strings)
 
@@ -348,7 +358,7 @@ let snapshot_select_columns =
    skills_json, repositories_json, repo_grants_json, blocked_repo_grants_json, \
    domains_json, credential_handles_json, memory_grants_json, \
    budget_refs_json, egress_rules_count, instruction_digests_json, \
-   redacted_summary"
+   redacted_summary, room_classification, room_policy_decision"
 
 let persist ~(db : Sqlite3.db) (snap : t) =
   let stmt =
@@ -360,8 +370,9 @@ let persist ~(db : Sqlite3.db) (snap : t) =
        repositories_json, repo_grants_json, blocked_repo_grants_json, \
        domains_json, credential_handles_json, memory_grants_json, \
        budget_refs_json, egress_rules_count, instruction_digests_json, \
-       redacted_summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
-       ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+       redacted_summary, room_classification, room_policy_decision) VALUES (?, \
+       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+       ?)"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -405,6 +416,10 @@ let persist ~(db : Sqlite3.db) (snap : t) =
       bind_text 23
         (Yojson.Safe.to_string (list_to_json snap.instruction_digests));
       bind_text 24 snap.redacted_summary;
+      bind_text 25
+        (Yojson.Safe.to_string
+           (`String (Room_policy.room_scope_to_string snap.room_classification)));
+      bind_text 26 snap.room_policy_decision;
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
@@ -482,6 +497,13 @@ let row_of_stmt stmt : t =
       | _ -> 0);
     instruction_digests = json_list 22;
     redacted_summary = text 23;
+    room_classification =
+      (let raw = text 24 in
+       match Yojson.Safe.from_string raw with
+       | `String s -> Room_policy.room_scope_of_string s
+       | _ -> Rm_unknown
+       | exception _ -> Rm_unknown);
+    room_policy_decision = text 25;
   }
 
 let query ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
@@ -588,11 +610,18 @@ let to_json (snap : t) : Yojson.Safe.t =
       ("egress_rules_count", `Int snap.egress_rules_count);
       ("instruction_digests", list_to_json snap.instruction_digests);
       ("redacted_summary", `String snap.redacted_summary);
+      ( "room_classification",
+        `String (Room_policy.room_scope_to_string snap.room_classification) );
+      ("room_policy_decision", `String snap.room_policy_decision);
     ]
 
 let record_for_work ~(db : Sqlite3.db) ~(config : Runtime_config.t) ~work_type
-    ?session_key ?room_id ?profile_id () =
-  let snap = create ~config ~work_type ?session_key ?room_id ?profile_id () in
+    ?session_key ?room_id ?profile_id ?room_classification ?room_policy_decision
+    () =
+  let snap =
+    create ~config ~work_type ?session_key ?room_id ?profile_id
+      ?room_classification ?room_policy_decision ()
+  in
   (try persist ~db snap
    with _ ->
      (* Table may not exist yet if schema init hasn't run; silently skip *)
@@ -604,8 +633,12 @@ let record_for_work ~(db : Sqlite3.db) ~(config : Runtime_config.t) ~work_type
     the snapshot ID and the resolved access fields (e.g. to store on the agent
     for snapshot-scoped access during execution). *)
 let create_and_persist ~(db : Sqlite3.db) ~(config : Runtime_config.t)
-    ~work_type ?session_key ?room_id ?profile_id () =
-  let snap = create ~config ~work_type ?session_key ?room_id ?profile_id () in
+    ~work_type ?session_key ?room_id ?profile_id ?room_classification
+    ?room_policy_decision () =
+  let snap =
+    create ~config ~work_type ?session_key ?room_id ?profile_id
+      ?room_classification ?room_policy_decision ()
+  in
   (try persist ~db snap with _ -> ());
   snap
 

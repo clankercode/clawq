@@ -19,6 +19,9 @@ type teams_activity = {
   team_id : string;
   text : string;
   is_group : bool;
+  is_external : bool;
+      (** True when the conversation involves users from outside the tenant. *)
+  tenant_id : string option;  (** Tenant identifier when available. *)
   mentioned_ids : string list;
   attachments : teams_attachment list;
 }
@@ -59,6 +62,16 @@ let parse_activity body_str =
       in
       let is_group =
         try conversation_obj |> member "isGroup" |> to_bool with _ -> false
+      in
+      let is_external =
+        try conversation_obj |> member "isExternal" |> to_bool with _ -> false
+      in
+      let tenant_id =
+        try
+          Some
+            (json |> member "channelData" |> member "tenant" |> member "id"
+           |> to_string)
+        with _ -> None
       in
       let mentioned_ids =
         try
@@ -114,6 +127,8 @@ let parse_activity body_str =
             team_id;
             text;
             is_group;
+            is_external;
+            tenant_id;
             mentioned_ids;
             attachments;
           }
