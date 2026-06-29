@@ -911,6 +911,187 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
       | Ok (id, _runner, _repo) -> Ok id
       | Error msg -> Error msg)
 
+(** [launch_triggered_run ~db ~config ~review_run ~room_id ~requester_id
+     ~pr_title ~pr_author ~pr_body ~base_branch ~head_branch ~pr_files ()]
+    launches a triggered review run as a background task under the room's
+    profile policy. The run prompt includes PR metadata, changed files, the
+    access snapshot, room/thread origin, and runner policy.
+
+    Authorization is enforced by the access snapshot and blocked-repo-grant
+    check inside {!launch_room_bg_task}. Unauthorized repos or blocked grants
+    fail before runner spawn.
+
+    The [room_id] is used as-is for the session key (subscriptions store
+    fully-qualified room IDs like ["slack:C123"]). Profile resolution and
+    workspace path are derived from [room_id] by {!launch_room_bg_task}.
+
+    Returns [Ok task_id] on success or [Error msg] on failure. *)
+let launch_triggered_run ~db ~(config : Runtime_config.t) ~review_run ~room_id
+    ~requester_id ~pr_title ~pr_author ~pr_body ~base_branch ~head_branch
+    ~pr_files () =
+  let open Github_review_run in
+  let base_prompt =
+    build_review_prompt ~repo:review_run.repo ~pr_number:review_run.pr_number
+      ~pr_title ~pr_author ~pr_body ~base_branch ~head_branch
+      ~head_sha:review_run.head_sha ~pr_files ~run_kind:review_run.run_kind
+      ~trigger_source:review_run.trigger_source ()
+  in
+  (* Enrich prompt with access snapshot, room origin, budget, and runner
+     policy context. This gives the background task visibility into the
+     security constraints it operates under. *)
+  let access =
+    Runtime_config.resolve_effective_access config ~session_key:room_id ()
+  in
+  let origin = Room_origin.make ~room_id ~requester_id () in
+  let enrichment_buf = Buffer.create 512 in
+  let blocked_count = List.length access.blocked_repo_grants in
+  let snap_id =
+    Access_snapshot.record_for_work ~db ~config
+      ~work_type:Access_snapshot.Background_task ~session_key:room_id ()
+  in
+  Buffer.add_string enrichment_buf "\n## Access Snapshot\n";
+  Buffer.add_string enrichment_buf (Printf.sprintf "Snapshot ID: %s\n" snap_id);
+  if access.allowed_tools <> [] then
+    Buffer.add_string enrichment_buf
+      (Printf.sprintf "Allowed tools: %s\n"
+         (String.concat ", "
+            (List.map
+               (fun (i : Runtime_config.effective_access_item) -> i.value)
+               access.allowed_tools)));
+  if access.denied_tools <> [] then
+    Buffer.add_string enrichment_buf
+      (Printf.sprintf "Denied tools: %s\n"
+         (String.concat ", "
+            (List.map
+               (fun (i : Runtime_config.effective_access_item) -> i.value)
+               access.denied_tools)));
+  if access.repo_grants <> [] then
+    Buffer.add_string enrichment_buf
+      (Printf.sprintf "Repo grants: %s\n"
+         (String.concat ", "
+            (List.map
+               (fun (i : Runtime_config.effective_access_item) -> i.value)
+               access.repo_grants)));
+  if blocked_count > 0 then
+    Buffer.add_string enrichment_buf
+      (Printf.sprintf "Blocked repo grants: %d\n" blocked_count);
+  Buffer.add_string enrichment_buf "\n## Room Origin\n";
+  Buffer.add_string enrichment_buf
+    (Printf.sprintf "%s\n" (Room_origin.display_summary origin));
+  (match access.budget_refs with
+  | [] -> ()
+  | refs ->
+      Buffer.add_string enrichment_buf "\n## Budget\n";
+      Buffer.add_string enrichment_buf
+        (Printf.sprintf "Budget refs: %s\n"
+           (String.concat ", "
+              (List.map
+                 (fun (i : Runtime_config.effective_access_item) -> i.value)
+                 refs))));
+  Buffer.add_string enrichment_buf "\n## Runner Policy\n";
+  if access.mcp_servers <> [] then
+    Buffer.add_string enrichment_buf
+      (Printf.sprintf "MCP servers: %s\n"
+         (String.concat ", "
+            (List.map
+               (fun (i : Runtime_config.effective_access_item) -> i.value)
+               access.mcp_servers)));
+  if access.skills <> [] then
+    Buffer.add_string enrichment_buf
+      (Printf.sprintf "Skills: %s\n"
+         (String.concat ", "
+            (List.map
+               (fun (i : Runtime_config.effective_access_item) -> i.value)
+               access.skills)));
+  Buffer.add_string enrichment_buf
+    (Printf.sprintf "Egress rules: %d\n" (List.length access.egress_rules));
+  let prompt = base_prompt ^ Buffer.contents enrichment_buf in
+  (* Authorization: verify the target repo is granted by the room's access
+     policy with at least a read capability. Empty repo_grants means no repos
+     are granted, so the launch is denied. *)
+  let repo_granted =
+    access.repo_grants <> []
+    && List.exists
+         (fun (item : Runtime_config.effective_access_item) ->
+           match Runtime_config.repo_grant_of_json_string item.value with
+           | Some rg ->
+               let has_read =
+                 rg.capabilities = []
+                 || List.mem Runtime_config.Read rg.capabilities
+               in
+               if not has_read then false
+               else
+                 let pattern = String.lowercase_ascii rg.repo in
+                 let target = String.lowercase_ascii review_run.repo in
+                 pattern = target
+                 || String.length pattern > 1
+                    && pattern.[String.length pattern - 1] = '*'
+                    && String.starts_with
+                         ~prefix:
+                           (String.sub pattern 0 (String.length pattern - 1))
+                         target
+           | None -> false)
+         access.repo_grants
+  in
+  if not repo_granted then (
+    let msg =
+      Printf.sprintf
+        "Access denied: repo %s is not in the room's granted repositories"
+        review_run.repo
+    in
+    (* Only mark the review run as failed if no room has launched it yet *)
+    let is_pending =
+      match find_by_id ~db ~id:review_run.id with
+      | Some r -> r.status = Pending
+      | None -> false
+    in
+    if is_pending then
+      ignore (set_failed ~db ~id:review_run.id ~error_message:msg);
+    Logs.warn (fun m ->
+        m "Review run %d denied for room %s: %s" review_run.id room_id msg);
+    Error msg)
+  else
+    match
+      launch_room_bg_task ~db ~session_key:room_id ~connector:"" ~room_id
+        ~requester_id ~goal:prompt ~use_worktree:false
+        ~access_snapshot_id:snap_id ~config ()
+    with
+    | Ok task_id ->
+        (* set_running only succeeds when status is 'pending'. For multi-room
+         subscriptions, the first launch sets running; subsequent launches
+         succeed but cannot attach to the same review_run row. This is
+         expected: each room gets its own background task. *)
+        let attached = set_running ~db ~id:review_run.id ~task_id in
+        if not attached then
+          Logs.info (fun m ->
+              m
+                "Review run %d already launched; bg task %d for room %s is an \
+                 additional launch"
+                review_run.id task_id room_id)
+        else
+          Logs.info (fun m ->
+              m "Review run %d launched as bg task %d for %s PR #%d in room %s"
+                review_run.id task_id review_run.repo review_run.pr_number
+                room_id);
+        Ok task_id
+    | Error msg ->
+        (* Only mark the review run as failed if it is still pending (no room
+         has launched it yet). If another room already launched, keep the
+         running status so the overall review is not aborted. *)
+        let is_pending =
+          match find_by_id ~db ~id:review_run.id with
+          | Some r -> r.status = Pending
+          | None -> false
+        in
+        if is_pending then
+          ignore
+            (set_failed ~db ~id:review_run.id
+               ~error_message:("Launch failed: " ^ msg));
+        Logs.warn (fun m ->
+            m "Review run %d launch failed for %s PR #%d in room %s: %s"
+              review_run.id review_run.repo review_run.pr_number room_id msg);
+        Error msg
+
 let readopt_running_tasks ~db ~on_task_finished =
   let pid_or_group_alive pid =
     Process_group.group_alive pid

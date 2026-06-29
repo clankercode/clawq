@@ -531,3 +531,82 @@ let trigger_from_room_command ~db ~repo ~pr_number ~head_sha ~run_kind ~room_id
     ~requester_id =
   let trigger = Room_command { room_id; requester_id } in
   create ~db ~repo ~pr_number ~head_sha ~run_kind ~trigger_source:trigger ()
+
+(** {1 Prompt assembly} *)
+
+(** Human-readable description of a run kind for the prompt. *)
+let run_kind_description = function
+  | Code_review -> "code review"
+  | Security_scan -> "security vulnerability scan"
+  | Custom name -> name
+
+(** [build_review_prompt ~repo ~pr_number ~pr_title ~pr_author ~pr_body
+     ~base_branch ~head_branch ~head_sha ~pr_files ~run_kind ~trigger_source ()]
+    assembles the enriched prompt for a review run background task. Includes PR
+    metadata, changed files, and the review task description. *)
+let build_review_prompt ~repo ~pr_number ~pr_title ~pr_author ~pr_body
+    ~base_branch ~head_branch ~head_sha ~pr_files ~run_kind ~trigger_source () =
+  let buf = Buffer.create 1024 in
+  Buffer.add_string buf
+    (Printf.sprintf "You are performing a %s on a GitHub pull request.\n\n"
+       (run_kind_description run_kind));
+  Buffer.add_string buf "## PR Metadata\n";
+  Buffer.add_string buf (Printf.sprintf "Repository: %s\n" repo);
+  Buffer.add_string buf (Printf.sprintf "PR Number: #%d\n" pr_number);
+  Buffer.add_string buf (Printf.sprintf "Title: %s\n" pr_title);
+  Buffer.add_string buf (Printf.sprintf "Author: @%s\n" pr_author);
+  Buffer.add_string buf
+    (Printf.sprintf "Branch: `%s` -> `%s`\n" head_branch base_branch);
+  Buffer.add_string buf (Printf.sprintf "Head SHA: %s\n" head_sha);
+  if pr_body <> "" then begin
+    let truncated =
+      if String.length pr_body > 2000 then String.sub pr_body 0 1997 ^ "..."
+      else pr_body
+    in
+    Buffer.add_string buf (Printf.sprintf "\nPR Description:\n%s\n" truncated)
+  end;
+  if pr_files <> [] then begin
+    let count = List.length pr_files in
+    Buffer.add_string buf (Printf.sprintf "\nChanged files (%d):\n" count);
+    let show = min 30 count in
+    List.iteri
+      (fun i (filename, status, additions, deletions) ->
+        if i < show then
+          Buffer.add_string buf
+            (Printf.sprintf "  - %s %s (+%d -%d)\n" filename status additions
+               deletions))
+      pr_files;
+    if count > 30 then
+      Buffer.add_string buf
+        (Printf.sprintf "  ... and %d more files\n" (count - 30))
+  end;
+  Buffer.add_string buf
+    (Printf.sprintf "\n## Trigger\nTriggered by: %s\n"
+       (trigger_source_to_string trigger_source));
+  (match run_kind with
+  | Code_review ->
+      Buffer.add_string buf
+        "\n\
+         ## Task\n\
+         Provide a thorough code review. Focus on:\n\
+         - Correctness and potential bugs\n\
+         - Code quality and maintainability\n\
+         - Performance implications\n\
+         - Security considerations\n\
+         Summarize findings with severity levels (critical, warning, info)."
+  | Security_scan ->
+      Buffer.add_string buf
+        "\n\
+         ## Task\n\
+         Perform a security vulnerability scan. Focus on:\n\
+         - Input validation and injection risks\n\
+         - Authentication and authorization issues\n\
+         - Data exposure and leakage risks\n\
+         - Dependency vulnerabilities\n\
+         - Cryptographic issues\n\
+         Report findings with CVSS-like severity ratings."
+  | Custom name ->
+      Buffer.add_string buf
+        (Printf.sprintf
+           "\n## Task\nPerform a %s review on the changes in this PR." name));
+  Buffer.contents buf
