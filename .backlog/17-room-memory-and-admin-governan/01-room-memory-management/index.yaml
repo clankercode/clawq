@@ -9,7 +9,7 @@ epics:
       locked: false
       name: In-Room Scoped Memory CRUD
       path: 01-in-room-scoped-memory-crud
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P17.M1.E1
