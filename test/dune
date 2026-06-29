@@ -120,6 +120,7 @@
   test_scheduler
   test_secret_store
   test_scope_resolver
+  test_invariant_conformance
   test_access_snapshot
   test_access_explanation
   test_service
