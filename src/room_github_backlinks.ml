@@ -495,14 +495,14 @@ let record_subscription_delivery ~db ~repo ~pr_number ?github_item_id
        ~relationship:Subscription_delivery ?snapshot_id ())
 
 (** [record_ci_notification ~db ~repo ~pr_number ~github_item_type ?github_url
-     ~room_id ?snapshot_id ?thread_id ()] records that a CI event was delivered
-    to a room. *)
+     ~room_id ?snapshot_id ?thread_id ?room_item_id ()] records that a CI event
+    was delivered to a room. *)
 let record_ci_notification ~db ~repo ~pr_number ~github_item_type ?github_url
-    ~room_id ?snapshot_id ?thread_id () =
+    ~room_id ?snapshot_id ?thread_id ?room_item_id () =
   ignore
     (insert ~db ~repo ~pr_number ~github_item_type ?github_url ~room_id
-       ?thread_id ~room_item_type:Message ~direction:Github_to_room
-       ~relationship:Ci_notification ?snapshot_id ())
+       ?thread_id ~room_item_type:Message ?room_item_id
+       ~direction:Github_to_room ~relationship:Ci_notification ?snapshot_id ())
 
 (** [record_triggered_run ~db ~repo ~pr_number ~github_item_type ?github_url
      ~room_id ?thread_id ~room_item_type ~room_item_id ?snapshot_id ()] records

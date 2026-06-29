@@ -76,7 +76,7 @@ let track_sent () =
   let sent = ref [] in
   let send_message ~room_id ~text () =
     sent := (room_id, text) :: !sent;
-    Lwt.return_unit
+    Lwt.return "msg-1"
   in
   (sent, send_message)
 
@@ -158,7 +158,7 @@ let test_send_failure_no_leak () =
         if room_id = "room-fail" then Lwt.fail (Failure "room unavailable")
         else (
           sent := (room_id, text) :: !sent;
-          Lwt.return_unit)
+          Lwt.return "msg-1")
       in
       let event = make_pr_event ~repo:"owner/repo" ~pr_number:42 in
       let count = dispatch db event "lifecycle-fail-1" send_message in

@@ -8,6 +8,87 @@
     the key. *)
 let dedup = Channel_util.Lru_dedup.create 500
 
+(** In-memory map from CI notification key to room message ID, used for
+    edit-in-place delivery. Key format: [room_id:repo:ci_kind:ci_key]. *)
+let ci_msg_ids : (string, string) Hashtbl.t = Hashtbl.create 32
+
+(** [ci_notification_key ~room_id ~repo ~event] computes a stable key for
+    tracking CI notification message IDs. Uses room_id, repo, and CI-specific
+    identifiers (name + head_sha) to group related status updates. *)
+let ci_notification_key ~room_id ~repo (event : Github_webhook.parsed_event) =
+  match event with
+  | CheckRun check ->
+      Some
+        (Printf.sprintf "%s:%s:check_run:%s:%s" room_id repo check.name
+           check.head_sha)
+  | CheckSuite suite ->
+      Some (Printf.sprintf "%s:%s:check_suite:%s" room_id repo suite.head_sha)
+  | WorkflowRun run ->
+      Some
+        (Printf.sprintf "%s:%s:workflow_run:%s:%s" room_id repo run.name
+           run.head_sha)
+  | _ -> None
+
+(** [is_ci_terminal event] returns [true] if the CI event is in a terminal state
+    (success, failure, cancelled, timed_out). *)
+let is_ci_terminal (event : Github_webhook.parsed_event) =
+  match event with
+  | CheckRun check ->
+      check.conclusion = "success"
+      || check.conclusion = "failure"
+      || check.conclusion = "cancelled"
+      || check.conclusion = "timed_out"
+  | CheckSuite suite ->
+      suite.conclusion = "success"
+      || suite.conclusion = "failure"
+      || suite.conclusion = "cancelled"
+      || suite.conclusion = "timed_out"
+  | WorkflowRun run ->
+      run.conclusion = "success" || run.conclusion = "failure"
+      || run.conclusion = "cancelled"
+      || run.conclusion = "timed_out"
+  | _ -> false
+
+(** [format_backlink_footer ~repo ~pr_number ~event] renders a backlink footer
+    for room messages, linking to the GitHub PR and specific artifact. Uses
+    markdown link syntax. Returns [""] if no backlinks are available. *)
+let format_backlink_footer ~repo ~pr_number
+    (event : Github_webhook.parsed_event) =
+  let parts = ref [] in
+  if pr_number > 0 then
+    parts :=
+      Printf.sprintf "[PR #%d](https://github.com/%s/pull/%d)" pr_number repo
+        pr_number
+      :: !parts;
+  (match event with
+  | CheckRun check ->
+      if check.html_url <> "" then
+        parts :=
+          Printf.sprintf "[Check: %s](%s)" check.name check.html_url :: !parts
+  | CheckSuite suite ->
+      if suite.html_url <> "" then
+        parts := Printf.sprintf "[Check suite](%s)" suite.html_url :: !parts
+  | WorkflowRun run ->
+      if run.html_url <> "" then
+        parts :=
+          Printf.sprintf "[Workflow: %s](%s)" run.name run.html_url :: !parts
+  | PullRequestReview review ->
+      if review.html_url <> "" then
+        parts := Printf.sprintf "[Review](%s)" review.html_url :: !parts
+  | PrReviewComment review ->
+      if review.html_url <> "" then
+        parts := Printf.sprintf "[Review comment](%s)" review.html_url :: !parts
+  | IssueComment comment ->
+      if comment.html_url <> "" then
+        parts := Printf.sprintf "[Comment](%s)" comment.html_url :: !parts
+  | PullRequest pr ->
+      if pr.html_url <> "" then
+        parts := Printf.sprintf "[PR](%s)" pr.html_url :: !parts
+  | Ignored -> ());
+  match !parts with
+  | [] -> ""
+  | links -> Printf.sprintf "\n\n---\n%s" (String.concat " | " (List.rev links))
+
 (** Format a PR event notification message. *)
 let format_pr_event_notification ~(event : Github_webhook.parsed_event)
     ~(action : string) =
@@ -415,7 +496,10 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
     ?(quiet_start : int = Github_pr_policy.default_quiet_start)
     ?(quiet_end : int = Github_pr_policy.default_quiet_end)
     ?(max_per_hour : int = 0) ?(dedupe_seconds : int = 60)
-    ~(send_message : room_id:string -> text:string -> unit -> unit Lwt.t) () =
+    ~(send_message : room_id:string -> text:string -> unit -> string Lwt.t)
+    ?(edit_message :
+       (room_id:string -> msg_id:string -> text:string -> unit -> unit Lwt.t)
+       option) () =
   let open Lwt.Syntax in
   let repo, pr_number =
     match event with
@@ -492,7 +576,7 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
         | Github_webhook.Ignored -> "unknown"
       in
       let is_slack = String.lowercase_ascii connector = "slack" in
-      let text =
+      let base_text =
         if is_slack then format_pr_event_notification_for_slack ~event ~action
         else
           match event with
@@ -506,6 +590,10 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
               | None -> format_pr_event_notification ~event ~action)
           | _ -> format_pr_event_notification ~event ~action
       in
+      let footer =
+        if is_slack then "" else format_backlink_footer ~repo ~pr_number event
+      in
+      let text = base_text ^ footer in
       if text = "" then Lwt.return 0
       else
         (* Pre-compute CI info and dedup key once for all subscriptions *)
@@ -557,9 +645,54 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
                 | Github_pr_policy.Allowed ->
                     Lwt.catch
                       (fun () ->
-                        let* () =
-                          send_message ~room_id:subscription.room_id ~text ()
+                        (* For CI terminal events, try edit-in-place *)
+                        let ci_key =
+                          ci_notification_key ~room_id:subscription.room_id
+                            ~repo event
                         in
+                        let existing_msg_id =
+                          Option.bind ci_key (Hashtbl.find_opt ci_msg_ids)
+                        in
+                        let is_terminal = is_ci_terminal event in
+                        let* msg_id =
+                          match
+                            (edit_message, existing_msg_id, is_terminal)
+                          with
+                          | Some edit_fn, Some msg_id, true ->
+                              (* Edit existing CI message for terminal state *)
+                              Lwt.catch
+                                (fun () ->
+                                  let* () =
+                                    edit_fn ~room_id:subscription.room_id
+                                      ~msg_id ~text ()
+                                  in
+                                  Logs.info (fun m ->
+                                      m
+                                        "GitHub PR dispatch: edited CI message \
+                                         %s for room %s"
+                                        msg_id subscription.room_id);
+                                  Lwt.return msg_id)
+                                (fun exn ->
+                                  Logs.warn (fun m ->
+                                      m
+                                        "GitHub PR dispatch: edit failed for \
+                                         %s, sending new: %s"
+                                        msg_id (Printexc.to_string exn));
+                                  let* new_id =
+                                    send_message ~room_id:subscription.room_id
+                                      ~text ()
+                                  in
+                                  Lwt.return new_id)
+                          | _ ->
+                              (* Send new message *)
+                              send_message ~room_id:subscription.room_id ~text
+                                ()
+                        in
+                        (* Track CI message ID for future edit-in-place *)
+                        (match ci_key with
+                        | Some key when msg_id <> "" ->
+                            Hashtbl.replace ci_msg_ids key msg_id
+                        | _ -> ());
                         Github_pr_policy.record_delivery ~db ~dedup_key
                           ~room_id:subscription.room_id ~repo ~pr_number
                           ~event_type:event_type_str;
@@ -583,9 +716,28 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
                           | Github_webhook.WorkflowRun w -> Some w.html_url
                           | _ -> None
                         in
+                        let room_item_id =
+                          if msg_id <> "" then Some msg_id else None
+                        in
                         Room_github_backlinks.record_subscription_delivery ~db
                           ~repo ~pr_number ~room_id:subscription.room_id
                           ~event_type:event_type_str ?github_url ?snapshot_id ();
+                        (* Record CI notification backlink with room_item_id *)
+                        (match event with
+                        | CheckRun _ | CheckSuite _ | WorkflowRun _ ->
+                            Room_github_backlinks.record_ci_notification ~db
+                              ~repo ~pr_number
+                              ~github_item_type:
+                                (match event with
+                                | CheckRun _ -> Room_github_backlinks.Check_run
+                                | CheckSuite _ ->
+                                    Room_github_backlinks.Check_suite
+                                | WorkflowRun _ ->
+                                    Room_github_backlinks.Workflow_run
+                                | _ -> Room_github_backlinks.Check_run)
+                              ?github_url ~room_id:subscription.room_id
+                              ?snapshot_id ?room_item_id ()
+                        | _ -> ());
                         Logs.info (fun m ->
                             m
                               "GitHub PR dispatch: notified room %s for %s PR \

@@ -686,14 +686,16 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                               Session.find_registered_notifier session_manager
                                 ~key:room_id
                             with
-                            | Some notifier -> notifier text
+                            | Some notifier ->
+                                let* () = notifier text in
+                                Lwt.return ""
                             | None ->
                                 Logs.debug (fun m ->
                                     m
                                       "GitHub PR dispatch: no notifier for \
                                        room %s"
                                       room_id);
-                                Lwt.return_unit)
+                                Lwt.return "")
                           ()
                     | None -> Lwt.return 0
                   in
@@ -759,12 +761,14 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                       Session.find_registered_notifier session_manager
                         ~key:room_id
                     with
-                    | Some notifier -> notifier text
+                    | Some notifier ->
+                        let* () = notifier text in
+                        Lwt.return ""
                     | None ->
                         Logs.debug (fun m ->
                             m "GitHub PR dispatch: no notifier for room %s"
                               room_id);
-                        Lwt.return_unit)
+                        Lwt.return "")
                   ()
             | None -> Lwt.return 0
           in

@@ -242,7 +242,7 @@ let test_dispatch_dedup () =
       let sent = ref [] in
       let send_message ~room_id ~text () =
         sent := (room_id, text) :: !sent;
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       (* First dispatch should succeed *)
       let result1 =
@@ -293,7 +293,7 @@ let test_dispatch_send_failure_does_not_poison_policy_dedup () =
           Lwt.fail (Failure "temporary send failure"))
         else (
           sent := (room_id, text) :: !sent;
-          Lwt.return_unit)
+          Lwt.return "msg-1")
       in
       let result1 =
         Lwt_main.run
@@ -331,7 +331,7 @@ let test_dispatch_no_subscriptions () =
       let sent = ref [] in
       let send_message ~room_id ~text () =
         sent := (room_id, text) :: !sent;
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -371,7 +371,7 @@ let test_dispatch_multiple_rooms () =
       let sent = ref [] in
       let send_message ~room_id ~text () =
         sent := (room_id, text) :: !sent;
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -414,7 +414,7 @@ let test_dispatch_disabled_subscription () =
       let sent = ref [] in
       let send_message ~room_id ~text () =
         sent := (room_id, text) :: !sent;
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -445,7 +445,7 @@ let test_dispatch_notification_preferences () =
       let sent = ref [] in
       let send_message ~room_id ~text () =
         sent := (room_id, text) :: !sent;
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       (* Should notify for opened *)
       let opened_event =
@@ -836,7 +836,7 @@ let test_dispatch_records_delivered_event () =
       in
       let send_message ~room_id ~text () =
         ignore (room_id, text);
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -890,7 +890,7 @@ let test_dispatch_records_denied_event () =
       in
       let send_message ~room_id ~text () =
         ignore (room_id, text);
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       (* First dispatch *)
       let _ =
@@ -939,7 +939,7 @@ let test_dispatch_records_skipped_event_no_subscriptions () =
       in
       let send_message ~room_id ~text () =
         ignore (room_id, text);
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -984,7 +984,7 @@ let test_dispatch_records_with_snapshot_id () =
       in
       let send_message ~room_id ~text () =
         ignore (room_id, text);
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -1039,7 +1039,7 @@ let test_dispatch_ci_event_records_delivered () =
       in
       let send_message ~room_id ~text () =
         ignore (room_id, text);
-        Lwt.return_unit
+        Lwt.return "msg-1"
       in
       let result =
         Lwt_main.run
@@ -1062,6 +1062,144 @@ let test_dispatch_ci_event_records_delivered () =
             "connector" "discord"
             (metadata_string "connector" event.metadata)
       | _ -> Alcotest.fail "expected one delivered event")
+
+let test_backlink_footer_format () =
+  let check_event =
+    Github_webhook.CheckRun
+      {
+        owner = "owner";
+        repo = "repo";
+        name = "build";
+        status = "completed";
+        conclusion = "failure";
+        pr_number = Some 42;
+        html_url = "https://github.com/owner/repo/runs/123";
+        head_sha = "abc1234";
+        actor = "user";
+        details_url = "";
+      }
+  in
+  let footer =
+    Github_pr_dispatch.format_backlink_footer ~repo:"owner/repo" ~pr_number:42
+      check_event
+  in
+  Alcotest.(check bool)
+    "footer contains PR link" true
+    (String.contains footer 'P' && String.contains footer 'R');
+  Alcotest.(check bool)
+    "footer contains check link" true
+    (String.length footer > 10);
+  (* Test workflow run *)
+  let workflow_event =
+    Github_webhook.WorkflowRun
+      {
+        owner = "owner";
+        repo = "repo";
+        name = "CI";
+        status = "completed";
+        conclusion = "success";
+        pr_number = Some 42;
+        html_url = "https://github.com/owner/repo/actions/runs/456";
+        head_sha = "abc1234";
+        actor = "user";
+      }
+  in
+  let workflow_footer =
+    Github_pr_dispatch.format_backlink_footer ~repo:"owner/repo" ~pr_number:42
+      workflow_event
+  in
+  Alcotest.(check bool)
+    "workflow footer non-empty" true
+    (String.length workflow_footer > 0)
+
+let test_ci_edit_in_place () =
+  with_db (fun db ->
+      let sub =
+        Github_pr_subscriptions.add ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42 ~profile_id:1 ()
+      in
+      ignore sub;
+      let edit_count = ref 0 in
+      let send_count = ref 0 in
+      let send_message ~room_id ~text () =
+        ignore (room_id, text);
+        incr send_count;
+        Lwt.return (Printf.sprintf "msg-%d" !send_count)
+      in
+      let edit_message ~room_id ~msg_id ~text () =
+        ignore (room_id, msg_id, text);
+        incr edit_count;
+        Lwt.return_unit
+      in
+      (* First check_run (pending) should send *)
+      let pending_event =
+        Github_webhook.CheckRun
+          {
+            owner = "owner";
+            repo = "repo";
+            name = "build";
+            status = "in_progress";
+            conclusion = "";
+            pr_number = Some 42;
+            html_url = "https://github.com/owner/repo/runs/1";
+            head_sha = "abc1234";
+            actor = "user";
+            details_url = "";
+          }
+      in
+      let r1 =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event:pending_event
+             ~delivery_id:"ci-1" ~quiet_start:0 ~quiet_end:0 ~send_message
+             ~edit_message ())
+      in
+      Alcotest.(check int) "pending dispatched" 1 r1;
+      Alcotest.(check int) "send called for pending" 1 !send_count;
+      Alcotest.(check int) "no edit for pending" 0 !edit_count;
+      (* Second check_run (success) should edit *)
+      let success_event =
+        Github_webhook.CheckRun
+          {
+            owner = "owner";
+            repo = "repo";
+            name = "build";
+            status = "completed";
+            conclusion = "success";
+            pr_number = Some 42;
+            html_url = "https://github.com/owner/repo/runs/1";
+            head_sha = "abc1234";
+            actor = "user";
+            details_url = "";
+          }
+      in
+      let r2 =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event:success_event
+             ~delivery_id:"ci-2" ~quiet_start:0 ~quiet_end:0 ~send_message
+             ~edit_message ())
+      in
+      Alcotest.(check int) "success dispatched" 1 r2;
+      Alcotest.(check int) "send not called again" 1 !send_count;
+      Alcotest.(check int) "edit called for success" 1 !edit_count)
+
+let test_ci_notification_room_item_id () =
+  with_db (fun db ->
+      (* Record a CI notification with room_item_id *)
+      Room_github_backlinks.record_ci_notification ~db ~repo:"owner/repo"
+        ~pr_number:42 ~github_item_type:Room_github_backlinks.Check_run
+        ~github_url:"https://github.com/owner/repo/runs/1" ~room_id:"room-1"
+        ~room_item_id:"msg-123" ();
+      let found =
+        Room_github_backlinks.find_by_room ~db ~room_id:"room-1"
+          ~room_item_type:Room_github_backlinks.Message ()
+      in
+      Alcotest.(check int) "one CI notification" 1 (List.length found);
+      let bl = List.hd found in
+      Alcotest.(check (option string))
+        "room_item_id set" (Some "msg-123") bl.room_item_id;
+      Alcotest.(check string)
+        "relationship" "ci_notification"
+        (Room_github_backlinks.relationship_to_string bl.relationship))
 
 let suite =
   [
@@ -1112,4 +1250,10 @@ let suite =
       test_dispatch_records_with_snapshot_id;
     Alcotest.test_case "dispatch CI event records delivered" `Quick
       test_dispatch_ci_event_records_delivered;
+    Alcotest.test_case "backlink footer includes PR and artifact links" `Quick
+      test_backlink_footer_format;
+    Alcotest.test_case "CI edit-in-place for terminal events" `Quick
+      test_ci_edit_in_place;
+    Alcotest.test_case "CI notification records room_item_id" `Quick
+      test_ci_notification_room_item_id;
   ]
