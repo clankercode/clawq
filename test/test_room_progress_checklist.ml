@@ -642,18 +642,15 @@ let test_migration_adds_session_record_id () =
       Memory.exec_exn db "INSERT INTO schema_version (version) VALUES (37)";
       (* Create old table without session_record_id *)
       Memory.exec_exn db
-        "CREATE TABLE room_progress_checklist (\
-         id INTEGER PRIMARY KEY AUTOINCREMENT,\
-         task_id INTEGER NOT NULL,\
-         title TEXT NOT NULL,\
-         state TEXT NOT NULL DEFAULT 'planned',\
-         transcript_url TEXT,\
-         session_url TEXT,\
-         last_update TEXT NOT NULL DEFAULT (datetime('now')),\
-         delivery_state TEXT NOT NULL DEFAULT 'pending')";
+        "CREATE TABLE room_progress_checklist (id INTEGER PRIMARY KEY \
+         AUTOINCREMENT,task_id INTEGER NOT NULL,title TEXT NOT NULL,state TEXT \
+         NOT NULL DEFAULT 'planned',transcript_url TEXT,session_url \
+         TEXT,last_update TEXT NOT NULL DEFAULT \
+         (datetime('now')),delivery_state TEXT NOT NULL DEFAULT 'pending')";
       (* Insert an item without session_record_id *)
       Memory.exec_exn db
-        "INSERT INTO room_progress_checklist (task_id, title) VALUES (1, 'old item')";
+        "INSERT INTO room_progress_checklist (task_id, title) VALUES (1, 'old \
+         item')";
       ignore (Sqlite3.db_close db);
       (* Re-open with migration *)
       let migrated = Memory.init ~db_path () in
@@ -675,8 +672,8 @@ let test_migration_adds_session_record_id () =
               ~title:"new item" ~session_record_id:"rsr_new_001" ()
           in
           Alcotest.(check (option string))
-            "new item has session_record_id"
-            (Some "rsr_new_001") new_item.session_record_id))
+            "new item has session_record_id" (Some "rsr_new_001")
+            new_item.session_record_id))
 
 let test_state_icon () =
   let open Room_progress_checklist in

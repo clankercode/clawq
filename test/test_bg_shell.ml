@@ -42,6 +42,7 @@ let test_basic_detach () =
                    inject_system_messages = None;
                    effective_cwd = None;
                    request_cwd_change = None;
+                   egress_rules = [];
                  }
                (`Assoc [ ("command", `String "echo hello; sleep 0.5") ])
            in
@@ -94,6 +95,7 @@ let test_status_running () =
                    inject_system_messages = None;
                    effective_cwd = None;
                    request_cwd_change = None;
+                   egress_rules = [];
                  }
                (`Assoc [ ("command", `String "sleep 0.15") ])
            in
@@ -153,6 +155,7 @@ let test_result_windowed () =
                    inject_system_messages = None;
                    effective_cwd = None;
                    request_cwd_change = None;
+                   egress_rules = [];
                  }
                (`Assoc
                   [
@@ -215,6 +218,7 @@ let test_exit_code_captured () =
                    inject_system_messages = None;
                    effective_cwd = None;
                    request_cwd_change = None;
+                   egress_rules = [];
                  }
                (`Assoc [ ("command", `String "sleep 0.1; exit 42") ])
            in
@@ -272,6 +276,7 @@ let test_result_while_running () =
                    inject_system_messages = None;
                    effective_cwd = None;
                    request_cwd_change = None;
+                   egress_rules = [];
                  }
                (`Assoc [ ("command", `String "sleep 1") ])
            in

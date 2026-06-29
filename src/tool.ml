@@ -7,6 +7,9 @@ type invoke_context = {
   inject_system_messages : (string list -> unit) option;
   effective_cwd : string option;
   request_cwd_change : (string -> bool -> unit) option;
+  egress_rules : Runtime_config_types.egress_rule list;
+      (** Egress rules for policy-aware HTTP requests. Empty list means deny all
+          (safe default). *)
 }
 
 type invoke_stream =
@@ -33,6 +36,7 @@ let default_context =
     inject_system_messages = None;
     effective_cwd = None;
     request_cwd_change = None;
+    egress_rules = [];
   }
 
 let extract_required_params (schema : Yojson.Safe.t) : (string * string) list =

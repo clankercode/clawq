@@ -273,6 +273,7 @@ let test_update_tool_writes_restart_marker_from_session_context () =
              inject_system_messages = None;
              effective_cwd = None;
              request_cwd_change = None;
+             egress_rules = [];
            }
          (`Assoc [ ("mode", `String "git") ]))
   in
@@ -313,6 +314,7 @@ let test_update_tool_does_not_pin_model_without_explicit_override () =
              inject_system_messages = None;
              effective_cwd = None;
              request_cwd_change = None;
+             egress_rules = [];
            }
          (`Assoc [ ("mode", `String "git") ]))
   in

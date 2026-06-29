@@ -740,9 +740,12 @@ let http_get ~workspace_only =
     description;
     parameters_schema = schema;
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
+        let rules =
+          match context with Some c -> c.Tool.egress_rules | None -> []
+        in
         if url = "" then
           Lwt.return (param_err "parameter 'url' must be a non-empty string")
         else if workspace_only && not (is_localhost_url url) then
@@ -752,12 +755,19 @@ let http_get ~workspace_only =
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let* status, body = Http_client.get ~uri:url ~headers:[] in
-              Lwt.return
-                (Printf.sprintf "HTTP %d\n%s" status
-                   (if String.length body > 10000 then
-                      String.sub body 0 10000 ^ "\n... (truncated)"
-                    else body)))
+              let* result =
+                Policy_http_client.get ~rules ~uri:url ~headers:[]
+              in
+              match result with
+              | Error err ->
+                  Lwt.return
+                    ("Error: " ^ Policy_http_client.policy_error_to_string err)
+              | Ok (status, body) ->
+                  Lwt.return
+                    (Printf.sprintf "HTTP %d\n%s" status
+                       (if String.length body > 10000 then
+                          String.sub body 0 10000 ^ "\n... (truncated)"
+                        else body)))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Medium;

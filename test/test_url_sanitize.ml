@@ -100,7 +100,8 @@ let test_sanitize_url_no_partial_exposure () =
     (Test_helpers.string_contains sanitized "abcdefgh")
 
 let test_safe_teams_link () =
-  let link = Url_sanitize.safe_teams_link "https://example.com/tr" "transcript"
+  let link =
+    Url_sanitize.safe_teams_link "https://example.com/tr" "transcript"
   in
   Alcotest.(check bool)
     "has label" true
@@ -110,7 +111,8 @@ let test_safe_teams_link () =
     (Test_helpers.string_contains link "https://example.com/tr")
 
 let test_safe_slack_link () =
-  let link = Url_sanitize.safe_slack_link "https://example.com/tr" "transcript"
+  let link =
+    Url_sanitize.safe_slack_link "https://example.com/tr" "transcript"
   in
   Alcotest.(check bool)
     "has label" true

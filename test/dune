@@ -119,6 +119,7 @@
   test_signal
   test_http_client
   test_http_debug
+  test_policy_http_client
   test_skills
   test_skills_cmd_inject
   test_slack

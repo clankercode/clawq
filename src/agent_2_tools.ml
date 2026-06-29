@@ -303,6 +303,16 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                 let* result =
                   Lwt.catch
                     (fun () ->
+                      let egress_rules =
+                        match session_key with
+                        | Some key ->
+                            let access =
+                              Runtime_config.resolve_effective_access
+                                agent.config ~session_key:key ()
+                            in
+                            access.egress_rules
+                        | None -> []
+                      in
                       let context =
                         {
                           Tool.session_key;
@@ -334,6 +344,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                               (fun new_cwd wipe ->
                                 agent.effective_cwd <- Some new_cwd;
                                 if wipe then pending_history_wipe := true);
+                          egress_rules;
                         }
                       in
                       match tool.invoke_stream with
@@ -585,6 +596,16 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key
                 let* result =
                   Lwt.catch
                     (fun () ->
+                      let egress_rules =
+                        match session_key with
+                        | Some key ->
+                            let access =
+                              Runtime_config.resolve_effective_access
+                                agent.config ~session_key:key ()
+                            in
+                            access.egress_rules
+                        | None -> []
+                      in
                       let context =
                         {
                           Tool.session_key;
@@ -610,6 +631,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key
                               (fun new_cwd wipe ->
                                 agent.effective_cwd <- Some new_cwd;
                                 if wipe then pending_history_wipe := true);
+                          egress_rules;
                         }
                       in
                       tool.invoke ~context args)
