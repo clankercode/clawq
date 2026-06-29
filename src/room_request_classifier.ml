@@ -154,7 +154,7 @@ let rec guest_async_policy (result : Slash_commands.result) :
     if the command should remain inline, or [Error msg] on launch failure or
     guest policy denial. *)
 let launch_room_async_bg ~db ~session_key ~connector ~room_id ~requester_id
-    ~is_admin ?thread_id ?model_override ?notify_cfg
+    ~is_admin ?thread_id ?model_override ?notify_cfg ?config
     (result : Slash_commands.result) =
   let ( let* ) = Result.bind in
   let* () =
@@ -176,7 +176,7 @@ let launch_room_async_bg ~db ~session_key ~connector ~room_id ~requester_id
       match
         Background_task.launch_room_bg_task ~db ~session_key ~connector ~room_id
           ~requester_id ~goal ?preferred_runner ?agent_name ?thread_id
-          ?model_override ?notify_cfg ()
+          ?model_override ?notify_cfg ?config ()
       with
       | Ok id -> Ok (Some id)
       | Error msg -> Error msg)

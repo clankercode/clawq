@@ -5884,6 +5884,104 @@ let test_concurrent_room_bg_tasks_preserve_origin_attribution () =
         (Test_helpers.string_contains json "C-ROOM-A")
   | None -> ()
 
+let test_launch_room_bg_task_auto_creates_access_snapshot () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  Access_snapshot.init_schema db;
+  let config_json =
+    {|{
+      "workspace": "/tmp/test-room-snap",
+      "access_bundles": [
+        {"id": "base", "allowed_tools": ["file_read"]}
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["base"]}
+      ]
+    }|}
+  in
+  let cfg = Config_loader.parse_config (Yojson.Safe.from_string config_json) in
+  match
+    Background_task.launch_room_bg_task ~db ~session_key:"slack:C-ROOM-SNAP:U1"
+      ~connector:"slack" ~room_id:"C-ROOM-SNAP" ~requester_id:"U1"
+      ~goal:"test snap" ~preferred_runner:Background_task.Local ~config:cfg ()
+  with
+  | Error msg -> Alcotest.failf "launch failed: %s" msg
+  | Ok id -> (
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found"
+      | Some task -> (
+          Alcotest.(check bool)
+            "access_snapshot_id auto-created" true
+            (task.access_snapshot_id <> None);
+          (* Verify the snapshot exists in DB *)
+          let snap_id = Option.get task.access_snapshot_id in
+          match Access_snapshot.get_by_id ~db snap_id with
+          | None -> Alcotest.fail "snapshot not found in DB"
+          | Some snap ->
+              Alcotest.(check string)
+                "snapshot work_type" "background_task"
+                (Access_snapshot.work_type_to_string snap.work_type);
+              Alcotest.(check (option string))
+                "snapshot session_key" (Some "slack:C-ROOM-SNAP:U1")
+                snap.session_key;
+              Alcotest.(check (list string))
+                "snapshot allowed_tools" [ "file_read" ] snap.allowed_tools))
+
+let test_launch_room_bg_task_denied_when_blocked_repo_grants () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  Access_snapshot.init_schema db;
+  (* Config with workspace_only security and a repo grant pointing outside *)
+  let config_json =
+    {|{
+      "workspace": "/tmp/test-blocked",
+      "security": {"workspace_only": true, "allowed_cwd_patterns": ["/tmp/test-blocked/**"]},
+      "access_bundles": [
+        {
+          "id": "repo-policy",
+          "repo_grants": [
+            {"repo": "/tmp/outside/app", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["repo-policy"]}
+      ]
+    }|}
+  in
+  let cfg = Config_loader.parse_config (Yojson.Safe.from_string config_json) in
+  match
+    Background_task.launch_room_bg_task ~db ~session_key:"slack:C-BLOCKED:U1"
+      ~connector:"slack" ~room_id:"C-BLOCKED" ~requester_id:"U1"
+      ~goal:"should be denied" ~preferred_runner:Background_task.Local
+      ~config:cfg ()
+  with
+  | Ok _ -> Alcotest.fail "expected Error for blocked repo grants"
+  | Error msg ->
+      Alcotest.(check bool)
+        "error mentions blocked" true
+        (Test_helpers.string_contains msg "blocked");
+      Alcotest.(check bool)
+        "error mentions repo grant" true
+        (Test_helpers.string_contains msg "repo grant")
+
+let test_launch_room_bg_task_no_config_backward_compat () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  match
+    Background_task.launch_room_bg_task ~db ~session_key:"slack:C-NOCFG:U1"
+      ~connector:"slack" ~room_id:"C-NOCFG" ~requester_id:"U1" ~goal:"no config"
+      ~preferred_runner:Background_task.Local ()
+  with
+  | Error msg -> Alcotest.failf "launch failed: %s" msg
+  | Ok id -> (
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "task not found"
+      | Some task ->
+          (* Without config, no access snapshot should be auto-created *)
+          Alcotest.(check (option string))
+            "no auto snapshot without config" None task.access_snapshot_id)
+
 let test_set_progress_state_persists () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -6719,4 +6817,10 @@ let suite =
       test_launch_room_async_bg_compact_none;
     Alcotest.test_case "concurrent room bg tasks preserve origin attribution"
       `Quick test_concurrent_room_bg_tasks_preserve_origin_attribution;
+    Alcotest.test_case "launch_room_bg_task auto-creates access snapshot" `Quick
+      test_launch_room_bg_task_auto_creates_access_snapshot;
+    Alcotest.test_case "launch_room_bg_task denied when blocked repo grants"
+      `Quick test_launch_room_bg_task_denied_when_blocked_repo_grants;
+    Alcotest.test_case "launch_room_bg_task no config backward compat" `Quick
+      test_launch_room_bg_task_no_config_backward_compat;
   ]

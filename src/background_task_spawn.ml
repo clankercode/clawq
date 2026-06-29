@@ -790,13 +790,65 @@ let room_default_repo_path room_id =
       are plain directories).
 
     Returns [Ok bg_task_id] on success or [Error msg] on failure. *)
+let check_blocked_repo_grants ~(config : Runtime_config.t) ~session_key
+    ~requester_id ~room_id () : (unit, string) result =
+  let access =
+    Runtime_config.resolve_effective_access config ~session_key
+      ?room_profile:None ()
+  in
+  if access.blocked_repo_grants = [] then Ok ()
+  else
+    let blocked_repos =
+      access.blocked_repo_grants
+      |> List.filter_map (fun (item : Runtime_config.effective_access_item) ->
+          match Runtime_config.repo_grant_of_json_string item.value with
+          | Some rg -> Some rg.repo
+          | None -> None)
+    in
+    let repo_list = String.concat ", " blocked_repos in
+    Logs.warn (fun m ->
+        m "Room bg task denied: %d blocked repo grant(s) for %s in room %s"
+          (List.length access.blocked_repo_grants)
+          requester_id room_id);
+    Error
+      (Printf.sprintf
+         "Access denied: %d repo grant(s) blocked by security policy: %s. \
+          Adjust codebase_grants or security.allowed_cwd_patterns to include \
+          these repositories."
+         (List.length access.blocked_repo_grants)
+         repo_list)
+
 let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
     ?preferred_runner ?agent_name ?thread_id ?model_override ?notify_cfg
-    ?(use_worktree = false) ?access_snapshot_id () =
+    ?(use_worktree = false) ?access_snapshot_id ?config () =
+  let ( let* ) = Result.bind in
   let profile_id =
     match Memory.get_room_profile_binding ~db ~room_id with
     | Some b -> Some b.profile_id
     | None -> None
+  in
+  (* Auto-create an access snapshot when config is available and no snapshot ID
+     was explicitly provided. This captures the effective access policy at task
+     launch time, so the background task inherits the room's repo grants and
+     other access rights. *)
+  let profile_id_str = Option.map string_of_int profile_id in
+  let effective_snapshot_id =
+    match (access_snapshot_id, config) with
+    | Some id, _ -> Some id
+    | None, Some cfg ->
+        Some
+          (Access_snapshot.record_for_work ~db ~config:cfg
+             ~work_type:Access_snapshot.Background_task ~session_key ~room_id
+             ?profile_id:profile_id_str ())
+    | None, None -> None
+  in
+  (* Enforce repo grants: deny when blocked by security policy. *)
+  let* () =
+    match config with
+    | Some cfg ->
+        check_blocked_repo_grants ~config:cfg ~session_key ~requester_id
+          ~room_id ()
+    | None -> Ok ()
   in
   let origin =
     Room_origin.make ~connector ~room_id ~requester_id ?thread_id ?profile_id ()
@@ -807,43 +859,40 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
   in
   let requester = Some requester_id in
   let default_repo_path = room_default_repo_path room_id in
-  let result =
-    match preferred_runner with
-    | Some Local -> (
-        (* Native/local runner: enqueue directly with runner=Local *)
-        match
-          enqueue ~db ~runner:Local ~use_worktree ~require_git:false
-            ~automerge:false ~repo_path:default_repo_path ~prompt:goal
-            ?agent_name ?model:model_override ~session_key ?profile_id
-            ?origin_json ?thread_id ?requester ?access_snapshot_id ()
-        with
-        | Ok id ->
-            (* Create initial checklist item for room-origin tasks *)
-            if Option.is_some origin_json then begin
-              let item =
-                Room_progress_checklist.append ~db ~task_id:id
-                  ~title:"Task accepted" ()
-              in
-              ignore
-                (Room_progress_checklist.update_state ~db ~id:item.id
-                   ~state:Current ())
-            end;
-            Ok id
-        | Error msg -> Error msg)
-    | _ -> (
-        (* External runner: use delegate_enqueue for auto runner selection *)
-        let context : Tool.invoke_context =
-          { Tool.default_context with session_key = Some session_key }
-        in
-        match
-          delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
-            ~check_available:true ?preferred_runner ?model:model_override
-            ?access_snapshot_id ~default_repo_path ~goal ()
-        with
-        | Ok (id, _runner, _repo) -> Ok id
-        | Error msg -> Error msg)
-  in
-  result
+  match preferred_runner with
+  | Some Local -> (
+      (* Native/local runner: enqueue directly with runner=Local *)
+      match
+        enqueue ~db ~runner:Local ~use_worktree ~require_git:false
+          ~automerge:false ~repo_path:default_repo_path ~prompt:goal ?agent_name
+          ?model:model_override ~session_key ?profile_id ?origin_json ?thread_id
+          ?requester ?access_snapshot_id:effective_snapshot_id ()
+      with
+      | Ok id ->
+          (* Create initial checklist item for room-origin tasks *)
+          if Option.is_some origin_json then begin
+            let item =
+              Room_progress_checklist.append ~db ~task_id:id
+                ~title:"Task accepted" ()
+            in
+            ignore
+              (Room_progress_checklist.update_state ~db ~id:item.id
+                 ~state:Current ())
+          end;
+          Ok id
+      | Error msg -> Error msg)
+  | _ -> (
+      (* External runner: use delegate_enqueue for auto runner selection *)
+      let context : Tool.invoke_context =
+        { Tool.default_context with session_key = Some session_key }
+      in
+      match
+        delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
+          ~check_available:true ?preferred_runner ?model:model_override
+          ?access_snapshot_id:effective_snapshot_id ~default_repo_path ~goal ()
+      with
+      | Ok (id, _runner, _repo) -> Ok id
+      | Error msg -> Error msg)
 
 let readopt_running_tasks ~db ~on_task_finished =
   let pid_or_group_alive pid =
