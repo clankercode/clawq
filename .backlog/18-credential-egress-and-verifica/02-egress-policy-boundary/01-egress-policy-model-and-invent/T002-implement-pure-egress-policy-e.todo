@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-06-29T02:54:06Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - P18.M2.E1.T001
 estimate_hours: 3
 id: P18.M2.E1.T002
 priority: high
-status: pending
-tags:
-    - security
-    - egress
+started_at: "2026-06-29T02:54:06Z"
+status: in_progress
+tags: []
 title: Implement pure egress policy evaluator
 ---
 Acceptance: no rule means denied when managed policy is active; read-only grants reject POST/PUT/PATCH/DELETE; denial messages include room/profile/tool/host/method reason.

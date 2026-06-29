@@ -29,7 +29,8 @@ tasks:
       file: T002-implement-pure-egress-policy-e.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement pure egress policy evaluator
     - complexity: medium
       depends_on:
