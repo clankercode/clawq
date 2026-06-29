@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-06-29T14:20:28Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-29T15:00:08Z"
 complexity: high
 depends_on:
     - P18.M3.E1.T001
     - P18.M3.E1.T002
+duration_minutes: 39.68051342103333
 estimate_hours: 3
 id: P18.M3.E1.T003
 priority: medium
 started_at: "2026-06-29T14:20:28Z"
-status: in_progress
+status: done
 tags: []
 title: Add runtime conformance tests for proof candidates
 ---

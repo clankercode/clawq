@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Spec Invariants and Runtime Tests
       path: 01-spec-invariants-and-runtime-te
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P18.M3.E1
