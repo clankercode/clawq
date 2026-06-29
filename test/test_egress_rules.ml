@@ -221,6 +221,70 @@ let test_scope_priority_ordering () =
   | Runtime_config.Deny -> ()
   | _ -> Alcotest.fail "default rule should be Deny"
 
+let test_profile_rules_override_default () =
+  (* Regression test: room profile egress rules should come before default
+     scope rules so first-match-wins picks the profile's allow over the
+     default's deny. *)
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "access_bundles": [
+          {
+            "id": "default-bundle",
+            "egress_rules": [
+              {"host": "*", "action": "deny", "log_policy": "log"}
+            ]
+          },
+          {
+            "id": "profile-bundle",
+            "egress_rules": [
+              {"host": "api.example.com", "action": "allow", "log_policy": "log"}
+            ]
+          }
+        ],
+        "access_scopes": [
+          {
+            "id": "default-scope",
+            "level": "default",
+            "access_bundle_ids": ["default-bundle"]
+          }
+        ],
+        "room_profiles": [
+          {
+            "id": "test-profile",
+            "model": "test:model",
+            "status": "active",
+            "access_bundle_ids": ["profile-bundle"]
+          }
+        ],
+        "room_profile_bindings": [
+          {
+            "profile_id": "test-profile",
+            "room": "test:room",
+            "active": true
+          }
+        ]
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let access =
+    Runtime_config.resolve_effective_access cfg ~session_key:"test:room" ()
+  in
+  Alcotest.(check int)
+    "effective egress rules count" 2
+    (List.length access.egress_rules);
+  (* Profile rules should come first (highest priority) *)
+  let r0 = List.nth access.egress_rules 0 in
+  Alcotest.(check string) "profile rule comes first" "api.example.com" r0.host;
+  (match r0.action with
+  | Runtime_config.Allow -> ()
+  | _ -> Alcotest.fail "profile rule should be Allow");
+  let r1 = List.nth access.egress_rules 1 in
+  Alcotest.(check string) "default rule comes second" "*" r1.host;
+  match r1.action with
+  | Runtime_config.Deny -> ()
+  | _ -> Alcotest.fail "default rule should be Deny"
+
 let suite =
   [
     Alcotest.test_case "egress rules parse and roundtrip" `Quick
