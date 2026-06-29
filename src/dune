@@ -290,6 +290,7 @@
   command_bridge_room_memory
   command_bridge_agent_cmds
   room_session_cli
+  room_deliveries_cli
   command_bridge_bgcmd
   command_bridge_tunnel
   mcp_server

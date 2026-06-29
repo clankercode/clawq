@@ -664,6 +664,105 @@ let test_room_progress_empty_send_records_failure () =
         "error present" true
         (metadata_string "error" failure_event.metadata <> ""))
 
+let test_query_delivery_failures_newest_first () =
+  with_db (fun db ->
+      let add room event_type timestamp =
+        ignore
+          (Room_activity_ledger.append ~db ~room_id:room ~event_type ~timestamp
+             ~actor:"connector"
+             ~metadata:(`Assoc [ ("error", `String "fail") ]))
+      in
+      add "room-1" "delivery_failure" "2026-06-27T10:00:00Z";
+      add "room-1" "delivery_failure" "2026-06-27T11:00:00Z";
+      add "room-1" "teams_delivery_failed" "2026-06-27T12:00:00Z";
+      let failures =
+        Room_activity_ledger.query_delivery_failures ~db ~room_id:"room-1" ()
+      in
+      Alcotest.(check int) "all failures" 3 (List.length failures);
+      let timestamps =
+        List.map (fun e -> e.Room_activity_ledger.timestamp) failures
+      in
+      Alcotest.(check (list string))
+        "newest first"
+        [
+          "2026-06-27T12:00:00Z"; "2026-06-27T11:00:00Z"; "2026-06-27T10:00:00Z";
+        ]
+        timestamps)
+
+let test_query_delivery_failures_respects_limit () =
+  with_db (fun db ->
+      for i = 1 to 5 do
+        ignore
+          (Room_activity_ledger.append ~db ~room_id:"room-1"
+             ~event_type:"delivery_failure"
+             ~timestamp:(Printf.sprintf "2026-06-27T%02d:00:00Z" i)
+             ~actor:"t"
+             ~metadata:(`Assoc [ ("error", `String "e") ]))
+      done;
+      let failures =
+        Room_activity_ledger.query_delivery_failures ~db ~room_id:"room-1"
+          ~limit:2 ()
+      in
+      Alcotest.(check int) "limited to 2" 2 (List.length failures);
+      match failures with
+      | [ a; b ] ->
+          Alcotest.(check string)
+            "first is newest" "2026-06-27T05:00:00Z" a.timestamp;
+          Alcotest.(check string) "second" "2026-06-27T04:00:00Z" b.timestamp
+      | _ -> Alcotest.fail "expected 2 failures")
+
+let test_query_delivery_failures_multiple_types () =
+  with_db (fun db ->
+      let add event_type =
+        ignore
+          (Room_activity_ledger.append ~db ~room_id:"room-1" ~event_type
+             ~timestamp:"2026-06-27T10:00:00Z" ~actor:"c" ~metadata:(`Assoc []))
+      in
+      add "delivery_failure";
+      add "teams_delivery_failed";
+      add "teams_delivery_edit_failed";
+      add "ambient_delivery_failed";
+      (* Non-failure type should not appear *)
+      ignore
+        (Room_activity_ledger.append ~db ~room_id:"room-1"
+           ~event_type:"delivery_success" ~timestamp:"2026-06-27T10:00:00Z"
+           ~actor:"c" ~metadata:(`Assoc []));
+      let failures =
+        Room_activity_ledger.query_delivery_failures ~db ~room_id:"room-1" ()
+      in
+      Alcotest.(check int) "four failure types" 4 (List.length failures);
+      let types =
+        List.map (fun e -> e.Room_activity_ledger.event_type) failures
+        |> List.sort String.compare
+      in
+      Alcotest.(check (list string))
+        "expected types"
+        [
+          "ambient_delivery_failed";
+          "delivery_failure";
+          "teams_delivery_edit_failed";
+          "teams_delivery_failed";
+        ]
+        types)
+
+let test_failure_count_last_hours () =
+  with_db (fun db ->
+      let now = Room_activity_ledger.timestamp_now () in
+      ignore
+        (Room_activity_ledger.append ~db ~room_id:"room-1"
+           ~event_type:"delivery_failure" ~timestamp:now ~actor:"c"
+           ~metadata:(`Assoc []));
+      let count =
+        Room_activity_ledger.failure_count_last_hours ~db ~room_id:"room-1"
+          ~hours:1 ()
+      in
+      Alcotest.(check int) "one recent failure" 1 count;
+      let count_other_room =
+        Room_activity_ledger.failure_count_last_hours ~db ~room_id:"room-2"
+          ~hours:1 ()
+      in
+      Alcotest.(check int) "other room has none" 0 count_other_room)
+
 let suite =
   [
     Alcotest.test_case "append stores event" `Quick test_append_stores_event;
@@ -697,4 +796,12 @@ let suite =
       test_room_progress_raised_send_records_failure;
     Alcotest.test_case "empty send records failure not success" `Quick
       test_room_progress_empty_send_records_failure;
+    Alcotest.test_case "query delivery failures newest first" `Quick
+      test_query_delivery_failures_newest_first;
+    Alcotest.test_case "query delivery failures respects limit" `Quick
+      test_query_delivery_failures_respects_limit;
+    Alcotest.test_case "query delivery failures multiple types" `Quick
+      test_query_delivery_failures_multiple_types;
+    Alcotest.test_case "failure count last hours" `Quick
+      test_failure_count_last_hours;
   ]

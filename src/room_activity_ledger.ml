@@ -390,6 +390,57 @@ let record_github_update_skipped ~db ~room_id ~delivery_id ~repo ~pr_number
 (** [record_github_update_denied ~db ~room_id ~delivery_id ~repo ~pr_number
      ~event_type ~deny_reason ~payload_summary ?snapshot_id ?connector ()]
     records a denied GitHub update (duplicate, quiet hours, or rate limited). *)
+
+(** {1 Delivery failure querying}
+
+    Convenience functions for surfacing delivery failures in admin views. *)
+
+(** Event types that represent delivery failures of any kind. *)
+let delivery_failure_event_types =
+  [
+    "delivery_failure";
+    "teams_delivery_failed";
+    "teams_delivery_edit_failed";
+    "ambient_delivery_failed";
+  ]
+
+(** [query_delivery_failures ~db ?room_id ?actor ?from_timestamp ?limit ()]
+    retrieves recent delivery failure events. Returns newest-first ordering for
+    admin consumption. When [?actor] is set, only failures from that
+    connector/actor are returned (filtering happens at query level). *)
+let query_delivery_failures ~db ?room_id ?actor ?from_timestamp ?(limit = 20) ()
+    =
+  let all_failures =
+    List.concat_map
+      (fun event_type -> query ?room_id ~event_type ?from_timestamp ~db ())
+      delivery_failure_event_types
+  in
+  let filtered =
+    match actor with
+    | Some a ->
+        List.filter (fun (e : event) -> String.equal e.actor a) all_failures
+    | None -> all_failures
+  in
+  filtered |> List.sort (fun a b -> String.compare b.timestamp a.timestamp)
+  |> fun l ->
+  let len = List.length l in
+  if len <= limit then l else List.filteri (fun i _ -> i < limit) l
+
+(** [failure_count_last_hours ~db ~room_id ~hours ()] counts delivery failures
+    for a room in the last [hours] hours. Used for summary badges. *)
+let failure_count_last_hours ~db ~room_id ~hours () =
+  let now = Unix.gettimeofday () in
+  let from_epoch = now -. (float_of_int hours *. 3600.0) in
+  let tm = Unix.gmtime from_epoch in
+  let micros = 0 in
+  let from_ts =
+    Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%06dZ"
+      (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
+      tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec micros
+  in
+  query_delivery_failures ~db ~room_id ~from_timestamp:from_ts ~limit:10000 ()
+  |> List.length
+
 let record_github_update_denied ~db ~room_id ~delivery_id ~repo ~pr_number
     ~event_type ~deny_reason ~payload_summary ?snapshot_id ?connector () =
   let fields =

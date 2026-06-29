@@ -1407,10 +1407,22 @@ let cmd_rooms args =
            end
          end
        with _ -> ());
+      (* Add delivery failure summary if there are recent failures *)
+      (try
+         let db = get_db () in
+         match
+           Room_deliveries_cli.delivery_failure_summary_line ~db ~room_id ()
+         with
+         | Some line ->
+             add "";
+             add line
+         | None -> ()
+       with _ -> ());
       String.concat "\n" (List.rev !lines)
   | [ "workspace"; room_id ] ->
       let path = Room_workspace.workspace_path room_id in
       Printf.sprintf "Workspace for room '%s':\nPreserved path: %s" room_id path
+  | "deliveries" :: rest -> Room_deliveries_cli.cmd_rooms_deliveries rest
   | "ledger" :: rest -> cmd_rooms_ledger rest
   | "gc" :: flags -> (
       match require_admin () with
@@ -1650,7 +1662,7 @@ let cmd_rooms args =
   | "wizard" :: rest -> Setup_room_wizard.run rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|wizard>\n\n\
+       <list|show|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|wizard>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
@@ -1659,6 +1671,9 @@ let cmd_rooms args =
       \  ledger <list|export|retention-cleanup>\n\
       \                              Query/export/prune room activity ledger \
        entries (admin-only)\n\
+      \  deliveries [--room-id ID] [--connector C] [--from TS] [--limit N] \
+       [--json]\n\
+      \                              Show recent delivery failures (admin-only)\n\
       \  gc [--retention-days N]     Purge expired room workspaces (admin-only)\n\
       \  bind <room_id> <profile_id> [--preserve|--reset]\n\
       \                              Bind or explicitly rebind a room \
