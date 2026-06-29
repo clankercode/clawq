@@ -20,7 +20,7 @@ tasks:
       file: T001-add-github-pr-subscription-sto.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add GitHub PR subscription storage model
     - complexity: medium
