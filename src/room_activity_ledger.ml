@@ -322,3 +322,99 @@ let record_delivery_failure ~db ~room_id ~connector ~task_id ~error ?thread_id
   in
   append_now ~db ~room_id ~event_type:"delivery_failure" ~actor:connector
     ~metadata:(`Assoc fields)
+
+(** [record_github_update_delivered ~db ~room_id ~delivery_id ~repo ~pr_number
+     ~event_type ~payload_summary ?snapshot_id ?connector ()] records a
+    successful GitHub update delivery to a room. *)
+let record_github_update_delivered ~db ~room_id ~delivery_id ~repo ~pr_number
+    ~event_type ~payload_summary ?snapshot_id ?connector () =
+  let fields =
+    [
+      ("room_id", `String room_id);
+      ("delivery_id", `String delivery_id);
+      ("repo", `String repo);
+      ("pr_number", `Int pr_number);
+      ("event_type", `String event_type);
+      ("payload_summary", `String payload_summary);
+      ("result", `String "delivered");
+    ]
+  in
+  let fields =
+    match snapshot_id with
+    | Some sid when String.trim sid <> "" ->
+        ("snapshot_id", `String sid) :: fields
+    | _ -> fields
+  in
+  let fields =
+    match connector with
+    | Some c when String.trim c <> "" -> ("connector", `String c) :: fields
+    | _ -> fields
+  in
+  let actor = Option.value ~default:"github" connector in
+  append_now ~db ~room_id ~event_type:"github_update_delivered" ~actor
+    ~metadata:(`Assoc fields)
+
+(** [record_github_update_skipped ~db ~room_id ~delivery_id ~repo ~pr_number
+     ~event_type ~reason ~payload_summary ?snapshot_id ?connector ()] records a
+    skipped GitHub update (no subscription match, disabled subscription, or
+    preference mismatch). *)
+let record_github_update_skipped ~db ~room_id ~delivery_id ~repo ~pr_number
+    ~event_type ~reason ~payload_summary ?snapshot_id ?connector () =
+  let fields =
+    [
+      ("room_id", `String room_id);
+      ("delivery_id", `String delivery_id);
+      ("repo", `String repo);
+      ("pr_number", `Int pr_number);
+      ("event_type", `String event_type);
+      ("reason", `String reason);
+      ("payload_summary", `String payload_summary);
+      ("result", `String "skipped");
+    ]
+  in
+  let fields =
+    match snapshot_id with
+    | Some sid when String.trim sid <> "" ->
+        ("snapshot_id", `String sid) :: fields
+    | _ -> fields
+  in
+  let fields =
+    match connector with
+    | Some c when String.trim c <> "" -> ("connector", `String c) :: fields
+    | _ -> fields
+  in
+  let actor = Option.value ~default:"github" connector in
+  append_now ~db ~room_id ~event_type:"github_update_skipped" ~actor
+    ~metadata:(`Assoc fields)
+
+(** [record_github_update_denied ~db ~room_id ~delivery_id ~repo ~pr_number
+     ~event_type ~deny_reason ~payload_summary ?snapshot_id ?connector ()]
+    records a denied GitHub update (duplicate, quiet hours, or rate limited). *)
+let record_github_update_denied ~db ~room_id ~delivery_id ~repo ~pr_number
+    ~event_type ~deny_reason ~payload_summary ?snapshot_id ?connector () =
+  let fields =
+    [
+      ("room_id", `String room_id);
+      ("delivery_id", `String delivery_id);
+      ("repo", `String repo);
+      ("pr_number", `Int pr_number);
+      ("event_type", `String event_type);
+      ("deny_reason", `String deny_reason);
+      ("payload_summary", `String payload_summary);
+      ("result", `String "denied");
+    ]
+  in
+  let fields =
+    match snapshot_id with
+    | Some sid when String.trim sid <> "" ->
+        ("snapshot_id", `String sid) :: fields
+    | _ -> fields
+  in
+  let fields =
+    match connector with
+    | Some c when String.trim c <> "" -> ("connector", `String c) :: fields
+    | _ -> fields
+  in
+  let actor = Option.value ~default:"github" connector in
+  append_now ~db ~room_id ~event_type:"github_update_denied" ~actor
+    ~metadata:(`Assoc fields)

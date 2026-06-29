@@ -720,6 +720,349 @@ let test_parse_event_review_extracts_head_sha () =
       Alcotest.(check string) "review_author" "bob" e.review_author
   | _ -> Alcotest.fail "expected PullRequestReview"
 
+let metadata_string key json =
+  match json with
+  | `Assoc fields -> (
+      match List.assoc_opt key fields with Some (`String s) -> s | _ -> "")
+  | _ -> ""
+
+let test_sanitize_payload_summary_pr () =
+  let event =
+    Github_webhook.PullRequest
+      {
+        action = "opened";
+        owner = "owner";
+        repo = "repo";
+        pr_number = 42;
+        pr_title = "Add new feature";
+        pr_body = "This adds a new feature";
+        pr_author = "testuser";
+        base_branch = "main";
+        head_branch = "feature";
+        html_url = "https://github.com/owner/repo/pull/42";
+      }
+  in
+  let summary = Github_pr_dispatch.sanitize_payload_summary event in
+  Alcotest.(check bool)
+    "contains PR number" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "PR #42") summary 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains author" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "@testuser") summary 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains title" true
+    (try
+       ignore
+         (Str.search_forward (Str.regexp_string "Add new feature") summary 0);
+       true
+     with Not_found -> false)
+
+let test_sanitize_payload_summary_check_run () =
+  let event =
+    Github_webhook.CheckRun
+      {
+        owner = "owner";
+        repo = "repo";
+        name = "CI";
+        status = "completed";
+        conclusion = "failure";
+        pr_number = Some 42;
+        html_url = "https://github.com/owner/repo/checks";
+        head_sha = "abc123";
+        actor = "ci-bot";
+        details_url = "";
+      }
+  in
+  let summary = Github_pr_dispatch.sanitize_payload_summary event in
+  Alcotest.(check bool)
+    "contains check name" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "CI") summary 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains conclusion" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "failure") summary 0);
+       true
+     with Not_found -> false)
+
+let test_sanitize_payload_summary_truncates_long_title () =
+  let long_title = String.make 300 'x' in
+  let event =
+    Github_webhook.PullRequest
+      {
+        action = "opened";
+        owner = "owner";
+        repo = "repo";
+        pr_number = 1;
+        pr_title = long_title;
+        pr_body = "";
+        pr_author = "user";
+        base_branch = "main";
+        head_branch = "feature";
+        html_url = "";
+      }
+  in
+  let summary = Github_pr_dispatch.sanitize_payload_summary event in
+  Alcotest.(check bool) "truncated" true (String.length summary <= 200)
+
+let test_dispatch_records_delivered_event () =
+  with_db (fun db ->
+      let _sub =
+        Github_pr_subscriptions.add ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42 ~profile_id:1 ()
+      in
+      let event =
+        Github_webhook.PullRequest
+          {
+            action = "opened";
+            owner = "owner";
+            repo = "repo";
+            pr_number = 42;
+            pr_title = "Test PR";
+            pr_body = "Test body";
+            pr_author = "testuser";
+            base_branch = "main";
+            head_branch = "feature";
+            html_url = "https://github.com/owner/repo/pull/42";
+          }
+      in
+      let send_message ~room_id ~text () =
+        ignore (room_id, text);
+        Lwt.return_unit
+      in
+      let result =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ledger-1" ~connector:"slack"
+             ~quiet_start:0 ~quiet_end:0 ~send_message ())
+      in
+      Alcotest.(check int) "dispatch count" 1 result;
+      (* Verify ledger event was recorded *)
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"room-1"
+          ~event_type:"github_update_delivered" ()
+      in
+      Alcotest.(check int) "delivered event count" 1 (List.length events);
+      match events with
+      | [ event ] ->
+          Alcotest.(check string)
+            "result" "delivered"
+            (metadata_string "result" event.metadata);
+          Alcotest.(check string)
+            "delivery_id" "test-delivery-ledger-1"
+            (metadata_string "delivery_id" event.metadata);
+          Alcotest.(check string)
+            "connector" "slack"
+            (metadata_string "connector" event.metadata);
+          Alcotest.(check string)
+            "repo" "owner/repo"
+            (metadata_string "repo" event.metadata)
+      | _ -> Alcotest.fail "expected one delivered event")
+
+let test_dispatch_records_denied_event () =
+  with_db (fun db ->
+      let _sub =
+        Github_pr_subscriptions.add ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42 ~profile_id:1 ()
+      in
+      let event =
+        Github_webhook.PullRequest
+          {
+            action = "opened";
+            owner = "owner";
+            repo = "repo";
+            pr_number = 42;
+            pr_title = "Test PR";
+            pr_body = "Test body";
+            pr_author = "testuser";
+            base_branch = "main";
+            head_branch = "feature";
+            html_url = "https://github.com/owner/repo/pull/42";
+          }
+      in
+      let send_message ~room_id ~text () =
+        ignore (room_id, text);
+        Lwt.return_unit
+      in
+      (* First dispatch *)
+      let _ =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ledger-2" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
+      in
+      (* Second dispatch with same delivery_id - should be deduped *)
+      let result =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ledger-2" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
+      in
+      Alcotest.(check int) "dispatch count" 0 result;
+      (* Verify denied event recorded for duplicate *)
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"room-1"
+          ~event_type:"github_update_denied" ()
+      in
+      Alcotest.(check int) "denied event count" 1 (List.length events);
+      match events with
+      | [ event ] ->
+          Alcotest.(check string)
+            "deny_reason" "duplicate"
+            (metadata_string "deny_reason" event.metadata)
+      | _ -> Alcotest.fail "expected one denied event")
+
+let test_dispatch_records_skipped_event_no_subscriptions () =
+  with_db (fun db ->
+      let event =
+        Github_webhook.PullRequest
+          {
+            action = "opened";
+            owner = "owner";
+            repo = "repo";
+            pr_number = 99;
+            pr_title = "Unsubscribed PR";
+            pr_body = "Test body";
+            pr_author = "testuser";
+            base_branch = "main";
+            head_branch = "feature";
+            html_url = "https://github.com/owner/repo/pull/99";
+          }
+      in
+      let send_message ~room_id ~text () =
+        ignore (room_id, text);
+        Lwt.return_unit
+      in
+      let result =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ledger-3" ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
+      in
+      Alcotest.(check int) "dispatch count" 0 result;
+      (* Verify skipped event was recorded *)
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"__global__"
+          ~event_type:"github_update_skipped" ()
+      in
+      Alcotest.(check int) "skipped event count" 1 (List.length events);
+      match events with
+      | [ event ] ->
+          Alcotest.(check string)
+            "reason" "no_subscriptions"
+            (metadata_string "reason" event.metadata)
+      | _ -> Alcotest.fail "expected one skipped event")
+
+let test_dispatch_records_with_snapshot_id () =
+  with_db (fun db ->
+      let _sub =
+        Github_pr_subscriptions.add ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42 ~profile_id:1 ()
+      in
+      let event =
+        Github_webhook.PullRequest
+          {
+            action = "opened";
+            owner = "owner";
+            repo = "repo";
+            pr_number = 42;
+            pr_title = "Test PR";
+            pr_body = "Test body";
+            pr_author = "testuser";
+            base_branch = "main";
+            head_branch = "feature";
+            html_url = "https://github.com/owner/repo/pull/42";
+          }
+      in
+      let send_message ~room_id ~text () =
+        ignore (room_id, text);
+        Lwt.return_unit
+      in
+      let result =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ledger-4" ~connector:"telegram"
+             ~snapshot_id:(Some "snap-123") ~quiet_start:0 ~quiet_end:0
+             ~send_message ())
+      in
+      Alcotest.(check int) "dispatch count" 1 result;
+      (* Verify snapshot_id in ledger event *)
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"room-1"
+          ~event_type:"github_update_delivered" ()
+      in
+      match events with
+      | [ event ] ->
+          Alcotest.(check string)
+            "snapshot_id" "snap-123"
+            (metadata_string "snapshot_id" event.metadata)
+      | _ -> Alcotest.fail "expected one delivered event")
+
+let test_dispatch_ci_event_records_delivered () =
+  with_db (fun db ->
+      let _sub =
+        Github_pr_subscriptions.add ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42 ~profile_id:1
+          ~notification_preferences:
+            {
+              Github_pr_subscriptions.on_open = true;
+              on_close = false;
+              on_comment = true;
+              on_review = false;
+              on_status = true;
+              on_merge = false;
+            }
+          ()
+      in
+      let event =
+        Github_webhook.CheckRun
+          {
+            owner = "owner";
+            repo = "repo";
+            name = "CI";
+            status = "completed";
+            conclusion = "success";
+            pr_number = Some 42;
+            html_url = "https://github.com/owner/repo/checks";
+            head_sha = "abc123";
+            actor = "ci-bot";
+            details_url = "";
+          }
+      in
+      let send_message ~room_id ~text () =
+        ignore (room_id, text);
+        Lwt.return_unit
+      in
+      let result =
+        Lwt_main.run
+          (Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+             ~delivery_id:"test-delivery-ledger-5" ~connector:"discord"
+             ~quiet_start:0 ~quiet_end:0 ~send_message ())
+      in
+      Alcotest.(check int) "dispatch count" 1 result;
+      (* Verify delivered event has correct metadata *)
+      let events =
+        Room_activity_ledger.query ~db ~room_id:"room-1"
+          ~event_type:"github_update_delivered" ()
+      in
+      match events with
+      | [ event ] ->
+          Alcotest.(check string)
+            "event_type" "check_run"
+            (metadata_string "event_type" event.metadata);
+          Alcotest.(check string)
+            "connector" "discord"
+            (metadata_string "connector" event.metadata)
+      | _ -> Alcotest.fail "expected one delivered event")
+
 let suite =
   [
     Alcotest.test_case "should notify subscription" `Quick
@@ -753,4 +1096,20 @@ let suite =
       test_dispatch_disabled_subscription;
     Alcotest.test_case "dispatch notification preferences" `Quick
       test_dispatch_notification_preferences;
+    Alcotest.test_case "sanitize payload summary PR" `Quick
+      test_sanitize_payload_summary_pr;
+    Alcotest.test_case "sanitize payload summary check_run" `Quick
+      test_sanitize_payload_summary_check_run;
+    Alcotest.test_case "sanitize payload summary truncates" `Quick
+      test_sanitize_payload_summary_truncates_long_title;
+    Alcotest.test_case "dispatch records delivered event" `Quick
+      test_dispatch_records_delivered_event;
+    Alcotest.test_case "dispatch records denied event" `Quick
+      test_dispatch_records_denied_event;
+    Alcotest.test_case "dispatch records skipped event no subscriptions" `Quick
+      test_dispatch_records_skipped_event_no_subscriptions;
+    Alcotest.test_case "dispatch records with snapshot_id" `Quick
+      test_dispatch_records_with_snapshot_id;
+    Alcotest.test_case "dispatch CI event records delivered" `Quick
+      test_dispatch_ci_event_records_delivered;
   ]
