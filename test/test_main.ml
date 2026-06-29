@@ -243,6 +243,7 @@ let () =
     @ [ ("github_app_config", Test_github_app_config.suite) ]
     @ [ ("github_app_token", Test_github_app_token.suite) ]
     @ [
+        ("minimal_reload", Test_minimal_reload.suite);
         ( "config_isolation",
           [
             Alcotest.test_case "real config.json not modified by tests" `Quick
