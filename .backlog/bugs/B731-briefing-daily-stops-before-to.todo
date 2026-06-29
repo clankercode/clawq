@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B731
+priority: high
+status: pending
+tags: []
+title: briefing-daily stops before topic searches and delivery
+---
+briefing-daily invocations in Teams DM repeatedly stop after config validation/RSS attempt and do not complete the required sequential topic searches or delivery. The skill/tool run emits the Daily briefing plan and a partial status line instead of delivering the composed briefing. This violates the briefing-daily contract: after config validation it should fetch RSS, perform sequential web_search for each configured topic, compose, and call send_to_session exactly once. Fix so skill invocations cannot silently stop midway; if tool limits/turn limits interrupt, the runtime should continue or mark the run failed with an actionable error.
