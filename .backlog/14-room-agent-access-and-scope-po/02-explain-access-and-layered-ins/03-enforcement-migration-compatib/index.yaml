@@ -23,7 +23,7 @@ tasks:
       file: T001-route-room-execution-through-e.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Route room execution through effective-access snapshots
     - complexity: high
