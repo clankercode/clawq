@@ -22,7 +22,7 @@ epics:
       locked: false
       name: Teams Interactive Controls and Native Flow
       path: 02-teams-interactive-controls-and
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P15.M2.E1
