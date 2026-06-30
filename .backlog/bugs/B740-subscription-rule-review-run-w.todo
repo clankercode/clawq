@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B740
+priority: high
+status: pending
+tags: []
+title: Subscription_rule review-run/workflow-run trigger source defined but never constructed
+---
+src/github_review_run.ml:19 defines the Subscription_rule trigger_source variant (+ serialization) but no caller ever constructs a review run with it (only Label and Room_command are created). Same for src/workflow_run_trigger.ml:16. Docs currently marked 'defined/planned, not yet wired' with TODO. Decision: implement subscription-rule-triggered runs or remove the dead type. Found in docs-audit (lane D, D-02).
