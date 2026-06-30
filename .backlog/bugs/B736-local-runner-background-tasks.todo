@@ -1,0 +1,64 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B736
+priority: high
+status: pending
+tags:
+    - background-task
+    - local-runner
+    - daemon
+    - durability
+    - claude-tag
+title: Local-runner background tasks lost on daemon restart (breaks async-over-hours/days for native runner)
+---
+## Goal
+
+Make **Local-runner background tasks survive a daemon restart**, matching the durability already provided for external runners (codex/claude/kimi/gemini/opencode/cursor), which re-adopt orphaned PIDs. Today a Local in-process runner task is lost on daemon restart — breaking the "asynchronous work over hours or days" guarantee for the native runner.
+
+## Description
+
+External runners spawn via `fork+setsid+execve` (`src/process_group.ml`) into a separate process group; on daemon restart, `background_task_spawn.ml` (~line 1009–1103) re-adopts orphaned PIDs by their recorded runner session id and resumes polling. The **Local runner** runs the agent turn **in-process** inside the daemon (`background_task_local.ml`, `spawn_local_task` at `background_task_spawn.ml:630`). When the daemon restarts:
+
+- the in-process turn is killed mid-flight,
+- its `background_task_db` row is left in `Running` status with no live worker,
+- and (per the audit) Local tasks are explicitly **not** re-adopted (`background_task_spawn.ml:1043–1050`).
+
+For Claude-Tag-style ambient/self-scheduled work — which is increasingly routed through the Local runner because it uses clawq's own tool layer and access snapshots — this means a daemon bounce silently drops the task. That is the wrong default for long-horizon autonomous work.
+
+### Approach
+
+1. **Checkpoint Local task intent** so it can be re-enqueued, not merely re-adopted. The Local runner already has the full turn specification (profile, session, prompt, access snapshot id, tool scope). Persist enough in `background_task_db` to re-enqueue an equivalent Local turn on daemon startup (the access snapshot is already immutable-persisted by P14.M1.E3).
+2. **On daemon startup**, scan `background_task_db` for rows with `runner = Local` and `status` in `{Running, Queued}`; transition stale `Running` → `Queued` (with a ledger event marking "re-enqueued after restart") and let the normal scheduler pick them up subject to `max_local_running_tasks`.
+3. **Idempotency / safety**: a Local turn may have performed side effects (file writes, tool calls) before the crash. Re-enqueuing must be safe-by-default:
+   - Gate re-enqueue behind a per-task `restart_policy` (`reenqueue` default vs `fail`), so tasks with non-idempotent side effects can opt out.
+   - Record a `restart_count` and cap retries (`max_restarts`, default 1–2) to avoid a crash-looping task burning budget forever.
+   - Re-enqueued turns start with a fresh agent history loaded from the session's persisted messages (`Memory.load_history`) — the model sees prior progress, not a blank slate.
+4. **Budget**: re-enqueue respects `room_budget`; a task whose room has hit its hard cap is moved to `Failed` with reason `Budget_exceeded_on_restart`, not re-run.
+5. Coordinate with `postmortem_followup.ml` so a Local task that exhausted retries emits a follow-up the operator can see.
+
+### Files
+
+- `src/background_task_spawn.ml` (Local re-enqueue path ~1043–1050; startup scan)
+- `src/background_task_local.ml` (turn spec persistence hooks)
+- `src/background_task_db.ml` (schema: `restart_policy`, `restart_count`, `max_restarts`; status transitions on startup)
+- `src/background_task_0_format.ml` (`task` record extensions)
+- `src/daemon.ml` (startup replay pass — coordinate with existing "Daemon Startup Replay Pipeline" P-work)
+- `src/room_budget.ml` (budget gate on re-enqueue)
+
+## Acceptance Criteria
+
+- [ ] A Local runner task in `Running` state at daemon shutdown is transitioned to `Queued` on next daemon startup and resumes (subject to `restart_policy=reenqueue`).
+- [ ] A Local task with `restart_policy=fail` is moved to `Failed` with reason `Interrupted_by_restart` and is NOT re-enqueued.
+- [ ] A re-enqueued Local turn exceeds `max_restarts` → moved to `Failed` with reason `Max_restarts_exceeded`; a `postmortem_followup` is logged.
+- [ ] Re-enqueued turn's agent history is hydrated from `Memory.load_history` (not blank); verified by test.
+- [ ] A Local task whose room has reached its budget hard cap is moved to `Failed` (`Budget_exceeded_on_restart`), not re-run.
+- [ ] External-runner re-adoption behaviour is unchanged (no regression; covered by existing tests).
+- [ ] `make test` passes; new tests in `test/test_background_task*.ml` cover re-enqueue, fail-policy, max-restarts, budget-gate, history-hydration.
+
+## Docs Updates
+
+- `docs/room-agent-architecture.md` background-task section: document `restart_policy`, `max_restarts`, and the "Local tasks survive daemon restart" guarantee.
+- `docs/cli-reference.md` (`background_task`): expose `restart_policy` / `max_restarts` on task creation if user-facing, or document as config defaults.
+- Note the interaction with ambient/cron room routines (a bounced daemon no longer silently drops self-scheduled Local work).
