@@ -90,6 +90,9 @@ let fake_task ?(runner = Background_task.Codex)
     requester = None;
     progress_state = None;
     access_snapshot_id = None;
+    restart_policy = Background_task.Reenqueue;
+    restart_count = 0;
+    max_restarts = Background_task.max_restarts_default;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model ?agent_name
@@ -133,6 +136,9 @@ let fake_started_task ?(runner = Background_task.Codex) ?model ?agent_name
     requester = None;
     progress_state = None;
     access_snapshot_id = None;
+    restart_policy = Background_task.Reenqueue;
+    restart_count = 0;
+    max_restarts = Background_task.max_restarts_default;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -411,6 +417,9 @@ let test_command_of_task_codex () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -465,6 +474,9 @@ let test_command_of_task_claude () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -513,6 +525,9 @@ let test_command_of_task_kimi () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -561,6 +576,9 @@ let test_command_of_task_kimi_with_model () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -609,6 +627,9 @@ let test_command_of_task_gemini () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -657,6 +678,9 @@ let test_command_of_task_gemini_with_model () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -705,6 +729,9 @@ let test_command_of_task_opencode () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -753,6 +780,9 @@ let test_command_of_task_opencode_with_model () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -801,6 +831,9 @@ let test_command_of_task_cursor () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -849,6 +882,9 @@ let test_command_of_task_cursor_with_model () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -1879,6 +1915,9 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     requester = None;
     progress_state = None;
     access_snapshot_id = None;
+    restart_policy = Background_task.Reenqueue;
+    restart_count = 0;
+    max_restarts = Background_task.max_restarts_default;
   }
 
 let test_elapsed_string_recent () =
@@ -2092,6 +2131,9 @@ let test_command_of_task_codex_with_model () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -2148,6 +2190,9 @@ let test_command_of_task_claude_with_model () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   Alcotest.(check (array string))
@@ -4164,6 +4209,9 @@ let test_terse_message_dirty_worktree () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -4982,20 +5030,22 @@ let test_reap_local_task_message () =
       ignore
         (Background_task.set_running ~db ~id ~branch:"b"
            ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
-      let _count =
-        Background_task.reap_dead_running_tasks ~db ~on_task_finished:(fun _ ->
-            Lwt.return_unit)
+      (* B736: reap_dead_running_tasks no longer touches Local tasks;
+         reenqueue_stale_local_tasks handles them instead. The default
+         restart_policy is Reenqueue, so the task should be re-queued. *)
+      Background_task.clear_all_tracked ();
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
       in
+      Alcotest.(check int) "one task re-enqueued" 1 count;
       match Background_task.get_task ~db ~id with
       | None -> Alcotest.fail "expected task"
       | Some task ->
-          let preview = Option.value ~default:"" task.result_preview in
-          Alcotest.(check bool)
-            "result mentions daemon restart" true
-            (Test_helpers.string_contains preview "daemon restart");
-          Alcotest.(check bool)
-            "result mentions retry hint" true
-            (Test_helpers.string_contains preview "background retry"))
+          Alcotest.(check string)
+            "status queued" "queued"
+            (Background_task.string_of_status task.status);
+          Alcotest.(check int) "restart_count incremented" 1 task.restart_count)
 
 let test_spawn_local_task_timeout () =
   let dir = Filename.temp_dir "clawq-bg-local-timeout" "" in
@@ -5652,6 +5702,9 @@ let test_effective_progress_state_room_origin () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   let opt = Alcotest.option Alcotest.string in
@@ -5708,6 +5761,9 @@ let test_effective_progress_state_non_room () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   let opt = Alcotest.option Alcotest.string in
@@ -6762,6 +6818,279 @@ let test_health_local_task_stale_log_is_stalled () =
         (Background_task.string_of_health health))
     ~finally:(fun () -> try Sys.remove log_file with _ -> ())
 
+(* B736: Local task re-enqueue on daemon restart tests *)
+
+let test_reenqueue_local_task_on_restart () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path
+            ~prompt:"test reenqueue" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      (* Simulate daemon restart: clear in-memory tracking *)
+      Background_task.clear_all_tracked ();
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
+      in
+      Alcotest.(check int) "one task re-enqueued" 1 count;
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status queued" "queued"
+            (Background_task.string_of_status task.status);
+          Alcotest.(check int) "restart_count incremented" 1 task.restart_count;
+          Alcotest.(check bool) "pid cleared" true (task.pid = None);
+          Alcotest.(check bool)
+            "finished_at cleared" true (task.finished_at = None))
+
+let test_reenqueue_local_task_fail_policy () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~restart_policy:Background_task.Fail ~require_git:false
+            ~use_worktree:false ~repo_path ~prompt:"test fail policy" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      Background_task.clear_all_tracked ();
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
+      in
+      Alcotest.(check int) "nothing re-enqueued" 0 count;
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status failed" "failed"
+            (Background_task.string_of_status task.status);
+          let preview = Option.value ~default:"" task.result_preview in
+          Alcotest.(check bool)
+            "reason mentions Interrupted_by_restart" true
+            (Test_helpers.string_contains preview "Interrupted_by_restart"))
+
+let test_reenqueue_local_task_max_restarts_exceeded () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~max_restarts:1 ~require_git:false ~use_worktree:false ~repo_path
+            ~prompt:"test max restarts" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (* Set restart_count to max_restarts so the next restart would exceed *)
+      let sql =
+        Printf.sprintf
+          "UPDATE background_tasks SET restart_count = 1 WHERE id = %d" id
+      in
+      ignore (Sqlite3.exec db sql);
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      Background_task.clear_all_tracked ();
+      let callback_fired = ref false in
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ ->
+            callback_fired := true;
+            Lwt.return_unit)
+      in
+      Alcotest.(check int) "nothing re-enqueued" 0 count;
+      Alcotest.(check bool) "callback fired" true !callback_fired;
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status failed" "failed"
+            (Background_task.string_of_status task.status);
+          let preview = Option.value ~default:"" task.result_preview in
+          Alcotest.(check bool)
+            "reason mentions Max_restarts_exceeded" true
+            (Test_helpers.string_contains preview "Max_restarts_exceeded"))
+
+let test_reenqueue_local_task_budget_exceeded () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      Room_budget.init_schema db;
+      (* Create a profile and budget that is exceeded *)
+      let profile_id = Memory.insert_room_profile ~db ~name:"budget-test" in
+      Room_budget.init_profile_budget ~db ~profile_id ~token_limit:100
+        ~cost_limit_usd:0.01 ~reset_period:"monthly" ();
+      (* Insert request stats to exceed the budget *)
+      let sql =
+        Printf.sprintf
+          "INSERT INTO request_stats (session_key, profile_id, provider, \
+           model, prompt_tokens, completion_tokens, cost_usd, requested_at) \
+           VALUES ('test-session', %d, 'openai', 'gpt-4', 500, 500, 1.0, \
+           datetime('now'))"
+          profile_id
+      in
+      ignore (Sqlite3.exec db sql);
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local ~profile_id
+            ~require_git:false ~use_worktree:false ~repo_path
+            ~prompt:"test budget" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      Background_task.clear_all_tracked ();
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
+      in
+      Alcotest.(check int) "nothing re-enqueued" 0 count;
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status failed" "failed"
+            (Background_task.string_of_status task.status);
+          let preview = Option.value ~default:"" task.result_preview in
+          Alcotest.(check bool)
+            "reason mentions Budget_exceeded_on_restart" true
+            (Test_helpers.string_contains preview "Budget_exceeded_on_restart"))
+
+let test_reenqueue_local_task_history_hydration () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path
+            ~prompt:"test history" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let session_key = Printf.sprintf "__bg_task:%d" id in
+      (* Persist a message in the session history *)
+      let msg = Provider.make_message ~role:"user" ~content:"prior context" in
+      Memory.store_message ~db ~session_key msg;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      Background_task.clear_all_tracked ();
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
+      in
+      Alcotest.(check int) "one task re-enqueued" 1 count;
+      (* Verify the task's session has history *)
+      let history = Memory.load_history ~db ~session_key in
+      Alcotest.(check bool) "history is not empty" true (history <> []);
+      let has_prior =
+        List.exists
+          (fun (m : Provider.message) ->
+            match m.role with "user" -> true | _ -> false)
+          history
+      in
+      Alcotest.(check bool) "history contains prior message" true has_prior)
+
+let test_external_runner_readopt_unchanged () =
+  (* Regression guard: external runner re-adoption still works *)
+  Background_task.clear_all_tracked ();
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let log_path = Filename.temp_file "clawq-bg-ext-readopt" ".log" in
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test external readopt" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let proc =
+        Process_group.start_to_file ~env:(Unix.environment ()) ~log_path
+          (Process_group.Exec [| "sh"; "-c"; "echo ext-output; sleep 0.5" |])
+      in
+      let pid = proc.Process_group.file_pid in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-ext"
+           ~worktree_path:repo_path ~log_path ~pid);
+      (* Re-enqueue should NOT touch external runners *)
+      let re_enqueued =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
+      in
+      Alcotest.(check int) "no tasks re-enqueued" 0 re_enqueued;
+      (* But readopt should pick it up *)
+      let readopted =
+        Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
+            Lwt.return_unit)
+      in
+      Alcotest.(check int) "one task readopted" 1 readopted;
+      (* Cleanup: wait for child to exit *)
+      Lwt_main.run (Lwt_unix.sleep 1.0);
+      try
+        Unix.kill pid 0;
+        Unix.kill (-pid) Sys.sigkill
+      with Unix.Unix_error _ -> ())
+
+let test_reenqueue_local_task_records_ledger_event () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      (* Use channel_id so the ledger event has a room_id *)
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path
+            ~channel:"telegram" ~channel_id:"room-123" ~prompt:"test ledger" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      Background_task.clear_all_tracked ();
+      let count =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:(fun _ -> Lwt.return_unit)
+      in
+      Alcotest.(check int) "one task re-enqueued" 1 count;
+      (* Check that a ledger event was recorded *)
+      let events = Room_activity_ledger.query ~room_id:"room-123" ~db () in
+      let re_enq_event =
+        List.find_opt
+          (fun (e : Room_activity_ledger.event) ->
+            e.event_type = "background_task_re_enqueued")
+          events
+      in
+      Alcotest.(check bool)
+        "ledger has re_enqueued event" true (re_enq_event <> None))
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -7162,4 +7491,18 @@ let suite =
       test_launch_triggered_run_succeeds_with_granted_repo;
     Alcotest.test_case "launch_triggered_run idempotent by SHA" `Quick
       test_launch_triggered_run_idempotent_by_sha;
+    Alcotest.test_case "B736: reenqueue local task on restart" `Quick
+      test_reenqueue_local_task_on_restart;
+    Alcotest.test_case "B736: reenqueue local task fail policy" `Quick
+      test_reenqueue_local_task_fail_policy;
+    Alcotest.test_case "B736: reenqueue local task max restarts exceeded" `Quick
+      test_reenqueue_local_task_max_restarts_exceeded;
+    Alcotest.test_case "B736: reenqueue local task budget exceeded" `Quick
+      test_reenqueue_local_task_budget_exceeded;
+    Alcotest.test_case "B736: reenqueue local task history hydration" `Quick
+      test_reenqueue_local_task_history_hydration;
+    Alcotest.test_case "B736: external runner readopt unchanged" `Quick
+      test_external_runner_readopt_unchanged;
+    Alcotest.test_case "B736: reenqueue local task records ledger event" `Quick
+      test_reenqueue_local_task_records_ledger_event;
   ]

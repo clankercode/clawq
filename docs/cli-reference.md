@@ -413,6 +413,14 @@ clawq background show <id>                       Show task details
 clawq background cancel <id>                     Cancel a running task
 ```
 
+**Local task restart policy (B736):** Local runner tasks support automatic
+re-enqueue on daemon restart. By default (`restart_policy=reenqueue`), a Local
+task that was running when the daemon shut down is re-queued on the next
+startup with a fresh agent history. Tasks are capped at `max_restarts=2`
+attempts. Use `restart_policy=fail` for tasks with non-idempotent side effects
+to prevent re-execution after a crash. If the room's budget is exceeded at
+restart time, the task is marked as failed rather than re-enqueued.
+
 ## Audit
 
 ### `clawq audit`

@@ -148,6 +148,9 @@ let test_check_plan_stable_hash_unchanged () =
               requester = None;
               progress_state = None;
               access_snapshot_id = None;
+              restart_policy = Background_task.Reenqueue;
+              restart_count = 0;
+              max_restarts = Background_task.max_restarts_default;
             }
           in
           let stable =
@@ -207,6 +210,9 @@ let test_check_plan_stable_marker () =
               requester = None;
               progress_state = None;
               access_snapshot_id = None;
+              restart_policy = Background_task.Reenqueue;
+              restart_count = 0;
+              max_restarts = Background_task.max_restarts_default;
             }
           in
           let stable =
@@ -264,6 +270,9 @@ let test_stage_transitions () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -356,6 +365,9 @@ let test_stage_force_stop_at_max () =
       requester = None;
       progress_state = None;
       access_snapshot_id = None;
+      restart_policy = Background_task.Reenqueue;
+      restart_count = 0;
+      max_restarts = Background_task.max_restarts_default;
     }
   in
   with_temp_git_repo (fun repo ->

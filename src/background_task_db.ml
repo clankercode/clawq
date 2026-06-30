@@ -75,6 +75,25 @@ let task_of_stmt stmt : task =
        with _ -> None);
     access_snapshot_id =
       (try Sqlite3.column stmt 37 |> sql_text with _ -> None);
+    restart_policy =
+      (try
+         match Sqlite3.column stmt 38 with
+         | Sqlite3.Data.TEXT s ->
+             Option.value (restart_policy_of_string s) ~default:Reenqueue
+         | _ -> Reenqueue
+       with _ -> Reenqueue);
+    restart_count =
+      (try
+         match Sqlite3.column stmt 39 with
+         | Sqlite3.Data.INT i -> Int64.to_int i
+         | _ -> 0
+       with _ -> 0);
+    max_restarts =
+      (try
+         match Sqlite3.column stmt 40 with
+         | Sqlite3.Data.INT i -> Int64.to_int i
+         | _ -> max_restarts_default
+       with _ -> max_restarts_default);
   }
 
 let init_schema db =
@@ -158,6 +177,15 @@ let init_schema db =
   try_alter "ALTER TABLE background_tasks ADD COLUMN requester TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN progress_state TEXT";
   try_alter "ALTER TABLE background_tasks ADD COLUMN access_snapshot_id TEXT";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN restart_policy TEXT NOT NULL \
+     DEFAULT 'reenqueue'";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN restart_count INTEGER NOT NULL \
+     DEFAULT 0";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN max_restarts INTEGER NOT NULL \
+     DEFAULT 2";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -366,7 +394,9 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
     ?session_key ?channel ?channel_id ?parent_task_id ?agent_name
     ?follow_up_prompt ?description ?context_snapshot ?profile_id ?origin_json
-    ?thread_id ?requester ?access_snapshot_id () =
+    ?thread_id ?requester ?access_snapshot_id
+    ?(restart_policy = restart_policy_default)
+    ?(max_restarts = max_restarts_default) () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -378,8 +408,8 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
            branch, session_key, channel, channel_id, automerge, use_worktree, \
            parent_task_id, acp, agent_name, follow_up_prompt, description, \
            context_snapshot, profile_id, origin_json, thread_id, requester, \
-           access_snapshot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
-           ?, ?, ?, ?, ?, ?, ?, ?)"
+           access_snapshot_id, restart_policy, max_restarts) VALUES (?, ?, ?, \
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -426,6 +456,12 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             bind_opt 19 thread_id;
             bind_opt 20 requester;
             bind_opt 21 access_snapshot_id;
+            ignore
+              (Sqlite3.bind stmt 22
+                 (Sqlite3.Data.TEXT (string_of_restart_policy restart_policy)));
+            ignore
+              (Sqlite3.bind stmt 23
+                 (Sqlite3.Data.INT (Int64.of_int max_restarts)));
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
@@ -450,7 +486,8 @@ let select_columns =
    agent_name, notification_status, notification_error, \
    COALESCE(notification_attempts, 0), follow_up_prompt, description, \
    context_snapshot, profile_id, origin_json, thread_id, requester, \
-   progress_state, access_snapshot_id"
+   progress_state, access_snapshot_id, COALESCE(restart_policy, 'reenqueue'), \
+   COALESCE(restart_count, 0), COALESCE(max_restarts, 2)"
 
 let list_tasks ~db : task list =
   let sql =

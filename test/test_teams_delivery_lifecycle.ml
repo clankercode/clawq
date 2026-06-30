@@ -322,6 +322,9 @@ let test_teams_delivery_records_lifecycle () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       Lwt_main.run
@@ -420,6 +423,9 @@ let test_non_teams_no_lifecycle () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       Lwt_main.run

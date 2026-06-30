@@ -2114,6 +2114,9 @@ let test_background_task_logs_truncates_large_output () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -2185,6 +2188,9 @@ let test_background_task_logs_truncates_pathological_long_line () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -2265,6 +2271,9 @@ let test_background_task_logs_clamps_excessive_lines () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       let oc = open_out (Option.get task.log_path) in
