@@ -1,16 +1,15 @@
 ---
+claimed_at: "2026-06-30T04:41:56Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B737
 priority: medium
-status: pending
-tags:
-    - research
-    - plugins
-    - extension
-    - pipelines
-    - claude-tag
+started_at: "2026-06-30T04:41:56Z"
+status: in_progress
+tags: []
 title: 'Research: self-extension/plugin system so clawq grows features ad-hoc (GLM-5.2 authors, GPT-5.5 review-and-fix) — NOT broad third-party integration'
 ---
 ## Goal

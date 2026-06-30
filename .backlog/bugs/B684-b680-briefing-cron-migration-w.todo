@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-30T04:35:32Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-30T04:39:23Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.8584357822666666
 estimate_hours: 1
 id: B684
 priority: high
 started_at: "2026-06-30T04:35:32Z"
-status: in_progress
+status: done
 tags: []
 title: B680 briefing cron migration was marked done but never executed — DB still has legacy prompts
 ---

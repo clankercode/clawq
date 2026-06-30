@@ -1,16 +1,15 @@
 ---
+claimed_at: "2026-06-30T04:41:56Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 1
 id: B736
 priority: high
-status: pending
-tags:
-    - background-task
-    - local-runner
-    - daemon
-    - durability
-    - claude-tag
+started_at: "2026-06-30T04:41:56Z"
+status: in_progress
+tags: []
 title: Local-runner background tasks lost on daemon restart (breaks async-over-hours/days for native runner)
 ---
 ## Goal
