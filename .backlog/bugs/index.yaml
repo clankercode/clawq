@@ -728,3 +728,4 @@ bugs:
     - file: B731-briefing-daily-stops-before-to.todo
     - file: B732-usage-rate-checking-is-too-fre.todo
     - file: B733-cross-channel-granted-ambient.todo
+    - file: B734-profiled-room-memory-retrieval.todo

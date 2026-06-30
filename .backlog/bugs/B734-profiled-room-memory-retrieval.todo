@@ -1,0 +1,63 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B734
+priority: high
+status: pending
+tags:
+    - memory
+    - vector
+    - rag
+    - room-agent
+    - regression
+    - claude-tag
+title: Profiled-room memory retrieval bypasses vector/RAG path (regression on flagship room-agent code path)
+---
+## Goal
+
+Eliminate the memory-retrieval regression where **profiled room/thread sessions bypass the vector (RAG) retrieval tier entirely**, falling back to FTS-only. Restore hybrid FTS + vector retrieval on the flagship room-agent code path so profiled rooms get the same "learned our whole channel" recall quality that legacy/unscoped sessions already enjoy.
+
+## Description / Bug
+
+In `src/agent_2_tools.ml`, `inject_search_context` has two branches:
+
+- **Scoped branch** (`Some scope_kind, Some scope_key`, ~line 783–810) — used by profiled rooms — performs ONLY:
+  - FTS message search (`Memory.search ~scope_kind ~scope_key`)
+  - FTS scoped-memory strings (`scoped_memory_strings`)
+  - **No vector search, no `Vector.merge_results`.**
+- **Legacy branch** (`_`, ~line 813+) — unscoped sessions — performs FTS + `Vector.search` + `Vector.merge_results` (hybrid).
+
+So the newest, recommended code path (profiled rooms) silently loses the vector RAG tier that Anthropic-style "learns over time" depends on. `vector.ml` infrastructure exists (`embeddings` table, cosine search, `fetch_embedding`) but is unreachable from the scoped path.
+
+### How to fix
+
+1. Extend the scoped branch to perform a vector search over scope-aware embeddings when an embedding provider is configured (`agent.config.memory.embedding_provider`/`embedding_model`), mirroring the legacy branch's `Lwt.catch` guarded `Vector.fetch_embedding` + `Vector.search`.
+2. **Scope-aware embeddings**: `Vector.search` currently scans the global `embeddings` table. Add optional `?scope_kind ?scope_key` filters to `Vector.search` (and an index column / filter on `embeddings` so scoped messages are retrievable). Ensure scoped messages are embedded on store (verify `Memory.store_message` path embeds with scope metadata — it may currently embed unscoped).
+3. Merge via existing `Vector.merge_results ~keyword_results ~vector_results ~keyword_weight ~vector_weight`, then take top-N as the legacy branch does.
+4. Keep the `has_read_grant` capability gate and provenance labelling (`[scoped-message:...]`) intact.
+5. Respect budget: embedding the query costs tokens — gate on `room_budget` / ambient policy like any provider call.
+
+### Files
+
+- `src/agent_2_tools.ml` (~783–810, scoped branch)
+- `src/vector.ml` (`search`, `fetch_embedding`, `embeddings` schema)
+- `src/memory_core.ml` / `src/memory_scoped.ml` (ensure scoped messages are embedded)
+- `src/memory_0_schema.ml` (`embeddings` table — add scope columns + migration)
+- `coq/theories/Clawq/ConfigProofs.v` (keyword/vector weight sum invariant — unchanged, but re-verify after wiring)
+
+## Acceptance Criteria
+
+- [ ] With an embedding provider configured, a profiled room turn retrieves via **hybrid FTS + vector** (verified by test asserting both `Vector.search` and `Memory.search` are consulted).
+- [ ] `Vector.search` accepts `?scope_kind ?scope_key` and returns only embeddings matching the scope (or granted scopes — coordinate with GAP-1 bug).
+- [ ] Scoped messages written to a profiled room produce rows in `embeddings` tagged with their scope.
+- [ ] No embedding provider configured ⇒ graceful FTS-only fallback, identical to today (no regression, no crash).
+- [ ] Recall quality test: a profiled room asked a semantically-similar-but-not-keyword-matching question retrieves the relevant prior message (today it does not — this is the regression proof).
+- [ ] `make test` passes; new unit tests in `test/test_memory*.ml` cover scoped-vector retrieval + merge + fallback.
+- [ ] Query-embedding call is skipped when room budget hard cap is reached.
+
+## Docs Updates
+
+- `docs/setup-guide.md` memory section: clarify vector retrieval now applies to profiled rooms (previously documented or implied as legacy-only).
+- `docs/room-agent-architecture.md`: note hybrid retrieval is on the profiled-room path; reference config keys `memory.embedding_provider`, `keyword_weight`, `vector_weight`.
+- If `memory.search_enabled` gating differs per scope, document it.
