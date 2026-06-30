@@ -184,6 +184,14 @@ clawq rooms memory grant list <room_id>
 
 **Capabilities:** `read`, `write`, `list`
 
+When a room holds a `read` grant over a sibling room's scope, the agent's
+turn-time retrieval automatically searches the granted scope and injects
+relevant context (FTS + vector, budget-gated). This enables Claude-Tag-style
+cross-channel learning — the agent learns from granted sibling rooms without
+manual recall. Results are labelled with `[granted:room/<sibling>]` provenance.
+
+See `docs/room-agent-architecture.md` section 8.5 for details.
+
 ## Access Control
 
 ### `clawq rooms explain-access`
@@ -199,6 +207,7 @@ Shows:
 - GitHub repository grants
 - Codebase grants
 - Memory scope grants
+- **Inbound memory grants** (who can learn from this room)
 - Blocked grants and reasons
 
 ## GitHub Subscriptions

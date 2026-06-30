@@ -702,6 +702,55 @@ The agent's system prompt includes all resolved instructions.
 
 ---
 
+## 8.5. Cross-Room Context Learning
+
+When a room has an admin-created **read grant** over a sibling room's scope,
+the agent's turn-time retrieval (in `src/agent_2_tools.ml` `inject_search_context`)
+also searches the granted scope for relevant context and injects results with
+a provenance label: `[granted:room/<sibling-key>]`.
+
+This implements Claude-Tag-style "cross-channel learning, if granted permission"
+(clawq issue B733).
+
+### How It Works
+
+1. At the start of a room agent turn, `inject_search_context` performs scoped
+   FTS + vector retrieval for the room's own scope (as before).
+2. It then calls `Memory.list_scopes_granted_to_principal` to find all sibling
+   scopes where the current room (as principal) holds a `read` capability
+   grant.
+3. For each granted sibling scope (excluding self), it performs FTS message
+   search and, if an embedding provider is configured, a scope-aware vector
+   search. Results are merged using the existing `Vector.merge_results`.
+4. Merged results are labelled with `[granted:room/<sibling-key>]` provenance
+   and appended to the context injection.
+5. A `cross_scope_context_injected` event is emitted to the
+   `room_activity_ledger` for each sibling scope that returned results.
+
+### Invariants
+
+- **Fail-closed**: No grant => no cross-scope retrieval. A room with no read
+  grant over a sibling retrieves nothing from it.
+- **Provenance**: Every cross-scope snippet is labelled with its source scope
+  for agent attribution and audit.
+- **Budget-aware**: Cross-scope retrieval respects `room_budget` hard caps;
+  if the current room's budget is exceeded, cross-scope embedding calls are
+  skipped (mirrors the B734 scoped vector budget gate).
+- **No private-channel reporting**: Grant creation over private/default-deny
+  scopes is refused. The Slack connector's private-channel policy (B735) is
+  the primary defense; cross-scope retrieval is a secondary safeguard.
+- **Self-exclusion**: A room never retrieves from its own scope via the
+  granted-sibling path (the own-scope path handles that).
+
+### Grants
+
+Grants are stored in the `memory_grants` table (scope_id, principal_kind,
+principal_id, capability). The `list_scopes_granted_to_principal` function
+queries for all scopes where a given principal has `read` capability. Grants
+are admin-created via `clawq rooms memory grants add`.
+
+---
+
 ## 9. Data Flow Diagram
 
 ### End-to-End Message Flow

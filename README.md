@@ -287,6 +287,7 @@ Clawq's room-agent system (P14–P18) provides scoped, policy-aware AI agents fo
 
 - **Memory CRUD** — room-scoped memory operations: save, list, show, correct, forget. Isolation enforced at the tool layer.
 - **Memory grants** — scope-bundle grants controlling which rooms can access shared memory namespaces.
+- **Cross-room context learning** — Claude-Tag-style ambient learning from granted sibling rooms, opt-in per grant. Provenance-labelled, budget-gated, fail-closed.
 - **Visibility** — per-memory visibility levels: `public`, `private`, `team`. Controls cross-principal access within a room.
 - **Setup wizard** — `clawq rooms wizard` interactive TUI for configuring room-agent profiles (plan/apply/rerun modes, Teams-first defaults).
 - **Readiness report** — `clawq rooms readiness` checks room configuration health: profile binding, memory backend, delivery path, egress policy.

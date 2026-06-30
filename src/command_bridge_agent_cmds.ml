@@ -1084,6 +1084,11 @@ let cmd_rooms_routine cfg args =
 
 let cmd_rooms_memory = Command_bridge_room_memory.cmd_rooms_memory
 
+let list_inbound_memory_grants ~db ~room_id =
+  match Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:room_id with
+  | None -> []
+  | Some scope -> Memory.list_grants ~db ~scope_id:scope.id
+
 let cmd_rooms_explain_access cfg args =
   match require_admin () with
   | Some err -> err
@@ -1144,22 +1149,47 @@ let cmd_rooms_explain_access cfg args =
               | None, _ -> "unbound"
             in
             let extra =
-              [
-                ( "room_binding",
-                  `Assoc
+              let base =
+                [
+                  ( "room_binding",
+                    `Assoc
+                      [
+                        ( "bound",
+                          `Bool
+                            (binding <> None && profile <> None
+                           && not profile_deleted) );
+                        ("status", `String binding_status);
+                        ( "profile_id",
+                          match binding with
+                          | Some b -> `String b.profile_id
+                          | None -> `Null );
+                        ("room_id", `String room_id);
+                      ] );
+                ]
+              in
+              (* Inbound memory grants: who can learn from this room *)
+              let inbound_grants =
+                try
+                  let db = get_db () in
+                  let grants = list_inbound_memory_grants ~db ~room_id in
+                  if grants = [] then []
+                  else
                     [
-                      ( "bound",
-                        `Bool
-                          (binding <> None && profile <> None
-                         && not profile_deleted) );
-                      ("status", `String binding_status);
-                      ( "profile_id",
-                        match binding with
-                        | Some b -> `String b.profile_id
-                        | None -> `Null );
-                      ("room_id", `String room_id);
-                    ] );
-              ]
+                      ( "inbound_memory_grants",
+                        `List
+                          (List.map
+                             (fun (g : Memory.scope_grant) ->
+                               `Assoc
+                                 [
+                                   ("principal_kind", `String g.principal_kind);
+                                   ("principal_id", `String g.principal_id);
+                                   ("capability", `String g.capability);
+                                 ])
+                             grants) );
+                    ]
+                with _ -> []
+              in
+              base @ inbound_grants
             in
             let merged =
               match explanation_json with
@@ -1240,6 +1270,23 @@ let cmd_rooms_explain_access cfg args =
                      (match binding with Some b -> b.profile_id | None -> "")
                      room_id)
             | Some _b, Some _p -> ());
+            (* Inbound memory grants: who can learn from this room *)
+            (try
+               let db = get_db () in
+               let grants = list_inbound_memory_grants ~db ~room_id in
+               if grants <> [] then begin
+                 add "";
+                 add
+                   "--- Inbound Memory Grants (who can learn from this room) \
+                    ---";
+                 List.iter
+                   (fun (g : Memory.scope_grant) ->
+                     add
+                       (Printf.sprintf "  - %s/%s (%s)" g.principal_kind
+                          g.principal_id g.capability))
+                   grants
+               end
+             with _ -> ());
             Buffer.contents buf)
 
 let cmd_rooms args =

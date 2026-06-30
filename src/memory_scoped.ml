@@ -302,6 +302,35 @@ let list_grants ~db ~scope_id =
       done;
       List.rev !grants)
 
+let list_scopes_granted_to_principal ~db ~principal_kind ~principal_id
+    ~capability =
+  let revoked_clause =
+    if
+      sqlite_column_exists ~db ~table_name:"memory_grants"
+        ~column_name:"revoked_at"
+    then " AND revoked_at IS NULL"
+    else ""
+  in
+  let sql =
+    "SELECT DISTINCT s.id, s.kind, s.key, s.profile_id, s.parent_scope_id, \
+     s.provenance, s.created_at, s.updated_at FROM memory_grants g JOIN \
+     memory_scopes s ON s.id = g.scope_id WHERE g.principal_kind = ? AND \
+     g.principal_id = ? AND g.capability = ? AND (g.expires_at IS NULL OR \
+     datetime(g.expires_at) > datetime('now'))" ^ revoked_clause
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let scopes = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT principal_kind));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT principal_id));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT capability));
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        scopes := memory_scope_of_stmt stmt :: !scopes
+      done;
+      List.rev !scopes)
+
 let list_scopes ~db ?kind ?limit ?(offset = 0) () =
   match limit with
   | Some n when n <= 0 -> []

@@ -83,6 +83,7 @@ let expected_memory_callsite_keys =
     "src/agent_2_tools.ml | Memory.search ~db ~query:user_message ~scope_kind \
      ~scope_key";
     "src/agent_2_tools.ml | Memory.search ~db ~query:user_message ~limit:5 ()";
+    "src/agent_2_tools.ml | Memory.search ~db ~query:user_message";
     "src/agent_2_tools.ml | let all = Memory.list_core ~db () in";
   ]
 
@@ -110,6 +111,189 @@ let test_global_memory_callsite_audit_report_accounts_for_all_callsites () =
   Alcotest.(check bool)
     "source flags scoped-memory audit TODOs" true
     (contains source_text "TODO(scoped-memory-audit)")
+
+let combined_history agent =
+  agent.Agent.history
+  |> List.map (fun (m : Provider.message) -> m.content)
+  |> String.concat "\n"
+
+(* Cross-scope retrieval test helpers *)
+
+let seed_cross_room_scenario ~db =
+  (* Room A with profile A *)
+  let profile_a_id = Memory.insert_room_profile ~db ~name:"room-a-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-a"
+    ~profile_id:profile_a_id;
+  let scope_a =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-a" ~profile_id:profile_a_id
+      ~provenance:"test" ()
+  in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:scope_a.id
+       ~reference:"room-a-note" ~content:"room-a own fact" ~provenance:"test" ());
+  (* Room B with profile B *)
+  let profile_b_id = Memory.insert_room_profile ~db ~name:"room-b-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-b"
+    ~profile_id:profile_b_id;
+  let scope_b =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-b" ~profile_id:profile_b_id
+      ~provenance:"test" ()
+  in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:scope_b.id
+       ~reference:"room-b-note" ~content:"room-b shared fact" ~provenance:"test"
+       ());
+  (* Grant room-a's profile read access to room-b's scope *)
+  (match
+     Memory.grant_access ~db ~is_admin:true ~scope_id:scope_b.id
+       ~principal_kind:"profile"
+       ~principal_id:(string_of_int profile_a_id)
+       ~capability:"read" ()
+   with
+  | Ok () -> ()
+  | Error msg -> Alcotest.fail msg);
+  (scope_a, scope_b, profile_a_id, profile_b_id)
+
+let test_cross_scope_retrieval_with_grant () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let _scope_a, _scope_b, _profile_a_id, _profile_b_id =
+    seed_cross_room_scenario ~db
+  in
+  let agent = Agent.create ~config:config_with_memory () in
+  agent.room_profile_system_prompt <- Some "Room A prompt";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history agent ~user_message:"shared fact" ~db
+          ~session_key:"s-cross" ~room_id:"room-a" ()));
+  let history = combined_history agent in
+  Alcotest.(check bool)
+    "own scope memory injected" true
+    (contains history "room-a own fact");
+  Alcotest.(check bool)
+    "granted sibling memory injected" true
+    (contains history "room-b shared fact")
+
+let test_cross_scope_isolation_without_grant () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  (* Create room-a and room-b WITHOUT granting room-a access to room-b *)
+  let profile_a_id = Memory.insert_room_profile ~db ~name:"room-a-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-a"
+    ~profile_id:profile_a_id;
+  let _scope_a =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-a" ~profile_id:profile_a_id
+      ~provenance:"test" ()
+  in
+  let profile_b_id = Memory.insert_room_profile ~db ~name:"room-b-profile" in
+  Memory.upsert_room_profile_binding ~db ~room_id:"room-b"
+    ~profile_id:profile_b_id;
+  let scope_b =
+    Memory.create_scope ~db ~kind:"room" ~key:"room-b" ~profile_id:profile_b_id
+      ~provenance:"test" ()
+  in
+  ignore
+    (Memory.upsert_scoped_memory ~db ~scope_id:scope_b.id
+       ~reference:"room-b-secret" ~content:"room-b secret fact"
+       ~provenance:"test" ());
+  let agent = Agent.create ~config:config_with_memory () in
+  agent.room_profile_system_prompt <- Some "Room A prompt";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history agent ~user_message:"secret fact" ~db
+          ~session_key:"s-isol" ~room_id:"room-a" ()));
+  let history = combined_history agent in
+  Alcotest.(check bool)
+    "ungranted sibling memory NOT injected" false
+    (contains history "room-b secret fact")
+
+let test_cross_scope_provenance_labelling () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let _scope_a, _scope_b, _profile_a_id, _profile_b_id =
+    seed_cross_room_scenario ~db
+  in
+  let agent = Agent.create ~config:config_with_memory () in
+  agent.room_profile_system_prompt <- Some "Room A prompt";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history agent ~user_message:"shared fact" ~db
+          ~session_key:"s-prov" ~room_id:"room-a" ()));
+  let history = combined_history agent in
+  Alcotest.(check bool)
+    "granted provenance label present" true
+    (contains history "[granted:room/room-b]")
+
+let test_cross_scope_budget_gate_skip () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let _scope_a, _scope_b, profile_a_id, _profile_b_id =
+    seed_cross_room_scenario ~db
+  in
+  (* Set a very low budget and exceed it *)
+  Room_budget.init_profile_budget ~db ~profile_id:profile_a_id ~token_limit:100
+    ~cost_limit_usd:10.0 ~reset_period:"daily"
+    ~period_started_at:"2026-01-01 00:00:00" ();
+  Request_stats.record ~db ~session_key:"prev" ~profile_id:profile_a_id
+    ~provider:"openai" ~model:"gpt-test" ~prompt_tokens:90 ~completion_tokens:30
+    ~cost_usd:1.0 ();
+  let stmt =
+    Sqlite3.prepare db
+      "UPDATE request_stats SET requested_at = ? WHERE session_key = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT "2026-01-01 01:00:00"));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT "prev"));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          Alcotest.failf "failed to update request_stats timestamp: %s"
+            (Sqlite3.Rc.to_string rc));
+  let agent = Agent.create ~config:config_with_memory () in
+  agent.room_profile_system_prompt <- Some "Room A prompt";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history agent ~user_message:"shared fact" ~db
+          ~session_key:"s-budget" ~room_id:"room-a" ()));
+  let history = combined_history agent in
+  Alcotest.(check bool)
+    "own scope memory still injected (not budget-gated)" true
+    (contains history "room-a own fact");
+  Alcotest.(check bool)
+    "cross-scope retrieval skipped on budget" false
+    (contains history "room-b shared fact")
+
+let test_cross_scope_ledger_event () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  let _scope_a, _scope_b, _profile_a_id, _profile_b_id =
+    seed_cross_room_scenario ~db
+  in
+  let agent = Agent.create ~config:config_with_memory () in
+  agent.room_profile_system_prompt <- Some "Room A prompt";
+  ignore
+    (Lwt_main.run
+       (Agent.prepare_turn_history agent ~user_message:"shared fact" ~db
+          ~session_key:"s-ledger" ~room_id:"room-a" ()));
+  let events =
+    Room_activity_ledger.query ~db ~room_id:"room-a"
+      ~event_type:"cross_scope_context_injected" ()
+  in
+  Alcotest.(check bool)
+    "ledger event emitted for cross-scope injection" true
+    (List.length events > 0);
+  match events with
+  | [] -> Alcotest.fail "expected at least one ledger event"
+  | event :: _ ->
+      let src_kind =
+        match Yojson.Safe.Util.member "source_scope_kind" event.metadata with
+        | `String s -> s
+        | _ -> ""
+      in
+      Alcotest.(check string) "source scope kind" "room" src_kind;
+      let src_key =
+        match Yojson.Safe.Util.member "source_scope_key" event.metadata with
+        | `String s -> s
+        | _ -> ""
+      in
+      Alcotest.(check string) "source scope key" "room-b" src_key
 
 let seed_profiled_room ~db ~room_id =
   let profile_id =
@@ -230,4 +414,14 @@ let suite =
     Alcotest.test_case
       "global memory callsite audit report accounts for all callsites" `Quick
       test_global_memory_callsite_audit_report_accounts_for_all_callsites;
+    Alcotest.test_case "cross-scope retrieval with grant injects sibling memory"
+      `Quick test_cross_scope_retrieval_with_grant;
+    Alcotest.test_case "cross-scope isolation without grant" `Quick
+      test_cross_scope_isolation_without_grant;
+    Alcotest.test_case "cross-scope provenance labelling" `Quick
+      test_cross_scope_provenance_labelling;
+    Alcotest.test_case "cross-scope budget-gate skip" `Quick
+      test_cross_scope_budget_gate_skip;
+    Alcotest.test_case "cross-scope ledger event emitted" `Quick
+      test_cross_scope_ledger_event;
   ]

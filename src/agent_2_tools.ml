@@ -867,7 +867,146 @@ let inject_search_context ?scope_kind ?scope_key ?principal_kind ?principal_id
                     ^ clip_memory_content content)
                   merged
             in
-            let parts = merged_strings @ scoped_rows in
+            (* Cross-scope retrieval: search granted sibling scopes *)
+            let* granted_parts =
+              if principal_kind = None || principal_id = None then Lwt.return []
+              else
+                let pk = Option.get principal_kind in
+                let pid = Option.get principal_id in
+                let granted_scopes =
+                  Memory.list_scopes_granted_to_principal ~db ~principal_kind:pk
+                    ~principal_id:pid ~capability:"read"
+                in
+                (* Filter out self — only retrieve from sibling scopes *)
+                let siblings =
+                  List.filter
+                    (fun (s : Memory.memory_scope) ->
+                      not (s.kind = scope_kind && s.key = scope_key))
+                    granted_scopes
+                in
+                if siblings = [] then Lwt.return []
+                else
+                  (* Budget gate: skip cross-scope retrieval if current
+                     room's budget is exceeded (mirrors B734 pattern) *)
+                  let budget_ok =
+                    match
+                      Memory.get_room_profile_binding ~db ~room_id:scope_key
+                    with
+                    | Some binding -> (
+                        match
+                          Room_budget.get_profile_budget ~db
+                            ~profile_id:binding.profile_id
+                        with
+                        | Some state -> not state.Room_budget.limit_exceeded
+                        | None -> true)
+                    | None -> true
+                  in
+                  if not budget_ok then Lwt.return []
+                  else
+                    let* all_granted =
+                      Lwt_list.map_s
+                        (fun (sibling : Memory.memory_scope) ->
+                          (* FTS message search in sibling scope *)
+                          let fts_results =
+                            Memory.search ~db ~query:user_message
+                              ~scope_kind:sibling.kind ~scope_key:sibling.key
+                              ~limit:3 ()
+                            |> List.map (fun (m : Provider.message) ->
+                                Printf.sprintf "[granted:%s/%s] %s" sibling.kind
+                                  sibling.key
+                                  (clip_memory_content m.content))
+                          in
+                          (* Scoped memory strings from sibling scope *)
+                          let scoped_mem_results =
+                            Memory.query_scoped_memories ~db
+                              ~scope_kind:sibling.kind ~scope_key:sibling.key
+                              ~content_search:user_message ~limit:3 ()
+                            |> List.map (fun (m : Memory.scoped_memory) ->
+                                let content =
+                                  match m.content with
+                                  | Some c -> " " ^ clip_memory_content c
+                                  | None -> ""
+                                in
+                                Printf.sprintf "[granted:%s/%s] %s" sibling.kind
+                                  sibling.key content)
+                          in
+                          (* Vector search if embedding configured *)
+                          let* vector_results =
+                            if
+                              agent.config.memory.embedding_provider <> None
+                              || agent.config.memory.embedding_model <> None
+                            then
+                              Lwt.catch
+                                (fun () ->
+                                  let* query_emb =
+                                    Vector.fetch_embedding ~config:agent.config
+                                      ~text:user_message
+                                  in
+                                  let results =
+                                    Vector.search ~db ~query_embedding:query_emb
+                                      ~scope_kind:sibling.kind
+                                      ~scope_key:sibling.key ~limit:3 ()
+                                  in
+                                  Lwt.return results)
+                                (fun _exn -> Lwt.return [])
+                            else Lwt.return []
+                          in
+                          (* Merge FTS + vector + scoped memory for this sibling *)
+                          let kw_all = fts_results @ scoped_mem_results in
+                          let merged =
+                            if vector_results = [] then kw_all
+                            else
+                              let kw_stripped =
+                                List.map
+                                  (fun (s : string) ->
+                                    match String.index_opt s ' ' with
+                                    | Some i ->
+                                        String.sub s (i + 1)
+                                          (String.length s - i - 1)
+                                    | None -> s)
+                                  kw_all
+                              in
+                              let m =
+                                Vector.merge_results
+                                  ~keyword_results:kw_stripped ~vector_results
+                                  ~keyword_weight:
+                                    agent.config.memory.keyword_weight
+                                  ~vector_weight:
+                                    agent.config.memory.vector_weight
+                              in
+                              List.map
+                                (fun content ->
+                                  Printf.sprintf "[granted:%s/%s] %s"
+                                    sibling.kind sibling.key
+                                    (clip_memory_content content))
+                                m
+                          in
+                          (* Emit ledger event if any results found *)
+                          (if merged <> [] then
+                             try
+                               ignore
+                                 (Room_activity_ledger.append_now ~db
+                                    ~room_id:scope_key
+                                    ~event_type:"cross_scope_context_injected"
+                                    ~actor:"inject_search_context"
+                                    ~metadata:
+                                      (`Assoc
+                                         [
+                                           ( "source_scope_kind",
+                                             `String sibling.kind );
+                                           ( "source_scope_key",
+                                             `String sibling.key );
+                                           ( "result_count",
+                                             `Int (List.length merged) );
+                                         ])
+                                   : Room_activity_ledger.event)
+                             with _exn -> ());
+                          Lwt.return merged)
+                        siblings
+                    in
+                    Lwt.return (List.concat all_granted)
+            in
+            let parts = merged_strings @ scoped_rows @ granted_parts in
             if parts = [] then Lwt.return_unit
             else begin
               let context_msg =
