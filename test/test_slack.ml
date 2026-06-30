@@ -1,8 +1,8 @@
 let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     ?(events_path = "/slack/events") ?(allow_channels = [ "*" ])
     ?(allow_users = [ "*" ]) ?(allow_private_channels = [])
-    ?(private_channel_policy = Runtime_config.Pc_deny) ?(app_token = "")
-    ?(socket_mode = false) () : Runtime_config.slack_config =
+    ?(private_channel_policy = Runtime_config.Pc_allow_if_listed)
+    ?(app_token = "") ?(socket_mode = false) () : Runtime_config.slack_config =
   {
     bot_token;
     signing_secret;
@@ -571,7 +571,10 @@ let suite =
 (* B735: Private channel policy tests *)
 
 let test_private_channel_policy_deny_refuses_private () =
-  let config = make_config ~allow_channels:[ "C-private" ] () in
+  let config =
+    make_config ~allow_channels:[ "C-private" ]
+      ~private_channel_policy:Runtime_config.Pc_deny ()
+  in
   (* Under Deny policy, a private channel in allow_channels is refused *)
   Alcotest.(check bool)
     "deny policy refuses private channel" false
@@ -579,7 +582,10 @@ let test_private_channel_policy_deny_refuses_private () =
        ~is_private_opt:(Some true))
 
 let test_private_channel_policy_deny_allows_public () =
-  let config = make_config ~allow_channels:[ "C-public" ] () in
+  let config =
+    make_config ~allow_channels:[ "C-public" ]
+      ~private_channel_policy:Runtime_config.Pc_deny ()
+  in
   Alcotest.(check bool)
     "deny policy allows public channel" true
     (Slack.check_private_channel_policy ~config ~channel_id:"C-public"
@@ -588,7 +594,8 @@ let test_private_channel_policy_deny_allows_public () =
 let test_private_channel_policy_deny_allows_explicit_private () =
   let config =
     make_config ~allow_channels:[ "C-private" ]
-      ~allow_private_channels:[ "C-private" ] ()
+      ~allow_private_channels:[ "C-private" ]
+      ~private_channel_policy:Runtime_config.Pc_deny ()
   in
   Alcotest.(check bool)
     "deny policy allows private channel in allow_private_channels" true
@@ -596,7 +603,10 @@ let test_private_channel_policy_deny_allows_explicit_private () =
        ~is_private_opt:(Some true))
 
 let test_private_channel_policy_deny_api_failure_denies () =
-  let config = make_config ~allow_channels:[ "C-unknown" ] () in
+  let config =
+    make_config ~allow_channels:[ "C-unknown" ]
+      ~private_channel_policy:Runtime_config.Pc_deny ()
+  in
   (* Under Deny policy, API failure (None) fails closed — denied unless
      explicitly in allow_private_channels *)
   Alcotest.(check bool)
@@ -607,7 +617,8 @@ let test_private_channel_policy_deny_api_failure_denies () =
 let test_private_channel_policy_deny_api_failure_allows_explicit () =
   let config =
     make_config ~allow_channels:[ "C-unknown" ]
-      ~allow_private_channels:[ "C-unknown" ] ()
+      ~allow_private_channels:[ "C-unknown" ]
+      ~private_channel_policy:Runtime_config.Pc_deny ()
   in
   (* Under Deny policy, API failure but channel IS in allow_private_channels *)
   Alcotest.(check bool)
@@ -627,7 +638,8 @@ let test_private_channel_policy_allow_if_listed_allows_private () =
 
 let test_private_channel_policy_deny_wildcard_not_in_private_list () =
   let config =
-    make_config ~allow_channels:[ "*" ] ~allow_private_channels:[] ()
+    make_config ~allow_channels:[ "*" ] ~allow_private_channels:[]
+      ~private_channel_policy:Runtime_config.Pc_deny ()
   in
   (* Wildcard in allow_channels but empty allow_private_channels: private
      channel is refused under Deny policy *)

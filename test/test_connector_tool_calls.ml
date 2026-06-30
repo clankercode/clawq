@@ -93,8 +93,13 @@ let test_slack_handle_event_emits_tool_call_notifications () =
           events_path = "/slack/events";
           allow_channels = [ "*" ];
           allow_users = [ "*" ];
+          (* This test exercises tool-call notification plumbing, not the
+             private-channel policy. Use allow_if_listed so the fake
+             xoxb-test token (which cannot reach conversations.info) does
+             not trip the B735 fail-closed path. Privacy is covered by the
+             dedicated slack_private_policy suite. *)
           allow_private_channels = [];
-          private_channel_policy = Runtime_config.Pc_deny;
+          private_channel_policy = Runtime_config.Pc_allow_if_listed;
           app_token = "";
           socket_mode = false;
           default_model = None;
