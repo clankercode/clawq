@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-30T12:16:54Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-30T12:16:56Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.037730279633333336
 estimate_hours: 1
 id: B751
 priority: high
 started_at: "2026-06-30T12:16:54Z"
-status: in_progress
+status: done
 tags: []
 title: Wire make gen-agents-check into CI (caught broken generator in docs audit)
 ---
