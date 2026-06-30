@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-30T04:41:56Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-06-30T06:22:39Z"
 complexity: medium
 depends_on: []
+duration_minutes: 100.7232489336
 estimate_hours: 1
 id: B734
 priority: high
 started_at: "2026-06-30T04:41:56Z"
-status: in_progress
+status: done
 tags: []
 title: Profiled-room memory retrieval bypasses vector/RAG path (regression on flagship room-agent code path)
 ---
