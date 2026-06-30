@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B744
+priority: high
+status: pending
+tags: []
+title: Telegram parse mode inconsistency (capability says HTML, chunked paths use MarkdownV2)
+---
+src/connector_capabilities.ml advertises Telegram parse_mode='HTML', but the chunked-send path src/telegram.ml:82,109 uses parse_mode='MarkdownV2', while send_chunked_html_with_fallback (telegram.ml:547,600) and telegram_api.ml HTML-fallback logic use HTML. Docs now note both. Decision: pick one canonical Telegram parse mode and reconcile the code, or document the split explicitly. Found in docs-audit (lane C, C-08).

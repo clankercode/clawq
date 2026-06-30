@@ -53,6 +53,11 @@ jobs:
           ./scripts/extract.sh
           git diff --exit-code src/extracted/clawq_core.ml src/extracted/clawq_core.mli
 
+      - name: Generated agents check
+        run: |
+          ./scripts/gen_agent_builtins.sh
+          git diff --exit-code src/agent_template_builtins.ml
+
       - name: Run tests
         run: |
           eval "$(opam env)"

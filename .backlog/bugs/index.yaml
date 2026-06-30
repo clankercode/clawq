@@ -738,3 +738,4 @@ bugs:
     - file: B741-no-room-side-workflow-run-slas.todo
     - file: B742-provenance-comment-backlink-re.todo
     - file: B743-teams-adaptive-card-version-in.todo
+    - file: B744-telegram-parse-mode-inconsiste.todo
