@@ -29,6 +29,11 @@ type health =
   | Startup_failed
   | Not_applicable
 
+type restart_policy = Reenqueue | Fail
+
+let restart_policy_default = Reenqueue
+let max_restarts_default = 2
+
 type task = {
   id : int;
   runner : runner;
@@ -81,6 +86,16 @@ type task = {
       (** Effective-access snapshot captured when the task was enqueued. Lets
           running work continue with the original policy even after config
           changes. *)
+  restart_policy : restart_policy;
+      (** B736: controls whether a Local task is re-enqueued on daemon restart.
+          [Reenqueue] (default) restarts the task; [Fail] marks it as
+          [Interrupted_by_restart]. *)
+  restart_count : int;
+      (** B736: number of times this task has been re-enqueued after a daemon
+          restart. Used to enforce [max_restarts]. *)
+  max_restarts : int;
+      (** B736: maximum number of restart attempts before failing with
+          [Max_restarts_exceeded]. Default 2. *)
 }
 
 type queued_message = {
@@ -89,6 +104,16 @@ type queued_message = {
   message : string;
   created_at : string;
 }
+
+let string_of_restart_policy = function
+  | Reenqueue -> "reenqueue"
+  | Fail -> "fail"
+
+let restart_policy_of_string s =
+  match String.lowercase_ascii (String.trim s) with
+  | "reenqueue" -> Some Reenqueue
+  | "fail" -> Some Fail
+  | _ -> None
 
 let string_of_runner = function
   | Codex -> "codex"

@@ -730,7 +730,10 @@ let clear_all_tracked () = Hashtbl.clear running
 let reap_dead_running_tasks ~db ~on_task_finished =
   let running_in_db =
     List.filter
-      (fun (t : task) -> t.status = Running && not (Hashtbl.mem running t.id))
+      (fun (t : task) ->
+        t.status = Running
+        && (not (Hashtbl.mem running t.id))
+        && t.runner <> Local)
       (list_tasks ~db)
   in
   let count = ref 0 in
@@ -771,6 +774,128 @@ let reap_dead_running_tasks ~db ~on_task_finished =
       end)
     running_in_db;
   !count
+
+(** B736: Re-enqueue stale Local tasks after a daemon restart.
+
+    Scans [background_task_db] for rows with [runner = Local] and
+    [status = Running] that are no longer tracked in the in-memory hashtable
+    (i.e. the daemon was restarted). For each:
+
+    - If [restart_policy = Fail], mark as [Failed] with
+      ["Interrupted by daemon restart (restart_policy=fail)"].
+    - If the task's room profile budget is exceeded, mark as [Failed] with
+      ["Budget_exceeded_on_restart"].
+    - If [restart_count >= max_restarts], mark as [Failed] with
+      ["Max_restarts_exceeded"] and fire [on_task_finished].
+    - Otherwise, transition to [Queued], increment [restart_count], and fire
+      [on_task_finished] so the normal scheduler picks it up.
+
+    Returns the count of tasks that were re-enqueued. *)
+let reenqueue_stale_local_tasks ~db ~on_task_finished =
+  let stale_local =
+    List.filter
+      (fun (t : task) ->
+        t.runner = Local && t.status = Running && not (Hashtbl.mem running t.id))
+      (list_tasks ~db)
+  in
+  let re_enqueued = ref 0 in
+  List.iter
+    (fun (task : task) ->
+      if task.restart_policy = Fail then begin
+        let reason =
+          Printf.sprintf
+            "Interrupted_by_restart: Local task %d interrupted by daemon \
+             restart (restart_policy=fail) — use 'background retry %d' to \
+             re-queue"
+            task.id task.id
+        in
+        Logs.warn (fun m -> m "B736: %s" reason);
+        finish ~db ~id:task.id ~status:Failed ~result_preview:reason;
+        Lwt.async (fun () ->
+            match get_task ~db ~id:task.id with
+            | Some t -> on_task_finished t
+            | None -> Lwt.return_unit)
+      end
+      else if task.restart_count >= task.max_restarts then begin
+        let reason =
+          Printf.sprintf
+            "Max_restarts_exceeded: Local task %d exceeded max restarts (%d) — \
+             giving up"
+            task.id task.max_restarts
+        in
+        Logs.warn (fun m -> m "B736: %s" reason);
+        finish ~db ~id:task.id ~status:Failed ~result_preview:reason;
+        record_background_task_event_for_task ~db
+          ~event_type:"background_task_max_restarts_exceeded"
+          [
+            ("restart_count", `Int task.restart_count);
+            ("max_restarts", `Int task.max_restarts);
+          ]
+          task;
+        Lwt.async (fun () ->
+            match get_task ~db ~id:task.id with
+            | Some t -> on_task_finished t
+            | None -> Lwt.return_unit)
+      end
+      else
+        let budget_ok =
+          match task.profile_id with
+          | None -> true
+          | Some profile_id -> (
+              match Room_budget.get_profile_budget ~db ~profile_id with
+              | None -> true
+              | Some state -> not state.limit_exceeded)
+        in
+        if not budget_ok then begin
+          let reason =
+            Printf.sprintf
+              "Budget_exceeded_on_restart: Local task %d cannot be re-enqueued \
+               — room budget exceeded (profile_id=%d)"
+              task.id
+              (Option.value task.profile_id ~default:0)
+          in
+          Logs.warn (fun m -> m "B736: %s" reason);
+          finish ~db ~id:task.id ~status:Failed ~result_preview:reason;
+          Lwt.async (fun () ->
+              match get_task ~db ~id:task.id with
+              | Some t -> on_task_finished t
+              | None -> Lwt.return_unit)
+        end
+        else begin
+          let new_count = task.restart_count + 1 in
+          let sql =
+            "UPDATE background_tasks SET status = 'queued', restart_count = ?, \
+             pid = NULL, started_at = NULL, finished_at = NULL WHERE id = ?"
+          in
+          let stmt = Sqlite3.prepare db sql in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              ignore
+                (Sqlite3.bind stmt 1
+                   (Sqlite3.Data.INT (Int64.of_int new_count)));
+              ignore
+                (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int task.id)));
+              ignore (Sqlite3.step stmt));
+          Logs.info (fun m ->
+              m
+                "B736: Re-enqueued Local task %d after daemon restart \
+                 (restart_count=%d/%d)"
+                task.id new_count task.max_restarts);
+          record_background_task_event_for_task ~db
+            ~event_type:"background_task_re_enqueued"
+            [
+              ("restart_count", `Int new_count);
+              ("max_restarts", `Int task.max_restarts);
+              ("reason", `String "daemon_restart");
+            ]
+            task;
+          incr re_enqueued;
+          (* Wake the scheduler so the re-enqueued task is picked up *)
+          signal_enqueue ()
+        end)
+    stale_local;
+  !re_enqueued
 
 (** Derive the default repo path for room-launched background tasks. Uses the
     room workspace directory when available, falling back to the configured

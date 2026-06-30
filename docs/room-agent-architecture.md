@@ -613,6 +613,36 @@ let item = Room_progress_checklist.append ~db ~task_id:id
 
 Checklist items track task state transitions (Current → Done/Failed).
 
+### Local Task Restart Policy (B736)
+
+Local runner tasks run **in-process** within the daemon. Unlike external
+runners (which spawn child processes that survive a daemon restart), Local
+tasks are lost when the daemon process exits.
+
+To mitigate this, Local tasks support a **restart policy** that controls
+what happens on daemon startup:
+
+| Field | Default | Description |
+|---|---|---|
+| `restart_policy` | `reenqueue` | `reenqueue` re-queues the task on restart; `fail` marks it as failed |
+| `max_restarts` | `2` | Maximum number of restart attempts before giving up |
+| `restart_count` | `0` | Auto-incremented on each re-enqueue |
+
+**Startup sequence** (in `daemon.ml`):
+
+1. `reap_dead_running_tasks` — marks orphaned external-runner tasks as failed.
+2. `reenqueue_stale_local_tasks` — scans for Local tasks in `Running` state
+   that are no longer tracked in memory (i.e. daemon was restarted):
+   - `restart_policy=fail` → `Failed` with reason "Interrupted by daemon restart".
+   - `restart_count >= max_restarts` → `Failed` with reason "Max restarts exceeded".
+   - Room budget exceeded → `Failed` with reason "Budget exceeded on restart".
+   - Otherwise → transition to `Queued`, increment `restart_count`.
+3. `readopt_running_tasks` — re-adopts external-runner processes still alive.
+
+Re-enqueued Local tasks resume via the normal scheduler. Agent history is
+hydrated from the session's persisted messages (`Memory.load_history`), so
+the model sees prior context — not a blank slate.
+
 ---
 
 ## 8. Instruction Layers

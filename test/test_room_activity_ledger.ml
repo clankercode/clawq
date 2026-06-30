@@ -428,6 +428,9 @@ let make_room_progress_task ?(id = 42) ?(connector = "slack")
     requester = None;
     progress_state = None;
     access_snapshot_id = None;
+    restart_policy = Background_task.Reenqueue;
+    restart_count = 0;
+    max_restarts = Background_task.max_restarts_default;
   }
 
 let test_room_progress_records_delivery () =
@@ -486,6 +489,9 @@ let test_room_progress_records_delivery () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       Lwt_main.run
@@ -635,6 +641,9 @@ let test_room_progress_empty_send_records_failure () =
           requester = None;
           progress_state = None;
           access_snapshot_id = None;
+          restart_policy = Background_task.Reenqueue;
+          restart_count = 0;
+          max_restarts = Background_task.max_restarts_default;
         }
       in
       Lwt_main.run

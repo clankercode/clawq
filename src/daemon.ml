@@ -1520,6 +1520,18 @@ let run ~(config : Runtime_config.t) =
               "Recovered %d orphaned background task(s) from previous daemon \
                run"
               recovered);
+      (* B736: Re-enqueue stale Local tasks that were in-progress when the
+         daemon shut down. Runs after reap so only genuinely orphaned Local
+         tasks are considered; external-runner readopt runs next. *)
+      let re_enqueued =
+        Background_task.reenqueue_stale_local_tasks ~db
+          ~on_task_finished:
+            (notify_background_task_finished ~session_manager ~config ~db)
+      in
+      if re_enqueued > 0 then
+        Logs.info (fun m ->
+            m "Re-enqueued %d Local background task(s) after daemon restart"
+              re_enqueued);
       let readopted =
         Background_task.readopt_running_tasks ~db
           ~on_task_finished:
