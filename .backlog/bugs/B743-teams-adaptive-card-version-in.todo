@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B743
+priority: high
+status: pending
+tags: []
+title: Teams Adaptive Card version inconsistency across emitters (1.3 vs 1.4)
+---
+Teams Adaptive Card emitters use mixed versions: src/teams_progress_card.ml and src/teams_what_can_do.ml emit v1.3, but src/slash_commands_manifest.ml (menu cards, /agent menu, wrap_adaptive_card/button_card menus) emit v1.4. Docs now document both per-card-type. Decision: pick one canonical version (recommend 1.4 as the newer safe target) and unify, or keep split. Found in docs-audit (lane C, C-06).
