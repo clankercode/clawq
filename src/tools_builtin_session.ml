@@ -2,6 +2,29 @@
    tools_builtin_util.ml: thread_summary, unsummarize, send_to_session.
    Re-exported via `include Tools_builtin_session`. *)
 
+(* B731: delivery tracking for cron/briefing runs.
+   The scheduler checks whether send_to_session was called during a turn
+   and marks the run incomplete_delivery if it was not. *)
+let delivered_this_turn : (string, bool) Hashtbl.t = Hashtbl.create 16
+
+let record_delivery ~session_key =
+  match session_key with
+  | Some key -> Hashtbl.replace delivered_this_turn key true
+  | None -> ()
+
+let check_and_clear_delivery ~session_key =
+  match session_key with
+  | Some key ->
+      let delivered = Hashtbl.mem delivered_this_turn key in
+      Hashtbl.remove delivered_this_turn key;
+      delivered
+  | None -> false
+
+let clear_delivery_flag ~session_key =
+  match session_key with
+  | Some key -> Hashtbl.remove delivered_this_turn key
+  | None -> ()
+
 let thread_summary ~db ~(config : Runtime_config.t) =
   {
     Tool.name = "thread_summary";
@@ -411,9 +434,11 @@ let send_to_session ~(session_mgr : Session.t option) ?(db = None) () =
                       in
                       if Session.should_suppress_response response then
                         Lwt.return "Message queued for busy target session."
-                      else
+                      else begin
+                        record_delivery ~session_key:caller_key;
                         Lwt.return
-                          "Message sent and target session agent triggered.")
+                          "Message sent and target session agent triggered."
+                      end)
                     (fun exn ->
                       Lwt.return
                         (Printf.sprintf "Error sending to session %s: %s"
@@ -457,7 +482,10 @@ let send_to_session ~(session_mgr : Session.t option) ?(db = None) () =
                                "Message sent silently to session %s. Agent in \
                                 target session will see this on next wake \
                                 (store_in_history=%b)."
-                               sanitized_id store_in_history))
+                               sanitized_id store_in_history)
+                          |> Lwt.map (fun result ->
+                              record_delivery ~session_key:caller_key;
+                              result))
                         (fun exn ->
                           Lwt.return
                             (Printf.sprintf "Error sending to session %s: %s"
@@ -491,7 +519,10 @@ let send_to_session ~(session_mgr : Session.t option) ?(db = None) () =
                             (Printf.sprintf
                                "Message sent to session %s via direct turn (no \
                                 channel notifier registered)."
-                               sanitized_id))
+                               sanitized_id)
+                          |> Lwt.map (fun result ->
+                              record_delivery ~session_key:caller_key;
+                              result))
                         (fun exn ->
                           Lwt.return
                             (Printf.sprintf

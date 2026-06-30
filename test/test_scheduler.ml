@@ -900,6 +900,73 @@ let test_effective_session_key_missing_profile () =
       Alcotest.(check string) "turn key falls back" "slack:C:U" turn_key;
       Alcotest.(check string) "delivery key falls back" "slack:C:U" delivery_key
 
+(* B731: delivery tracking tests *)
+
+let test_delivery_tracking_initially_false () =
+  Alcotest.(check bool)
+    "no delivery recorded for unknown key" false
+    (Tools_builtin_session.check_and_clear_delivery
+       ~session_key:(Some "cron:briefing"))
+
+let test_delivery_tracking_record_and_check () =
+  Tools_builtin_session.record_delivery ~session_key:(Some "cron:briefing");
+  Alcotest.(check bool)
+    "delivery recorded" true
+    (Tools_builtin_session.check_and_clear_delivery
+       ~session_key:(Some "cron:briefing"));
+  (* Should be cleared after check *)
+  Alcotest.(check bool)
+    "delivery cleared after check" false
+    (Tools_builtin_session.check_and_clear_delivery
+       ~session_key:(Some "cron:briefing"))
+
+let test_delivery_tracking_none_key () =
+  Alcotest.(check bool)
+    "None key returns false" false
+    (Tools_builtin_session.check_and_clear_delivery ~session_key:None);
+  Tools_builtin_session.record_delivery ~session_key:None;
+  Alcotest.(check bool)
+    "None key still false after record" false
+    (Tools_builtin_session.check_and_clear_delivery ~session_key:None)
+
+let test_delivery_tracking_independent_keys () =
+  Tools_builtin_session.record_delivery ~session_key:(Some "cron:daily");
+  Alcotest.(check bool)
+    "daily delivered" true
+    (Tools_builtin_session.check_and_clear_delivery
+       ~session_key:(Some "cron:daily"));
+  Alcotest.(check bool)
+    "hourly not delivered" false
+    (Tools_builtin_session.check_and_clear_delivery
+       ~session_key:(Some "cron:hourly"))
+
+let test_delivery_tracking_clear_flag () =
+  Tools_builtin_session.record_delivery ~session_key:(Some "cron:test");
+  Tools_builtin_session.clear_delivery_flag ~session_key:(Some "cron:test");
+  Alcotest.(check bool)
+    "cleared flag returns false" false
+    (Tools_builtin_session.check_and_clear_delivery
+       ~session_key:(Some "cron:test"))
+
+let test_record_run_incomplete_delivery () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"inc" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  let run_id = Scheduler.record_run_start ~db ~job_name:"inc" () in
+  Scheduler.record_run_finish ~db ~run_id ~status:"incomplete_delivery"
+    ~result_preview:"send_to_session was never called";
+  let runs = Scheduler.get_history ~db ~name:"inc" ~limit:1 in
+  Alcotest.(check int) "one run" 1 (List.length runs);
+  let r = List.hd runs in
+  Alcotest.(check string) "status" "incomplete_delivery" r.status;
+  Alcotest.(check bool)
+    "has actionable preview" true
+    (match r.result_preview with
+    | Some p -> String.length p > 0
+    | None -> false)
+
 let suite =
   [
     Alcotest.test_case "parse interval minutes" `Quick
@@ -995,4 +1062,17 @@ let suite =
       `Quick test_effective_session_key_with_profile;
     Alcotest.test_case "P13.M1.E2.T001: effective_session_key missing profile"
       `Quick test_effective_session_key_missing_profile;
+    (* B731: delivery tracking tests *)
+    Alcotest.test_case "B731: delivery tracking initially false" `Quick
+      test_delivery_tracking_initially_false;
+    Alcotest.test_case "B731: delivery tracking record and check" `Quick
+      test_delivery_tracking_record_and_check;
+    Alcotest.test_case "B731: delivery tracking None key" `Quick
+      test_delivery_tracking_none_key;
+    Alcotest.test_case "B731: delivery tracking independent keys" `Quick
+      test_delivery_tracking_independent_keys;
+    Alcotest.test_case "B731: delivery tracking clear flag" `Quick
+      test_delivery_tracking_clear_flag;
+    Alcotest.test_case "B731: record_run incomplete_delivery status" `Quick
+      test_record_run_incomplete_delivery;
   ]

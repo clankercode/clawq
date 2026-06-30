@@ -393,7 +393,7 @@ For each topic in the topics list (one at a time, never parallel):
 - If nothing genuinely notable was found across all topics, the briefing text is EXACTLY: `Nothing notable.` (still delivered in Step 5 so the user knows the check ran).
 - Otherwise, write 2-3 sentences per notable item with a link. Only report truly significant events (breaking news, just-announced milestones), not routine updates.
 
-## Step 5: Deliver to user (MANDATORY)
+## Step 5: Deliver to user (MANDATORY — runtime-enforced)
 
 Call `send_to_session` exactly once with:
 
@@ -401,6 +401,8 @@ Call `send_to_session` exactly once with:
 - `message` = the briefing text from Step 4 (including the literal `Nothing notable.` case).
 - `wake_agent` = false (silent notification — the user reads it when they next open the channel).
 - `store_in_history` = true (default).
+
+**CRITICAL DELIVERY CONTRACT:** The runtime tracks whether `send_to_session` was called during this turn. If you complete Steps 1–4 but do NOT call `send_to_session`, the cron run will be marked `incomplete_delivery` (not `ok`) and the user will see a failure in `clawq cron history`. There is no way to satisfy this contract without the actual tool call — emitting a status line like "Delivered briefing..." as plain text does NOT count.
 
 After send_to_session succeeds, your final assistant message should be a short status line like `Delivered briefing to <delivery_session>: <N> notable items.` so the cron run log shows what happened. Do not duplicate the full briefing in this status line.|}
     );
@@ -465,7 +467,7 @@ Write a 400-800 word briefing with sections (omit empty sections):
 
 Use bullet points and links. Keep it scannable.
 
-## Step 7: Deliver to user (MANDATORY)
+## Step 7: Deliver to user (MANDATORY — runtime-enforced)
 
 Call `send_to_session` exactly once with:
 
@@ -473,6 +475,8 @@ Call `send_to_session` exactly once with:
 - `message` = the composed briefing from Step 6. If all sections came up empty, send EXACTLY: `Daily briefing: no notable items today.` so the user still knows the run completed.
 - `wake_agent` = false (silent notification — the user reads it when they next open the channel).
 - `store_in_history` = true (default).
+
+**CRITICAL DELIVERY CONTRACT:** The runtime tracks whether `send_to_session` was called during this turn. If you complete Steps 1–6 but do NOT call `send_to_session`, the cron run will be marked `incomplete_delivery` (not `ok`) and the user will see a failure in `clawq cron history`. There is no way to satisfy this contract without the actual tool call — emitting a status line like "Delivered daily briefing..." as plain text does NOT count.
 
 After send_to_session succeeds, your final assistant message should be a short status line like `Delivered daily briefing to <delivery_session>: <N> headlines, <M> topic updates.` Do not duplicate the full briefing in this status line.|}
     );
