@@ -118,6 +118,14 @@ let check_room_access ~db ~room_id ~capability =
                  "Access denied: room '%s' does not have '%s' capability."
                  room_id capability))
 
+(** Determine the principal kind and id for visibility checks. If the scope has
+    a bound profile, use it as the principal (so Private memories owned by the
+    profile are visible). Otherwise fall back to the room id. *)
+let visibility_principal ~(scope : Memory.memory_scope) ~room_id =
+  match scope.profile_id with
+  | Some profile_id -> ("profile", string_of_int profile_id)
+  | None -> ("room", room_id)
+
 (** Clip memory content for preview in tool responses. *)
 let clip_content content max_len =
   if String.length content <= max_len then content
@@ -190,12 +198,14 @@ let room_memory_list ~db =
                         let scope_profile_id =
                           Option.map string_of_int scope.profile_id
                         in
+                        let principal_kind, principal_id =
+                          visibility_principal ~scope ~room_id
+                        in
                         let visible_memories =
                           List.filter
                             (fun (m : Memory_types.scoped_memory) ->
                               Memory.can_see_memory ~db ~scoped_mem:m
-                                ~principal_kind:"room" ~principal_id:room_id
-                                ~scope_profile_id)
+                                ~principal_kind ~principal_id ~scope_profile_id)
                             memories
                         in
                         if visible_memories = [] then
@@ -299,11 +309,13 @@ let room_memory_show ~db =
                           let scope_profile_id =
                             Option.map string_of_int scope.profile_id
                           in
+                          let principal_kind, principal_id =
+                            visibility_principal ~scope ~room_id
+                          in
                           if
                             not
                               (Memory.can_see_memory ~db ~scoped_mem:m
-                                 ~principal_kind:"room" ~principal_id:room_id
-                                 ~scope_profile_id)
+                                 ~principal_kind ~principal_id ~scope_profile_id)
                           then
                             Lwt.return
                               (Printf.sprintf

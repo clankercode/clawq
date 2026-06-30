@@ -250,7 +250,7 @@ let test_cross_channel_save_isolation () =
 
 (* ── Private memory not visible in public scope ─────────────────────────── *)
 
-let test_private_memory_not_visible_in_list () =
+let test_private_memory_visible_to_owning_profile_in_list () =
   with_db (fun db ->
       let scope =
         seed_profiled_room ~db ~room_id:"room-a" ~profile_name:"p-a"
@@ -272,10 +272,10 @@ let test_private_memory_not_visible_in_list () =
         "public memory visible" true
         (contains result "public-note");
       Alcotest.(check bool)
-        "private memory not visible by default" false
+        "private memory visible to owning profile" true
         (contains result "private-note"))
 
-let test_private_memory_not_visible_in_show () =
+let test_private_memory_visible_to_owning_profile_in_show () =
   with_db (fun db ->
       let scope =
         seed_profiled_room ~db ~room_id:"room-a" ~profile_name:"p-a"
@@ -292,8 +292,8 @@ let test_private_memory_not_visible_in_show () =
           (`Assoc [ ("memory_id", `Int private_mem.id) ])
       in
       Alcotest.(check bool)
-        "private memory show returns visibility error" true
-        (contains result "not visible"))
+        "private memory show returns content for owning profile" true
+        (contains result "private content"))
 
 let test_private_memory_preserved_after_save () =
   with_db (fun db ->
@@ -369,11 +369,12 @@ let test_team_memory_visible_with_grant () =
           ~reference:"team-note" ~content:"team content" ~provenance:"test"
           ~visibility:Team ()
       in
-      (* Add team grant for the room *)
+      (* Add team grant for the bound profile (not the room id) *)
       Alcotest.(check bool)
         "team grant added" true
-        (Memory.add_team_grant ~db ~memory_id:mem.id ~principal_kind:"room"
-           ~principal_id:"room-a" ());
+        (Memory.add_team_grant ~db ~memory_id:mem.id ~principal_kind:"profile"
+           ~principal_id:(string_of_int (Option.get scope.profile_id))
+           ());
       let registry = make_registry ~db in
       let context = make_context ~session_key:"telegram:room-a" in
       let result =
@@ -883,10 +884,10 @@ let suite =
        channel-b"
       `Quick test_cross_channel_save_isolation;
     (* Private memory visibility *)
-    Alcotest.test_case "private memory not visible in list by default" `Quick
-      test_private_memory_not_visible_in_list;
-    Alcotest.test_case "private memory not visible in show by default" `Quick
-      test_private_memory_not_visible_in_show;
+    Alcotest.test_case "private memory visible to owning profile in list" `Quick
+      test_private_memory_visible_to_owning_profile_in_list;
+    Alcotest.test_case "private memory visible to owning profile in show" `Quick
+      test_private_memory_visible_to_owning_profile_in_show;
     Alcotest.test_case
       "private memory preserved after upsert without explicit visibility" `Quick
       test_private_memory_preserved_after_save;

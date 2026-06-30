@@ -28,8 +28,8 @@ type event = {
       (** Alias IDs only -- never actual credential values. *)
 }
 
-(** Redact a hostname for audit storage. Keeps the TLD and the first char of
-    the first label visible; all intermediate labels are fully replaced with 6
+(** Redact a hostname for audit storage. Keeps the TLD and the first char of the
+    first label visible; all intermediate labels are fully replaced with 6
     asterisks (no leading character preserved). Examples:
     - "api.github.com" -> "a**.******.com"
     - "sub.api.example.com" -> "s**.******.******.com"
