@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B738
+priority: high
+status: pending
+tags: []
+title: 'egress_audit.ml: stale host-redaction example comment (code-side)'
+---
+src/egress_audit.ml:33-35 has an inline comment showing 'api.example.com -> a**.e******.com', but the actual redact_host implementation fully replaces middle labels with 6 stars (no leading char): 'api.github.com -> a**.******.com'. Surfed via the docs audit (docs-audit BATCH-5). Fix the comment to match the implementation. Found in docs-audit-20260630T020353Z-1278c9 (lane E, FIND-E2).
