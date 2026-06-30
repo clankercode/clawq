@@ -105,12 +105,39 @@ type discord_config = {
   default_model : string option;
 }
 
+type private_channel_policy =
+  | Pc_deny
+  | Pc_allow_if_listed
+      (** Slack private-channel defense-in-depth policy.
+          - [Pc_deny] (default): private channels are always refused unless
+            explicitly listed in [allow_private_channels]. A private channel in
+            [allow_channels] alone is NOT sufficient.
+          - [Pc_allow_if_listed]: backward-compatible behaviour — a channel
+            listed in [allow_channels] is allowed regardless of its privacy
+            status. *)
+
+let private_channel_policy_to_string = function
+  | Pc_deny -> "deny"
+  | Pc_allow_if_listed -> "allow_if_listed"
+
+let private_channel_policy_of_string = function
+  | "deny" -> Some Pc_deny
+  | "allow_if_listed" -> Some Pc_allow_if_listed
+  | _ -> None
+
 type slack_config = {
   bot_token : string;
   signing_secret : string;
   events_path : string;
   allow_channels : string list;
   allow_users : string list;
+  allow_private_channels : string list;
+      (** Explicit opt-in list for private channels under the [Deny] policy.
+          Only channels listed here are allowed when
+          [private_channel_policy = Deny]. Ignored under [Allow_if_listed]. *)
+  private_channel_policy : private_channel_policy;
+      (** Defense-in-depth policy for Slack private channels. Default: [Deny].
+      *)
   app_token : string;
   socket_mode : bool;
   default_model : string option;

@@ -64,8 +64,32 @@ let tick ~db ~(config : Runtime_config.t) () =
                ~work_type:Access_snapshot.Ambient_work ~session_key ~room_id
                ~profile_id:profile.id ());
           let* _outcomes =
+            let check_room_allowed ~room_id =
+              let connector_type =
+                Room_ambient_delivery.latest_connector_type_for_room ~db
+                  ~room_id
+              in
+              match connector_type with
+              | Some "slack" -> (
+                  match config.channels.slack with
+                  | Some sc -> (
+                      match sc.Runtime_config.private_channel_policy with
+                      | Runtime_config.Pc_allow_if_listed -> Lwt.return true
+                      | Runtime_config.Pc_deny ->
+                          let* is_private_opt =
+                            Slack.fetch_channel_is_private
+                              ~bot_token:sc.Runtime_config.bot_token
+                              ~channel_id:room_id
+                          in
+                          Lwt.return
+                            (Slack.check_private_channel_policy ~config:sc
+                               ~channel_id:room_id ~is_private_opt))
+                  | None -> Lwt.return true)
+              | _ -> Lwt.return true
+            in
             Room_ambient_delivery.deliver_room_ambient_followups ~db ~profile
-              ~room_id ~stale_after_s:3600.0 ~send_message ()
+              ~room_id ~stale_after_s:3600.0 ~check_room_allowed ~send_message
+              ()
           in
           Lwt.return_unit)
         (active_ambient_profiles config))

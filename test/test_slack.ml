@@ -1,13 +1,16 @@
 let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     ?(events_path = "/slack/events") ?(allow_channels = [ "*" ])
-    ?(allow_users = [ "*" ]) ?(app_token = "") ?(socket_mode = false) () :
-    Runtime_config.slack_config =
+    ?(allow_users = [ "*" ]) ?(allow_private_channels = [])
+    ?(private_channel_policy = Runtime_config.Pc_deny) ?(app_token = "")
+    ?(socket_mode = false) () : Runtime_config.slack_config =
   {
     bot_token;
     signing_secret;
     events_path;
     allow_channels;
     allow_users;
+    allow_private_channels;
+    private_channel_policy;
     app_token;
     socket_mode;
     default_model = None;
@@ -563,6 +566,108 @@ let suite =
       test_reply_body_omits_thread_ts;
     Alcotest.test_case "salute ack requires bang interrupt and queued sentinel"
       `Quick test_salute_ack_requires_bang_interrupt_and_queued_response;
+  ]
+
+(* B735: Private channel policy tests *)
+
+let test_private_channel_policy_deny_refuses_private () =
+  let config = make_config ~allow_channels:[ "C-private" ] () in
+  (* Under Deny policy, a private channel in allow_channels is refused *)
+  Alcotest.(check bool)
+    "deny policy refuses private channel" false
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-private"
+       ~is_private_opt:(Some true))
+
+let test_private_channel_policy_deny_allows_public () =
+  let config = make_config ~allow_channels:[ "C-public" ] () in
+  Alcotest.(check bool)
+    "deny policy allows public channel" true
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-public"
+       ~is_private_opt:(Some false))
+
+let test_private_channel_policy_deny_allows_explicit_private () =
+  let config =
+    make_config ~allow_channels:[ "C-private" ]
+      ~allow_private_channels:[ "C-private" ] ()
+  in
+  Alcotest.(check bool)
+    "deny policy allows private channel in allow_private_channels" true
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-private"
+       ~is_private_opt:(Some true))
+
+let test_private_channel_policy_deny_api_failure_denies () =
+  let config = make_config ~allow_channels:[ "C-unknown" ] () in
+  (* Under Deny policy, API failure (None) fails closed — denied unless
+     explicitly in allow_private_channels *)
+  Alcotest.(check bool)
+    "deny policy denies on API failure" false
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-unknown"
+       ~is_private_opt:None)
+
+let test_private_channel_policy_deny_api_failure_allows_explicit () =
+  let config =
+    make_config ~allow_channels:[ "C-unknown" ]
+      ~allow_private_channels:[ "C-unknown" ] ()
+  in
+  (* Under Deny policy, API failure but channel IS in allow_private_channels *)
+  Alcotest.(check bool)
+    "deny policy allows explicit private on API failure" true
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-unknown"
+       ~is_private_opt:None)
+
+let test_private_channel_policy_allow_if_listed_allows_private () =
+  let config =
+    make_config ~allow_channels:[ "C-private" ]
+      ~private_channel_policy:Runtime_config.Pc_allow_if_listed ()
+  in
+  Alcotest.(check bool)
+    "allow_if_listed policy allows private channel in allow_channels" true
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-private"
+       ~is_private_opt:(Some true))
+
+let test_private_channel_policy_deny_wildcard_not_in_private_list () =
+  let config =
+    make_config ~allow_channels:[ "*" ] ~allow_private_channels:[] ()
+  in
+  (* Wildcard in allow_channels but empty allow_private_channels: private
+     channel is refused under Deny policy *)
+  Alcotest.(check bool)
+    "deny policy refuses private when not in allow_private_channels" false
+    (Slack.check_private_channel_policy ~config ~channel_id:"C-private"
+       ~is_private_opt:(Some true))
+
+let test_private_channel_policy_of_string_roundtrip () =
+  Alcotest.(check (option string))
+    "deny" (Some "deny")
+    (Option.map Runtime_config.private_channel_policy_to_string
+       (Runtime_config.private_channel_policy_of_string "deny"));
+  Alcotest.(check (option string))
+    "allow_if_listed" (Some "allow_if_listed")
+    (Option.map Runtime_config.private_channel_policy_to_string
+       (Runtime_config.private_channel_policy_of_string "allow_if_listed"));
+  Alcotest.(check (option string))
+    "invalid" None
+    (Option.map Runtime_config.private_channel_policy_to_string
+       (Runtime_config.private_channel_policy_of_string "invalid"))
+
+let private_channel_policy_suite =
+  [
+    Alcotest.test_case "deny policy refuses private channel" `Quick
+      test_private_channel_policy_deny_refuses_private;
+    Alcotest.test_case "deny policy allows public channel" `Quick
+      test_private_channel_policy_deny_allows_public;
+    Alcotest.test_case "deny policy allows explicit private channel" `Quick
+      test_private_channel_policy_deny_allows_explicit_private;
+    Alcotest.test_case "deny policy denies on API failure" `Quick
+      test_private_channel_policy_deny_api_failure_denies;
+    Alcotest.test_case "deny policy allows explicit private on API failure"
+      `Quick test_private_channel_policy_deny_api_failure_allows_explicit;
+    Alcotest.test_case "allow_if_listed allows private channel" `Quick
+      test_private_channel_policy_allow_if_listed_allows_private;
+    Alcotest.test_case "deny wildcard not in private list" `Quick
+      test_private_channel_policy_deny_wildcard_not_in_private_list;
+    Alcotest.test_case "private_channel_policy of_string roundtrip" `Quick
+      test_private_channel_policy_of_string_roundtrip;
   ]
 
 let test_resolve_session_key_unprofiled () =

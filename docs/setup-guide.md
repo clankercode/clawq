@@ -596,6 +596,26 @@ Under **Install App**, click **Install to Workspace** and note the **Bot User OA
 }
 ```
 
+### Private Channels
+
+By default, Clawq **will not read or operate in Slack private channels**, even if their IDs are listed in `allow_channels`. This is a defense-in-depth safety measure.
+
+To allow a private channel:
+```json
+{
+  "channels": {
+    "slack": {
+      "allow_channels": ["C-public", "G-private"],
+      "allow_private_channels": ["G-private"]
+    }
+  }
+}
+```
+
+For backward-compatible behaviour (pre-B735), set `private_channel_policy: "allow_if_listed"`.
+
+Refusals are logged to the room activity ledger under `private_channel_refused`.
+
 ### Slack Channel ID Formats
 
 | Prefix | Type | Example |

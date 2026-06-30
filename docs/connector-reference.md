@@ -292,6 +292,34 @@ Or configure manually:
 | `events_path`    | HTTP path for Events API webhooks              | `/slack/events`  |
 | `allow_channels` | Channel ID allowlist                           | `["*"]`          |
 | `allow_users`    | User ID allowlist                              | `["*"]`          |
+| `allow_private_channels` | Explicit opt-in list for private channels (required under `deny` policy) | `[]` |
+| `private_channel_policy` | `"deny"` (default) or `"allow_if_listed"` — controls whether private channels in `allow_channels` are permitted | `"deny"` |
+
+#### Private Channel Policy (B735)
+
+By default (`private_channel_policy: "deny"`), Clawq will **refuse to operate in Slack private channels**, even if they are listed in `allow_channels`. This is a defense-in-depth measure to prevent accidental exposure of sensitive private channel content.
+
+To use a private channel, you must:
+1. Set `private_channel_policy` to `"deny"` (or leave it at the default).
+2. Add the channel ID to **both** `allow_channels` and `allow_private_channels`.
+
+Example:
+```json
+{
+  "channels": {
+    "slack": {
+      "allow_channels": ["C-public-123", "G-private-456"],
+      "allow_private_channels": ["G-private-456"]
+    }
+  }
+}
+```
+
+If you want the old behaviour where `allow_channels` alone controls access to private channels, set `private_channel_policy: "allow_if_listed"`.
+
+Refusals are logged to the room activity ledger (`private_channel_refused` event) so misconfigurations are visible.
+
+> **Scope note:** The `conversations:read` Bot Token Scope is required for channel metadata lookups. This is already part of the recommended setup.
 
 #### Slack App Setup Steps
 

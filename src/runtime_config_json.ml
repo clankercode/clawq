@@ -207,6 +207,10 @@ let slack_json (s : slack_config) : Yojson.Safe.t =
        ("events_path", `String s.events_path);
        ("allow_channels", `List (List.map (fun c -> `String c) s.allow_channels));
        ("allow_users", `List (List.map (fun u -> `String u) s.allow_users));
+       ( "allow_private_channels",
+         `List (List.map (fun c -> `String c) s.allow_private_channels) );
+       ( "private_channel_policy",
+         `String (private_channel_policy_to_string s.private_channel_policy) );
        ("app_token", `String s.app_token);
        ("socket_mode", `Bool s.socket_mode);
      ]

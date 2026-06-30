@@ -114,6 +114,23 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
           try s |> member "allow_users" |> to_list |> List.map to_string
           with _ -> [ "*" ]
         in
+        let allow_private_channels =
+          try
+            s
+            |> member "allow_private_channels"
+            |> to_list |> List.map to_string
+          with _ -> []
+        in
+        let private_channel_policy =
+          try
+            match
+              Runtime_config.private_channel_policy_of_string
+                (s |> member "private_channel_policy" |> to_string)
+            with
+            | Some p -> p
+            | None -> Runtime_config.Pc_deny
+          with _ -> Runtime_config.Pc_deny
+        in
         let app_token =
           try s |> member "app_token" |> to_string |> resolve_secret
           with _ -> ""
@@ -131,6 +148,8 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
              events_path;
              allow_channels;
              allow_users;
+             allow_private_channels;
+             private_channel_policy;
              app_token;
              socket_mode;
              default_model;

@@ -101,6 +101,23 @@ let apply_runtime_config_reload
         | None -> ())
     | None -> ());
     refresh_active_template_tool_registries session_manager;
+    (* B735: validate private channel policy on config reload *)
+    (match new_config.channels.slack with
+    | Some s when Runtime_config.slack_has_valid_credentials s ->
+        Lwt.async (fun () ->
+            let open Lwt.Syntax in
+            Lwt.catch
+              (fun () ->
+                let* warnings =
+                  Slack.validate_private_channels_in_allowlist
+                    ~bot_token:s.bot_token ~allow_channels:s.allow_channels
+                    ~private_channel_policy:s.private_channel_policy
+                    ~allow_private_channels:s.allow_private_channels
+                in
+                List.iter (fun w -> Logs.warn (fun m -> m "%s" w)) warnings;
+                Lwt.return_unit)
+              (fun _exn -> Lwt.return_unit))
+    | _ -> ());
     after_publish ();
     Ok ()
   with exn ->
@@ -991,6 +1008,27 @@ let run ~(config : Runtime_config.t) =
     | Some s -> Runtime_config.slack_has_valid_credentials s
     | None -> false
   in
+  (* B735: validate private channel policy at startup *)
+  (match config.channels.slack with
+  | Some s when slack_creds_ok ->
+      Lwt.async (fun () ->
+          let open Lwt.Syntax in
+          Lwt.catch
+            (fun () ->
+              let* warnings =
+                Slack.validate_private_channels_in_allowlist
+                  ~bot_token:s.bot_token ~allow_channels:s.allow_channels
+                  ~private_channel_policy:s.private_channel_policy
+                  ~allow_private_channels:s.allow_private_channels
+              in
+              List.iter (fun w -> Logs.warn (fun m -> m "%s" w)) warnings;
+              Lwt.return_unit)
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Slack private channel validation failed: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit))
+  | _ -> ());
   write_runtime_state
     ~components:
       [

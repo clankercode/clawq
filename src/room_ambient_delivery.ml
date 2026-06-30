@@ -313,22 +313,34 @@ let deliver_ambient_followups ~db ~profile ~room_id ?thread_id ~stale_items
   Lwt_list.map_s process_one stale_items
 
 let deliver_room_ambient_followups ~db ~profile ~room_id ~stale_after_s
-    ~send_message () =
+    ?check_room_allowed ~send_message () =
   let open Lwt.Syntax in
-  let stale_items =
-    Room_stale_query.find_stale ~db ~stale_after_s ~room_id ()
+  (* B735: pre-check room allowance (e.g. private channel policy) *)
+  let* room_allowed =
+    match check_room_allowed with
+    | Some check -> check ~room_id
+    | None -> Lwt.return true
   in
-  if stale_items = [] then Lwt.return []
+  if not room_allowed then begin
+    Logs.info (fun m ->
+        m "Ambient delivery skipped for room %s: room not allowed" room_id);
+    Lwt.return []
+  end
   else
-    let now = Unix.gettimeofday () in
-    let hour = (Unix.gmtime now).Unix.tm_hour in
-    let connector_type = latest_connector_type_for_room ~db ~room_id in
-    let supports_ambient =
-      supports_ambient_history_for_connector connector_type
+    let stale_items =
+      Room_stale_query.find_stale ~db ~stale_after_s ~room_id ()
     in
-    let budget_exceeded =
-      budget_exceeded_for_profile ~db
-        ~profile_id:profile.Runtime_config_types.id
-    in
-    deliver_ambient_followups ~db ~profile ~room_id ~stale_items ~hour
-      ~budget_exceeded ~supports_ambient ~send_message ()
+    if stale_items = [] then Lwt.return []
+    else
+      let now = Unix.gettimeofday () in
+      let hour = (Unix.gmtime now).Unix.tm_hour in
+      let connector_type = latest_connector_type_for_room ~db ~room_id in
+      let supports_ambient =
+        supports_ambient_history_for_connector connector_type
+      in
+      let budget_exceeded =
+        budget_exceeded_for_profile ~db
+          ~profile_id:profile.Runtime_config_types.id
+      in
+      deliver_ambient_followups ~db ~profile ~room_id ~stale_items ~hour
+        ~budget_exceeded ~supports_ambient ~send_message ()
