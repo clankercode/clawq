@@ -899,3 +899,9 @@ For the full invariant catalogue, see
 | `src/agent_2_tools.ml` | `execute_tool_calls_stream`, `room_profile_tool_denial` | Tool execution with snapshot-scoped access |
 | `src/runtime_config.ml` | `resolve_effective_access`, `sort_scopes` | Scope resolution and effective access |
 | `src/runtime_config_types.ml` | `access_bundle`, `access_scope`, `effective_access`, `room_profile` | Type definitions |
+
+---
+
+## Related Design Documents
+
+- **Self-Extension System** — How clawq grows its own feature surface ad-hoc via agent-authored plugins: [design/self-extension-system.md](design/self-extension-system.md).
