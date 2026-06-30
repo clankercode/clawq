@@ -1,0 +1,64 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B733
+priority: high
+status: pending
+tags:
+    - claude-tag
+    - room-agent
+    - memory
+    - multiplayer
+    - parity
+title: Cross-channel granted ambient context learning for room agents (Claude Tag multiplayer/learns-over-time parity)
+---
+## Goal
+
+Close the remaining Claude Tag "multiplayer / learns over time" parity gap: let a room agent **automatically learn from other channels and data sources it has been explicitly granted access to**, blending that context into its working memory — while keeping un-granted channels strictly isolated.
+
+## Context (web-verified)
+
+The original audit (`/tmp/clawq-audit/00-gap-report.md`, GAP-1) **overstated** this gap. Verification against Anthropic's official Claude Tag announcement (https://www.anthropic.com/news/introducing-claude-tag, 2026-06-23) shows Claude Tag is **NOT** one globally-blended teammate. It is:
+
+- **Per-channel shared Claude** — "Within a given Slack channel, there's one Claude that interacts with everyone."
+- **Memories scoped to admin-defined channels** — "everything, including its memories, will stay scoped to the channels defined by the administrators … a model set up for sales work won't pass on memories to one set up for engineering."
+- **Cross-channel granted learning (opt-in)** — "Claude can even automatically learn from other Slack channels and data sources, **if it's granted permission**. (It doesn't report from private channels.)"
+
+clawq **already matches the first two** via the Room Agent MVP (P11 shared per-channel sessions), Effective Access bundles (P14), and scoped memory with grants (P17, incl. `memory_team_grants`). Complement: idea I030 (Cross-Channel Thread Continuity) covers the *user-owned* cross-channel session — a different axis.
+
+## The Genuine Remaining Gap
+
+clawq has **explicit** cross-room memory sharing (`memory_team_grants`, `Memory.list_team_grants`) but lacks **automatic ambient cross-channel context learning**: a room agent does not, at turn time, proactively pull and inject relevant context from *granted sibling rooms / external data sources* into its working context. Claude Tag does this automatically ("if it's granted permission"). Today a clawq room agent only sees its own scoped messages + explicitly `memory_recall`-ed items; granted sibling-room context is not ambient-retrieved.
+
+## Description / Approach
+
+Extend the scoped-memory injection path (`src/agent_2_tools.ml` `inject_search_context`, the `Some scope_kind, Some scope_key` branch ~line 783) so that, when a room holds a read grant over a sibling scope, the agent's turn-time retrieval also searches the granted scopes (FTS + vector, see GAP-2 bug) and injects results with provenance labels like `[granted:room/<sibling>]`. Reuse the existing `scoped_memory_granted` capability check — do not introduce a new permission system.
+
+Key invariants:
+- **Fail-closed**: no grant ⇒ no cross-scope retrieval (preserve current isolation).
+- **Provenance**: every injected cross-scope snippet is labelled with its source scope so the agent (and audit ledger) can attribute it.
+- **Quiet-hours / budget gates**: cross-scope retrieval respects existing ambient policy (`ambient_policy.ml`) and room budget (`room_budget.ml`) — it is a retrieval, not a send, but embedding calls cost tokens and must be budget-aware.
+- **No private-channel reporting**: grants over private/default-deny scopes are refused at grant-creation time (ties into GAP-3 / Slack private-channel work).
+
+## Acceptance Criteria
+
+- [ ] A room R1 with an admin-created read grant over room R2 retrieves and injects relevant R2 scoped memory into R1 turns, labelled with source provenance.
+- [ ] A room R3 with **no** grant over R2 retrieves nothing from R2 (negative test, isolation preserved).
+- [ ] Grant creation over a private/default-deny scope is refused with an actionable error.
+- [ ] Cross-scope retrieval is budget-gated: skipped/limited when `room_budget` hard cap is reached or ambient policy denies.
+- [ ] Every cross-scope injection emits a `room_activity_ledger` event naming the source scope.
+- [ ] `clawq rooms explain-access` output lists effective inbound grants (who can learn from this room) alongside existing outbound grants.
+- [ ] Unit tests cover: grant-present retrieval, grant-absent isolation, private-scope refusal, budget-gate skip, provenance labelling.
+
+## Docs Updates
+
+- `docs/connector-reference.md` / `docs/cli-reference.md` (`rooms memory grants`): document the new "ambient cross-room learning" behaviour and that grants are read-capability keys for automatic retrieval.
+- `docs/room-agent-architecture.md`: add a "Cross-room context learning" section under memory; clarify it is opt-in via grants and never reads private/default-deny scopes.
+- `README.md` room-agent section: one bullet — "Claude-Tag-style cross-channel learning, opt-in per grant."
+- Update the Claude-Tag gap report (`/tmp/clawq-audit/00-gap-report.md` is a scratch artifact; the canonical parity notes should land in `docs/` if a parity doc exists, otherwise in the room-agent-architecture doc).
+
+## Out of Scope
+
+- User-owned cross-channel session continuity (that is idea **I030**, separate effort).
+- Changing the per-channel shared-session model (already matches Claude Tag).
