@@ -12,6 +12,8 @@ allowed_tools:
   - file_edit_lines
   - memory_store
   - memory_recall
+  - change_working_dir
+  - send_to_session
 disallowed_tools: []
 ---
 

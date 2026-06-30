@@ -12,6 +12,7 @@ allowed_tools:
   - file_read
   - use_skill
   - skill_list
+  - inject_connector_history
 disallowed_tools:
   - shell_exec
   - file_write

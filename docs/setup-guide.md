@@ -97,7 +97,10 @@ Clawq uses a single JSON configuration file located at `~/.clawq/config.json` (o
   "default_temperature": 0.7,
 
   // Provider configurations (OpenAI, Anthropic, etc.)
-  "providers": [],
+  // Parsed as a JSON object keyed by provider name
+  "providers": {
+    "openai": { "api_key": "$OPENAI_API_KEY", "kind": "openai" }
+  },
 
   // Agent defaults
   "agent_defaults": {
@@ -180,7 +183,7 @@ Legacy `provider/model` (slash) and bare `model` formats are accepted but deprec
 
 ### Provider Configuration
 
-Each provider in the `providers` array supports these fields:
+Each provider in the `providers` object supports these fields:
 
 | Field | Description | Example |
 |-------|-------------|---------|
@@ -197,8 +200,8 @@ Each provider in the `providers` array supports these fields:
 The daemon polls the config file every 10 seconds for changes. For immediate reload:
 
 ```bash
-# Send SIGHUP to the daemon process
-kill -HUP $(pgrep -f "clawq daemon")
+# Send SIGHUP to the daemon process (the daemon runs as `clawq agent`)
+kill -HUP $(pgrep -f "clawq agent")
 ```
 
 ---
@@ -677,12 +680,12 @@ Reference secrets via `$` prefix in config values:
 
 ```jsonc
 {
-  "providers": [
-    {
+  "providers": {
+    "openai": {
       "api_key": "$OPENAI_API_KEY",
       "kind": "openai"
     }
-  ]
+  }
 }
 ```
 
@@ -1101,11 +1104,11 @@ Review the readiness check output for specific failures. The wizard shows `PASS`
 The daemon polls every 10 seconds. For immediate reload:
 
 ```bash
-# Send SIGHUP
-kill -HUP $(pgrep -f "clawq daemon")
+# Send SIGHUP (the daemon runs as `clawq agent`)
+kill -HUP $(pgrep -f "clawq agent")
 
 # Or restart fully
-clawq daemon restart
+clawq service restart
 ```
 
 ### Dune build hangs or fails on lock
@@ -1147,7 +1150,7 @@ Use the full `clawq` binary for these features.
 3. **Set up a connector**: Configure Teams or Slack credentials
 4. **Create an access bundle**: Define tools, repo grants, egress rules
 5. **Run the room wizard**: `CLAWQ_ADMIN=1 clawq rooms wizard`
-6. **Restart daemon**: `clawq daemon restart`
+6. **Restart daemon**: `clawq service restart`
 7. **Verify**: Send a test message to the configured room
 8. **Set budgets**: Use wizard `--token-limit` and `--cost-limit` flags
 9. **Monitor**: Use `clawq rooms wizard rerun` for health checks

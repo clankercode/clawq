@@ -22,6 +22,9 @@ allowed_tools:
   - background_task_resume
   - background_task_send_message
   - delegate
+  - change_working_dir
+  - inject_connector_history
+  - send_to_session
 disallowed_tools: []
 ---
 

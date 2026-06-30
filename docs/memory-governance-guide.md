@@ -61,7 +61,7 @@ Every memory has a **visibility** level that controls who within the room can se
 | Level | Behavior |
 |-------|----------|
 | `public` | Visible to all callers in the room (default) |
-| `private` | Visible only to the scope owner (the profile bound to the room) |
+| `private` | Intended for the scope owner (the profile bound to the room), but **currently not surfaced through the room memory tools** (see note below) |
 | `team` | Visible only to principals with an explicit team grant |
 
 ### How Visibility Is Enforced
@@ -69,8 +69,20 @@ Every memory has a **visibility** level that controls who within the room can se
 The tool layer calls `can_see_memory` before returning any memory. This function checks:
 
 - **Public**: always visible within the scope
-- **Private**: only if the caller's `principal_id` matches the scope's `profile_id`
+- **Private**: only if the caller's `principal_id` matches the scope's `scope_profile_id`
 - **Team**: only if a matching row exists in `memory_team_grants`
+
+> **Note (Private visibility wiring gap):** The room memory tools
+> (`room_memory_list`, `room_memory_show`, etc.) currently pass
+> `principal_id = <room_id>` rather than the bound profile id, while
+> `can_see_memory` compares `principal_id` against `scope_profile_id`
+> (the stringified profile id). As a result, `private` memories are **never
+> surfaced** through the room agent tools today — they are only reachable via
+> admin/raw paths. This is either a tool-layer wiring fix (pass the bound
+> profile id as `principal_id` in `tools_builtin_room_memory.ml`) pending a
+> product decision on whether room agents should see their own private
+> memories. **TODO**: resolve the product decision and wire accordingly. No
+> code is changed by this doc update.
 
 Visibility does **not** override scope isolation. A team grant for `room-a` on a memory stored in `room-b`'s scope does not make that memory visible to `room-a`. Scope boundaries are absolute.
 
@@ -252,13 +264,13 @@ The `rooms audit-export` command produces a governance audit export for a room, 
 
 ```bash
 # Text output (default)
-clawq rooms audit-export <room_id>
+CLAWQ_ADMIN=1 clawq rooms audit-export <room_id>
 
 # JSON output
-clawq rooms audit-export <room_id> --json
+CLAWQ_ADMIN=1 clawq rooms audit-export <room_id> --json
 
 # JSONL output (one JSON object per line)
-clawq rooms audit-export <room_id> --jsonl
+CLAWQ_ADMIN=1 clawq rooms audit-export <room_id> --jsonl
 ```
 
 ### Event Categories
@@ -367,8 +379,9 @@ export CLAWQ_ADMIN=1
 
 Operations requiring `CLAWQ_ADMIN=1`:
 
-- **Grant management**: `grant add`, `grant revoke`, `team-grant add`, `team-grant remove`
+- **Grant management**: `grant add`, `grant revoke`, `grant list`, `team-grant add`, `team-grant remove`, `team-grant list`
 - **Hard purge**: `memory forget --hard`
+- **Audit export**: `rooms audit-export`
 - **Wizard apply**: `rooms wizard apply`
 - **Wizard interactive**: `rooms wizard` (default mode)
 
@@ -376,7 +389,6 @@ Operations that work without admin:
 
 - `rooms memory list/show/save/correct/forget` (soft-delete)
 - `rooms readiness`
-- `rooms audit-export`
 - `rooms wizard plan` and `rooms wizard rerun` (without `--apply`)
 
 When a non-admin user attempts an admin-only operation, the command returns an error and (for grant operations) logs an `admin_denied` event to the room activity ledger.

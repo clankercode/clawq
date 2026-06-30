@@ -132,9 +132,15 @@ type room_profile = {
   denied_tools : string list;
   access_bundle_ids : string list;
   ambient_enabled : bool;
-  (* ... ambient scheduling fields ... *)
+  ambient_quiet_start : int;
+  ambient_quiet_end : int;
+  ambient_rate_limit_rph : int;
 }
 ```
+
+The three `ambient_*` fields configure ambient scheduling: `ambient_quiet_start`/
+`ambient_quiet_end` define the quiet-hours window (hours, 0-23), and
+`ambient_rate_limit_rph` caps ambient activations per hour.
 
 Room profiles are bound to rooms via `room_profile_binding`:
 
@@ -184,7 +190,9 @@ Default (0) < Workspace (1) < Channel (2) < Room (3)
 ```
 
 - **Default**: Always applies; provides baseline grants.
-- **Workspace**: Matches by workspace selector (e.g., a Teams team ID).
+- **Workspace**: Matches by workspace selector against the effective workspace
+  path (the normalized `workspace` config value / `$CLAWQ_WORKSPACE`, e.g.
+  `/home/user/src/clawq`). The selector is treated as a path, not a Teams team ID.
 - **Channel**: Matches by channel type (e.g., "slack", "discord").
 - **Room**: Matches by specific room/channel ID.
 - **Profile bundles**: Treated as room-layer; appended after scope bundles.
@@ -196,7 +204,8 @@ Default (0) < Workspace (1) < Channel (2) < Room (3)
 2. For each scope level, find scopes matching the session key:
    - Workspace: match workspace selector
    - Channel: match channel type
-   - Room: match room ID + channel type
+   - Room: match room ID (required); optional workspace/channel selectors
+     further narrow the match (channel matched via `string_option_matches`)
 3. Sort scopes by (level_rank ASC, id lexicographic)
 4. Collect bundles from matching scopes (declaration order within scope)
 5. Append profile bundles (room layer)
@@ -389,7 +398,13 @@ let classification_from_context ~connector ~room_id ~session_key
 ```
 
 When connectors don't expose metadata, scope is inferred from the session key
-structure (heuristic: single ID after connector = DM, multi-segment = group).
+structure via `derive_scope_from_session_key`:
+
+- A single ID segment after the connector yields `Rm_dm` **only if it starts
+  with `@`** (personal/DM key); otherwise it falls back to `Rm_unknown`.
+- A multi-segment key (two or more segments after the connector) yields
+  `Rm_group` (room or thread).
+- Anything else yields `Rm_unknown`.
 
 ### Policy Actions
 
@@ -562,13 +577,17 @@ Room context flows through background tasks via:
 2. **Room Origin**: Metadata about where the task was triggered:
 
    ```ocaml
-   type context_origin = {
+   (* Module Room_origin, type t *)
+   type t = {
      connector : string option;
      workspace_id : string option;
      room_id : string option;
      requester_id : string option;
+     requester_name : string option;
      source_message_id : string option;
      thread_id : string option;
+     service_url : string option;
+     profile_id : int option;
    }
    ```
 
@@ -667,15 +686,22 @@ Room-profile instructions (room-specific)
 Instructions carry structured metadata:
 
 ```ocaml
+type instruction_edit_policy = Locked | Admin_only | Open
+
 type instruction_record = {
   text : string;
-  source_scope : string option;
+  source_scope : string;          (* always set; "default" for built-ins *)
   author : string option;
   enabled : bool;
-  digest : string;
-  edit_policy : string option;
+  digest : string option;          (* None => computed from text via SHA-256 *)
+  locked : bool;                   (* legacy hard-lock flag *)
+  edit_policy : instruction_edit_policy;
 }
 ```
+
+`edit_policy` is the typed variant governing who may edit the instruction
+(`Locked` = no edits, `Admin_only` = admins, `Open` = anyone). The boolean
+`locked` field is a separate legacy hard-lock flag.
 
 ### Resolution
 

@@ -13,6 +13,7 @@ allowed_tools:
   - memory_list
   - use_skill
   - skill_list
+  - debate
 disallowed_tools:
   - file_write
   - file_edit

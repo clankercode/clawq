@@ -43,7 +43,10 @@ Subscribe to the following events:
 
 - **Pull request** -- open, close, synchronize, review, label changes
 - **Issue comment** -- comments on PRs
-- **Pull request review** -- reviews and review comments
+- **Pull request review** -- top-level reviews (approve/request changes/comment)
+- **Pull request review comment** -- inline line-level review comments on a
+  specific file/line (distinct from "Pull request review"; inline review
+  comments arrive via the separate `pull_request_review_comment` event)
 - **Check run** -- CI status updates
 - **Check suite** -- CI suite status updates
 - **Workflow run** -- GitHub Actions workflow status
@@ -65,8 +68,9 @@ Clawq supports two authentication methods:
 The GitHub App flow uses JWT-based authentication with automatic token caching:
 
 1. A PEM private key (RSA, PKCS#8 or PKCS#1) is loaded from disk.
-2. A short-lived JWT (RS256, max 10 minutes) is generated and signed with the
-   private key.
+2. A short-lived JWT (RS256) is generated and signed with the private key.
+   GitHub enforces a hard maximum lifetime of 10 minutes; Clawq signs the JWT
+   at **9 minutes** (`exp = now + 9*60`) to leave a clock-skew safety margin.
 3. The JWT is exchanged for an installation access token via the GitHub API.
 4. Tokens are cached for ~50 minutes (tokens expire after 60 min).
 
@@ -134,7 +138,7 @@ github:
     - name: owner/my-repo
       webhook_secret: per-repo-secret   # overrides app-level secret
       webhook_path: /github/webhook
-      agent_name: code-reviewer          # optional: agent template for reviews
+      agent_name: code-reviewer          # reserved per-repo field (see TODO)
       allow_users:
         - alice
         - bob
@@ -151,12 +155,17 @@ github:
 | `name` | Full repository name (`owner/repo`) |
 | `webhook_secret` | Per-repo webhook secret (overrides app-level) |
 | `webhook_path` | Webhook endpoint path for this repo |
-| `agent_name` | Agent template name for review runs |
+| `agent_name` | Reserved per-repo field (currently used only for config serialization; see TODO below) |
 | `allow_users` | GitHub usernames allowed to interact with Clawq via this repo |
 | `react_to` | List of PR actions that trigger notifications (empty = all) |
 | `include_pr_files` | Whether to include changed files in review prompts |
 
 ### Installation Scoping
+
+> TODO(follow-up): the `agent_name` per-repo field is defined in the config
+type but is **not yet wired** to review-run agent selection -- the review-run
+pipeline does not read it. It is currently only persisted/serialized with the
+config. Wiring `agent_name` into review-run agent selection is a follow-up.
 
 Installation-level repo grants control which repos a GitHub App installation can
 access:
@@ -372,6 +381,8 @@ CI events are summarized into a normalized `ci_summary` with:
 - `head_sha`: Commit SHA
 - `actor`: Who triggered the run
 - `details_url`: Link to failing job details
+- `html_url`: Human-readable URL for the run/check (used by the formatter and
+  the backlink footer)
 
 ### Review Summary Fields
 
@@ -441,9 +452,13 @@ labels, room commands, or manual CLI invocations.
 | Source | Description |
 |--------|-------------|
 | `Label <name>` | Triggered by a GitHub label on the PR |
-| `Subscription_rule` | Triggered by a subscription rule match |
+| `Subscription_rule` | Triggered by a subscription rule match (defined/planned; not yet wired -- see TODO) |
 | `Room_command` | Triggered by a room slash command |
 | `Manual` | Manually triggered via CLI or API |
+
+> TODO(follow-up): `Subscription_rule` is defined as a `trigger_source`
+variant and round-trips through JSON, but no caller currently constructs a
+review run with it. Subscription-rule triggers are planned, not yet wired.
 
 ### Label-Triggered Runs
 
@@ -491,9 +506,15 @@ are triggered from room commands, subscription rules, or manual CLI, and map to
 a named structured pipeline with versioned inputs.
 
 ```bash
-# Trigger a workflow run from a room (via slash command)
-/workflow run deploy-pipeline --env=staging --version=1.2.3
+# Trigger a workflow run from the CLI
+clawq pipeline trigger deploy-pipeline \
+  --input env=staging --input version=1.2.3
 ```
+
+> TODO(follow-up): there is currently no `/workflow` room slash command
+registered; workflow runs are triggered via the `clawq pipeline trigger` CLI
+(or the `Background_task.trigger_workflow_from_room_command` API). If a
+room-side slash command is intended, it is a follow-up.
 
 Workflow runs follow the same lifecycle: `Pending -> Running -> Completed/Failed`.
 Results are synced from the background task to the workflow run record.
@@ -536,7 +557,12 @@ items and Clawq room items for audit trails, retries, and provenance tracking.
 | `subscription_delivery` | GitHub -> Room | PR event delivered to subscribed room |
 | `ci_notification` | GitHub -> Room | CI status delivered to room |
 | `triggered_run` | Room -> GitHub | Room command triggered a review/workflow run |
-| `provenance_comment` | Room -> GitHub | Background task posted result back to PR |
+| `provenance_comment` | Room -> GitHub | Background task posted result back to PR (defined; not yet recorded -- see TODO) |
+
+> TODO(follow-up): the `provenance_comment` (a.k.a. `Provenance_comment`)
+relationship variant is defined and round-trips through encode/decode, but no
+helper currently inserts a backlink row with this relationship. Recording it
+is a follow-up.
 
 ### Idempotency
 

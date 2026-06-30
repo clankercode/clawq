@@ -40,7 +40,7 @@ identical effective access within the same process invocation. The resolver
 depends on `HOME` (via `expand_home` / `expand_cwd_pattern`) for tilde
 expansion; determinism assumes a stable `HOME` environment variable.
 
-- **Code**: `resolve_effective_access` in `runtime_config.ml` (line 763).
+- **Code**: `resolve_effective_access` in `runtime_config.ml` (line 768).
 - **Test**: `test_legacy_snapshot_matches_resolver` — snapshot created from the
   same config carries identical allowed/denied tools as a direct resolver call.
 - **Proof candidate**: Prove `resolve_effective_access` is pure (no IO, no
@@ -65,7 +65,7 @@ within the same level.
 **INV-PREC-1** `[RUNTIME] [TEST] [PROOF-CANDIDATE]`: Scope levels have fixed
 precedence: `Default (0) < Workspace (1) < Channel (2) < Room (3)`.
 
-- **Code**: `access_scope_level_rank` in `runtime_config.ml` (line 609).
+- **Code**: `access_scope_level_rank` in `runtime_config.ml` (line 614).
 - **Test**: `test_layers_merge_deterministically_and_deny_wins` — room scope
   tools appear after workspace/channel tools in the merged list.
 - **Proof candidate**: Prove `access_scope_level_rank` is injective and

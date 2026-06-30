@@ -1346,7 +1346,7 @@ Not available in the minimal build (`clawq-min`). Requires the full `clawq` bina
 - [CLI Reference](https://clawq.org/cli-reference): Complete command reference
 - [Channels](https://clawq.org/channels): Channel setup and Channel.S interface
 - [Development Guide](https://clawq.org/development): Build, test, format, contribute
-- [Verification Status](https://clawq.org/formal-verification): Machine-checked Coq verification status (F0–F22 verified, 374 theorems across 27 Coq files; 1 Admitted remaining)
+- [Verification Status](https://clawq.org/formal-verification): Machine-checked Coq verification status (22 verified phases, 374 theorems across 27 Coq files; 1 Admitted remaining)
 - [Chat Log Viewer](https://clawq.org/chat-viewer): Client-side browser tool to inspect .json chat logs from `clawq session show` or Claude Code — renders messages, tool calls, tool responses, and thinking blocks
 
 Preferred Codex delegation model: `gpt-5.4` when quality matters. Use `gpt-5.3-codex` when you specifically want the Codex-tuned path or need to mirror Codex OAuth defaults more closely.

@@ -13,7 +13,7 @@ Each command has a `priority : int` field. Higher values appear first in menus, 
 Telegram uses the Bot API `setMyCommands` call at startup. This registers all commands sorted by priority so the most important appear first in the Telegram command autocomplete menu.
 
 - Implementation: `src/telegram_api.ml` (`set_my_commands`)
-- Called from: `src/telegram.ml` at polling loop startup
+- Called from: `src/telegram_poll.ml:91` (polling loop startup)
 - Manifest preview: `clawq manifest telegram`
 
 ### Teams
@@ -53,6 +53,6 @@ In addition to the top-level `/menu` command, six slash commands support interac
 When adding a slash command:
 
 1. Add the entry to `Slash_commands.commands` with an appropriate `priority` value
-2. Commands with priority 60+ appear in Teams autocomplete (top 10 default)
+2. All commands appear in Teams autocomplete, truncated to the top N (default 10) by priority; raise priority to appear earlier, and increase N via `clawq manifest teams -n COUNT`
 3. All commands appear in Telegram autocomplete and `/menu` pages
 4. Run `clawq manifest teams` to regenerate the Teams manifest if needed

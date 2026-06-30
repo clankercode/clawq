@@ -1,6 +1,6 @@
 # Clawq CLI Reference
 
-This document covers all `clawq` CLI commands organized by category.
+This document covers the common, user-facing `clawq` CLI commands organized by category.
 
 ## Admin Gating
 
@@ -32,9 +32,12 @@ clawq config search QUERY                        Search config keys matching QUE
 Manage model configuration.
 
 ```
-clawq models list                                List available models
-clawq models set-default MODEL                   Set default model (canonical: provider:model)
-clawq models status                              Show current model status
+clawq models list [--provider P] [--json] [--availability available|unavailable|all]
+    List available models (--availability also accepts --available/--unavailable/--all)
+clawq models set-default MODEL [--skip-validation]
+    Set default model (canonical: provider:model; --skip-validation alias: --no-test)
+clawq models refresh [--force]                   Refresh model list from provider APIs
+clawq models refresh --provider P [--force]      Refresh models for a specific provider
 ```
 
 ### `clawq status`
@@ -57,6 +60,7 @@ clawq rooms list                                 List all room profiles and bind
 clawq rooms show <room_id>                       Show room details including profile, model, and grants
 clawq rooms workspace <room_id>                  Show workspace path for a room
 clawq rooms bind <room_id> <profile_id> [--preserve|--reset]  Bind a room to a profile [admin]
+clawq rooms unbind <room_id>                     Remove a room binding (profile preserved) [admin]
 clawq rooms rename <profile_id> <display_name>   Rename a room profile [admin]
 clawq rooms delete <profile_id> [--force]        Soft-delete a room profile [admin]
 ```
@@ -92,7 +96,7 @@ Flags:
 - `--limit` — Max results (default: 20)
 - `--json` — Output as JSON
 
-### `clawq rooms sessions`
+### `clawq rooms session`
 
 View room session records. **[admin]**
 
@@ -122,7 +126,7 @@ Garbage collect room workspaces. **[admin]**
 clawq rooms gc [--retention-days N]              Purge old room workspaces (preserves active ones)
 ```
 
-### `clawq rooms routines`
+### `clawq rooms routine`
 
 Manage room routines (scheduled prompts for room profiles). **[admin]**
 
@@ -314,33 +318,12 @@ clawq service systemd-unit                       Generate systemd unit file
 clawq service launchd-plist                      Generate launchd plist file
 ```
 
-### `clawq daemon`
-
-Direct daemon control.
-
-```
-clawq daemon start                               Start daemon
-clawq daemon stop                                Stop daemon
-clawq daemon status                              Show daemon status
-clawq daemon restart                             Restart daemon
-```
-
 ### `clawq update`
 
 Update Clawq to the latest version.
 
 ```
 clawq update [--mode auto|git|binary|pkg]        Update Clawq
-```
-
-### `clawq logs`
-
-View Clawq logs.
-
-```
-clawq logs                                       Show recent logs
-clawq logs --follow                              Follow log output
-clawq logs --lines N                             Show last N lines
 ```
 
 ### `clawq doctor`
@@ -359,23 +342,16 @@ Run Clawq as an MCP server.
 clawq mcp                                        Start MCP server (requires mcp.enabled=true)
 ```
 
-### `clawq runner`
-
-Generate runner authentication tokens.
-
-```
-clawq runner token --session <session_key> [--ttl-hours N]
-```
-
 ### `clawq completions`
 
 Generate shell completions.
 
 ```
-clawq completions bash                           Generate bash completions
-clawq completions zsh                            Generate zsh completions
-clawq completions fish                           Generate fish completions
+clawq completions print [--shell bash|zsh|fish]  Print completion script
+clawq completions install [--shell bash|zsh|fish]  Install completion script
 ```
+
+> Note: `runner` is an internal command surface (handler exists but no top-level command is registered); it is not yet user-facing.
 
 ## Cron Jobs
 
@@ -410,7 +386,14 @@ Manage background tasks.
 ```
 clawq background list                            List background tasks
 clawq background show <id>                       Show task details
-clawq background cancel <id>                     Cancel a running task
+clawq background logs <id> [--lines N] [--offset L] [--follow|-f]  Show task log output
+clawq background transcript <id> [--regex R] [--max-lines N] [--export]  Show bounded task transcript
+clawq background wait <id> [--timeout S]         Wait for a task to finish
+clawq background resume <id>                     Resume a previously started task
+clawq background retry <id>                      Re-queue a failed task
+clawq background send <id> <message...>          Send a follow-up message to a task
+clawq background cancel <id>                     Cancel a queued or running task
+clawq background stop <id>                       Alias of cancel
 ```
 
 **Local task restart policy (B736):** Local runner tasks support automatic
@@ -466,7 +449,11 @@ Manage device pairing.
 
 ```
 clawq pair start                                 Start pairing flow
-clawq pair status                                Show pairing status
+clawq pair status [id]                           Show pairing status
+clawq pair list                                  List pair coding sessions
+clawq pair stop <id>                             Stop a pair coding session
+clawq pair report <id>                           Show a pair session report
+clawq pair notes <id>                            Show notes for a pair session
 ```
 
 ### `clawq auth`
@@ -474,10 +461,16 @@ clawq pair status                                Show pairing status
 Manage authentication.
 
 ```
-clawq auth status                                Show authentication status
-clawq auth login                                 Login to Clawq
-clawq auth logout                                Logout from Clawq
+clawq auth set-key PROVIDER [API_KEY]            Set API key for a provider (prompts if key omitted)
+clawq auth providers                             List configured providers (alias: list-providers)
+clawq auth encrypt                               Encrypt secrets at rest
+clawq auth pair                                  Pair a provider account
+clawq auth codex-login [PROVIDER]                Login via Codex OAuth
+clawq auth codex-status [PROVIDER]               Show Codex OAuth status
+clawq auth codex-logout [PROVIDER]               Logout from Codex OAuth
 ```
+
+> Note: a bare `clawq auth` (or `clawq auth status`) prints a provider-status overview; there is no generic non-codex `auth login`/`auth logout`.
 
 ### `clawq transcribe`
 
@@ -492,8 +485,8 @@ clawq transcribe <audio_file>                    Transcribe an audio file to tex
 View cost information.
 
 ```
-clawq costs                                      Show cost summary
-clawq costs --period <period>                    Show costs for a specific period
+clawq costs [--json]                             Show cost summary (today / 7d / 30d / all)
+clawq costs session [--json]                     Per-session cost breakdown
 ```
 
 ### `clawq usage`

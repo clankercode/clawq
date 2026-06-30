@@ -229,7 +229,7 @@ After applying the wizard configuration:
 
 1. **Restart the daemon** to pick up the new configuration:
    ```bash
-   clawq daemon restart
+   clawq service restart
    ```
 
 2. **Verify the binding**:

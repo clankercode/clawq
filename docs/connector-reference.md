@@ -134,9 +134,14 @@ The webhook handler (`teams.ml:handle_webhook`) processes incoming activities:
 
 ### Adaptive Cards
 
-Teams renders progress updates and interactive menus as Adaptive Cards (v1.3).
+Teams renders progress updates and interactive menus as Adaptive Cards.
 Cards are sent as Bot Framework attachments with content type
 `application/vnd.microsoft.card.adaptive`.
+
+> **Card schema versions:** progress cards (`teams_progress_card.ml`) and
+> what-can-do cards (`teams_what_can_do.ml`) emit Adaptive Card **v1.3**;
+> agent/model menu cards (`slash_commands_manifest.ml`) emit **v1.4**.
+> Canonical-version unification across card emitters is a follow-up.
 
 Key card types:
 - **Progress card** -- shows task checklist with status icons and action buttons
@@ -188,7 +193,7 @@ Scheduled -> Generated -> Attempted -> Transport_accepted -> Message_id_recorded
 ```
 
 Each state includes a correlatable `tracking_id` (format: `dlv_<ts>_<random>`).
-Query by tracking ID to trace a single message through its full lifecycle.
+Tracking IDs are queryable via the internal ledger API (`Teams_delivery_lifecycle.query_by_tracking_id`); there is no CLI command to query by tracking ID.
 
 See [Delivery Observability](#7-delivery-observability) for details.
 
@@ -440,7 +445,10 @@ The default intents value `33281` includes:
 - `GUILDS` (1)
 - `GUILD_MESSAGES` (512)
 - `MESSAGE_CONTENT` (32768)
-- `DIRECT_MESSAGES` (4096 in some builds)
+
+That sum is exactly `33281` (1 + 512 + 32768). DIRECT_MESSAGES (4096)
+is **not** included by default; enabling it yields `37377`, so DM support
+must be toggled on explicitly via the setup wizard's intent toggler.
 
 Use the setup wizard's intent toggler to enable/disable individual intents.
 
@@ -529,7 +537,7 @@ Or configure manually:
           "allow_from": ["*"]
         }
       },
-      "text_coalesce_ms": 300
+      "text_coalesce_ms": 150
     }
   }
 }
@@ -543,7 +551,7 @@ Or configure manually:
 | `accounts.*.bot_token` | Bot token from @BotFather                | required  |
 | `accounts.*.allow_from`| Chat ID allowlist                        | `["*"]`   |
 | `accounts.*.totp`      | TOTP pairing config (optional)           | none      |
-| `text_coalesce_ms`     | Delay to coalesce multi-part messages    | `300`     |
+| `text_coalesce_ms`     | Delay to coalesce multi-part messages    | `150`     |
 
 Multiple accounts can be configured for different bots.
 
@@ -643,6 +651,11 @@ Detailed capability comparison across all connectors:
 | Slack       | 4000       | mrkdwn     |
 | Discord     | 2000       | Markdown   |
 | Telegram    | 4096       | HTML       |
+
+> **Telegram parse mode:** the Telegram capability profile advertises `HTML`,
+> but some chunked-send paths in `src/telegram.ml` (e.g. the session notifier
+> and rich notifier) send using `MarkdownV2` via `Telegram_format.markdown_to_mdv2`.
+> Canonical-mode unification is a follow-up.
 | GitHub      | 65536      | Markdown   |
 | Matrix      | 4000       | Markdown   |
 | Mattermost  | 16383      | Markdown   |
@@ -726,13 +739,44 @@ Error messages are sanitized before storage.
 
 ### Querying the Ledger
 
-```bash
-# All delivery events for a tracking ID
-clawq ledger query --tracking-id dlv_1234567890_00042
+The room activity ledger is queried via `clawq rooms ledger` (there is no
+top-level `clawq ledger` command, and no `query` subcommand):
 
-# Recent delivery failures
-clawq ledger query --event-type teams_delivery_failed --limit 20
 ```
+clawq rooms ledger <list|export|retention-cleanup> [filters]
+```
+
+Filters (each takes a value):
+
+| Flag                | Aliases        | Field                    |
+|---------------------|----------------|--------------------------|
+| `--room-id`         | `--room`       | Room/conversation ID     |
+| `--event-type`      | `--type`       | Event type               |
+| `--from`            | `--since`      | From timestamp           |
+| `--to`              | `--until`      | To timestamp             |
+| `--actor`           |                | Actor                    |
+| `--profile-id`      | `--profile`    | Profile ID (metadata)    |
+| `--thread-id`       | `--thread`     | Thread ID (metadata)     |
+| `--task-id`         | `--task`       | Task ID (metadata)       |
+| `--background-id`   | `--background` | Background ID (metadata) |
+| `--requester`       |                | Requester (metadata)     |
+| `--status`          |                | Status (metadata)        |
+
+Examples:
+
+```bash
+# Recent delivery failures
+clawq rooms ledger list --event-type teams_delivery_failed
+
+# Export all events for a room as JSON Lines
+clawq rooms ledger export --room-id <conv_id> --jsonl
+
+# Retention cleanup older than 30 days
+clawq rooms ledger retention-cleanup --retention-days 30
+```
+
+Querying by `tracking_id` is not exposed at the CLI; use the internal
+ledger API (`Teams_delivery_lifecycle.query_by_tracking_id`) for that.
 
 ### Failure Surfacing
 
@@ -809,8 +853,10 @@ clawq ledger query --event-type teams_delivery_failed --limit 20
 
 **Resume state issues:**
 - Resume state is persisted to SQLite for reconnections.
-- Fatal close codes (4004, 4010-4014) prevent reconnection.
-- Clear stale resume state with `clawq discord reset-resume`.
+- Fatal/unrecoverable close codes (4004, 4007, 4009, 4010-4014) auto-clear
+  resume state (`should_clear_resume_state`) so the gateway reconnects fresh.
+- There is no CLI subcommand to manually clear resume state; clearing it
+  currently requires direct DB access.
 
 **Rate limiting:**
 - Discord rate limits are tracked per-route with response headers.

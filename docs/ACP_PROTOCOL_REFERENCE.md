@@ -4,7 +4,8 @@
 >
 > Protocol Version: 1 (integer, incremented only for breaking changes)
 >
-> Schema version sourced: 2026-03-15
+> Schema version sourced: 2026-03-15 (upstream snapshot — verify against the
+> upstream repo for current numbers)
 
 ## Overview
 
@@ -21,6 +22,9 @@ The Agent Client Protocol (ACP) standardizes communication between **code editor
 Each editor must build custom integrations for every agent, and agents must implement editor-specific APIs. ACP eliminates this N×M integration problem by providing a single standardized protocol.
 
 ### Official SDKs
+
+> The following SDK list is sourced from the upstream repo (snapshot
+> 2026-03-15); verify upstream for the current set.
 
 - **Rust**: `agent-client-protocol` crate
 - **Python**: `@agentclientprotocol/python-sdk`
@@ -169,8 +173,11 @@ Optional: `Client → Agent: session/cancel (sessionId)` to interrupt.
     "clientInfo": {
       "name": "clawq",
       "title": "Clawq Agent Runtime",
-      "version": "0.1.0"
+      "version": "0.4.0"
     }
+
+> Note: clawq sends `Build_info.version` as `clientInfo.version` (currently
+> `0.4.0`); avoid hardcoding it here for real use — it tracks the build.
   }
 }
 ```
@@ -891,7 +898,29 @@ Standard JSON-RPC 2.0 error codes:
 | -32602 | Invalid params | Invalid parameters |
 | -32603 | Internal error | Internal JSON-RPC error |
 
+> Note: clawq additionally uses JSON-RPC code **-32000** for transport/process
+> failures (e.g. agent process exited unexpectedly, read-loop errors) in
+> `src/acp_client.ml` (`reject_pending_requests`), beyond the standard codes
+> above.
+
 ---
+
+## clawq ACP Client Coverage
+
+This document is an upstream-spec reference. clawq implements an ACP **client**
+(`src/acp_client.ml`) covering only a subset:
+
+- **Sends (agent methods):** `initialize`, `session/new`, `session/prompt`,
+  `session/cancel`.
+- **Handles (client methods):** `session/update`, `session/request_permission`,
+  `fs/read_text_file`, `fs/write_text_file`, `terminal/{create,output,
+  wait_for_exit,kill,release}`.
+- **Not used by clawq:** `authenticate`, `session/load`, `session/list`,
+  `session/set_mode`, `session/set_config_option`.
+- **Capability parsing caveat:** clawq's `agent_capabilities_of_json`
+  (`src/acp_types.ml`) parses only `loadSession`, `promptCapabilities`, and
+  `mcpCapabilities`. It does **not** parse `sessionCapabilities.list`, so an
+  agent advertising `session/list` capability is silently ignored by clawq.
 
 ## Protocol Rules
 
@@ -1014,6 +1043,9 @@ Discriminated by `sessionUpdate` field:
 
 ## Ecosystem
 
+> Counts below are sourced from the upstream repo (snapshot 2026-03-15) and
+> will drift; verify upstream for current numbers.
+
 ### Implementing Agents (40+)
 
 Claude Code, Gemini CLI, GitHub Copilot, Cursor, Cline, Junie (JetBrains), Zed adapters, Docker cagent, OpenHands, Goose, Qwen Code, and many more.
@@ -1027,7 +1059,7 @@ VS Code, Zed, JetBrains IDEs, Neovim, Emacs, Obsidian, Discord/Slack/Telegram bo
 https://github.com/agentclientprotocol/agent-client-protocol
 
 Contains:
-- `schema/schema.json` - Complete JSON Schema (3597 lines)
+- `schema/schema.json` - Complete JSON Schema
 - `schema/meta.json` - Method registry
 - `schema/schema.unstable.json` - Unstable/draft features
 - `src/` - Rust reference implementation

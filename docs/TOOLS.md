@@ -1,5 +1,14 @@
 # Connector Abstraction & Slash Command Registration
 
+> Scope: this document covers **slash-command and connector registration** (the
+> `Slash_commands` registry and per-platform manifest/menu rendering). It does
+> **not** document the agent *tools* registry (the runtime tools agents call,
+> such as read/write/edit, bash, browser, memory, messaging) —
+> see `src/tool_registry.ml`, `src/tools_builtin*.ml`, `src/tool.ml`.
+>
+> TODO(follow-up): the agent tools registry has no dedicated doc; add one and
+> cross-link.
+
 ## Overview
 
 clawq supports multiple messaging connectors (Telegram, Teams, Discord, Slack) via a shared slash command system. Each connector dispatches commands through `Slash_commands.handle` and formats output using `Format_adapter`.
@@ -34,20 +43,26 @@ Teams requires a static app manifest. Use the CLI to generate the command fragme
 ```bash
 clawq manifest teams              # Print to stdout
 clawq manifest teams --output manifest.json  # Write to file
+clawq manifest teams -n 20        # Override default 10-command limit
 ```
 
-This outputs the top 10 commands (by priority) in Teams `bots.commandLists` format. Paste the `commandLists` array into your Teams app manifest.
+This outputs the top 10 commands (by priority, override with `-n COUNT`) in Teams `bots.commandLists` format. Paste the `commandLists` array into your Teams app manifest.
 
 For full command discoverability beyond the 10-command limit, use `/menu` in Teams to get an Adaptive Card with all commands as clickable buttons.
 
 ### Telegram Manifest Generation
 
 ```bash
-clawq manifest telegram           # Print setMyCommands payload
-clawq manifest telegram --output cmds.json
+clawq manifest telegram           # Print setMyCommands payload to stdout
+clawq manifest telegram > cmds.json  # Redirect to a file with your shell
 ```
 
-Generates the full `setMyCommands` JSON payload sorted by priority. Primarily useful for debugging — Telegram registration happens automatically on daemon startup.
+Generates the full `setMyCommands` JSON payload sorted by priority. Telegram
+manifest output goes to stdout only — redirect it to a file with your shell's
+`>` operator.
+
+> TODO(follow-up): add a `--output FILE` flag for `manifest telegram`
+> (mirroring the `teams` branch in `src/command_bridge_shared.ml`). Primarily useful for debugging — Telegram registration happens automatically on daemon startup.
 
 ## Skills as Slash Commands
 
@@ -78,7 +93,7 @@ Legacy JSON skills (`.json` files in `~/.clawq/skills/`) are still loaded but de
 
 ## Adding a New Command
 
-1. Add an entry to `Slash_commands.commands` in `src/slash_commands.ml` with appropriate priority
+1. Add an entry to the `commands` list in `src/slash_commands_fmt.ml` with appropriate priority (`src/slash_commands.ml` re-exports it via `include`)
 2. Add a result variant if needed
 3. Add handler case in `Slash_commands.handle`
 4. Handle the new variant in each connector: `telegram.ml`, `teams.ml`, `discord.ml`, `slack.ml`, `http_server.ml`
@@ -87,7 +102,10 @@ Legacy JSON skills (`.json` files in `~/.clawq/skills/`) are still loaded but de
 ## `/menu` Command
 
 The `/menu` command renders a full command listing:
-- **Teams**: Adaptive Card with grouped action buttons (Core / Info & Config / Advanced tiers)
+- **Teams**: Adaptive Card with a flat, paginated list of command buttons (9 per page, sorted by priority, with prev/next navigation)
+  > TODO(follow-up): tier grouping (Core / Info & Config / Advanced) is not yet
+  > implemented; the current `/menu` card is flat-paginated
+  > (`src/slash_commands_manifest.ml:menu_adaptive_card_json`).
 - **Telegram**: HTML-formatted list with `<code>` command names
 - **Other connectors**: Plain text list sorted by priority
 

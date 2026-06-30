@@ -11,6 +11,7 @@ allowed_tools:
   - memory_recall
   - memory_forget
   - memory_list
+  - debate
 disallowed_tools:
   - file_write
   - file_edit

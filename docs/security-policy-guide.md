@@ -244,18 +244,25 @@ When a request is denied, the caller receives a `policy_error` with:
 
 ### 2.7 CLI Examples
 
+Egress rules live in access bundles (see §2.1), not under `security.*`. There is
+no `clawq config get security.egress_rules` path.
+
 ```bash
-# Show current egress rules (resolved from all bundles)
-clawq config get security.egress_rules
+# Show current config (redacted); egress rules appear in access bundles
+clawq config show
 
-# Egress rules are part of access bundles
-clawq access show <bundle-id>
-
-# View egress audit log (see section 3)
-clawq egress audit --limit 50
-clawq egress audit --decision denied
-clawq egress audit --session-key "slack:C12345"
+# Egress audit events are currently surfaced internally via the room
+# readiness report and the room setup wizard (room_readiness_report.ml /
+# setup_room_wizard*.ml). The user-facing entry points are:
+clawq rooms readiness
+clawq rooms show <room-id>
 ```
+
+Dedicated `egress`, `access`, `credentials`, and `permissions` CLI subcommands
+are **not yet implemented**. The only related top-level command is `clawq audit`
+(the signed Audit trail), which is distinct from egress audit. Surfacing egress
+rules, access bundles, credential handles, and egress audit queries as
+first-class CLI subcommands is a tracked follow-up TODO.
 
 ---
 
@@ -272,7 +279,7 @@ Each event captures:
 | `id` | Auto-incrementing ID | -- |
 | `timestamp` | ISO 8601 with microseconds | -- |
 | `decision` | `allowed` or `denied` | -- |
-| `host_redacted` | Redacted hostname | `api.github.com` -> `a**.g******.com` |
+| `host_redacted` | Redacted hostname | `api.github.com` -> `a**.******.com` |
 | `method_redacted` | Redacted HTTP method | `POST` -> `P**T` |
 | `path_redacted` | Redacted URL path | `/api/v1/users/123` -> `/api/**` |
 | `matched_rule_index` | Index of matching rule (-1 for default deny) | -- |
@@ -284,12 +291,12 @@ Each event captures:
 
 ### 3.2 Redaction Rules
 
-**Host redaction**: Keeps TLD and first label visible, obscures intermediate labels.
+**Host redaction**: Keeps the TLD and the first character of the first label visible; every intermediate label is fully replaced with exactly 6 asterisks (no leading character preserved).
 ```
-"api.github.com"     -> "a**.g******.com"
-"example.com"        -> "e******.com"
-"localhost"          -> "l********"
-"sub.api.example.com" -> "s**.a**.e******.com"
+"api.github.com"      -> "a**.******.com"
+"example.com"         -> "e******.com"
+"localhost"           -> "l********"
+"sub.api.example.com" -> "s**.******.******.com"
 ```
 
 **Method redaction**: Shows first and last character when length >= 3.
@@ -480,7 +487,7 @@ The `check_room_policy_and_role` function combines role-based and room-based res
 
 | Surface | Redaction |
 |---------|-----------|
-| **Config display** (`clawq config show`) | All keys containing `token`, `secret`, `password`, `api_key`, `private_key`, `tunnel_name` are replaced with `***` |
+| **Config display** (`clawq config show`) | Keys containing (as substring) `token`, `secret`, `password`, `api_key`, or `private_key` are replaced with `***`; `tunnel_name` is matched by **exact** key name only (so e.g. `my_tunnel_name` is NOT redacted) |
 | **HTTP debug logs** (`http_debug.ml`) | Headers `authorization`, `x-api-key`, `api-key`, `cookie`, `set-cookie`, `proxy-authorization` are redacted via `redact_token` |
 | **Credential lease identity** | First 3 characters + asterisks |
 | **Egress audit events** | Host, method, path all redacted (see section 3.2) |
@@ -701,27 +708,14 @@ All scope-resolution and memory-policy invariants are candidates for formal veri
 # Show config (redacted)
 clawq config show
 
-# Show access bundles and scopes
-clawq access list
-clawq access show <bundle-id>
-
-# Show credential handles
-clawq credentials list
-
-# Show egress rules for current scope
-clawq egress rules
-
-# Query egress audit log
-clawq egress audit --limit 50
-clawq egress audit --decision denied
-clawq egress audit --tool-name "http_request"
-
-# Show room classification
-clawq rooms status
-
-# Show invocation restrictions
-clawq permissions check --work-kind routine --user-group guest
+# Room readiness (surfaces egress audit status) and per-room detail
+clawq rooms readiness
+clawq rooms show <room-id>
 ```
+
+Dedicated `egress`, `access`, `credentials`, and `permissions` CLI subcommands
+are **not yet implemented** (TODO); the only related top-level command is
+`clawq audit` (the signed Audit trail, not egress audit).
 
 ### Key Source Files
 
