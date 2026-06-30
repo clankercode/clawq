@@ -28,9 +28,11 @@ type event = {
       (** Alias IDs only -- never actual credential values. *)
 }
 
-(** Redact a hostname for audit storage. Keeps the TLD and first label visible
-    but obscures intermediate labels. Examples:
-    - "api.example.com" -> "a**.e******.com"
+(** Redact a hostname for audit storage. Keeps the TLD and the first char of
+    the first label visible; all intermediate labels are fully replaced with 6
+    asterisks (no leading character preserved). Examples:
+    - "api.github.com" -> "a**.******.com"
+    - "sub.api.example.com" -> "s**.******.******.com"
     - "example.com" -> "e******.com"
     - "localhost" -> "l********" *)
 let redact_host host =
