@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B742
+priority: high
+status: pending
+tags: []
+title: provenance_comment backlink relationship defined but never recorded
+---
+src/room_github_backlinks.ml:43 defines the Provenance_comment relationship variant (+ serialization) but no insert helper records a row with it (only record_subscription_delivery, record_ci_notification, record_triggered_run, record_room_to_room exist). Docs marked 'defined/not yet recorded' with TODO. Decision: is posting results back to PRs (and recording the backlink) in scope? Implement the flow or remove the dead relationship. Found in docs-audit (lane D, D-04).
