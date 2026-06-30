@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B739
+priority: high
+status: pending
+tags: []
+title: GitHub per-repo agent_name field not wired to review-run agent selection
+---
+The per-repo github config field 'agent_name' (src/runtime_config_types.ml:134) is documented as 'agent template for review runs', but the review-run trigger/prompt pipeline never reads it (src/github_review_run.ml trigger_from_label/trigger_from_room_command/build_review_prompt take no agent_name; src/github.ml:420 trigger_review_runs_from_labels does not pass repo_config.agent_name; src/background_task_spawn.ml review-run launch path does not read it). It's only serialized in src/setup_github.ml + the config type. Decision needed: wire agent_name into review-run agent selection (and implement), or keep it as routing/reserved-only. Docs currently softened to 'reserved, not yet wired' with a TODO. Found in docs-audit (lane D, D-01).
