@@ -1,4 +1,4 @@
-let schema_version = 45
+let schema_version = 46
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -880,6 +880,14 @@ let migrate_step db v =
   | 42 -> Github_pr_policy.init_schema db
   | 43 -> Github_review_run.init_schema db
   | 44 -> Room_github_backlinks.init_schema db
+  | 45 ->
+      (* Add scope columns to embeddings table for scoped vector search *)
+      let try_add sql = try exec_exn db sql with _ -> () in
+      try_add "ALTER TABLE embeddings ADD COLUMN scope_kind TEXT";
+      try_add "ALTER TABLE embeddings ADD COLUMN scope_key TEXT";
+      try_add
+        "CREATE INDEX IF NOT EXISTS idx_embeddings_scope ON embeddings \
+         (scope_kind, scope_key)"
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -935,7 +943,12 @@ let repair_missing_columns db =
   Room_github_backlinks.init_schema db;
   try_add
     "ALTER TABLE scoped_memories ADD COLUMN visibility TEXT NOT NULL DEFAULT \
-     'public' CHECK (visibility IN ('public', 'private', 'team'))"
+     'public' CHECK (visibility IN ('public', 'private', 'team'))";
+  try_add "ALTER TABLE embeddings ADD COLUMN scope_kind TEXT";
+  try_add "ALTER TABLE embeddings ADD COLUMN scope_key TEXT";
+  try_add
+    "CREATE INDEX IF NOT EXISTS idx_embeddings_scope ON embeddings \
+     (scope_kind, scope_key)"
 
 let migrate_schema db current_version =
   match current_version with

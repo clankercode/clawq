@@ -65,11 +65,11 @@ let test_store_and_search () =
   let emb2 = [| 0.0; 1.0; 0.0 |] in
   let emb3 = [| 0.9; 0.1; 0.0 |] in
   Vector.store ~db ~session_key:"s1" ~message_id:1L
-    ~content_preview:"hello world" ~embedding:emb1;
+    ~content_preview:"hello world" ~embedding:emb1 ();
   Vector.store ~db ~session_key:"s1" ~message_id:2L ~content_preview:"goodbye"
-    ~embedding:emb2;
+    ~embedding:emb2 ();
   Vector.store ~db ~session_key:"s1" ~message_id:3L ~content_preview:"hi there"
-    ~embedding:emb3;
+    ~embedding:emb3 ();
   let query = [| 1.0; 0.0; 0.0 |] in
   let results = Vector.search ~db ~query_embedding:query ~limit:2 () in
   Alcotest.(check int) "top 2 results" 2 (List.length results);
@@ -84,9 +84,9 @@ let test_search_session_filter () =
   let db = Sqlite3.db_open ":memory:" in
   Vector.init_schema db;
   Vector.store ~db ~session_key:"s1" ~message_id:1L ~content_preview:"in s1"
-    ~embedding:[| 1.0; 0.0 |];
+    ~embedding:[| 1.0; 0.0 |] ();
   Vector.store ~db ~session_key:"s2" ~message_id:2L ~content_preview:"in s2"
-    ~embedding:[| 0.9; 0.1 |];
+    ~embedding:[| 0.9; 0.1 |] ();
   let query = [| 1.0; 0.0 |] in
   let results =
     Vector.search ~db ~query_embedding:query ~session_key:"s2" ~limit:10 ()
@@ -141,6 +141,56 @@ let test_init_schema () =
   Alcotest.(check bool) "schema init idempotent" true true;
   ignore (Sqlite3.db_close db)
 
+let test_store_with_scope () =
+  let db = Sqlite3.db_open ":memory:" in
+  Vector.init_schema db;
+  Vector.store ~db ~session_key:"s1" ~message_id:1L
+    ~content_preview:"room A msg" ~embedding:[| 1.0; 0.0 |] ~scope_kind:"room"
+    ~scope_key:"channel-a" ();
+  Vector.store ~db ~session_key:"s1" ~message_id:2L
+    ~content_preview:"room B msg" ~embedding:[| 0.0; 1.0 |] ~scope_kind:"room"
+    ~scope_key:"channel-b" ();
+  Vector.store ~db ~session_key:"s1" ~message_id:3L
+    ~content_preview:"global msg" ~embedding:[| 0.9; 0.1 |] ();
+  (* All 3 rows exist *)
+  let all = Vector.search ~db ~query_embedding:[| 1.0; 0.0 |] ~limit:10 () in
+  Alcotest.(check int) "all 3 stored" 3 (List.length all);
+  ignore (Sqlite3.db_close db)
+
+let test_search_scope_filter () =
+  let db = Sqlite3.db_open ":memory:" in
+  Vector.init_schema db;
+  Vector.store ~db ~session_key:"s1" ~message_id:1L
+    ~content_preview:"room A msg" ~embedding:[| 1.0; 0.0 |] ~scope_kind:"room"
+    ~scope_key:"channel-a" ();
+  Vector.store ~db ~session_key:"s1" ~message_id:2L
+    ~content_preview:"room B msg" ~embedding:[| 0.0; 1.0 |] ~scope_kind:"room"
+    ~scope_key:"channel-b" ();
+  Vector.store ~db ~session_key:"s1" ~message_id:3L
+    ~content_preview:"global msg" ~embedding:[| 0.9; 0.1 |] ();
+  (* Filter by scope *)
+  let results =
+    Vector.search ~db ~query_embedding:[| 1.0; 0.0 |] ~scope_kind:"room"
+      ~scope_key:"channel-a" ~limit:10 ()
+  in
+  Alcotest.(check int) "only channel-a" 1 (List.length results);
+  let content, _ = List.hd results in
+  Alcotest.(check string) "channel-a content" "room A msg" content;
+  ignore (Sqlite3.db_close db)
+
+let test_search_scope_no_match () =
+  let db = Sqlite3.db_open ":memory:" in
+  Vector.init_schema db;
+  Vector.store ~db ~session_key:"s1" ~message_id:1L
+    ~content_preview:"room A msg" ~embedding:[| 1.0; 0.0 |] ~scope_kind:"room"
+    ~scope_key:"channel-a" ();
+  let results =
+    Vector.search ~db ~query_embedding:[| 1.0; 0.0 |] ~scope_kind:"room"
+      ~scope_key:"channel-c" ~limit:10 ()
+  in
+  Alcotest.(check int) "no match for wrong scope" 0 (List.length results);
+  ignore (Sqlite3.db_close db)
+
 let suite =
   [
     Alcotest.test_case "cosine identical" `Quick test_cosine_identical;
@@ -159,4 +209,7 @@ let suite =
     Alcotest.test_case "merge hybrid" `Quick test_merge_hybrid;
     Alcotest.test_case "merge dedup" `Quick test_merge_dedup;
     Alcotest.test_case "init schema idempotent" `Quick test_init_schema;
+    Alcotest.test_case "store with scope" `Quick test_store_with_scope;
+    Alcotest.test_case "search scope filter" `Quick test_search_scope_filter;
+    Alcotest.test_case "search scope no match" `Quick test_search_scope_no_match;
   ]
