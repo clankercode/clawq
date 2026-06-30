@@ -132,7 +132,7 @@ failed).
 
 ### Teams Adaptive Card (`teams_progress_card.ml`)
 
-On Teams, progress is rendered as an Adaptive Card (v1.3) with:
+On Teams, progress is rendered as an Adaptive Card (v1.4) with:
 
 1. **Header** -- color-coded by overall state. The internal hex colors
    map to Adaptive Card semantic TextBlock colors: blue (`#3B82F6`) ->

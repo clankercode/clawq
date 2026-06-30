@@ -138,10 +138,7 @@ Teams renders progress updates and interactive menus as Adaptive Cards.
 Cards are sent as Bot Framework attachments with content type
 `application/vnd.microsoft.card.adaptive`.
 
-> **Card schema versions:** progress cards (`teams_progress_card.ml`) and
-> what-can-do cards (`teams_what_can_do.ml`) emit Adaptive Card **v1.3**;
-> agent/model menu cards (`slash_commands_manifest.ml`) emit **v1.4**.
-> Canonical-version unification across card emitters is a follow-up.
+> All Adaptive Card emitters use schema version **v1.4**.
 
 Key card types:
 - **Progress card** -- shows task checklist with status icons and action buttons

@@ -275,7 +275,7 @@ let build_teams_poll_card ~question ~(options : string list) =
                         `String
                           "http://adaptivecards.io/schemas/adaptive-card.json"
                       );
-                      ("version", `String "1.3");
+                      ("version", `String "1.4");
                       ( "body",
                         `List
                           [
@@ -354,7 +354,7 @@ let build_teams_card_from_buttons ~text ~button_rows =
                         `String
                           "http://adaptivecards.io/schemas/adaptive-card.json"
                       );
-                      ("version", `String "1.3");
+                      ("version", `String "1.4");
                       ( "body",
                         `List
                           [

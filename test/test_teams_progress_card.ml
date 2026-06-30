@@ -151,7 +151,7 @@ let test_build_card_basic_structure () =
     ~expected:"application/vnd.microsoft.card.adaptive" att;
   let content = Yojson.Safe.Util.member "content" att in
   has_string_field ~key:"type" ~expected:"AdaptiveCard" content;
-  has_string_field ~key:"version" ~expected:"1.3" content;
+  has_string_field ~key:"version" ~expected:"1.4" content;
   has_string_field ~key:"$schema"
     ~expected:"http://adaptivecards.io/schemas/adaptive-card.json" content
 
@@ -338,7 +338,7 @@ let test_build_update_card_no_envelope () =
   Alcotest.(check int) "one attachment" 1 (List.length attachments);
   let content = Yojson.Safe.Util.member "content" (List.hd attachments) in
   has_string_field ~key:"type" ~expected:"AdaptiveCard" content;
-  has_string_field ~key:"version" ~expected:"1.3" content
+  has_string_field ~key:"version" ~expected:"1.4" content
 
 let test_build_update_card_same_structure_as_build () =
   let items =

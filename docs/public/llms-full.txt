@@ -974,7 +974,7 @@ The checklist model (`room_progress_checklist.ml`) is a durable, append-only mod
 
 ### Teams Adaptive Cards
 
-On Teams, progress is rendered as an Adaptive Card (v1.3) with:
+On Teams, progress is rendered as an Adaptive Card (v1.4) with:
 - Color-coded header by overall state (blue = working, green = done, red = blocked)
 - Summary line with compact count by state
 - Elapsed time

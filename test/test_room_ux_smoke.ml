@@ -67,7 +67,7 @@ let test_teams_progress_update_renders_valid_card () =
     "card type" "AdaptiveCard"
     (content |> member "type" |> to_string);
   Alcotest.(check string)
-    "schema version" "1.3"
+    "schema version" "1.4"
     (content |> member "version" |> to_string);
   (* Verify header contains task info *)
   let body = content |> member "body" |> to_list in

@@ -406,7 +406,7 @@ let build_card ~task_id ~task_label ~items ?(actions = None) ?elapsed ?summary
                         `String
                           "http://adaptivecards.io/schemas/adaptive-card.json"
                       );
-                      ("version", `String "1.3");
+                      ("version", `String "1.4");
                       ("body", `List body_elements);
                     ] );
               ];
@@ -510,7 +510,7 @@ let build_update_card ~task_id ~task_label ~items ?(actions = None) ?elapsed
                         `String
                           "http://adaptivecards.io/schemas/adaptive-card.json"
                       );
-                      ("version", `String "1.3");
+                      ("version", `String "1.4");
                       ("body", `List body_elements);
                     ] );
               ];

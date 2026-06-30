@@ -295,7 +295,7 @@ let build_card ~(snap : capability_status) () : Yojson.Safe.t =
                         `String
                           "http://adaptivecards.io/schemas/adaptive-card.json"
                       );
-                      ("version", `String "1.3");
+                      ("version", `String "1.4");
                       ("body", `List body);
                     ] );
               ];
