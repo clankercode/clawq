@@ -2402,6 +2402,27 @@ let test_manifest_telegram_uses_command_key () =
     "uses description key" true
     (Test_helpers.string_contains output "\"description\"")
 
+let test_manifest_telegram_output_to_file () =
+  let tmpfile = Filename.temp_file "clawq_manifest" ".json" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove tmpfile)
+    (fun () ->
+      let result =
+        Command_bridge_shared.cmd_manifest [ "telegram"; "--output"; tmpfile ]
+      in
+      Alcotest.(check bool)
+        "result mentions path" true
+        (Test_helpers.string_contains result tmpfile);
+      let content = In_channel.with_open_bin tmpfile In_channel.input_all in
+      let json = Yojson.Safe.from_string content in
+      let open Yojson.Safe.Util in
+      let cmds = json |> member "commands" |> to_list in
+      Alcotest.(check bool) "non-empty" true (List.length cmds > 0);
+      let first = List.hd cmds in
+      let _ = first |> member "command" |> to_string in
+      let _ = first |> member "description" |> to_string in
+      ())
+
 let test_menu_adaptive_card_json () =
   let card = Slash_commands_manifest.menu_adaptive_card_json () in
   let open Yojson.Safe.Util in
@@ -3433,6 +3454,8 @@ let suite =
       test_manifest_teams_top10_composition;
     Alcotest.test_case "manifest telegram uses command key" `Quick
       test_manifest_telegram_uses_command_key;
+    Alcotest.test_case "manifest telegram output to file" `Quick
+      test_manifest_telegram_output_to_file;
     Alcotest.test_case "menu adaptive card json" `Quick
       test_menu_adaptive_card_json;
     Alcotest.test_case "menu adaptive card pagination" `Quick

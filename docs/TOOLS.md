@@ -53,16 +53,12 @@ For full command discoverability beyond the 10-command limit, use `/menu` in Tea
 ### Telegram Manifest Generation
 
 ```bash
-clawq manifest telegram           # Print setMyCommands payload to stdout
+clawq manifest telegram              # Print setMyCommands payload to stdout
+clawq manifest telegram --output cmds.json  # Write to file
 clawq manifest telegram > cmds.json  # Redirect to a file with your shell
 ```
 
-Generates the full `setMyCommands` JSON payload sorted by priority. Telegram
-manifest output goes to stdout only — redirect it to a file with your shell's
-`>` operator.
-
-> TODO(follow-up): add a `--output FILE` flag for `manifest telegram`
-> (mirroring the `teams` branch in `src/command_bridge_shared.ml`). Primarily useful for debugging — Telegram registration happens automatically on daemon startup.
+Generates the full `setMyCommands` JSON payload sorted by priority.
 
 ## Skills as Slash Commands
 

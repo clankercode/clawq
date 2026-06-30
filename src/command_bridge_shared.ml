@@ -66,10 +66,16 @@ let cmd_manifest = function
   | [ "telegram" ] ->
       print_string (Slash_commands_manifest.telegram_json ());
       ""
+  | [ "telegram"; "--output"; path ] ->
+      let oc = open_out path in
+      Fun.protect
+        ~finally:(fun () -> close_out oc)
+        (fun () -> output_string oc (Slash_commands_manifest.telegram_json ()));
+      Printf.sprintf "Wrote Telegram manifest to %s" path
   | _ ->
       "Usage: clawq manifest <platform>\n\n\
        Platforms:\n\
       \  teams    [--output FILE] [-n COUNT]  Generate Teams bot manifest \
        commands\n\
-      \  telegram                             Generate Telegram setMyCommands \
+      \  telegram [--output FILE]             Generate Telegram setMyCommands \
        payload"
