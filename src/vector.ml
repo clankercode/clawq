@@ -13,10 +13,22 @@ let init_schema db =
     "CREATE TABLE IF NOT EXISTS embeddings (id INTEGER PRIMARY KEY \
      AUTOINCREMENT, message_id INTEGER NOT NULL, session_key TEXT NOT NULL, \
      content_preview TEXT NOT NULL, embedding BLOB NOT NULL, created_at TEXT \
-     NOT NULL DEFAULT (datetime('now')))";
+     NOT NULL DEFAULT (datetime('now')), scope_kind TEXT, scope_key TEXT)";
   exec
     "CREATE INDEX IF NOT EXISTS idx_embeddings_session_key ON embeddings \
-     (session_key)"
+     (session_key)";
+  (* Scope columns may be missing on databases created before v46 migration.
+     The ALTER TABLE is a no-op if the column already exists. *)
+  (try
+     ignore
+       (Sqlite3.exec db "ALTER TABLE embeddings ADD COLUMN scope_kind TEXT")
+   with _ -> ());
+  (try
+     ignore (Sqlite3.exec db "ALTER TABLE embeddings ADD COLUMN scope_key TEXT")
+   with _ -> ());
+  exec
+    "CREATE INDEX IF NOT EXISTS idx_embeddings_scope ON embeddings \
+     (scope_kind, scope_key)"
 
 (* --- Cosine similarity --- *)
 
@@ -119,10 +131,11 @@ let fetch_embedding ~(config : Runtime_config.t) ~text =
 
 (* --- Store embedding --- *)
 
-let store ~db ~session_key ~message_id ~content_preview ~embedding =
+let store ~db ~session_key ~message_id ~content_preview ~embedding ?scope_kind
+    ?scope_key () =
   let sql =
     "INSERT INTO embeddings (message_id, session_key, content_preview, \
-     embedding) VALUES (?, ?, ?, ?)"
+     embedding, scope_kind, scope_key) VALUES (?, ?, ?, ?, ?, ?)"
   in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT message_id));
@@ -130,6 +143,12 @@ let store ~db ~session_key ~message_id ~content_preview ~embedding =
   ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT content_preview));
   ignore
     (Sqlite3.bind stmt 4 (Sqlite3.Data.BLOB (serialize_embedding embedding)));
+  (match scope_kind with
+  | Some sk -> ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT sk))
+  | None -> ignore (Sqlite3.bind stmt 5 Sqlite3.Data.NULL));
+  (match scope_key with
+  | Some sk -> ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT sk))
+  | None -> ignore (Sqlite3.bind stmt 6 Sqlite3.Data.NULL));
   (match Sqlite3.step stmt with
   | Sqlite3.Rc.DONE -> ()
   | rc ->
@@ -137,32 +156,78 @@ let store ~db ~session_key ~message_id ~content_preview ~embedding =
           m "Vector: failed to store embedding: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
 
+(* --- Async embedding for message storage --- *)
+
+(** [embed_and_store_message ~config ~db ~session_key ~message_id ~content
+     ?scope_kind ?scope_key ()] fetches an embedding for [content] and stores it
+    in the embeddings table. Designed to be called fire-and-forget from message
+    storage callbacks. Errors are logged and swallowed. *)
+let embed_and_store_message ~(config : Runtime_config.t) ~db ~session_key
+    ~message_id ~content ?scope_kind ?scope_key () =
+  let open Lwt.Syntax in
+  if
+    config.memory.embedding_provider <> None
+    || config.memory.embedding_model <> None
+  then
+    Lwt.catch
+      (fun () ->
+        let* embedding = fetch_embedding ~config ~text:content in
+        let preview =
+          if String.length content > 200 then String.sub content 0 200 ^ "..."
+          else content
+        in
+        store ~db ~session_key ~message_id ~content_preview:preview ~embedding
+          ?scope_kind ?scope_key ();
+        Lwt.return_unit)
+      (fun exn ->
+        Logs.warn (fun m ->
+            m "Vector: async embed failed for msg %Ld in %s: %s" message_id
+              session_key (Printexc.to_string exn));
+        Lwt.return_unit)
+  else Lwt.return_unit
+
 (* --- Vector search --- *)
 
-let search ~db ~query_embedding ?session_key ~limit () =
+let search ~db ~query_embedding ?session_key ?scope_kind ?scope_key ~limit () =
   let max_scan = 1000 in
-  let sql, bind_session =
-    match session_key with
-    | Some _sk ->
-        ( "SELECT content_preview, embedding FROM embeddings WHERE session_key \
-           = ? ORDER BY id DESC LIMIT ?",
-          true )
-    | None ->
-        ( "SELECT content_preview, embedding FROM embeddings ORDER BY id DESC \
-           LIMIT ?",
-          false )
+  (* Build WHERE clauses based on which filters are provided *)
+  let conditions = ref [] in
+  let params = ref [] in
+  Option.iter
+    (fun sk ->
+      conditions := "session_key = ?" :: !conditions;
+      params := Sqlite3.Data.TEXT sk :: !params)
+    session_key;
+  Option.iter
+    (fun sk ->
+      conditions := "scope_kind = ?" :: !conditions;
+      params := Sqlite3.Data.TEXT sk :: !params)
+    scope_kind;
+  Option.iter
+    (fun sk ->
+      conditions := "scope_key = ?" :: !conditions;
+      params := Sqlite3.Data.TEXT sk :: !params)
+    scope_key;
+  let where_clause =
+    match !conditions with
+    | [] -> ""
+    | conds -> " WHERE " ^ String.concat " AND " conds
+  in
+  let sql =
+    Printf.sprintf
+      "SELECT content_preview, embedding FROM embeddings%s ORDER BY id DESC \
+       LIMIT ?"
+      where_clause
   in
   let stmt = Sqlite3.prepare db sql in
-  let bind_idx =
-    if bind_session then begin
-      (match session_key with
-      | Some sk -> ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT sk))
-      | None -> ());
-      2
-    end
-    else 1
-  in
-  ignore (Sqlite3.bind stmt bind_idx (Sqlite3.Data.INT (Int64.of_int max_scan)));
+  let bind_idx = ref 1 in
+  List.iter
+    (fun data ->
+      ignore (Sqlite3.bind stmt !bind_idx data);
+      incr bind_idx)
+    !params;
+  ignore
+    (Sqlite3.bind stmt !bind_idx (Sqlite3.Data.INT (Int64.of_int max_scan)));
   let results = ref [] in
   while Sqlite3.step stmt = Sqlite3.Rc.ROW do
     let content_preview =

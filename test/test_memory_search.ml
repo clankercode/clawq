@@ -149,6 +149,49 @@ let test_search_scope_filter_no_filter_fallback () =
   Alcotest.(check int)
     "global search still returns both" 2 (List.length results)
 
+(* B734: scoped vector search - embeddings stored with scope are retrievable
+   via scope-filtered vector search. *)
+let test_scoped_vector_search () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  Vector.init_schema db;
+  let channel_a = Memory.create_scope ~db ~kind:"room" ~key:"channel-a" () in
+  let channel_b = Memory.create_scope ~db ~kind:"room" ~key:"channel-b" () in
+  let a_id =
+    store_message_get_id ~db ~session_key:"channel-a"
+      ~content:"the quick brown fox jumps over the lazy dog"
+  in
+  let b_id =
+    store_message_get_id ~db ~session_key:"channel-b"
+      ~content:"a completely unrelated topic about quantum physics"
+  in
+  attach_message_to_scope ~db ~scope_id:channel_a.id ~message_id:a_id;
+  attach_message_to_scope ~db ~scope_id:channel_b.id ~message_id:b_id;
+  (* Store embeddings with scope *)
+  Vector.store ~db ~session_key:"channel-a" ~message_id:(Int64.of_int a_id)
+    ~content_preview:"the quick brown fox jumps over the lazy dog"
+    ~embedding:[| 1.0; 0.0; 0.0 |] ~scope_kind:"room" ~scope_key:"channel-a" ();
+  Vector.store ~db ~session_key:"channel-b" ~message_id:(Int64.of_int b_id)
+    ~content_preview:"a completely unrelated topic about quantum physics"
+    ~embedding:[| 0.0; 1.0; 0.0 |] ~scope_kind:"room" ~scope_key:"channel-b" ();
+  (* Vector search filtered to channel-a should return only channel-a's embedding *)
+  let query_emb = [| 1.0; 0.0; 0.0 |] in
+  let results =
+    Vector.search ~db ~query_embedding:query_emb ~scope_kind:"room"
+      ~scope_key:"channel-a" ~limit:10 ()
+  in
+  Alcotest.(check int) "scoped vector: only channel-a" 1 (List.length results);
+  let content, score = List.hd results in
+  Alcotest.(check string)
+    "scoped vector: correct content"
+    "the quick brown fox jumps over the lazy dog" content;
+  Alcotest.(check bool)
+    "scoped vector: perfect match" true
+    (Float.abs (score -. 1.0) < 1e-9);
+  (* Global vector search should return both *)
+  let all_results = Vector.search ~db ~query_embedding:query_emb ~limit:10 () in
+  Alcotest.(check int) "global vector: both results" 2 (List.length all_results);
+  ignore (Sqlite3.db_close db)
+
 let suite =
   [
     Alcotest.test_case "FTS init enabled" `Quick test_fts_init;
@@ -169,4 +212,5 @@ let suite =
       test_search_scope_filter_no_match;
     Alcotest.test_case "search scope filter no-filter fallback" `Quick
       test_search_scope_filter_no_filter_fallback;
+    Alcotest.test_case "scoped vector search" `Quick test_scoped_vector_search;
   ]

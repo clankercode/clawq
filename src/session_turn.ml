@@ -386,7 +386,25 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         (match mgr.db with
         | Some db ->
             List.iter
-              (fun msg -> Memory.store_message ~db ~session_key:key msg)
+              (fun msg ->
+                Memory.store_message ~db ~session_key:key msg;
+                (* B734: fire-and-forget embedding for scoped messages *)
+                let scope_info =
+                  match channel_id with
+                  | Some room_id -> (
+                      match Memory.get_room_profile_binding ~db ~room_id with
+                      | Some _binding ->
+                          Some (Sqlite3.last_insert_rowid db, "room", room_id)
+                      | None -> None)
+                  | None -> None
+                in
+                match scope_info with
+                | Some (message_id, scope_kind, scope_key) ->
+                    Lwt.async (fun () ->
+                        Vector.embed_and_store_message ~config:mgr.config ~db
+                          ~session_key:key ~message_id ~content:msg.content
+                          ~scope_kind ~scope_key ())
+                | None -> ())
               new_msgs;
             persisted_up_to := List.length agent.Agent.history
         | None -> ());
@@ -1429,7 +1447,32 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                           | Some db ->
                               List.iter
                                 (fun msg ->
-                                  Memory.store_message ~db ~session_key:key msg)
+                                  Memory.store_message ~db ~session_key:key msg;
+                                  (* B734: fire-and-forget embedding for scoped messages *)
+                                  let scope_info =
+                                    match channel_id with
+                                    | Some room_id -> (
+                                        match
+                                          Memory.get_room_profile_binding ~db
+                                            ~room_id
+                                        with
+                                        | Some _binding ->
+                                            Some
+                                              ( Sqlite3.last_insert_rowid db,
+                                                "room",
+                                                room_id )
+                                        | None -> None)
+                                    | None -> None
+                                  in
+                                  match scope_info with
+                                  | Some (message_id, scope_kind, scope_key) ->
+                                      Lwt.async (fun () ->
+                                          Vector.embed_and_store_message
+                                            ~config:mgr.config ~db
+                                            ~session_key:key ~message_id
+                                            ~content:msg.content ~scope_kind
+                                            ~scope_key ())
+                                  | None -> ())
                                 new_msgs;
                               persisted_up_to := List.length agent.Agent.history
                           | None -> ());
