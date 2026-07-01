@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-01T06:07:36Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-01T07:32:17Z"
 complexity: medium
 depends_on: []
+duration_minutes: 84.69708713775
 estimate_hours: 1
 id: B752
 priority: high
 started_at: "2026-07-01T06:07:36Z"
-status: in_progress
+status: done
 tags: []
 title: Classify and document the full public CLI command surface
 ---
