@@ -6367,6 +6367,53 @@ let test_launch_triggered_run_idempotent_by_sha () =
                 "only one code_review run for this SHA" 1
                 (List.length code_review_runs)))
 
+(** B739: launch_triggered_run threads agent_name to the background task. *)
+let test_launch_triggered_run_threads_agent_name () =
+  with_fake_supported_runner (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      Github_review_run.init_schema db;
+      Access_snapshot.init_schema db;
+      let config_json =
+        {|{
+      "workspace": "/tmp/test-agent-name",
+      "access_bundles": [
+        {
+          "id": "full",
+          "repo_grants": [
+            {"repo": "owner/repo", "capabilities": ["read"]}
+          ]
+        }
+      ],
+      "access_scopes": [
+        {"id": "default", "level": "default", "access_bundle_ids": ["full"]}
+      ]
+    }|}
+      in
+      let cfg =
+        Config_loader.parse_config (Yojson.Safe.from_string config_json)
+      in
+      let review_run =
+        Github_review_run.create ~db ~repo:"owner/repo" ~pr_number:42
+          ~head_sha:"abc123" ~run_kind:Code_review
+          ~trigger_source:(Github_review_run.Label "review") ()
+      in
+      match
+        Background_task.launch_triggered_run ~db ~config:cfg ~review_run
+          ~room_id:"C-AN" ~requester_id:"U1" ~pr_title:"Add feature"
+          ~pr_author:"dev" ~pr_body:"" ~base_branch:"main"
+          ~head_branch:"feature"
+          ~pr_files:[ ("src/main.ml", "modified", 10, 2) ]
+          ~agent_name:"reviewer" ()
+      with
+      | Error msg -> Alcotest.failf "launch failed: %s" msg
+      | Ok task_id -> (
+          match Background_task.get_task ~db ~id:task_id with
+          | None -> Alcotest.fail "task not found"
+          | Some task ->
+              Alcotest.(check (option string))
+                "agent_name threaded" (Some "reviewer") task.agent_name))
+
 let test_set_progress_state_persists () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -7491,6 +7538,8 @@ let suite =
       test_launch_triggered_run_succeeds_with_granted_repo;
     Alcotest.test_case "launch_triggered_run idempotent by SHA" `Quick
       test_launch_triggered_run_idempotent_by_sha;
+    Alcotest.test_case "launch_triggered_run threads agent_name (B739)" `Quick
+      test_launch_triggered_run_threads_agent_name;
     Alcotest.test_case "B736: reenqueue local task on restart" `Quick
       test_reenqueue_local_task_on_restart;
     Alcotest.test_case "B736: reenqueue local task fail policy" `Quick

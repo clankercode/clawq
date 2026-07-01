@@ -173,8 +173,8 @@ let build_delegate_prompt ~automerge:_ ~goal =
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
     ?(automerge = true) ?(use_worktree = true) ?(acp = false)
     ?(allow_claude = true) ?follow_up_prompt ~db ?preferred_runner ?model
-    ?repo_path ?branch ?access_snapshot_id ?session_record_id ~default_repo_path
-    ~goal () =
+    ?repo_path ?branch ?access_snapshot_id ?session_record_id ?agent_name
+    ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -226,7 +226,7 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
                 ~automerge ~use_worktree ~acp ?follow_up_prompt
                 ~repo_path:chosen_repo_path ~prompt ?branch ?session_key
                 ?channel ?channel_id ?profile_id ?origin_json ?thread_id
-                ?requester ?access_snapshot_id ()
+                ?requester ?access_snapshot_id ?agent_name ()
             with
             | Ok id ->
                 (* Create initial checklist item for room-origin tasks *)
@@ -1031,7 +1031,7 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
         delegate_enqueue ~db ~context ?notify_cfg ~use_worktree
           ~check_available:true ?preferred_runner ?model:model_override
           ?access_snapshot_id:effective_snapshot_id ?session_record_id
-          ~default_repo_path ~goal ()
+          ?agent_name ~default_repo_path ~goal ()
       with
       | Ok (id, _runner, _repo) -> Ok id
       | Error msg -> Error msg)
@@ -1053,7 +1053,7 @@ let launch_room_bg_task ~db ~session_key ~connector ~room_id ~requester_id ~goal
     Returns [Ok task_id] on success or [Error msg] on failure. *)
 let launch_triggered_run ~db ~(config : Runtime_config.t) ~review_run ~room_id
     ~requester_id ~pr_title ~pr_author ~pr_body ~base_branch ~head_branch
-    ~pr_files () =
+    ~pr_files ?agent_name () =
   let open Github_review_run in
   let base_prompt =
     build_review_prompt ~repo:review_run.repo ~pr_number:review_run.pr_number
@@ -1178,7 +1178,7 @@ let launch_triggered_run ~db ~(config : Runtime_config.t) ~review_run ~room_id
   else
     match
       launch_room_bg_task ~db ~session_key:room_id ~connector:"" ~room_id
-        ~requester_id ~goal:prompt ~use_worktree:false
+        ~requester_id ~goal:prompt ?agent_name ~use_worktree:false
         ~access_snapshot_id:snap_id ~config ()
     with
     | Ok task_id ->

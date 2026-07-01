@@ -446,7 +446,7 @@ let trigger_review_runs_from_labels ~(db : Sqlite3.db) ~event_type ~body =
     Returns the number of runs launched. *)
 let launch_triggered_review_runs ~(db : Sqlite3.db) ~(config : Runtime_config.t)
     ~(session_manager : Session.t) ~(event : Github_webhook.parsed_event)
-    ~(pr_files : (string * string * int * int) list) =
+    ~(pr_files : (string * string * int * int) list) ?agent_name () =
   let open Lwt.Syntax in
   let repo, pr_number =
     match event with
@@ -506,7 +506,8 @@ let launch_triggered_review_runs ~(db : Sqlite3.db) ~(config : Runtime_config.t)
                                  ~requester_id ~pr_title:pr.pr_title
                                  ~pr_author:pr.pr_author ~pr_body:pr.pr_body
                                  ~base_branch:pr.base_branch
-                                 ~head_branch:pr.head_branch ~pr_files ()))
+                                 ~head_branch:pr.head_branch ~pr_files
+                                 ?agent_name ()))
                       subscriptions
                   in
                   let launched =
@@ -728,6 +729,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                     | Some db, Some cfg ->
                         launch_triggered_review_runs ~db ~config:cfg
                           ~session_manager ~event ~pr_files
+                          ?agent_name:repo_config.agent_name ()
                     | _ -> Lwt.return 0
                   in
                   match Github_webhook.extract_clawq ~event ~pr_files with
