@@ -280,6 +280,29 @@ let test_record_run_delivery_failed () =
   Alcotest.(check string) "status" "delivery_failed" r.status;
   Alcotest.(check bool) "has preview" true (r.result_preview <> None)
 
+let test_trigger_worker_session_ignores_stale_channel () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  Background_task.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"worker" ~session_key:"cron:briefing"
+       ~message:"Invoke briefing-daily skill" ~schedule:"every 1m" ());
+  ignore
+    (Sqlite3.exec db
+       "INSERT INTO session_state (session_key, channel, channel_id, turn) \
+        VALUES ('cron:briefing', 'teams', 'service|19:group@thread.v2', \
+        'idle')");
+  match Scheduler.trigger_job ~db ~name:"worker" () with
+  | Error err -> Alcotest.fail ("trigger_job failed: " ^ err)
+  | Ok task_id -> (
+      match Background_task.get_task ~db ~id:task_id with
+      | None -> Alcotest.fail "expected queued background task"
+      | Some task ->
+          Alcotest.(check (option string))
+            "worker task has no channel" None task.channel;
+          Alcotest.(check (option string))
+            "worker task has no channel_id" None task.channel_id)
+
 (* B587: toggle_job flips enabled state with idempotent semantics. *)
 let test_toggle_job_flips_enabled () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1005,6 +1028,8 @@ let suite =
       test_get_session_channel_nonexistent;
     Alcotest.test_case "record_run delivery_failed status" `Quick
       test_record_run_delivery_failed;
+    Alcotest.test_case "trigger ignores stale worker-session channel" `Quick
+      test_trigger_worker_session_ignores_stale_channel;
     Alcotest.test_case
       "B463/B467/B472: record_run ok_notifier_unconfirmed status" `Quick
       test_record_run_ok_notifier_unconfirmed;

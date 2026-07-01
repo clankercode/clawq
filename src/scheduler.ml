@@ -668,6 +668,21 @@ let effective_session_key ~db (job : job) : string * string =
                 routine_key profile.name);
           (routine_key, job.session_key))
 
+let is_worker_session_key key = String.starts_with ~prefix:"cron:" key
+
+let delivery_channel_info ~db ~delivery_key =
+  if is_worker_session_key delivery_key then None
+  else Memory.get_session_channel ~db ~session_key:delivery_key
+
+let delivery_notifier session_mgr ~delivery_key =
+  if is_worker_session_key delivery_key then None
+  else Session.find_registered_notifier session_mgr ~key:delivery_key
+
+let job_requires_send_to_session (job : job) =
+  let msg = String.lowercase_ascii job.message in
+  String_util.contains msg "briefing-daily"
+  || String_util.contains msg "briefing-hourly"
+
 let trigger_job ~db ?config ~name () =
   match get_job ~db ~name with
   | None -> Error (Printf.sprintf "No cron job found with name '%s'." name)
@@ -685,9 +700,7 @@ let trigger_job ~db ?config ~name () =
         record_run_start ~db ~job_name:job.name ?access_snapshot_id ()
       in
       let _, delivery_key = effective_session_key ~db job in
-      let channel_info =
-        Memory.get_session_channel ~db ~session_key:delivery_key
-      in
+      let channel_info = delivery_channel_info ~db ~delivery_key in
       let channel = Option.map fst channel_info in
       let channel_id = Option.map snd channel_info in
       match
@@ -933,9 +946,7 @@ let tick ~db ~session_mgr
                         "Cron job %s: enqueuing ephemeral bg task for session \
                          %s"
                         job.name turn_key);
-                  let channel_info =
-                    Memory.get_session_channel ~db ~session_key:delivery_key
-                  in
+                  let channel_info = delivery_channel_info ~db ~delivery_key in
                   let channel = Option.map fst channel_info in
                   let channel_id = Option.map snd channel_info in
                   (match
@@ -981,6 +992,12 @@ let tick ~db ~session_mgr
                         (fun () ->
                           Lwt.catch
                             (fun () ->
+                              let send_to_session_required =
+                                job_requires_send_to_session job
+                              in
+                              if send_to_session_required then
+                                Tools_builtin_session.clear_delivery_flag
+                                  ~session_key:(Some turn_key);
                               (* Post the cron prompt into chat before running
                                  the LLM turn, so users see what initiated the
                                  response. *)
@@ -990,8 +1007,7 @@ let tick ~db ~session_mgr
                               in
                               let* () =
                                 match
-                                  Session.find_registered_notifier session_mgr
-                                    ~key:delivery_key
+                                  delivery_notifier session_mgr ~delivery_key
                                 with
                                 | Some notify ->
                                     Lwt.catch
@@ -1006,8 +1022,8 @@ let tick ~db ~session_mgr
                                 | None -> (
                                     match
                                       ( deliver,
-                                        Memory.get_session_channel ~db
-                                          ~session_key:delivery_key )
+                                        delivery_channel_info ~db ~delivery_key
+                                      )
                                     with
                                     | Some deliver_fn, Some (channel, channel_id)
                                       ->
@@ -1048,18 +1064,16 @@ let tick ~db ~session_mgr
                                  send_to_session was called during the turn.
                                  If not, mark the run as incomplete_delivery
                                  instead of ok. *)
-                              let is_briefing_job =
-                                let msg = String.lowercase_ascii job.message in
-                                String_util.contains msg "briefing-daily"
-                                || String_util.contains msg "briefing-hourly"
-                              in
                               let delivery_confirmed =
-                                if is_briefing_job then
+                                if send_to_session_required then
                                   Tools_builtin_session.check_and_clear_delivery
                                     ~session_key:(Some turn_key)
                                 else true
                               in
-                              if is_briefing_job && not delivery_confirmed then begin
+                              if
+                                send_to_session_required
+                                && not delivery_confirmed
+                              then begin
                                 Logs.warn (fun m ->
                                     m
                                       "Cron job %s: send_to_session was NOT \n\
@@ -1098,8 +1112,7 @@ let tick ~db ~session_mgr
                          delivery via the channel info stored in session_state. *)
                                 let has_notifier =
                                   Option.is_some
-                                    (Session.find_registered_notifier
-                                       session_mgr ~key:delivery_key)
+                                    (delivery_notifier session_mgr ~delivery_key)
                                 in
                                 let* () =
                                   if has_notifier then begin
@@ -1130,8 +1143,8 @@ let tick ~db ~session_mgr
                                   else
                                     match
                                       ( deliver,
-                                        Memory.get_session_channel ~db
-                                          ~session_key:delivery_key )
+                                        delivery_channel_info ~db ~delivery_key
+                                      )
                                     with
                                     | Some deliver_fn, Some (channel, channel_id)
                                       -> (
