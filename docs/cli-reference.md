@@ -1,6 +1,8 @@
 # Clawq CLI Reference
 
-This document covers the common, user-facing `clawq` CLI commands organized by category.
+This document covers the full public `clawq` CLI command surface. Internal,
+debug, and operator-only commands are listed in the [Internal/Debug
+Commands](#internaldebug-commands) appendix.
 
 ## Admin Gating
 
@@ -8,6 +10,24 @@ Commands marked with **[admin]** require the `CLAWQ_ADMIN=1` environment variabl
 
 ```bash
 export CLAWQ_ADMIN=1
+```
+
+## Getting Started
+
+### `clawq onboard`
+
+Create a starter config file interactively (or as a template when not in a TTY).
+
+```
+clawq onboard                                    Launch interactive setup wizard
+```
+
+### `clawq version`
+
+Print version and build info.
+
+```
+clawq version                                    Print version, git hash, and build date
 ```
 
 ## Configuration
@@ -25,6 +45,15 @@ clawq config show [SECTION]                      Display current config (secrets
 clawq config tree [SECTION]                      Render config as a tree (secrets redacted)
 clawq config tree keys                           Render config tree, structure only (no values)
 clawq config search QUERY                        Search config keys matching QUERY
+```
+
+### `clawq setup`
+
+Interactive setup wizards for individual clawq features.
+
+```
+clawq setup                                      Launch setup wizard menu
+clawq setup <wizard-name>                        Run a specific setup wizard
 ```
 
 ### `clawq models`
@@ -48,6 +77,328 @@ Show current daemon and system status.
 clawq status                                     Display system status
 ```
 
+### `clawq doctor`
+
+Run system diagnostics.
+
+```
+clawq doctor                                     Check configuration for common issues
+```
+
+## Authentication
+
+### `clawq auth`
+
+Manage provider authentication, including Codex subscription login.
+
+```
+clawq auth                                       Print redacted provider auth status
+clawq auth set-key PROVIDER [API_KEY]            Set API key for a provider (prompts if key omitted)
+clawq auth providers                             List configured providers
+clawq auth encrypt                               Encrypt plaintext secrets in config
+clawq auth pair [OTP]                            Pair with a running gateway using OTP
+clawq auth codex-login [PROVIDER]                Start ChatGPT/Codex OAuth login flow
+clawq auth codex-status [PROVIDER]               Show Codex OAuth status
+clawq auth codex-logout [PROVIDER]               Clear stored Codex OAuth credentials
+```
+
+### `clawq provider`
+
+Inspect LLM provider configuration and live quota state.
+
+```
+clawq provider quota [NAME]                      Fetch and display live quota/usage
+clawq provider list                              List configured providers
+```
+
+## Channels and Memory
+
+### `clawq channel`
+
+List configured channels or manage per-channel model overrides.
+
+```
+clawq channel                                    List configured channels
+clawq channel test teams                         Test Teams channel connection
+clawq channel set-model <channel> <model>        Set per-channel default model
+clawq channel show-model <channel>               Show per-channel default model
+clawq channel clear-model <channel>              Clear per-channel model (inherits global)
+```
+
+### `clawq memory`
+
+Show memory backend configuration.
+
+```
+clawq memory                                     Display memory backend and search settings
+```
+
+## Session Management
+
+### `clawq session`
+
+Manage agent sessions, chat log epochs, and message injection.
+
+**Registered CLI subcommands:**
+
+```
+clawq session list [--channel C] [--prefix P] [--active|--inactive] [--main|--non-main]
+    List persisted sessions with optional filters
+clawq session epochs <session>                   List current and archived chat-log epochs
+clawq session show <session> [--epoch current|ID] [--offset N] [--limit N]
+    Print raw chat log for a session epoch
+clawq session pending <session>                  Show pending inbound queue rows
+clawq session events <session> [--epoch E] [--type TYPE]
+    Show event, system, and compaction messages
+clawq session inject [--cwd PATH] <session> <message...>
+    Inject a live inbound message through the daemon session manager
+clawq session send [--cwd PATH] <session> <message...>
+    Send an inbound message to another live or queued session
+clawq session compact <session>                  Compact session history (summarize older messages)
+clawq session model <session> [get|set MODEL [--skip-validation]|clear]
+    Get/set/clear per-session model override
+```
+
+**Bridge-only subcommands** (accessible via gateway API, not direct CLI):
+
+```
+clawq session archives [SESSION]                 List archived session epochs
+clawq session archive show <id> [--offset N] [--limit N]
+    Show messages from a specific archive
+clawq session keepalive <session> [on|off|status] Manage session keepalive
+clawq session heartbeat <session> [on|off|status] Manage session heartbeat
+clawq session postmortems [SESSION] [--limit N]  List session postmortems
+```
+
+### `clawq workspace`
+
+Print the current workspace directory.
+
+```
+clawq workspace                                  Print current workspace path
+```
+
+> Note: Workspace backup/versions/restore/delete subcommands are implemented in
+> `command_bridge.ml` but not exposed as top-level CLI arguments. Use the
+> gateway API or daemon interface for workspace version management.
+
+## Daemon and Service
+
+### `clawq agent`
+
+Start the Clawq agent daemon (agent loop, gateway, and all configured channels).
+
+```
+clawq agent                                      Start the daemon
+```
+
+### `clawq service`
+
+Manage the Clawq system service.
+
+```
+clawq service start                              Start the service
+clawq service stop                               Stop the service
+clawq service status                             Show service status
+clawq service restart                            Restart the service
+clawq service signal-restart                     Send SIGUSR1 for graceful restart
+clawq service install                            Install system service (systemd/launchd)
+clawq service uninstall                          Uninstall system service
+clawq service systemd-unit                       Generate systemd unit file
+clawq service launchd-plist                      Generate launchd plist file
+```
+
+### `clawq update`
+
+Update Clawq to the latest version.
+
+```
+clawq update [--mode auto|git|binary|pkg]        Request daemon update (offline fallback when no daemon running)
+```
+
+### `clawq mcp`
+
+Start Clawq as an MCP server.
+
+```
+clawq mcp                                        Start MCP server (requires mcp.enabled=true)
+```
+
+## Tunnel
+
+### `clawq tunnel`
+
+Manage a public tunnel to the local gateway (Cloudflare supported).
+
+```
+clawq tunnel start                               Start the tunnel
+clawq tunnel stop                                Stop the tunnel
+clawq tunnel status                              Show tunnel status
+clawq tunnel apply                               Trigger live tunnel reconfiguration
+clawq tunnel restart                             Stop and restart tunnel with current config
+clawq tunnel daemon-status                       Show tunnel manager state from daemon
+```
+
+## Cron Jobs
+
+### `clawq cron`
+
+Manage scheduled cron jobs.
+
+```
+clawq cron list [--prompt|-p]                    List all jobs (--prompt shows prompt text)
+clawq cron show <name>                           Show job details
+clawq cron add <name> <session> <schedule> <msg> [--ephemeral] [--ttl <duration>]
+clawq cron remove <name>                         Remove a job
+clawq cron enable <name>                         Enable a paused job
+clawq cron disable <name>                        Pause job (keeps schedule + prompt)
+clawq cron trigger <name>                        Trigger a job immediately
+clawq cron history <name>                        Show run history
+clawq cron runs [name]                           Show all run history
+```
+
+**Schedule format:**
+- Interval: `"every 5m"` (supports m, h, d)
+- Cron: Standard 5-field cron expression (e.g., `"0 9 * * 1-5"` for weekdays at 9am)
+
+**TTL duration:** e.g., `24h`, `7d`, `30m` (job auto-disables after this time)
+
+## Background Tasks
+
+### `clawq background`
+
+Manage background coding tasks that run a coding agent in git worktrees or
+local sessions.
+
+```
+clawq background list                            List queued, running, and completed tasks
+clawq background show <id>                       Show detailed task status
+clawq background add <runner> <repo> [--model M] [--branch B] [--agent A] <prompt...>
+    Queue a background coding task
+clawq background start <runner> <repo> ...       Alias for add
+clawq background wait <id> [--timeout S]         Wait for a task to finish
+clawq background logs <id> [--lines N] [--offset L] [--follow|-f]
+    Show task log output
+clawq background transcript <id> [--regex R] [--max-lines N] [--export]
+    Show bounded task transcript
+clawq background resume <id>                     Resume a previously started task
+clawq background message <id> <message...>       Send a follow-up message to a task
+clawq background send <id> <message...>          Alias for message
+clawq background cancel <id>                     Cancel a queued or running task
+clawq background stop <id>                       Alias for cancel
+clawq background retry <id>                      Re-queue a failed task
+clawq background recover <id> [--runner R] [--model M]
+    Recover a failed or stuck task with full context
+clawq background finalize <id>                   Rebase and fast-forward task worktree
+```
+
+**Bridge-only subcommand** (accessible via gateway API, not direct CLI):
+
+```
+clawq background export-acp <id>                 Export task as ACP artifact
+```
+
+**Local task restart policy (B736):** Local runner tasks support automatic
+re-enqueue on daemon restart. By default (`restart_policy=reenqueue`), a Local
+task that was running when the daemon shut down is re-queued on the next
+startup with a fresh agent history. Tasks are capped at `max_restarts=2`
+attempts. Use `restart_policy=fail` for tasks with non-idempotent side effects
+to prevent re-execution after a crash. If the room's budget is exceeded at
+restart time, the task is marked as failed rather than re-enqueued.
+
+### `clawq subagents`
+
+Manage native/local subagents backed by background tasks.
+
+```
+clawq subagents list                             List native/local subagent tasks
+clawq subagents start <repo> [--model M] [--agent A] <prompt...>
+    Start a native/local subagent task
+clawq subagents stop <id>                        Stop a native subagent task
+clawq subagents send <id> <message...>           Send a follow-up message
+clawq subagents transcript <id> [--regex R] [--max-lines N] [--export]
+    Show bounded native subagent transcript
+```
+
+### `clawq delegate`
+
+High-level workflow for delegating coding tasks to background runners.
+
+```
+clawq delegate [--runner R] [--model M] [--repo PATH] [--branch B] <goal...>
+    Queue a coding task (auto-selects runner if not specified)
+```
+
+Runner selection: `auto` tries kimi, cursor, opencode, zai-coding-plan, glm-5,
+claude, codex, gemini in order.
+
+## Planning
+
+### `clawq plan`
+
+Run multi-stage planning pipelines: planner, plan-review loop, coder,
+code-review loop.
+
+```
+clawq plan list                                  List all pipelines
+clawq plan start [--repo PATH] [--runner R] [--planner-model M] [--reviewer-model M]
+                   [--coder-model M] [--max-plan-review-iters N] [--max-code-review-iters N]
+                   [--no-plan-review] [--no-code-review] <prompt...>
+    Start a new planning pipeline (foreground, blocking)
+clawq plan show <id>                             Show pipeline status and details
+clawq plan logs <id> [--lines N]                 Show logs for the current stage
+clawq plan cancel <id>                           Cancel a running pipeline
+```
+
+## Pipelines
+
+### `clawq pipeline`
+
+Define and run structured output pipelines with validated JSON Schema outputs.
+
+```
+clawq pipeline list                              List available pipelines
+clawq pipeline show <name>                       Show pipeline definition details
+clawq pipeline run <name> [--input k=v ...]      Execute a pipeline synchronously
+clawq pipeline validate <name>                   Validate a pipeline definition
+clawq pipeline create <name>                     Scaffold a new pipeline YAML file
+clawq pipeline wizard                            Interactive pipeline builder
+clawq pipeline history [--pipeline <name>]       List past runs
+clawq pipeline result <run-id>                   Show run results
+clawq pipeline workflow-result <run-id>          Show workflow run status
+clawq pipeline workflow-runs [--room <id>]       List workflow runs
+```
+
+## Agents and Rigs
+
+### `clawq agents`
+
+Manage agent templates and bindings.
+
+```
+clawq agents list                                List all agent templates
+clawq agents show <name>                         Show full template details
+clawq agents create <name>                       Create a new template in ~/.clawq/agents/
+clawq agents edit <name>                         Edit template (copies builtin to user dir)
+clawq agents delete <name>                       Delete a user template
+clawq agents bind <pattern> <agent> [--priority N]  Bind a routing pattern to an agent
+clawq agents unbind <pattern>                    Remove a routing pattern binding
+clawq agents bindings                            List current agent bindings
+clawq agents setup                               Launch interactive setup wizard
+clawq agents path                                Show template search directories
+```
+
+### `clawq rig`
+
+Manage agent-driven setup rigs (install, adjust, remove).
+
+```
+clawq rig list                                   List available rigs and install status
+clawq rig install <name>                         Install a rig via background task
+clawq rig adjust <name>                          Reconfigure an installed rig
+clawq rig remove <name>                          Remove an installed rig and clean up
+```
+
 ## Room Management
 
 ### `clawq rooms`
@@ -67,10 +418,10 @@ clawq rooms delete <profile_id> [--force]        Soft-delete a room profile [adm
 
 ### `clawq rooms inspect`
 
-Inspect room configuration and state.
+Inspect room configuration and state. **[admin]**
 
 ```
-clawq rooms inspect <room_id>                    Inspect room configuration details
+clawq rooms inspect <room_id>                    Inspect ambient watcher state
 ```
 
 ### `clawq rooms readiness`
@@ -78,7 +429,8 @@ clawq rooms inspect <room_id>                    Inspect room configuration deta
 Check room readiness for agent operations.
 
 ```
-clawq rooms readiness <room_id>                  Run readiness checks for a room
+clawq rooms readiness [--room-id R] [--profile-id P] [--json]
+    Show room-agent readiness report
 ```
 
 ### `clawq rooms deliveries`
@@ -88,13 +440,6 @@ View delivery failure events. **[admin]**
 ```
 clawq rooms deliveries list [--room-id ID] [--connector C] [--from TS] [--limit N] [--json]
 ```
-
-Flags:
-- `--room-id` / `--room` — Filter by room ID
-- `--connector` — Filter by connector type
-- `--from` / `--since` — Filter from timestamp
-- `--limit` — Max results (default: 20)
-- `--json` — Output as JSON
 
 ### `clawq rooms session`
 
@@ -233,24 +578,23 @@ clawq subscriptions remove <id>
 clawq subscriptions remove <room> <repo> <pr#>
 ```
 
-## Pipelines
+## Pairing
 
-### `clawq pipeline`
+### `clawq pair`
 
-Manage structured pipelines.
+Manage device pairing sessions. **[bridge-only]**
+
+> Note: `pair` is implemented in `command_bridge.ml` but not registered as a
+> top-level CLI command in `main.ml`. It is accessible via the gateway API
+> or daemon dispatch, not directly from the CLI.
 
 ```
-clawq pipeline list                              List available pipelines
-clawq pipeline show <name>                       Show pipeline definition
-clawq pipeline run <name> [--input k=v ...]      Execute a pipeline synchronously
-clawq pipeline trigger <name> [--input k=v ...]  Trigger pipeline as background task
-clawq pipeline validate <name>                   Validate pipeline definition
-clawq pipeline create <name>                     Scaffold a new pipeline YAML
-clawq pipeline wizard                            Interactive pipeline builder
-clawq pipeline history [--pipeline <name>]       List past runs
-clawq pipeline result <run-id>                   Show run results
-clawq pipeline workflow-result <run-id>          Show workflow run status
-clawq pipeline workflow-runs [--room <id>]       List workflow runs
+clawq pair start                                 Start pairing flow
+clawq pair status [id]                           Show pairing status
+clawq pair list                                  List pair coding sessions
+clawq pair stop <id>                             Stop a pair coding session
+clawq pair report <id>                           Show a pair session report
+clawq pair notes <id>                            Show notes for a pair session
 ```
 
 ## Setup
@@ -266,152 +610,13 @@ clawq rooms wizard --apply                       Apply wizard configuration
 clawq rooms wizard --rerun                       Rerun wizard to repair configuration
 ```
 
-The wizard configures:
-- Room profile (model, system prompt, tool restrictions)
-- Access bundle binding
-- Memory scope
-- Budget limits
-- Connector binding
-- Readiness checks
-
 ### `clawq rooms audit-export`
 
 Export room audit data. **[admin]**
 
 ```
-clawq rooms audit-export [room_id]               Export audit data for a room or all rooms
+clawq rooms audit-export <room_id> [--json|--jsonl]  Export audit data for a room
 ```
-
-## Agents
-
-### `clawq agents`
-
-Manage agent templates and bindings.
-
-```
-clawq agents list                                List all agent templates
-clawq agents show <name>                         Show full template details
-clawq agents create <name>                       Create a new template in ~/.clawq/agents/
-clawq agents edit <name>                         Edit template (copies builtin to user dir)
-clawq agents delete <name>                       Delete a user template
-clawq agents bind <pattern> <agent> [--priority N]  Bind a routing pattern to an agent
-clawq agents unbind <pattern>                    Remove a routing pattern binding
-clawq agents bindings                            List current agent bindings
-clawq agents setup                               Launch interactive setup wizard
-clawq agents path                                Show template search directories
-```
-
-## System Commands
-
-### `clawq agent`
-
-Start the Clawq agent daemon.
-
-```
-clawq agent                                      Start the agent daemon
-```
-
-### `clawq service`
-
-Manage the Clawq system service.
-
-```
-clawq service start                              Start the service
-clawq service stop                               Stop the service
-clawq service status                             Show service status
-clawq service signal-restart                     Signal the service to restart
-clawq service restart                            Restart the service
-clawq service install                            Install system service (systemd/launchd)
-clawq service uninstall                          Uninstall system service
-clawq service systemd-unit                       Generate systemd unit file
-clawq service launchd-plist                      Generate launchd plist file
-```
-
-### `clawq update`
-
-Update Clawq to the latest version.
-
-```
-clawq update [--mode auto|git|binary|pkg]        Update Clawq
-```
-
-### `clawq doctor`
-
-Run system diagnostics.
-
-```
-clawq doctor                                     Check system health and configuration
-```
-
-### `clawq mcp`
-
-Run Clawq as an MCP server.
-
-```
-clawq mcp                                        Start MCP server (requires mcp.enabled=true)
-```
-
-### `clawq completions`
-
-Generate shell completions.
-
-```
-clawq completions print [--shell bash|zsh|fish]  Print completion script
-clawq completions install [--shell bash|zsh|fish]  Install completion script
-```
-
-> Note: `runner` is an internal command surface (handler exists but no top-level command is registered); it is not yet user-facing.
-
-## Cron Jobs
-
-### `clawq cron`
-
-Manage scheduled cron jobs.
-
-```
-clawq cron list [--prompt|-p]                    List all jobs (--prompt shows prompt text)
-clawq cron show <name>                           Show job details
-clawq cron add <name> <session> <schedule> <msg> [--ephemeral] [--ttl <duration>]
-clawq cron remove <name>                         Remove a job
-clawq cron enable <name>                         Enable a paused job
-clawq cron disable <name>                        Pause job (keeps schedule + prompt)
-clawq cron trigger <name>                        Trigger a job immediately
-clawq cron history <name>                        Show run history
-clawq cron runs [name]                           Show all run history
-```
-
-**Schedule format:**
-- Interval: `"every 5m"` (supports m, h, d)
-- Cron: Standard 5-field cron expression (e.g., `"0 9 * * 1-5"` for weekdays at 9am)
-
-**TTL duration:** e.g., `24h`, `7d`, `30m` (job auto-disables after this time)
-
-## Background Tasks
-
-### `clawq background`
-
-Manage background tasks.
-
-```
-clawq background list                            List background tasks
-clawq background show <id>                       Show task details
-clawq background logs <id> [--lines N] [--offset L] [--follow|-f]  Show task log output
-clawq background transcript <id> [--regex R] [--max-lines N] [--export]  Show bounded task transcript
-clawq background wait <id> [--timeout S]         Wait for a task to finish
-clawq background resume <id>                     Resume a previously started task
-clawq background retry <id>                      Re-queue a failed task
-clawq background send <id> <message...>          Send a follow-up message to a task
-clawq background cancel <id>                     Cancel a queued or running task
-clawq background stop <id>                       Alias of cancel
-```
-
-**Local task restart policy (B736):** Local runner tasks support automatic
-re-enqueue on daemon restart. By default (`restart_policy=reenqueue`), a Local
-task that was running when the daemon shut down is re-queued on the next
-startup with a fresh agent history. Tasks are capped at `max_restarts=2`
-attempts. Use `restart_policy=fail` for tasks with non-idempotent side effects
-to prevent re-execution after a crash. If the room's budget is exceeded at
-restart time, the task is marked as failed rather than re-enqueued.
 
 ## Audit
 
@@ -441,93 +646,182 @@ clawq held-items approve <id> [--by ADMIN] [--notes TEXT]
 clawq held-items reject <id> [--by ADMIN] [--notes TEXT]
 ```
 
-## Other Commands
+## Skills
 
 ### `clawq skills`
 
-List available skills.
+Manage agent skills (shell-script tool extensions).
 
 ```
 clawq skills list                                List all available skills
-clawq skills show <name>                         Show skill details
+clawq skills path                                Print the skills directory path
+clawq skills init                                Create an example skill file
 ```
 
-### `clawq pair`
+## Cost and Usage
 
-Manage device pairing.
+### `clawq costs`
 
-```
-clawq pair start                                 Start pairing flow
-clawq pair status [id]                           Show pairing status
-clawq pair list                                  List pair coding sessions
-clawq pair stop <id>                             Stop a pair coding session
-clawq pair report <id>                           Show a pair session report
-clawq pair notes <id>                            Show notes for a pair session
-```
-
-### `clawq auth`
-
-Manage authentication.
+View cumulative LLM costs and token usage.
 
 ```
-clawq auth set-key PROVIDER [API_KEY]            Set API key for a provider (prompts if key omitted)
-clawq auth providers                             List configured providers (alias: list-providers)
-clawq auth encrypt                               Encrypt secrets at rest
-clawq auth pair                                  Pair a provider account
-clawq auth codex-login [PROVIDER]                Login via Codex OAuth
-clawq auth codex-status [PROVIDER]               Show Codex OAuth status
-clawq auth codex-logout [PROVIDER]               Logout from Codex OAuth
+clawq costs [--json]                             Show cost summary (today / 7d / 30d / all)
+clawq costs session [--json]                     Per-session cost breakdown
+clawq costs model [--json]                       Per-model cost breakdown
+clawq costs provider [--json]                    Per-provider cost breakdown
 ```
 
-> Note: a bare `clawq auth` (or `clawq auth status`) prints a provider-status overview; there is no generic non-codex `auth login`/`auth logout`.
+### `clawq usage`
+
+View provider quota/usage status.
+
+```
+clawq usage [--refresh|-r]                       Show current quota (force fetch with --refresh)
+clawq usage history [--provider P] [--since PERIOD] [--limit N] [--json]
+    Show historical quota snapshots
+clawq usage purge [PERIOD]                       Delete old history (default: 90d)
+```
+
+### `clawq active`
+
+Show active 5-hour window usage.
+
+```
+clawq active                                     Show active 5-hour window usage (cost, tokens, quota)
+```
+
+## Debate
+
+### `clawq debate`
+
+Route a prompt to multiple models and synthesize a consensus.
+
+```
+clawq debate [--models m1,m2,m3] [--judge model] [--no-judge] [--format json|text] <prompt...>
+clawq debate --history                           List past debate rounds
+clawq debate --show <id>                         Show a specific past debate round
+```
+
+## Transcription
 
 ### `clawq transcribe`
 
-Transcribe audio files.
+Transcribe audio files using the configured STT provider.
 
 ```
 clawq transcribe <audio_file>                    Transcribe an audio file to text
 ```
 
-### `clawq costs`
-
-View cost information.
-
-```
-clawq costs [--json]                             Show cost summary (today / 7d / 30d / all)
-clawq costs session [--json]                     Per-session cost breakdown
-```
-
-### `clawq usage`
-
-View usage statistics.
-
-```
-clawq usage                                      Show usage summary
-```
-
-### `clawq active`
-
-Show active sessions and tasks.
-
-```
-clawq active                                     List active sessions and tasks
-```
+## Capabilities
 
 ### `clawq capabilities`
 
-Show system capabilities.
+List all active runtime capabilities.
 
 ```
-clawq capabilities                               Display available capabilities
+clawq capabilities                               Display providers, channels, tools, and integrations
 ```
 
-### `clawq phase2`
+## Shell Completions
 
-Show Phase 2 features and status.
+### `clawq completions`
+
+Generate shell tab-completion scripts.
 
 ```
-clawq phase2                                     Display Phase 2 information
+clawq completions print [--shell bash|zsh|fish]  Print completion script
+clawq completions install [--shell bash|zsh|fish]  Install completion script
+```
+
+---
+
+## Internal/Debug Commands
+
+The following commands are intended for developers, operators, and automated
+systems. They are not part of the standard user-facing surface.
+
+### `clawq debug`
+
+Internal debugging utilities.
+
+```
+clawq debug html-preview [PORT]                  Serve Html_page test pages (default port 8099)
+clawq debug prompt [MESSAGE]                     Print normalized logical messages for a turn
+clawq debug context [SESSION]                    Dump runtime context for a session
+clawq debug http {on|off|status|clear|tail [N]}  Manage HTTP debug logging
+```
+
+### `clawq benchmark`
+
+Measure tool invocation latency.
+
+```
+clawq benchmark [--iterations N] [--tool NAME]   Benchmark tool invocation latency
+```
+
+### `clawq runtime`
+
+Manage native and Docker runtimes for the clawq daemon.
+
+```
+clawq runtime status                             Show runtime status (default)
+clawq runtime native {start|stop|health}         Control or health-check native runtime
+clawq runtime docker {start|stop|health}         Control or health-check Docker runtime
+```
+
+### `clawq watcher`
+
+Manage the error correction watcher.
+
+```
+clawq watcher status                             Show watcher config and EC process status
+clawq watcher enable                             Enable the error correction watcher
+clawq watcher disable                            Disable the error correction watcher
+clawq watcher reports                            List recent EC reports
+clawq watcher report <id>                        Show a specific EC report
+```
+
+### `clawq ec-run`
+
+Internal: run the error correction process.
+
+```
+clawq ec-run [--daemon-mode]                     Run the error correction process
+```
+
+### `clawq manifest`
+
+Generate connector command manifests.
+
+```
+clawq manifest teams [--output FILE] [-n COUNT]  Generate Teams bot manifest commands JSON
+clawq manifest telegram                          Generate Telegram setMyCommands JSON payload
+```
+
+### `clawq reset-agent`
+
+Wipe all session history, cron jobs, and workspace files, then redeploy
+workspace defaults. Prompts for confirmation. Does NOT touch config.json.
+
+```
+clawq reset-agent                                Wipe and redeploy agent
+```
+
+### `clawq reset-workspace`
+
+Wipe conversation history and workspace identity files, then redeploy
+workspace defaults. Leaves cron jobs and config.json intact.
+
+```
+clawq reset-workspace                            Reset workspace without clearing sessions
+```
+
+### `clawq otp-show`
+
+Show the current browser pairing code and any Telegram TOTP codes.
+
+```
+clawq otp-show                                   Show current pairing codes
 ```
 
 ### `clawq migrate`
@@ -538,10 +832,31 @@ Run database migrations.
 clawq migrate <command>                          Run migration commands
 ```
 
-### `clawq debate`
+### `clawq hardware`
 
-Start or manage debates.
+Hardware integration (deferred to Phase 2).
 
 ```
-clawq debate <command>                           Debate commands
+clawq hardware                                   Hardware integration placeholder
+```
+
+### `clawq phase2`
+
+Show Phase 2 feature status.
+
+```
+clawq phase2                                     Display Phase 2 information
+```
+
+### `clawq runner`
+
+Generate runner authentication tokens. **[bridge-only]**
+
+> Note: `runner` is implemented in `command_bridge.ml` but not registered as a
+> top-level CLI command in `main.ml`. It is accessible via the gateway API
+> or daemon dispatch.
+
+```
+clawq runner token --session <session_key> [--ttl-hours N]
+    Generate a runner auth token for MCP access
 ```

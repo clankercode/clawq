@@ -153,6 +153,7 @@ For live UI development, run `make ui-dev`, create `~/.clawq/ui/DEV`, and point 
 ```
 clawq active           Show active 5-hour window usage (cost, tokens, quota)
 clawq agent            Start the daemon (agent loop, gateway, all configured channels)
+clawq agents           Manage agent templates and bindings
 clawq audit            View and manage the security audit log
 clawq auth             Show provider auth status, run Codex OAuth login, or encrypt secrets
 clawq background       Inspect and control background coding worktree tasks
@@ -163,9 +164,11 @@ clawq completions      Generate shell tab-completion scripts (bash, zsh, fish)
 clawq config           Manage configuration (wizard, get/set/show)
 clawq costs            Show cumulative LLM costs and token usage
 clawq cron             Manage cron jobs for scheduled agent messages
+clawq debate           Route a prompt to multiple models and synthesize a consensus
 clawq debug            Debug utilities (html-preview, http)
 clawq delegate         Queue a high-level background coding handoff
 clawq doctor           Check configuration for common issues
+clawq held-items       Manage held feature plans awaiting admin review
 clawq manifest         Generate connector command manifests (Teams, Telegram)
 clawq mcp              Start the MCP server (Model Context Protocol)
 clawq memory           Show memory backend configuration
@@ -174,26 +177,30 @@ clawq models           List configured LLM providers and their default models
 clawq onboard          Interactive setup wizard (or template when not in a TTY)
 clawq otp-show         Show the current browser pairing code and Telegram TOTP codes
 clawq phase2           Show Phase 2 feature status
+clawq pipeline         Define and run structured output pipelines
 clawq plan             Manage multi-stage planning pipelines
 clawq provider         Inspect LLM provider configuration and quota state
 clawq reset-agent      Wipe all session history, cron jobs, and workspace files
 clawq reset-workspace  Reset workspace files without clearing sessions
-clawq runtime          Manage native and Docker runtimes
-clawq service          Manage the clawq system service (start/stop/restart)
+clawq rig              Manage agent-driven setup rigs (install, adjust, remove)
 clawq rooms            Manage room agents (list, show, workspace, inspect, ledger, deliveries,
                            gc, bind, rename, delete, unbind, routine, memory, explain-access,
                            session, readiness, audit-export, wizard)
-clawq session          Manage agent sessions (list, show, inject, pending, keepalive, heartbeat, epochs, compact)
+clawq runtime          Manage native and Docker runtimes
+clawq service          Manage the clawq system service (start/stop/restart)
+clawq session          Manage agent sessions (list, show, inject, pending, epochs, compact)
 clawq setup            Interactive setup wizards for individual integrations
 clawq skills           Manage agent skills (shell-script tool extensions)
 clawq status           Show runtime configuration and daemon status
+clawq subagents        Manage native/local subagents backed by background tasks
+clawq subscriptions    Manage GitHub PR notification subscriptions [admin]
 clawq transcribe       Transcribe an audio file using the configured STT provider
 clawq tunnel           Manage a public tunnel to the local gateway (start/stop/status/apply/restart)
 clawq update           Request a live daemon update and graceful restart
 clawq usage            Show provider quota/usage status
 clawq version          Print version and build info
 clawq watcher          Manage the error correction watcher
-clawq workspace        Print the current workspace directory or manage backups (backup/versions/restore/delete)
+clawq workspace        Print the current workspace directory
 ```
 
 ### Config subcommands
