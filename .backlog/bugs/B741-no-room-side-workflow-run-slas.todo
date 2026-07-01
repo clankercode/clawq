@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-01T06:06:08Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-01T06:41:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 34.91987550846667
 estimate_hours: 1
 id: B741
 priority: high
 started_at: "2026-07-01T06:06:08Z"
-status: in_progress
+status: done
 tags: []
 title: No room-side /workflow run slash command despite docs (workflow runs need room invocation)
 ---
