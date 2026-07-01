@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-01T06:02:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-01T07:32:17Z"
 complexity: medium
 depends_on: []
+duration_minutes: 90.22331574781667
 estimate_hours: 1
 id: B740
 priority: high
 started_at: "2026-07-01T06:02:04Z"
-status: in_progress
+status: done
 tags: []
 title: Subscription_rule review-run/workflow-run trigger source defined but never constructed
 ---
