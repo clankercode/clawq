@@ -668,6 +668,28 @@ let format_bg ~connector ~db action =
           | Error msg ->
               Lwt.return (Printf.sprintf "Failed to create task: %s" msg)))
 
+(* ── Workflow run ─────────────────────────────────────────────────────── *)
+
+let format_workflow ~connector ~db ~config ~room_id ~requester_id action =
+  let { pipeline_name; inputs } = action in
+  Workflow_run_trigger.init_schema db;
+  match
+    Background_task.trigger_workflow_from_room_command ~db ~config
+      ~pipeline_name ~inputs ~room_id ~requester_id ()
+  with
+  | Ok (run, task_id) ->
+      Lwt.return
+        (Printf.sprintf
+           "Workflow run #%d created for pipeline %s. Background task #%d \
+            launched.\n\
+            Use %s to check status."
+           run.id
+           (Format_adapter.code connector pipeline_name)
+           task_id
+           (Format_adapter.code connector
+              (Printf.sprintf "clawq pipeline workflow-result %d" run.id)))
+  | Error msg -> Lwt.return (Printf.sprintf "Error: %s" msg)
+
 (* ── Status formatting ────────────────────────────────────────────────── *)
 
 (* ── Existing format: status ───────────────────────────────────────────── *)

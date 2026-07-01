@@ -1345,9 +1345,9 @@ let handle_event ~(config : Runtime_config.slack_config)
                 | Thinking _ | ShowThinking _ | Heartbeat _ | Debug _
                 | AgentMenu _ | ModelMenu _ | ThinkingMenu | ConfigMenu _
                 | SkillsMenu _ | CostsMenu | BgMenu | Tools | Tasks | TasksFull
-                | Costs _ | Session _ | Usage _ | Active | Bg _ | Cron _ | Bl _
-                | HeldItems _ | Memories _ | RoomsMemory _ | ExplainAccess
-                | WhatCanDo | Repo _ | Followup _ ) as r ->
+                | Costs _ | Session _ | Usage _ | Active | Bg _ | WorkflowRun _
+                | Cron _ | Bl _ | HeldItems _ | Memories _ | RoomsMemory _
+                | ExplainAccess | WhatCanDo | Repo _ | Followup _ ) as r ->
                   let* () = Connector_dispatch.dispatch env r in
                   Lwt.return "ok"
         end

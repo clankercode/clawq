@@ -182,6 +182,17 @@ let dispatch_common ~session_manager ~key ~emit cmd_result =
                Lwt.return "Background tasks are not available (no database)."
          in
          emit text)
+  | Slash_commands.WorkflowRun action ->
+      Some
+        (let* text =
+           match Session.get_db session_manager with
+           | Some db ->
+               let config = Session.get_config session_manager in
+               Slash_commands.format_workflow ~connector:Format_adapter.Plain
+                 ~db ~config ~room_id:key ~requester_id:"gateway" action
+           | None -> Lwt.return "Workflow runs are not available (no database)."
+         in
+         emit text)
   | Slash_commands.Cron action ->
       Some
         (emit

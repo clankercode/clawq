@@ -91,6 +91,7 @@ type result =
   | Menu of int
   | Active
   | Bg of bg_action
+  | WorkflowRun of workflow_run_action
   | Cron of cron_action
   | Bl of bl_action
   | Session of session_action
@@ -218,6 +219,12 @@ let commands =
         "Background tasks: /bg [list/show/logs/cancel/retry/create/finalize] \
          [id/@agent/prompt]";
       priority = 57;
+    };
+    {
+      name = "workflow";
+      description =
+        "Trigger a workflow run: /workflow run <name> [--input k=v ...]";
+      priority = 53;
     };
     {
       name = "cron";

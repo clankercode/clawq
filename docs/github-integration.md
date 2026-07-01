@@ -511,10 +511,13 @@ clawq pipeline trigger deploy-pipeline \
   --input env=staging --input version=1.2.3
 ```
 
-> TODO(follow-up): there is currently no `/workflow` room slash command
-registered; workflow runs are triggered via the `clawq pipeline trigger` CLI
-(or the `Background_task.trigger_workflow_from_room_command` API). If a
-room-side slash command is intended, it is a follow-up.
+From a room, use the `/workflow run` slash command:
+
+```
+/workflow run deploy-pipeline --input env=staging --input version=1.2.3
+```
+
+The room command delegates to the same `Background_task.trigger_workflow_from_room_command` API as the CLI, using the room and sender context automatically.
 
 Workflow runs follow the same lifecycle: `Pending -> Running -> Completed/Failed`.
 Results are synced from the background task to the workflow run record.

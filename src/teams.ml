@@ -2039,6 +2039,22 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                       ~connector:Format_adapter.Teams ~db action
                                   in
                                   send_text text))
+                      | WorkflowRun action ->
+                          let* text =
+                            match Session.get_db session_manager with
+                            | Some db ->
+                                let config =
+                                  Session.get_config session_manager
+                                in
+                                Slash_commands.format_workflow
+                                  ~connector:Format_adapter.Teams ~db ~config
+                                  ~room_id:key ~requester_id:user_id action
+                            | None ->
+                                Lwt.return
+                                  "Workflow runs are not available (no \
+                                   database)."
+                          in
+                          send_text text
                       | Cron action ->
                           let text =
                             match Session.get_db session_manager with

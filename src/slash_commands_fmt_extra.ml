@@ -4,6 +4,11 @@
     [include]-d back into {!Slash_commands_fmt} so all names remain accessible
     under the [Slash_commands] namespace. *)
 
+type workflow_run_action = {
+  pipeline_name : string;
+  inputs : (string * string) list;
+}
+
 type cron_action =
   | CronList
   | CronAdd of {
@@ -86,6 +91,19 @@ let pagination_footer ~connector ~cmd page total_pages =
       else ""
     in
     Printf.sprintf "\n\nPage %d/%d  %s%s" page total_pages prev next
+
+let format_workflow_usage ~connector =
+  "Usage: "
+  ^ Format_adapter.code connector
+      "/workflow run <pipeline-name> [--input k=v ...]"
+  ^ "\n\nTrigger a workflow pipeline run from this room." ^ "\n  "
+  ^ Format_adapter.code connector
+      "/workflow run deploy-pipeline --input env=staging --input version=1.2.3"
+  ^ "\n\nInputs are passed as "
+  ^ Format_adapter.code connector "--input key=value"
+  ^ " pairs (same syntax as "
+  ^ Format_adapter.code connector "clawq pipeline trigger"
+  ^ ")."
 
 let format_cron_usage ~connector =
   "Usage: "

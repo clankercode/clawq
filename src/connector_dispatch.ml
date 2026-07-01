@@ -421,6 +421,16 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
         | None -> Lwt.return "Background tasks are not available (no database)."
       in
       env.send_formatted text
+  | WorkflowRun action ->
+      let* text =
+        match Session.get_db session_mgr with
+        | Some db ->
+            let config = Session.get_config session_mgr in
+            Slash_commands.format_workflow ~connector ~db ~config ~room_id:key
+              ~requester_id:env.user_id action
+        | None -> Lwt.return "Workflow runs are not available (no database)."
+      in
+      env.send_formatted text
   | Cron action ->
       let text =
         match Session.get_db session_mgr with

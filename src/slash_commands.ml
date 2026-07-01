@@ -401,6 +401,38 @@ let handle ?(skill_names = []) text =
                             ^ "\nProvide a prompt describing the task to run.")
                     | prompt -> Bg (BgCreate (None, prompt))))
             | _ -> FormattedReply (fun connector -> format_bg_usage ~connector))
+        | "workflow" -> (
+            match args with
+            | [] | [ "help" ] ->
+                FormattedReply
+                  (fun connector -> format_workflow_usage ~connector)
+            | "run" :: rest -> (
+                match rest with
+                | [] ->
+                    FormattedReply
+                      (fun connector -> format_workflow_usage ~connector)
+                | name :: input_args ->
+                    let inputs =
+                      let rec loop acc = function
+                        | "--input" :: kv :: rest' -> (
+                            match String.index_opt kv '=' with
+                            | Some i ->
+                                let key = String.sub kv 0 i in
+                                let value =
+                                  String.sub kv (i + 1)
+                                    (String.length kv - i - 1)
+                                in
+                                loop ((key, value) :: acc) rest'
+                            | None -> loop acc rest')
+                        | _ :: rest' -> loop acc rest'
+                        | [] -> List.rev acc
+                      in
+                      loop [] input_args
+                    in
+                    WorkflowRun { pipeline_name = name; inputs })
+            | _ ->
+                FormattedReply
+                  (fun connector -> format_workflow_usage ~connector))
         | "cron" -> (
             let extract_ttl tokens =
               let rec aux acc = function

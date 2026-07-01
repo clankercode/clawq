@@ -22,11 +22,12 @@ let rec classify (result : Slash_commands.result) : classification =
   (* Quick replies — handled synchronously by Connector_dispatch.dispatch *)
   | Reply _ | FormattedReply _ | Help | Reset | RuntimeCtx | Uptime | Status
   | Thinking _ | ShowThinking _ | Heartbeat _ | Debug _ | Tools | Tasks
-  | TasksFull | Costs _ | Usage _ | Active | Bg _ | Cron _ | Bl _ | Session _
-  | Menu _ | AgentMenu _ | ModelMenu _ | ThinkingMenu | ConfigMenu _
-  | SkillsMenu _ | CostsMenu | BgMenu | Repo _ | HeldItems _ | Memories _
-  | RoomsMemory _ | ExplainAccess | WhatCanDo | RegisterAsAdminOtc _
-  | InjectConnectorHistory _ | SkillInvoke _ | Context | Followup _ ->
+  | TasksFull | Costs _ | Usage _ | Active | Bg _ | WorkflowRun _ | Cron _
+  | Bl _ | Session _ | Menu _ | AgentMenu _ | ModelMenu _ | ThinkingMenu
+  | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu | Repo _ | HeldItems _
+  | Memories _ | RoomsMemory _ | ExplainAccess | WhatCanDo
+  | RegisterAsAdminOtc _ | InjectConnectorHistory _ | SkillInvoke _ | Context
+  | Followup _ ->
       QuickReply
   (* AdminRequired wraps another result — classify the inner result *)
   | AdminRequired inner -> classify inner

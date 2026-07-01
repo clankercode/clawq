@@ -200,6 +200,13 @@ let rec result_to_string = function
   | Slash_commands.NotACommand -> "NotACommand"
   | Slash_commands.ExplainAccess -> "ExplainAccess"
   | Slash_commands.WhatCanDo -> "WhatCanDo"
+  | Slash_commands.WorkflowRun action ->
+      let inputs_str =
+        List.map (fun (k, v) -> k ^ "=" ^ v) action.inputs |> String.concat ","
+      in
+      "WorkflowRun(" ^ action.pipeline_name
+      ^ (if inputs_str <> "" then "," ^ inputs_str else "")
+      ^ ")"
 
 let rec result_eq a b =
   match (a, b) with
@@ -267,6 +274,8 @@ let rec result_eq a b =
   | Slash_commands.Followup a, Slash_commands.Followup b -> a = b
   | Slash_commands.ExplainAccess, Slash_commands.ExplainAccess -> true
   | Slash_commands.WhatCanDo, Slash_commands.WhatCanDo -> true
+  | Slash_commands.WorkflowRun a, Slash_commands.WorkflowRun b ->
+      a.pipeline_name = b.pipeline_name && a.inputs = b.inputs
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -3207,6 +3216,61 @@ let test_access_handle () =
   Alcotest.check result_testable "/access" Slash_commands.ExplainAccess
     (Slash_commands.handle "/access")
 
+let test_workflow_run_basic () =
+  Alcotest.check result_testable "/workflow run my-pipeline"
+    (Slash_commands.WorkflowRun { pipeline_name = "my-pipeline"; inputs = [] })
+    (Slash_commands.handle "/workflow run my-pipeline")
+
+let test_workflow_run_with_inputs () =
+  Alcotest.check result_testable "/workflow run deploy --input env=staging"
+    (Slash_commands.WorkflowRun
+       { pipeline_name = "deploy"; inputs = [ ("env", "staging") ] })
+    (Slash_commands.handle "/workflow run deploy --input env=staging")
+
+let test_workflow_run_multiple_inputs () =
+  Alcotest.check result_testable
+    "/workflow run deploy --input env=staging --input version=1.2"
+    (Slash_commands.WorkflowRun
+       {
+         pipeline_name = "deploy";
+         inputs = [ ("env", "staging"); ("version", "1.2") ];
+       })
+    (Slash_commands.handle
+       "/workflow run deploy --input env=staging --input version=1.2")
+
+let test_workflow_no_args () =
+  match extract_text (Slash_commands.handle "/workflow") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /workflow run" true
+        (Test_helpers.string_contains text "/workflow run")
+  | None -> Alcotest.fail "expected usage text for bare /workflow"
+
+let test_workflow_run_no_pipeline () =
+  match extract_text (Slash_commands.handle "/workflow run") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /workflow run" true
+        (Test_helpers.string_contains text "/workflow run")
+  | None ->
+      Alcotest.fail "expected usage text for /workflow run without pipeline"
+
+let test_workflow_unknown_subcommand () =
+  match extract_text (Slash_commands.handle "/workflow foo") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /workflow run" true
+        (Test_helpers.string_contains text "/workflow run")
+  | None -> Alcotest.fail "expected usage text for /workflow foo"
+
+let test_workflow_in_commands_list () =
+  let names =
+    List.map
+      (fun (cmd : Slash_commands.command) -> cmd.name)
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "/workflow in commands" true (List.mem "workflow" names)
+
 let test_access_in_commands_list () =
   let names =
     List.map
@@ -3617,4 +3681,16 @@ let suite =
     Alcotest.test_case "/access handle" `Quick test_access_handle;
     Alcotest.test_case "/access in commands list" `Quick
       test_access_in_commands_list;
+    Alcotest.test_case "/workflow run basic" `Quick test_workflow_run_basic;
+    Alcotest.test_case "/workflow run with inputs" `Quick
+      test_workflow_run_with_inputs;
+    Alcotest.test_case "/workflow run multiple inputs" `Quick
+      test_workflow_run_multiple_inputs;
+    Alcotest.test_case "/workflow no args" `Quick test_workflow_no_args;
+    Alcotest.test_case "/workflow run no pipeline" `Quick
+      test_workflow_run_no_pipeline;
+    Alcotest.test_case "/workflow unknown subcommand" `Quick
+      test_workflow_unknown_subcommand;
+    Alcotest.test_case "/workflow in commands list" `Quick
+      test_workflow_in_commands_list;
   ]
