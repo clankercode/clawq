@@ -44,11 +44,6 @@ let test_trigger_source_label () =
     "label" "label:review"
     (Github_review_run.trigger_source_to_string (Label "review"))
 
-let test_trigger_source_subscription () =
-  Alcotest.(check string)
-    "subscription_rule" "subscription_rule"
-    (Github_review_run.trigger_source_to_string Subscription_rule)
-
 let test_trigger_source_room_command () =
   Alcotest.(check string)
     "room_command" "room_command:room1:user1"
@@ -337,7 +332,6 @@ let suite =
     ("run_kind roundtrip", `Quick, test_run_kind_roundtrip);
     (* trigger_source serialization *)
     ("trigger_source label", `Quick, test_trigger_source_label);
-    ("trigger_source subscription", `Quick, test_trigger_source_subscription);
     ("trigger_source room_command", `Quick, test_trigger_source_room_command);
     ("trigger_source manual", `Quick, test_trigger_source_manual);
     (* label_to_run_kind *)

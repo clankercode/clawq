@@ -1,11 +1,10 @@
 (** Workflow run trigger model.
 
-    Tracks pipeline-based workflow runs triggered from rooms, subscriptions, or
-    CLI commands. Each workflow run maps to a structured pipeline execution and
-    an associated background task, with progress reported back to the
-    originating room.
+    Tracks pipeline-based workflow runs triggered from rooms or CLI commands.
+    Each workflow run maps to a structured pipeline execution and an associated
+    background task, with progress reported back to the originating room.
 
-    Trigger sources: room commands, subscription rules, or manual CLI. *)
+    Trigger sources: room commands or manual CLI. *)
 
 (** {1 Types} *)
 
@@ -13,8 +12,6 @@
 type trigger_source =
   | Room_command of { room_id : string; requester_id : string }
       (** Triggered by a room slash command *)
-  | Subscription_rule of { rule_name : string }
-      (** Triggered by a subscription/event rule *)
   | Manual  (** Manually triggered via CLI *)
 
 (** Status of a workflow run. *)
@@ -52,11 +49,6 @@ let trigger_source_to_json = function
           ("room_id", `String room_id);
           ("requester_id", `String requester_id);
         ]
-  | Subscription_rule { rule_name } ->
-      `Assoc
-        [
-          ("type", `String "subscription_rule"); ("rule_name", `String rule_name);
-        ]
   | Manual -> `Assoc [ ("type", `String "manual") ]
 
 let trigger_source_of_json json =
@@ -74,12 +66,6 @@ let trigger_source_of_json json =
         |> Option.value ~default:""
       in
       Room_command { room_id; requester_id }
-  | "subscription_rule" ->
-      let rule_name =
-        json |> member "rule_name" |> to_string_option
-        |> Option.value ~default:""
-      in
-      Subscription_rule { rule_name }
   | "manual" -> Manual
   | _ -> Manual
 
@@ -592,7 +578,6 @@ let format_workflow_run (run : workflow_run) =
   let trigger_str =
     match run.trigger_source with
     | Room_command { room_id; _ } -> Printf.sprintf "room:%s" room_id
-    | Subscription_rule { rule_name } -> Printf.sprintf "rule:%s" rule_name
     | Manual -> "manual"
   in
   Printf.sprintf "[%s] %s v%s (%s) %s" status_str run.pipeline_name
