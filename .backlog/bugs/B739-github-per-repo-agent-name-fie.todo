@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-01T06:06:06Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-01T07:01:34Z"
 complexity: medium
 depends_on: []
+duration_minutes: 55.48152499136667
 estimate_hours: 1
 id: B739
 priority: high
 started_at: "2026-07-01T06:06:06Z"
-status: in_progress
+status: done
 tags: []
 title: GitHub per-repo agent_name field not wired to review-run agent selection
 ---
