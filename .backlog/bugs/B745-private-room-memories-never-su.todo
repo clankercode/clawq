@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-06-30T12:13:14Z"
+claimed_by: coordinator
+completed_at: "2026-06-30T13:12:56Z"
 complexity: medium
 depends_on: []
+duration_minutes: 59.70911951375
 estimate_hours: 1
 id: B745
 priority: high
-status: pending
+started_at: "2026-06-30T12:13:14Z"
+status: done
 tags: []
 title: Private room memories never surfaced via room tools (principal_id wiring mismatch)
 ---

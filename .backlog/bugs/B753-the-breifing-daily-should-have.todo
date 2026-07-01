@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-07-01T06:01:37Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B753
 priority: high
-status: pending
+started_at: "2026-07-01T06:01:37Z"
+status: in_progress
 tags: []
 title: The breifing-daily should have been run in max's DMs on teams (has been before), but it was posted to a group chat instead. Please investigate (logs may help)
 ---

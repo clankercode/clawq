@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-06-30T12:13:14Z"
+claimed_by: coordinator
+completed_at: "2026-06-30T13:22:15Z"
 complexity: medium
 depends_on: []
+duration_minutes: 69.02384052276666
 estimate_hours: 1
 id: B743
 priority: high
-status: pending
+started_at: "2026-06-30T12:13:14Z"
+status: done
 tags: []
 title: Teams Adaptive Card version inconsistency across emitters (1.3 vs 1.4)
 ---
