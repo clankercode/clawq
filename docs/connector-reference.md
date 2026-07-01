@@ -647,16 +647,20 @@ Detailed capability comparison across all connectors:
 | Teams       | 28672      | Markdown   |
 | Slack       | 4000       | mrkdwn     |
 | Discord     | 2000       | Markdown   |
-| Telegram    | 4096       | HTML       |
-
-> **Telegram parse mode:** the Telegram capability profile advertises `HTML`,
-> but some chunked-send paths in `src/telegram.ml` (e.g. the session notifier
-> and rich notifier) send using `MarkdownV2` via `Telegram_format.markdown_to_mdv2`.
-> Canonical-mode unification is a follow-up.
+| Telegram    | 4096       | MarkdownV2 |
 | GitHub      | 65536      | Markdown   |
 | Matrix      | 4000       | Markdown   |
 | Mattermost  | 16383      | Markdown   |
 | IRC         | 512        | Markdown   |
+
+> **Telegram parse mode:** the Telegram connector uses both `MarkdownV2` and
+> `HTML` depending on the path. The majority of send sites (chunked plain text,
+> session notifier, rich notifier, tool results, error traces) use `MarkdownV2`
+> via `Telegram_format.markdown_to_mdv2`. Rich-render paths
+> (`send_chunked_html_with_fallback`) and explicit HTML-formatted slash-command
+> output (model show/list/usage, status messages) use `HTML` with a
+> plain-text fallback on parse-mode errors. The capability profile advertises
+> `MarkdownV2` as the primary mode.
 
 ### Progress Delivery Strategy
 

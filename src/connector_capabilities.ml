@@ -63,7 +63,7 @@ let telegram =
   make ~can_edit:Edit_in_place ~can_delete:true ~can_type:true
     ~can_show_status:true ~can_send_files:true ~can_send_buttons:true
     ~thread_replies:Thread_like_replies ~max_message_length:4096
-    ~connector:Format_adapter.Telegram_html ~parse_mode:"HTML"
+    ~connector:Format_adapter.Telegram_html ~parse_mode:"MarkdownV2"
     ~debounce_interval:0.5 ()
 
 let discord =

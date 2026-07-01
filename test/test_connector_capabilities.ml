@@ -5,7 +5,7 @@ let test_telegram_profile () =
     (caps.can_edit = Connector_capabilities.Edit_in_place);
   Alcotest.(check bool) "can delete" true caps.can_delete;
   Alcotest.(check bool) "can type" true caps.can_type;
-  Alcotest.(check string) "parse_mode" "HTML" caps.parse_mode;
+  Alcotest.(check string) "parse_mode" "MarkdownV2" caps.parse_mode;
   Alcotest.(check int) "max_message_length" 4096 caps.max_message_length
 
 let test_discord_profile () =
