@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-01T06:01:21Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-01T06:06:05Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.7432840601
 estimate_hours: 1
 id: B747
 priority: high
 started_at: "2026-07-01T06:01:21Z"
-status: in_progress
+status: done
 tags: []
 title: Teams /menu has no tier grouping (Core/Info&Config/Advanced) despite docs
 ---
