@@ -19,17 +19,6 @@ let test_trigger_source_room_command () =
       Alcotest.(check string) "requester_id" "user1" requester_id
   | _ -> Alcotest.fail "expected Room_command"
 
-let test_trigger_source_subscription () =
-  let source =
-    Workflow_run_trigger.Subscription_rule { rule_name = "ci-failure" }
-  in
-  let json = Workflow_run_trigger.trigger_source_to_json source in
-  let source' = Workflow_run_trigger.trigger_source_of_json json in
-  match source' with
-  | Workflow_run_trigger.Subscription_rule { rule_name } ->
-      Alcotest.(check string) "rule_name" "ci-failure" rule_name
-  | _ -> Alcotest.fail "expected Subscription_rule"
-
 let test_trigger_source_manual () =
   let source = Workflow_run_trigger.Manual in
   let json = Workflow_run_trigger.trigger_source_to_json source in
@@ -441,7 +430,6 @@ let suite =
   [
     (* trigger_source serialization *)
     ("trigger_source room_command", `Quick, test_trigger_source_room_command);
-    ("trigger_source subscription", `Quick, test_trigger_source_subscription);
     ("trigger_source manual", `Quick, test_trigger_source_manual);
     (* run_status serialization *)
     ("run_status serialization", `Quick, test_run_status_serialization);

@@ -452,13 +452,8 @@ labels, room commands, or manual CLI invocations.
 | Source | Description |
 |--------|-------------|
 | `Label <name>` | Triggered by a GitHub label on the PR |
-| `Subscription_rule` | Triggered by a subscription rule match (defined/planned; not yet wired -- see TODO) |
 | `Room_command` | Triggered by a room slash command |
 | `Manual` | Manually triggered via CLI or API |
-
-> TODO(follow-up): `Subscription_rule` is defined as a `trigger_source`
-variant and round-trips through JSON, but no caller currently constructs a
-review run with it. Subscription-rule triggers are planned, not yet wired.
 
 ### Label-Triggered Runs
 
@@ -502,8 +497,8 @@ including:
 ### Workflow Runs
 
 Workflow runs extend the trigger model for structured pipeline execution. They
-are triggered from room commands, subscription rules, or manual CLI, and map to
-a named structured pipeline with versioned inputs.
+are triggered from room commands or manual CLI, and map to a named structured
+pipeline with versioned inputs.
 
 ```bash
 # Trigger a workflow run from the CLI
@@ -638,8 +633,6 @@ Room_github_backlinks.delete_before ~db
    case-insensitive.
 2. **Idempotency**: A run with the same `(repo, PR, head_sha, run_kind)` will
    not be created twice. Check existing runs.
-3. **Subscription scope**: Subscription rule triggers require an active
-   subscription.
 
 ### Token Issues (GitHub App)
 

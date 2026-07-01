@@ -3,7 +3,7 @@
     Provides bounded review/security/code task requests against granted
     repos/PRs with idempotency by repo/PR/head SHA/run kind.
 
-    Trigger sources: labels, subscription rules, or room commands. *)
+    Trigger sources: labels, room commands, or manual CLI/API. *)
 
 (** {1 Types} *)
 
@@ -16,7 +16,6 @@ type run_kind =
 (** What triggered this review run. *)
 type trigger_source =
   | Label of string  (** Triggered by a GitHub label *)
-  | Subscription_rule  (** Triggered by a subscription rule match *)
   | Room_command of { room_id : string; requester_id : string }
       (** Triggered by a room command *)
   | Manual  (** Manually triggered via CLI or API *)
@@ -65,7 +64,6 @@ let run_kind_of_json json =
 let trigger_source_to_json = function
   | Label label ->
       `Assoc [ ("type", `String "label"); ("label", `String label) ]
-  | Subscription_rule -> `Assoc [ ("type", `String "subscription_rule") ]
   | Room_command { room_id; requester_id } ->
       `Assoc
         [
@@ -86,7 +84,6 @@ let trigger_source_of_json json =
         json |> member "label" |> to_string_option |> Option.value ~default:""
       in
       Label label
-  | "subscription_rule" -> Subscription_rule
   | "room_command" ->
       let room_id =
         json |> member "room_id" |> to_string_option |> Option.value ~default:""
@@ -145,7 +142,6 @@ let run_kind_of_string = function
 
 let trigger_source_to_string = function
   | Label label -> "label:" ^ label
-  | Subscription_rule -> "subscription_rule"
   | Room_command { room_id; requester_id } ->
       Printf.sprintf "room_command:%s:%s" room_id requester_id
   | Manual -> "manual"
@@ -159,9 +155,8 @@ let trigger_source_of_string s =
   | None ->
       if
         (* Fall back to legacy string format *)
-        s = "subscription_rule"
-      then Subscription_rule
-      else if s = "manual" then Manual
+        s = "manual"
+      then Manual
       else if String.length s > 6 && String.sub s 0 6 = "label:" then
         Label (String.sub s 6 (String.length s - 6))
       else if String.length s > 13 && String.sub s 0 13 = "room_command:" then
