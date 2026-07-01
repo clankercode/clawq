@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build room-agent profiles for ClawQ so a chat room can have a persistent agent identity, workspace, memory scope, policy, and scheduled/ambient behavior while staying compatible with the existing OCaml runtime, connector, scheduler, task, and memory architecture.
+Build room-agent profiles for Clawq so a chat room can have a persistent agent identity, workspace, memory scope, policy, and scheduled/ambient behavior while staying compatible with the existing OCaml runtime, connector, scheduler, task, and memory architecture.
 
 ## Success Criteria
 
