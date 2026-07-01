@@ -9,6 +9,8 @@ argument-hint: [description of what the pipeline should do]
 
 Design and create multi-step structured output pipelines for clawq. Each pipeline is a YAML file defining a sequence of LLM prompt steps with validated JSON Schema outputs. Steps can reference previous step outputs and compose other pipelines.
 
+**Note:** This skill provides in-conversation pipeline authoring guided by the agent. For an interactive CLI setup wizard, use `clawq pipeline wizard` instead. Both approaches produce the same pipeline YAML files — use whichever fits your workflow.
+
 ## Progress Reporting
 
 At the start of each phase, call send_message to report progress:

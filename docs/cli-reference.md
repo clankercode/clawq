@@ -253,6 +253,8 @@ clawq pipeline workflow-result <run-id>          Show workflow run status
 clawq pipeline workflow-runs [--room <id>]       List workflow runs
 ```
 
+> **`/pipeline-designer` skill vs `clawq pipeline wizard`:** Both produce the same pipeline YAML files. The `/pipeline-designer` skill is an in-conversation authoring flow guided by the agent (useful when you want the agent to help design schemas and step sequences interactively). `clawq pipeline wizard` is a standalone interactive CLI setup. Use whichever fits your workflow.
+
 ## Setup
 
 ### `clawq rooms wizard`

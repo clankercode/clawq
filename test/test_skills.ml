@@ -1598,6 +1598,34 @@ let test_builtin_briefing_skills_present () =
   check_skill "briefing-hourly";
   check_skill "briefing-daily"
 
+let test_builtin_new_skills_present () =
+  let check_skill name ~expected_body_snippet =
+    let found = Builtin_skills.find_builtin name in
+    Alcotest.(check bool) (name ^ " skill found") true (Option.is_some found);
+    let bname, bdesc, instructions = Option.get found in
+    Alcotest.(check string) (name ^ " name") name bname;
+    Alcotest.(check bool)
+      (name ^ " description non-empty")
+      true
+      (String.length bdesc > 0);
+    Alcotest.(check bool)
+      (name ^ " instructions non-empty")
+      true
+      (String.length instructions > 0);
+    Alcotest.(check bool)
+      (name ^ " body contains expected snippet")
+      true
+      (Test_helpers.string_contains instructions expected_body_snippet);
+    let skill_md = Skills.find_skill_md name in
+    Alcotest.(check bool)
+      (name ^ " findable via Skills.find_skill_md")
+      true (Option.is_some skill_md)
+  in
+  check_skill "feature" ~expected_body_snippet:"Automated Feature Creation";
+  check_skill "pipeline-designer"
+    ~expected_body_snippet:"Structured Output Pipeline Designer";
+  check_skill "run-task" ~expected_body_snippet:"bl claim TARGET"
+
 let suite =
   [
     Alcotest.test_case "template substitution" `Quick test_substitute_template;
@@ -1715,4 +1743,7 @@ let suite =
     Alcotest.test_case
       "B678: briefing-hourly and briefing-daily built-in skills present" `Quick
       test_builtin_briefing_skills_present;
+    Alcotest.test_case
+      "B749: feature, pipeline-designer, run-task built-in skills present"
+      `Quick test_builtin_new_skills_present;
   ]
