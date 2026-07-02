@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-02T05:06:16Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-02T05:29:27Z"
 complexity: medium
 depends_on: []
+duration_minutes: 23.194800612683334
 estimate_hours: 1
 id: B756
 priority: high
 started_at: "2026-07-02T05:06:16Z"
-status: in_progress
+status: done
 tags: []
 title: Full UX/onboarding review for Claude Tag parity features
 ---
