@@ -641,10 +641,12 @@ let test_usage_default () =
 
 let test_usage_session () =
   Alcotest.check result_testable "/usage session"
-    (Slash_commands.Usage Slash_commands.UsageSessions)
+    (Slash_commands.AdminRequired
+       (Slash_commands.Usage Slash_commands.UsageSessions))
     (Slash_commands.handle "/usage session");
   Alcotest.check result_testable "/usage session key"
-    (Slash_commands.Usage (Slash_commands.UsageSession "telegram:1:user"))
+    (Slash_commands.AdminRequired
+       (Slash_commands.Usage (Slash_commands.UsageSession "telegram:1:user")))
     (Slash_commands.handle "/usage session telegram:1:user")
 
 let test_usage_model_and_provider () =

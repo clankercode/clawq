@@ -533,8 +533,8 @@ let handle ?(skill_names = []) text =
         | "usage" -> (
             match args with
             | [] -> Usage UsageSummary
-            | [ "session" ] -> Usage UsageSessions
-            | [ "session"; key ] -> Usage (UsageSession key)
+            | [ "session" ] -> AdminRequired (Usage UsageSessions)
+            | [ "session"; key ] -> AdminRequired (Usage (UsageSession key))
             | [ "model" ] -> Usage UsageModel
             | [ "provider" ] -> Usage UsageProvider
             | _ ->
