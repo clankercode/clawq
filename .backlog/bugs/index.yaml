@@ -747,3 +747,6 @@ bugs:
     - file: B751-wire-make-gen-agents-check-int.todo
     - file: B752-classify-and-document-the-full.todo
     - file: B753-the-breifing-daily-should-have.todo
+    - file: B754-usage-session-should-only-work.todo
+    - file: B755-rename-shell-exec-tool-to-bash.todo
+    - file: B756-full-ux-onboarding-review-for.todo

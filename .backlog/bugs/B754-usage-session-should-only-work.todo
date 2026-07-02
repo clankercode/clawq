@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B754
+priority: high
+status: pending
+tags: []
+title: /usage session should only work for admin users
+---
+The /usage session slash command exposes per-session token usage and metadata. This should be restricted to admin users only, as non-admin users should not be able to see other sessions' usage details. Acceptance criteria: /usage session returns an error or is hidden for non-admin users.

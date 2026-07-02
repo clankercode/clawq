@@ -36,8 +36,8 @@ locked: false
 name: Scope Bundle Model and Resolver
 stats:
     blocked: 0
-    done: 6
+    done: 9
     in_progress: 0
-    pending: 3
+    pending: 0
     total_tasks: 9
 status: done

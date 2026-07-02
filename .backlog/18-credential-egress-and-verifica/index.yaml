@@ -36,9 +36,9 @@ milestones:
 name: Credential Egress and Verification Boundary
 stats:
     blocked: 0
-    done: 0
+    done: 21
     in_progress: 0
-    pending: 21
+    pending: 0
     total_tasks: 21
 status: done
 weeks: 4

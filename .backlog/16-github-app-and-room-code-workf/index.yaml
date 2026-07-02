@@ -36,9 +36,9 @@ milestones:
 name: GitHub App and Room Code Workflows
 stats:
     blocked: 0
-    done: 0
+    done: 24
     in_progress: 0
-    pending: 24
+    pending: 0
     total_tasks: 24
 status: done
 weeks: 5

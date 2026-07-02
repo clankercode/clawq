@@ -8,9 +8,9 @@ locked: false
 name: Audit Warn Enforcement Hooks
 stats:
     blocked: 0
-    done: 0
+    done: 4
     in_progress: 0
-    pending: 4
+    pending: 0
     total: 4
 status: done
 tasks:

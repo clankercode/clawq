@@ -27,8 +27,8 @@ locked: false
 name: Credential Policy Boundary
 stats:
     blocked: 0
-    done: 0
+    done: 7
     in_progress: 0
-    pending: 7
+    pending: 0
     total_tasks: 7
 status: done

@@ -27,9 +27,9 @@ milestones:
 name: Room Memory and Admin Governance
 stats:
     blocked: 0
-    done: 0
+    done: 19
     in_progress: 0
-    pending: 19
+    pending: 0
     total_tasks: 19
 status: done
 weeks: 4

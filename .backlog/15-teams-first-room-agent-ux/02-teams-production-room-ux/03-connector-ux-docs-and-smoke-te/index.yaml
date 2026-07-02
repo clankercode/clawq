@@ -8,9 +8,9 @@ locked: false
 name: Connector UX Docs and Smoke Tests
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
 status: done
 tasks:
