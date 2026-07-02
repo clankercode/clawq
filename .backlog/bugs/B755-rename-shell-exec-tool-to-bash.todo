@@ -1,0 +1,20 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B755
+priority: high
+status: pending
+tags: []
+title: Rename shell_exec tool to bash, keep alias, research param conventions
+---
+Rename the 'shell_exec' tool to 'bash' in the tools sent to the model. Keep 'shell_exec' as an internal alias for backward compatibility but do not list it in the tool schema presented to the LLM.
+
+Also research online whether the parameter names should be changed to better match existing coding harnesses (Codex, Claude Code, Cursor, etc). Key params to compare:
+- 'command' (the shell command string)
+- 'timeout' (seconds)
+- 'head' / 'tail' (output truncation)
+
+Check what Codex calls its bash tool params, what Claude Code uses, what Cursor uses, etc. If most harnesses use 'cmd' instead of 'command', or have different conventions, we should align.
+
+The goal is that when the model has seen other coding tools, our parameter names feel familiar and reduce confusion/error rates.
