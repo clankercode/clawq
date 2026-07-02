@@ -104,8 +104,8 @@ let make_postmortem_prompt ~session_key ~reason ~doc_path ~history_text () =
      %s\n\n\
      Your tasks:\n\
      1. Identify the root cause (what specifically failed, not surface symptoms)\n\
-     2. Search for a solution using your available tools (shell_exec, \
-     file_read, memory_recall)\n\
+     2. Search for a solution using your available tools (bash, file_read, \
+     memory_recall)\n\
      3. Update the postmortem document at: %s\n\
     \   Append to the \"## Analysis\" section: your root cause analysis\n\
     \   Append to the \"## Takeaways\" section: 1-3 bullet points to prevent \

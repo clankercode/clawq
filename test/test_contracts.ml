@@ -241,9 +241,8 @@ let test_tool_registry_register_and_find () =
         }
   in
   Tool_registry.register registry tool;
-  match Tool_registry.find registry "shell_exec" with
-  | Some found ->
-      Alcotest.(check string) "found by name" "shell_exec" found.name
+  match Tool_registry.find registry "bash" with
+  | Some found -> Alcotest.(check string) "found by name" "bash" found.name
   | None -> Alcotest.fail "tool not found in registry"
 
 let test_tool_registry_list () =
@@ -296,7 +295,7 @@ let test_tool_openai_json_format () =
     "type=function" "function"
     (item |> member "type" |> to_string);
   Alcotest.(check string)
-    "name in function" "shell_exec"
+    "name in function" "bash"
     (item |> member "function" |> member "name" |> to_string)
 
 let test_tool_risk_levels () =

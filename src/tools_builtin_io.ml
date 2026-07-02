@@ -27,12 +27,12 @@ let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
    risks ID collisions, format drift, and hallucinated entries (one teams
    agent did exactly this — wrote two versions of a phantom 'B605' bug with
    invented Anthropic policy text). Direct ad-hoc writes are not the right
-   path; agents should use `shell_exec bl bug --simple ...` instead. *)
+   path; agents should use `bash bl bug --simple ...` instead. *)
 let backlog_write_error path =
   Printf.sprintf
     "Error: refusing to file_write into '%s'. The .backlog/ directory is \
      managed by the `bl` CLI which allocates IDs and keeps the index \
-     consistent. Use `shell_exec` with one of:\n\
+     consistent. Use `bash` with one of:\n\
     \  - bl bug --simple \"<title>\" --body \"<body>\"  (for bug reports)\n\
     \  - bl idea \"<title>\"                            (for ideas/intake)\n\
     \  - bl edit <ID>                                  (to edit an existing \
@@ -189,7 +189,7 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                                       limit %d chars). Use file_read with \
                                       offset/limit to read in parts (for \
                                       example: offset=1, limit=200), or use \
-                                      shell_exec with grep to search first."
+                                      bash with grep to search first."
                                      (String.length content)
                                      file_read_max_full_chars)
                               else Lwt.return content)

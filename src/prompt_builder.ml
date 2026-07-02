@@ -732,7 +732,7 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
       else List.iter add tool_lines;
       add "";
       add "Example tool call:";
-      add "  shell_exec(command=\"ls -la\", head=100, tail=100)"
+      add "  bash(command=\"ls -la\", head=100, tail=100)"
     end;
     add "";
     add "## Clawq Runtime";

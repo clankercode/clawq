@@ -16,9 +16,20 @@ let skill_commands ?(show_test = false) () =
 let room_tool_allowed ?config ?session_key tool_name =
   match (config, session_key) with
   | Some config, Some session_key ->
-      Option.is_none
-        (Runtime_config.room_profile_tool_denial_for_session config ~session_key
-           ~tool_name)
+      let primary =
+        Runtime_config.room_profile_tool_denial_for_session config ~session_key
+          ~tool_name
+      in
+      (* B755: also check legacy alias so room profiles using "shell_exec"
+         correctly hide/show the bash slash command. *)
+      let alias_check =
+        match tool_name with
+        | "bash" ->
+            Runtime_config.room_profile_tool_denial_for_session config
+              ~session_key ~tool_name:"shell_exec"
+        | _ -> None
+      in
+      Option.is_none primary && Option.is_none alias_check
   | _ -> true
 
 (** [make_room_policy_check ?config ?session_key ()] creates a room policy check
@@ -39,7 +50,7 @@ let command_required_tools name =
         "background_finalize";
       ]
   | "delegate" -> [ "delegate" ]
-  | "bash" -> [ "shell_exec" ]
+  | "bash" -> [ "bash" ]
   | "memories" -> [ "memory_list" ]
   | "tasks" -> [ "task_tree"; "task_list" ]
   | _ -> []

@@ -981,7 +981,7 @@ let invocation_safe t allowlist authorized =
 (** val shell_exec_tool : tool_spec **)
 
 let shell_exec_tool =
-  { tool_name = "shell_exec"; tool_risk = High }
+  { tool_name = "bash"; tool_risk = High }
 
 (** val file_read_tool : tool_spec **)
 

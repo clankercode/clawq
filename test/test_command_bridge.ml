@@ -1003,6 +1003,8 @@ let test_session_show_redacts_shell_exec_prompt_file_updates () =
           Tool_registry.register registry
             (Tools_builtin.shell_exec ~workspace ~workspace_only:false
                ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox);
+          Tool_registry.register_alias registry ~alias:"shell_exec"
+            ~real_name:"bash";
           let agent = Agent.create ~config ~tool_registry:registry () in
           let mgr = Session.create ~config ~db () in
           let history_before = List.length agent.Agent.history in

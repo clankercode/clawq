@@ -5,7 +5,7 @@ a daily news/weather/topic briefing delivered to the user's preferred channel.
 ## Step 1: Install an RSS feed reader
 
 Try to install `sfeed` (a minimal POSIX RSS/Atom fetcher):
-- Use shell_exec to detect the package manager (pacman, apt, brew, nix, etc.)
+- Use bash to detect the package manager (pacman, apt, brew, nix, etc.)
 - Install sfeed via the package manager
 - If sfeed is unavailable, try these fallbacks in order:
   1. `newsboat` (widely packaged)
@@ -28,12 +28,12 @@ The cron jobs themselves run on a persistent worker session (`cron:briefing`) an
 
 ## Step 4: Create the daily briefing cron job
 
-Use shell_exec to run:
+Use bash to run:
   clawq cron add briefing-daily cron:briefing "0 7 * * *" Invoke the briefing-daily skill: call use_skill with name="briefing-daily". The skill handles config loading, pre-flight validation, RSS fetch, topic search, weather, composition, and delivery via send_to_session. Do not perform briefing work outside the skill — orchestrate only through use_skill.
 
 ## Step 5: Create the hourly notable-events cron job
 
-Use shell_exec to run:
+Use bash to run:
   clawq cron add briefing-hourly cron:briefing "0 * * * *" Invoke the briefing-hourly skill: call use_skill with name="briefing-hourly". The skill handles config loading, pre-flight validation, planned-query emission, sequential web_search, and delivery via send_to_session. Do not perform briefing work outside the skill — orchestrate only through use_skill.
 
 ## Step 6: Store rig state
@@ -66,7 +66,7 @@ Read the runtime context for `Session id:` — that is *this* session (where /ri
 
 For each job (`briefing-hourly` first, then `briefing-daily`):
 
-1. Run `clawq cron show <name>` via shell_exec. If the output already shows `Session: cron:briefing` AND the prompt mentions `use_skill with name="<name>"`, skip — already migrated.
+1. Run `clawq cron show <name>` via bash. If the output already shows `Session: cron:briefing` AND the prompt mentions `use_skill with name="<name>"`, skip — already migrated.
 2. Otherwise, capture the existing schedule, then run:
 
    ```
@@ -110,7 +110,7 @@ Ask the user what they'd like to adjust:
 
 Update the relevant files and cron jobs based on user preferences:
 - For feeds: update ~/.clawq/briefing_feeds.txt
-- For schedules: use shell_exec with clawq cron edit
+- For schedules: use bash with clawq cron edit
 - For topics/weather: update memory_store with key "rig:briefing:config"
 
 ## Step 5: Confirm
@@ -122,7 +122,7 @@ let briefing_remove_prompt =
 
 ## Step 1: Remove cron jobs
 
-Use shell_exec to run:
+Use bash to run:
   clawq cron remove briefing-daily
   clawq cron remove briefing-hourly
 

@@ -245,7 +245,7 @@ let summarize_file_edit_lines fields =
 
 let summarize_tool_assoc ~name fields =
   match name with
-  | "shell_exec" ->
+  | "bash" | "shell_exec" ->
       Option.bind (get_string_field fields "command") (fun command ->
           let cwd =
             match get_string_field fields "cwd" with
@@ -421,6 +421,7 @@ let summarize_tool_arguments ~name arguments =
                   let prefix =
                     match (name, special_label key) with
                     | "file_read", Some "file" -> None
+                    | "bash", Some "cmd" -> None
                     | "shell_exec", Some "cmd" -> None
                     | _, Some label -> Some (label ^ " ")
                     | _ -> Some (key ^ "=")
@@ -448,7 +449,7 @@ let tool_emoji name =
   | "file_write" -> "\xE2\x9C\x8F\xEF\xB8\x8F"
   | "file_append" -> "\xF0\x9F\x93\x8E"
   | "file_edit" | "file_edit_lines" -> "\xF0\x9F\x94\x84"
-  | "shell_exec" -> "\xF0\x9F\x92\xBB"
+  | "bash" | "shell_exec" -> "\xF0\x9F\x92\xBB"
   | "http_get" | "web_fetch" | "http_request" -> "\xF0\x9F\x8C\x90"
   | "web_search" -> "\xF0\x9F\x94\x8D"
   | "memory_store" -> "\xF0\x9F\x92\xBE"
@@ -476,7 +477,7 @@ let summarize_tool_result ~name result =
   | "file_read" ->
       let lines = line_count result in
       Some (Printf.sprintf "%d lines" lines)
-  | "shell_exec" ->
+  | "bash" | "shell_exec" ->
       let trimmed = String.trim result in
       if trimmed = "" then Some "empty output"
       else

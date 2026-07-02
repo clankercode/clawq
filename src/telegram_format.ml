@@ -175,7 +175,7 @@ let format_verbose_result ?(visible_lines = 3) ~name result =
     let lines = String.split_on_char '\n' trimmed in
     let total = List.length lines in
     match name with
-    | "shell_exec" | "file_read" ->
+    | "bash" | "shell_exec" | "file_read" ->
         if total > visible_lines then
           Some (expandable_blockquote ~visible_lines trimmed)
         else None
@@ -225,7 +225,7 @@ let spoiler text = "||" ^ escape_mdv2 text ^ "||"
 let is_sensitive_content ~name result =
   match name with
   | "memory_recall" -> true
-  | "shell_exec" ->
+  | "bash" | "shell_exec" ->
       let lower = String.lowercase_ascii result in
       List.exists
         (fun kw ->

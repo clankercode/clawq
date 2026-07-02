@@ -303,7 +303,7 @@ Qed.
    ---------------------------------------------------------------- *)
 
 Definition shell_exec_tool : tool_spec :=
-  mk_tool_spec "shell_exec" High.
+  mk_tool_spec "bash" High.
 
 Definition file_read_tool : tool_spec :=
   mk_tool_spec "file_read" Low.

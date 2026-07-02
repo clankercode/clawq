@@ -1,12 +1,17 @@
-type t = { mutable tools : Tool.t list; mutable skill_names : string list }
+type t = {
+  mutable tools : Tool.t list;
+  mutable skill_names : string list;
+  mutable aliases : (string * string) list;
+}
 
-let create () = { tools = []; skill_names = [] }
+let create () = { tools = []; skill_names = []; aliases = [] }
 let register registry tool = registry.tools <- tool :: registry.tools
-let snapshot registry = (registry.tools, registry.skill_names)
+let snapshot registry = (registry.tools, registry.skill_names, registry.aliases)
 
-let restore registry (tools, skill_names) =
+let restore registry (tools, skill_names, aliases) =
   registry.tools <- tools;
-  registry.skill_names <- skill_names
+  registry.skill_names <- skill_names;
+  registry.aliases <- aliases
 
 let register_skill registry tool =
   registry.skill_names <- tool.Tool.name :: registry.skill_names;
@@ -31,7 +36,39 @@ let remove registry name =
     List.filter (fun (t : Tool.t) -> t.name <> name) registry.tools
 
 let find registry name =
-  List.find_opt (fun (t : Tool.t) -> t.name = name) registry.tools
+  match List.find_opt (fun (t : Tool.t) -> t.name = name) registry.tools with
+  | Some _ as result -> result
+  | None -> (
+      match List.assoc_opt name registry.aliases with
+      | Some real_name ->
+          List.find_opt (fun (t : Tool.t) -> t.name = real_name) registry.tools
+      | None -> None)
+
+let register_alias registry ~alias ~real_name =
+  registry.aliases <- (alias, real_name) :: registry.aliases
+
+(** [resolve_name registry name] returns the canonical (real) tool name for a
+    given name, resolving aliases. If the name is already a real tool name, it
+    is returned as-is. If it is an alias, the real name is returned. If unknown,
+    returns the input name unchanged. *)
+let resolve_name registry name =
+  if List.exists (fun (t : Tool.t) -> t.name = name) registry.tools then name
+  else
+    match List.assoc_opt name registry.aliases with
+    | Some real_name -> real_name
+    | None -> name
+
+(** [all_names registry name] returns the primary tool name and all its aliases.
+    If [name] is an alias, it is resolved first. Returns [name] unchanged if
+    unknown. *)
+let all_names registry name =
+  let real = resolve_name registry name in
+  let alias_names =
+    registry.aliases
+    |> List.filter_map (fun (alias, target) ->
+        if target = real then Some alias else None)
+  in
+  real :: alias_names
 
 let list registry = List.rev registry.tools
 

@@ -33,12 +33,11 @@ let test_tool_filter () =
        ignore (Str.search_forward (Str.regexp_string "baseline") output 0);
        true
      with Not_found -> false);
-  (* should NOT contain shell_exec_echo *)
+  (* should NOT contain bash_echo *)
   Alcotest.(check bool)
-    "does not contain shell_exec_echo" true
+    "does not contain bash_echo" true
     (try
-       ignore
-         (Str.search_forward (Str.regexp_string "shell_exec_echo") output 0);
+       ignore (Str.search_forward (Str.regexp_string "bash_echo") output 0);
        false
      with Not_found -> true)
 

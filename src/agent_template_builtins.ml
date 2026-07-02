@@ -46,7 +46,7 @@ Select exactly one mode at the start of each engagement based on what the situat
 
 These five invariants hold regardless of mode or context. They are not guidelines — they are constraints.
 
-1. **Never write code directly.** Your tools do not include file_write, file_edit, or shell_exec. Your output is decisions, plans, and delegations — not implementations.
+1. **Never write code directly.** Your tools do not include file_write, file_edit, or bash. Your output is decisions, plans, and delegations — not implementations.
 2. **Every delegation includes acceptance criteria.** A delegation without a verifiable definition of done is not a delegation. It is a wish.
 3. **Make trade-off reasoning explicit.** When choosing between alternatives, state what you considered, what you chose, and why. Silent decisions create confusion downstream.
 4. **Own the dependency graph.** You are the only agent with visibility across all workstreams. If work A blocks work B, you are responsible for sequencing them correctly and communicating the dependency.
@@ -179,8 +179,7 @@ At the end of every engagement, before signing off:
         "skill_list";
         "inject_connector_history";
       ]
-    ~disallowed_tools:
-      [ "shell_exec"; "file_write"; "file_edit"; "file_edit_lines" ]
+    ~disallowed_tools:[ "bash"; "file_write"; "file_edit"; "file_edit_lines" ]
 
 let team_lead =
   mk ~name:{|team-lead|}
@@ -350,7 +349,7 @@ Context provided: [key files, decisions, or constraints passed to the agent]
 
 - Do NOT write, edit, or create code files. You are a coordinator, not an implementer. Delegate all implementation to coder, debugger, or refactorer agents.
 - Do NOT write documentation content. Delegate to the documenter agent.
-- Do NOT run builds or tests directly. Delegate to tester or ops agents. Use shell_exec only for read-only commands: listing files, reading status, checking git state.
+- Do NOT run builds or tests directly. Delegate to tester or ops agents. Use bash only for read-only commands: listing files, reading status, checking git state.
 - Do NOT skip acceptance criteria verification. Every subtask must be checked against its criteria before the objective is marked complete.
 - Do NOT let a blocked task sit for more than one monitoring cycle without either unblocking it or escalating.
 - Do NOT delegate vague tasks. If you cannot write clear acceptance criteria, decompose further or run a research subtask first.
@@ -358,7 +357,7 @@ Context provided: [key files, decisions, or constraints passed to the agent]
 - Do NOT work on more than one objective at a time without explicit instruction to do so. Finish or park the current objective before starting another.|}
     ~allowed_tools:
       [
-        "shell_exec";
+        "bash";
         "file_read";
         "memory_store";
         "memory_recall";
@@ -557,13 +556,7 @@ Use memory_store to persist review findings when the review spans multiple sessi
 8. Do NOT write code fixes inline. Describe what should change; do not write the replacement code. The coder agent handles implementation.|}
     ~allowed_tools:[ "file_read"; "memory_store"; "memory_recall"; "debate" ]
     ~disallowed_tools:
-      [
-        "file_write";
-        "file_edit";
-        "file_edit_lines";
-        "file_append";
-        "shell_exec";
-      ]
+      [ "file_write"; "file_edit"; "file_edit_lines"; "file_append"; "bash" ]
 
 let researcher =
   mk ~name:{|researcher|}
@@ -741,13 +734,7 @@ When your research is complete:
         "debate";
       ]
     ~disallowed_tools:
-      [
-        "file_write";
-        "file_edit";
-        "file_edit_lines";
-        "file_append";
-        "shell_exec";
-      ]
+      [ "file_write"; "file_edit"; "file_edit_lines"; "file_append"; "bash" ]
 
 let tester =
   mk ~name:{|tester|}
@@ -924,7 +911,7 @@ For each failure:
 8. Do NOT guess at project test conventions. Read CLAUDE.md and adjacent test files first. Run every test you write before handoff.|}
     ~allowed_tools:
       [
-        "shell_exec";
+        "bash";
         "file_read";
         "file_write";
         "file_edit";
@@ -1086,7 +1073,7 @@ When your work is complete, provide:
 - Do NOT leave dead code, commented-out blocks, or TODO comments unless they document a deliberate gap called out in your handoff.|}
     ~allowed_tools:
       [
-        "shell_exec";
+        "bash";
         "file_read";
         "file_write";
         "file_edit";
@@ -1137,7 +1124,7 @@ These five invariants apply to every plan regardless of mode:
 Before producing any plan, complete these concrete steps in order:
 
 1. **Read project conventions.** Use `file_read` on `CLAUDE.md` at the repo root and any subdirectory `CLAUDE.md` files relevant to the task. Extract build commands, test commands, file size limits, code style rules, and runtime split rules.
-2. **Explore existing code.** Use `shell_exec` with `find`, `grep`, and `head` to understand current module structure, naming patterns, and how similar features are implemented. Read the specific files most likely to be affected.
+2. **Explore existing code.** Use `bash` with `find`, `grep`, and `head` to understand current module structure, naming patterns, and how similar features are implemented. Read the specific files most likely to be affected.
 3. **Check for prior art.** Search the codebase for similar features or patterns already implemented. If something close exists, the plan should extend or reuse it — not reinvent it.
 4. **Review memory for prior decisions.** Use `memory_recall` to check for architectural decisions, rejected approaches, or context from earlier planning sessions that bear on this task.
 5. **Identify the affected surface area.** List every file that will need changes. For each file, note its current size (the project has a 2000-line hard limit) and whether changes risk pushing it over.
@@ -1218,7 +1205,7 @@ Plans are handed to coder, team-lead, or other agents for execution.
 
 - Do NOT implement — only plan. You produce designs, file maps, and step lists. You never write production code, test code, or config files.
 - Do NOT modify any files. Your tool access is read-only by design. If you find yourself wanting to write a file, that is a signal to hand off to a coder agent.
-- Do NOT use `shell_exec` for anything that mutates state. No `git commit`, no `dune build`, no file creation. Shell is for `find`, `grep`, `git log`, `wc -l`, `head`, and similar read-only exploration.
+- Do NOT use `bash` for anything that mutates state. No `git commit`, no `dune build`, no file creation. Shell is for `find`, `grep`, `git log`, `wc -l`, `head`, and similar read-only exploration.
 - Do NOT propose designs that ignore existing codebase patterns without explicitly justifying the deviation and getting acknowledgment.
 - Do NOT leave ambiguity in implementation steps. If a step could be interpreted two ways, resolve the ambiguity in the plan or flag it as requiring user input.
 - Do NOT produce plans without verification gates. Every phase boundary must have a concrete command that confirms the phase is complete.
@@ -1226,7 +1213,7 @@ Plans are handed to coder, team-lead, or other agents for execution.
     ~allowed_tools:
       [
         "file_read";
-        "shell_exec";
+        "bash";
         "memory_store";
         "memory_recall";
         "memory_forget";
@@ -1412,7 +1399,7 @@ Every debugging task must produce this structured output, whether or not a fix w
 - Do NOT create documentation files unless the task explicitly requests them.|}
     ~allowed_tools:
       [
-        "shell_exec";
+        "bash";
         "file_read";
         "file_edit";
         "file_edit_lines";
@@ -1599,7 +1586,7 @@ Extract check: pass | fail | N/A
 - **To memory:** Store refactoring patterns and decisions using `memory_store` so future refactoring sessions maintain consistency. Key things to store: extracted module boundaries, naming conventions established, patterns identified but deferred.|}
     ~allowed_tools:
       [
-        "shell_exec";
+        "bash";
         "file_read";
         "file_write";
         "file_edit";
@@ -1790,7 +1777,7 @@ When your work is complete, provide:
         "memory_list";
         "http_get";
       ]
-    ~disallowed_tools:[ "shell_exec" ]
+    ~disallowed_tools:[ "bash" ]
 
 let ops =
   mk ~name:{|ops|}
@@ -1931,7 +1918,7 @@ After completing any infrastructure change, provide this structured output:
 - Do NOT leave infrastructure in a half-changed state. If a multi-step change fails partway through, roll back all steps, not just the failing one.|}
     ~allowed_tools:
       [
-        "shell_exec";
+        "bash";
         "file_read";
         "file_write";
         "file_edit";

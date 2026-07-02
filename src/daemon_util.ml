@@ -502,6 +502,7 @@ let refresh_runtime_bound_tools ?send_file_runtime ~(config : Runtime_config.t)
     (Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only
        ~allowed_commands:Tools_builtin.default_shell_allowlist
        ~extra_allowed_paths ~sandbox ~session_mgr:session_manager ());
+  Tool_registry.register_alias registry ~alias:"shell_exec" ~real_name:"bash";
   Tool_registry.replace registry
     (Tools_builtin.change_working_dir ~config ~workspace ~workspace_only
        ~extra_allowed_paths);

@@ -221,7 +221,7 @@ let redact_tool_call_arguments_for_session_show ~config ~function_name arguments
                  ("content", `String "[redacted]");
                ])
         else None
-    | "shell_exec" ->
+    | "bash" | "shell_exec" ->
         let command = args |> member "command" |> to_string in
         if
           session_show_shell_command_targets_active_workspace_file config

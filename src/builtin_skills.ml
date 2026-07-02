@@ -442,7 +442,7 @@ Daily briefing plan:
 
 ## Step 3: Fetch RSS headlines
 
-Use shell_exec to run the configured RSS tool against `<feeds_file>`. Extract the top 5 most notable headlines. If the command fails, record the failure and continue (the briefing still has value with topics + weather).
+Use bash to run the configured RSS tool against `<feeds_file>`. Extract the top 5 most notable headlines. If the command fails, record the failure and continue (the briefing still has value with topics + weather).
 
 ## Step 4: Sequential web_search for topics
 
@@ -531,12 +531,12 @@ Read existing capabilities:
 
 1. `file_read("docs/public/llms-full.txt")` — full self-knowledge reference
 2. `skill_list()` — existing skills
-3. `shell_exec("clawq rig list")` — existing rigs
-4. `shell_exec("clawq cron list")` — existing cron jobs
-5. `shell_exec("clawq agents list")` — existing agent templates
+3. `bash("clawq rig list")` — existing rigs
+4. `bash("clawq cron list")` — existing cron jobs
+5. `bash("clawq agents list")` — existing agent templates
 6. `tool_search("<keywords from feature description>")` — deferred tool discovery
 
-After each `shell_exec` call above, emit `send_message(text="Checked: <thing>")` so the user sees discovery progress.
+After each `bash` call above, emit `send_message(text="Checked: <thing>")` so the user sees discovery progress.
 
 Summarize: "Here's what clawq can already do related to your request: ..."
 
@@ -572,7 +572,7 @@ Present the decomposition table and ask for confirmation via `ask_user_question`
 1. Check if the user has admin privileges (from the session context).
 2. If **guest**: save the full feature plan for admin review:
    - Write the plan JSON to a temp file
-   - Run: `shell_exec("clawq held-items save --name '<name>' --desc '<description>' --plan-file /tmp/held_plan_<timestamp>.json --layer 6 --requestor '<sender_id>' --channel '<channel>'")`
+   - Run: `bash("clawq held-items save --name '<name>' --desc '<description>' --plan-file /tmp/held_plan_<timestamp>.json --layer 6 --requestor '<sender_id>' --channel '<channel>'")`
    - Respond: "This feature requires OCaml code changes. Your plan has been saved as a held item for admin review. An admin can view and approve it via `/held-items`."
    - Stop here for guest users.
 3. If **admin**: present full impact summary (files to change, tests needed, estimated scope), then confirm via `ask_user_question`.
@@ -600,7 +600,7 @@ Show usage instructions to the user. Done.
 
 ### Layer 3 (Skill + Cron)
 - Create the skill first (Layer 1 flow)
-- Add cron job: `shell_exec("clawq cron add <name> <session> '<schedule>' '<message>' --ttl <duration>")`
+- Add cron job: `bash("clawq cron add <name> <session> '<schedule>' '<message>' --ttl <duration>")`
 - Report: "Created skill + cron job. Runs on schedule: `<schedule>`. Manual trigger: `/skill <name>`."
 
 ### Layer 4 (Agent Template)
@@ -613,7 +613,7 @@ Show usage instructions to the user. Done.
 - Report: "Created MCP server. New tools will be available in agent context after restart."
 
 ### Layer 6 (OCaml changes)
-1. Create backlog items: `shell_exec("bl idea '<title>' --body '<detailed requirements and acceptance criteria>'")`
+1. Create backlog items: `bash("bl idea '<title>' --body '<detailed requirements and acceptance criteria>'")`
 2. Ask user to choose execution strategy via `ask_user_question` (single_select):
 
    **Small tasks** (single-component, straightforward):
@@ -646,8 +646,8 @@ Show usage instructions to the user. Done.
 **Step 6.0 (MANDATORY):** call `send_message(text="Add Feature, step 6/6: Verifying and reporting...")`.
 
 1. **Skills**: invoke via `use_skill` to verify loading
-2. **Cron**: verify via `shell_exec("clawq cron list")`
-3. **Rigs**: verify via `shell_exec("clawq rig list")`
+2. **Cron**: verify via `bash("clawq cron list")`
+3. **Rigs**: verify via `bash("clawq rig list")`
 4. **OCaml**: check `background_task_list` for completion, inspect `background_task_transcript` when context is needed, verify `make test` passed
 5. **Store**: `memory_store(key="feature:<name>", value="<summary of what was created>")`
 
@@ -824,7 +824,7 @@ steps:
 After writing the YAML file, validate it:
 
 ```
-shell_exec("clawq pipeline validate <name>")
+bash("clawq pipeline validate <name>")
 ```
 
 If validation fails, fix the issues and re-validate. Common issues:

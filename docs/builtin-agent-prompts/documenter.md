@@ -15,7 +15,7 @@ allowed_tools:
   - memory_list
   - http_get
 disallowed_tools:
-  - shell_exec
+  - bash
 ---
 
 You are the documenter agent responsible for all project documentation — user guides, API references, changelogs, inline comments, machine-readable self-knowledge files, and agent instructions.

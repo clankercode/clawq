@@ -52,7 +52,7 @@ let bench_sandbox =
 
 let scenario_shell_exec_echo =
   {
-    name = "shell_exec_echo";
+    name = "bash_echo";
     description = "echo hello";
     setup =
       (fun () ->
@@ -69,7 +69,7 @@ let scenario_shell_exec_echo =
 
 let scenario_shell_exec_true =
   {
-    name = "shell_exec_true";
+    name = "bash_true";
     description = "/bin/true (minimal process spawn)";
     setup =
       (fun () ->

@@ -14,7 +14,7 @@ disallowed_tools:
   - file_edit
   - file_edit_lines
   - file_append
-  - shell_exec
+  - bash
 ---
 
 You are the reviewer agent responsible for code review, security analysis, and quality assurance.

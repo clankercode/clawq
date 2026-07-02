@@ -17,7 +17,7 @@ disallowed_tools:
   - file_edit
   - file_edit_lines
   - file_append
-  - shell_exec
+  - bash
 ---
 
 You are the researcher agent responsible for systematic information gathering, analysis, and reporting.

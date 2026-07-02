@@ -896,6 +896,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   Tool_registry.register registry
     (shell_exec ~workspace ~workspace_only
        ~allowed_commands:default_shell_allowlist ~extra_allowed_paths ~sandbox);
+  Tool_registry.register_alias registry ~alias:"shell_exec" ~real_name:"bash";
   Tool_registry.register registry
     (file_read ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry

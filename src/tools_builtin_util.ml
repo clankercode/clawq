@@ -417,12 +417,12 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
        patch, mkdir, touch, git, make, dune, opam, npm, yarn, jq, sed, awk, \
        tr, cut, tee, tar, zip, unzip, gzip, gunzip). No pipes, semicolons, \
        redirects, or subshells. Default timeout 30s, max 600s. Examples: \
-       shell_exec(command=\"ls -la\", head=100, tail=100), \
-       shell_exec(command=\"motd\") to check the message of the day"
+       bash(command=\"ls -la\", head=100, tail=100), bash(command=\"motd\") to \
+       check the message of the day"
     else
       "Execute a shell command and return stdout+stderr. IMPORTANT: You MUST \
        provide the 'command' argument — calls without 'command' will fail. \
-       Example: shell_exec(command=\"ls -la\", head=100, tail=100)"
+       Example: bash(command=\"ls -la\", head=100, tail=100)"
   in
   let max_timeout = 600.0 in
   let default_timeout = 30.0 in
@@ -435,9 +435,9 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     let command = try args |> member "command" |> to_string with _ -> "" in
     if String.trim command = "" then
       Lwt.return
-        "Error: shell_exec requires a non-empty 'command' parameter. Example: \
-         shell_exec(command=\"ls -la\", head=100, tail=50). The 'command' \
-         field must be a non-empty string."
+        "Error: bash requires a non-empty 'command' parameter. Example: \
+         bash(command=\"ls -la\", head=100, tail=50). The 'command' field must \
+         be a non-empty string."
     else
       let cwd_arg =
         try
@@ -636,7 +636,7 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                             ("", [| "/bin/sh"; "-c"; command |]))))
   in
   {
-    Tool.name = "shell_exec";
+    Tool.name = "bash";
     description;
     parameters_schema =
       `Assoc

@@ -1203,7 +1203,7 @@ let test_register_all_shell_path_policy_tracks_security_config () =
       Tools_builtin.register_all ~config:cfg_blocked
         ~sandbox:(mk_none_sandbox ~workspace:"/tmp" ())
         blocked_registry;
-      let blocked_tool = find_tool_exn blocked_registry "shell_exec" in
+      let blocked_tool = find_tool_exn blocked_registry "bash" in
       let blocked_out =
         Lwt_main.run
           (blocked_tool.invoke
@@ -1222,7 +1222,7 @@ let test_register_all_shell_path_policy_tracks_security_config () =
       Tools_builtin.register_all ~config:cfg_extra_allowed
         ~sandbox:(mk_none_sandbox ~workspace:"/tmp" ())
         extra_registry;
-      let extra_tool = find_tool_exn extra_registry "shell_exec" in
+      let extra_tool = find_tool_exn extra_registry "bash" in
       let extra_out =
         Lwt_main.run
           (extra_tool.invoke
@@ -1252,7 +1252,7 @@ let test_shell_exec_rejects_missing_command () =
       in
       let registry = Tool_registry.create () in
       Tools_builtin.register_all ~config:cfg ~sandbox registry;
-      let tool = find_tool_exn registry "shell_exec" in
+      let tool = find_tool_exn registry "bash" in
       let out = Lwt_main.run (tool.Tool.invoke (`Assoc [])) in
       Alcotest.(check bool)
         "error mentions command" true
@@ -1278,7 +1278,7 @@ let test_shell_exec_rejects_null_command () =
       in
       let registry = Tool_registry.create () in
       Tools_builtin.register_all ~config:cfg ~sandbox registry;
-      let tool = find_tool_exn registry "shell_exec" in
+      let tool = find_tool_exn registry "bash" in
       let out =
         Lwt_main.run (tool.Tool.invoke (`Assoc [ ("command", `Null) ]))
       in
@@ -1336,7 +1336,7 @@ let test_validate_required_params_catches_missing () =
 let test_missing_required_error_escalates_on_repeats () =
   let tool : Tool.t =
     {
-      name = "shell_exec";
+      name = "bash";
       description = "Run a shell command";
       parameters_schema =
         `Assoc
@@ -1448,7 +1448,7 @@ let test_b677_circuit_breaker_arms_at_threshold () =
 let test_b677_resets_on_different_key () =
   let tool_a : Tool.t =
     {
-      name = "shell_exec";
+      name = "bash";
       description = "Run shell";
       parameters_schema =
         `Assoc

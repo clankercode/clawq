@@ -296,7 +296,7 @@ let not_found_error ~tasks ~id =
   let hint =
     match suggestions with
     | [] ->
-        "Run shell_exec `bl tree` (or `bl list --bugs` / `bl list --ideas`) to \
+        "Run bash `bl tree` (or `bl list --bugs` / `bl list --ideas`) to \
          enumerate current IDs. Bug IDs are B-prefixed, ideas are I-prefixed; \
          phase/milestone/epic/task IDs use P/M/E/T prefixes joined by dots \
          (e.g. P1.M2.E3.T004). IDs are case-sensitive."

@@ -470,7 +470,7 @@ let tool_result t ~id ~name:_ ~result ~is_error =
       in
       let output_tail =
         match entry.name with
-        | "shell_exec" when not is_error ->
+        | ("bash" | "shell_exec") when not is_error ->
             let trimmed = String.trim result in
             if trimmed = "" then None
             else

@@ -96,6 +96,9 @@ let test_chat_action_for_tool () =
     "shell_exec -> typing" "typing"
     (Telegram.chat_action_for_tool "shell_exec");
   Alcotest.(check string)
+    "bash -> typing" "typing"
+    (Telegram.chat_action_for_tool "bash");
+  Alcotest.(check string)
     "unknown -> typing" "typing"
     (Telegram.chat_action_for_tool "anything_else")
 

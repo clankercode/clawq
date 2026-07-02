@@ -619,8 +619,8 @@ let test_tools_section_includes_shell_exec_example () =
         "has example tool call header" true
         (Test_helpers.string_contains prompt "Example tool call:");
       Alcotest.(check bool)
-        "has shell_exec example" true
-        (Test_helpers.string_contains prompt "shell_exec(command="))
+        "has bash example" true
+        (Test_helpers.string_contains prompt "bash(command="))
 
 let test_runtime_context_includes_directory_contents () =
   with_temp_workspace (fun workspace ->

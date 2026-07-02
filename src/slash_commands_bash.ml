@@ -1,12 +1,22 @@
-let shell_exec_tool_name = "shell_exec"
+let shell_exec_tool_name = "bash"
+let shell_exec_tool_alias = "shell_exec"
 
 let room_profile_tool_denial ?(config = Runtime_config.default) ?session_key ()
     =
   match session_key with
   | None -> None
-  | Some session_key ->
-      Runtime_config.room_profile_tool_denial_for_session config ~session_key
-        ~tool_name:shell_exec_tool_name
+  | Some session_key -> (
+      (* B755: check both the primary name and the legacy alias so that room
+         profiles using the old name "shell_exec" still deny "bash". *)
+      let primary =
+        Runtime_config.room_profile_tool_denial_for_session config ~session_key
+          ~tool_name:shell_exec_tool_name
+      in
+      match primary with
+      | Some _ -> primary
+      | None ->
+          Runtime_config.room_profile_tool_denial_for_session config
+            ~session_key ~tool_name:shell_exec_tool_alias)
 
 let run_bash_command ?(timeout_secs = 60.0) ?config ?session_key cmd =
   match room_profile_tool_denial ?config ?session_key () with
