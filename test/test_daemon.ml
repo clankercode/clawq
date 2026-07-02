@@ -3378,8 +3378,8 @@ let test_task_tree_tool_with_current_workspace_autostarts_without_cwd () =
         Some (Format_adapter.Plain, fun _text -> Lwt.return_unit)
       in
       let tool =
-        Daemon.task_tree_tool_with_current_workspace ~current_config ~db ~notify
-          ()
+        Daemon_task_tree_helpers.task_tree_tool_with_current_workspace
+          ~current_config ~db ~notify ()
       in
       let context =
         {
@@ -3436,8 +3436,9 @@ let test_refresh_task_tree_tools_replaces_start_agent_workspace_on_reload () =
             ref { Runtime_config.default with workspace = repo1 }
           in
           let session_manager = Session.create ~config:!current_config ~db () in
-          Daemon.refresh_task_tree_tools_with_current_workspace ~current_config
-            ~db registry;
+          Daemon_task_tree_helpers
+          .refresh_task_tree_tools_with_current_workspace ~current_config ~db
+            registry;
           ignore
             (Task_tree.insert_task ~db ~session_key:"default" ~id:"impl"
                ~parent_id:None ~title:"Implement" ~status:Task_tree.Pending
@@ -3447,8 +3448,9 @@ let test_refresh_task_tree_tools_replaces_start_agent_workspace_on_reload () =
           current_config := { !current_config with workspace = repo2 };
           Session.update_config ~source:"test_reload" session_manager
             !current_config;
-          Daemon.refresh_task_tree_tools_with_current_workspace ~current_config
-            ~db registry;
+          Daemon_task_tree_helpers
+          .refresh_task_tree_tools_with_current_workspace ~current_config ~db
+            registry;
           let tool =
             Option.get (Tool_registry.find registry "task_start_agent")
           in

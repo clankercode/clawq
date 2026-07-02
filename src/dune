@@ -278,6 +278,7 @@
   telegram_poll
   telegram_format
   connector_room_progress
+  daemon_task_tree_helpers
   daemon_util_localturn
   daemon_util
   ambient_daemon
