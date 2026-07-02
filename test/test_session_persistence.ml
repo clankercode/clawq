@@ -110,10 +110,10 @@ let test_cwd_allowed_unrestricted () =
   let mgr = make_mgr ~config () in
   Alcotest.(check bool)
     "any absolute path allowed when workspace_only=false" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/opt/something");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/opt/something");
   Alcotest.(check bool)
     "another path allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/home/user/project")
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/home/user/project")
 
 let test_cwd_allowed_unrestricted_with_patterns () =
   (* When workspace_only=false but allowed_cwd_patterns are set,
@@ -125,16 +125,16 @@ let test_cwd_allowed_unrestricted_with_patterns () =
   let mgr = make_mgr ~config () in
   Alcotest.(check bool)
     "matching path allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/repos/myproject/src");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/repos/myproject/src");
   Alcotest.(check bool)
     "exact root matches" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/repos/myproject");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/repos/myproject");
   Alcotest.(check bool)
     "non-matching path blocked" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/opt/other");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/opt/other");
   Alcotest.(check bool)
     "sibling blocked" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/repos/other")
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/repos/other")
 
 let test_cwd_allowed_restricted () =
   let config =
@@ -144,16 +144,16 @@ let test_cwd_allowed_restricted () =
   let mgr = make_mgr ~config () in
   Alcotest.(check bool)
     "workspace root allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace");
   Alcotest.(check bool)
     "subdir of workspace allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace/foo");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace/foo");
   Alcotest.(check bool)
     "extra_allowed_path allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/extra/bar");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/extra/bar");
   Alcotest.(check bool)
     "outside workspace blocked" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/opt/other")
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/opt/other")
 
 let test_cwd_allowed_by_pattern () =
   (* When workspace_only=true, patterns alone are not sufficient — the path
@@ -166,16 +166,16 @@ let test_cwd_allowed_by_pattern () =
   let mgr = make_mgr ~config () in
   Alcotest.(check bool)
     "within workspace AND matching pattern allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace/sub/project");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace/sub/project");
   Alcotest.(check bool)
     "within workspace but non-matching pattern blocked" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace/other");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace/other");
   Alcotest.(check bool)
     "matching pattern but outside workspace blocked" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/other/sub/dir");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/other/sub/dir");
   Alcotest.(check bool)
     "exact pattern path allowed" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace/sub")
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace/sub")
 
 let test_cwd_allowed_glob_pattern () =
   (* Test that $CLAWQ_WORKSPACE/** glob patterns are properly matched *)
@@ -186,16 +186,16 @@ let test_cwd_allowed_glob_pattern () =
   let mgr = make_mgr ~config () in
   Alcotest.(check bool)
     "workspace root matches $CLAWQ_WORKSPACE/**" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace");
   Alcotest.(check bool)
     "subdir matches $CLAWQ_WORKSPACE/**" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace/foo");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace/foo");
   Alcotest.(check bool)
     "deep subdir matches $CLAWQ_WORKSPACE/**" true
-    (Session_core.is_cwd_allowed mgr ~cwd:"/workspace/foo/bar/baz");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/workspace/foo/bar/baz");
   Alcotest.(check bool)
     "outside workspace blocked even with $CLAWQ_WORKSPACE/** pattern" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/other/path")
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/other/path")
 
 let test_cwd_allowed_glob_pattern_with_extra_root () =
   (* When extra_allowed_paths provides an additional root, a pattern like
@@ -209,7 +209,7 @@ let test_cwd_allowed_glob_pattern_with_extra_root () =
   let mgr = make_mgr ~config () in
   Alcotest.(check bool)
     "extra root subdir blocked by restrictive pattern" false
-    (Session_core.is_cwd_allowed mgr ~cwd:"/extra/project");
+    (Session_room_profile.is_cwd_allowed mgr ~cwd:"/extra/project");
   (* But if the pattern is restrictive (not matching extra root paths),
      it should block even under workspace containment *)
   let config2 =
@@ -220,17 +220,19 @@ let test_cwd_allowed_glob_pattern_with_extra_root () =
   let mgr2 = make_mgr ~config:config2 () in
   Alcotest.(check bool)
     "extra root blocked by restrictive pattern" false
-    (Session_core.is_cwd_allowed mgr2 ~cwd:"/extra/project");
+    (Session_room_profile.is_cwd_allowed mgr2 ~cwd:"/extra/project");
   Alcotest.(check bool)
     "workspace subdir matching pattern allowed" true
-    (Session_core.is_cwd_allowed mgr2 ~cwd:"/workspace/specific/app")
+    (Session_room_profile.is_cwd_allowed mgr2 ~cwd:"/workspace/specific/app")
 
 let test_set_effective_cwd_rejected () =
   let config = make_config ~workspace_only:true "/workspace" in
   let db = make_db () in
   let mgr = make_mgr ~config ~db () in
   let key = "test-reject" in
-  let accepted = Session_core.set_effective_cwd mgr ~key ~cwd:"/outside" in
+  let accepted =
+    Session_room_profile.set_effective_cwd mgr ~key ~cwd:"/outside"
+  in
   Alcotest.(check bool) "rejected returns false" false accepted;
   Alcotest.(check (option string))
     "DB not updated" None
@@ -242,7 +244,7 @@ let test_set_effective_cwd_accepted () =
   let mgr = make_mgr ~config ~db () in
   let key = "test-accept" in
   let accepted =
-    Session_core.set_effective_cwd mgr ~key ~cwd:"/workspace/sub"
+    Session_room_profile.set_effective_cwd mgr ~key ~cwd:"/workspace/sub"
   in
   Alcotest.(check bool) "accepted returns true" true accepted;
   Alcotest.(check (option string))
@@ -271,8 +273,8 @@ let test_cwd_precedence_db_over_template () =
       Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some db_dir);
       let tmpl = make_minimal_template ~cwd:(Some template_dir) () in
       let result =
-        Session_core.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
-          ~agent_template:(Some tmpl)
+        Session_room_profile.resolve_initial_cwd mgr ~session_key:key
+          ~db:(Some db) ~agent_template:(Some tmpl)
       in
       Alcotest.(check (option string))
         "DB CWD wins over template" (Some db_dir) result)
@@ -296,8 +298,8 @@ let test_cwd_precedence_config_over_template () =
       let key = "test-precedence-cfg-tmpl" in
       let tmpl = make_minimal_template ~cwd:(Some template_dir) () in
       let result =
-        Session_core.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
-          ~agent_template:(Some tmpl)
+        Session_room_profile.resolve_initial_cwd mgr ~session_key:key
+          ~db:(Some db) ~agent_template:(Some tmpl)
       in
       Alcotest.(check (option string))
         "config workspace wins over template" (Some config_dir) result)
@@ -318,8 +320,8 @@ let test_cwd_precedence_template_over_global () =
       let key = "test-precedence-tmpl-only" in
       let tmpl = make_minimal_template ~cwd:(Some template_dir) () in
       let result =
-        Session_core.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
-          ~agent_template:(Some tmpl)
+        Session_room_profile.resolve_initial_cwd mgr ~session_key:key
+          ~db:(Some db) ~agent_template:(Some tmpl)
       in
       Alcotest.(check (option string))
         "template CWD used when no DB and default config" (Some template_dir)
@@ -343,8 +345,8 @@ let test_cwd_precedence_db_over_config () =
       let key = "test-precedence-db-over-cfg" in
       Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some db_dir);
       let result =
-        Session_core.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
-          ~agent_template:None
+        Session_room_profile.resolve_initial_cwd mgr ~session_key:key
+          ~db:(Some db) ~agent_template:None
       in
       Alcotest.(check (option string))
         "DB CWD wins over config workspace" (Some db_dir) result)
@@ -357,7 +359,7 @@ let test_cwd_precedence_fallback_global () =
   let mgr = make_mgr ~config ~db () in
   let key = "test-precedence-global" in
   let result =
-    Session_core.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
+    Session_room_profile.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
       ~agent_template:None
   in
   Alcotest.(check (option string)) "falls back to global (None)" None result
@@ -378,8 +380,8 @@ let test_cwd_precedence_rejected_template_falls_back () =
       let key = "test-precedence-rejected" in
       let tmpl = make_minimal_template ~cwd:(Some template_dir) () in
       let result =
-        Session_core.resolve_initial_cwd mgr ~session_key:key ~db:(Some db)
-          ~agent_template:(Some tmpl)
+        Session_room_profile.resolve_initial_cwd mgr ~session_key:key
+          ~db:(Some db) ~agent_template:(Some tmpl)
       in
       Alcotest.(check (option string))
         "rejected template falls to global" None result)
@@ -399,19 +401,19 @@ let test_room_sessions_resolve_independent_cwd () =
     ~cwd:(Some "/workspace/room-b");
   (* Resolve each and verify no cross-contamination *)
   let cwd_a =
-    Session_core.resolve_initial_cwd mgr ~session_key:"slack:C-ROOM-A:UA"
-      ~db:(Some db) ~agent_template:None
+    Session_room_profile.resolve_initial_cwd mgr
+      ~session_key:"slack:C-ROOM-A:UA" ~db:(Some db) ~agent_template:None
   in
   let cwd_b =
-    Session_core.resolve_initial_cwd mgr ~session_key:"slack:C-ROOM-B:UB"
-      ~db:(Some db) ~agent_template:None
+    Session_room_profile.resolve_initial_cwd mgr
+      ~session_key:"slack:C-ROOM-B:UB" ~db:(Some db) ~agent_template:None
   in
   Alcotest.(check (option string)) "room A CWD" (Some "/workspace/room-a") cwd_a;
   Alcotest.(check (option string)) "room B CWD" (Some "/workspace/room-b") cwd_b;
   (* Verify that resolving A again still returns A's CWD, not B's *)
   let cwd_a_again =
-    Session_core.resolve_initial_cwd mgr ~session_key:"slack:C-ROOM-A:UA"
-      ~db:(Some db) ~agent_template:None
+    Session_room_profile.resolve_initial_cwd mgr
+      ~session_key:"slack:C-ROOM-A:UA" ~db:(Some db) ~agent_template:None
   in
   Alcotest.(check (option string))
     "room A CWD stable" (Some "/workspace/room-a") cwd_a_again

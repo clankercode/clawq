@@ -57,7 +57,10 @@
   agent_1_context
   agent_2_tools
   agent
+  session_types
   session_core
+  session_heartbeat
+  session_room_profile
   session_turn
   session_autonomous
   session

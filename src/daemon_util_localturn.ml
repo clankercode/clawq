@@ -89,8 +89,8 @@ let run_local_background_turn ~(session_manager : Session.t) ~key ~message
             | None -> base_config
           in
           let instruction_items =
-            Session_core.resolve_instruction_items_for_session session_manager
-              ~key
+            Session_room_profile.resolve_instruction_items_for_session
+              session_manager ~key
           in
           (* P14.M2.E3.T001: create an access snapshot for this background task
              so tools use snapshot-scoped access instead of the live config. *)

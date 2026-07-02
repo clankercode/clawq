@@ -242,7 +242,8 @@ let handle_agent_mention mgr ~key ?notify message =
           else
             let tool_registry = resolve_agent_template_registry mgr tmpl in
             let instruction_items =
-              Session_core.resolve_instruction_items_for_session mgr ~key
+              Session_room_profile.resolve_instruction_items_for_session mgr
+                ~key
             in
             let agent =
               Agent.create ~config:mgr.config ?tool_registry
@@ -256,7 +257,7 @@ let handle_agent_mention mgr ~key ?notify message =
                       Lwt.catch (fun () -> send msg) (fun _ -> Lwt.return_unit))
             | None -> ());
             let on_llm_call_debug =
-              Session_core.debug_callback_for mgr ~key notify
+              Session_heartbeat.debug_callback_for mgr ~key notify
             in
             let* response =
               Lwt.catch
@@ -338,7 +339,9 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
-      let on_llm_call_debug = Session_core.debug_callback_for mgr ~key notify in
+      let on_llm_call_debug =
+        Session_heartbeat.debug_callback_for mgr ~key notify
+      in
       (* Wire project doc notification callback *)
       (match notify with
       | Some send ->
@@ -783,8 +786,8 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         agent.Agent.access_snapshot <- None);
                     (match cwd with
                     | Some c ->
-                        Session_core.apply_cwd_change_for_turn mgr ~key agent
-                          ~cwd:c
+                        Session_room_profile.apply_cwd_change_for_turn mgr ~key
+                          agent ~cwd:c
                     | None -> ());
                     let* response =
                       run_locked_turn mgr ~key agent interrupt ~message
@@ -996,7 +999,7 @@ let temporary_agent_debug_callback mgr ?parent_key ?debug_notify () =
         | Some send -> Some send
         | None -> Session_core.find_registered_notifier mgr ~key
       in
-      Session_core.debug_callback_for mgr ~key notify
+      Session_heartbeat.debug_callback_for mgr ~key notify
 
 let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
     ~send_reply () =
@@ -1024,8 +1027,8 @@ let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
                 let instruction_items =
                   match parent_key with
                   | Some key ->
-                      Session_core.resolve_instruction_items_for_session mgr
-                        ~key
+                      Session_room_profile.resolve_instruction_items_for_session
+                        mgr ~key
                   | None -> []
                 in
                 let agent =
@@ -1096,8 +1099,8 @@ let delegate_turn mgr ?parent_key ?debug_notify ?agent_name ~prompt ~send_reply
                 let instruction_items =
                   match parent_key with
                   | Some key ->
-                      Session_core.resolve_instruction_items_for_session mgr
-                        ~key
+                      Session_room_profile.resolve_instruction_items_for_session
+                        mgr ~key
                   | None -> []
                 in
                 let agent =
@@ -1176,7 +1179,7 @@ let fork_and_run mgr ~parent_key ?debug_notify ?agent_name ~prompt ~send_reply
                   Session_core.snapshot_history mgr ~key:parent_key
                 in
                 let instruction_items =
-                  Session_core.resolve_instruction_items_for_session mgr
+                  Session_room_profile.resolve_instruction_items_for_session mgr
                     ~key:parent_key
                 in
                 let agent =
@@ -1302,8 +1305,8 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         agent.Agent.access_snapshot <- None);
                     (match cwd with
                     | Some c ->
-                        Session_core.apply_cwd_change_for_turn mgr ~key agent
-                          ~cwd:c
+                        Session_room_profile.apply_cwd_change_for_turn mgr ~key
+                          agent ~cwd:c
                     | None -> ());
                     let interrupt_check () = !interrupt in
                     interrupt := None;
@@ -1378,7 +1381,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                           Session_core.find_registered_notifier mgr ~key
                         in
                         let on_llm_call_debug =
-                          Session_core.debug_callback_for mgr ~key notify
+                          Session_heartbeat.debug_callback_for mgr ~key notify
                         in
                         (match notify with
                         | Some send ->
