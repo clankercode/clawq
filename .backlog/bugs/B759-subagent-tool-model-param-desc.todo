@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B759
+priority: high
+status: pending
+tags: []
+title: Subagent tool model param description should advise checking models list for available providers
+---
+
+Subagent tool model param description should advise checking models list for available providers
