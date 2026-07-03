@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B760
+priority: high
+status: pending
+tags: []
+title: Parent agent should be notified when subagent completes, not told to poll subagent_result
+---
+
+Parent agent should be notified when subagent completes, not told to poll subagent_result
