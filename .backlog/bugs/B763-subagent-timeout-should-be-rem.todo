@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B763
+priority: high
+status: pending
+tags: []
+title: Subagent timeout should be removed or based on tool call count, not wall-clock time
+---
+
+Subagent timeout should be removed or based on tool call count, not wall-clock time

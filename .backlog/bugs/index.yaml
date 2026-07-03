@@ -756,3 +756,4 @@ bugs:
     - file: B760-parent-agent-should-be-notifie.todo
     - file: B761-bash-tool-should-warn-and-sugg.todo
     - file: B762-subagent-tool-response-should.todo
+    - file: B763-subagent-timeout-should-be-rem.todo
