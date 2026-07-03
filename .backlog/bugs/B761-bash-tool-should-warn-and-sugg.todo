@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B761
+priority: high
+status: pending
+tags: []
+title: Bash tool should warn and suggest cwd param when command starts with 'cd <dir> &&'
+---
+
+Bash tool should warn and suggest cwd param when command starts with 'cd <dir> &&'

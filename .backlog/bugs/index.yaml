@@ -754,3 +754,4 @@ bugs:
     - file: B758-subagent-should-default-to-par.todo
     - file: B759-subagent-tool-model-param-desc.todo
     - file: B760-parent-agent-should-be-notifie.todo
+    - file: B761-bash-tool-should-warn-and-sugg.todo
