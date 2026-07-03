@@ -751,3 +751,4 @@ bugs:
     - file: B755-rename-shell-exec-tool-to-bash.todo
     - file: B756-full-ux-onboarding-review-for.todo
     - file: B757-add-background-parameter-to-ba.todo
+    - file: B758-subagent-should-default-to-par.todo

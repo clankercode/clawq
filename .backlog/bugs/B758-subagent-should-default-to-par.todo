@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B758
+priority: high
+status: pending
+tags: []
+title: Subagent should default to parent session model when no model specified
+---
+
+Subagent should default to parent session model when no model specified
