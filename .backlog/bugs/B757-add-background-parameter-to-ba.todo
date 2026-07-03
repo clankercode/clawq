@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B757
+priority: medium
+status: pending
+tags: []
+title: Add background parameter to bash tool
+---
+
+Add background parameter to bash tool
