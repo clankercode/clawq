@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-07-03T06:32:58Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B758
 priority: high
-status: pending
+started_at: "2026-07-03T06:32:58Z"
+status: in_progress
 tags: []
 title: Subagent should default to parent session model when no model specified
 ---
