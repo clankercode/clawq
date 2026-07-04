@@ -132,16 +132,15 @@ let test_consolidated_handler_bash_output_delta_preview () =
               arguments = "{\"command\":\"make test\"}";
             })
      in
+     Alcotest.(check int) "no edits after start" 0 (List.length !edited);
      let* () =
        handler.on_chunk
          (Provider.ToolOutputDelta
             { id = "t1"; chunk = "line1\nline2\nline3\nline4\nline5\n" })
      in
-     let streaming_edit =
-       match !edited with
-       | (_, text) :: _ -> text
-       | [] -> Alcotest.fail "expected edit after output delta"
-     in
+     Alcotest.(check int)
+       "output delta does not edit immediately" 0 (List.length !edited);
+     let streaming_edit = Status_message.render sm in
      Alcotest.(check bool)
        "streaming preview shows recent output" true
        (Test_helpers.string_contains streaming_edit "line5");
@@ -169,6 +168,52 @@ let test_consolidated_handler_bash_output_delta_preview () =
      Alcotest.(check bool)
        "final result clears streaming-only output" false
        (Test_helpers.string_contains final_edit "line5");
+     handler.finalize ())
+
+let test_consolidated_handler_ignores_irrelevant_output_deltas () =
+  let notifier, _sent, edited, _deleted = mock_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  let handler =
+    Status_update.make_handler ~strategy:Consolidated
+      ~notifier_factory:(Some (fun () -> sm))
+      ~notify:(fun _ -> Lwt.return_unit)
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolStart
+            { id = "t1"; name = "file_read"; arguments = "{\"path\":\"a.ml\"}" })
+     in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolOutputDelta { id = "t1"; chunk = "non-shell-output" })
+     in
+     Alcotest.(check int)
+       "non-shell delta does not edit" 0 (List.length !edited);
+     Alcotest.(check bool)
+       "non-shell delta is not rendered" false
+       (Test_helpers.string_contains (Status_message.render sm)
+          "non-shell-output");
+     let* () =
+       handler.on_chunk
+         (Provider.ToolResult
+            { id = "t1"; name = "file_read"; result = "ok"; is_error = false })
+     in
+     let edits_after_result = List.length !edited in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolOutputDelta { id = "t1"; chunk = "late-output" })
+     in
+     Alcotest.(check int)
+       "completed delta does not edit" edits_after_result (List.length !edited);
+     Alcotest.(check bool)
+       "completed delta is not rendered" false
+       (Test_helpers.string_contains (Status_message.render sm) "late-output");
      handler.finalize ())
 
 let test_individual_handler () =
@@ -345,6 +390,8 @@ let tests =
       test_consolidated_handler_thinking;
     Alcotest.test_case "consolidated handler bash output delta preview" `Quick
       test_consolidated_handler_bash_output_delta_preview;
+    Alcotest.test_case "consolidated handler ignores irrelevant output deltas"
+      `Quick test_consolidated_handler_ignores_irrelevant_output_deltas;
     Alcotest.test_case "individual handler" `Quick test_individual_handler;
     Alcotest.test_case "buffered handler" `Quick test_buffered_handler;
     Alcotest.test_case "consolidated handler resets on inject" `Quick

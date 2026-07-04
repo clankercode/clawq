@@ -497,7 +497,7 @@ let tool_output_delta t ~id ~chunk =
         coalesce_output_tail ?existing:entry.output_tail chunk
       in
       Hashtbl.replace t.tools id { entry with output_tail };
-      send_or_edit t
+      Lwt.return_unit
   | _ -> Lwt.return_unit
 
 let tool_result t ~id ~name:_ ~result ~is_error =
