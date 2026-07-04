@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-04T07:22:21Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-04T07:58:18Z"
 complexity: medium
 depends_on: []
+duration_minutes: 35.95373407666666
 estimate_hours: 1
 id: B760
 priority: high
 started_at: "2026-07-04T07:22:21Z"
-status: in_progress
+status: done
 tags: []
 title: Parent agent should be notified when subagent completes, not told to poll subagent_result
 ---

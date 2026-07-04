@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-04T07:22:21Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-04T07:58:18Z"
 complexity: medium
 depends_on: []
+duration_minutes: 35.95361104745
 estimate_hours: 1
 id: B759
 priority: high
 started_at: "2026-07-04T07:22:21Z"
-status: in_progress
+status: done
 tags: []
 title: Subagent tool model param description should advise checking models list for available providers
 ---
