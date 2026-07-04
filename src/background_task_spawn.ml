@@ -614,8 +614,6 @@ let default_spawn_task ?augment_env ~on_task_started ~on_task_finished ~db task
     =
   spawn_task ?augment_env ~on_task_started ~on_task_finished ~db task
 
-let local_task_timeout_seconds = Background_task_local.timeout_seconds_default
-
 let local_task_deps : Background_task_local.deps =
   {
     prepare_worktree = (fun task -> prepare_worktree task);

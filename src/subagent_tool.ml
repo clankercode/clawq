@@ -1,11 +1,12 @@
 (* B712: Clean LLM-facing subagent tools wrapping the background task
-   infrastructure. Two tools: subagent (spawn) and subagent_result (poll/wait). *)
+   infrastructure. Two tools: subagent (spawn) and subagent_result (inspect/wait). *)
 
 let max_result_chars = 20_000
 let max_peek_lines = 200
 let max_subagent_depth = 4
 let max_subagent_result_wait_seconds = 270.0
 let prompt_cache_wait_margin_seconds = 5.0
+let spawn_prompt_preview_chars = 120
 
 let prompt_cache_retention_seconds retention =
   match Scheduler.parse_duration_seconds (String.trim retention) with
@@ -58,8 +59,14 @@ let effective_subagent_model ~config (task : Background_task.task) =
   match (nonblank_opt task.model, template_model) with
   | (Some _ as model), _ -> model
   | None, (Some _ as model) -> model
-  | None, None ->
-      nonblank_opt config.Runtime_config.agent_defaults.subagent_default_model
+  | None, None -> (
+      match
+        nonblank_opt config.Runtime_config.agent_defaults.subagent_default_model
+      with
+      | Some _ as model -> model
+      | None ->
+          nonblank_opt (Some config.Runtime_config.agent_defaults.primary_model)
+      )
 
 let subagent_result_wait_timeout_seconds_for_task ~config task =
   subagent_result_wait_timeout_seconds
@@ -90,6 +97,11 @@ let truncate_with_guidance ~max text =
        [Truncated at %d chars — %d chars total. Use peek.lines or the output \
        log file for the full content.]"
       prefix max len
+
+let spawn_prompt_preview text =
+  let len = String.length text in
+  if len <= spawn_prompt_preview_chars then text
+  else String.sub text 0 spawn_prompt_preview_chars ^ "..."
 
 let read_file_lines path =
   try
@@ -237,8 +249,8 @@ let spawn_tool ~db =
     Tool.name = "subagent";
     description =
       "Spawn a background subagent to work on a task autonomously. Returns a \
-       task id and session key. Use subagent_result to poll or wait for \
-       completion.";
+       task id and session key. The parent session is notified automatically \
+       when the subagent completes.";
     parameters_schema =
       `Assoc
         [
@@ -262,7 +274,9 @@ let spawn_tool ~db =
                       ( "description",
                         `String
                           "Optional model override in provider:model format \
-                           (e.g. openai-codex:gpt-5.4)." );
+                           (e.g. openai-codex:gpt-5.4). Check the models list \
+                           for available providers/models before setting this."
+                      );
                     ] );
                 ( "agent_template",
                   `Assoc
@@ -382,9 +396,14 @@ let spawn_tool ~db =
                   (Printf.sprintf
                      "Spawned subagent task %d%s.\n\
                       Session key: %s\n\n\
-                      Use subagent_result with {\"id\": %d} to poll status, or \
-                      {\"id\": %d, \"wait\": true} to block until completion."
-                     id desc_suffix session_key id id)
+                      Prompt preview: %s\n\n\
+                      The parent session will be notified automatically when \
+                      this subagent completes. Use subagent_result with \
+                      {\"id\": %d} only if you need to inspect status, output, \
+                      or logs before then."
+                     id desc_suffix session_key
+                     (spawn_prompt_preview goal)
+                     id)
             | Error msg -> Lwt.return ("Error: " ^ msg));
     invoke_stream = None;
     risk_level = Medium;

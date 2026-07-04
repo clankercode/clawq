@@ -3172,6 +3172,8 @@ let test_subagent_result_wait_budget_uses_default_subagent_model () =
       ~subagent_retention:(Some "2m")
   in
   let task = fake_started_task ~status:Background_task.Running 724 in
+  (* Match local subagent execution: with no explicit task/template model,
+     subagent_default_model controls the child model when configured. *)
   Alcotest.(check (float 0.0))
     "uses child default model cache ttl" 115.0
     (Subagent_tool.subagent_result_wait_timeout_seconds_for_task ~config:cfg
@@ -3185,10 +3187,86 @@ let test_subagent_result_wait_budget_template_falls_back_to_default_model () =
   let task =
     fake_started_task ~agent_name:"coder" ~status:Background_task.Running 725
   in
+  (* Coder template has no model override, so subagent_default_model applies. *)
   Alcotest.(check (float 0.0))
     "uses subagent default when template has no model" 115.0
     (Subagent_tool.subagent_result_wait_timeout_seconds_for_task ~config:cfg
        task)
+
+let test_subagent_result_wait_budget_falls_back_to_primary_model () =
+  (* When no subagent default is configured, wait guidance falls back to primary. *)
+  let cfg =
+    let base =
+      subagent_two_provider_config ~primary_retention:(Some "24h")
+        ~subagent_retention:(Some "2m")
+    in
+    {
+      base with
+      agent_defaults =
+        { base.agent_defaults with subagent_default_model = None };
+    }
+  in
+  let task = fake_started_task ~status:Background_task.Running 726 in
+  Alcotest.(check (float 0.0))
+    "uses primary model when subagent default absent" 270.0
+    (Subagent_tool.subagent_result_wait_timeout_seconds_for_task ~config:cfg
+       task)
+
+let test_subagent_tool_model_description_points_to_models_list () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let tool = Subagent_tool.spawn_tool ~db in
+  let open Yojson.Safe.Util in
+  let description =
+    tool.Tool.parameters_schema |> member "properties" |> member "model"
+    |> member "description" |> to_string
+  in
+  Alcotest.(check bool)
+    "points agents to models list" true
+    (Test_helpers.string_contains description "models list");
+  Alcotest.(check bool)
+    "mentions providers/models" true
+    (Test_helpers.string_contains description "providers/models")
+
+let test_subagent_tool_response_notifies_and_previews_prompt () =
+  with_temp_git_repo (fun repo_path ->
+      let cwd = Sys.getcwd () in
+      Fun.protect
+        ~finally:(fun () -> Sys.chdir cwd)
+        (fun () ->
+          Sys.chdir repo_path;
+          let db = Memory.init ~db_path:":memory:" () in
+          Background_task.init_schema db;
+          let prompt = String.make 130 'p' ^ "tail" in
+          let tool = Subagent_tool.spawn_tool ~db in
+          Alcotest.(check bool)
+            "description says parent is notified" true
+            (Test_helpers.string_contains tool.Tool.description
+               "parent session is notified automatically");
+          Alcotest.(check bool)
+            "description does not tell parent to poll" false
+            (Test_helpers.string_contains tool.Tool.description "poll");
+          let context =
+            { Tool.default_context with session_key = Some "telegram:1:parent" }
+          in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke ~context (`Assoc [ ("goal", `String prompt) ]))
+          in
+          Alcotest.(check bool)
+            "includes 120 char prompt preview with ellipsis" true
+            (Test_helpers.string_contains result
+               ("Prompt preview: " ^ String.make 120 'p' ^ "..."));
+          Alcotest.(check bool)
+            "does not include more than 120 prompt chars" false
+            (Test_helpers.string_contains result (String.make 121 'p'));
+          Alcotest.(check bool)
+            "says parent session is notified" true
+            (Test_helpers.string_contains result
+               "parent session will be notified automatically");
+          Alcotest.(check bool)
+            "does not tell parent to poll" false
+            (Test_helpers.string_contains result "poll status")))
 
 let test_subagent_result_queued_system_message_does_not_steer () =
   with_temp_git_repo (fun repo_path ->
@@ -5047,7 +5125,7 @@ let test_reap_local_task_message () =
             (Background_task.string_of_status task.status);
           Alcotest.(check int) "restart_count incremented" 1 task.restart_count)
 
-let test_spawn_local_task_timeout () =
+let test_spawn_local_task_explicit_timeout () =
   let dir = Filename.temp_dir "clawq-bg-local-timeout" "" in
   Fun.protect
     (fun () ->
@@ -7309,6 +7387,13 @@ let suite =
     Alcotest.test_case
       "subagent_result template falls back to default subagent model" `Quick
       test_subagent_result_wait_budget_template_falls_back_to_default_model;
+    Alcotest.test_case
+      "subagent_result falls back to primary model when subagent default absent"
+      `Quick test_subagent_result_wait_budget_falls_back_to_primary_model;
+    Alcotest.test_case "subagent tool model description points to models list"
+      `Quick test_subagent_tool_model_description_points_to_models_list;
+    Alcotest.test_case "subagent tool response notifies and previews prompt"
+      `Quick test_subagent_tool_response_notifies_and_previews_prompt;
     Alcotest.test_case "subagent_result queued system message does not steer"
       `Quick test_subagent_result_queued_system_message_does_not_steer;
     Alcotest.test_case
@@ -7461,8 +7546,8 @@ let suite =
       test_health_local_task_stalled;
     Alcotest.test_case "reap local task message" `Quick
       test_reap_local_task_message;
-    Alcotest.test_case "spawn local task timeout" `Quick
-      test_spawn_local_task_timeout;
+    Alcotest.test_case "spawn local task explicit timeout" `Quick
+      test_spawn_local_task_explicit_timeout;
     Alcotest.test_case "spawn local task success" `Quick
       test_spawn_local_task_success;
     Alcotest.test_case "spawn local task failure marks failed" `Quick

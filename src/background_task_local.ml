@@ -30,10 +30,16 @@ type deps = {
   resume_prompt_of_messages : string list -> string;
 }
 
-let timeout_seconds_default = 600.0
+let run_turn_with_optional_timeout ?timeout_seconds run_turn =
+  match timeout_seconds with
+  | None ->
+      let open Lwt.Syntax in
+      let* result = run_turn () in
+      Lwt.return_ok result
+  | Some timeout_s -> Resilience.with_timeout ~timeout_s run_turn
 
-let spawn ?(timeout_seconds = timeout_seconds_default) (deps : deps) ~run_turn
-    ~on_task_started ~on_task_finished ~db (task : task) =
+let spawn ?timeout_seconds (deps : deps) ~run_turn ~on_task_started
+    ~on_task_finished ~db (task : task) =
   let cancel_state = { cancelled = ref false } in
   Hashtbl.replace running task.id cancel_state;
   let finish_and_notify ~status ~result_preview =
@@ -101,15 +107,15 @@ let spawn ?(timeout_seconds = timeout_seconds_default) (deps : deps) ~run_turn
                 (fun () ->
                   Lwt.catch
                     (fun () ->
-                      let* timed_result =
-                        Resilience.with_timeout ~timeout_s:timeout_seconds
+                      let* turn_result =
+                        run_turn_with_optional_timeout ?timeout_seconds
                           (fun () ->
                             run_turn ~key:session_key ~message:effective_prompt
                               ?model:task.model ?agent_name:task.agent_name ?cwd
                               ?context_snapshot:task.context_snapshot
                               ~interrupt_check ~on_history_update ())
                       in
-                      match timed_result with
+                      match turn_result with
                       | Error timeout_msg ->
                           append_log_line ~log_path
                             (Printf.sprintf "[clawq] timed out: %s" timeout_msg);
