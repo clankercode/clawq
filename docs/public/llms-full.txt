@@ -503,7 +503,7 @@ Built-in tool availability depends on runtime configuration and wiring. Core hel
 
 | Tool | Description |
 |------|-------------|
-| `shell_exec` | Execute a shell command (37-command allowlist when workspace_only, no pipes/semicolons/redirects/subshells; optional `head`/`tail` line windows on final stdout/stderr result; timeout 30s default, 600s max). On user interrupt, the process is moved to a background shell instead of being killed — use `bg_shell_status`/`bg_shell_wait`/`bg_shell_result` to track it |
+| `shell_exec` | Execute a shell command (37-command allowlist when workspace_only, no pipes/semicolons/redirects/subshells; optional `cwd`, `head`/`tail` line windows on final stdout/stderr result, `background=true` for immediate background-shell handoff, timeout 30s default, 600s max). On user interrupt, the process is also moved to a background shell instead of being killed - use `bg_shell_status`/`bg_shell_wait`/`bg_shell_result` to track it |
 | `file_read` | Read a file's text content (50K char limit; use offset/limit for larger files) |
 | `file_write` | Create or overwrite a file with the given content |
 | `file_append` | Append content to the end of a file, creating it if it does not exist |
@@ -534,7 +534,7 @@ Built-in tool availability depends on runtime configuration and wiring. Core hel
 | `task_start_agent` | Start one `task_tree` task as a native/local subagent using that task's `agent_prompt`, optional `agent_model`, and optional `agent_type`; records the queued background task id back on the task |
 | `subagent` | Spawn a native/local subagent task backed by background-task infrastructure |
 | `subagent_result` | Read or wait for a native/local subagent result. With `wait=true`, wait in prompt-cache-aware intervals and return early if queued steering or interruption needs parent-session attention |
-| `bg_shell_status` | Check the status of a background shell job (created when shell_exec is interrupted). Returns status, elapsed time, and last 20 lines of log |
+| `bg_shell_status` | Check the status of a background shell job (created by `shell_exec` with `background=true` or when `shell_exec` is interrupted). Returns status, elapsed time, and last 20 lines of log |
 | `bg_shell_wait` | Wait for a background shell job to complete (max 110s). Returns job result on completion, or timeout/interrupt message |
 | `bg_shell_result` | Get the result and log output of a completed background shell job. Supports `head`/`tail` line windowing |
 | `background_finalize` | Finalize a completed background task by rebasing its worktree branch onto the target branch, fast-forward merging, and cleaning up the worktree. Refuses to proceed if the worktree has uncommitted changes (staged or unstaged). Use after automerge fails or when manually finalizing |
@@ -551,7 +551,7 @@ Background delegation notes:
 - CLI slash commands and `clawq background` commands remain the lower-level control surface: queue work, inspect task metadata, wait for completion, read captured logs, resume a prior run, inject follow-up task messages, cancel a run, or finalize (rebase and fast-forward merge) a completed task.
 - Background task worktrees live under `~/.clawq/background-worktrees/`.
 - Background task logs live under `~/.clawq/background-logs/`.
-- Background shell job logs (from interrupted shell_exec) live under `~/.clawq/bg-shells/`.
+- Background shell job logs (from explicit `background=true` or interrupted `shell_exec`) live under `~/.clawq/bg-shells/`.
 - Automerge: background task CLI flows can use `automerge` (bool, default true) and `use_worktree` (bool, default true). When `automerge` is true and the task succeeds, the daemon automatically rebases the task branch onto the target branch, fast-forwards the target branch (via `git merge --ff-only` when the target is checked out, or `git update-ref` otherwise), and cleans up the worktree. If a conflict occurs, the task is marked and the parent agent is notified to use `background_finalize` to retry. If the worktree has uncommitted changes (staged or unstaged), automerge and `background_finalize` refuse to proceed and report the dirty state — commit or discard changes first. `use_worktree=false` runs the agent directly in the repo directory without worktree isolation (automerge is ignored).
 - Resume/message flow: `background resume`, `background message`, `background send`, and `subagents send` work for tasks that already started. External runners track their session ID automatically: Claude pre-assigns a UUID via `--session-id`, Codex parses JSONL `thread_id` from `--json` output, OpenCode/Kimi/Cursor extract session IDs from log output via regex, and Gemini uses index-based resume (no specific ID). Local tasks resume the stable `__bg_task:<id>` session. Message delivery is durable and replayed FIFO into the resumed runner invocation. Use `subagents transcript <id>` for bounded transcript access; regex filtering is applied before the 200-line default and 300-line hard cap, and oversized results are exported as JSONL instead of injected inline.
 - Runner question relay: when a background task is spawned, the daemon auto-sets `CLAWQ_RUNNER_TOKEN`, `CLAWQ_MCP_URL`, and `CLAWQ_RUNNER_ASK_URL` env vars in the runner process. Runners can use the MCP endpoint (standard `tools/list` + `tools/call`) or the REST endpoint (`POST /runner/ask` with `{"questions":[...]}`) to relay questions back to the user's active channel. Tokens are localhost-only, SHA256-hashed in memory, with configurable TTL (default 24h). Manual tokens: `clawq runner token --session KEY`.
@@ -631,12 +631,14 @@ Agent dispatch surfaces:
 - `&&`, `||`, pipes, redirects, subshells, glob expansion by the shell, and similar compound shell syntax are rejected in `workspace_only` mode.
 - `HOME` and `PATH` are set explicitly for the child process; existing common user binary directories (`~/.local/share/pnpm`, `~/.local/share/pnpm/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin`, `~/.npm-global/bin`, and `~/.opam/*/bin`) are appended to `PATH`; other environment inheritance is intentionally minimal.
 - Timeout defaults to 30 seconds. The LLM can pass a `timeout` parameter (in seconds, max 600) for longer-running commands.
+- The LLM can pass `background=true` to return immediately with a background shell job ID and continue tracking output through `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result`.
 
 ### `shell_exec` when `security.workspace_only = false`
 
 - Commands are executed via `Lwt_process.shell`, so normal `/bin/sh -c`-style shell semantics apply.
 - Shell builtins and compound syntax generally work here.
 - Optional `cwd` still works here and can be used to make worktree-targeting explicit instead of relying on persistent shell state.
+- Commands starting with `cd <dir> &&` still run, but clawq warns the LLM to pass `cwd="<dir>"` and remove the `cd` prefix.
 - Optional `head` and `tail` still apply to the final returned `stdout`/`stderr` text here, and omitted full streams are saved under `~/.clawq/tool-output/`.
 - Filesystem isolation is not applied in this mode; shell sees the host filesystem like the file tools do.
 

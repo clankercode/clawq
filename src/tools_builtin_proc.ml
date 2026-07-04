@@ -521,8 +521,9 @@ let shell_command_display (cmd : string * string array) =
   | command, [||] -> command
   | command, argv -> command ^ " " ^ String.concat " " (Array.to_list argv)
 
-let run_process_with_timeout ?interrupt_check ?on_output_chunk ~cwd ~env ~cmd
-    ~timeout_secs ~head_lines ~tail_lines () =
+let run_process_with_timeout ?interrupt_check ?on_output_chunk
+    ?(background = false) ~cwd ~env ~cmd ~timeout_secs ~head_lines ~tail_lines
+    () =
   let open Lwt.Syntax in
   let proc =
     match cmd with
@@ -540,6 +541,15 @@ let run_process_with_timeout ?interrupt_check ?on_output_chunk ~cwd ~env ~cmd
   let bg_job : Bg_shell.job option ref = ref None in
   let finish_runner result =
     if Lwt.is_sleeping runner_result then Lwt.wakeup_later runner_wakener result
+  in
+  let start_background_job () =
+    let job =
+      Bg_shell.create ~pid:proc.pid ~command:(shell_command_display cmd) ~cwd
+    in
+    bg_job := Some job;
+    let msg = Bg_shell.format_job_info job in
+    forced_result := Some msg;
+    msg
   in
   Lwt.async (fun () ->
       Lwt.catch
@@ -583,43 +593,38 @@ let run_process_with_timeout ?interrupt_check ?on_output_chunk ~cwd ~env ~cmd
           | None -> ());
           finish_runner (Error exn);
           Lwt.return_unit));
-  let timeout =
-    let* () = Lwt_unix.sleep timeout_secs in
-    let output =
-      Printf.sprintf "Error: command timed out after %.0f seconds" timeout_secs
+  if background then Lwt.return (start_background_job ())
+  else
+    let timeout =
+      let* () = Lwt_unix.sleep timeout_secs in
+      let output =
+        Printf.sprintf "Error: command timed out after %.0f seconds"
+          timeout_secs
+      in
+      forced_result := Some output;
+      let* () = Process_group.terminate proc.pid in
+      let* _ = runner_result in
+      Lwt.return (`Done output)
     in
-    forced_result := Some output;
-    let* () = Process_group.terminate proc.pid in
-    let* _ = runner_result in
-    Lwt.return (`Done output)
-  in
-  let interrupt =
-    match interrupt_check with
-    | None -> fst (Lwt.wait ())
-    | Some _ ->
-        let* () = wait_for_interrupt interrupt_check in
-        let job =
-          Bg_shell.create ~pid:proc.pid
-            ~command:(shell_command_display cmd)
-            ~cwd
-        in
-        bg_job := Some job;
-        let msg = Bg_shell.format_job_info job in
-        forced_result := Some msg;
-        Lwt.return (`Done msg)
-  in
-  let* outcome =
-    Lwt.pick
-      [
-        (let* result = runner_result in
-         match !forced_result with
-         | Some output -> Lwt.return (`Done output)
-         | None -> Lwt.return (`Runner result));
-        timeout;
-        interrupt;
-      ]
-  in
-  match outcome with
-  | `Runner (Ok result) -> Lwt.return result
-  | `Runner (Error exn) -> Lwt.fail exn
-  | `Done result -> Lwt.return result
+    let interrupt =
+      match interrupt_check with
+      | None -> fst (Lwt.wait ())
+      | Some _ ->
+          let* () = wait_for_interrupt interrupt_check in
+          Lwt.return (`Done (start_background_job ()))
+    in
+    let* outcome =
+      Lwt.pick
+        [
+          (let* result = runner_result in
+           match !forced_result with
+           | Some output -> Lwt.return (`Done output)
+           | None -> Lwt.return (`Runner result));
+          timeout;
+          interrupt;
+        ]
+    in
+    match outcome with
+    | `Runner (Ok result) -> Lwt.return result
+    | `Runner (Error exn) -> Lwt.fail exn
+    | `Done result -> Lwt.return result

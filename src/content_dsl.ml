@@ -129,9 +129,24 @@ let render_block c = function
             | Some t -> " " ^ Format_adapter.escape c t
             | None -> ""
           in
-          Printf.sprintf "%s\xE2\x97\x89 %s %s%s%s" prefix emoji
+          let preview_part =
+            match preview with
+            | Some p when String.trim p <> "" ->
+                let lb = Format_adapter.line_break c in
+                String.split_on_char '\n' (String.trim p)
+                |> List.filter (fun line -> String.trim line <> "")
+                |> List.map (fun line ->
+                    let line =
+                      Stream_visibility.truncate_text ~max_chars:80 line
+                    in
+                    Printf.sprintf "%s  \xE2\x94\x94 %s" lb
+                      (Format_adapter.italic c (Format_adapter.escape c line)))
+                |> String.concat ""
+            | _ -> ""
+          in
+          Printf.sprintf "%s\xE2\x97\x89 %s %s%s%s%s" prefix emoji
             (Format_adapter.bold c (Format_adapter.escape c name))
-            summary_part timing_part
+            summary_part timing_part preview_part
       | Pending -> Printf.sprintf "%s\xE2\x97\x8B %s %s" prefix emoji name)
   | ProgressBar { filled; total; done_count } ->
       let bar_width = 8 in

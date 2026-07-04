@@ -112,8 +112,9 @@ let make_handler ~strategy ~notifier_factory ~notify
                   Status_message.update_thinking !sm text
                 end
                 else Lwt.return_unit
-            | Provider.Delta _ | Provider.ToolCallDelta _
-            | Provider.ToolOutputDelta _ | Provider.Done ->
+            | Provider.ToolOutputDelta { id; chunk } ->
+                Status_message.tool_output_delta !sm ~id ~chunk
+            | Provider.Delta _ | Provider.ToolCallDelta _ | Provider.Done ->
                 Lwt.return_unit
           in
           let finalize () = Status_message.finalize !sm in

@@ -2490,6 +2490,51 @@ let test_shell_exec_interrupt_moves_to_background () =
       | None -> Alcotest.fail "bg_shell job not found");
       try Sys.remove pid_file with _ -> ())
 
+let test_shell_exec_background_parameter_starts_job () =
+  with_temp_workspace (fun workspace ->
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("command", `String "echo background-ready");
+                  ("background", `Bool true);
+                ]))
+      in
+      Alcotest.(check bool)
+        "result contains bg job info" true
+        (Test_helpers.string_contains result "Background shell job");
+      Alcotest.(check bool)
+        "result contains bg_shell_result hint" true
+        (Test_helpers.string_contains result "bg_shell_result");
+      let job_id =
+        try
+          let re = Str.regexp {|Background shell job #\([0-9]+\)|} in
+          ignore (Str.search_forward re result 0);
+          int_of_string (Str.matched_group 1 result)
+        with _ -> Alcotest.fail "could not parse job ID"
+      in
+      let wait_tool = Tools_bg_shell.bg_shell_wait () in
+      ignore
+        (Lwt_main.run
+           (wait_tool.Tool.invoke
+              (`Assoc [ ("id", `Int job_id); ("timeout_seconds", `Float 5.0) ])));
+      match Bg_shell.find job_id with
+      | Some job ->
+          let log = Bg_shell.read_log job () in
+          Alcotest.(check bool)
+            "log contains background output" true
+            (Test_helpers.string_contains log "background-ready")
+      | None -> Alcotest.fail "bg_shell job not found")
+
 let test_shell_exec_timeout_kills_descendants () =
   with_temp_workspace (fun workspace ->
       let sandbox =
@@ -2562,6 +2607,34 @@ let test_extract_cd_prefix () =
   Alcotest.(check opt)
     "just cd no &&" None
     (Tools_builtin.extract_cd_prefix "cd /tmp")
+
+let test_shell_exec_cd_prefix_suggests_cwd_parameter () =
+  with_temp_workspace (fun workspace ->
+      let subdir = Filename.concat workspace "subdir" in
+      Unix.mkdir subdir 0o755;
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let command = Printf.sprintf "cd %s && pwd" subdir in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("command", `String command) ]))
+      in
+      Alcotest.(check bool)
+        "warns about cd prefix" true
+        (Test_helpers.string_contains result "Warning:");
+      Alcotest.(check bool)
+        "suggests cwd parameter" true
+        (Test_helpers.string_contains result "cwd");
+      Alcotest.(check bool)
+        "still runs from subdir" true
+        (Test_helpers.string_contains result subdir);
+      Unix.rmdir subdir)
 
 let test_shell_exec_injects_session_id_env () =
   with_temp_workspace (fun workspace ->
@@ -4274,6 +4347,8 @@ let suite =
       test_shell_exec_interrupts_running_process;
     Alcotest.test_case "shell_exec interrupt moves to background" `Quick
       test_shell_exec_interrupt_moves_to_background;
+    Alcotest.test_case "shell_exec background parameter starts job" `Quick
+      test_shell_exec_background_parameter_starts_job;
     Alcotest.test_case "shell_exec timeout kills descendants" `Quick
       test_shell_exec_timeout_kills_descendants;
     Alcotest.test_case "watch_ci_after_push injects failure follow-up" `Quick
@@ -4288,6 +4363,8 @@ let suite =
       test_extract_cd_prefix;
     Alcotest.test_case "shell_exec cd prefix optimization sets cwd" `Quick
       test_shell_exec_cd_prefix_optimization;
+    Alcotest.test_case "shell_exec cd prefix suggests cwd parameter" `Quick
+      test_shell_exec_cd_prefix_suggests_cwd_parameter;
     Alcotest.test_case "shell_exec injects CLAWQ_SESSION_ID env" `Quick
       test_shell_exec_injects_session_id_env;
     Alcotest.test_case "shell_exec user bin PATH" `Quick

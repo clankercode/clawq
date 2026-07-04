@@ -109,6 +109,68 @@ let test_consolidated_handler_thinking () =
   Alcotest.(check string)
     "thinking captured" "let me think" (handler.get_thinking ())
 
+let test_consolidated_handler_bash_output_delta_preview () =
+  let notifier, _sent, edited, _deleted = mock_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  let handler =
+    Status_update.make_handler ~strategy:Consolidated
+      ~notifier_factory:(Some (fun () -> sm))
+      ~notify:(fun _ -> Lwt.return_unit)
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolStart
+            {
+              id = "t1";
+              name = "bash";
+              arguments = "{\"command\":\"make test\"}";
+            })
+     in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolOutputDelta
+            { id = "t1"; chunk = "line1\nline2\nline3\nline4\nline5\n" })
+     in
+     let streaming_edit =
+       match !edited with
+       | (_, text) :: _ -> text
+       | [] -> Alcotest.fail "expected edit after output delta"
+     in
+     Alcotest.(check bool)
+       "streaming preview shows recent output" true
+       (Test_helpers.string_contains streaming_edit "line5");
+     Alcotest.(check bool)
+       "streaming preview keeps last few lines" true
+       (Test_helpers.string_contains streaming_edit "line2");
+     Alcotest.(check bool)
+       "streaming preview drops older output" false
+       (Test_helpers.string_contains streaming_edit "line1");
+     let* () =
+       handler.on_chunk
+         (Provider.ToolResult
+            {
+              id = "t1";
+              name = "bash";
+              result = "exit_code: 0\nstdout:\ndone\nstderr:\n";
+              is_error = false;
+            })
+     in
+     let final_edit =
+       match !edited with
+       | (_, text) :: _ -> text
+       | [] -> Alcotest.fail "expected edit after tool result"
+     in
+     Alcotest.(check bool)
+       "final result clears streaming-only output" false
+       (Test_helpers.string_contains final_edit "line5");
+     handler.finalize ())
+
 let test_individual_handler () =
   let messages = ref [] in
   let notify text =
@@ -281,6 +343,8 @@ let tests =
       test_consolidated_handler_tool_events;
     Alcotest.test_case "consolidated handler thinking" `Quick
       test_consolidated_handler_thinking;
+    Alcotest.test_case "consolidated handler bash output delta preview" `Quick
+      test_consolidated_handler_bash_output_delta_preview;
     Alcotest.test_case "individual handler" `Quick test_individual_handler;
     Alcotest.test_case "buffered handler" `Quick test_buffered_handler;
     Alcotest.test_case "consolidated handler resets on inject" `Quick

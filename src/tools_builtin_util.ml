@@ -333,6 +333,21 @@ let extract_cd_prefix command =
     find_amp 3
   else None
 
+let extract_cd_prefix_dir_for_warning command =
+  let cmd = String.trim command in
+  let len = String.length cmd in
+  if len > 3 && String.sub cmd 0 3 = "cd " then
+    let rec find_amp i =
+      if i + 1 >= len then None
+      else if cmd.[i] = '&' && cmd.[i + 1] = '&' then
+        let dir = String.trim (String.sub cmd 3 (i - 3)) in
+        let rest = String.trim (String.sub cmd (i + 2) (len - i - 2)) in
+        if dir <> "" && rest <> "" then Some dir else None
+      else find_amp (i + 1)
+    in
+    find_amp 3
+  else None
+
 let resolve_shell_cwd ~workspace ~workspace_only ~extra_allowed_paths cwd_arg =
   let cwd_arg = String.trim cwd_arg in
   if cwd_arg = "" then Error "Error: cwd must not be empty"
@@ -452,12 +467,23 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
           if v <= 0.0 then default_timeout else Float.min v max_timeout
         with _ -> default_timeout
       in
+      let background_result =
+        match args |> member "background" with
+        | `Null -> Ok false
+        | `Bool b -> Ok b
+        | _ ->
+            Error
+              "Error: background must be a boolean. Use background=true to \
+               start the command as a background shell job, or omit it to wait \
+               for the command result."
+      in
       match
-        ( parse_optional_int_field args "head",
+        ( background_result,
+          parse_optional_int_field args "head",
           parse_optional_int_field args "tail" )
       with
-      | Error msg, _ | _, Error msg -> Lwt.return msg
-      | Ok head_lines, Ok tail_lines -> (
+      | Error msg, _, _ | _, Error msg, _ | _, _, Error msg -> Lwt.return msg
+      | Ok background, Ok head_lines, Ok tail_lines -> (
           match
             ( validate_positive_optional_int ~field_name:"head" head_lines,
               validate_positive_optional_int ~field_name:"tail" tail_lines )
@@ -529,6 +555,25 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                       | None -> None
                     in
                     let original_command = command in
+                    let cd_prefix_warning =
+                      match
+                        ( cwd_arg,
+                          extract_cd_prefix_dir_for_warning original_command )
+                      with
+                      | None, Some dir ->
+                          Some
+                            (Printf.sprintf
+                               "Warning: command starts with `cd %s &&`. \
+                                Prefer passing cwd=\"%s\" and removing the cd \
+                                prefix from command."
+                               dir dir)
+                      | _ -> None
+                    in
+                    let with_cd_prefix_warning result =
+                      match cd_prefix_warning with
+                      | Some warning -> warning ^ "\n\n" ^ result
+                      | None -> result
+                    in
                     let should_watch_ci_after_push =
                       Option.is_some
                         (git_push_command_info ~command:original_command)
@@ -573,7 +618,8 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                     in
                     let run_proc cmd =
                       run_process_with_timeout ?interrupt_check ?on_output_chunk
-                        ~cwd ~env ~cmd ~timeout_secs ~head_lines ~tail_lines ()
+                        ~background ~cwd ~env ~cmd ~timeout_secs ~head_lines
+                        ~tail_lines ()
                     in
                     let maybe_watch_ci_after_push result =
                       match
@@ -598,7 +644,7 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                     let run_and_maybe_watch cmd =
                       let* result = run_proc cmd in
                       maybe_watch_ci_after_push result;
-                      Lwt.return result
+                      Lwt.return (with_cd_prefix_warning result)
                     in
                     if workspace_only then
                       match split_command_words command with
@@ -625,12 +671,12 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                           let cwd = Some dir in
                           let* result =
                             run_process_with_timeout ?interrupt_check
-                              ?on_output_chunk ~cwd ~env
+                              ?on_output_chunk ~background ~cwd ~env
                               ~cmd:("", [| "/bin/sh"; "-c"; rest |])
                               ~timeout_secs ~head_lines ~tail_lines ()
                           in
                           maybe_watch_ci_after_push result;
-                          Lwt.return result
+                          Lwt.return (with_cd_prefix_warning result)
                       | _ ->
                           run_and_maybe_watch
                             ("", [| "/bin/sh"; "-c"; command |]))))
@@ -667,6 +713,17 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                       ("type", `String "number");
                       ( "description",
                         `String "Timeout in seconds (default 30, max 600)" );
+                    ] );
+                ( "background",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Optional. When true, start the command as a \
+                           background shell job and return bg_shell_status, \
+                           bg_shell_wait, and bg_shell_result instructions \
+                           immediately." );
                     ] );
                 ( "head",
                   `Assoc

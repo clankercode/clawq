@@ -206,7 +206,7 @@ let to_document t =
               summary = entry.summary;
               state = Content_dsl.Running;
               timing;
-              preview = None;
+              preview = entry.output_tail;
               error_detail = None;
               connector_char = Some connector_char;
             }
@@ -454,6 +454,52 @@ let last_n_lines ~n text =
     in
     drop to_drop lines
 
+let last_n_lines_text ~n text =
+  let len = String.length text in
+  let has_trailing_newline = len > 0 && text.[len - 1] = '\n' in
+  let lines = String.split_on_char '\n' text in
+  let lines =
+    match (has_trailing_newline, List.rev lines) with
+    | true, "" :: rest -> List.rev rest
+    | _ -> lines
+  in
+  let len = List.length lines in
+  let tail =
+    if len <= n then lines
+    else
+      let to_drop = len - n in
+      let rec drop k = function
+        | [] -> []
+        | _ :: rest when k > 0 -> drop (k - 1) rest
+        | l -> l
+      in
+      drop to_drop lines
+  in
+  match tail with
+  | [] -> ""
+  | _ -> String.concat "\n" tail ^ if has_trailing_newline then "\n" else ""
+
+let coalesce_output_tail ?existing chunk =
+  let max_chars = 4000 in
+  let keep_suffix text =
+    let len = String.length text in
+    if len <= max_chars then text
+    else String.sub text (len - max_chars) max_chars
+  in
+  let base = Option.value existing ~default:"" in
+  let text = last_n_lines_text ~n:4 (keep_suffix (base ^ chunk)) in
+  if String.trim text = "" then None else Some text
+
+let tool_output_delta t ~id ~chunk =
+  match Hashtbl.find_opt t.tools id with
+  | Some ({ name = "bash" | "shell_exec"; state = Running; _ } as entry) ->
+      let output_tail =
+        coalesce_output_tail ?existing:entry.output_tail chunk
+      in
+      Hashtbl.replace t.tools id { entry with output_tail };
+      send_or_edit t
+  | _ -> Lwt.return_unit
+
 let tool_result t ~id ~name:_ ~result ~is_error =
   let open Lwt.Syntax in
   let now = Unix.gettimeofday () in
@@ -468,22 +514,6 @@ let tool_result t ~id ~name:_ ~result ~is_error =
         if is_error then None
         else Stream_visibility.summarize_tool_result ~name:entry.name result
       in
-      let output_tail =
-        match entry.name with
-        | ("bash" | "shell_exec") when not is_error ->
-            let trimmed = String.trim result in
-            if trimmed = "" then None
-            else
-              let tail = last_n_lines ~n:4 trimmed in
-              let text =
-                String.concat "\n"
-                  (List.map
-                     (fun l -> Stream_visibility.truncate_text ~max_chars:60 l)
-                     tail)
-              in
-              Some text
-        | _ -> None
-      in
       let updated =
         {
           entry with
@@ -492,7 +522,7 @@ let tool_result t ~id ~name:_ ~result ~is_error =
           is_error;
           error_detail;
           result_preview;
-          output_tail;
+          output_tail = None;
         }
       in
       Hashtbl.replace t.tools id updated;
