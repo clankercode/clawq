@@ -499,7 +499,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-Built-in tool availability depends on runtime configuration and wiring. Core file, shell, HTTP, browser, git, model, usage, document, and background-shell tools are normally registered; web search, Z.ai web tools, send/poll/file tools, transcription, memory/history tools, task-tree tools, native subagent tools, `background_finalize`, plan-pipeline tools, connector-history injection, and debate are registered only when their required runtime dependencies are present.
+Built-in tool availability depends on runtime configuration and wiring. Core help, file, shell, HTTP, browser, git, model, usage, document, and background-shell tools are normally registered; web search, Z.ai web tools, send/poll/file tools, transcription, memory/history tools, task-tree tools, native subagent tools, `background_finalize`, plan-pipeline tools, connector-history injection, and debate are registered only when their required runtime dependencies are present.
 
 | Tool | Description |
 |------|-------------|
@@ -518,6 +518,7 @@ Built-in tool availability depends on runtime configuration and wiring. Core fil
 | `web_search` | Search the web (conditional: only if web_search config is set) |
 | `zai_websearch` | Search the web via Z.ai's webSearchPrime MCP tool (conditional: only if zai_mcp config is set and websearch_enabled) |
 | `zai_webfetch` | Fetch a webpage via Z.ai's webReader MCP tool, returning title, main content, and links (conditional: only if zai_mcp config is set and webfetch_enabled) |
+| `clawq_help` | Get concise built-in Clawq help. Omit `topic` or use `general` to list topics; focused topics include tools, channels, config, skills, agents, memory, background-tasks, subagents, security, models, web-ui, crons, git-worktrees, and onboarding |
 | `git_operations` | Git operations: status, diff, log, branch, add, commit, checkout, stash, show |
 | `send_message` | Send a message to the user via the current session or notification channel. Use when asked to notify/alert the user (conditional: runtime wiring) |
 | `send_poll` | Send a poll with inline buttons (conditional: runtime wiring) |

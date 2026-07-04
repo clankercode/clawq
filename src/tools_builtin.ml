@@ -932,6 +932,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   | Some cfg when cfg.webfetch_enabled ->
       Tool_registry.register registry (zai_webfetch ~config)
   | _ -> ());
+  Tool_registry.register registry Tools_builtin_help.tool;
   Tool_registry.register registry (models_tool ~config ?session_mgr ());
   Tool_registry.register registry (provider_usage_tool ~config);
   (match send_fn with

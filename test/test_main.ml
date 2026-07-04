@@ -168,6 +168,7 @@ let () =
        ("channel_formats", Test_channel_formats.suite);
        ("commands", Test_commands.suite);
        ("contracts", Test_contracts.suite);
+       ("tools_help", Test_tools_help.suite);
        ("tools", Test_tools.suite);
        ("telegram_dedupe", Test_telegram_dedupe.suite);
        ("config_set", Test_config_set.suite);

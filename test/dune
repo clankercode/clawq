@@ -160,6 +160,7 @@
   test_telegram_typing
   test_typing_indicator
   test_tools
+  test_tools_help
   test_tools_security
   test_totp
   test_tunnel_manager
