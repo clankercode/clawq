@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-04T07:22:21Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-04T08:39:36Z"
 complexity: medium
 depends_on: []
+duration_minutes: 77.25218681423334
 estimate_hours: 1
 id: B765
 priority: high
 started_at: "2026-07-04T07:22:21Z"
-status: in_progress
+status: done
 tags: []
 title: Egress policy defaults to deny-all when no rules are configured
 ---
