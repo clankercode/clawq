@@ -757,3 +757,6 @@ bugs:
     - file: B761-bash-tool-should-warn-and-sugg.todo
     - file: B762-subagent-tool-response-should.todo
     - file: B763-subagent-timeout-should-be-rem.todo
+    - file: B764-add-builtin-clawq-help-tool-wi.todo
+    - file: B765-egress-policy-defaults-to-deny.todo
+    - file: B766-bash-tool-output-preview-durin.todo

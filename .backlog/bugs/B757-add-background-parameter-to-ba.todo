@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-07-04T07:22:21Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B757
 priority: medium
-status: pending
+started_at: "2026-07-04T07:22:21Z"
+status: in_progress
 tags: []
 title: Add background parameter to bash tool
 ---

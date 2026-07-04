@@ -1,0 +1,23 @@
+---
+claimed_at: "2026-07-04T07:22:21Z"
+claimed_by: cli-user
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B765
+priority: high
+started_at: "2026-07-04T07:22:21Z"
+status: in_progress
+tags: []
+title: Egress policy defaults to deny-all when no rules are configured
+---
+When no access bundle or egress rules are active (e.g. DM sessions, no room profile), the Tool.egress_rules list is empty. The evaluator in egress_evaluator.ml defaults to Deny when no rules match (line ~117), so ALL outbound HTTP is blocked.
+
+This means web_fetch, web_search, http_get, http_request all silently fail for non-room-agent sessions unless egress rules are explicitly configured.
+
+Three issues:
+1. clawq.org should be in a default allowlist (at minimum for llms-full.txt / llms.txt which the prompt builder already references).
+2. There should be a configurable egress strictness setting (strict = default-deny as now; permissive = default-allow with deny rules; or a global allowlist in top-level config).
+3. When egress is denied, the tool should return a more informative message suggesting the user configure egress rules or adjust strictness — not just 'egress denied: GET clawq.org /llms.txt (rule -1)'.
+4. An agent can bypass egress policy trivially via bash (curl, python, wget), so the current strictness without shell enforcement is security theater unless the sandbox is enforcing network isolation.

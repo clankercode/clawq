@@ -1,0 +1,36 @@
+---
+claimed_at: "2026-07-04T07:22:21Z"
+claimed_by: cli-user
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B766
+priority: high
+started_at: "2026-07-04T07:22:21Z"
+status: in_progress
+tags: []
+title: Bash tool output preview during execution in consolidated tool status
+---
+RESEARCH:
+
+Current state:
+- Consolidated tool status mode (status_message.ml) shows tool calls as an editable status message in Telegram/Discord/Slack with emoji + summary for each tool, timing, and a heartbeat rerender every 5s while tools are running.
+- tool_entry has fields: result_preview (string option) and output_tail (string option). output_tail is populated in tool_result() for bash/shell_exec with the last 4 lines (truncated to 60 chars each) — but only AFTER the tool completes.
+- While a tool is Running, the preview field is None (line 209: preview = None for Running state in to_document).
+- ToolOutputDelta events exist (provider_types.ml:711) and are emitted during streaming execution (agent_2_tools.ml:340,378,448) but are currently DROPPED in consolidated mode — status_update.ml:116 explicitly ignores them: '| Provider.ToolOutputDelta _ | Provider.Done -> Lwt.return_unit'
+
+What needs to change:
+1. During bash execution, ToolOutputDelta chunks should be captured and stored as a live preview on the tool_entry (e.g. mutable field 'live_output' or reuse 'output_tail' while running).
+2. The to_document renderer should show the last few lines of live output for Running bash entries (instead of preview = None).
+3. When the tool completes and tool_result fires, the live output should be cleared/replaced with the final output_tail, and when the next tool starts the previous tool's output should no longer appear (it already doesn't — done tools get collapsed when >8).
+4. Need debouncing: ToolOutputDelta arrives frequently (streaming stdout); should coalesce updates to avoid excessive message edits. The existing heartbeat (5s interval) already provides natural debouncing — just need to store the latest output and let the heartbeat render it.
+5. Consider a configurable max line count or byte limit for the live preview to avoid huge status messages.
+6. Should only apply to bash tool (or tools that produce stdout); file_read, grep etc. don't need live output preview.
+
+Key files:
+- src/status_message.ml — tool_entry type, tool_start, tool_result, to_document renderer
+- src/status_update.ml — where ToolOutputDelta is dropped in consolidated mode (line 116)
+- src/agent_2_tools.ml — ToolOutputDelta emission points (lines 340, 378, 448)
+- src/stream_visibility.ml — tool_start_message, render_tool_entry formatting
+- src/content_dsl.ml — ToolEntry record type for the document model

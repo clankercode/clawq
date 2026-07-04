@@ -1,0 +1,40 @@
+---
+claimed_at: "2026-07-04T07:22:21Z"
+claimed_by: cli-user
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B764
+priority: high
+started_at: "2026-07-04T07:22:21Z"
+status: in_progress
+tags: []
+title: Add builtin clawq_help tool with topic-based help and onboarding guidance
+---
+Add a new built-in tool `clawq_help` with an optional `topic` string parameter. This tool serves as an in-session help system for the agent and its users.
+
+When called without a topic (or with topic='general'):
+- List available help topics
+- Provide general info about clawq (what it is, version, key capabilities)
+- Mention clawq.org/llms-full.txt as the full self-knowledge reference
+- Point to clawq.org/quickstart for first-time setup
+
+When called with a topic:
+- Return focused help for that topic area
+- Topics should cover: tools, channels, config, skills, agents, memory, background-tasks, subagents, security, models, web-ui, crons, git-worktrees, onboarding
+
+The tool should tie into existing doc content:
+- clawq.org/llms-full.txt (already injected into prompt, line 744 of prompt_builder.ml)
+- clawq.org docs pages (quickstart, configuration, cli-reference, channels, tools, skills, etc.)
+- Config wizard flow for new users
+- Feature onboarding guidance (e.g. Claude Tag parity features, room agents, structured pipelines)
+
+Implementation notes:
+- New file: src/tools_builtin_help.ml (following existing tools_builtin_*.ml pattern)
+- Register in tools_builtin.ml alongside other builtins
+- Tool data sources: static topic content + dynamic config/runtime info where useful
+- Keep initial topic set concise; expand based on usage patterns
+- 43 existing builtin tools across 12 modules — this is a meta/help tool, not a functional one
+
+Related: B756 (UX/onboarding review)
