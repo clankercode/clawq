@@ -729,11 +729,34 @@ type egress_rule = {
   log_policy : egress_rule_log_policy;  (** Whether to log matching requests. *)
 }
 (** An egress rule matches outbound HTTP requests by host, path, and method.
-    When multiple rules match, the first match wins. The default policy for
-    unmatched destinations is deny. *)
+    When multiple rules match, the first match wins. Unmatched destinations use
+    the top-level egress strictness. *)
 
 let default_egress_rule : egress_rule =
   { host = "*"; path = None; method_ = None; action = Deny; log_policy = Log }
+
+type egress_strictness = Strict | Permissive
+
+let egress_strictness_to_string = function
+  | Strict -> "strict"
+  | Permissive -> "permissive"
+
+let egress_strictness_of_string = function
+  | "strict" | "deny" | "default_deny" | "default-deny" -> Some Strict
+  | "permissive" | "allow" | "default_allow" | "default-allow" ->
+      Some Permissive
+  | _ -> None
+
+type egress_config = {
+  strictness : egress_strictness;
+      (** [Strict] denies unmatched HTTP destinations; [Permissive] allows
+          unmatched destinations after explicit rules and the default allowlist
+          have been evaluated. *)
+  default_allowlist : egress_rule list;
+      (** Global fallback allowlist evaluated after scoped access-bundle rules.
+          Explicit deny rules in higher-priority scopes can still override
+          entries here. *)
+}
 
 type access_bundle = {
   id : string;
@@ -753,8 +776,8 @@ type access_bundle = {
   domains : string list;
   egress_rules : egress_rule list;
       (** Egress rules for outbound HTTP requests. Rules are evaluated in order;
-          first match wins. Default policy is deny unknown destinations. An
-          empty list means all outbound requests are denied. *)
+          first match wins. If no scoped rule matches, the top-level egress
+          allowlist and strictness decide the request. *)
   credential_handles : string list;
   instructions : instruction_record list;
   memory_grants : string list;
@@ -816,7 +839,7 @@ type effective_access = {
   egress_rules : egress_rule list;
       (** Resolved egress rules from all matching bundles. Rules from higher-
           priority scopes (Room > Channel > Workspace > Default) come first.
-          Default policy: deny unknown destinations. *)
+          Top-level egress policy decides unmatched destinations. *)
 }
 
 type room_profile = {
@@ -923,5 +946,6 @@ type t = {
   room_profiles : room_profile list;
   room_profile_codebase_grants : (string * string list) list;
   room_profile_bindings : room_profile_binding list;
+  egress : egress_config;
   external_room_policy : external_room_policy;
 }

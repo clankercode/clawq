@@ -632,6 +632,7 @@ Agent dispatch surfaces:
 - `HOME` and `PATH` are set explicitly for the child process; existing common user binary directories (`~/.local/share/pnpm`, `~/.local/share/pnpm/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin`, `~/.npm-global/bin`, and `~/.opam/*/bin`) are appended to `PATH`; other environment inheritance is intentionally minimal.
 - Timeout defaults to 30 seconds. The LLM can pass a `timeout` parameter (in seconds, max 600) for longer-running commands.
 - The LLM can pass `background=true` to return immediately with a background shell job ID and continue tracking output through `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result`.
+- Egress rules are not a shell network firewall. In default `workspace_only` mode the shell sandbox uses `--net=none` where supported; otherwise shell network behavior is governed by the sandbox/backend, not by HTTP egress rules.
 
 ### `shell_exec` when `security.workspace_only = false`
 
@@ -641,6 +642,7 @@ Agent dispatch surfaces:
 - Commands starting with `cd <dir> &&` still run, but clawq warns the LLM to pass `cwd="<dir>"` and remove the `cd` prefix.
 - Optional `head` and `tail` still apply to the final returned `stdout`/`stderr` text here, and omitted full streams are saved under `~/.clawq/tool-output/`.
 - Filesystem isolation is not applied in this mode; shell sees the host filesystem like the file tools do.
+- Egress rules still do not inspect arbitrary shell command network access in this mode.
 
 ### Sandbox backend and visible filesystem
 
@@ -724,7 +726,7 @@ Configured profiles live in `room_profiles`; active room bindings live in
 
 ## Room Access Policy and Scope Bundles
 
-Room profiles define access policy through `access_bundles` (permission sets) and `access_scopes` (layered overrides). This system controls tool access, codebase grants, repo grants, memory grants, and egress rules.
+Room profiles define access policy through `access_bundles` (permission sets) and `access_scopes` (layered overrides). This system controls tool access, codebase grants, repo grants, memory grants, and scoped egress rules. Top-level `egress` config supplies the fallback strictness/default allowlist for policy-aware HTTP when scoped rules do not match.
 
 ### Access Bundles
 
@@ -860,7 +862,12 @@ Hook payload snapshots are written to `~/.clawq/workspace/tmp/github-deliveries/
 
 ## Egress Policy
 
-The egress evaluator controls outbound network access with default-deny semantics.
+The egress evaluator controls policy-aware outbound HTTP access. Explicit scoped rules are evaluated first, then the top-level default allowlist, then the top-level strictness.
+
+Top-level config:
+
+- `egress.strictness`: `strict` denies unmatched policy-aware HTTP destinations; `permissive` allows unmatched destinations after explicit rules and the default allowlist are checked. `egress.default_policy` is accepted as an alias where `deny` maps to `strict` and `allow` maps to `permissive`.
+- `egress.default_allowlist`: fallback egress rules evaluated after access-bundle rules. The default allows `GET https://clawq.org/llms.txt` and `GET https://clawq.org/llms-full.txt` so Clawq can read its own self-reference docs.
 
 ### Rules
 
@@ -873,9 +880,10 @@ Egress rules are defined in access bundles and merged with scope precedence (pro
 
 ### Evaluator
 
-- **Default-deny**: When no rule matches, the action is `Deny`.
+- **Strict by default**: When no scoped rule or default-allowlist entry matches, `strict` denies and `permissive` allows.
 - **First-match-wins**: Rules are evaluated in declaration order; the first matching rule determines the action.
 - **Profile-first ordering**: Profile bundle rules come before scope rules. Within scope rules, order is room > channel > workspace > default.
+- **HTTP-only boundary**: Egress rules apply to Clawq's policy-aware HTTP paths such as `web_fetch`, `web_search`, `http_get`, `http_request`, HTTP MCP startup/tool calls, and other callers of the policy HTTP client. They do not firewall arbitrary network access from shell commands.
 
 ### Audit
 

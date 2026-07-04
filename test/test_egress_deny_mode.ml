@@ -41,6 +41,12 @@ let allow_rule ?path ?method_ host =
 let deny_rule ?path ?method_ host =
   { host; path; method_; action = Deny; log_policy = Log }
 
+let config_with_default_egress_rule rule =
+  {
+    Runtime_config.default with
+    egress = { strictness = Strict; default_allowlist = [ rule ] };
+  }
+
 (** Test: GitHub API calls are denied by catch-all deny rule *)
 let test_github_api_denied_by_default () =
   let rules = [ deny_rule "*" ] in
@@ -187,6 +193,72 @@ let test_empty_rules_deny_all () =
   | Ok () -> Alcotest.fail "expected deny with empty rules"
   | Error _ -> ()
 
+let test_web_search_denied_before_http () =
+  let config =
+    {
+      Runtime_config.default with
+      web_search =
+        Some
+          {
+            search_provider = "ddg";
+            search_api_key = "";
+            num_results = 1;
+            search_base_url = Some "https://blocked.example.test";
+            credential_handle = None;
+          };
+    }
+  in
+  let tool = Tools_builtin_net.web_search ~config in
+  let context =
+    { Tool.default_context with egress_rules = [ deny_rule "*" ] }
+  in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke ~context
+         (`Assoc [ ("query", `String "clawq egress policy") ]))
+  in
+  Alcotest.(check bool)
+    "web_search reports policy denial" true
+    (Test_helpers.string_contains result "egress denied")
+
+let test_no_context_http_get_uses_loaded_config () =
+  let config =
+    config_with_default_egress_rule (deny_rule "blocked.example.test")
+  in
+  let tool = Tools_builtin.http_get ~config ~workspace_only:false in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke
+         (`Assoc [ ("url", `String "https://blocked.example.test/path") ]))
+  in
+  Alcotest.(check bool)
+    "http_get no-context deny uses configured fallback rule" true
+    (Test_helpers.string_contains result "(rule 0)")
+
+let test_no_context_web_search_uses_loaded_config () =
+  let config =
+    {
+      (config_with_default_egress_rule (deny_rule "blocked.example.test")) with
+      web_search =
+        Some
+          {
+            search_provider = "ddg";
+            search_api_key = "";
+            num_results = 1;
+            search_base_url = Some "https://blocked.example.test";
+            credential_handle = None;
+          };
+    }
+  in
+  let tool = Tools_builtin.web_search ~config in
+  let result =
+    Lwt_main.run
+      (tool.Tool.invoke (`Assoc [ ("query", `String "clawq egress policy") ]))
+  in
+  Alcotest.(check bool)
+    "web_search no-context deny uses configured fallback rule" true
+    (Test_helpers.string_contains result "(rule 0)")
+
 (** Test: GitHub API wrapper denies before outbound HTTP *)
 let test_github_api_wrapper_denies_before_http () =
   let requests = ref 0 in
@@ -278,6 +350,46 @@ let test_mcp_startup_denied_before_http () =
         (Test_helpers.string_contains msg "egress denied"));
   Alcotest.(check int) "no startup request" 0 !requests
 
+(** Test: Empty MCP egress rules still use the top-level strict default. *)
+let test_mcp_startup_empty_rules_uses_strict_default () =
+  let requests = ref 0 in
+  let config = Runtime_config.default in
+  let snapshot =
+    Access_snapshot.create ~config ~work_type:Access_snapshot.Background_task ()
+  in
+  let cfg =
+    {
+      Mcp_client.name = "blocked-mcp";
+      command = "https://blocked.example.test/rpc";
+      args = [];
+      env = [];
+      credential_handle = None;
+    }
+  in
+  let fake_post ~url:_ ~headers:_ ~body:_ =
+    incr requests;
+    Lwt.return (200, "{}", "application/json")
+  in
+  let result =
+    Lwt_main.run
+      (Lwt.catch
+         (fun () ->
+           let open Lwt.Syntax in
+           let* _client =
+             Mcp_client.connect_with_policy ~config ~snapshot
+               ~http_post:fake_post cfg
+           in
+           Lwt.return (Ok ()))
+         (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+  in
+  (match result with
+  | Ok () -> Alcotest.fail "expected MCP egress denial"
+  | Error msg ->
+      Alcotest.(check bool)
+        "message mentions egress denial" true
+        (Test_helpers.string_contains msg "egress denied"));
+  Alcotest.(check int) "no startup request" 0 !requests
+
 (** Test: Deny specific MCP server but allow GitHub *)
 let test_mcp_denied_github_allowed () =
   let rules =
@@ -315,12 +427,20 @@ let suite =
     Alcotest.test_case "Selective GitHub egress" `Quick
       test_selective_github_egress;
     Alcotest.test_case "Empty rules deny all" `Quick test_empty_rules_deny_all;
+    Alcotest.test_case "web_search denied before HTTP" `Quick
+      test_web_search_denied_before_http;
+    Alcotest.test_case "no-context http_get uses loaded config" `Quick
+      test_no_context_http_get_uses_loaded_config;
+    Alcotest.test_case "no-context web_search uses loaded config" `Quick
+      test_no_context_web_search_uses_loaded_config;
     Alcotest.test_case "GitHub wrapper denies before HTTP" `Quick
       test_github_api_wrapper_denies_before_http;
     Alcotest.test_case "GitHub empty rules preserve legacy HTTP" `Quick
       test_github_api_empty_rules_allows_legacy_http;
     Alcotest.test_case "MCP startup denied before HTTP" `Quick
       test_mcp_startup_denied_before_http;
+    Alcotest.test_case "MCP empty rules use strict default" `Quick
+      test_mcp_startup_empty_rules_uses_strict_default;
     Alcotest.test_case "MCP denied, GitHub allowed" `Quick
       test_mcp_denied_github_allowed;
   ]

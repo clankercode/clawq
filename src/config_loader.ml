@@ -1046,6 +1046,31 @@ let parse_config ?(resolve_secrets = true) json =
             : Runtime_config.credential_handle))
     with _ -> []
   in
+  let parse_egress_rule (r : Yojson.Safe.t) =
+    let host = try r |> member "host" |> to_string with _ -> "*" in
+    let path = try Some (r |> member "path" |> to_string) with _ -> None in
+    let method_ =
+      try Some (r |> member "method" |> to_string) with _ -> None
+    in
+    let action =
+      try
+        r |> member "action" |> to_string
+        |> Runtime_config.egress_rule_action_of_string
+        |> Option.value ~default:Runtime_config.Deny
+      with _ -> Runtime_config.Deny
+    in
+    let log_policy =
+      try
+        r |> member "log_policy" |> to_string
+        |> Runtime_config.egress_rule_log_policy_of_string
+        |> Option.value ~default:Runtime_config.Log
+      with _ -> Runtime_config.Log
+    in
+    ({ host; path; method_; action; log_policy } : Runtime_config.egress_rule)
+  in
+  let parse_egress_rules node =
+    try node |> to_list |> List.map parse_egress_rule with _ -> []
+  in
   let access_bundles =
     let string_list node key =
       try node |> member key |> to_list |> List.map to_string with _ -> []
@@ -1150,39 +1175,7 @@ let parse_config ?(resolve_secrets = true) json =
                   items
             | _ -> []
           in
-          let egress_rules =
-            try
-              b |> member "egress_rules" |> to_list
-              |> List.filter_map (fun r ->
-                  let host =
-                    try r |> member "host" |> to_string with _ -> "*"
-                  in
-                  let path =
-                    try Some (r |> member "path" |> to_string) with _ -> None
-                  in
-                  let method_ =
-                    try Some (r |> member "method" |> to_string)
-                    with _ -> None
-                  in
-                  let action =
-                    try
-                      r |> member "action" |> to_string
-                      |> Runtime_config.egress_rule_action_of_string
-                      |> Option.value ~default:Runtime_config.Deny
-                    with _ -> Runtime_config.Deny
-                  in
-                  let log_policy =
-                    try
-                      r |> member "log_policy" |> to_string
-                      |> Runtime_config.egress_rule_log_policy_of_string
-                      |> Option.value ~default:Runtime_config.Log
-                    with _ -> Runtime_config.Log
-                  in
-                  Some
-                    ({ host; path; method_; action; log_policy }
-                      : Runtime_config.egress_rule))
-            with _ -> []
-          in
+          let egress_rules = parse_egress_rules (b |> member "egress_rules") in
           ({
              id;
              display_name;
@@ -1255,6 +1248,29 @@ let parse_config ?(resolve_secrets = true) json =
            }
             : Runtime_config.access_scope))
     with _ -> []
+  in
+  let egress =
+    try
+      let e = json |> member "egress" in
+      let strictness =
+        let raw =
+          try e |> member "strictness" |> to_string
+          with _ -> (
+            try e |> member "default_policy" |> to_string
+            with _ ->
+              Runtime_config.egress_strictness_to_string
+                default.egress.strictness)
+        in
+        Runtime_config.egress_strictness_of_string raw
+        |> Option.value ~default:default.egress.strictness
+      in
+      let default_allowlist =
+        match e |> member "default_allowlist" with
+        | `Null -> default.egress.default_allowlist
+        | node -> parse_egress_rules node
+      in
+      ({ strictness; default_allowlist } : Runtime_config.egress_config)
+    with _ -> default.egress
   in
   {
     workspace;
@@ -1623,6 +1639,7 @@ let parse_config ?(resolve_secrets = true) json =
              ({ profile_id; room; active }
                : Runtime_config.room_profile_binding))
        with _ -> []);
+    egress;
     external_room_policy =
       (try
          let erp = json |> member "external_room_policy" in
@@ -1894,6 +1911,7 @@ let load_result ?(path = "") () : (Runtime_config.t, string) result =
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
         let access_policy_issues =
           validate_access_bundle_json_shapes json
+          @ validate_egress_json_shapes json
           @ validate_room_profile_access_bundle_json_shapes json
           @ validate_access_scope_json_shapes json
           @ validate_room_profiles config

@@ -907,7 +907,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
     (file_edit ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry
     (file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths);
-  Tool_registry.register registry (http_get ~workspace_only);
+  Tool_registry.register registry (http_get ~config ~workspace_only);
   Tool_registry.register registry
     (glob ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry
@@ -916,8 +916,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
     (grep ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry
     (change_working_dir ~config ~workspace ~workspace_only ~extra_allowed_paths);
-  Tool_registry.register registry (http_request ~workspace_only);
-  Tool_registry.register registry (web_fetch ~workspace_only);
+  Tool_registry.register registry (http_request ~config ~workspace_only);
+  Tool_registry.register registry (web_fetch ~config ~workspace_only);
   Tool_registry.register registry
     (Tools_builtin_browser.browser ~workspace_only ~config);
   List.iter (Tool_registry.register registry) (bg_shell_tools ());

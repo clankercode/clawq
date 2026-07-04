@@ -20,6 +20,9 @@ type policy_error = {
 
 let policy_error_to_string (e : policy_error) = e.message
 
+let strict_empty_egress : egress_config =
+  { strictness = Strict; default_allowlist = [] }
+
 (** Extract host and path from a URI string. Returns [None] if the host is
     missing or empty (invalid URI). *)
 let parse_uri uri_str =
@@ -54,10 +57,21 @@ let no_audit =
     credential_handle_ids = [];
   }
 
+let denial_hint matched_rule_index =
+  if matched_rule_index < 0 then
+    "No egress rule matched. Add an allow rule to \
+     access_bundles[].egress_rules, add a host/path to \
+     egress.default_allowlist, or set egress.strictness=\"permissive\" if this \
+     session should allow unmatched HTTP destinations."
+  else
+    "Review access_bundles[].egress_rules, egress.default_allowlist, or \
+     egress.strictness if this HTTP destination should be allowed."
+
 (** Evaluate egress policy, log the decision, and emit an audit event when
     [audit.db] is provided. Returns [Ok ()] if allowed, [Error policy_error] if
     denied. URIs with missing/empty hosts are denied at the policy layer. *)
-let check_policy ~rules ~uri ?method_ ?(audit = no_audit) () =
+let check_policy ~rules ?(egress = strict_empty_egress) ~uri ?method_
+    ?(audit = no_audit) () =
   let host_opt, path = parse_uri uri in
   match host_opt with
   | None ->
@@ -81,7 +95,11 @@ let check_policy ~rules ~uri ?method_ ?(audit = no_audit) () =
           message = msg;
         }
   | Some host -> (
-      let result = Egress_evaluator.evaluate ~rules ~host ?path ?method_ () in
+      let result =
+        Egress_evaluator.evaluate ~rules
+          ~default_allowlist:egress.default_allowlist
+          ~strictness:egress.strictness ~host ?path ?method_ ()
+      in
       match result.action with
       | Allow ->
           (match result.log_policy with
@@ -107,8 +125,9 @@ let check_policy ~rules ~uri ?method_ ?(audit = no_audit) () =
             match method_ with Some m -> m ^ " " | None -> ""
           in
           let msg =
-            Printf.sprintf "egress denied: %s%s %s (rule %d)" method_str host
-              path_str result.matched_rule_index
+            Printf.sprintf "egress denied: %s%s %s (rule %d). %s" method_str
+              host path_str result.matched_rule_index
+              (denial_hint result.matched_rule_index)
           in
           (match result.log_policy with
           | Log -> Log.warn (fun m -> m "%s" msg)
@@ -133,34 +152,35 @@ let check_policy ~rules ~uri ?method_ ?(audit = no_audit) () =
 
 (** Wrap a policy-checked call: check policy first, then delegate to [f] if
     allowed. *)
-let with_policy ~rules ~uri ?method_ ?(audit = no_audit) f =
-  match check_policy ~rules ~uri ?method_ ~audit () with
+let with_policy ~rules ?egress ~uri ?method_ ?(audit = no_audit) f =
+  match check_policy ~rules ?egress ~uri ?method_ ~audit () with
   | Error e -> Lwt.return (Error e)
   | Ok () ->
       let open Lwt.Syntax in
       let* result = f () in
       Lwt.return (Ok result)
 
-let post_json ~rules ~uri ~headers ~body ?audit () =
-  with_policy ~rules ~uri ~method_:"POST" ?audit (fun () ->
+let post_json ~rules ?egress ~uri ~headers ~body ?audit () =
+  with_policy ~rules ?egress ~uri ~method_:"POST" ?audit (fun () ->
       Http_client.post_json ~uri ~headers ~body)
 
-let post_json_with_timeout ~rules ~timeout_s ~uri ~headers ~body ?audit () =
-  with_policy ~rules ~uri ~method_:"POST" ?audit (fun () ->
+let post_json_with_timeout ~rules ?egress ~timeout_s ~uri ~headers ~body ?audit
+    () =
+  with_policy ~rules ?egress ~uri ~method_:"POST" ?audit (fun () ->
       Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body)
 
-let get ~rules ~uri ~headers ?audit () =
-  with_policy ~rules ~uri ~method_:"GET" ?audit (fun () ->
+let get ~rules ?egress ~uri ~headers ?audit () =
+  with_policy ~rules ?egress ~uri ~method_:"GET" ?audit (fun () ->
       Http_client.get ~uri ~headers)
 
-let put_json ~rules ~uri ~headers ~body ?audit () =
-  with_policy ~rules ~uri ~method_:"PUT" ?audit (fun () ->
+let put_json ~rules ?egress ~uri ~headers ~body ?audit () =
+  with_policy ~rules ?egress ~uri ~method_:"PUT" ?audit (fun () ->
       Http_client.put_json ~uri ~headers ~body)
 
-let patch_json ~rules ~uri ~headers ~body ?audit () =
-  with_policy ~rules ~uri ~method_:"PATCH" ?audit (fun () ->
+let patch_json ~rules ?egress ~uri ~headers ~body ?audit () =
+  with_policy ~rules ?egress ~uri ~method_:"PATCH" ?audit (fun () ->
       Http_client.patch_json ~uri ~headers ~body)
 
-let delete ~rules ~uri ~headers ~body ?audit () =
-  with_policy ~rules ~uri ~method_:"DELETE" ?audit (fun () ->
+let delete ~rules ?egress ~uri ~headers ~body ?audit () =
+  with_policy ~rules ?egress ~uri ~method_:"DELETE" ?audit (fun () ->
       Http_client.delete ~uri ~headers ~body)

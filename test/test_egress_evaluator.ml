@@ -26,6 +26,44 @@ let test_empty_rules_default_deny () =
   check_log_policy "default deny logs" Log result;
   check_index "default index is -1" (-1) result
 
+let test_default_allowlist_allows_clawq_docs () =
+  let result =
+    Egress_evaluator.evaluate ~rules:[]
+      ~default_allowlist:Runtime_config.default.egress.default_allowlist
+      ~host:"clawq.org" ~path:"/llms-full.txt" ~method_:"GET" ()
+  in
+  check_action "default allowlist allows llms-full.txt" Allow result;
+  check_log_policy "default allowlist suppresses logs" No_log result;
+  check_index "default allowlist matched first fallback rule" 1 result
+
+let test_explicit_deny_overrides_default_allowlist () =
+  let rules =
+    [
+      {
+        host = "clawq.org";
+        path = None;
+        method_ = None;
+        action = Deny;
+        log_policy = Log;
+      };
+    ]
+  in
+  let result =
+    Egress_evaluator.evaluate ~rules
+      ~default_allowlist:Runtime_config.default.egress.default_allowlist
+      ~host:"clawq.org" ~path:"/llms.txt" ~method_:"GET" ()
+  in
+  check_action "explicit deny wins before fallback allowlist" Deny result;
+  check_index "explicit deny matched index 0" 0 result
+
+let test_permissive_strictness_allows_unmatched () =
+  let result =
+    Egress_evaluator.evaluate ~rules:[] ~strictness:Permissive
+      ~host:"example.com" ()
+  in
+  check_action "permissive strictness allows unmatched host" Allow result;
+  check_index "permissive default index is -1" (-1) result
+
 (** Test: single allow rule matches *)
 let test_single_allow_rule () =
   let rules =
@@ -436,6 +474,12 @@ let suite =
   [
     Alcotest.test_case "empty rules default to deny" `Quick
       test_empty_rules_default_deny;
+    Alcotest.test_case "default allowlist allows clawq docs" `Quick
+      test_default_allowlist_allows_clawq_docs;
+    Alcotest.test_case "explicit deny overrides default allowlist" `Quick
+      test_explicit_deny_overrides_default_allowlist;
+    Alcotest.test_case "permissive strictness allows unmatched" `Quick
+      test_permissive_strictness_allows_unmatched;
     Alcotest.test_case "single allow rule" `Quick test_single_allow_rule;
     Alcotest.test_case "single deny rule" `Quick test_single_deny_rule;
     Alcotest.test_case "first match wins" `Quick test_first_match_wins;

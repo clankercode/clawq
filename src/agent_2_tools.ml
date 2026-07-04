@@ -320,14 +320,18 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                   Lwt.catch
                     (fun () ->
                       let egress_rules =
-                        match session_key with
-                        | Some key ->
-                            let access =
-                              Runtime_config.resolve_effective_access
-                                agent.config ~session_key:key ()
-                            in
-                            access.egress_rules
-                        | None -> []
+                        let scoped_rules =
+                          match session_key with
+                          | Some key ->
+                              let access =
+                                Runtime_config.resolve_effective_access
+                                  agent.config ~session_key:key ()
+                              in
+                              access.egress_rules
+                          | None -> []
+                        in
+                        Runtime_config.effective_egress_rules agent.config
+                          scoped_rules
                       in
                       let context =
                         {
@@ -619,14 +623,18 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key
                   Lwt.catch
                     (fun () ->
                       let egress_rules =
-                        match session_key with
-                        | Some key ->
-                            let access =
-                              Runtime_config.resolve_effective_access
-                                agent.config ~session_key:key ()
-                            in
-                            access.egress_rules
-                        | None -> []
+                        let scoped_rules =
+                          match session_key with
+                          | Some key ->
+                              let access =
+                                Runtime_config.resolve_effective_access
+                                  agent.config ~session_key:key ()
+                              in
+                              access.egress_rules
+                          | None -> []
+                        in
+                        Runtime_config.effective_egress_rules agent.config
+                          scoped_rules
                       in
                       let context =
                         {

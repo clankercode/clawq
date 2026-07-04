@@ -97,6 +97,40 @@ let test_check_policy_default_deny () =
   Alcotest.(check int) "default index" (-1) err.matched_rule_index;
   Alcotest.(check bool) "mentions deny" true (String.contains err.message 'd')
 
+let test_check_policy_default_allowlist_clawq_docs () =
+  let rules = [] in
+  let result =
+    Policy_http_client.check_policy ~rules ~egress:Runtime_config.default.egress
+      ~uri:"https://clawq.org/llms.txt" ~method_:"GET" ()
+  in
+  Alcotest.(check bool) "clawq llms.txt allowed" true (result = Ok ())
+
+let test_check_policy_permissive_unmatched () =
+  let egress =
+    {
+      Runtime_config.default.egress with
+      strictness = Runtime_config.Permissive;
+    }
+  in
+  let result =
+    Policy_http_client.check_policy ~rules:[] ~egress
+      ~uri:"https://example.com/data" ~method_:"GET" ()
+  in
+  Alcotest.(check bool) "permissive unmatched allowed" true (result = Ok ())
+
+let test_check_policy_default_deny_hint () =
+  let result =
+    Policy_http_client.check_policy ~rules:[]
+      ~egress:Runtime_config.default.egress ~uri:"https://example.com/data"
+      ~method_:"GET" ()
+  in
+  let err = check_denied "unmatched host" result in
+  Alcotest.(check int) "default index" (-1) err.matched_rule_index;
+  Alcotest.(check bool)
+    "suggests egress config" true
+    (Test_helpers.string_contains err.message "egress.default_allowlist"
+    && Test_helpers.string_contains err.message "egress.strictness")
+
 let test_check_policy_wildcard_host () =
   let rules =
     [
@@ -339,6 +373,12 @@ let suite =
     Alcotest.test_case "check_policy: deny" `Quick test_check_policy_deny;
     Alcotest.test_case "check_policy: default deny" `Quick
       test_check_policy_default_deny;
+    Alcotest.test_case "check_policy: default allowlist clawq docs" `Quick
+      test_check_policy_default_allowlist_clawq_docs;
+    Alcotest.test_case "check_policy: permissive unmatched" `Quick
+      test_check_policy_permissive_unmatched;
+    Alcotest.test_case "check_policy: default deny hint" `Quick
+      test_check_policy_default_deny_hint;
     Alcotest.test_case "check_policy: wildcard host" `Quick
       test_check_policy_wildcard_host;
     Alcotest.test_case "check_policy: path matching" `Quick

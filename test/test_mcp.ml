@@ -49,6 +49,28 @@ let with_hung_stdio_process f =
          Lwt.return_unit))
     (fun () -> f process stderr_drain)
 
+let config_allowing_mcp_example ?(credential_handles = []) () =
+  let allow_mcp_example : Runtime_config.egress_rule =
+    {
+      host = "mcp.example.test";
+      path = Some "/rpc";
+      method_ = Some "POST";
+      action = Runtime_config.Allow;
+      log_policy = Runtime_config.No_log;
+    }
+  in
+  {
+    Runtime_config.default with
+    credential_handles;
+    egress =
+      {
+        Runtime_config.default.egress with
+        default_allowlist =
+          Runtime_config.default.egress.default_allowlist
+          @ [ allow_mcp_example ];
+      };
+  }
+
 let test_initialize () =
   let registry = Tool_registry.create () in
   let req =
@@ -495,7 +517,7 @@ let resolve_credentials_uses_lease_when_handle_set () =
         }
       in
       let config =
-        { Runtime_config.default with credential_handles = [ handle ] }
+        config_allowing_mcp_example ~credential_handles:[ handle ] ()
       in
       let snapshot =
         Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
@@ -544,7 +566,7 @@ let resolve_credentials_denies_unauthorized_handle () =
         }
       in
       let config =
-        { Runtime_config.default with credential_handles = [ handle ] }
+        config_allowing_mcp_example ~credential_handles:[ handle ] ()
       in
       let snapshot =
         Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
@@ -612,7 +634,7 @@ let connect_with_policy_denies_on_unauthorized_handle () =
         }
       in
       let config =
-        { Runtime_config.default with credential_handles = [ handle ] }
+        config_allowing_mcp_example ~credential_handles:[ handle ] ()
       in
       let snapshot =
         Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
@@ -711,7 +733,7 @@ let connect_with_policy_succeeds_when_authorized () =
         }
       in
       let config =
-        { Runtime_config.default with credential_handles = [ handle ] }
+        config_allowing_mcp_example ~credential_handles:[ handle ] ()
       in
       let snapshot =
         Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn

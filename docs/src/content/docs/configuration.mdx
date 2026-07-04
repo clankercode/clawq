@@ -648,6 +648,32 @@ The daemon reads `HEARTBEAT.md` from the workspace root on each tick.
 | `notify_channel` | Channel type for outbound notifications (e.g. `telegram`) |
 | `notify_target` | Target identifier (e.g. chat ID) for proactive sends |
 
+### egress
+
+```json
+{
+  "egress": {
+    "strictness": "strict",
+    "default_allowlist": [
+      {"host": "clawq.org", "path": "/llms.txt", "method": "GET", "action": "allow", "log_policy": "no_log"},
+      {"host": "clawq.org", "path": "/llms-full.txt", "method": "GET", "action": "allow", "log_policy": "no_log"}
+    ]
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `strictness` | `"strict"` | `"strict"` denies unmatched policy-aware HTTP destinations; `"permissive"` allows unmatched destinations after explicit rules and the default allowlist are checked |
+| `default_allowlist` | Clawq `llms.txt` and `llms-full.txt` on `clawq.org` | Fallback egress rules evaluated after access-bundle `egress_rules`; explicit deny rules in higher-priority scopes still win |
+| `default_policy` | alias | Backward-friendly alias for `strictness`; `"deny"` maps to `"strict"`, `"allow"` maps to `"permissive"` |
+
+Egress policy applies to Clawq's policy-aware HTTP paths such as `web_fetch`,
+`web_search`, `http_get`, `http_request`, HTTP MCP startup/tool calls, and
+other callers that use the policy HTTP client. Shell command network access is
+controlled separately by the shell sandbox/workspace policy; egress rules do
+not claim to firewall arbitrary commands run through `bash`.
+
 ### web_search
 
 ```json

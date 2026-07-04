@@ -455,6 +455,16 @@ let channels_json (channels : channel_config) : Yojson.Safe.t =
         [ ("onebot", onebot_json ob) ] @ chan "teams" teams_json channels.teams
     )
 
+let egress_rule_json (r : Runtime_config_types.egress_rule) : Yojson.Safe.t =
+  `Assoc
+    ([
+       ("host", `String r.host);
+       ("action", `String (egress_rule_action_to_string r.action));
+       ("log_policy", `String (egress_rule_log_policy_to_string r.log_policy));
+     ]
+    @ (match r.path with Some p -> [ ("path", `String p) ] | None -> [])
+    @ match r.method_ with Some m -> [ ("method", `String m) ] | None -> [])
+
 let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
     (cfg : t) : Yojson.Safe.t =
   let ad = cfg.agent_defaults in
@@ -701,6 +711,20 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
     @ [ ("runner_question_timeout_s", `Int cfg.mcp.runner_question_timeout_s) ]
   in
   let fields = fields @ [ ("mcp", `Assoc mcp_fields) ] in
+  let fields =
+    fields
+    @ [
+        ( "egress",
+          `Assoc
+            [
+              ( "strictness",
+                `String (egress_strictness_to_string cfg.egress.strictness) );
+              ( "default_allowlist",
+                `List (List.map egress_rule_json cfg.egress.default_allowlist)
+              );
+            ] );
+      ]
+  in
   let res_fields =
     [
       ("timeout_s", `Float cfg.resilience.timeout_s);
@@ -1089,29 +1113,8 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                           [
                             ( "egress_rules",
                               `List
-                                (List.map
-                                   (fun (r : Runtime_config_types.egress_rule)
-                                      ->
-                                     `Assoc
-                                       ([
-                                          ("host", `String r.host);
-                                          ( "action",
-                                            `String
-                                              (egress_rule_action_to_string
-                                                 r.action) );
-                                          ( "log_policy",
-                                            `String
-                                              (egress_rule_log_policy_to_string
-                                                 r.log_policy) );
-                                        ]
-                                       @ (match r.path with
-                                         | Some p -> [ ("path", `String p) ]
-                                         | None -> [])
-                                       @
-                                       match r.method_ with
-                                       | Some m -> [ ("method", `String m) ]
-                                       | None -> []))
-                                   bundle.egress_rules) );
+                                (List.map egress_rule_json bundle.egress_rules)
+                            );
                           ])
                      @ (if bundle.credential_handles = [] then []
                         else

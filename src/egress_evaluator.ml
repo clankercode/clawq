@@ -107,8 +107,12 @@ let rule_matches rule ~host ?path ?method_ () =
       | Some _, None -> false (* rule requires a method but none provided *)
 
 (** Evaluate an egress request against a set of rules using first-match-wins.
-    Default policy: deny with logging. *)
-let evaluate ~rules ~host ?path ?method_ () =
+    Explicit rules are evaluated before the default allowlist. If no rule
+    matches, [strictness] decides whether the destination is denied or allowed.
+*)
+let evaluate ~rules ?(default_allowlist = []) ?(strictness = Strict) ~host ?path
+    ?method_ () =
+  let rules = rules @ default_allowlist in
   let rec find_first_match idx = function
     | [] -> None
     | rule :: rest ->
@@ -122,4 +126,8 @@ let evaluate ~rules ~host ?path ?method_ () =
         log_policy = rule.log_policy;
         matched_rule_index = idx;
       }
-  | None -> { action = Deny; log_policy = Log; matched_rule_index = -1 }
+  | None ->
+      let action =
+        match strictness with Strict -> Deny | Permissive -> Allow
+      in
+      { action; log_policy = Log; matched_rule_index = -1 }

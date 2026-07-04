@@ -450,6 +450,82 @@ let validate_access_bundle_json_shapes json : string list =
   | `Null -> []
   | _ -> [ "access_bundles must be a list" ]
 
+let validate_egress_json_shapes json : string list =
+  let validate_rule prefix rule =
+    match rule with
+    | `Assoc fields ->
+        let host_ok =
+          match List.assoc_opt "host" fields with
+          | Some (`String _) -> true
+          | _ -> false
+        in
+        let action_ok =
+          match List.assoc_opt "action" fields with
+          | None -> true
+          | Some (`String ("allow" | "deny")) -> true
+          | _ -> false
+        in
+        let log_policy_ok =
+          match List.assoc_opt "log_policy" fields with
+          | None -> true
+          | Some (`String ("log" | "no_log")) -> true
+          | _ -> false
+        in
+        let path_ok =
+          match List.assoc_opt "path" fields with
+          | None | Some (`String _) -> true
+          | _ -> false
+        in
+        let method_ok =
+          match List.assoc_opt "method" fields with
+          | None | Some (`String _) -> true
+          | _ -> false
+        in
+        (if not host_ok then [ prefix ^ ".host must be a string" ] else [])
+        @ (if not action_ok then
+             [ prefix ^ ".action must be 'allow' or 'deny'" ]
+           else [])
+        @ (if not log_policy_ok then
+             [ prefix ^ ".log_policy must be 'log' or 'no_log'" ]
+           else [])
+        @ (if not path_ok then [ prefix ^ ".path must be a string" ] else [])
+        @ if not method_ok then [ prefix ^ ".method must be a string" ] else []
+    | _ -> [ prefix ^ " must be an object" ]
+  in
+  match Yojson.Safe.Util.member "egress" json with
+  | `Null -> []
+  | `Assoc fields ->
+      let strictness_issues =
+        match List.assoc_opt "strictness" fields with
+        | None -> []
+        | Some (`String ("strict" | "permissive")) -> []
+        | Some _ -> [ "egress.strictness must be 'strict' or 'permissive'" ]
+      in
+      let default_policy_issues =
+        match List.assoc_opt "default_policy" fields with
+        | None -> []
+        | Some (`String ("deny" | "allow" | "strict" | "permissive")) -> []
+        | Some _ ->
+            [
+              "egress.default_policy must be 'deny', 'allow', 'strict', or \
+               'permissive'";
+            ]
+      in
+      let allowlist_issues =
+        match List.assoc_opt "default_allowlist" fields with
+        | None -> []
+        | Some (`List rules) ->
+            rules
+            |> List.mapi (fun i rule ->
+                validate_rule
+                  (Printf.sprintf "egress.default_allowlist[%d]" i)
+                  rule)
+            |> List.flatten
+        | Some _ -> [ "egress.default_allowlist must be a list" ]
+      in
+      strictness_issues @ default_policy_issues @ allowlist_issues
+  | _ -> [ "egress must be an object" ]
+
 let validate_room_profile_access_bundle_json_shapes json : string list =
   match Yojson.Safe.Util.member "room_profiles" json with
   | `List profiles ->

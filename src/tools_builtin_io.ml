@@ -18,6 +18,10 @@ let make_audit_context (context : Tool.invoke_context option) :
       }
   | None -> Policy_http_client.no_audit
 
+let egress_rules_from_context ?(config = Runtime_config.default) = function
+  | Some c -> c.Tool.egress_rules
+  | None -> Runtime_config.effective_egress_rules config []
+
 let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
   if not workspace_only then true
   else is_path_within_allowed_roots ~workspace ~extra_allowed_paths path
@@ -718,7 +722,7 @@ let is_localhost_url url =
     | None -> false
   with _ -> false
 
-let http_get ~workspace_only =
+let http_get ~config ~workspace_only =
   let description =
     if workspace_only then
       "Fetch a localhost URL via GET and return the raw response body \
@@ -758,9 +762,7 @@ let http_get ~workspace_only =
       (fun ?context args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
-        let rules =
-          match context with Some c -> c.Tool.egress_rules | None -> []
-        in
+        let rules = egress_rules_from_context ~config context in
         let audit = make_audit_context context in
         let audit =
           { audit with Policy_http_client.tool_name = Some "http_get" }

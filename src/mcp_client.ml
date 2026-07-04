@@ -278,8 +278,8 @@ let resolve_mcp_server_credentials ~(config : Runtime_config.t)
           in
           Ok (filtered_existing @ resolved))
 
-let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
-    (tool_json : Yojson.Safe.t) : Tool.t option =
+let tool_of_mcp_definition ~client ?config (tool_json : Yojson.Safe.t) :
+    Tool.t option =
   let open Yojson.Safe.Util in
   try
     let name = tool_json |> member "name" |> to_string in
@@ -295,11 +295,14 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
       let open Lwt.Syntax in
       (* Check egress policy before calling MCP server. For HTTP transport,
          evaluate the server URL against the egress rules from the tool
-         context. When rules are non-empty and the server URL is denied,
-         return an error without making the outbound request. For stdio
-         transport, no outbound HTTP occurs at this layer. *)
+         context and the top-level egress policy. Denied URLs return an error
+         without making the outbound request. For stdio transport, no outbound
+         HTTP occurs at this layer. *)
       let egress_rules =
-        match context with Some c -> c.Tool.egress_rules | None -> []
+        match (context, config) with
+        | Some c, _ -> Some c.Tool.egress_rules
+        | None, Some cfg -> Some (Runtime_config.effective_egress_rules cfg [])
+        | None, None -> None
       in
       let egress_audit_db =
         match context with Some c -> c.Tool.egress_audit_db | None -> None
@@ -320,9 +323,9 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
       (* For HTTP transport, check egress policy against the server URL *)
       let* () =
         match client.transport with
-        | Http http_transport when egress_rules <> [] -> (
+        | Http http_transport when Option.is_some egress_rules -> (
             let result =
-              Policy_http_client.check_policy ~rules:egress_rules
+              Policy_http_client.check_policy ~rules:(Option.get egress_rules)
                 ~uri:http_transport.url ~method_:"POST" ~audit:egress_audit ()
             in
             match result with
@@ -337,20 +340,20 @@ let tool_of_mcp_definition ~client ?(config = Runtime_config.default)
       in
       (* Resolve room-specific credentials if credential_handle is set *)
       let* resolved_headers =
-        match credential_handle with
-        | None -> Lwt.return_none
-        | Some handle_id -> (
+        match (credential_handle, config) with
+        | None, _ | Some _, None -> Lwt.return_none
+        | Some handle_id, Some cfg -> (
             let session_key =
               match context with
               | Some ctx -> Option.value ctx.Tool.session_key ~default:""
               | None -> ""
             in
             let snapshot =
-              Access_snapshot.create ~config
+              Access_snapshot.create ~config:cfg
                 ~work_type:Access_snapshot.Room_turn ~session_key ()
             in
             match
-              resolve_mcp_server_credentials ~config ~snapshot client.config
+              resolve_mcp_server_credentials ~config:cfg ~snapshot client.config
             with
             | Ok headers -> Lwt.return_some headers
             | Error msg ->
@@ -566,7 +569,9 @@ let connect_with_policy ~(config : Runtime_config.t)
     | None, None -> "__anonymous__"
   in
   let access = Runtime_config.resolve_effective_access config ~session_key () in
-  let egress_rules = access.egress_rules in
+  let egress_rules =
+    Runtime_config.effective_egress_rules config access.egress_rules
+  in
   let egress_audit : Policy_http_client.audit_context =
     {
       Policy_http_client.no_audit with
@@ -579,8 +584,8 @@ let connect_with_policy ~(config : Runtime_config.t)
     }
   in
   let* () =
-    match (cfg.command, egress_rules) with
-    | url, _ :: _ when is_http_url url -> (
+    match cfg.command with
+    | url when is_http_url url -> (
         match
           Policy_http_client.check_policy ~rules:egress_rules ~uri:url
             ~method_:"POST" ~audit:egress_audit ()

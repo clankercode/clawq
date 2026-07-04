@@ -16,7 +16,7 @@ let make_audit_context (context : Tool.invoke_context option) :
       }
   | None -> Policy_http_client.no_audit
 
-let http_request ~workspace_only =
+let http_request ~config ~workspace_only =
   let schema =
     `Assoc
       [
@@ -95,9 +95,7 @@ let http_request ~workspace_only =
           with _ -> []
         in
         let body = try args |> member "body" |> to_string with _ -> "" in
-        let rules =
-          match context with Some c -> c.Tool.egress_rules | None -> []
-        in
+        let rules = egress_rules_from_context ~config context in
         let audit = make_audit_context context in
         let audit =
           { audit with Policy_http_client.tool_name = Some "http_request" }
@@ -264,7 +262,7 @@ let strip_html_to_text html =
     s;
   String.trim (Buffer.contents out)
 
-let web_fetch ~workspace_only =
+let web_fetch ~config ~workspace_only =
   let schema =
     `Assoc
       [
@@ -302,9 +300,7 @@ let web_fetch ~workspace_only =
       (fun ?context args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
-        let rules =
-          match context with Some c -> c.Tool.egress_rules | None -> []
-        in
+        let rules = egress_rules_from_context ~config context in
         let audit = make_audit_context context in
         let audit =
           { audit with Policy_http_client.tool_name = Some "web_fetch" }
@@ -395,13 +391,18 @@ let web_search ~(config : Runtime_config.t) =
        snippets";
     parameters_schema = schema;
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let query = try args |> member "query" |> to_string with _ -> "" in
         let limit =
           try args |> member "limit" |> to_int
           with _ -> (
             match ws_cfg with Some ws -> ws.num_results | None -> 5)
+        in
+        let rules = egress_rules_from_context ~config context in
+        let audit = make_audit_context context in
+        let audit =
+          { audit with Policy_http_client.tool_name = Some "web_search" }
         in
         if query = "" then
           Lwt.return (param_err "parameter 'query' must be a non-empty string")
@@ -460,6 +461,17 @@ let web_search ~(config : Runtime_config.t) =
                                latency_ms=%d query=%S"
                               backend status latency_ms query)
                       in
+                      let check_search_egress uri =
+                        match
+                          Policy_http_client.check_policy ~rules ~uri
+                            ~method_:"GET" ~audit ()
+                        with
+                        | Ok () -> Ok ()
+                        | Error err ->
+                            Error
+                              ("Error: "
+                              ^ Policy_http_client.policy_error_to_string err)
+                      in
                       let do_brave () =
                         let base =
                           match ws.search_base_url with
@@ -471,59 +483,65 @@ let web_search ~(config : Runtime_config.t) =
                           Printf.sprintf "%s?q=%s&count=%d" base encoded_query
                             limit
                         in
-                        let t0 = Unix.gettimeofday () in
-                        let* status, body =
-                          http_get_with_429_retry ~uri
-                            ~headers:
-                              [
-                                ("X-Subscription-Token", api_key);
-                                ("Accept", "application/json");
-                              ]
-                            ()
-                        in
-                        log_attempt ~backend:"brave" ~status ~t0;
-                        if status = 429 then Lwt.return (`Rate_limited "brave")
-                        else if status >= 400 then
-                          Lwt.return
-                            (`Err
-                               (Printf.sprintf
-                                  "Error: Brave API returned HTTP %d" status))
-                        else
-                          let json =
-                            try Yojson.Safe.from_string body
-                            with _ ->
-                              `Assoc
-                                [ ("web", `Assoc [ ("results", `List []) ]) ]
-                          in
-                          let results =
-                            try
-                              json |> member "web" |> member "results"
-                              |> to_list
-                            with _ -> []
-                          in
-                          let lines =
-                            List.mapi
-                              (fun i r ->
-                                let title =
-                                  try r |> member "title" |> to_string
-                                  with _ -> "(no title)"
-                                in
-                                let url =
-                                  try r |> member "url" |> to_string
-                                  with _ -> ""
-                                in
-                                let snippet =
-                                  try r |> member "description" |> to_string
-                                  with _ -> ""
-                                in
-                                Printf.sprintf "%d. %s\n   %s\n   %s" (i + 1)
-                                  title url snippet)
-                              results
-                          in
-                          Lwt.return
-                            (`Ok
-                               (if lines = [] then "No results found"
-                                else String.concat "\n\n" lines))
+                        match check_search_egress uri with
+                        | Error msg -> Lwt.return (`Err msg)
+                        | Ok () ->
+                            let t0 = Unix.gettimeofday () in
+                            let* status, body =
+                              http_get_with_429_retry ~uri
+                                ~headers:
+                                  [
+                                    ("X-Subscription-Token", api_key);
+                                    ("Accept", "application/json");
+                                  ]
+                                ()
+                            in
+                            log_attempt ~backend:"brave" ~status ~t0;
+                            if status = 429 then
+                              Lwt.return (`Rate_limited "brave")
+                            else if status >= 400 then
+                              Lwt.return
+                                (`Err
+                                   (Printf.sprintf
+                                      "Error: Brave API returned HTTP %d" status))
+                            else
+                              let json =
+                                try Yojson.Safe.from_string body
+                                with _ ->
+                                  `Assoc
+                                    [
+                                      ("web", `Assoc [ ("results", `List []) ]);
+                                    ]
+                              in
+                              let results =
+                                try
+                                  json |> member "web" |> member "results"
+                                  |> to_list
+                                with _ -> []
+                              in
+                              let lines =
+                                List.mapi
+                                  (fun i r ->
+                                    let title =
+                                      try r |> member "title" |> to_string
+                                      with _ -> "(no title)"
+                                    in
+                                    let url =
+                                      try r |> member "url" |> to_string
+                                      with _ -> ""
+                                    in
+                                    let snippet =
+                                      try r |> member "description" |> to_string
+                                      with _ -> ""
+                                    in
+                                    Printf.sprintf "%d. %s\n   %s\n   %s"
+                                      (i + 1) title url snippet)
+                                  results
+                              in
+                              Lwt.return
+                                (`Ok
+                                   (if lines = [] then "No results found"
+                                    else String.concat "\n\n" lines))
                       in
                       let do_ddg ?(base_url = "https://api.duckduckgo.com") () =
                         let uri =
@@ -531,68 +549,74 @@ let web_search ~(config : Runtime_config.t) =
                             "%s/?q=%s&format=json&no_redirect=1&no_html=1"
                             base_url encoded_query
                         in
-                        let t0 = Unix.gettimeofday () in
-                        let* status, body =
-                          http_get_with_429_retry ~uri
-                            ~headers:[ ("Accept", "application/json") ]
-                            ()
-                        in
-                        log_attempt ~backend:"ddg" ~status ~t0;
-                        if status = 429 then Lwt.return (`Rate_limited "ddg")
-                        else if status >= 400 then
-                          Lwt.return
-                            (`Err
-                               (Printf.sprintf "Error: DDG API returned HTTP %d"
-                                  status))
-                        else
-                          let json =
-                            try Yojson.Safe.from_string body
-                            with _ -> `Assoc []
-                          in
-                          let abstract =
-                            try json |> member "AbstractText" |> to_string
-                            with _ -> ""
-                          in
-                          let abstract_url =
-                            try json |> member "AbstractURL" |> to_string
-                            with _ -> ""
-                          in
-                          let related =
-                            try json |> member "RelatedTopics" |> to_list
-                            with _ -> []
-                          in
-                          let lines = ref [] in
-                          List.iteri
-                            (fun i topic ->
-                              if i < limit then
-                                try
-                                  let text =
-                                    topic |> member "Text" |> to_string
-                                  in
-                                  let url =
-                                    try topic |> member "FirstURL" |> to_string
-                                    with _ -> ""
-                                  in
-                                  lines :=
-                                    Printf.sprintf "%d. %s\n   %s" (i + 1) text
-                                      url
-                                    :: !lines
-                                with _ -> ())
-                            related;
-                          let lines = List.rev !lines in
-                          let lines =
-                            if abstract <> "" then
-                              Printf.sprintf "Answer: %s\n%s" abstract
-                                abstract_url
-                              :: lines
-                            else lines
-                          in
-                          Lwt.return
-                            (`Ok
-                               (if lines = [] then
-                                  "No results found (DDG instant API has \
-                                   limited coverage)"
-                                else String.concat "\n\n" lines))
+                        match check_search_egress uri with
+                        | Error msg -> Lwt.return (`Err msg)
+                        | Ok () ->
+                            let t0 = Unix.gettimeofday () in
+                            let* status, body =
+                              http_get_with_429_retry ~uri
+                                ~headers:[ ("Accept", "application/json") ]
+                                ()
+                            in
+                            log_attempt ~backend:"ddg" ~status ~t0;
+                            if status = 429 then
+                              Lwt.return (`Rate_limited "ddg")
+                            else if status >= 400 then
+                              Lwt.return
+                                (`Err
+                                   (Printf.sprintf
+                                      "Error: DDG API returned HTTP %d" status))
+                            else
+                              let json =
+                                try Yojson.Safe.from_string body
+                                with _ -> `Assoc []
+                              in
+                              let abstract =
+                                try json |> member "AbstractText" |> to_string
+                                with _ -> ""
+                              in
+                              let abstract_url =
+                                try json |> member "AbstractURL" |> to_string
+                                with _ -> ""
+                              in
+                              let related =
+                                try json |> member "RelatedTopics" |> to_list
+                                with _ -> []
+                              in
+                              let lines = ref [] in
+                              List.iteri
+                                (fun i topic ->
+                                  if i < limit then
+                                    try
+                                      let text =
+                                        topic |> member "Text" |> to_string
+                                      in
+                                      let url =
+                                        try
+                                          topic |> member "FirstURL"
+                                          |> to_string
+                                        with _ -> ""
+                                      in
+                                      lines :=
+                                        Printf.sprintf "%d. %s\n   %s" (i + 1)
+                                          text url
+                                        :: !lines
+                                    with _ -> ())
+                                related;
+                              let lines = List.rev !lines in
+                              let lines =
+                                if abstract <> "" then
+                                  Printf.sprintf "Answer: %s\n%s" abstract
+                                    abstract_url
+                                  :: lines
+                                else lines
+                              in
+                              Lwt.return
+                                (`Ok
+                                   (if lines = [] then
+                                      "No results found (DDG instant API has \
+                                       limited coverage)"
+                                    else String.concat "\n\n" lines))
                       in
                       match provider with
                       | "brave" -> (

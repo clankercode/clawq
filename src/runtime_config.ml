@@ -91,6 +91,28 @@ let default_browser_config : browser_config =
     idle_timeout_s = 300.0;
   }
 
+let default_egress_config : egress_config =
+  {
+    strictness = Strict;
+    default_allowlist =
+      [
+        {
+          host = "clawq.org";
+          path = Some "/llms.txt";
+          method_ = Some "GET";
+          action = Allow;
+          log_policy = No_log;
+        };
+        {
+          host = "clawq.org";
+          path = Some "/llms-full.txt";
+          method_ = Some "GET";
+          action = Allow;
+          log_policy = No_log;
+        };
+      ];
+  }
+
 let default_workspace () = Dot_dir.sub "workspace"
 
 let default_prompt =
@@ -283,12 +305,24 @@ let default =
     room_profiles = [];
     room_profile_codebase_grants = [];
     room_profile_bindings = [];
+    egress = default_egress_config;
     external_room_policy =
       {
         default_action = Policy_warn "External participants detected.";
         per_connector = [];
       };
   }
+
+let permissive_egress_rule : egress_rule =
+  { host = "*"; path = None; method_ = None; action = Allow; log_policy = Log }
+
+let effective_egress_rules (cfg : t) (rules : egress_rule list) :
+    egress_rule list =
+  rules @ cfg.egress.default_allowlist
+  @
+  match cfg.egress.strictness with
+  | Strict -> []
+  | Permissive -> [ permissive_egress_rule ]
 
 let is_key_set key =
   key <> "" && not (String.length key > 4 && String.sub key 0 4 = "YOUR")

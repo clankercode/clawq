@@ -483,9 +483,12 @@ let refresh_runtime_bound_tools ?send_file_runtime ~(config : Runtime_config.t)
   Tool_registry.replace registry
     (Tools_builtin.grep ~workspace ~workspace_only ~extra_allowed_paths);
   (* Refresh network tools that depend on workspace_only *)
-  Tool_registry.replace registry (Tools_builtin.http_get ~workspace_only);
-  Tool_registry.replace registry (Tools_builtin.http_request ~workspace_only);
-  Tool_registry.replace registry (Tools_builtin.web_fetch ~workspace_only);
+  Tool_registry.replace registry
+    (Tools_builtin.http_get ~config ~workspace_only);
+  Tool_registry.replace registry
+    (Tools_builtin.http_request ~config ~workspace_only);
+  Tool_registry.replace registry
+    (Tools_builtin.web_fetch ~config ~workspace_only);
   (* Refresh browser tool which depends on workspace_only and config *)
   Tool_registry.replace registry
     (Tools_builtin_browser.browser ~workspace_only ~config);

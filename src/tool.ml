@@ -8,8 +8,7 @@ type invoke_context = {
   effective_cwd : string option;
   request_cwd_change : (string -> bool -> unit) option;
   egress_rules : Runtime_config_types.egress_rule list;
-      (** Egress rules for policy-aware HTTP requests. Empty list means deny all
-          (safe default). *)
+      (** Egress rules for policy-aware HTTP requests. *)
   snapshot_id : string option;
       (** Access snapshot ID for egress audit correlation. *)
   profile_id : string option;

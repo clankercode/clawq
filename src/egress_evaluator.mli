@@ -9,6 +9,8 @@ type result = {
 
 val evaluate :
   rules:Runtime_config_types.egress_rule list ->
+  ?default_allowlist:Runtime_config_types.egress_rule list ->
+  ?strictness:Runtime_config_types.egress_strictness ->
   host:string ->
   ?path:string ->
   ?method_:string ->
@@ -18,12 +20,14 @@ val evaluate :
     against the given rule set using first-match-wins semantics.
 
     - [rules]: ordered list of egress rules (higher-priority first)
+    - [default_allowlist]: global fallback rules evaluated after [rules]
+    - [strictness]: default action for unmatched destinations
     - [host]: the target hostname
     - [path]: optional request path (e.g. "/api/v1/users")
     - [method_]: optional HTTP method (e.g. "GET", "POST")
 
     Returns the action (allow/deny) and log policy from the first matching rule.
-    If no rules match, the default policy is {b deny} with {b log}. *)
+    If no rules match, [strictness] supplies the action with {b log}. *)
 
 val matches_host : pattern:string -> host:string -> bool
 (** [matches_host ~pattern ~host] tests whether [host] matches the glob pattern

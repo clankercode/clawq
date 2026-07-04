@@ -44,6 +44,7 @@ val policy_error_to_string : policy_error -> string
 
 val check_policy :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   uri:string ->
   ?method_:string ->
   ?audit:audit_context ->
@@ -58,6 +59,7 @@ val check_policy :
 
 val post_json :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   uri:string ->
   headers:(string * string) list ->
   body:string ->
@@ -68,6 +70,7 @@ val post_json :
 
 val post_json_with_timeout :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   timeout_s:float ->
   uri:string ->
   headers:(string * string) list ->
@@ -79,6 +82,7 @@ val post_json_with_timeout :
 
 val get :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   uri:string ->
   headers:(string * string) list ->
   ?audit:audit_context ->
@@ -88,6 +92,7 @@ val get :
 
 val put_json :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   uri:string ->
   headers:(string * string) list ->
   body:string ->
@@ -98,6 +103,7 @@ val put_json :
 
 val patch_json :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   uri:string ->
   headers:(string * string) list ->
   body:string ->
@@ -108,6 +114,7 @@ val patch_json :
 
 val delete :
   rules:Runtime_config_types.egress_rule list ->
+  ?egress:Runtime_config_types.egress_config ->
   uri:string ->
   headers:(string * string) list ->
   body:string ->

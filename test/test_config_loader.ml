@@ -329,6 +329,69 @@ let test_to_json_preserves_model_context_limits () =
     "custom limit serialized" 64000
     (json |> member "model_context_limits" |> member "custom/model-x" |> to_int)
 
+let test_parse_egress_config () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "egress": {
+          "strictness": "permissive",
+          "default_allowlist": [
+            {"host": "docs.example.com", "path": "/llms.txt", "method": "GET", "action": "allow", "log_policy": "no_log"}
+          ]
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check string)
+    "strictness parsed" "permissive"
+    (Runtime_config.egress_strictness_to_string cfg.egress.strictness);
+  Alcotest.(check int)
+    "allowlist count" 1
+    (List.length cfg.egress.default_allowlist);
+  let rule = List.hd cfg.egress.default_allowlist in
+  Alcotest.(check string) "allowlist host" "docs.example.com" rule.host;
+  Alcotest.(check (option string)) "allowlist path" (Some "/llms.txt") rule.path;
+  Alcotest.(check (option string)) "allowlist method" (Some "GET") rule.method_
+
+let test_parse_egress_default_policy_alias () =
+  let json =
+    Yojson.Safe.from_string {|{"egress": {"default_policy": "allow"}}|}
+  in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check string)
+    "default_policy allow maps to permissive" "permissive"
+    (Runtime_config.egress_strictness_to_string cfg.egress.strictness)
+
+let test_to_json_preserves_egress_config () =
+  let cfg =
+    {
+      Runtime_config.default with
+      egress =
+        {
+          strictness = Runtime_config.Permissive;
+          default_allowlist =
+            [
+              {
+                host = "docs.example.com";
+                path = Some "/llms-full.txt";
+                method_ = Some "GET";
+                action = Runtime_config.Allow;
+                log_policy = Runtime_config.No_log;
+              };
+            ];
+        };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "strictness serialized" "permissive"
+    (json |> member "egress" |> member "strictness" |> to_string);
+  Alcotest.(check string)
+    "allowlist host serialized" "docs.example.com"
+    (json |> member "egress" |> member "default_allowlist" |> index 0
+   |> member "host" |> to_string)
+
 let test_parse_lark_defaults_disabled () =
   let json =
     Yojson.Safe.from_string
@@ -1826,6 +1889,11 @@ let suite =
       test_to_json_omits_empty_model_context_limits;
     Alcotest.test_case "to_json preserves model context limits" `Quick
       test_to_json_preserves_model_context_limits;
+    Alcotest.test_case "parse egress config" `Quick test_parse_egress_config;
+    Alcotest.test_case "parse egress default_policy alias" `Quick
+      test_parse_egress_default_policy_alias;
+    Alcotest.test_case "to_json preserves egress config" `Quick
+      test_to_json_preserves_egress_config;
     Alcotest.test_case "parse lark defaults disabled" `Quick
       test_parse_lark_defaults_disabled;
     Alcotest.test_case "agent defaults show_tool_calls defaults true" `Quick
