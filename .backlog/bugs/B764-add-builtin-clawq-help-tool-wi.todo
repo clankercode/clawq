@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-04T07:22:21Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-04T07:50:40Z"
 complexity: medium
 depends_on: []
+duration_minutes: 28.329656154166667
 estimate_hours: 1
 id: B764
 priority: high
 started_at: "2026-07-04T07:22:21Z"
-status: in_progress
+status: done
 tags: []
 title: Add builtin clawq_help tool with topic-based help and onboarding guidance
 ---
