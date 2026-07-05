@@ -63,6 +63,7 @@
   agent
   session_types
   session_queue
+  session_activity
   session_context
   session_persistence
   session_core
