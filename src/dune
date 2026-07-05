@@ -66,6 +66,7 @@
   session_heartbeat
   session_room_profile
   session_postmortem
+  session_agents
   session_turn
   session_autonomous
   session
