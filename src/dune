@@ -288,6 +288,7 @@
   daemon_inbound_replay
   daemon_util
   daemon_logging
+  daemon_questions
   ambient_daemon
   daemon
   command_bridge_models
