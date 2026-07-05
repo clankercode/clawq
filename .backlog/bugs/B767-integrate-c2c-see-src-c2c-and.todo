@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B767
+priority: high
+status: pending
+tags: []
+title: Integrate c2c (see ~/src/c2c and ~/src/pi-c2c for info and example). We ideally want to be able to easily and quickly set up a c2c relay alongside clawq so that I can tell my agent to talk to someone else's agent and it has access to their files or stuff. This should ideally be able to grow into a cross-team thing. Other people can also install c2c via like claude cowork and ideally have similar functionality. We will need to do an interview/grilling about this.
+---
+
+Integrate c2c (see ~/src/c2c and ~/src/pi-c2c for info and example). We ideally want to be able to easily and quickly set up a c2c relay alongside clawq so that I can tell my agent to talk to someone else's agent and it has access to their files or stuff. This should ideally be able to grow into a cross-team thing. Other people can also install c2c via like claude cowork and ideally have similar functionality. We will need to do an interview/grilling about this.

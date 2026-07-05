@@ -760,3 +760,4 @@ bugs:
     - file: B764-add-builtin-clawq-help-tool-wi.todo
     - file: B765-egress-policy-defaults-to-deny.todo
     - file: B766-bash-tool-output-preview-durin.todo
+    - file: B767-integrate-c2c-see-src-c2c-and.todo
