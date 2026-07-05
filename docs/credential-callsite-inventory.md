@@ -307,7 +307,7 @@ for a cross-cutting view of all security-relevant subsystems.
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `config_loader.ml:894-913` | `Config_loader` | `search_api_key` | Loaded from config for web search provider | None | HIGH | MISSING |
+| `config_loader.ml:706-732` | `Config_loader` | `search_api_key` | Loaded from config for web search provider | None | HIGH | MISSING |
 | `tools_builtin_net.ml:75-97` | `Tools_builtin_net` | User-supplied HTTP headers (`Authorization`, API keys, cookies, etc.) | Arbitrary headers passed through `http_request` to `Http_client.*` | None in request path | HIGH | MISSING |
 | `tools_builtin_net.ml:365-416` | `Tools_builtin_net` | Brave `search_api_key` | `X-Subscription-Token: <key>` on Brave web search requests | None in request path | HIGH | MISSING |
 | `tools_builtin_net.ml:937-960` | `Tools_builtin_net` | Brave `search_api_key` | `X-Subscription-Token: <key>` on Brave health-check probe | None in request path | HIGH | MISSING |
@@ -318,7 +318,7 @@ for a cross-cutting view of all security-relevant subsystems.
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `config_loader.ml:923-956` | `Config_loader` | `zai_mcp.key` | Loaded from config for Z.ai MCP tools | None | HIGH | MISSING |
+| `config_loader.ml:735-775` | `Config_loader` | `zai_mcp.key` | Loaded from config for Z.ai MCP tools | None | HIGH | MISSING |
 | `tools_builtin_zai.ml:38-55` | `Tools_builtin_zai` | `zai_mcp.key` / discovered Z.ai provider key | `Authorization: Bearer <key>` for Z.ai MCP `tools/call` requests | None in request path | HIGH | MISSING |
 | `tools_builtin_zai.ml:151-154` | `Tools_builtin_zai` | `zai_mcp.key` / discovered Z.ai provider key | `Authorization: Bearer <key>` for Z.ai MCP initialize and discovery requests | None in request path | HIGH | MISSING |
 | `mcp_client.ml:278-318` | `Mcp_client` | Configured HTTP MCP headers | Parsed from HTTP MCP server config into transport headers | None in transport setup | HIGH | MISSING |
@@ -340,7 +340,7 @@ for a cross-cutting view of all security-relevant subsystems.
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `config_loader.ml:104-108` | `Config_loader` | `access_token`, `refresh_token` | Loaded from config with `resolve_secret` | `resolve_secret` applied | LOW | EXISTING |
+| `config_loader_providers.ml:15-42` | `Config_loader_providers` | `access_token`, `refresh_token` | Loaded from config with `resolve_secret` | `resolve_secret` applied | LOW | EXISTING |
 
 ---
 
