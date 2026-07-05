@@ -283,6 +283,7 @@
   daemon_task_tree_helpers
   daemon_util_localturn
   daemon_util
+  daemon_logging
   ambient_daemon
   daemon
   command_bridge_models

@@ -48,6 +48,7 @@ let () =
        ("migrate", Test_migrate.suite);
        ("audit", Test_audit.suite);
        ("daemon", Test_daemon.suite);
+       ("daemon_logging", Test_daemon_logging.suite);
        ("service", Test_service.suite);
        ("restart", Test_restart.suite);
        ("room_session", Test_room_session.suite);
