@@ -465,7 +465,7 @@
 (executable
  (name main)
  (public_name clawq)
- (modules main)
+ (modules main_cmd_common main_background_cmds main)
  (libraries clawq_runtime_core clawq_runtime_integrations cmdliner))
 
 (executable
