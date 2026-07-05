@@ -197,24 +197,24 @@ All Telegram API calls embed the bot token in the URL path: `https://api.telegra
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `telegram_api.ml:433` | `Telegram_api` | `https://api.telegram.org/bot{token}/deleteWebhook` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:467` | `Telegram_api` | `https://api.telegram.org/bot{token}/getUpdates` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:659` | `Telegram_api` | `https://api.telegram.org/bot{token}/getUpdates` (acknowledge) | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:716` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendChatAction` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:852` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendMessage` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:881` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendMessage` (plain text fallback) | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:946` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:986` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendChatAction` (typing) | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1010` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` (inline keyboard) | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1034` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` (fallback) | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1059` | `Telegram_api` | `https://api.telegram.org/bot{token}/deleteMessage` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1158` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMessageReaction` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1179` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMessageReaction` (clear) | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1269` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendPoll` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1323` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMyCommands` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1414` | `Telegram_api` | `https://api.telegram.org/bot{token}/getFile` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1423` | `Telegram_api` | `https://api.telegram.org/file/bot{token}/{file_path}` | Token in URL path | URL-PATH | EXISTING |
-| `telegram_api.ml:1483` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendDocument` (multipart) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:41` | `Telegram_api` | `https://api.telegram.org/bot{token}/deleteWebhook` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:61` | `Telegram_api` | `https://api.telegram.org/bot{token}/getUpdates` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:253` | `Telegram_api` | `https://api.telegram.org/bot{token}/getUpdates` (acknowledge) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:310` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendChatAction` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:446` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendMessage` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:475` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendMessage` (plain text fallback) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:604` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:310` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendChatAction` (typing) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:540` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendMessage` (inline keyboard) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:628` | `Telegram_api` | `https://api.telegram.org/bot{token}/editMessageText` (fallback) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:653` | `Telegram_api` | `https://api.telegram.org/bot{token}/deleteMessage` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:752` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMessageReaction` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:773` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMessageReaction` (clear) | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:863` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendPoll` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:917` | `Telegram_api` | `https://api.telegram.org/bot{token}/setMyCommands` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1008` | `Telegram_api` | `https://api.telegram.org/bot{token}/getFile` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1017` | `Telegram_api` | `https://api.telegram.org/file/bot{token}/{file_path}` | Token in URL path | URL-PATH | EXISTING |
+| `telegram_api.ml:1077` | `Telegram_api` | `https://api.telegram.org/bot{token}/sendDocument` (multipart) | Token in URL path | URL-PATH | EXISTING |
 | `telegram.ml:211` | `Telegram` | `https://api.telegram.org/bot{token}/getFile` | Token in URL path | URL-PATH | EXISTING |
 | `telegram.ml:224` | `Telegram` | `https://api.telegram.org/file/bot{token}/{file_path}` | Token in URL path | URL-PATH | EXISTING |
 

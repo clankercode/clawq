@@ -284,6 +284,7 @@
   http_server_models
   http_server_chat
   http_server
+  telegram_api_state
   telegram_api
   telegram
   telegram_poll

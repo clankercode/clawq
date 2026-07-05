@@ -143,10 +143,10 @@ for a cross-cutting view of all security-relevant subsystems.
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `telegram_api.ml:431` | `Telegram_api` | `bot_token` | URL path: `<base><token>/deleteWebhook` | `redact_token` in logs | HIGH | EXISTING |
-| `telegram_api.ml:463` | `Telegram_api` | `bot_token` | URL path: `<base><token>/getUpdates` | `redact_token` in error logs | HIGH | EXISTING |
-| `telegram_api.ml:654` | `Telegram_api` | `bot_token` | URL path: `<base><token>/getUpdates` (acknowledge) | None | HIGH | PARTIAL |
-| `telegram_api.ml:711` | `Telegram_api` | `bot_token` | URL path: `<base><token>/sendChatAction` | None | HIGH | MISSING |
+| `telegram_api.ml:39` | `Telegram_api` | `bot_token` | URL path: `<base><token>/deleteWebhook` | `redact_token` in logs | HIGH | EXISTING |
+| `telegram_api.ml:56` | `Telegram_api` | `bot_token` | URL path: `<base><token>/getUpdates` | `redact_token` in error logs | HIGH | EXISTING |
+| `telegram_api.ml:248` | `Telegram_api` | `bot_token` | URL path: `<base><token>/getUpdates` (acknowledge) | None | HIGH | PARTIAL |
+| `telegram_api.ml:305` | `Telegram_api` | `bot_token` | URL path: `<base><token>/sendChatAction` | None | HIGH | MISSING |
 | Various `send_message` calls | `Telegram_api` | `bot_token` | URL path embedded in Telegram Bot API calls | None | HIGH | MISSING |
 
 **Note:** Telegram embeds the bot token in the URL path (e.g., `https://api.telegram.org/bot<token>/sendMessage`), not in headers.

@@ -6,14 +6,14 @@
 
 ### Telegram
 
-- **API**: `editMessageText` via Bot API (`src/telegram_api.ml:949`)
+- **API**: `editMessageText` via Bot API (`src/telegram_api.ml:590`)
 - **Edit support**: Full in-place editing of bot's own messages; no time limit
 - **Streaming**: Not native; simulated by repeated `editMessageText` calls
 - **Parse modes**: `HTML`, `MarkdownV2`, `Markdown` (legacy)
 - **Reactions**: `setMessageReaction` API for emoji reactions on messages
 - **Message limits**: ~4096 characters per message
 - **Delete**: `deleteMessage` API
-- **Current impl**: `make_status_notifier` returns a `Status_message.notifier` with `send`/`edit`/`delete` (`src/telegram_api.ml:1040-1084`). Factory registered in `session_core.status_message_factories` per session key.
+- **Current impl**: `make_status_notifier` returns a `Status_message.notifier` with `send`/`edit`/`delete` (`src/telegram_api.ml:691-733`). Factory registered in `session_core.status_message_factories` per session key.
 
 ### Discord
 
@@ -421,7 +421,7 @@ No new configuration needed. The strategy is fully determined by `agent_defaults
 | `src/connector_status.ml` | 43 | Status and interrupt-ack emoji mapping per connector |
 | `src/status_phase.ml` | 3 | Status phase ADT (Received, Processing, Completed, Failed) |
 | `src/session_core.ml` | ~700 | Session state, factory registration (line 50, 320) |
-| `src/telegram_api.ml` | ~1100 | Telegram API + `make_status_notifier` (line 1040) |
+| `src/telegram_api.ml` | ~1086 | Telegram API + `make_status_notifier` (line 733) |
 | `src/discord.ml` | ~1160 | Discord channel + duplicated dispatch (line 888) |
 | `src/slack.ml` | ~960 | Slack channel + duplicated dispatch (line 772) |
 | `src/teams.ml` | ~930 | Teams channel + `make_status_notifier` + factory registration |
