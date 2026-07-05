@@ -59,6 +59,7 @@
   agent_2_tools
   agent
   session_types
+  session_queue
   session_core
   session_heartbeat
   session_room_profile
