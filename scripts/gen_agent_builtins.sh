@@ -172,7 +172,12 @@ lines.append("")
 print("\n".join(lines))
 PY
 
-OCAMLFORMAT="$(opam exec --switch=clawq-5.1 -- which ocamlformat 2>/dev/null || echo "")"
+OPAM_SWITCH="${OPAM_SWITCH:-$(opam switch show 2>/dev/null || true)}"
+if [ -n "$OPAM_SWITCH" ]; then
+  OCAMLFORMAT="$(opam exec --switch="$OPAM_SWITCH" -- which ocamlformat 2>/dev/null || echo "")"
+else
+  OCAMLFORMAT="$(command -v ocamlformat 2>/dev/null || echo "")"
+fi
 
 if [ -n "$OCAMLFORMAT" ]; then
   "$OCAMLFORMAT" -i "$TMP_OUTPUT" 2>/dev/null || true

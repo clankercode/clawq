@@ -110,3 +110,5 @@ jobs:
 
       - name: Publish to npm (trusted, OIDC)
         run: cd npm-pkg && npm publish --access=public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
