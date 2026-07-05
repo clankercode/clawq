@@ -304,6 +304,7 @@
   command_bridge_debug
   command_bridge_room_memory
   command_bridge_agents
+  command_bridge_rooms
   command_bridge_agent_cmds
   room_session_cli
   room_deliveries_cli
