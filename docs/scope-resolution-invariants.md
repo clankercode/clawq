@@ -542,7 +542,8 @@ bound to different rooms do not interfere with each other.
 | `test/test_config_loader.ml` | INV-RLD-5 (validation/fail-closed) |
 | `src/access_snapshot.ml` | Snapshot implementation |
 | `src/runtime_config.ml` | Resolver implementation |
-| `src/config_loader.ml` | Config parsing and validation |
+| `src/config_loader.ml` | Top-level config parsing and validation |
+| `src/config_loader_access.ml` | Credential handle, access bundle, access scope, and egress parsing |
 
 ## Known Test Issues
 

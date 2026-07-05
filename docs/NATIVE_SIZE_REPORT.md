@@ -12,10 +12,14 @@ The generated data lands in `dist/native-size-report/`.
 
 This workflow analyzes optimized native object files from `_build_opt_size/default/src`.
 
+This is a historical pre-refactor snapshot. Regenerate before using it as
+current sizing evidence, especially for config parser modules now split out of
+`config_loader`.
+
 - Module ranking uses `.text + .rodata + .data + .bss + .eh_frame` as a rough footprint signal.
 - Symbol ranking uses `nm -S --size-sort --print-size` and filters to concrete text symbols, so the list highlights real code bodies rather than linker bookkeeping.
 
-Largest module-level contributors in the current size build:
+Largest module-level contributors in this snapshot:
 
 | Module | Group | Footprint | Note |
 |---|---|---:|---|
@@ -27,7 +31,7 @@ Largest module-level contributors in the current size build:
 | `email_channel` | integrations | 46,150 | Channel-specific parser/decoder path is large relative to usage frequency. |
 | `http_server` | integrations | 36,780 | Server path is a meaningful integration-only contributor and should stay out of minimal/core packaging. |
 
-Largest concrete code symbols from the current report:
+Largest concrete code symbols from this snapshot:
 
 | Symbol | Module | Size |
 |---|---|---:|
@@ -42,5 +46,5 @@ Largest concrete code symbols from the current report:
 ## Prioritization
 
 - First, trim integration-only hotspots such as `command_bridge`, `daemon`, `http_server`, and channel/provider modules before touching foundational core plumbing.
-- In core, config parsing/serialization is the clearest code-size cluster, especially `config_loader` and `runtime_config`.
+- In core, config parsing/serialization was the clearest code-size cluster in this snapshot, especially `config_loader` and `runtime_config`.
 - `chat_ui_assets` is mostly static data rather than executable code, so it is a packaging/asset-embedding question more than a codegen problem.

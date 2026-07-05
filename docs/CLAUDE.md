@@ -35,7 +35,7 @@ Two files in `public/`:
 
 **When to update `public/llms-full.txt`:**
 - Adding, removing, or renaming a CLI command or subcommand (`src/main.ml`, `src/command_bridge.ml`)
-- Adding or changing config fields or defaults (`src/runtime_config.ml`, `src/config_loader.ml`)
+- Adding or changing config fields or defaults (`src/runtime_config.ml`, `src/config_loader*.ml`)
 - Adding, removing, or renaming a built-in tool (`src/tools_builtin.ml`)
 - Changing the shell allowlist or security mechanisms (`src/tools_builtin.ml`)
 - Adding or changing HTTP gateway endpoints (`src/http_server.ml`)
