@@ -306,7 +306,9 @@
   command_bridge_pipeline
   command_bridge_session
   command_bridge_debug
+  command_bridge_room_common
   command_bridge_room_memory
+  command_bridge_room_routine
   command_bridge_agents
   command_bridge_rooms
   command_bridge_agent_cmds
