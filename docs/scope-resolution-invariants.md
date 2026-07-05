@@ -544,6 +544,7 @@ bound to different rooms do not interfere with each other.
 | `src/runtime_config.ml` | Resolver implementation |
 | `src/config_loader.ml` | Top-level config parsing and validation |
 | `src/config_loader_access.ml` | Credential handle, access bundle, access scope, and egress parsing |
+| `src/config_loader_room_profiles.ml` | Room profile, room binding, and room profile codebase grant parsing |
 
 ## Known Test Issues
 

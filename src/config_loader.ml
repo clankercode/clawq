@@ -399,6 +399,7 @@ let parse_config ?(resolve_secrets = true) json =
     with _ -> Runtime_config.default_summarizer_config
   in
   let access_config = Config_loader_access.parse ~default json in
+  let room_profile_config = Config_loader_room_profiles.parse json in
   {
     workspace;
     Runtime_config.default_temperature;
@@ -674,98 +675,10 @@ let parse_config ?(resolve_secrets = true) json =
     credential_handles = access_config.parsed_credential_handles;
     access_bundles = access_config.parsed_access_bundles;
     access_scopes = access_config.parsed_access_scopes;
-    room_profiles =
-      (try
-         json |> member "room_profiles" |> to_list
-         |> List.map (fun p ->
-             let id = p |> member "id" |> to_string in
-             let display_name =
-               try Some (p |> member "display_name" |> to_string)
-               with _ -> None
-             in
-             let model = p |> member "model" |> to_string in
-             let system_prompt =
-               try p |> member "system_prompt" |> to_string with _ -> ""
-             in
-             let max_tool_iterations =
-               try p |> member "max_tool_iterations" |> to_int with _ -> 10
-             in
-             let status =
-               try p |> member "status" |> to_string with _ -> "active"
-             in
-             let allowed_tools =
-               try p |> member "allowed_tools" |> to_list |> List.map to_string
-               with _ -> []
-             in
-             let denied_tools =
-               try p |> member "denied_tools" |> to_list |> List.map to_string
-               with _ -> []
-             in
-             let access_bundle_ids =
-               try
-                 p |> member "access_bundle_ids" |> to_list
-                 |> List.map to_string
-               with _ -> []
-             in
-             let ambient_enabled =
-               try p |> member "ambient_enabled" |> to_bool with _ -> false
-             in
-             let ambient_quiet_start =
-               try p |> member "ambient_quiet_start" |> to_int
-               with _ -> Ambient_policy.default_ambient_quiet_start
-             in
-             let ambient_quiet_end =
-               try p |> member "ambient_quiet_end" |> to_int
-               with _ -> Ambient_policy.default_ambient_quiet_end
-             in
-             let ambient_rate_limit_rph =
-               try p |> member "ambient_rate_limit_rph" |> to_int with _ -> 0
-             in
-             ({
-                id;
-                display_name;
-                model;
-                system_prompt;
-                max_tool_iterations;
-                status;
-                allowed_tools;
-                denied_tools;
-                access_bundle_ids;
-                ambient_enabled;
-                ambient_quiet_start;
-                ambient_quiet_end;
-                ambient_rate_limit_rph;
-              }
-               : Runtime_config.room_profile))
-       with _ -> []);
+    room_profiles = room_profile_config.parsed_room_profiles;
     room_profile_codebase_grants =
-      (try
-         json
-         |> member "room_profile_codebase_grants"
-         |> to_list
-         |> List.map (fun g ->
-             let profile_id = g |> member "profile_id" |> to_string in
-             let patterns =
-               try g |> member "patterns" |> to_list |> List.map to_string
-               with _ ->
-                 g |> member "codebase_grants" |> to_list |> List.map to_string
-             in
-             (profile_id, patterns))
-       with _ -> []);
-    room_profile_bindings =
-      (try
-         json
-         |> member "room_profile_bindings"
-         |> to_list
-         |> List.map (fun b ->
-             let profile_id = b |> member "profile_id" |> to_string in
-             let room = b |> member "room" |> to_string in
-             let active =
-               try b |> member "active" |> to_bool with _ -> true
-             in
-             ({ profile_id; room; active }
-               : Runtime_config.room_profile_binding))
-       with _ -> []);
+      room_profile_config.parsed_room_profile_codebase_grants;
+    room_profile_bindings = room_profile_config.parsed_room_profile_bindings;
     egress = access_config.parsed_egress;
     external_room_policy =
       (try
