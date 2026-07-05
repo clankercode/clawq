@@ -60,6 +60,8 @@
   agent
   session_types
   session_queue
+  session_context
+  session_persistence
   session_core
   session_heartbeat
   session_room_profile
