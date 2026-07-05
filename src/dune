@@ -282,6 +282,7 @@
   connector_room_progress
   daemon_task_tree_helpers
   daemon_util_localturn
+  daemon_inbound_replay
   daemon_util
   daemon_logging
   ambient_daemon
