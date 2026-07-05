@@ -510,7 +510,7 @@ let enqueue_message_if_busy mgr ~key ?raw_message queued_message =
                  Its effects: (1) inject_messages picks up queued messages
                  between tool-call batches when wired by run_locked_turn, and
                  (2) restart-resume turns remap it to a real stop signal in
-                 daemon_util.ml:restart_resume_interrupt_check. *)
+                 daemon_resume.ml:restart_resume_interrupt_check. *)
             if !interrupt = None then
               interrupt := Some Agent.queued_message_interrupt_token;
             run_interrupt_finalizer mgr ~key;

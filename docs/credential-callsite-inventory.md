@@ -134,7 +134,7 @@ for a cross-cutting view of all security-relevant subsystems.
 | `slack.ml:165` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (delete_message) | None | HIGH | MISSING |
 | `slack.ml:189` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (add_reaction) | None | HIGH | MISSING |
 | `slack.ml:205` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (remove_reaction) | None | HIGH | MISSING |
-| `daemon_util.ml:753` | `Daemon_util` | `slack_config.bot_token` | `Authorization: Bearer <token>` (deliver_room_progress) | None | HIGH | MISSING |
+| `connector_room_progress.ml:45-78` | `Connector_room_progress` | `slack_config.bot_token` | `Authorization: Bearer <token>` / Slack Web API calls (deliver_room_progress callbacks) | None | HIGH | MISSING |
 | `slack.ml:101` | `Slack` | `signing_secret` | HMAC-SHA256 request signature verification | Not logged | MEDIUM | EXISTING |
 
 ---

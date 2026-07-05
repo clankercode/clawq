@@ -286,6 +286,7 @@
   daemon_task_tree_helpers
   daemon_util_localturn
   daemon_inbound_replay
+  daemon_resume
   daemon_util
   daemon_logging
   daemon_questions
