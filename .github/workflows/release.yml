@@ -109,6 +109,11 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Publish to npm (trusted, OIDC)
-        run: cd npm-pkg && npm publish --access=public --provenance
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN is not configured; skipping npm publish."
+            exit 0
+          fi
+          cd npm-pkg && npm publish --access=public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

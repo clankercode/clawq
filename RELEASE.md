@@ -7,7 +7,7 @@ Pushing a `v*` tag triggers the `release` workflow, which:
 1. **Builds optimized binaries** (speed + size variants, stripped)
 2. **Creates a GitHub release** (draft, with auto-generated notes)
 3. **Uploads binaries** to the GitHub release
-4. **Publishes to npm** as `@clawq/clawq`
+4. **Publishes to npm** as `@clawq/clawq` when `NPM_TOKEN` is configured
 
 ```bash
 # Example release
@@ -17,8 +17,10 @@ git push origin v0.1.0
 
 ## npm
 
-The npm package is published automatically from CI. The package version is
-derived from the git tag (strips the leading `v`).
+The npm package is published automatically from CI when `NPM_TOKEN` is
+configured. The package version is derived from the git tag (strips the
+leading `v`). If `NPM_TOKEN` is not configured, the release workflow skips npm
+publishing after building the GitHub release assets.
 
 The `npm-pkg/` directory contains the package skeleton. `just bi` (or
 `scripts/build-install.sh`) builds the release binary, extracts debug symbols,
