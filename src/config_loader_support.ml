@@ -1,3 +1,11 @@
+let with_default field_name default f =
+  try f ()
+  with exn ->
+    Logs.debug (fun m ->
+        m "Config field '%s' parse failed: %s (using default)" field_name
+          (Printexc.to_string exn));
+    default
+
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :
     Yojson.Safe.t =
   match (original, complete) with
