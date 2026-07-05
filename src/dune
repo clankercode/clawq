@@ -332,6 +332,7 @@
   command_bridge
   connector_dispatch
   slack
+  discord_api
   discord
   ws_client
   discord_gateway

@@ -149,14 +149,14 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `discord.ml:220` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages` (send) | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:240` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}` (edit) | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:255` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}` (delete) | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:270` | `Discord` | `https://discord.com/api/v10/channels/{id}/typing` | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:303` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}/reactions/{emoji}/@me` (add reaction) | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:320` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}/reactions/{emoji}/{user}` (delete reaction) | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:340` | `Discord` | `https://discord.com/api/v10/users/@me/channels` (send DM) | `Authorization: Bot {token}` | NONE | EXISTING |
-| `discord.ml:1243` | `Discord` | `https://cdn.discordapp.com/attachments/{id}/{id}/{filename}` (attachment download) | None | N/A | EXISTING |
+| `discord_api.ml:219` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages` (send with message id) | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord_api.ml:239` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}` (edit) | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord_api.ml:254` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}` (delete) | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord_api.ml:269` | `Discord` | `https://discord.com/api/v10/channels/{id}/typing` | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord_api.ml:302` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}/reactions/{emoji}/@me` (add reaction) | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord_api.ml:319` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages/{id}/reactions/{emoji}/@me` (delete own reaction) | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord_api.ml:339` | `Discord` | `https://discord.com/api/v10/channels/{id}/messages` (send chunked message) | `Authorization: Bot {token}` | NONE | EXISTING |
+| `discord.ml:717` | `Discord` | `https://cdn.discordapp.com/attachments/{id}/{id}/{filename}` (attachment download) | None | N/A | EXISTING |
 
 ### 6.2 Discord Gateway (WebSocket)
 
