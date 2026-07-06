@@ -78,11 +78,12 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `slack_socket.ml` | Slack Socket Mode: WSS-based event receiving via app_token |
 | `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
 | `daemon_config_watch.ml` | Daemon config-file watcher and live reload loop |
+| `daemon_channels.ml` | Non-Telegram daemon channel startup fanout |
 | `daemon_startup.ml` | Daemon database/schema initialization, room-profile reconciliation, and tool/skill registry bootstrap |
 | `daemon_heartbeat.ml` | Periodic `HEARTBEAT.md` processing for opted-in channel sessions |
 | `daemon_background_loops.ml` | Auxiliary model-discovery, search-health, quota-refresh, and subagent-status daemon loops |
 | `daemon_runtime_loops.ml` | Database-backed scheduler, repo-fetch, maintenance, and background-task daemon loops |
-| `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, SIGHUP reload, and EC process lifecycle |
+| `daemon.ml` | Supervisor: gateway + Telegram lifecycle, signal handling, SIGHUP reload, and EC process lifecycle |
 | `error_watcher.ml` | Error correction shared types, helpers, and EC process lifecycle management |
 | `ec_process.ml` | EC process entry point: daemon log/session/background-task error scanning, correlation |
 | `ec_diagnosis.ml` | Multi-model diagnosis pipeline: parallel LLM queries, voting, planning, fix spawning |
