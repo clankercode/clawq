@@ -65,7 +65,6 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `command_bridge_room_ledger.ml` | Runtime command bridge implementation for `clawq rooms ledger` |
 | `runtime_config.ml` | Configuration loading, validation, and defaults for all subsystems |
 | `config_loader.ml` | File-based config loading: reads JSON, merges with env vars |
-| `agent.ml` | Agent loop: prompt assembly, provider calls, tool dispatch, conversation management |
 | `session.ml` | Public facade over split session lifecycle modules |
 | `session_core.ml` | Session manager state, queueing, locks, notifier registration, context, and persistence helpers |
 | `session_management.ml` | Session config/model management, reset, compaction, and debug dumps |
@@ -75,6 +74,11 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `tool.ml` | Tool type definitions and invocation framework with risk-level enforcement |
 | `tool_registry.ml` | Dynamic tool registration: register, lookup, list by name or category |
 | `tools_builtin.ml` | Built-in tool implementations: file I/O, shell exec, web fetch, search |
+| `agent.ml` | Agent turn loops, provider calls, and tool execution orchestration |
+| `agent_profile.ml` | Agent room-profile and scoped-memory helper logic |
+| `agent_provider_ledger.ml` | Agent provider request/error/response room-ledger events |
+| `agent_room_budget.ml` | Agent room-budget guard and reservation helpers |
+| `agent_turn_setup.ml` | Agent construction and turn-history preparation |
 | `mcp_server.ml` | MCP server: exposes tools over JSON-RPC with configurable filtering |
 | `skills.ml` | Skill loader: discovers and loads skill definitions from the filesystem |
 | `http_server.ml` | HTTP server: gateway, SSE chat streaming, pairing, slash-command metadata, and web UI endpoints |

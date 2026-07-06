@@ -62,6 +62,10 @@
   agent_0_compact
   agent_1_context
   agent_2_tools
+  agent_profile
+  agent_provider_ledger
+  agent_room_budget
+  agent_turn_setup
   agent
   session_types
   session_queue
