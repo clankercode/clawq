@@ -143,6 +143,10 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `background_task_spawn.ml` | Background task process spawning, worktrees, scheduling, and restart/readoption |
 | `background_task_room.ml` | Room background task launch and GitHub review launch orchestration |
 | `background_task_workflow.ml` | Workflow-triggered background task launch orchestration |
+| `structured_pipeline_types.ml` | Shared structured-pipeline definition, step, run, and result types |
+| `structured_pipeline_builtins.ml` | Built-in structured pipeline catalogue definitions |
+| `structured_pipeline.ml` | Structured pipeline parsing, discovery, persistence, and CLI formatting facade |
+| `structured_pipeline_run.ml` | Structured pipeline execution engine |
 | `background_task.ml` | Background task public facade over split lifecycle modules |
 | `pmodel.ml` | Canonical `provider:model` format parsing (strict + flexible), deprecation warnings |
 | `stt.ml` | Speech-to-text: audio transcription via Whisper-compatible API |

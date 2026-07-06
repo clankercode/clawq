@@ -270,7 +270,9 @@
   rig
   rig_builtins
   held_items
+  structured_pipeline_types
   structured_pipeline_schema
+  structured_pipeline_builtins
   structured_pipeline
   structured_pipeline_run)
  (foreign_stubs
