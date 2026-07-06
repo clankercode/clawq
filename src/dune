@@ -306,6 +306,7 @@
   daemon_resume
   daemon_util
   daemon_config_reload
+  daemon_config_watch
   daemon_logging
   daemon_questions
   daemon_startup
