@@ -333,6 +333,7 @@
   command_bridge_session
   command_bridge_debug
   command_bridge_room_common
+  command_bridge_room_ledger
   command_bridge_room_memory
   command_bridge_room_routine
   command_bridge_agents
