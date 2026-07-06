@@ -17,6 +17,7 @@
   runtime_config_models
   egress_evaluator
   policy_http_client
+  runtime_config_json_sections
   runtime_config_json
   runtime_config
   profile_policy
