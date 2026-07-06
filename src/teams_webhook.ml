@@ -631,113 +631,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             ~parent_key:key ~debug_notify:send_text ~prompt
                             ~send_reply:send_text ();
                           Lwt.return_unit
-                      | AgentMenu page ->
-                          let card_json =
-                            Slash_commands_manifest
-                            .agent_menu_adaptive_card_json ~page ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
-                      | ModelMenu page ->
-                          let card_json =
-                            Slash_commands_manifest
-                            .model_menu_adaptive_card_json ~page ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
-                      | ThinkingMenu ->
-                          let card_json =
-                            Slash_commands_manifest
-                            .thinking_menu_adaptive_card_json ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
-                      | ConfigMenu page ->
-                          let card_json =
-                            Slash_commands_manifest
-                            .config_menu_adaptive_card_json ~page ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
-                      | SkillsMenu page ->
-                          let show_test = is_admin in
-                          let card_json =
-                            Slash_commands_manifest
-                            .skills_menu_adaptive_card_json ~show_test ~page ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
-                      | CostsMenu ->
-                          let card_json =
-                            Slash_commands_manifest
-                            .costs_menu_adaptive_card_json ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
-                      | BgMenu ->
-                          let cancellable =
-                            match Session.get_db session_manager with
-                            | Some db ->
-                                let tasks, _ =
-                                  Background_task.list_tasks_for_display ~db
-                                in
-                                List.filter_map
-                                  (fun (t : Background_task.task) ->
-                                    match t.status with
-                                    | Running | Queued ->
-                                        Some
-                                          ( t.id,
-                                            Background_task.string_of_runner
-                                              t.runner )
-                                    | _ -> None)
-                                  tasks
-                            | None -> []
-                          in
-                          let full_config =
-                            Session.get_config session_manager
-                          in
-                          let card_json =
-                            Slash_commands_manifest.bg_menu_adaptive_card_json
-                              ~config:full_config ~session_key:key ~cancellable
-                              ()
-                          in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~card:card_json ()
-                          in
-                          Lwt.return_unit
+                      | ( AgentMenu _ | ModelMenu _ | ThinkingMenu
+                        | ConfigMenu _ | SkillsMenu _ | CostsMenu | BgMenu ) as
+                        cmd ->
+                          Teams_command_cards.handle ~session_manager ~key
+                            ~is_admin ~config ~service_url:effective_service_url
+                            ~conversation_id ~reply_to_id:activity_id
+                            ~send_adaptive_card cmd
                       | ForkAnd (agent_name, prompt) ->
                           let* () = send_text "Forking session..." in
                           Session.fork_and_run session_manager ~parent_key:key
@@ -759,155 +659,22 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               send_text text
                           | None -> send_text "Debate requires a database.")
                       | BashRun cmd ->
-                          let config = Session.get_config session_manager in
-                          let* result =
-                            Slash_commands_bash.run_bash_command ~config
-                              ~session_key:key cmd
-                          in
-                          let full_text =
-                            Slash_commands_bash.format_result cmd result
-                          in
-                          let max_len = 25000 in
-                          let text =
-                            if String.length full_text <= max_len then full_text
-                            else
-                              String.sub full_text 0 max_len
-                              ^ "\n...[truncated]"
-                          in
-                          send_text text
-                      | DebugDumpChat -> (
-                          let content =
-                            Session.dump_json session_manager ~key
-                          in
-                          let timestamp =
-                            Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
-                          in
-                          let safe_key =
-                            String.map
-                              (fun c ->
-                                match c with
-                                | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' ->
-                                    c
-                                | _ -> '_')
-                              key
-                          in
-                          let filename =
-                            Printf.sprintf "session_%s_%d.json" safe_key
-                              timestamp
-                          in
-                          let send_temp_download () =
-                            let token =
-                              Temp_downloads.add ~content
-                                ~content_type:"application/json" ~filename
-                                ~ttl_s:3600.0
-                            in
-                            let msg =
-                              match Temp_downloads.download_url token with
-                              | Some url ->
-                                  Printf.sprintf
-                                    "Session dump available for download (%d \
-                                     bytes, expires in 1 hour):\n\n\
-                                     %s"
-                                    (String.length content) url
-                              | None ->
-                                  let max_len = 25000 in
-                                  if String.length content <= max_len then
-                                    content
-                                  else
-                                    Printf.sprintf
-                                      "Session dump (truncated — configure \
-                                       tunnel.url for full file download):\n\
-                                       %s\n\
-                                       ...\n\n\
-                                       Full dump: %d bytes"
-                                      (String.sub content 0 max_len)
-                                      (String.length content)
-                            in
-                            send_text msg
-                          in
-                          let delivery =
-                            select_file_upload_delivery
-                              ~file_consent_cards:config.file_consent_cards
-                              ~team_id ~is_group
-                          in
-                          match delivery with
-                          | File_consent_card -> (
-                              let size_bytes = String.length content in
-                              let room_context =
-                                consent_room_context ~session_manager
-                                  ~conversation_id ~user_group
-                                  ?access_snapshot_id:None ()
-                              in
-                              let consent_id =
-                                store_pending_consent ?room_context ~content
-                                  ~filename ~content_type:"application/json"
-                                  ~ttl_s:600.0 ()
-                              in
-                              let* result =
-                                send_file_consent_card ?room_context ~config
-                                  ~service_url:effective_service_url
-                                  ~conversation_id ~reply_to_id:activity_id
-                                  ~filename ~description:"Session debug dump"
-                                  ~size_bytes ~consent_id ()
-                              in
-                              match result with
-                              | Ok () ->
-                                  (* Also send the download link as a fallback
-                                 in case the file upload consent flow fails *)
-                                  send_temp_download ()
-                              | Error err ->
-                                  Logs.warn (fun m ->
-                                      m
-                                        "Teams: file consent card failed (%s), \
-                                         falling back to temp download"
-                                        err);
-                                  send_temp_download ())
-                          | Temp_download_url -> send_temp_download ())
+                          Teams_command_text.send_bash_run ~session_manager ~key
+                            ~send_text cmd
+                      | DebugDumpChat ->
+                          Teams_debug_dump.handle ~session_manager ~key ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~team_id ~is_group
+                            ~user_group ~send_text
                       | Tools ->
-                          let show_test = is_admin in
-                          let text =
-                            match Session.get_tool_registry session_manager with
-                            | Some reg ->
-                                let tools, _ =
-                                  Tool_registry.partition_skills reg
-                                in
-                                let tools =
-                                  Skills.filter_visible_tools ~show_test tools
-                                in
-                                let skills =
-                                  Skills.filter_visible_tools ~show_test
-                                    (Skills.available_skills_as_tools ())
-                                in
-                                Slash_commands.format_tools
-                                  ~connector:Format_adapter.Teams tools skills
-                                  (Agent_template.available_templates ())
-                            | None -> "Tools are not enabled."
-                          in
-                          send_text text
+                          Teams_command_text.send_tools ~session_manager
+                            ~is_admin ~send_text
                       | Tasks ->
-                          let raw =
-                            match Session.get_db session_manager with
-                            | Some db ->
-                                Task_tree.init_schema db;
-                                Task_tree.render_emoji_tree ~db ~session_key:key
-                                  ()
-                            | None -> "Tasks are not available (no database)."
-                          in
-                          send_text
-                            (Slash_commands_fmt.format_tasks
-                               ~connector:Format_adapter.Teams raw)
+                          Teams_command_text.send_tasks ~session_manager ~key
+                            ~full:false ~send_text
                       | TasksFull ->
-                          let raw =
-                            match Session.get_db session_manager with
-                            | Some db ->
-                                Task_tree.init_schema db;
-                                Task_tree.render_tree_with_legend ~db
-                                  ~session_key:key
-                            | None -> "Tasks are not available (no database)."
-                          in
-                          send_text
-                            (Slash_commands_fmt.format_tasks
-                               ~connector:Format_adapter.Teams raw)
+                          Teams_command_text.send_tasks ~session_manager ~key
+                            ~full:true ~send_text
                       | Costs action ->
                           let text =
                             match Session.get_db session_manager with
@@ -1055,18 +822,11 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           let text = Access_explanation.to_text explanation in
                           send_text
                             (Format_adapter.code_block Format_adapter.Teams text)
-                      | WhatCanDo ->
-                          let snap =
-                            Teams_what_can_do.snapshot ~session_manager
-                              ~conversation_id ()
-                          in
-                          let card = Teams_what_can_do.build_card ~snap () in
-                          let* _id =
-                            send_adaptive_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id ~card ()
-                          in
-                          Lwt.return_unit
+                      | WhatCanDo as cmd ->
+                          Teams_command_cards.handle ~session_manager ~key
+                            ~is_admin ~config ~service_url:effective_service_url
+                            ~conversation_id ~reply_to_id:activity_id
+                            ~send_adaptive_card cmd
                       | Rig action -> (
                           match action with
                           | RigList ->

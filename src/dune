@@ -398,6 +398,9 @@
   teams_adaptive_card
   teams_api
   teams_attachments
+  teams_command_cards
+  teams_command_text
+  teams_debug_dump
   teams_rich_notifier
   teams_webhook
   teams
