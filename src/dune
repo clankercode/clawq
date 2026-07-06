@@ -506,6 +506,7 @@
  (public_name clawq)
  (modules
   main_cmd_common
+  main_audit_cmds
   main_background_cmds
   main_models_cmds
   main_plan_cmds
