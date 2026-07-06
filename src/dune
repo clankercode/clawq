@@ -80,6 +80,7 @@
   session_management
   session_postmortem
   session_agents
+  session_postmortem_launcher
   session_turn
   session_autonomous
   session

@@ -69,6 +69,9 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `session.ml` | Public facade over split session lifecycle modules |
 | `session_core.ml` | Session manager state, queueing, locks, notifier registration, context, and persistence helpers |
 | `session_management.ml` | Session config/model management, reset, compaction, and debug dumps |
+| `session_postmortem.ml` | Session stuck-pattern postmortem circuit breaker and launcher hook |
+| `session_postmortem_launcher.ml` | Postmortem agent launch implementation installed by the turn loop |
+| `session_turn.ml` | Session turn orchestration, queue draining, streaming, skill injection, and room-policy snapshots |
 | `provider.ml` | LLM provider abstraction: streaming text/thinking/tool events, model selection |
 | `memory.ml` | Key-value memory backend: SQLite-backed store/recall/forget with namespace support and per-session archive files for forgotten memories |
 | `vector.ml` | Local vector index: embedding storage, cosine similarity, hybrid FTS+vector merge |
