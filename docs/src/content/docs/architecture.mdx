@@ -73,7 +73,8 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `telegram.ml` | Telegram channel: bot API integration via long polling |
 | `discord.ml` | Discord channel: WS gateway mode, REST rate limit buckets, reconnect loop |
 | `discord_gateway.ml` | Discord gateway protocol state machine (Hello, Identify, Resume, Heartbeat, Dispatch) |
-| `slack.ml` | Slack Events API channel with HMAC verification |
+| `slack_api.ml` | Slack Events API parsing, HMAC verification, and Web API helpers |
+| `slack.ml` | Slack event handler |
 | `slack_socket.ml` | Slack Socket Mode: WSS-based event receiving via app_token |
 | `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
 | `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, periodic cleanup, config file watcher (10s mtime poll + SIGHUP), EC process lifecycle |

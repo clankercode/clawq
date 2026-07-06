@@ -127,15 +127,16 @@ for a cross-cutting view of all security-relevant subsystems.
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `slack.ml:116` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (send_message) | None | HIGH | MISSING |
-| `slack.ml:124` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (send_message_with_id) | None | HIGH | MISSING |
-| `slack.ml:141` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (send_message_reply) | None | HIGH | MISSING |
-| `slack.ml:149` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (edit_message) | None | HIGH | MISSING |
-| `slack.ml:165` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (delete_message) | None | HIGH | MISSING |
-| `slack.ml:189` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (add_reaction) | None | HIGH | MISSING |
-| `slack.ml:205` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (remove_reaction) | None | HIGH | MISSING |
+| `slack_api.ml:133` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (conversations.info) | None | HIGH | MISSING |
+| `slack_api.ml:255` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (send_message) | None | HIGH | MISSING |
+| `slack_api.ml:263` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (send_message_with_id) | None | HIGH | MISSING |
+| `slack_api.ml:280` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (send_message_reply) | None | HIGH | MISSING |
+| `slack_api.ml:288` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (edit_message) | None | HIGH | MISSING |
+| `slack_api.ml:304` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (delete_message) | None | HIGH | MISSING |
+| `slack_api.ml:328` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (add_reaction) | None | HIGH | MISSING |
+| `slack_api.ml:344` | `Slack` | `bot_token` | `Authorization: Bearer <token>` (remove_reaction) | None | HIGH | MISSING |
 | `connector_room_progress.ml:45-78` | `Connector_room_progress` | `slack_config.bot_token` | `Authorization: Bearer <token>` / Slack Web API calls (deliver_room_progress callbacks) | None | HIGH | MISSING |
-| `slack.ml:101` | `Slack` | `signing_secret` | HMAC-SHA256 request signature verification | Not logged | MEDIUM | EXISTING |
+| `slack_api.ml:233` | `Slack` | `signing_secret` | HMAC-SHA256 request signature verification | Not logged | MEDIUM | EXISTING |
 
 ---
 

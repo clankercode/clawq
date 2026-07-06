@@ -364,7 +364,7 @@ Socket Mode is recommended because it does not require a public endpoint.
 
 ### Event Handling
 
-The Slack event handler (`slack.ml:handle_event`) processes incoming events:
+The Slack event handler (`Slack.handle_event` in `src/slack.ml`) processes incoming events:
 
 1. **URL verification** -- responds with the challenge token.
 2. **Bot message filtering** -- ignores messages from bots.
@@ -899,7 +899,8 @@ ledger API (`Teams_delivery_lifecycle.query_by_tracking_id`) for that.
 | `src/teams_delivery_lifecycle.ml`| Delivery state tracking and ledger        |
 | `src/teams_auth.ml`            | OAuth token management and JWT verification|
 | `src/teams_file_consent.ml`    | File consent card flow (OneDrive)          |
-| `src/slack.ml`                 | Slack event handler, send/edit/delete      |
+| `src/slack_api.ml`             | Slack event parsing, auth, send/edit/delete |
+| `src/slack.ml`                 | Slack event handler                        |
 | `src/slack_socket.ml`          | Slack Socket Mode WebSocket client         |
 | `src/slack_progress_checklist.ml`| Slack mrkdwn progress renderer           |
 | `src/discord.ml`               | Discord message handler, REST API          |

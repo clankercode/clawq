@@ -1,6 +1,6 @@
 # ChannelAuth Runtime Mapping (P5.M2.E3)
 
-This note maps the runtime authorization checks in `src/slack.ml`,
+This note maps the runtime authorization checks in `src/slack_api.ml`,
 `src/discord.ml`, and `src/telegram.ml` to the formal surface in
 `coq/theories/Clawq/ChannelAuth.v`.
 

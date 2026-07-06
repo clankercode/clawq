@@ -347,6 +347,7 @@
   update_tool
   command_bridge
   connector_dispatch
+  slack_api
   slack
   discord_api
   discord

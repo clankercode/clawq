@@ -294,9 +294,9 @@ The Events API mode uses HTTP push --- Slack sends events to your gateway's
 ```
 
 This mode requires a publicly reachable endpoint. The `http_server.ml` gateway
-handles the `/slack/events` route, and `slack.ml` verifies every request using
-**HMAC-SHA256 signature verification** with the signing secret and a 5-minute
-timestamp window.
+handles the `/slack/events` route, and `Slack.verify_signature` from
+`slack_api.ml` verifies every request using **HMAC-SHA256 signature
+verification** with the signing secret and a 5-minute timestamp window.
 
 ### Key Features (Both Modes)
 

@@ -119,7 +119,7 @@ No Coq spec exists for any of this.
 - `src/discord_gateway.ml` — Hello/Identify/Resume/Heartbeat/Dispatch state machine
   **Now covered by DiscordGateway.v** (20 theorems: heartbeat lifecycle, session
   persistence, reconnect/resume safety, phase transitions)
-- `src/slack.ml` — HMAC-SHA256 signature verification
+- `src/slack_api.ml` — HMAC-SHA256 signature verification
 - `src/slack_socket.ml` — Envelope parsing and ACK protocol
 - `src/telegram.ml` — Long-polling and rate limiting
 

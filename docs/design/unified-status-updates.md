@@ -36,7 +36,9 @@
 - **Reactions**: `reactions.add` / `reactions.remove` APIs
 - **Message limits**: ~4000 characters per message (blocks: 50 blocks, 3000 chars per text block)
 - **Delete**: `chat.delete` API
-- **Current impl**: `make_status_notifier` at `src/slack.ml:128-139`. Also has its own duplicated consolidated/individual dispatch (`src/slack.ml:772-840`).
+- **Current impl**: `make_status_notifier` at `src/slack_api.ml:313-324`.
+  `src/slack.ml:610-630` selects a `Status_update` strategy and keeps a thin
+  reaction wrapper around the centralized handler's `on_chunk`.
 
 ### Teams (Microsoft Bot Framework)
 
@@ -209,13 +211,17 @@ Each connector registers its capabilities when setting up a session, before regi
 
 ### Problem
 
-Currently, consolidated vs. individual dispatch logic exists in three places:
+Historically, consolidated vs. individual dispatch logic existed in three
+places:
 
 1. `session_turn.ml:26-112` (`stream_turn_with_visibility`)
 2. `discord.ml:888-960` (inline `on_chunk` handler)
-3. `slack.ml:772-840` (inline `on_chunk` handler)
+3. `slack.ml` (inline `on_chunk` handler, now centralized through
+   `Status_update.make_handler` with a reaction wrapper)
 
-All three check `agent_defaults.show_tool_calls && tool_status_mode = "consolidated"`, then branch between `Status_message` (edit-in-place) and `Stream_visibility` (individual notifications).
+These paths checked `agent_defaults.show_tool_calls && tool_status_mode =
+"consolidated"`, then branched between `Status_message` (edit-in-place) and
+`Stream_visibility` (individual notifications).
 
 ### Design
 
@@ -335,7 +341,9 @@ This eliminates the ~80-line and ~65-line duplicated dispatch blocks in Discord 
 
 5. **Refactor `discord.ml`**: Remove the ~80-line inline `on_chunk` dispatch (lines 888-960). Instead, use `Status_update.make_handler` and pass `handler.on_chunk` to `Session.turn_stream`. Keep reaction tracking as a wrapper around the handler's `on_chunk`.
 
-6. **Refactor `slack.ml`**: Remove the ~65-line inline `on_chunk` dispatch (lines 772-840). Same approach as Discord.
+6. **~~Refactor `slack.ml`~~**: Done. Slack now uses
+   `Status_update.make_handler` and keeps connector-specific reaction tracking
+   as a wrapper around `handler.on_chunk` (`src/slack.ml:610-630`).
 
 ### Phase 3: Onboard Teams (DONE)
 
@@ -423,7 +431,7 @@ No new configuration needed. The strategy is fully determined by `agent_defaults
 | `src/session_core.ml` | ~700 | Session state, factory registration (line 50, 320) |
 | `src/telegram_api.ml` | ~1086 | Telegram API + `make_status_notifier` (line 733) |
 | `src/discord.ml` | ~1160 | Discord channel + duplicated dispatch (line 888) |
-| `src/slack.ml` | ~960 | Slack channel + duplicated dispatch (line 772) |
+| `src/slack.ml` | ~940 | Slack channel + `Status_update` reaction wrapper (around line 620) |
 | `src/teams.ml` | ~930 | Teams channel + `make_status_notifier` + factory registration |
 | `src/matrix.ml` | 223 | Matrix channel, plain text only, no status support |
 

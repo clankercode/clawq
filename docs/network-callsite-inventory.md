@@ -173,14 +173,15 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `slack.ml:118` | `Slack` | `https://slack.com/api/chat.postMessage` | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:126` | `Slack` | `https://slack.com/api/chat.postMessage` (with ID return) | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:143` | `Slack` | `https://slack.com/api/chat.postMessage` (thread reply) | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:159` | `Slack` | `https://slack.com/api/chat.update` | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:170` | `Slack` | `https://slack.com/api/chat.delete` | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:199` | `Slack` | `https://slack.com/api/reactions.add` | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:215` | `Slack` | `https://slack.com/api/reactions.remove` | `Authorization: Bearer {token}` | NONE | EXISTING |
-| `slack.ml:983` | `Slack` | `{file.url_private_download}` (Slack file download) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `slack_api.ml:133` | `Slack` | `https://slack.com/api/conversations.info` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:255` | `Slack` | `https://slack.com/api/chat.postMessage` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:263` | `Slack` | `https://slack.com/api/chat.postMessage` (with ID return) | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:280` | `Slack` | `https://slack.com/api/chat.postMessage` (thread reply) | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:288` | `Slack` | `https://slack.com/api/chat.update` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:304` | `Slack` | `https://slack.com/api/chat.delete` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:328` | `Slack` | `https://slack.com/api/reactions.add` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack_api.ml:344` | `Slack` | `https://slack.com/api/reactions.remove` | `Authorization: Bearer {token}` | NONE | EXISTING |
+| `slack.ml:759` | `Slack` | `{file.url_private_download}` (Slack file download) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
 
 ### 7.2 Slack Socket Mode (WebSocket)
 
