@@ -54,7 +54,10 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | Module | Role |
 |--------|------|
 | `main.ml` | CLI entry point and top-level Cmdliner command registration |
+| `main_cmd_common.ml` | Shared Cmdliner helpers for command modules |
+| `main_background_cmds.ml` | Cmdliner definitions for `clawq background` and `clawq subagents` subcommands |
 | `main_models_cmds.ml` | Cmdliner definitions for `clawq models` subcommands |
+| `main_plan_cmds.ml` | Cmdliner definitions for `clawq plan` subcommands |
 | `main_session_cmds.ml` | Cmdliner definitions for `clawq session` subcommands |
 | `command_bridge.ml` | Bridges CLI to extracted Coq dispatch; handles runtime-only commands |
 | `runtime_config.ml` | Configuration loading, validation, and defaults for all subsystems |
@@ -131,7 +134,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `clawq_extracted` | `clawq_core` | None (unwrapped, `-w -39` for extraction artifacts) |
 | `clawq_runtime_core` | Config, agent, session, provider, memory, tools, audit, security, rate limiter, scheduler | yojson, sqlite3, lwt, cohttp-lwt-unix, mirage-crypto, digestif, clawq_extracted |
 | `clawq_runtime_integrations` | HTTP server, telegram, discord, slack, daemon, MCP, WS client, tunnels, runtimes | clawq_runtime_core + httpun-ws-lwt-unix, gluten-lwt-unix, ca-certs |
-| `clawq` (executable) | `main_cmd_common`, `main_background_cmds`, `main_models_cmds`, `main_session_cmds`, `main` | clawq_runtime_core, clawq_runtime_integrations, cmdliner |
+| `clawq` (executable) | `main_cmd_common`, `main_background_cmds`, `main_models_cmds`, `main_plan_cmds`, `main_session_cmds`, `main` | clawq_runtime_core, clawq_runtime_integrations, cmdliner |
 
 Both libraries use `(wrapped false)` so modules are accessible directly (e.g., `Clawq_core.dispatch` rather than `Clawq_extracted.Clawq_core.dispatch`).
 

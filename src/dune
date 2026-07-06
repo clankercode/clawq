@@ -508,6 +508,7 @@
   main_cmd_common
   main_background_cmds
   main_models_cmds
+  main_plan_cmds
   main_session_cmds
   main)
  (libraries clawq_runtime_core clawq_runtime_integrations cmdliner))
