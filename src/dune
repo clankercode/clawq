@@ -71,6 +71,7 @@
   session_core
   session_heartbeat
   session_room_profile
+  session_management
   session_postmortem
   session_agents
   session_turn

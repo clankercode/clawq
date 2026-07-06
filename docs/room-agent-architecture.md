@@ -50,6 +50,7 @@ Connector → Session Manager → Room Policy → Scope Resolution → Access Sn
 | Module | Responsibility |
 |--------|---------------|
 | `session_turn.ml` | Session lifecycle, message queuing, turn orchestration |
+| `session_management.ml` | Session config/model management, reset, compaction, and debug dumps |
 | `runtime_config.ml` | Scope resolution, effective access computation |
 | `access_snapshot.ml` | Immutable snapshots, tool denial checks, audit persistence |
 | `room_policy.ml` | Room classification (dm/group/external/shared), policy evaluation |
@@ -722,7 +723,7 @@ Instructions are resolved per-session and stored on the agent:
 
 ```ocaml
 let instruction_items =
-  Session_core.resolve_instruction_items_for_session mgr ~key
+  Session_room_profile.resolve_instruction_items_for_session mgr ~key
 in
 let agent = Agent.create ~config ~instruction_items ()
 ```
@@ -1002,6 +1003,7 @@ For the full invariant catalogue, see
 | `src/room_policy.ml` | `classification_from_context`, `evaluate`, `room_status_message` | Room classification and policy evaluation |
 | `src/invocation_restrict.ml` | `check_role`, `check_room_policy_and_role` | Role-based invocation restrictions |
 | `src/session_turn.ml` | `turn`, `run_locked_turn`, `drain_queued_messages` | Session lifecycle and turn orchestration |
+| `src/session_management.ml` | `update_config`, `reset`, `compact`, `dump_json` | Session management operations |
 | `src/background_task_context.ml` | `routing_from_context`, `origin_fields_from_context`, `build_delegate_prompt` | Background task context/origin routing |
 | `src/background_task_spawn.ml` | `spawn_task`, `start_queued`, `readopt_running_tasks` | Process spawning, scheduling, and restart/readoption |
 | `src/background_task_room.ml` | `launch_room_bg_task`, `launch_triggered_run` | Room and GitHub-triggered task launching |

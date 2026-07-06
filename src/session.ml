@@ -1,7 +1,7 @@
 include Session_types
-include Session_core
 include Session_heartbeat
 include Session_room_profile
+include Session_management
 include Session_postmortem
 include Session_turn
 include Session_autonomous
