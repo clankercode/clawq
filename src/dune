@@ -163,6 +163,7 @@
   secret_store
   html_page
   openai_codex_oauth
+  provider_quota_state
   provider_quota
   resilience
   landlock

@@ -114,6 +114,8 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `daemon_background_loops.ml` | Auxiliary model-discovery, search-health, quota-refresh, and subagent-status daemon loops |
 | `daemon_runtime_loops.ml` | Database-backed scheduler, repo-fetch, maintenance, and background-task daemon loops |
 | `daemon.ml` | Supervisor: gateway + Telegram lifecycle, signal handling, SIGHUP reload, and EC process lifecycle |
+| `provider_quota_state.ml` | Provider quota state types, cache, persistence, history, and status formatting |
+| `provider_quota.ml` | Provider quota fetchers and provider-specific usage parsers |
 | `error_watcher.ml` | Error correction shared types, helpers, and EC process lifecycle management |
 | `ec_process.ml` | EC process entry point: daemon log/session/background-task error scanning, correlation |
 | `ec_diagnosis.ml` | Multi-model diagnosis pipeline: parallel LLM queries, voting, planning, fix spawning |
