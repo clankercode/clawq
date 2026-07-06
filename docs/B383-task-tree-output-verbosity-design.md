@@ -67,7 +67,7 @@ No LLM summarizer needed — the budgeting is mechanical and preserves all IDs.
 
 #### 1. Collapse per-op confirmations for large batches
 
-**File:** `src/task_tree.ml`, `process_operations` (line 398+)
+**File:** `src/task_tree.ml`, `process_operations`
 
 When the batch contains >3 operations, replace per-op confirmation lines with a
 single summary line:
