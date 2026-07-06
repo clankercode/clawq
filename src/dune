@@ -59,6 +59,7 @@
   skill_invocation_guard
   session_debug
   agent_debug
+  agent_compact_support
   agent_0_compact
   agent_1_context
   agent_2_tools
