@@ -1,6 +1,6 @@
 (** Workflow-triggered background task launches. *)
 
-include Background_task_spawn
+include Background_task_room
 
 (** [trigger_workflow_from_room_command ~db ~config ~pipeline_name ~inputs
      ~room_id ~requester_id ()] triggers a workflow run from a room command.

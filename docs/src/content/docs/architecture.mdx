@@ -112,7 +112,8 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `request_stats.ml` | Per-turn token usage and cost persistence |
 | `cost_tracker.ml` | Model pricing table and cost calculation |
 | `runner_framework.ml` | Common runner session tracking framework (session ID strategies, command generation) |
-| `background_task_spawn.ml` | Background task process spawning, worktrees, scheduling, room launches, and GitHub review launches |
+| `background_task_spawn.ml` | Background task process spawning, worktrees, scheduling, and restart/readoption |
+| `background_task_room.ml` | Room background task launch and GitHub review launch orchestration |
 | `background_task_workflow.ml` | Workflow-triggered background task launch orchestration |
 | `background_task.ml` | Background task public facade over split lifecycle modules |
 | `pmodel.ml` | Canonical `provider:model` format parsing (strict + flexible), deprecation warnings |
