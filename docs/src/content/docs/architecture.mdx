@@ -77,6 +77,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `slack.ml` | Slack event handler |
 | `slack_socket.ml` | Slack Socket Mode: WSS-based event receiving via app_token |
 | `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
+| `daemon_startup.ml` | Daemon database/schema initialization, room-profile reconciliation, and tool/skill registry bootstrap |
 | `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, periodic cleanup, config file watcher (10s mtime poll + SIGHUP), EC process lifecycle |
 | `error_watcher.ml` | Error correction shared types, helpers, and EC process lifecycle management |
 | `ec_process.ml` | EC process entry point: daemon log/session/background-task error scanning, correlation |
