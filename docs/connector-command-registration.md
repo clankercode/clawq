@@ -27,7 +27,7 @@ Teams has two mechanisms:
 3. **Runtime `/agent menu` command**: Sends an Adaptive Card with paginated agent template buttons (8 per page). Each button uses `messageBack` to send `/agent <name> ` into the compose box. Navigation buttons allow paging through all templates.
 
 - Manifest generation: `src/slash_commands_manifest.ml` (`teams_json`, `menu_adaptive_card_json`, `agent_menu_adaptive_card_json`)
-- Adaptive Card sending: `src/teams.ml` (`send_adaptive_card`)
+- Adaptive Card sending: `src/teams_api.ml` (`send_adaptive_card`)
 
 ### Discord
 

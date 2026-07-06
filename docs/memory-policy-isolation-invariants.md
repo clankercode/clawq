@@ -260,8 +260,8 @@ tools via `Skills.filter_visible_tools`. This is an additional layer on top
 of agent template filtering.
 
 - **Code**: `filter_visible_tools` in `skills.ml`.
-- **Test**: No dedicated test for skills filter. Used by Teams connector
-  (`teams.ml`).
+- **Test**: No dedicated test for skills filter. Used by the Teams webhook
+  handler (`teams_webhook.ml`).
 - **Proof candidate**: Prove `Skills.filter_visible_tools` is an additional
   filtering layer that runs after agent template filtering.
 

@@ -120,7 +120,8 @@ clawq tunnel start
 
 ### Webhook Handler
 
-The webhook handler (`teams.ml:handle_webhook`) processes incoming activities:
+The webhook handler (`Teams.handle_webhook`, implemented in
+`src/teams_webhook.ml`) processes incoming activities:
 
 1. **JWT verification** -- validates the Bot Framework auth header.
 2. **Deduplication** -- activity IDs are checked against both an in-memory LRU
@@ -893,7 +894,9 @@ ledger API (`Teams_delivery_lifecycle.query_by_tracking_id`) for that.
 
 | File                           | Purpose                                    |
 |--------------------------------|--------------------------------------------|
-| `src/teams.ml`                 | Teams webhook handler, auth, send/edit     |
+| `src/teams.ml`                 | Public Teams channel facade                |
+| `src/teams_webhook.ml`         | Teams webhook handler and channel startup  |
+| `src/teams_api.ml`             | Teams auth facade, send/edit/delete, cards |
 | `src/teams_progress_card.ml`   | Adaptive Card builder for progress         |
 | `src/teams_what_can_do.ml`     | Capability introspection card              |
 | `src/teams_delivery_lifecycle.ml`| Delivery state tracking and ledger        |

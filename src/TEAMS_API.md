@@ -1,6 +1,6 @@
 # MS Teams Bot Framework API Reference
 
-Notes captured from the Microsoft Bot Framework documentation and the pag-server reference implementation. Used by `src/teams.ml`.
+Notes captured from the Microsoft Bot Framework documentation and the pag-server reference implementation. Used by `src/teams_api.ml` and `src/teams_webhook.ml`; `src/teams.ml` is the public facade.
 
 ## Protocol Overview
 

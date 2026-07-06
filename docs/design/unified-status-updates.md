@@ -47,9 +47,9 @@
 - **Streaming**: Not native; simulated by repeated PUT calls
 - **Format**: Markdown (subset), Adaptive Cards (rich JSON-based card format)
 - **Reactions**: Not available via Bot Framework REST (users can react, but bot cannot set reactions programmatically)
-- **Message limits**: ~28672 characters (`max_message_chars` in `src/teams.ml:4`)
+- **Message limits**: ~28672 characters (`max_message_chars` in `src/teams_api.ml:6`)
 - **Delete**: `DELETE /v3/conversations/{conv}/activities/{id}`
-- **Current impl**: `send_reply` at `src/teams.ml:302-336` creates new messages. `edit_activity` and `delete_activity` exist. `make_status_notifier` builds a `Status_message.notifier`. Factory and `Connector_capabilities.teams` registered per session key in the webhook handler. Has typing indicator support (`src/teams.ml:206`).
+- **Current impl**: `send_reply` at `src/teams_api.ml:342-414` creates new messages. `edit_activity` and `delete_activity` live in `src/teams_api.ml`; `make_status_notifier` builds a `Status_message.notifier` at `src/teams_api.ml:774`. Factory and `Connector_capabilities.teams` are registered per session key in the webhook handler (`src/teams_webhook.ml`). Has typing indicator support (`src/teams_webhook.ml:162-179`).
 
 ### Matrix
 
@@ -347,9 +347,9 @@ This eliminates the ~80-line and ~65-line duplicated dispatch blocks in Discord 
 
 ### Phase 3: Onboard Teams (DONE)
 
-7. **~~Add `edit_activity` to `src/teams.ml`~~**: Done. `edit_activity` uses `PUT /v3/conversations/{conv}/activities/{id}`.
+7. **~~Add `edit_activity` to `src/teams_api.ml`~~**: Done. `edit_activity` uses `PUT /v3/conversations/{conv}/activities/{id}`.
 
-8. **~~Add `make_status_notifier` to `src/teams.ml`~~**: Done. Builds a `Status_message.notifier` using `send_reply` (send), `edit_activity` (edit), and `delete_activity` (delete).
+8. **~~Add `make_status_notifier` to `src/teams_api.ml`~~**: Done. Builds a `Status_message.notifier` using `send_reply` (send), `edit_activity` (edit), and `delete_activity` (delete).
 
 9. **~~Register capabilities and factory~~**: Done. Capabilities registered once per session key; factory re-registered unconditionally per message (captures current `reply_to_id`). B495 fixed a bug where `with_registered_notifier` cleanup was wiping these registrations. B499 fixed a related issue where background task completion turns ran without any notifier, causing tool call visibility notifications to be silently dropped; `inject_background_task_completion` now wraps `Session.turn` in `with_registered_notifier` using `dispatch_resumed_message` as the notifier.
 
@@ -432,7 +432,8 @@ No new configuration needed. The strategy is fully determined by `agent_defaults
 | `src/telegram_api.ml` | ~1086 | Telegram API + `make_status_notifier` (line 733) |
 | `src/discord.ml` | ~1160 | Discord channel + duplicated dispatch (line 888) |
 | `src/slack.ml` | ~940 | Slack channel + `Status_update` reaction wrapper (around line 620) |
-| `src/teams.ml` | ~930 | Teams channel + `make_status_notifier` + factory registration |
+| `src/teams_api.ml` | ~849 | Teams Bot Framework API helpers + `make_status_notifier` |
+| `src/teams_webhook.ml` | ~1426 | Teams webhook handler + factory registration |
 | `src/matrix.ml` | 223 | Matrix channel, plain text only, no status support |
 
 ## Appendix: New Modules Summary

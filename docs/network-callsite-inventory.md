@@ -509,11 +509,13 @@ All Teams Bot Framework calls use `Authorization: Bearer {oauth_token}` (from `t
 
 | Callsite | Module | Destination | Credential | Exposure | Enforceability |
 |----------|--------|-------------|------------|----------|----------------|
-| `teams.ml:185` | `Teams` | `{service_url}/v3/conversations/{id}/activities` (POST) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
-| `teams.ml:190` | `Teams` | `{service_url}/v3/conversations/{id}/activities/{id}` (PUT) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
-| `teams.ml:195` | `Teams` | `{service_url}/v3/conversations/{id}/activities/{id}` (DELETE) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
-| `teams.ml:217` | `Teams` | `{service_url}/v3/conversations/{id}/activities` (typing) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
-| `teams.ml:1091` | `Teams` | `{content_url}` (attachment/audio download) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_api.ml:231` | `Teams_api` | `{service_url}/v3/conversations/{id}/activities` (typing) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_api.ml:392` | `Teams_api` | `{service_url}/v3/conversations/{id}/activities` or `{service_url}/v3/conversations/{id}/activities/{reply_to_id}` (send reply POST) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_api.ml:452` | `Teams_api` | `{service_url}/v3/conversations/{id}/activities/{activity_id}` (edit PUT) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_api.ml:480` | `Teams_api` | `{service_url}/v3/conversations/{id}/activities/{activity_id}` (DELETE) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_api.ml:500` | `Teams_api` | `{service_url}/v3/conversations/{id}/activities` or `{service_url}/v3/conversations/{id}/activities/{reply_to_id}` (Adaptive Card POST) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_webhook.ml:484` | `Teams_webhook` | `{content_url}` (audio download) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
+| `teams_webhook.ml:560` | `Teams_webhook` | `{content_url}` (attachment download via `Attachment_download.process_attachments`) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
 | `teams_file_upload.ml:56` | `Teams_file_upload` | `{service_url}/v3/conversations/{id}/attachments` (upload) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
 | `teams_file_upload.ml:101` | `Teams_file_upload` | `{service_url}/v3/conversations/{id}/activities` (send with attachment) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |
 | `teams_file_consent.ml:185` | `Teams_file_consent` | `{upload_url}` (OneDrive file upload) | `Authorization: Bearer {token}` | HEADER-UNREDACTED | DYNAMIC |

@@ -386,6 +386,7 @@
   teams_file_upload
   teams_adaptive_card
   teams_api
+  teams_webhook
   teams
   teams_context_capture
   teams_what_can_do

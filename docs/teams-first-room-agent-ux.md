@@ -9,8 +9,9 @@ Slack provides a baseline text-only experience.
 ### Request Lifecycle
 
 1. A user sends a message in a Teams channel (group chat or DM).
-2. The webhook handler (`teams.ml`) verifies JWT auth, deduplicates the
-   activity, strips `@mention` tags, and resolves a session key.
+2. The webhook handler (`src/teams_webhook.ml`) verifies JWT auth,
+   deduplicates the activity, strips `@mention` tags, and resolves a session
+   key.
 3. In group chats, the bot only responds when explicitly @mentioned.
 4. The message is dispatched through `Session.turn`, which invokes the
    configured agent/runner.
@@ -202,14 +203,14 @@ callback, not just retryable HTTP status codes):
 3. The new message ID replaces the old one in the progress hashtable.
 
 For Teams Adaptive Cards, `Teams_adaptive_card.edit_adaptive_card` raises
-on any non-2xx response. For text messages, the `teams.ml` throttled
+on any non-2xx response. For text messages, the `teams_api.ml` throttled
 PUT wrapper raises on failure as well.
 
 ### Rate Limiting
 
 - **Inbound:** Per-conversation+user rate limiting with 60-second warning
   cooldowns. Rate-limited users receive "Please slow down" once per minute.
-- **Outbound:** Functions using the `*_throttled` wrappers in `teams.ml`
+- **Outbound:** Functions using the `*_throttled` wrappers in `teams_api.ml`
   (`post_json_throttled`, `put_json_throttled`, `delete_throttled`) apply
   per-conversation throttling (1 request/second minimum interval) with
   exponential backoff retry (up to 3 attempts) on 429, 412, 502, 504.
@@ -338,7 +339,7 @@ message length is 65536 characters.
 User message
     |
     v
-teams.ml (webhook handler)
+teams_webhook.ml (webhook handler)
     |-- auth, dedup, mention filter
     |-- session key resolution
     |-- slash command routing
@@ -364,7 +365,9 @@ Room receives progress update
 
 | File | Purpose |
 |------|---------|
-| `src/teams.ml` | Teams webhook handler, message send/edit/delete, auth |
+| `src/teams.ml` | Public Teams channel facade |
+| `src/teams_webhook.ml` | Teams webhook handler |
+| `src/teams_api.ml` | Teams message send/edit/delete, auth facade, cards |
 | `src/teams_progress_card.ml` | Adaptive Card builder for progress checklists |
 | `src/teams_what_can_do.ml` | Capability introspection card |
 | `src/teams_delivery_lifecycle.ml` | Delivery state tracking and ledger events |
