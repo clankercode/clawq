@@ -149,8 +149,16 @@ Before applying changes, the wizard runs readiness checks:
 - **Connector Available** — connector has usable credentials configured
 - **Connector Room** — room ID matches connector format requirements
 - **Budget** — limits are non-negative
+- **Budget State** — current usage vs limits when a database profile exists
+- **Budget Denial Msg** — redacted budget denial message does not leak configured limits (only when a budget is configured)
 - **Max Tool Iterations** — between 1 and 1000
 - **Budget Reset Period** — one of: daily, weekly, monthly, yearly
+- **GitHub App** — app ID, private key, and installations are valid
+- **Repo Grants** — access bundles have valid `owner/repo` grants with capabilities
+- **Webhook Config** — webhook secrets/paths are configured and a gateway or tunnel endpoint is present
+- **Room Backlink** — profile has access bundles with repo grants
+- **Activity Ledger** — SQLite schema is accessible
+- **Egress Audit** — SQLite schema is accessible
 
 ## Merge Semantics
 

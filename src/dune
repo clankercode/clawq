@@ -436,6 +436,7 @@
   setup_memory
   setup_room_wizard_types
   setup_room_wizard_connectors
+  setup_room_wizard_plan
   setup_room_wizard_rerun
   setup_room_wizard
   setup_room_wizard_validate

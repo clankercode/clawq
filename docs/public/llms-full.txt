@@ -931,8 +931,16 @@ The pilot setup wizard (`clawq rooms wizard`) runs readiness checks before apply
 | Connector Available | Connector has usable credentials configured |
 | Connector Room | Room ID matches connector format (Teams: `19:` prefix or `@thread.tacv2` suffix; Slack: `C`/`G`/`D`/`#` prefix; Discord/Telegram: non-empty) |
 | Budget | Limits are non-negative |
+| Budget State | Current usage vs limits when a database profile exists |
+| Budget Denial Msg | Redacted budget denial message does not leak configured limits (only when a budget is configured) |
 | Max Tool Iterations | Between 1 and 1000 |
 | Budget Reset Period | One of: daily, weekly, monthly, yearly |
+| GitHub App | App ID, private key, and installations are valid |
+| Repo Grants | Access bundles have valid `owner/repo` grants with capabilities |
+| Webhook Config | Webhook secrets/paths are configured and a gateway or tunnel endpoint is present |
+| Room Backlink | Profile has access bundles with repo grants |
+| Activity Ledger | SQLite schema is accessible |
+| Egress Audit | SQLite schema is accessible |
 
 Readiness check results appear in `wizard rerun` output with status categories: **Changed** (will update), **Already valid** (no action), **Blocked** (missing dependency), **Manual repair** (needs human intervention).
 

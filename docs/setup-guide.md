@@ -963,12 +963,12 @@ The wizard runs comprehensive readiness checks before applying configuration:
 | Budget Reset Period | One of: daily, weekly, monthly, yearly |
 | GitHub App | App ID, private key, and installations are valid |
 | Repo Grants | Access bundles have valid `owner/repo` grants with capabilities |
-| Webhook Config | Webhook secrets/paths are configured with a reachable endpoint |
+| Webhook Config | Webhook secrets/paths are configured and a gateway or tunnel endpoint is present |
 | Room Backlink | Profile has access bundles with repo grants |
 | Activity Ledger | SQLite schema is accessible |
 | Egress Audit | SQLite schema is accessible |
 | Budget State | Current usage vs limits (with DB) |
-| Budget Denial Msg | Redaction is safe (no sensitive details leaked) |
+| Budget Denial Msg | Redacted budget denial message does not leak configured limits (only when a budget is configured) |
 
 ### Activity Ledger
 

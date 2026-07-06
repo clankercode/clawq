@@ -607,9 +607,12 @@ Interactive room-agent pilot wizard with plan/apply flow. **[admin]**
 
 ```
 clawq rooms wizard                               Launch interactive wizard
-clawq rooms wizard --plan                        Show plan without applying changes
-clawq rooms wizard --apply                       Apply wizard configuration
-clawq rooms wizard --rerun                       Rerun wizard to repair configuration
+clawq rooms -- wizard plan --profile-id ID       Show plan without applying changes
+CLAWQ_ADMIN=1 clawq rooms -- wizard apply --profile-id ID
+                                                 Apply wizard configuration
+clawq rooms -- wizard rerun --profile-id ID      Rerun wizard to repair configuration
+clawq rooms -- wizard validate-delivery --profile-id ID
+                                                 Validate audit and delivery paths
 ```
 
 ### `clawq rooms audit-export`
