@@ -99,6 +99,7 @@
   task_tree_ops
   task_tree_core
   task_tree_templates
+  task_tree_agents
   memory_0_schema
   memory_0_queue
   memory_0_postmortem
