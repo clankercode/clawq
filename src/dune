@@ -14,6 +14,7 @@
   process_group
   phase2
   runtime_config_types
+  runtime_config_models
   egress_evaluator
   policy_http_client
   runtime_config_json
