@@ -6,7 +6,8 @@
        -> Background_task_log      (log read/render/follow + result
                                     classification + wait + finalize)
        -> Background_task_control  (lifecycle ops: resume, completion pass,
-                                    cancel, retry, recover)
+                                     cancel, retry, recover)
+       -> Background_task_context  (context/origin routing and delegate prompt)
        -> Background_task_spawn    (process spawning, worktrees, scheduling)
    Including the tail re-exports the entire Background_task.* public surface. *)
 include Background_task_spawn

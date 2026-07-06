@@ -122,6 +122,7 @@
   background_task_db
   background_task_log
   background_task_control
+  background_task_context
   background_task_spawn
   background_task
   background_task_transcript
