@@ -324,6 +324,7 @@
   command_bridge_usage
   command_bridge_session_fmt
   command_bridge_helpers
+  command_bridge_cron
   github_pr_subscriptions_cli
   command_bridge_bgargs
   command_bridge_plan

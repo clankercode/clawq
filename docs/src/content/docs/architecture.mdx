@@ -61,6 +61,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `main_plan_cmds.ml` | Cmdliner definitions for `clawq plan` subcommands |
 | `main_session_cmds.ml` | Cmdliner definitions for `clawq session` subcommands |
 | `command_bridge.ml` | Bridges CLI to extracted Coq dispatch; handles runtime-only commands |
+| `command_bridge_cron.ml` | Runtime command bridge implementation for `clawq cron` |
 | `runtime_config.ml` | Configuration loading, validation, and defaults for all subsystems |
 | `config_loader.ml` | File-based config loading: reads JSON, merges with env vars |
 | `agent.ml` | Agent loop: prompt assembly, provider calls, tool dispatch, conversation management |
