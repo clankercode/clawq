@@ -80,11 +80,12 @@ let expected_memory_callsite_keys =
      ~limit in";
     "src/agent_0_compact.ml | let results = Memory.list_core ~db ~category () \
      in";
-    "src/agent_2_tools.ml | Memory.search ~db ~query:user_message ~scope_kind \
-     ~scope_key";
-    "src/agent_2_tools.ml | Memory.search ~db ~query:user_message ~limit:5 ()";
-    "src/agent_2_tools.ml | Memory.search ~db ~query:user_message";
-    "src/agent_2_tools.ml | let all = Memory.list_core ~db () in";
+    "src/agent_memory_context.ml | Memory.search ~db ~query:user_message \
+     ~scope_kind ~scope_key";
+    "src/agent_memory_context.ml | Memory.search ~db ~query:user_message \
+     ~limit:5 ()";
+    "src/agent_memory_context.ml | Memory.search ~db ~query:user_message";
+    "src/agent_memory_context.ml | let all = Memory.list_core ~db () in";
   ]
 
 let test_global_memory_callsite_audit_report_accounts_for_all_callsites () =

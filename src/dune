@@ -63,6 +63,7 @@
   agent_compact_support
   agent_0_compact
   agent_1_context
+  agent_memory_context
   agent_2_tools
   agent_profile
   agent_provider_ledger

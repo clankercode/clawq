@@ -72,15 +72,15 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
     | Some db when agent.profiled_room -> (
         match scoped_memory_room_for_turn ~db ?session_key ?room_id () with
         | Some (scope_key, Some profile_id) ->
-            Agent_2_tools.inject_search_context agent ~db ~user_message
+            Agent_memory_context.inject_search_context agent ~db ~user_message
               ~scope_kind:"room" ~scope_key ~principal_kind:"profile"
               ~principal_id:(string_of_int profile_id)
         | Some (scope_key, None) ->
-            Agent_2_tools.inject_search_context agent ~db ~user_message
+            Agent_memory_context.inject_search_context agent ~db ~user_message
               ~scope_kind:"room" ~scope_key
         | None -> Lwt.return_unit)
     | Some db when unscoped_memory_context_allowed agent ->
-        Agent_2_tools.inject_search_context agent ~db ~user_message
+        Agent_memory_context.inject_search_context agent ~db ~user_message
     | _ -> Lwt.return_unit
   in
   let filtered_content_parts =
