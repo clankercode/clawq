@@ -178,6 +178,11 @@
   slash_commands_sessions
   agent_router
   agent_template
+  agent_template_builtins_common
+  agent_template_builtins_coordination
+  agent_template_builtins_research
+  agent_template_builtins_execution
+  agent_template_builtins_maintenance
   agent_template_builtins
   command_bridge_min
   command_bridge_shared

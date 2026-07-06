@@ -688,7 +688,8 @@ as appropriate.
 - `src/structured_pipeline_run.ml` — Pipeline execution engine
 - `src/structured_pipeline_schema.ml` — JSON Schema validator
 - `src/agent_template.ml` — Agent template types, parsing, discovery
-- `src/agent_template_builtins.ml` — 11 builtin archetypes
+- `src/agent_template_builtins.ml` — builtin archetype registry
+- `src/agent_template_builtins_*.ml` — generated builtin archetype groups
 - `src/tool_registry.ml` — Tool registry (register/find/replace/remove)
 - `src/tool.ml` — Tool type definition (name, schema, invoke, risk_level)
 - `src/skills.ml` — Skills loading (SKILL.md format, deprecated JSON legacy)

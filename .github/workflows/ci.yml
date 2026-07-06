@@ -55,8 +55,7 @@ jobs:
 
       - name: Generated agents check
         run: |
-          ./scripts/gen_agent_builtins.sh
-          git diff --exit-code src/agent_template_builtins.ml
+          ./scripts/gen_agent_builtins.sh --check
 
       - name: Run tests
         run: |

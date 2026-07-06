@@ -126,9 +126,9 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 
 ## Agent Templates
 
-- Templates: `src/agent_template.ml` (types, parsing, discovery), `src/agent_template_builtins.ml` (11 built-in archetypes)
+- Templates: `src/agent_template.ml` (types, parsing, discovery), `src/agent_template_builtins.ml` (builtin registry), and generated `src/agent_template_builtins_*.ml` groups from `docs/builtin-agent-prompts/`
 - CLI: `clawq agents <list|show|create|edit|delete|bind|unbind|bindings|setup|path>`
-- When adding new built-in tools, review `src/agent_template_builtins.ml` and update each agent's `allowed_tools` / `disallowed_tools` lists as appropriate.
+- When adding new built-in tools, review `docs/builtin-agent-prompts/*.md` and update each agent's `allowed_tools` / `disallowed_tools` lists as appropriate, then run `make gen-agents`.
 
 ## Misc Notes
 
@@ -148,4 +148,3 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 ## Codebase
 
 File limit: soft limit at 1000 LoC, hard limit at 2k LoC. Proactively take refactoring opportunities to avoid large files.
-
