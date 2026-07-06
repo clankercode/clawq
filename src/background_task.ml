@@ -9,5 +9,6 @@
                                      cancel, retry, recover)
        -> Background_task_context  (context/origin routing and delegate prompt)
        -> Background_task_spawn    (process spawning, worktrees, scheduling)
+       -> Background_task_workflow (workflow-triggered launches)
    Including the tail re-exports the entire Background_task.* public surface. *)
-include Background_task_spawn
+include Background_task_workflow

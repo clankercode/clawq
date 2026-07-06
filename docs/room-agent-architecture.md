@@ -55,7 +55,8 @@ Connector → Session Manager → Room Policy → Scope Resolution → Access Sn
 | `room_policy.ml` | Room classification (dm/group/external/shared), policy evaluation |
 | `invocation_restrict.ml` | Role-based invocation restrictions (admin/member/guest) |
 | `background_task_context.ml` | Background task context/origin routing |
-| `background_task_spawn.ml` | Background task launching |
+| `background_task_spawn.ml` | Process spawning, worktrees, scheduling, room/GitHub task launching |
+| `background_task_workflow.ml` | Workflow-triggered background task launches |
 | `agent.ml` / `agent_2_tools.ml` | Agent creation, tool execution, snapshot-scoped access |
 
 ---
@@ -1001,7 +1002,8 @@ For the full invariant catalogue, see
 | `src/invocation_restrict.ml` | `check_role`, `check_room_policy_and_role` | Role-based invocation restrictions |
 | `src/session_turn.ml` | `turn`, `run_locked_turn`, `drain_queued_messages` | Session lifecycle and turn orchestration |
 | `src/background_task_context.ml` | `routing_from_context`, `origin_fields_from_context`, `build_delegate_prompt` | Background task context/origin routing |
-| `src/background_task_spawn.ml` | `launch_room_bg_task`, `launch_triggered_run`, `spawn_task` | Background task launching |
+| `src/background_task_spawn.ml` | `launch_room_bg_task`, `launch_triggered_run`, `spawn_task` | Process spawning and room/GitHub task launching |
+| `src/background_task_workflow.ml` | `trigger_workflow_from_room_command`, `trigger_security_review_workflow` | Workflow-triggered background task launches |
 | `src/agent.ml` | `create`, `room_profile_tool_denial`, `turn`, `turn_stream` | Agent creation and tool execution |
 | `src/agent_2_tools.ml` | `execute_tool_calls_stream`, `room_profile_tool_denial` | Tool execution with snapshot-scoped access |
 | `src/runtime_config.ml` | `resolve_effective_access`, `sort_scopes` | Scope resolution and effective access |
