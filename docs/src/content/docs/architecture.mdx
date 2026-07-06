@@ -79,6 +79,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
 | `daemon_startup.ml` | Daemon database/schema initialization, room-profile reconciliation, and tool/skill registry bootstrap |
 | `daemon_heartbeat.ml` | Periodic `HEARTBEAT.md` processing for opted-in channel sessions |
+| `daemon_background_loops.ml` | Auxiliary model-discovery, search-health, quota-refresh, and subagent-status daemon loops |
 | `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, periodic cleanup, config file watcher (10s mtime poll + SIGHUP), EC process lifecycle |
 | `error_watcher.ml` | Error correction shared types, helpers, and EC process lifecycle management |
 | `ec_process.ml` | EC process entry point: daemon log/session/background-task error scanning, correlation |
