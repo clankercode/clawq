@@ -311,6 +311,7 @@
   daemon_startup
   daemon_heartbeat
   daemon_background_loops
+  daemon_runtime_loops
   ambient_daemon
   daemon
   command_bridge_models
