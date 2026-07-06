@@ -343,60 +343,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               in
                               refresh_typing ();
                               Lwt.return_unit);
-                          (* Register rich notifier for Adaptive Cards *)
-                          if
-                            Option.is_none
-                              (Session.find_rich_notifier session_manager ~key)
-                          then
-                            Session.register_rich_notifier session_manager ~key
-                              (fun msg ->
-                                match msg with
-                                | Rich_message.TextWithButtons
-                                    { text; button_rows } ->
-                                    let card =
-                                      Question_presenter
-                                      .build_teams_card_from_buttons ~text
-                                        ~button_rows
-                                    in
-                                    let* _id =
-                                      send_adaptive_card ~config
-                                        ~service_url:effective_service_url
-                                        ~conversation_id
-                                        ~reply_to_id:activity_id ~card ()
-                                    in
-                                    Lwt.return
-                                      Rich_message.
-                                        { message_id = "0"; callback_ids = [] }
-                                | Rich_message.Poll
-                                    { question; options; allows_multiple } ->
-                                    let card =
-                                      Question_presenter.build_teams_poll_card
-                                        ~question ~options
-                                    in
-                                    ignore allows_multiple;
-                                    let* _id =
-                                      send_adaptive_card ~config
-                                        ~service_url:effective_service_url
-                                        ~conversation_id
-                                        ~reply_to_id:activity_id ~card ()
-                                    in
-                                    Lwt.return
-                                      Rich_message.
-                                        { message_id = "0"; callback_ids = [] }
-                                | Rich_message.Text text ->
-                                    let* _id =
-                                      send_reply ~alert:false ~config
-                                        ~service_url:effective_service_url
-                                        ~conversation_id
-                                        ~reply_to_id:activity_id ~text ()
-                                    in
-                                    Lwt.return
-                                      Rich_message.
-                                        { message_id = "0"; callback_ids = [] }
-                                | Rich_message.FileAttachment _ ->
-                                    Lwt.return
-                                      Rich_message.
-                                        { message_id = "0"; callback_ids = [] });
+                          Teams_rich_notifier.register ~session_manager ~key
+                            ~config ~service_url:effective_service_url
+                            ~conversation_id ~reply_to_id:activity_id
+                            ~send_reply ~send_adaptive_card;
                           let* result =
                             Session.with_registered_notifier session_manager
                               ~key
@@ -414,175 +364,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               (fun () ->
                                 Lwt.catch
                                   (fun () ->
-                                    let full_config =
-                                      Session.get_config session_manager
-                                    in
-                                    (* Partition audio attachments for transcription *)
-                                    let audio_atts, non_audio_atts =
-                                      List.partition
-                                        (fun (a :
-                                               Teams_activity_parser
-                                               .teams_attachment) ->
-                                          Voice_transcription.is_audio_mime
-                                            a.content_type)
-                                        parsed_attachments
-                                    in
-                                    (* Single token fetch for audio + attachment downloads *)
-                                    let needs_token =
-                                      full_config.security
-                                        .attachment_downloads_enabled
-                                      && (audio_atts <> []
-                                        || non_audio_atts <> [])
-                                    in
-                                    let* attachment_token =
-                                      if needs_token then fetch_token ~config
-                                      else Lwt.return None
-                                    in
-                                    let* transcription_prefix =
-                                      if
-                                        audio_atts <> []
-                                        && full_config.security
-                                             .attachment_downloads_enabled
-                                      then
-                                        let audio_headers =
-                                          match attachment_token with
-                                          | Some tok ->
-                                              [
-                                                ( "Authorization",
-                                                  "Bearer " ^ tok );
-                                              ]
-                                          | None -> []
-                                        in
-                                        let* texts =
-                                          Lwt_list.map_s
-                                            (fun (a :
-                                                   Teams_activity_parser
-                                                   .teams_attachment) ->
-                                              match
-                                                Voice_transcription.validate
-                                                  ~config:full_config
-                                                  ~filename:a.name
-                                                  ~mime_type:
-                                                    (Some a.content_type)
-                                                  ~size:None
-                                                  ~duration_seconds:None
-                                              with
-                                              | Error reason ->
-                                                  Logs.info (fun m ->
-                                                      m
-                                                        "Teams voice skipped \
-                                                         %s: %s"
-                                                        a.name
-                                                        (Voice_transcription
-                                                         .skip_reason_to_string
-                                                           reason));
-                                                  Lwt.return ""
-                                              | Ok () ->
-                                                  Lwt.catch
-                                                    (fun () ->
-                                                      let* _status, audio_data =
-                                                        Http_client.get
-                                                          ~uri:a.content_url
-                                                          ~headers:audio_headers
-                                                      in
-                                                      let notifier =
-                                                        make_status_notifier
-                                                          ~config
-                                                          ~service_url:
-                                                            effective_service_url
-                                                          ~conversation_id
-                                                          ~reply_to_id:
-                                                            activity_id
-                                                      in
-                                                      Voice_transcription
-                                                      .transcribe_with_progress
-                                                        ~config:full_config
-                                                        ~notifier ~audio_data
-                                                        ~filename:a.name ())
-                                                    (fun exn ->
-                                                      Logs.err (fun m ->
-                                                          m
-                                                            "Teams voice \
-                                                             transcription \
-                                                             failed %s: %s"
-                                                            a.name
-                                                            (Printexc.to_string
-                                                               exn));
-                                                      Lwt.return ""))
-                                            audio_atts
-                                        in
-                                        Lwt.return
-                                          (String.concat ""
-                                             (List.filter
-                                                (fun s -> s <> "")
-                                                texts))
-                                      else Lwt.return ""
-                                    in
-                                    let effective_text =
-                                      if transcription_prefix <> "" then
-                                        transcription_prefix ^ "\n" ^ text
-                                      else text
-                                    in
                                     let* content_parts, att_list, message =
-                                      if
-                                        non_audio_atts <> []
-                                        && full_config.security
-                                             .attachment_downloads_enabled
-                                      then
-                                        let headers =
-                                          match attachment_token with
-                                          | Some tok ->
-                                              [
-                                                ( "Authorization",
-                                                  "Bearer " ^ tok );
-                                              ]
-                                          | None -> []
-                                        in
-                                        let workspace =
-                                          Runtime_config.effective_workspace
-                                            full_config
-                                        in
-                                        let metas =
-                                          List.map
-                                            (fun (a :
-                                                   Teams_activity_parser
-                                                   .teams_attachment) ->
-                                              Attachment_download.
-                                                {
-                                                  url = a.content_url;
-                                                  filename = a.name;
-                                                  mime_type =
-                                                    Some a.content_type;
-                                                  size = None;
-                                                })
-                                            non_audio_atts
-                                        in
-                                        Attachment_download.process_attachments
-                                          metas ~headers ~workspace
-                                          ~db:(Session.get_db session_manager)
-                                          ~session_key:key ~source:"teams"
-                                          ~content_parts:[] ~attachments:[]
-                                          ~message:effective_text
-                                      else
-                                        let placeholder =
-                                          if non_audio_atts <> [] then
-                                            let names =
-                                              List.map
-                                                (fun (a :
-                                                       Teams_activity_parser
-                                                       .teams_attachment) ->
-                                                  Printf.sprintf
-                                                    "\n\
-                                                     [Attachment: %s (download \
-                                                     disabled)]"
-                                                    a.name)
-                                                non_audio_atts
-                                            in
-                                            effective_text
-                                            ^ String.concat "" names
-                                          else effective_text
-                                        in
-                                        Lwt.return ([], [], placeholder)
+                                      Teams_attachments.resolve
+                                        ~teams_config:config ~session_manager
+                                        ~key ~service_url:effective_service_url
+                                        ~conversation_id
+                                        ~reply_to_id:activity_id ~text
+                                        parsed_attachments
                                     in
                                     (* Auto-inject bounded room context for
                                        profile-bound rooms with connector

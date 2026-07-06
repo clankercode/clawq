@@ -88,6 +88,9 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `slack_api.ml` | Slack Events API parsing, HMAC verification, and Web API helpers |
 | `slack.ml` | Slack event handler |
 | `slack_socket.ml` | Slack Socket Mode: WSS-based event receiving via app_token |
+| `teams_webhook.ml` | Microsoft Teams webhook orchestration and turn dispatch |
+| `teams_attachments.ml` | Microsoft Teams inbound audio and file attachment handling |
+| `teams_rich_notifier.ml` | Microsoft Teams rich message delivery for Adaptive Cards |
 | `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
 | `daemon_config_watch.ml` | Daemon config-file watcher and live reload loop |
 | `daemon_channels.ml` | Non-Telegram daemon channel startup fanout |

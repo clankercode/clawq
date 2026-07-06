@@ -397,6 +397,8 @@
   teams_file_upload
   teams_adaptive_card
   teams_api
+  teams_attachments
+  teams_rich_notifier
   teams_webhook
   teams
   teams_context_capture
