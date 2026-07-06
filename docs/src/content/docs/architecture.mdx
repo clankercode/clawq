@@ -80,7 +80,9 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `http_server.ml` | HTTP server: gateway, SSE chat streaming, pairing, slash-command metadata, and web UI endpoints |
 | `ui_server.ml` | Web UI asset manager: embedded bundle extraction, dev-mode disk serving, and version hashing |
 | `http_client.ml` | HTTP client: shared Cohttp-lwt client for provider and API calls |
-| `telegram.ml` | Telegram channel: bot API integration via long polling |
+| `telegram.ml` | Telegram channel update handler and turn dispatch |
+| `telegram_attachments.ml` | Telegram inbound voice, image, and document attachment handling |
+| `telegram_rich_notifier.ml` | Telegram rich message delivery for buttons, polls, and file attachments |
 | `discord.ml` | Discord channel: WS gateway mode, REST rate limit buckets, reconnect loop |
 | `discord_gateway.ml` | Discord gateway protocol state machine (Hello, Identify, Resume, Heartbeat, Dispatch) |
 | `slack_api.ml` | Slack Events API parsing, HMAC verification, and Web API helpers |

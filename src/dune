@@ -299,6 +299,8 @@
   http_server
   telegram_api_state
   telegram_api
+  telegram_attachments
+  telegram_rich_notifier
   telegram
   telegram_poll
   telegram_format
