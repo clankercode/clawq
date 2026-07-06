@@ -125,6 +125,9 @@
   room_progress
   memory
   rate_limiter
+  scheduler_schedule
+  scheduler_output_guard
+  scheduler_routine_target
   scheduler
   runner_framework
   background_task_0_format

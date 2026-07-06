@@ -112,6 +112,9 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `ec_process.ml` | EC process entry point: daemon log/session/background-task error scanning, correlation |
 | `ec_diagnosis.ml` | Multi-model diagnosis pipeline: parallel LLM queries, voting, planning, fix spawning |
 | `service.ml` | Service orchestrator: starts/stops subsystems (server, tunnel, scheduler) |
+| `scheduler_schedule.ml` | Schedule parsing and cron/interval run matching helpers |
+| `scheduler_output_guard.ml` | Cron run output hashing and consecutive-identical-output auto-disable guard |
+| `scheduler_routine_target.ml` | Routine target display formatting shared by scheduler job and run history views |
 | `scheduler.ml` | Scheduled tasks: cron-like recurring job execution |
 | `audit.ml` | Audit logging: append-only log of tool invocations and security events |
 | `secret_store.ml` | Secret encryption at rest: AES-256-GCM, PBKDF2 key derivation, `$ENC:` prefix format |
