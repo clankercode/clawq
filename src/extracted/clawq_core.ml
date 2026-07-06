@@ -342,7 +342,7 @@ let dispatch = function
    | CmdWorkspace -> "workspace: TODO (MVP command skeleton wired)"
    | CmdCapabilities -> "capabilities: TODO (MVP command skeleton wired)"
    | CmdAuth -> "auth: TODO (MVP command skeleton wired)"
-   | CmdVersion -> "clawq 0.4.1-dev"
+   | CmdVersion -> "clawq 0.4.2-dev"
    | CmdHelp -> usage
    | CmdUnknown -> (^) "unknown command\\n" usage)
 
