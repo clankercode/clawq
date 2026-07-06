@@ -15,6 +15,7 @@
   phase2
   runtime_config_types
   runtime_config_models
+  runtime_config_defaults
   egress_evaluator
   policy_http_client
   runtime_config_json_sections
