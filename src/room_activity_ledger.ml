@@ -68,14 +68,7 @@ let events_to_jsonl events =
   |> List.map (fun event -> event_to_json event |> Yojson.Safe.to_string)
   |> String.concat "\n"
 
-let timestamp_now () =
-  let now = Unix.gettimeofday () in
-  let tm = Unix.gmtime now in
-  let micros = int_of_float ((now -. floor now) *. 1_000_000.0) in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%06dZ" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-    tm.Unix.tm_sec micros
-
+let timestamp_now () = Time_util.iso8601_utc_micros ()
 let bind_params = Sql_util.bind_params
 
 let select_one ~db ~room_id ~event_type ~timestamp =
@@ -418,13 +411,9 @@ let query_delivery_failures ~db ?room_id ?actor ?from_timestamp ?(limit = 20) ()
 let failure_count_last_hours ~db ~room_id ~hours () =
   let now = Unix.gettimeofday () in
   let from_epoch = now -. (float_of_int hours *. 3600.0) in
-  let tm = Unix.gmtime from_epoch in
-  let micros = 0 in
-  let from_ts =
-    Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%06dZ"
-      (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
-      tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec micros
-  in
+  (* Truncate to whole seconds so the microseconds field is always .000000,
+     matching the original hardcoded [micros = 0]. *)
+  let from_ts = Time_util.iso8601_utc_micros ~t:(floor from_epoch) () in
   query_delivery_failures ~db ~room_id ~from_timestamp:from_ts ~limit:10000 ()
   |> List.length
 

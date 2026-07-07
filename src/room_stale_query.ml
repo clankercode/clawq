@@ -28,11 +28,7 @@ let source_of_string = function
   | _ -> None
 
 (** Convert a Unix timestamp to a SQLite datetime string (UTC). *)
-let unix_to_sqlite_datetime ts =
-  let tm = Unix.gmtime ts in
-  Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-    tm.Unix.tm_sec
+let unix_to_sqlite_datetime ts = Time_util.sql_datetime_utc ~t:ts ()
 
 (** Parse a SQLite datetime string into a Unix timestamp (UTC). Re-uses the same
     algorithm as [Background_task.parse_sqlite_datetime]. *)

@@ -12,12 +12,7 @@ type verdict =
   | Error of string
 
 let observer_log_path () = Dot_dir.sub "observer.log"
-
-let iso8601_now () =
-  let tm = Unix.localtime (Unix.gettimeofday ()) in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-    tm.Unix.tm_sec
+let iso8601_now () = Time_util.iso8601_local ()
 
 let append_observer_log fields =
   try

@@ -358,11 +358,7 @@ let memory_preview content =
   truncate_description (String.trim (Buffer.contents buf)) 60
 
 let format_unix_date seconds =
-  if seconds <= 0 then "-"
-  else
-    let tm = Unix.gmtime (float_of_int seconds) in
-    Printf.sprintf "%04d-%02d-%02d" (1900 + tm.tm_year) (1 + tm.tm_mon)
-      tm.tm_mday
+  if seconds <= 0 then "-" else Time_util.date_utc ~t:(float_of_int seconds) ()
 
 let format_memories ~connector ~db { oldest; page } =
   let items = Memory.list_core_with_meta ~db ~oldest () in

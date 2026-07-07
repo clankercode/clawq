@@ -155,13 +155,7 @@ let generate_id () =
   let rand = Random.int 1_000_000 in
   Printf.sprintf "rsr_%d_%06d" ts rand
 
-let timestamp_now () =
-  let now = Unix.gettimeofday () in
-  let tm = Unix.gmtime now in
-  let micros = int_of_float ((now -. floor now) *. 1_000_000.0) in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%06dZ" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-    tm.Unix.tm_sec micros
+let timestamp_now () = Time_util.iso8601_utc_micros ()
 
 (** {1 Schema} *)
 

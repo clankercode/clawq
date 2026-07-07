@@ -65,12 +65,7 @@ let save_state (entries : (string * rig_state) list) =
 
 let mark_installed ~name ~version =
   let entries = load_state () in
-  let now =
-    let t = Unix.gettimeofday () in
-    let tm = Unix.gmtime t in
-    Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ" (1900 + tm.tm_year)
-      (1 + tm.tm_mon) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
-  in
+  let now = Time_util.iso8601_utc () in
   let filtered = List.filter (fun (n, _) -> n <> name) entries in
   save_state (filtered @ [ (name, { installed_at = now; version }) ])
 

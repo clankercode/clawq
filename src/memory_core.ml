@@ -438,12 +438,7 @@ let archive_forgotten_memory ~session_key ~key ~content ~category =
         ("key", `String key);
         ("category", `String category);
         ("content", `String content);
-        ( "forgotten_at",
-          `String
-            ( Unix.time () |> Unix.gmtime |> fun tm ->
-              Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
-                (tm.tm_year + 1900) (tm.tm_mon + 1) tm.tm_mday tm.tm_hour
-                tm.tm_min tm.tm_sec ) );
+        ("forgotten_at", `String (Time_util.iso8601_utc ~t:(Unix.time ()) ()));
       ]
   in
   let path = memory_archive_path ~session_key in

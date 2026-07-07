@@ -212,12 +212,7 @@ let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
   in
   {
     id = generate_id ();
-    timestamp =
-      (let t = Unix.gettimeofday () in
-       let tm = Unix.gmtime t in
-       Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
-         (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-         tm.Unix.tm_sec);
+    timestamp = Time_util.sql_datetime_utc ();
     config_hash = config_hash config;
     session_key;
     work_type;

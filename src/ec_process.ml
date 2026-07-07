@@ -303,10 +303,7 @@ let run_scan_cycle ~db ~config ~log_scan_state ~seen =
       Unix.gettimeofday ()
       -. config.Runtime_config.error_watcher.scan_interval_s
     in
-    let tm = Unix.gmtime t in
-    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
-      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-      tm.Unix.tm_sec
+    Time_util.sql_datetime_utc ~t ()
   in
   let log_entries, seen =
     scan_daemon_log ~config ~scan_state:log_scan_state ~seen

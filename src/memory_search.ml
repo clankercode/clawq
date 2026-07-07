@@ -496,12 +496,7 @@ let snapshot_format_version = 1
 let export_snapshot ~db ~path =
   let memories = list_core ~db () in
   let count = List.length memories in
-  let now =
-    let t = Unix.gettimeofday () in
-    let tm = Unix.gmtime t in
-    Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ" (1900 + tm.tm_year)
-      (1 + tm.tm_mon) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
-  in
+  let now = Time_util.iso8601_utc () in
   let json =
     `Assoc
       [

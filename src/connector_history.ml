@@ -12,10 +12,7 @@ type entry = {
   metadata_json : string option;
 }
 
-let utc_datetime_of_epoch epoch =
-  let tm = Unix.gmtime epoch in
-  Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
-    (tm.tm_mon + 1) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
+let utc_datetime_of_epoch epoch = Time_util.sql_datetime_utc ~t:epoch ()
 
 let text_col stmt idx =
   match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""

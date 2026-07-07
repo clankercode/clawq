@@ -142,11 +142,7 @@ let call_summarizer ?on_llm_call_debug ~config ~pm ~system_prompt ~user_content
       (* Unexpected tool calls — treat as failure *)
       Lwt.return (Ok ("", usage, model))
 
-let now_iso () =
-  let t = Unix.gettimeofday () in
-  let tm = Unix.gmtime t in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ" (1900 + tm.tm_year)
-    (1 + tm.tm_mon) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
+let now_iso () = Time_util.iso8601_utc ()
 
 let maybe_summarize ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
     ~(session_key : string option) ~(tool_name : string)

@@ -91,11 +91,7 @@ let redact_headers headers =
 (* --- File management --- *)
 
 let debug_dir () = Filename.concat (Dot_dir.path ()) "log-http-debug"
-
-let today_str () =
-  let t = Unix.gmtime (Unix.gettimeofday ()) in
-  Printf.sprintf "%04d-%02d-%02d" (1900 + t.tm_year) (1 + t.tm_mon) t.tm_mday
-
+let today_str () = Time_util.date_utc ()
 let today_dir () = Filename.concat (debug_dir ()) (today_str ())
 
 let ensure_dir_p path =
@@ -140,11 +136,7 @@ let headers_to_json headers =
   in
   "[" ^ String.concat "," entries ^ "]"
 
-let iso8601_of_unix ts =
-  let t = Unix.gmtime ts in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ" (1900 + t.tm_year)
-    (1 + t.tm_mon) t.tm_mday t.tm_hour t.tm_min t.tm_sec
-    (int_of_float (Float.rem (ts *. 1000.0) 1000.0))
+let iso8601_of_unix ts = Time_util.iso8601_utc_millis ~t:ts ()
 
 let write_har ~filename ~method_ ~url ~req_headers ~req_body ~status
     ~resp_headers ~resp_body ~started ~duration_ms =
