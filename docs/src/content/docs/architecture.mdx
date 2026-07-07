@@ -126,6 +126,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `scheduler.ml` | Scheduled tasks: cron-like recurring job execution |
 | `audit.ml` | Audit logging: append-only log of tool invocations and security events |
 | `secret_store.ml` | Secret encryption at rest: AES-256-GCM, PBKDF2 key derivation, `$ENC:` prefix format |
+| `sql_util.ml` | Shared SQLite plumbing: `exec_exn`/`exec_with_params`, `bind_params`, column accessors, and a `query_rows` combinator used across store modules |
 | `migrate.ml` | Database migrations: versioned schema upgrades for SQLite stores |
 | `resilience.ml` | Reliability policies: timeout, retry (exponential backoff), fallback |
 | `runtime_native.ml` | Native runtime adapter: wraps daemon/service for start/stop/status/health |
