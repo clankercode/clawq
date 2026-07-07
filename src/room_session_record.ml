@@ -449,11 +449,8 @@ let persist ~(db : Sqlite3.db) (record : t) =
 
 (** {1 Row deserialization} *)
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> Some s | _ -> None
-
-let text_column_nn stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
+let text_column = Sql_util.opt_text_column
+let text_column_nn = Sql_util.text_column
 
 let json_column stmt idx =
   match Sqlite3.column stmt idx with

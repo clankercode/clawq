@@ -84,8 +84,8 @@ let thread_id_of ?thread_id origin_json =
 
 (** {1 Background task queries} *)
 
-let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
-let sql_int = function Sqlite3.Data.INT i -> Some (Int64.to_int i) | _ -> None
+let sql_text = Sql_util.sql_text
+let sql_int = Sql_util.sql_int
 
 (** Query stale background tasks. A background task is stale when:
     - status is [queued] or [running]

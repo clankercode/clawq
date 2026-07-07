@@ -1,12 +1,5 @@
 let schema_version = 46
-
-let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-           sql)
+let exec_exn db sql = Sql_util.exec_exn db sql
 
 let query_single_int db sql =
   let stmt = Sqlite3.prepare db sql in
@@ -35,20 +28,7 @@ let query_single_int_with_params db sql params =
           | _ -> 0)
       | _ -> 0)
 
-let exec_with_params db sql params =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      List.iteri
-        (fun i p -> ignore (Sqlite3.bind stmt (i + 1) p : Sqlite3.Rc.t))
-        params;
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> ()
-      | rc ->
-          failwith
-            (Printf.sprintf "SQLite error: %s (sql: %s)"
-               (Sqlite3.Rc.to_string rc) sql))
+let exec_with_params db sql params = Sql_util.exec_with_params db sql params
 
 let table_exists db table_name =
   let stmt =

@@ -1,12 +1,8 @@
 include Background_task_0_format
 
-let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
-let sql_int = function Sqlite3.Data.INT i -> Some (Int64.to_int i) | _ -> None
-
-let sql_bool stmt i =
-  match Sqlite3.column stmt i with
-  | Sqlite3.Data.INT n -> Int64.to_int n <> 0
-  | _ -> false
+let sql_text = Sql_util.sql_text
+let sql_int = Sql_util.sql_int
+let sql_bool = Sql_util.sql_bool
 
 let queued_message_of_stmt stmt =
   {

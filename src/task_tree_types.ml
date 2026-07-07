@@ -77,8 +77,8 @@ let text_of_json_string_list values =
   |> List.map (fun s -> `String s)
   |> fun values -> Yojson.Safe.to_string (`List values)
 
-let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
-let sql_int = function Sqlite3.Data.INT n -> Some (Int64.to_int n) | _ -> None
+let sql_text = Sql_util.sql_text
+let sql_int = Sql_util.sql_int
 let sql_bool = function Sqlite3.Data.INT n -> Int64.to_int n <> 0 | _ -> false
 
 let strip_legacy_id_prefix id =

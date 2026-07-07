@@ -87,8 +87,8 @@ let record ~db ~task_id ~direction ~msg_type ?update_type ?role ?content_text
       bind_opt 9 tool_call_id;
       ignore (Sqlite3.step stmt))
 
-let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
-let sql_int = function Sqlite3.Data.INT i -> Some (Int64.to_int i) | _ -> None
+let sql_text = Sql_util.sql_text
+let sql_int = Sql_util.sql_int
 
 let entry_of_stmt stmt =
   {
