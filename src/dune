@@ -104,6 +104,7 @@
   tools_builtin_net
   tools_builtin_browser
   tools_builtin_messaging
+  tools_builtin_ask
   tools_builtin
   task_tree_types
   task_tree_db
