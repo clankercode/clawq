@@ -75,12 +75,7 @@ let redact_path path =
       if List.length segments <= 2 then path else visible ^ "/**"
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "egress_audit schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"egress_audit schema error" db sql
 
 let init_schema db =
   exec_exn db
@@ -117,19 +112,9 @@ let timestamp_now () =
     (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
     tm.Unix.tm_sec micros
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
-
-let opt_text_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.TEXT s -> Some s
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
-
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
+let text_column = Sql_util.text_column
+let opt_text_column = Sql_util.opt_text_column
+let int_column = Sql_util.int_column
 
 let event_of_stmt stmt =
   let handle_ids_json = text_column stmt 11 in

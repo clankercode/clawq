@@ -46,12 +46,7 @@ let check_quiet_hours ~hour ~quiet_start ~quiet_end =
 (** {1 Schema} *)
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "github_pr_policy schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"github_pr_policy schema error" db sql
 
 (** Create the persistent dedup table. Idempotent via IF NOT EXISTS. *)
 let init_schema db =

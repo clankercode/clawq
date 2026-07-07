@@ -72,12 +72,7 @@ let watcher_type_of_string = function
 (** {1 Database schema} *)
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "room_watcher_decision schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"room_watcher_decision schema error" db sql
 
 let init_schema db =
   exec_exn db
@@ -111,11 +106,7 @@ let int_column stmt idx =
   | Sqlite3.Data.INT n -> Int64.to_int n
   | _ -> 0
 
-let option_text_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.TEXT s -> Some s
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
+let option_text_column = Sql_util.opt_text_column
 
 let decision_of_stmt stmt =
   {

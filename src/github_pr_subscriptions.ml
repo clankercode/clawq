@@ -68,12 +68,7 @@ let notification_preferences_to_string prefs =
   Yojson.Safe.to_string (notification_preferences_to_json prefs)
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "github_pr_subscriptions schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"github_pr_subscriptions schema error" db sql
 
 let init_schema db =
   exec_exn db
@@ -107,13 +102,8 @@ let init_schema db =
     "CREATE INDEX IF NOT EXISTS idx_github_pr_subs_profile ON \
      github_pr_subscriptions(profile_id)"
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
-
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
+let text_column = Sql_util.text_column
+let int_column = Sql_util.int_column
 
 let bool_column stmt idx =
   match Sqlite3.column stmt idx with
@@ -157,10 +147,7 @@ let subscriptions_to_json subs = `List (List.map subscription_to_json subs)
 let subscriptions_to_string subs =
   Yojson.Safe.to_string (subscriptions_to_json subs)
 
-let bind_params stmt params =
-  List.iteri
-    (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
-    params
+let bind_params = Sql_util.bind_params
 
 let select_columns =
   "id, room_id, repo, pr_number, profile_id, enabled, \

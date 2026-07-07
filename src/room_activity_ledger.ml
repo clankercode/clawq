@@ -8,12 +8,7 @@ type event = {
 }
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "room_activity_ledger schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"room_activity_ledger schema error" db sql
 
 let init_schema db =
   exec_exn db
@@ -39,13 +34,8 @@ let init_schema db =
 let metadata_of_string raw =
   try Yojson.Safe.from_string raw with Yojson.Json_error _ -> `Null
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
-
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
+let text_column = Sql_util.text_column
+let int_column = Sql_util.int_column
 
 let event_of_stmt stmt =
   {
@@ -86,10 +76,7 @@ let timestamp_now () =
     (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
     tm.Unix.tm_sec micros
 
-let bind_params stmt params =
-  List.iteri
-    (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
-    params
+let bind_params = Sql_util.bind_params
 
 let select_one ~db ~room_id ~event_type ~timestamp =
   let sql =

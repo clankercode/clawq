@@ -130,12 +130,7 @@ let workflow_run_to_string run =
 (** {1 Database schema} *)
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "workflow_run_trigger schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"workflow_run_trigger schema error" db sql
 
 (** Create the workflow_runs table. Idempotent via IF NOT EXISTS. *)
 let init_schema db =
@@ -168,25 +163,10 @@ let init_schema db =
 
 (** {1 Database helpers} *)
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
-
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
-
-let opt_int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Some (Int64.to_int n)
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
-
-let opt_text_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.TEXT s -> Some s
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
+let text_column = Sql_util.text_column
+let int_column = Sql_util.int_column
+let opt_int_column = Sql_util.opt_int_column
+let opt_text_column = Sql_util.opt_text_column
 
 let select_columns =
   "id, pipeline_name, pipeline_version, inputs_json, trigger_source, status, \
@@ -220,10 +200,7 @@ let workflow_run_of_stmt stmt =
     finished_at = opt_text_column stmt 13;
   }
 
-let bind_params stmt params =
-  List.iteri
-    (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
-    params
+let bind_params = Sql_util.bind_params
 
 (** {1 CRUD operations} *)
 

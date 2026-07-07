@@ -164,12 +164,7 @@ let backlinks_to_json_string bls =
 (** {1 Database schema} *)
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "room_github_backlinks schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"room_github_backlinks schema error" db sql
 
 (** Ensure optional ID columns use NOT NULL DEFAULT '' so the UNIQUE constraint
     deduplicates correctly. SQLite treats NULL != NULL, so nullable columns
@@ -213,20 +208,11 @@ let init_schema db =
 
 (** {1 Database helpers} *)
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
+let text_column = Sql_util.text_column
+let int_column = Sql_util.int_column
+let opt_int_column = Sql_util.opt_int_column
 
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
-
-let opt_int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Some (Int64.to_int n)
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
-
+(* Local variant: treats empty TEXT as absent to keep UNIQUE dedup correct. *)
 let opt_text_column stmt idx =
   match Sqlite3.column stmt idx with
   | Sqlite3.Data.TEXT s when s <> "" -> Some s
@@ -257,10 +243,7 @@ let backlink_of_stmt stmt =
     created_at = text_column stmt 14;
   }
 
-let bind_params stmt params =
-  List.iteri
-    (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
-    params
+let bind_params = Sql_util.bind_params
 
 (** Convert an optional string to a TEXT value, using empty string for None to
     ensure the UNIQUE constraint deduplicates correctly. *)

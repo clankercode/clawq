@@ -117,12 +117,7 @@ type checklist_item = {
 
 let init_schema db =
   let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "room_progress_checklist schema error: %s (sql: %s)"
-             (Sqlite3.Rc.to_string rc) sql)
+    Sql_util.exec_exn ~label:"room_progress_checklist schema error" db sql
   in
   exec
     "CREATE TABLE IF NOT EXISTS room_progress_checklist (\n\
@@ -164,16 +159,9 @@ let init_schema db =
 
 (** {1 Helpers} *)
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> Some s | _ -> None
-
-let text_column_nn stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
-
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
+let text_column = Sql_util.opt_text_column
+let text_column_nn = Sql_util.text_column
+let int_column = Sql_util.int_column
 
 let item_of_stmt stmt : checklist_item =
   let state_str = text_column_nn stmt 3 in
@@ -196,10 +184,7 @@ let item_of_stmt stmt : checklist_item =
       | None -> Delivery_pending);
   }
 
-let bind_params stmt params =
-  List.iteri
-    (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
-    params
+let bind_params = Sql_util.bind_params
 
 let timestamp_now () =
   let now = Unix.gettimeofday () in

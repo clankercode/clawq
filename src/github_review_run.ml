@@ -181,12 +181,7 @@ let run_status_of_string = function
 (** {1 Database schema} *)
 
 let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "github_review_run schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_exn ~label:"github_review_run schema error" db sql
 
 (** Create the review_runs table. Idempotent via IF NOT EXISTS. *)
 let init_schema db =
@@ -219,25 +214,10 @@ let init_schema db =
 
 (** {1 Database helpers} *)
 
-let text_column stmt idx =
-  match Sqlite3.column stmt idx with Sqlite3.Data.TEXT s -> s | _ -> ""
-
-let int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Int64.to_int n
-  | _ -> 0
-
-let opt_int_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.INT n -> Some (Int64.to_int n)
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
-
-let opt_text_column stmt idx =
-  match Sqlite3.column stmt idx with
-  | Sqlite3.Data.TEXT s -> Some s
-  | Sqlite3.Data.NULL -> None
-  | _ -> None
+let text_column = Sql_util.text_column
+let int_column = Sql_util.int_column
+let opt_int_column = Sql_util.opt_int_column
+let opt_text_column = Sql_util.opt_text_column
 
 let review_run_of_stmt stmt =
   {
@@ -256,10 +236,7 @@ let review_run_of_stmt stmt =
     finished_at = opt_text_column stmt 12;
   }
 
-let bind_params stmt params =
-  List.iteri
-    (fun i value -> ignore (Sqlite3.bind stmt (i + 1) value : Sqlite3.Rc.t))
-    params
+let bind_params = Sql_util.bind_params
 
 let select_columns =
   "id, repo, pr_number, head_sha, run_kind, trigger_source, status, task_id, \
