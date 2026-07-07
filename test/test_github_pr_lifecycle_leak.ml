@@ -3,9 +3,7 @@
     Verifies that disabled, deleted, unauthorized, moved-room, and ungranted
     subscriptions do not leak updates through the dispatch path. *)
 
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+let with_db f = Test_helpers.with_memory_store f
 
 let make_pr_event ~repo ~pr_number =
   let owner, name =

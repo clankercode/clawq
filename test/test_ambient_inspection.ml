@@ -2,10 +2,10 @@
     watcher state. *)
 
 let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Room_watcher_decision.init_schema db;
-  Room_activity_ledger.init_schema db;
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+  Test_helpers.with_memory_store
+    ~init_schema:
+      [ Room_watcher_decision.init_schema; Room_activity_ledger.init_schema ]
+    f
 
 let make_profile ?(ambient_enabled = false)
     ?(ambient_quiet_start = Ambient_policy.default_ambient_quiet_start)

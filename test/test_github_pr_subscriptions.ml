@@ -1,6 +1,4 @@
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+let with_db f = Test_helpers.with_memory_store f
 
 let test_add_subscription () =
   with_db (fun db ->

@@ -7,9 +7,9 @@ let exec_exn db sql =
 
 let with_db f =
   Room_budget.clear_all_soft_warn_debounce ();
-  let db = Memory.init ~db_path:":memory:" () in
-  let profile_id = Memory.insert_room_profile ~db ~name:"budget-profile" in
-  f db profile_id
+  Test_helpers.with_memory_store (fun db ->
+      let profile_id = Memory.insert_room_profile ~db ~name:"budget-profile" in
+      f db profile_id)
 
 let record_usage ~db ~profile_id ~session_key ~prompt_tokens ~completion_tokens
     ~cost_usd ~requested_at =

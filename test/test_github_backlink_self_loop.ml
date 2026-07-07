@@ -8,9 +8,7 @@
     - Audit export includes backlink provenance for GitHub→room and room→GitHub
 *)
 
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+let with_db f = Test_helpers.with_memory_store f
 
 (* ---- helpers ---- *)
 

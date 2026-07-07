@@ -3,10 +3,9 @@
 open Room_stale_query
 
 let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Background_task.init_schema db;
-  Task_tree_core.init_schema db;
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+  Test_helpers.with_memory_store
+    ~init_schema:[ Background_task.init_schema; Task_tree_core.init_schema ]
+    f
 
 let with_temp_git_repo f =
   let tmp = Filename.temp_file "clawq-test" ".dir" in

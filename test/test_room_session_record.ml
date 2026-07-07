@@ -1,9 +1,9 @@
 let parse json = Config_loader.parse_config (Yojson.Safe.from_string json)
 
 let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Room_session_record.init_schema db;
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+  Test_helpers.with_memory_store
+    ~init_schema:[ Room_session_record.init_schema ]
+    f
 
 let basic_config_json =
   {|{

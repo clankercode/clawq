@@ -1,8 +1,6 @@
 (** Tests for Workflow_run_trigger module. *)
 
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+let with_db f = Test_helpers.with_memory_store f
 
 (* --- trigger_source serialization --- *)
 

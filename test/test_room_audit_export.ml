@@ -1,7 +1,4 @@
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
-
+let with_db f = Test_helpers.with_memory_store f
 let make_empty_config () = Runtime_config.default
 
 let test_scope_snapshot_from_config () =

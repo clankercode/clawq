@@ -6,10 +6,7 @@
     - Forgotten content is absent from prompt injection and search *)
 
 let contains = Test_helpers.string_contains
-
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+let with_db f = Test_helpers.with_memory_store ~search_enabled:true f
 
 let make_ledger db : Memory.ledger_fn =
  fun ~room_id ~event_type ~actor ~metadata ->

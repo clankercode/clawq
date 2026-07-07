@@ -7,6 +7,15 @@ let with_memory_db f =
   ignore (Sqlite3.db_close db);
   result
 
+(** Create a fresh in-memory Memory store via [Memory.init ~db_path:":memory:"],
+    run each hook in [init_schema] against the db (for modules that need extra
+    tables created), call [f], then close the db. Pass [~search_enabled:true] to
+    enable FTS search tables. *)
+let with_memory_store ?search_enabled ?(init_schema = []) f =
+  let db = Memory.init ~db_path:":memory:" ?search_enabled () in
+  List.iter (fun init -> init db) init_schema;
+  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+
 (** Create a temp directory, call f with path, cleanup after *)
 let with_temp_dir f =
   let dir = Filename.temp_file "clawq_test_" "" in

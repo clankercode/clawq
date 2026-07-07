@@ -1,6 +1,4 @@
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  f db
+let with_db f = Test_helpers.with_memory_store f
 
 (* --- set and get keepalive flag --- *)
 

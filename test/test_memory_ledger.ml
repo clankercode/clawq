@@ -26,9 +26,7 @@ let metadata_int key json =
 let metadata_member key json =
   match json with `Assoc fields -> List.assoc_opt key fields | _ -> None
 
-let with_db f =
-  let db = Memory.init ~db_path:":memory:" () in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+let with_db f = Test_helpers.with_memory_store f
 
 let make_ledger db : Memory.ledger_fn =
  fun ~room_id ~event_type ~actor ~metadata ->
