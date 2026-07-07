@@ -55,6 +55,7 @@
   workspace_scaffold
   workspace_version
   string_util
+  sql_util
   path_util
   skill_dedup
   skill_invocation_guard
@@ -99,6 +100,7 @@
   tools_builtin_help
   tools_builtin_io
   tools_builtin_zai
+  tools_builtin_git
   tools_builtin_net
   tools_builtin_browser
   tools_builtin_messaging

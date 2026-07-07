@@ -1,12 +1,6 @@
 (* SQLite-backed blackboard for pair coding sessions. *)
 
-let exec_exn db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-           sql)
+let exec_exn db sql = Sql_util.exec_exn db sql
 
 type pair_config = {
   task_description : string;

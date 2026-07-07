@@ -95,8 +95,8 @@ let ensure_dir path =
   try if not (Sys.file_exists path) then Unix.mkdir path 0o755
   with Unix.Unix_error _ -> ()
 
-let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
-let sql_int = function Sqlite3.Data.INT n -> Some (Int64.to_int n) | _ -> None
+let sql_text = Sql_util.sql_text
+let sql_int = Sql_util.sql_int
 
 let pipeline_of_stmt stmt =
   let stage_s =
@@ -125,14 +125,7 @@ let pipeline_of_stmt stmt =
   }
 
 let init_schema db =
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
+  let exec sql = Sql_util.exec_exn db sql in
   exec
     "CREATE TABLE IF NOT EXISTS plan_pipelines (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\

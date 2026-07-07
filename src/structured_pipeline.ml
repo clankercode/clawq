@@ -374,14 +374,7 @@ let substitute_template template ~inputs ~step_outputs =
 (* ── DB operations ─────────────────────────────────────────────────────── *)
 
 let init_schema db =
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
+  let exec sql = Sql_util.exec_exn db sql in
   exec
     "CREATE TABLE IF NOT EXISTS structured_pipeline_runs (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\

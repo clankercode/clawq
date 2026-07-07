@@ -1,14 +1,7 @@
 (* Vector index for semantic search using SQLite-backed embedding storage *)
 
 let init_schema db =
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
+  let exec sql = Sql_util.exec_exn db sql in
   exec
     "CREATE TABLE IF NOT EXISTS embeddings (id INTEGER PRIMARY KEY \
      AUTOINCREMENT, message_id INTEGER NOT NULL, session_key TEXT NOT NULL, \

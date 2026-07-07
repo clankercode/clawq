@@ -55,14 +55,7 @@ let run_routine_target (run : run) =
     ?routine_workspace_id:run.routine_workspace_id ()
 
 let init_schema db =
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
+  let exec sql = Sql_util.exec_exn db sql in
   exec
     "CREATE TABLE IF NOT EXISTS cron_jobs (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
