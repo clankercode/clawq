@@ -129,16 +129,7 @@ let stream_process ~cwd ~argv ~send_progress ~interrupt_check =
           Lwt.fail Interrupted_by_user)
 
 let trim s = String.trim s
-
-let contains_sub s sub =
-  let len_s = String.length s in
-  let len_sub = String.length sub in
-  let rec loop i =
-    if i + len_sub > len_s then false
-    else if String.sub s i len_sub = sub then true
-    else loop (i + 1)
-  in
-  if len_sub = 0 then true else loop 0
+let contains_sub s sub = String_util.contains s sub
 
 let summarize_failure_lines lines =
   let cleaned =

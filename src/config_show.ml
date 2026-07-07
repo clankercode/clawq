@@ -9,17 +9,7 @@ let sensitive_substrings =
 
 (* Keys that are sensitive but don't contain any sensitive substring. *)
 let extra_redact_keys = [ "tunnel_name" ]
-
-let contains_sub s sub =
-  let n = String.length s and m = String.length sub in
-  if m = 0 || m > n then m = 0
-  else
-    try
-      for i = 0 to n - m do
-        if String.sub s i m = sub then raise Exit
-      done;
-      false
-    with Exit -> true
+let contains_sub s sub = String_util.contains s sub
 
 let is_secret_key k =
   List.mem k extra_redact_keys

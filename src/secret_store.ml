@@ -104,17 +104,7 @@ let resolve_secret ~encrypt_secrets value =
 let sensitive_substrings =
   [ "token"; "secret"; "password"; "api_key"; "private_key" ]
 
-let contains_sub s sub =
-  let n = String.length s and m = String.length sub in
-  if m = 0 || m > n then m = 0
-  else
-    try
-      for i = 0 to n - m do
-        if String.sub s i m = sub then raise Exit
-      done;
-      false
-    with Exit -> true
-
+let contains_sub s sub = String_util.contains s sub
 let is_secret_key key = List.exists (contains_sub key) sensitive_substrings
 
 let maybe_encrypt_string ~key value =

@@ -12,19 +12,7 @@ let is_audio_filename filename =
    messages, not music. The remaining audio formats are more likely music
    unless the filename suggests a voice recording. *)
 let voice_format_extensions = [ ".ogg"; ".opus"; ".webm" ]
-
-let contains_ci haystack needle =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let nlen = String.length n in
-  let hlen = String.length h in
-  if nlen > hlen then false
-  else
-    let found = ref false in
-    for i = 0 to hlen - nlen do
-      if (not !found) && String.sub h i nlen = n then found := true
-    done;
-    !found
+let contains_ci = String_util.contains_ci
 
 let is_likely_music ~filename ~mime_type:_ =
   let ext = Filename.extension filename |> String.lowercase_ascii in

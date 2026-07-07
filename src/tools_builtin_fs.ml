@@ -359,22 +359,8 @@ let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
   }
 
 let contains_substr ~haystack ~needle ~case_sensitive =
-  let h =
-    if case_sensitive then haystack else String.lowercase_ascii haystack
-  in
-  let n = if case_sensitive then needle else String.lowercase_ascii needle in
-  let hl = String.length h and nl = String.length n in
-  if nl = 0 then true
-  else if nl > hl then false
-  else begin
-    let found = ref false in
-    let i = ref 0 in
-    while (not !found) && !i + nl <= hl do
-      if String.sub h !i nl = n then found := true;
-      incr i
-    done;
-    !found
-  end
+  if case_sensitive then String_util.contains haystack needle
+  else String_util.contains_ci haystack needle
 
 let grep ~workspace ~workspace_only ~extra_allowed_paths =
   {

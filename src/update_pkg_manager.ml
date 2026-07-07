@@ -10,19 +10,7 @@ let name = function
   | Homebrew -> "Homebrew"
 
 let is_windows os = os = "Win32"
-
-(* Substring search (no external deps; mirrors update_tool's helper). *)
-let contains_sub s sub =
-  let len_s = String.length s in
-  let len_sub = String.length sub in
-  if len_sub = 0 then true
-  else
-    let rec loop i =
-      if i + len_sub > len_s then false
-      else if String.sub s i len_sub = sub then true
-      else loop (i + 1)
-    in
-    loop 0
+let contains_sub s sub = String_util.contains s sub
 
 (* Normalize a path for matching: forward slashes everywhere and lowercase.
    All install-tree markers we match on are lowercase dir names, except

@@ -23,6 +23,11 @@ let contains haystack needle =
    command_bridge_helpers — prefer this over local redefinitions. *)
 let string_contains = contains
 
+(* Case-insensitive substring test. Empty needle matches. Prefer this over
+   local case-insensitive redefinitions. *)
+let contains_ci haystack needle =
+  contains (String.lowercase_ascii haystack) (String.lowercase_ascii needle)
+
 let unescape_newlines s =
   let len = String.length s in
   let buf = Buffer.create len in

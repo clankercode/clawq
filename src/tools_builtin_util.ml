@@ -217,15 +217,7 @@ let split_command_words cmd =
   end;
   coq_result
 
-let contains_substr s sub =
-  let slen = String.length s in
-  let nlen = String.length sub in
-  let rec loop i =
-    if i + nlen > slen then false
-    else if String.sub s i nlen = sub then true
-    else loop (i + 1)
-  in
-  nlen = 0 || loop 0
+let contains_substr s sub = String_util.contains s sub
 
 let expand_home_in_arg arg =
   let a = String.trim arg in

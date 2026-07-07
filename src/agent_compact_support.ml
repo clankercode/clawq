@@ -72,18 +72,7 @@ type compact_callbacks = {
       (** [on_step_done name duration_s] called when a sub-step finishes *)
 }
 
-let string_contains_ci_small s sub =
-  let sl = String.lowercase_ascii s in
-  let subl = String.lowercase_ascii sub in
-  let ls = String.length sl and lsub = String.length subl in
-  if lsub > ls then false
-  else
-    let rec loop i =
-      if i > ls - lsub then false
-      else if String.sub sl i lsub = subl then true
-      else loop (i + 1)
-    in
-    loop 0
+let string_contains_ci_small s sub = String_util.contains_ci s sub
 
 let () =
   Resilience.register_non_retriable (function
