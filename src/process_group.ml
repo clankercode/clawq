@@ -53,46 +53,57 @@ let exec_command ~env = function
           | Some executable -> Unix.execve executable argv env
           | None -> failwith (Printf.sprintf "command not found: %s" prog)))
 
-let start ?cwd ~env command =
-  let stdout_r, stdout_w = Unix.pipe ~cloexec:true () in
-  let stderr_r, stderr_w = Unix.pipe ~cloexec:true () in
+(* Fork a child into a new session (setsid), redirect stdin from /dev/null,
+   run [wire_io ()] to attach the child's stdout/stderr, then exec [command].
+   [on_fork_error ()] runs if fork itself fails; [wire_io] is responsible for
+   dup2-ing and closing the caller's output fds. Returns the child pid in the
+   parent; in the child, this never returns (it execs or exits 127). *)
+let spawn_session_child ?cwd ~env ~on_fork_error ~wire_io command =
   match Unix.fork () with
   | -1 ->
-      close_noerr stdout_r;
-      close_noerr stdout_w;
-      close_noerr stderr_r;
-      close_noerr stderr_w;
+      on_fork_error ();
       failwith "fork failed"
   | 0 -> (
-      let setup_child () =
+      try
         ignore (Unix.setsid ());
         (match cwd with Some dir -> Unix.chdir dir | None -> ());
         let stdin_fd = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
         Unix.dup2 stdin_fd Unix.stdin;
-        Unix.dup2 stdout_w Unix.stdout;
-        Unix.dup2 stderr_w Unix.stderr;
+        wire_io ();
         close_noerr stdin_fd;
-        close_noerr stdout_r;
-        close_noerr stdout_w;
-        close_noerr stderr_r;
-        close_noerr stderr_w;
         exec_command ~env command
-      in
-      try setup_child ()
       with exn ->
         let msg = Printexc.to_string exn ^ "\n" in
         ignore (Unix.write_substring Unix.stderr msg 0 (String.length msg));
         exit 127)
-  | pid ->
-      close_noerr stdout_w;
-      close_noerr stderr_w;
-      {
-        pid;
-        stdout =
-          Lwt_io.of_fd ~mode:Lwt_io.Input (Lwt_unix.of_unix_file_descr stdout_r);
-        stderr =
-          Lwt_io.of_fd ~mode:Lwt_io.Input (Lwt_unix.of_unix_file_descr stderr_r);
-      }
+  | pid -> pid
+
+let start ?cwd ~env command =
+  let stdout_r, stdout_w = Unix.pipe ~cloexec:true () in
+  let stderr_r, stderr_w = Unix.pipe ~cloexec:true () in
+  let close_all () =
+    close_noerr stdout_r;
+    close_noerr stdout_w;
+    close_noerr stderr_r;
+    close_noerr stderr_w
+  in
+  let pid =
+    spawn_session_child ?cwd ~env ~on_fork_error:close_all
+      ~wire_io:(fun () ->
+        Unix.dup2 stdout_w Unix.stdout;
+        Unix.dup2 stderr_w Unix.stderr;
+        close_all ())
+      command
+  in
+  close_noerr stdout_w;
+  close_noerr stderr_w;
+  {
+    pid;
+    stdout =
+      Lwt_io.of_fd ~mode:Lwt_io.Input (Lwt_unix.of_unix_file_descr stdout_r);
+    stderr =
+      Lwt_io.of_fd ~mode:Lwt_io.Input (Lwt_unix.of_unix_file_descr stderr_r);
+  }
 
 type t_file = { file_pid : int }
 
@@ -100,30 +111,17 @@ let start_to_file ?cwd ~env ~log_path command =
   let log_fd =
     Unix.openfile log_path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ] 0o644
   in
-  match Unix.fork () with
-  | -1 ->
-      close_noerr log_fd;
-      failwith "fork failed"
-  | 0 -> (
-      let setup_child () =
-        ignore (Unix.setsid ());
-        (match cwd with Some dir -> Unix.chdir dir | None -> ());
-        let stdin_fd = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
-        Unix.dup2 stdin_fd Unix.stdin;
+  let pid =
+    spawn_session_child ?cwd ~env
+      ~on_fork_error:(fun () -> close_noerr log_fd)
+      ~wire_io:(fun () ->
         Unix.dup2 log_fd Unix.stdout;
         Unix.dup2 log_fd Unix.stderr;
-        close_noerr stdin_fd;
-        close_noerr log_fd;
-        exec_command ~env command
-      in
-      try setup_child ()
-      with exn ->
-        let msg = Printexc.to_string exn ^ "\n" in
-        ignore (Unix.write_substring Unix.stderr msg 0 (String.length msg));
-        exit 127)
-  | pid ->
-      close_noerr log_fd;
-      { file_pid = pid }
+        close_noerr log_fd)
+      command
+  in
+  close_noerr log_fd;
+  { file_pid = pid }
 
 let signal_group pid signal = try Unix.kill (-pid) signal with _ -> ()
 
