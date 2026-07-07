@@ -445,9 +445,7 @@ let test_slack_verify_valid_signature () =
   let ts = string_of_float (Unix.gettimeofday ()) in
   let body = "v=hello&body=test" in
   let basestring = "v0:" ^ ts ^ ":" ^ body in
-  let expected =
-    "v0=" ^ Digestif.SHA256.(hmac_string ~key:secret basestring |> to_hex)
-  in
+  let expected = Test_helpers.slack_signature ~secret ~basestring in
   let result =
     Slack.verify_signature ~signing_secret:secret ~timestamp:ts ~body
       ~signature:expected
@@ -459,9 +457,7 @@ let test_slack_verify_signature_small_future_skew () =
   let ts = string_of_float (Unix.gettimeofday () +. 120.0) in
   let body = "future=small" in
   let basestring = "v0:" ^ ts ^ ":" ^ body in
-  let expected =
-    "v0=" ^ Digestif.SHA256.(hmac_string ~key:secret basestring |> to_hex)
-  in
+  let expected = Test_helpers.slack_signature ~secret ~basestring in
   let result =
     Slack.verify_signature ~signing_secret:secret ~timestamp:ts ~body
       ~signature:expected
@@ -473,9 +469,7 @@ let test_slack_verify_signature_far_future_skew () =
   let ts = string_of_float (Unix.gettimeofday () +. 600.0) in
   let body = "future=far" in
   let basestring = "v0:" ^ ts ^ ":" ^ body in
-  let expected =
-    "v0=" ^ Digestif.SHA256.(hmac_string ~key:secret basestring |> to_hex)
-  in
+  let expected = Test_helpers.slack_signature ~secret ~basestring in
   let result =
     Slack.verify_signature ~signing_secret:secret ~timestamp:ts ~body
       ~signature:expected

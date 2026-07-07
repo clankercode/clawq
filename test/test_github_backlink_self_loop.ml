@@ -12,15 +12,7 @@ let with_db f = Test_helpers.with_memory_store f
 
 (* ---- helpers ---- *)
 
-let contains_substring s sub =
-  let s_len = String.length s in
-  let sub_len = String.length sub in
-  let rec search i =
-    if i + sub_len > s_len then false
-    else if String.sub s i sub_len = sub then true
-    else search (i + 1)
-  in
-  sub_len = 0 || search 0
+let contains_substring = Test_helpers.string_contains
 
 let metadata_string key json =
   match json with

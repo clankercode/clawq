@@ -34,45 +34,17 @@ let test_handle_models () =
   let result = Command_bridge.handle [ "models" ] in
   Alcotest.(check bool) "models returns output" true (String.length result > 0)
 
+(* Wraps the shared helper (HOME + CLAWQ_HOME isolation + cleanup) and
+   additionally clears CLAWQ_ADMIN so these tests default to non-admin. *)
 let with_temp_home f =
-  let base = Filename.get_temp_dir_name () in
-  let dir = Filename.temp_file ~temp_dir:base "clawq_home_" "" in
-  Sys.remove dir;
-  Unix.mkdir dir 0o755;
-  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
-  let old_clawq_home = Sys.getenv_opt Dot_dir.env_var in
   let old_admin = Sys.getenv_opt "CLAWQ_ADMIN" in
-  Unix.putenv "HOME" dir;
-  (* Clear CLAWQ_HOME so Dot_dir.path () falls back to $HOME/.clawq *)
-  (match old_clawq_home with
-  | Some _ -> Unix.putenv Dot_dir.env_var ""
-  | None -> ());
-  (* Clear CLAWQ_ADMIN so tests default to non-admin *)
   Unix.putenv "CLAWQ_ADMIN" "";
   Fun.protect
-    (fun () -> f dir)
     ~finally:(fun () ->
-      (match old_home with
-      | Some v -> Unix.putenv "HOME" v
-      | None -> Unix.putenv "HOME" "");
-      (match old_clawq_home with
-      | Some v -> Unix.putenv Dot_dir.env_var v
-      | None -> Unix.putenv Dot_dir.env_var "");
-      (match old_admin with
+      match old_admin with
       | Some v -> Unix.putenv "CLAWQ_ADMIN" v
-      | None -> Unix.putenv "CLAWQ_ADMIN" "");
-      (try
-         let clawq_dir = Filename.concat dir ".clawq" in
-         if Sys.file_exists clawq_dir then begin
-           Array.iter
-             (fun name ->
-               let path = Filename.concat clawq_dir name in
-               try Sys.remove path with _ -> ())
-             (Sys.readdir clawq_dir);
-           Unix.rmdir clawq_dir
-         end
-       with _ -> ());
-      try Unix.rmdir dir with _ -> ())
+      | None -> Unix.putenv "CLAWQ_ADMIN" "")
+    (fun () -> Test_helpers.with_temp_home f)
 
 let add_git_worktree repo ~branch ~name =
   let worktree_path = Filename.concat repo name in

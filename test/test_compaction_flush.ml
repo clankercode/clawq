@@ -1,10 +1,4 @@
-let make_fake_provider_config base_url : Runtime_config.provider_config =
-  {
-    Runtime_config.default_provider_config with
-    api_key = "test-key";
-    base_url = Some base_url;
-    default_model = Some "fake-model";
-  }
+let make_fake_provider_config = Test_helpers.make_fake_provider_config
 
 (* Fake chat provider that tracks requests and can return tool calls *)
 let with_tool_call_provider ~tool_calls_to_return ~request_log f =
@@ -114,74 +108,7 @@ let with_tool_call_provider ~tool_calls_to_return ~request_log f =
       f config)
 
 (* Simple text-only fake provider for compaction (no tool calls) *)
-let with_text_provider f =
-  let port = Test_helpers.free_port () in
-  let callback _conn _req body =
-    let open Lwt.Syntax in
-    let* _body_text = Cohttp_lwt.Body.to_string body in
-    let response_body =
-      Yojson.Safe.to_string
-        (`Assoc
-           [
-             ("id", `String "cmpl_fake");
-             ("object", `String "chat.completion");
-             ("model", `String "fake-model");
-             ( "choices",
-               `List
-                 [
-                   `Assoc
-                     [
-                       ("index", `Int 0);
-                       ( "message",
-                         `Assoc
-                           [
-                             ("role", `String "assistant");
-                             ("content", `String "Summary of conversation.");
-                           ] );
-                       ("finish_reason", `String "stop");
-                     ];
-                 ] );
-             ( "usage",
-               `Assoc
-                 [ ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1) ] );
-           ])
-    in
-    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
-  in
-  let stop, stopper = Lwt.wait () in
-  let server =
-    Cohttp_lwt_unix.Server.create
-      ~mode:(`TCP (`Port port))
-      (Cohttp_lwt_unix.Server.make ~callback ())
-  in
-  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
-  Fun.protect
-    ~finally:(fun () -> Lwt.wakeup_later stopper ())
-    (fun () ->
-      let config =
-        {
-          Runtime_config.default with
-          default_provider = Some "fake";
-          providers =
-            [
-              ( "fake",
-                make_fake_provider_config
-                  (Printf.sprintf "http://127.0.0.1:%d" port) );
-            ];
-          prompt =
-            { Runtime_config.default.prompt with dynamic_enabled = false };
-          security =
-            { Runtime_config.default.security with tools_enabled = false };
-          agent_defaults =
-            {
-              Runtime_config.default.agent_defaults with
-              primary_model = "fake-model";
-              show_thinking = false;
-              show_tool_calls = false;
-            };
-        }
-      in
-      f config)
+let with_text_provider = Test_helpers.with_text_provider
 
 let fill_agent_history agent n =
   for i = 1 to n do

@@ -38,23 +38,7 @@ let count_occurrences pattern text =
   in
   loop 0 0
 
-let with_temp_home f =
-  let base = Filename.get_temp_dir_name () in
-  let home =
-    Filename.concat base
-      (Printf.sprintf "clawq_ui_home_%d_%d" (Unix.getpid ()) (Random.bits ()))
-  in
-  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
-  Unix.mkdir home 0o755;
-  Fun.protect
-    (fun () ->
-      Unix.putenv "HOME" home;
-      f home)
-    ~finally:(fun () ->
-      (match old_home with
-      | Some value -> Unix.putenv "HOME" value
-      | None -> Unix.putenv "HOME" "");
-      try Unix.rmdir home with _ -> ())
+let with_temp_home = Test_helpers.with_temp_home
 
 let test_ui_server_dev_mode_version_tracks_disk_assets () =
   with_temp_home (fun home ->

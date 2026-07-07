@@ -347,11 +347,7 @@ let test_selective_rules () =
   Alcotest.(check string) "host" "example.com" err.host;
   Alcotest.(check int) "catch-all rule" 1 err.matched_rule_index
 
-let string_contains s sub =
-  try
-    let _ = Str.search_forward (Str.regexp_string sub) s 0 in
-    true
-  with Not_found -> false
+let string_contains = Test_helpers.string_contains
 
 let test_policy_error_to_string () =
   let err : Policy_http_client.policy_error =

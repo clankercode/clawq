@@ -1,30 +1,16 @@
+(* Wraps the shared helper (HOME + CLAWQ_HOME isolation + cleanup) and
+   additionally sets CLAWQ_MASTER_KEY from [?master_key]. *)
 let with_temp_home ?master_key f =
-  let base = Filename.get_temp_dir_name () in
-  let dir =
-    Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ()))
-  in
-  Unix.mkdir dir 0o755;
-  let old_home = Sys.getenv_opt "HOME" in
   let old_master = Sys.getenv_opt "CLAWQ_MASTER_KEY" in
-  Unix.putenv "HOME" dir;
   (match master_key with
   | Some v -> Unix.putenv "CLAWQ_MASTER_KEY" v
   | None -> Unix.putenv "CLAWQ_MASTER_KEY" "");
   Fun.protect
-    (fun () -> f dir)
     ~finally:(fun () ->
-      (match old_home with
-      | Some v -> Unix.putenv "HOME" v
-      | None -> Unix.putenv "HOME" "");
-      (match old_master with
+      match old_master with
       | Some v -> Unix.putenv "CLAWQ_MASTER_KEY" v
-      | None -> Unix.putenv "CLAWQ_MASTER_KEY" "");
-      (try
-         Unix.unlink
-           (Filename.concat (Filename.concat dir ".clawq") "config.json")
-       with _ -> ());
-      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
-      try Unix.rmdir dir with _ -> ())
+      | None -> Unix.putenv "CLAWQ_MASTER_KEY" "")
+    (fun () -> Test_helpers.with_temp_home f)
 
 let test_parse_callback_input_url () =
   match

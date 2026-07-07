@@ -2045,10 +2045,7 @@ let test_format_help_keeps_skills_and_agents_out_of_main_help () =
     Slash_commands.format_help_with ~connector:Format_adapter.Plain
       ~commands:Slash_commands.commands ~skills ~agents
   in
-  let index_of needle =
-    try Some (Str.search_forward (Str.regexp_string needle) output 0)
-    with Not_found -> None
-  in
+  let index_of needle = Test_helpers.substring_index output needle in
   let interrupt_idx = index_of "Prefix a message with !" in
   let commands_idx = index_of "Available commands:" in
   Alcotest.(check bool)

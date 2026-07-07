@@ -33,15 +33,10 @@ let main_exe_available_and_fresh () =
   | Some exe_mtime, Some source_mtime -> exe_mtime >= source_mtime
   | _ -> false
 
-let with_temp_home f =
-  let dir = Filename.temp_file "clawq_cmd_home_" ".tmp" in
-  Sys.remove dir;
-  Unix.mkdir dir 0o755;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () ->
-      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
-      try Unix.rmdir dir with _ -> ())
+(* Shared helper additionally sets HOME to the temp dir and clears CLAWQ_HOME,
+   isolating these tests from the developer's real ~/.clawq (the local copy did
+   not). *)
+let with_temp_home = Test_helpers.with_temp_home
 
 let run_main_command ~home args =
   let main = main_exe () in

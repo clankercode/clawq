@@ -12,12 +12,7 @@ let repo_grant_repos items =
       with _ -> None)
     items
 
-let string_contains haystack needle =
-  let re = Str.regexp_string needle in
-  try
-    ignore (Str.search_forward re haystack 0);
-    true
-  with Not_found -> false
+let string_contains = Test_helpers.string_contains
 
 let test_create_basic_explanation () =
   let json =

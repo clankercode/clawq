@@ -194,31 +194,7 @@ let test_set_rejects_invalid_key () =
         (Config_set.validate_path segments2 Config_set.config_schema);
       ignore (json, path))
 
-let with_temp_home f =
-  let base = Filename.get_temp_dir_name () in
-  let dir = Filename.temp_file ~temp_dir:base "clawq_home_" "" in
-  Sys.remove dir;
-  Unix.mkdir dir 0o755;
-  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
-  Unix.putenv "HOME" dir;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () ->
-      (match old_home with
-      | Some value -> Unix.putenv "HOME" value
-      | None -> Unix.putenv "HOME" "");
-      (try
-         let clawq_dir = Filename.concat dir ".clawq" in
-         if Sys.file_exists clawq_dir then begin
-           Array.iter
-             (fun name ->
-               let path = Filename.concat clawq_dir name in
-               try Sys.remove path with _ -> ())
-             (Sys.readdir clawq_dir);
-           Unix.rmdir clawq_dir
-         end
-       with _ -> ());
-      try Unix.rmdir dir with _ -> ())
+let with_temp_home = Test_helpers.with_temp_home
 
 let test_model_context_limits_roundtrip () =
   with_temp_home (fun home ->

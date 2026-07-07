@@ -5,8 +5,7 @@ let test_config_with_github (github_config : Runtime_config.github_config) =
       { Runtime_config.default.channels with github = Some github_config };
   }
 
-let compute_signature ~secret ~body =
-  "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+let compute_signature = Test_helpers.github_signature
 
 let sig_valid () =
   let secret = "It's a Secret to Everybody" in
@@ -605,8 +604,7 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
         Cohttp.Header.of_list
           [
             ( "x-hub-signature-256",
-              "sha256="
-              ^ Digestif.SHA256.(hmac_string ~key:"secret123" body |> to_hex) );
+              Test_helpers.github_signature ~secret:"secret123" ~body );
             ( "X-GitHub-Delivery",
               "workflow-delivery-" ^ string_of_float (Unix.gettimeofday ()) );
           ]
@@ -1184,9 +1182,7 @@ let make_webhook_env ~secret ~body ~allow_users =
   let api_limiter =
     Rate_limiter.create ~rate_per_minute:600 ~burst_multiplier:1.0
   in
-  let sig_header =
-    "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
-  in
+  let sig_header = Test_helpers.github_signature ~secret ~body in
   let headers =
     Cohttp.Header.of_list
       [
@@ -1401,10 +1397,7 @@ let handle_webhook_dedup_delivery_id () =
           | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "")
         (fun () ->
           let run () =
-            let sig_header =
-              "sha256="
-              ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
-            in
+            let sig_header = Test_helpers.github_signature ~secret ~body in
             let headers =
               Cohttp.Header.of_list
                 [

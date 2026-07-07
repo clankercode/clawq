@@ -102,6 +102,19 @@ let string_contains haystack needle =
   in
   loop 0
 
+(** Index of the first occurrence of [needle] in [haystack], or [None] if
+    absent. Returns [Some 0] for an empty needle. Useful for ordering assertions
+    (does X appear before Y). *)
+let substring_index haystack needle =
+  let hay_len = String.length haystack and needle_len = String.length needle in
+  let rec loop i =
+    if needle_len = 0 then Some 0
+    else if i + needle_len > hay_len then None
+    else if String.sub haystack i needle_len = needle then Some i
+    else loop (i + 1)
+  in
+  loop 0
+
 (** Find a free TCP port on localhost. *)
 let free_port () =
   let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
@@ -142,6 +155,17 @@ let query_single_text_option db sql =
           | _ -> None)
       | _ -> None)
 
+(** GitHub webhook signature header value: [sha256=] followed by the hex
+    HMAC-SHA256 of [body] keyed by [secret] (the [x-hub-signature-256] format).
+*)
+let github_signature ~secret ~body =
+  "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+
+(** Slack request signature: [v0=] followed by the hex HMAC-SHA256 of
+    [basestring] keyed by [secret] (the [x-slack-signature] format). *)
+let slack_signature ~secret ~basestring =
+  "v0=" ^ Digestif.SHA256.(hmac_string ~key:secret basestring |> to_hex)
+
 (** Check if a process with the given PID exists. *)
 let process_exists pid =
   try
@@ -172,3 +196,129 @@ let git_cmd repo args =
   match Sys.command cmd with
   | 0 -> ()
   | code -> Alcotest.failf "git command failed for %s (exit %d)" args code
+
+(** OpenAI-compatible provider config pointing at a local fake server
+    [base_url]. *)
+let make_fake_provider_config base_url : Runtime_config.provider_config =
+  {
+    Runtime_config.default_provider_config with
+    api_key = "test-key";
+    base_url = Some base_url;
+    default_model = Some "fake-model";
+  }
+
+(** Stand up a local Cohttp server that answers OpenAI chat-completions requests
+    with a canned assistant message, run [f] with a [Runtime_config.t] wired to
+    it, then shut the server down.
+
+    - [response_for_user]: derive the reply from the latest user message.
+    - [response]: constant reply used when [response_for_user] is absent.
+    - [primary_model]: [agent_defaults.primary_model] (default ["fake-model"]).
+    - [debate_models]: when non-empty, populates the debate [default_models] and
+      sets [judge_model] to the first entry. *)
+let with_text_provider ?response_for_user
+    ?(response = "Summary of conversation.") ?(primary_model = "fake-model")
+    ?(debate_models = []) f =
+  let port = free_port () in
+  let callback _conn _req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    let latest_user_message =
+      try
+        let json = Yojson.Safe.from_string body_text in
+        let open Yojson.Safe.Util in
+        json |> member "messages" |> to_list
+        |> List.filter_map (fun msg ->
+            try
+              if msg |> member "role" |> to_string = "user" then
+                Some (msg |> member "content" |> to_string)
+              else None
+            with _ -> None)
+        |> List.rev
+        |> function
+        | message :: _ -> message
+        | [] -> ""
+      with _ -> ""
+    in
+    let response_text =
+      match response_for_user with
+      | Some g -> g latest_user_message
+      | None -> response
+    in
+    let response_body =
+      Yojson.Safe.to_string
+        (`Assoc
+           [
+             ("id", `String "cmpl_fake");
+             ("object", `String "chat.completion");
+             ("model", `String "fake-model");
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("index", `Int 0);
+                       ( "message",
+                         `Assoc
+                           [
+                             ("role", `String "assistant");
+                             ("content", `String response_text);
+                           ] );
+                       ("finish_reason", `String "stop");
+                     ];
+                 ] );
+             ( "usage",
+               `Assoc
+                 [ ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1) ] );
+           ])
+    in
+    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let base =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model;
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      let config =
+        match debate_models with
+        | [] -> base
+        | models ->
+            {
+              base with
+              debate =
+                {
+                  Runtime_config.default.debate with
+                  default_models = models;
+                  judge_model = List.hd models;
+                };
+            }
+      in
+      f config)

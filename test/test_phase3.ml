@@ -1,12 +1,5 @@
 let default_config = Runtime_config.default
-
-let make_fake_provider_config base_url : Runtime_config.provider_config =
-  {
-    Runtime_config.default_provider_config with
-    api_key = "test-key";
-    base_url = Some base_url;
-    default_model = Some "fake-model";
-  }
+let make_fake_provider_config = Test_helpers.make_fake_provider_config
 
 let with_fake_tool_loop_provider f =
   let port = Test_helpers.free_port () in

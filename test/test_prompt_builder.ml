@@ -496,15 +496,7 @@ let test_tools_block_sorted_alphabetically () =
     [ "alpha"; "middle"; "zebra" ]
     names
 
-let index_of hay needle =
-  let hlen = String.length hay in
-  let nlen = String.length needle in
-  let rec loop i =
-    if i + nlen > hlen then None
-    else if String.sub hay i nlen = needle then Some i
-    else loop (i + 1)
-  in
-  if nlen = 0 then Some 0 else loop 0
+let index_of = Test_helpers.substring_index
 
 let test_background_tasks_appear_after_context_usage () =
   with_temp_workspace (fun workspace ->

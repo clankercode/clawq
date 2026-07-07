@@ -355,107 +355,9 @@ let with_temp_clawq_home f =
           ignore (Sys.command (Printf.sprintf "rm -rf %S" base)))
         (fun () -> f base))
 
-let make_fake_provider_config base_url : Runtime_config.provider_config =
-  {
-    Runtime_config.default_provider_config with
-    api_key = "test-key";
-    base_url = Some base_url;
-    default_model = Some "fake-model";
-  }
-
-let with_text_provider ?response_for_user f =
-  let port = Test_helpers.free_port () in
-  let callback _conn _req body =
-    let open Lwt.Syntax in
-    let* body_text = Cohttp_lwt.Body.to_string body in
-    let latest_user_message =
-      try
-        let json = Yojson.Safe.from_string body_text in
-        let open Yojson.Safe.Util in
-        json |> member "messages" |> to_list
-        |> List.filter_map (fun msg ->
-            try
-              if msg |> member "role" |> to_string = "user" then
-                Some (msg |> member "content" |> to_string)
-              else None
-            with _ -> None)
-        |> List.rev
-        |> function
-        | message :: _ -> message
-        | [] -> ""
-      with _ -> ""
-    in
-    let response_text =
-      match response_for_user with
-      | Some f -> f latest_user_message
-      | None -> "Summary of conversation."
-    in
-    let response_body =
-      Yojson.Safe.to_string
-        (`Assoc
-           [
-             ("id", `String "cmpl_fake");
-             ("object", `String "chat.completion");
-             ("model", `String "fake-model");
-             ( "choices",
-               `List
-                 [
-                   `Assoc
-                     [
-                       ("index", `Int 0);
-                       ( "message",
-                         `Assoc
-                           [
-                             ("role", `String "assistant");
-                             ("content", `String response_text);
-                           ] );
-                       ("finish_reason", `String "stop");
-                     ];
-                 ] );
-             ( "usage",
-               `Assoc
-                 [ ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1) ] );
-           ])
-    in
-    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
-  in
-  let stop, stopper = Lwt.wait () in
-  let server =
-    Cohttp_lwt_unix.Server.create
-      ~mode:(`TCP (`Port port))
-      (Cohttp_lwt_unix.Server.make ~callback ())
-  in
-  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
-  Fun.protect
-    ~finally:(fun () -> Lwt.wakeup_later stopper ())
-    (fun () ->
-      let config =
-        {
-          Runtime_config.default with
-          default_provider = Some "fake";
-          providers =
-            [
-              ( "fake",
-                make_fake_provider_config
-                  (Printf.sprintf "http://127.0.0.1:%d" port) );
-            ];
-          prompt =
-            { Runtime_config.default.prompt with dynamic_enabled = false };
-          security =
-            { Runtime_config.default.security with tools_enabled = false };
-          agent_defaults =
-            {
-              Runtime_config.default.agent_defaults with
-              primary_model = "fake-model";
-              show_thinking = false;
-              show_tool_calls = false;
-            };
-        }
-      in
-      f config)
-
-let compute_github_signature ~secret ~body =
-  "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+let make_fake_provider_config = Test_helpers.make_fake_provider_config
+let with_text_provider = Test_helpers.with_text_provider
+let compute_github_signature = Test_helpers.github_signature
 
 let with_fake_github_api callback f =
   let port = Test_helpers.free_port () in
@@ -762,15 +664,7 @@ let test_chat_usage_returns_usage_summary () =
         "has all time row" true
         (Test_helpers.string_contains response "All time"))
 
-let find_substring_index haystack needle =
-  let haystack_len = String.length haystack in
-  let needle_len = String.length needle in
-  let rec loop idx =
-    if idx + needle_len > haystack_len then None
-    else if String.sub haystack idx needle_len = needle then Some idx
-    else loop (idx + 1)
-  in
-  if needle_len = 0 then Some 0 else loop 0
+let find_substring_index = Test_helpers.substring_index
 
 let test_chat_followup_drains_later_busy_followup () =
   let mgr_ref = ref None in

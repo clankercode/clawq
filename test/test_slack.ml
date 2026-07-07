@@ -16,88 +16,11 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     default_model = None;
   }
 
-let make_fake_provider_config base_url : Runtime_config.provider_config =
-  {
-    Runtime_config.default_provider_config with
-    api_key = "test-key";
-    base_url = Some base_url;
-    default_model = Some "fake-model";
-  }
+let make_fake_provider_config = Test_helpers.make_fake_provider_config
 
 let with_text_provider f =
-  let port = Test_helpers.free_port () in
-  let callback _conn _req body =
-    let open Lwt.Syntax in
-    let* _ = Cohttp_lwt.Body.to_string body in
-    let response_body =
-      Yojson.Safe.to_string
-        (`Assoc
-           [
-             ("id", `String "cmpl_fake");
-             ("object", `String "chat.completion");
-             ("model", `String "fake-model");
-             ( "choices",
-               `List
-                 [
-                   `Assoc
-                     [
-                       ("index", `Int 0);
-                       ( "message",
-                         `Assoc
-                           [
-                             ("role", `String "assistant");
-                             ("content", `String "Debate answer.");
-                           ] );
-                       ("finish_reason", `String "stop");
-                     ];
-                 ] );
-             ( "usage",
-               `Assoc
-                 [ ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1) ] );
-           ])
-    in
-    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
-  in
-  let stop, stopper = Lwt.wait () in
-  let server =
-    Cohttp_lwt_unix.Server.create
-      ~mode:(`TCP (`Port port))
-      (Cohttp_lwt_unix.Server.make ~callback ())
-  in
-  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
-  Fun.protect
-    ~finally:(fun () -> Lwt.wakeup_later stopper ())
-    (fun () ->
-      let config =
-        {
-          Runtime_config.default with
-          default_provider = Some "fake";
-          providers =
-            [
-              ( "fake",
-                make_fake_provider_config
-                  (Printf.sprintf "http://127.0.0.1:%d" port) );
-            ];
-          prompt =
-            { Runtime_config.default.prompt with dynamic_enabled = false };
-          security =
-            { Runtime_config.default.security with tools_enabled = false };
-          agent_defaults =
-            {
-              Runtime_config.default.agent_defaults with
-              primary_model = "fake:fake-model";
-              show_thinking = false;
-              show_tool_calls = false;
-            };
-          debate =
-            {
-              Runtime_config.default.debate with
-              default_models = [ "fake:fake-model" ];
-              judge_model = "fake:fake-model";
-            };
-        }
-      in
-      f config)
+  Test_helpers.with_text_provider ~response:"Debate answer."
+    ~primary_model:"fake:fake-model" ~debate_models:[ "fake:fake-model" ] f
 
 let test_is_allowed_wildcard () =
   let config = make_config () in
@@ -128,8 +51,7 @@ let test_verify_signature_valid () =
   let body = {|{"type":"event_callback"}|} in
   let basestring = "v0:" ^ timestamp ^ ":" ^ body in
   let signature =
-    "v0="
-    ^ Digestif.SHA256.(hmac_string ~key:signing_secret basestring |> to_hex)
+    Test_helpers.slack_signature ~secret:signing_secret ~basestring
   in
   Alcotest.(check bool)
     "valid signature" true
@@ -150,8 +72,7 @@ let test_verify_signature_expired () =
   let body = {|{"type":"event_callback"}|} in
   let basestring = "v0:" ^ timestamp ^ ":" ^ body in
   let signature =
-    "v0="
-    ^ Digestif.SHA256.(hmac_string ~key:signing_secret basestring |> to_hex)
+    Test_helpers.slack_signature ~secret:signing_secret ~basestring
   in
   Alcotest.(check bool)
     "expired timestamp" false

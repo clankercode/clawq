@@ -12,15 +12,7 @@ let metadata_int key json =
       match List.assoc_opt key fields with Some (`Int n) -> n | _ -> -1)
   | _ -> -1
 
-let contains_substring s sub =
-  let s_len = String.length s in
-  let sub_len = String.length sub in
-  let rec search i =
-    if i + sub_len > s_len then false
-    else if String.sub s i sub_len = sub then true
-    else search (i + 1)
-  in
-  sub_len = 0 || search 0
+let contains_substring = Test_helpers.string_contains
 
 let test_generate_tracking_id_unique () =
   let id1 = Teams_delivery_lifecycle.generate_tracking_id () in

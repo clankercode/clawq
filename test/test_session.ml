@@ -67,13 +67,7 @@ let with_temp_workspace f =
   Unix.mkdir workspace 0o755;
   Fun.protect (fun () -> f workspace) ~finally:(fun () -> remove_path workspace)
 
-let make_fake_provider_config base_url : Runtime_config.provider_config =
-  {
-    Runtime_config.default_provider_config with
-    api_key = "test-key";
-    base_url = Some base_url;
-    default_model = Some "fake-model";
-  }
+let make_fake_provider_config = Test_helpers.make_fake_provider_config
 
 let with_fake_chat_provider ?response_for_user f =
   let port = Test_helpers.free_port () in
