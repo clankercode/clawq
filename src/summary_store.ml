@@ -90,12 +90,33 @@ let store ~db (r : summary_record) =
             (Printf.sprintf "Failed to store summary %s: %s" r.summary_id
                (Sqlite3.Rc.to_string rc)))
 
+let select_columns =
+  "summary_id, session_key, tool_name, original_content, summary_content, \
+   context_snippet, original_bytes, original_lines, original_tokens_est, \
+   summary_bytes, summary_lines, summary_tokens_est, model_used, created_at"
+
+let record_of_stmt stmt =
+  {
+    summary_id = Sql_util.text_column stmt 0;
+    session_key = Sql_util.text_column stmt 1;
+    tool_name = Sql_util.text_column stmt 2;
+    original_content = Sql_util.text_column stmt 3;
+    summary_content = Sql_util.text_column stmt 4;
+    context_snippet = Sql_util.text_column stmt 5;
+    original_bytes = Sql_util.int_column stmt 6;
+    original_lines = Sql_util.int_column stmt 7;
+    original_tokens_est = Sql_util.int_column stmt 8;
+    summary_bytes = Sql_util.int_column stmt 9;
+    summary_lines = Sql_util.int_column stmt 10;
+    summary_tokens_est = Sql_util.int_column stmt 11;
+    model_used = Sql_util.text_column stmt 12;
+    created_at = Sql_util.text_column stmt 13;
+  }
+
 let find ~db ~summary_id =
   let sql =
-    "SELECT summary_id, session_key, tool_name, original_content, \
-     summary_content, context_snippet, original_bytes, original_lines, \
-     original_tokens_est, summary_bytes, summary_lines, summary_tokens_est, \
-     model_used, created_at FROM summaries WHERE summary_id = ?"
+    Printf.sprintf "SELECT %s FROM summaries WHERE summary_id = ?"
+      select_columns
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -103,27 +124,7 @@ let find ~db ~summary_id =
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT summary_id));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW ->
-          let col i = Sqlite3.column stmt i in
-          let to_s = function Sqlite3.Data.TEXT s -> s | _ -> "" in
-          let to_i = function Sqlite3.Data.INT n -> Int64.to_int n | _ -> 0 in
-          Some
-            {
-              summary_id = to_s (col 0);
-              session_key = to_s (col 1);
-              tool_name = to_s (col 2);
-              original_content = to_s (col 3);
-              summary_content = to_s (col 4);
-              context_snippet = to_s (col 5);
-              original_bytes = to_i (col 6);
-              original_lines = to_i (col 7);
-              original_tokens_est = to_i (col 8);
-              summary_bytes = to_i (col 9);
-              summary_lines = to_i (col 10);
-              summary_tokens_est = to_i (col 11);
-              model_used = to_s (col 12);
-              created_at = to_s (col 13);
-            }
+      | Sqlite3.Rc.ROW -> Some (record_of_stmt stmt)
       | _ -> None)
 
 let delete_for_session ~db ~session_key =
@@ -145,42 +146,14 @@ let purge_older_than ~db ~max_age_days =
 
 let list_for_session ~db ~session_key =
   let sql =
-    "SELECT summary_id, session_key, tool_name, original_content, \
-     summary_content, context_snippet, original_bytes, original_lines, \
-     original_tokens_est, summary_bytes, summary_lines, summary_tokens_est, \
-     model_used, created_at FROM summaries WHERE session_key = ? ORDER BY \
-     created_at ASC"
+    Printf.sprintf
+      "SELECT %s FROM summaries WHERE session_key = ? ORDER BY created_at ASC"
+      select_columns
   in
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
-      let rows = ref [] in
-      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-        let col i = Sqlite3.column stmt i in
-        let to_s = function Sqlite3.Data.TEXT s -> s | _ -> "" in
-        let to_i = function Sqlite3.Data.INT n -> Int64.to_int n | _ -> 0 in
-        rows :=
-          {
-            summary_id = to_s (col 0);
-            session_key = to_s (col 1);
-            tool_name = to_s (col 2);
-            original_content = to_s (col 3);
-            summary_content = to_s (col 4);
-            context_snippet = to_s (col 5);
-            original_bytes = to_i (col 6);
-            original_lines = to_i (col 7);
-            original_tokens_est = to_i (col 8);
-            summary_bytes = to_i (col 9);
-            summary_lines = to_i (col 10);
-            summary_tokens_est = to_i (col 11);
-            model_used = to_s (col 12);
-            created_at = to_s (col 13);
-          }
-          :: !rows
-      done;
-      List.rev !rows)
+  Sql_util.query_rows db sql
+    ~bind:(fun stmt ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key)))
+    ~of_stmt:record_of_stmt
 
 let generate_id () =
   let bytes = Mirage_crypto_rng.generate 6 in

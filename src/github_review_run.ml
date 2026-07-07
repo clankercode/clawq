@@ -44,23 +44,64 @@ type review_run = {
 }
 (** A review run record with full context. *)
 
+(** {1 String serialization (canonical form; DB columns and idempotency keys)}
+
+    JSON codecs below delegate to these, so the string representations here are
+    the single source of truth for the run_kind / run_status wire strings that
+    feed idempotency keys. *)
+
+(* [strip_prefix ~prefix s] returns the suffix after [prefix] when [s] is
+   strictly longer than [prefix] and starts with it. The strict-length check
+   means a bare prefix (e.g. "custom:") is treated as no match, matching the
+   original hand-written [String.sub] guards. *)
+let strip_prefix ~prefix s =
+  let pl = String.length prefix in
+  if String.length s > pl && String.sub s 0 pl = prefix then
+    Some (String.sub s pl (String.length s - pl))
+  else None
+
+let run_kind_to_string = function
+  | Code_review -> "code_review"
+  | Security_scan -> "security_scan"
+  | Custom name -> "custom:" ^ name
+
+let run_kind_of_string = function
+  | "code_review" -> Code_review
+  | "security_scan" -> Security_scan
+  | s -> (
+      match strip_prefix ~prefix:"custom:" s with
+      | Some name -> Custom name
+      | None -> Code_review)
+
+let run_status_to_string = function
+  | Pending -> "pending"
+  | Running -> "running"
+  | Completed -> "completed"
+  | Failed -> "failed"
+
+let run_status_of_string = function
+  | "pending" -> Pending
+  | "running" -> Running
+  | "completed" -> Completed
+  | "failed" -> Failed
+  | _ -> Pending
+
+let trigger_source_to_string = function
+  | Label label -> "label:" ^ label
+  | Room_command { room_id; requester_id } ->
+      Printf.sprintf "room_command:%s:%s" room_id requester_id
+  | Manual -> "manual"
+
 (** {1 JSON serialization} *)
 
-let run_kind_to_json kind =
-  `String
-    (match kind with
-    | Code_review -> "code_review"
-    | Security_scan -> "security_scan"
-    | Custom name -> "custom:" ^ name)
+let run_kind_to_json kind = `String (run_kind_to_string kind)
 
-let run_kind_of_json json =
-  match json with
-  | `String "code_review" -> Code_review
-  | `String "security_scan" -> Security_scan
-  | `String s when String.length s > 7 && String.sub s 0 7 = "custom:" ->
-      Custom (String.sub s 7 (String.length s - 7))
+let run_kind_of_json = function
+  | `String s -> run_kind_of_string s
   | _ -> Code_review
 
+(* trigger_source keeps a distinct JSON object form (richer than the legacy
+   colon-delimited string), so it is not collapsed onto the string codec. *)
 let trigger_source_to_json = function
   | Label label ->
       `Assoc [ ("type", `String "label"); ("label", `String label) ]
@@ -96,6 +137,29 @@ let trigger_source_of_json json =
   | "manual" -> Manual
   | _ -> Manual
 
+let trigger_source_of_string s =
+  (* Try JSON parsing first (new format used in DB) *)
+  (try Some (trigger_source_of_json (Yojson.Safe.from_string s))
+   with _ -> None)
+  |> function
+  | Some source -> source
+  | None -> (
+      if
+        (* Fall back to legacy string format *)
+        s = "manual"
+      then Manual
+      else
+        match strip_prefix ~prefix:"label:" s with
+        | Some label -> Label label
+        | None -> (
+            match strip_prefix ~prefix:"room_command:" s with
+            | Some _ -> (
+                match String.split_on_char ':' s with
+                | [ _; room_id; requester_id ] ->
+                    Room_command { room_id; requester_id }
+                | _ -> Manual)
+            | None -> Manual))
+
 let review_run_to_json run =
   `Assoc
     [
@@ -105,13 +169,7 @@ let review_run_to_json run =
       ("head_sha", `String run.head_sha);
       ("run_kind", run_kind_to_json run.run_kind);
       ("trigger_source", trigger_source_to_json run.trigger_source);
-      ( "status",
-        `String
-          (match run.status with
-          | Pending -> "pending"
-          | Running -> "running"
-          | Completed -> "completed"
-          | Failed -> "failed") );
+      ("status", `String (run_status_to_string run.status));
       ("task_id", match run.task_id with Some id -> `Int id | None -> `Null);
       ( "result_preview",
         match run.result_preview with Some s -> `String s | None -> `Null );
@@ -125,58 +183,6 @@ let review_run_to_json run =
     ]
 
 let review_run_to_string run = Yojson.Safe.to_string (review_run_to_json run)
-
-(** {1 String serialization (legacy format)} *)
-
-let run_kind_to_string = function
-  | Code_review -> "code_review"
-  | Security_scan -> "security_scan"
-  | Custom name -> "custom:" ^ name
-
-let run_kind_of_string = function
-  | "code_review" -> Code_review
-  | "security_scan" -> Security_scan
-  | s when String.length s > 7 && String.sub s 0 7 = "custom:" ->
-      Custom (String.sub s 7 (String.length s - 7))
-  | _ -> Code_review
-
-let trigger_source_to_string = function
-  | Label label -> "label:" ^ label
-  | Room_command { room_id; requester_id } ->
-      Printf.sprintf "room_command:%s:%s" room_id requester_id
-  | Manual -> "manual"
-
-let trigger_source_of_string s =
-  (* Try JSON parsing first (new format used in DB) *)
-  (try Some (trigger_source_of_json (Yojson.Safe.from_string s))
-   with _ -> None)
-  |> function
-  | Some source -> source
-  | None ->
-      if
-        (* Fall back to legacy string format *)
-        s = "manual"
-      then Manual
-      else if String.length s > 6 && String.sub s 0 6 = "label:" then
-        Label (String.sub s 6 (String.length s - 6))
-      else if String.length s > 13 && String.sub s 0 13 = "room_command:" then
-        match String.split_on_char ':' s with
-        | [ _; room_id; requester_id ] -> Room_command { room_id; requester_id }
-        | _ -> Manual
-      else Manual
-
-let run_status_to_string = function
-  | Pending -> "pending"
-  | Running -> "running"
-  | Completed -> "completed"
-  | Failed -> "failed"
-
-let run_status_of_string = function
-  | "pending" -> Pending
-  | "running" -> Running
-  | "completed" -> Completed
-  | "failed" -> Failed
-  | _ -> Pending
 
 (** {1 Database schema} *)
 

@@ -494,112 +494,65 @@ type db_run = {
   total_elapsed_s : float option;
 }
 
+let run_select_columns =
+  "id, pipeline_name, pipeline_version, inputs_json, status, error_msg, \
+   started_at, finished_at, total_elapsed_s"
+
+let db_run_of_stmt stmt =
+  {
+    id = Sqlite3.column_int stmt 0;
+    pipeline_name = Sqlite3.column_text stmt 1;
+    pipeline_version = Sqlite3.column_text stmt 2;
+    inputs_json = Sqlite3.column_text stmt 3;
+    status = Sqlite3.column_text stmt 4;
+    error_msg =
+      (match Sqlite3.column stmt 5 with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None);
+    started_at = Sqlite3.column_text stmt 6;
+    finished_at =
+      (match Sqlite3.column stmt 7 with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None);
+    total_elapsed_s =
+      (match Sqlite3.column stmt 8 with
+      | Sqlite3.Data.FLOAT f -> Some f
+      | _ -> None);
+  }
+
 let list_runs ~db ?pipeline_name ~limit () =
   let sql =
     match pipeline_name with
     | Some _ ->
-        "SELECT id, pipeline_name, pipeline_version, inputs_json, status, \
-         error_msg, started_at, finished_at, total_elapsed_s FROM \
-         structured_pipeline_runs WHERE pipeline_name = ? ORDER BY id DESC \
-         LIMIT ?"
+        Printf.sprintf
+          "SELECT %s FROM structured_pipeline_runs WHERE pipeline_name = ? \
+           ORDER BY id DESC LIMIT ?"
+          run_select_columns
     | None ->
-        "SELECT id, pipeline_name, pipeline_version, inputs_json, status, \
-         error_msg, started_at, finished_at, total_elapsed_s FROM \
-         structured_pipeline_runs ORDER BY id DESC LIMIT ?"
+        Printf.sprintf
+          "SELECT %s FROM structured_pipeline_runs ORDER BY id DESC LIMIT ?"
+          run_select_columns
   in
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      (match pipeline_name with
+  Sql_util.query_rows db sql
+    ~bind:(fun stmt ->
+      match pipeline_name with
       | Some name ->
           ignore (Sqlite3.bind_text stmt 1 name);
           ignore (Sqlite3.bind_int stmt 2 limit)
-      | None -> ignore (Sqlite3.bind_int stmt 1 limit));
-      let rows = ref [] in
-      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-        let id = Sqlite3.column_int stmt 0 in
-        let pname = Sqlite3.column_text stmt 1 in
-        let pversion = Sqlite3.column_text stmt 2 in
-        let inputs_json = Sqlite3.column_text stmt 3 in
-        let status = Sqlite3.column_text stmt 4 in
-        let error_msg =
-          match Sqlite3.column stmt 5 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
-        let started_at = Sqlite3.column_text stmt 6 in
-        let finished_at =
-          match Sqlite3.column stmt 7 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
-        let total_elapsed_s =
-          match Sqlite3.column stmt 8 with
-          | Sqlite3.Data.FLOAT f -> Some f
-          | _ -> None
-        in
-        rows :=
-          {
-            id;
-            pipeline_name = pname;
-            pipeline_version = pversion;
-            inputs_json;
-            status;
-            error_msg;
-            started_at;
-            finished_at;
-            total_elapsed_s;
-          }
-          :: !rows
-      done;
-      List.rev !rows)
+      | None -> ignore (Sqlite3.bind_int stmt 1 limit))
+    ~of_stmt:db_run_of_stmt
 
 let get_run ~db ~run_id =
   let sql =
-    "SELECT id, pipeline_name, pipeline_version, inputs_json, status, \
-     error_msg, started_at, finished_at, total_elapsed_s FROM \
-     structured_pipeline_runs WHERE id = ?"
+    Printf.sprintf "SELECT %s FROM structured_pipeline_runs WHERE id = ?"
+      run_select_columns
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
       ignore (Sqlite3.bind_int stmt 1 run_id);
-      if Sqlite3.step stmt = Sqlite3.Rc.ROW then
-        let id = Sqlite3.column_int stmt 0 in
-        let pipeline_name = Sqlite3.column_text stmt 1 in
-        let pipeline_version = Sqlite3.column_text stmt 2 in
-        let inputs_json = Sqlite3.column_text stmt 3 in
-        let status = Sqlite3.column_text stmt 4 in
-        let error_msg =
-          match Sqlite3.column stmt 5 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
-        let started_at = Sqlite3.column_text stmt 6 in
-        let finished_at =
-          match Sqlite3.column stmt 7 with
-          | Sqlite3.Data.TEXT s -> Some s
-          | _ -> None
-        in
-        let total_elapsed_s =
-          match Sqlite3.column stmt 8 with
-          | Sqlite3.Data.FLOAT f -> Some f
-          | _ -> None
-        in
-        Some
-          {
-            id;
-            pipeline_name;
-            pipeline_version;
-            inputs_json;
-            status;
-            error_msg;
-            started_at;
-            finished_at;
-            total_elapsed_s;
-          }
+      if Sqlite3.step stmt = Sqlite3.Rc.ROW then Some (db_run_of_stmt stmt)
       else None)
 
 type db_step_result = {
