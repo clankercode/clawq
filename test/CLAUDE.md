@@ -27,7 +27,7 @@ Timeout/interrupt kill races:
 - When a timeout or interrupt kills a process, the runner branch (reading stdout/stderr + waitpid) may resolve **before** the timeout branch because SIGTERM causes immediate pipe EOF and process exit. Use the `forced_result` ref pattern to handle this:
   1. Timeout/interrupt sets `forced_result := Some msg` **before** calling terminate.
   2. The runner branch in `Lwt.pick` checks `!forced_result` — if set, returns the forced message instead of the raw exit result.
-- This pattern is established in `tools_builtin.ml` (`run_process_with_timeout`, `git_operations`) and `skills.ml`. Follow it for any new process-spawning code with timeout/interrupt support.
+- This pattern is established in `tools_builtin_proc.ml` (`run_process_with_timeout`), `tools_builtin_git.ml` (`git_operations`), and `skills.ml`. Follow it for any new process-spawning code with timeout/interrupt support.
 
 Signal numbers:
 - OCaml's `Sys.sigterm` is `-11` (not POSIX 15). `WSIGNALED n -> 128 + n` produces `117` for SIGTERM-killed processes. Do not hardcode POSIX signal numbers; use `Sys.sig*` constants.
