@@ -502,16 +502,10 @@ let run_turn agent ~mk_io ~user_message ?db ?session_key ?interrupt_check
             in
             agent.history <- assistant_msg :: agent.history;
             let* () =
-              if io.streaming then
-                execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-                  ?raw_tool_calls_json:provider_response_items_json
-                  ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
-                  ~on_chunk:io.emit calls
-              else
-                execute_tool_calls agent ~db ~audit_enabled ~session_key
-                  ?raw_tool_calls_json:provider_response_items_json
-                  ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
-                  calls
+              execute_tools agent ~db ~audit_enabled ~session_key
+                ?raw_tool_calls_json:provider_response_items_json
+                ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
+                ~emit:io.emit ~streaming:io.streaming calls
             in
             (match inject_messages with
             | Some get_msgs ->
