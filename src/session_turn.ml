@@ -1,6 +1,26 @@
 open Session_postmortem
 include Session_agents
 
+(* Persist history after a turn. If compaction happened (this turn, or
+   out-of-band since the last flush) write the full compacted history; else
+   append only the messages added since [history_before]. Reads-and-clears the
+   compaction signal via Agent.take_compaction_dirty. *)
+let persist_after_turn mgr ~key ~history_before agent =
+  if Agent.take_compaction_dirty agent then
+    Session_core.persist_compacted_history mgr ~key agent
+  else Session_core.persist_new_messages mgr ~key ~history_before agent
+
+(* Like [persist_after_turn] but for streaming paths that may have already
+   flushed new messages mid-turn: if nothing was appended since
+   [history_before], still persist workspace state (effective_cwd may have
+   changed). *)
+let persist_after_turn_or_workspace mgr ~key ~history_before agent =
+  if Agent.take_compaction_dirty agent then
+    Session_core.persist_compacted_history mgr ~key agent
+  else if List.length agent.Agent.history > history_before then
+    Session_core.persist_new_messages mgr ~key ~history_before agent
+  else Session_core.persist_session_workspace_state mgr ~key agent
+
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ?on_tool_round_complete
     ~runtime_context ~on_history_update ?on_stuck ?on_llm_call_debug () =
@@ -32,13 +52,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
       notify (Stream_visibility.thinking_message thinking)
     else Lwt.return_unit
   in
-  if agent.Agent.compacted_mid_turn then begin
-    Session_core.persist_compacted_history mgr ~key agent;
-    agent.Agent.compacted_mid_turn <- false
-  end
-  else
-    Session_core.persist_new_messages mgr ~key ~history_before:!persisted_up_to
-      agent;
+  persist_after_turn mgr ~key ~history_before:!persisted_up_to agent;
   (match mgr.db with
   | Some db when mgr.config.security.audit_enabled ->
       Audit.log ~db
@@ -306,23 +320,13 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                       ?on_llm_call_debug ()))
           (function
             | Agent.Restart_requested ->
-                if agent.Agent.compacted_mid_turn then begin
-                  Session_core.persist_compacted_history mgr ~key agent;
-                  agent.Agent.compacted_mid_turn <- false
-                end
-                else
-                  Session_core.persist_new_messages mgr ~key
-                    ~history_before:!persisted_up_to agent;
+                persist_after_turn mgr ~key ~history_before:!persisted_up_to
+                  agent;
                 Session_core.set_response_deferred mgr ~key;
                 Lwt.return Session_core.draining_message
             | exn ->
-                if agent.Agent.compacted_mid_turn then begin
-                  Session_core.persist_compacted_history mgr ~key agent;
-                  agent.Agent.compacted_mid_turn <- false
-                end
-                else
-                  Session_core.persist_new_messages mgr ~key
-                    ~history_before:!persisted_up_to agent;
+                persist_after_turn mgr ~key ~history_before:!persisted_up_to
+                  agent;
                 Lwt.fail exn)
       in
       (match notify with
@@ -332,14 +336,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
           ()
       | _ ->
           if not (Session_core.response_deferred mgr ~key) then begin
-            if agent.Agent.compacted_mid_turn then begin
-              Session_core.persist_compacted_history mgr ~key agent;
-              agent.Agent.compacted_mid_turn <- false
-            end
-            else if List.length agent.Agent.history > !persisted_up_to then
-              Session_core.persist_new_messages mgr ~key
-                ~history_before:!persisted_up_to agent
-            else Session_core.persist_session_workspace_state mgr ~key agent;
+            persist_after_turn_or_workspace mgr ~key
+              ~history_before:!persisted_up_to agent;
             match mgr.db with
             | Some db when mgr.config.security.audit_enabled ->
                 Audit.log ~db
@@ -1015,14 +1013,8 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                                     ~on_chunk ())
                             (function
                               | Agent.Restart_requested ->
-                                  if agent.Agent.compacted_mid_turn then begin
-                                    Session_core.persist_compacted_history mgr
-                                      ~key agent;
-                                    agent.Agent.compacted_mid_turn <- false
-                                  end
-                                  else
-                                    Session_core.persist_new_messages mgr ~key
-                                      ~history_before:!persisted_up_to agent;
+                                  persist_after_turn mgr ~key
+                                    ~history_before:!persisted_up_to agent;
                                   Session_core.set_response_deferred mgr ~key;
                                   let* () =
                                     on_chunk
@@ -1032,36 +1024,16 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                                   let* () = on_chunk Provider.Done in
                                   Lwt.return Session_core.draining_message
                               | exn ->
-                                  if agent.Agent.compacted_mid_turn then begin
-                                    Session_core.persist_compacted_history mgr
-                                      ~key agent;
-                                    agent.Agent.compacted_mid_turn <- false
-                                  end
-                                  else
-                                    Session_core.persist_new_messages mgr ~key
-                                      ~history_before:!persisted_up_to agent;
+                                  persist_after_turn mgr ~key
+                                    ~history_before:!persisted_up_to agent;
                                   Lwt.fail exn)
                         in
                         if not (Session_core.response_deferred mgr ~key) then begin
-                          if agent.Agent.compacted_mid_turn then begin
-                            Session_core.persist_compacted_history mgr ~key
-                              agent;
-                            agent.Agent.compacted_mid_turn <- false
-                          end
-                          else if
-                            List.length agent.Agent.history > !persisted_up_to
-                          then
-                            (* Only persist messages if streaming did not already
-                               cover all new messages (history grew after last
-                               flush). Workspace state is still updated
-                               unconditionally inside persist_new_messages. *)
-                            Session_core.persist_new_messages mgr ~key
-                              ~history_before:!persisted_up_to agent
-                          else
-                            (* No new messages — still persist workspace state
-                               (effective_cwd may have changed). *)
-                            Session_core.persist_session_workspace_state mgr
-                              ~key agent;
+                          (* If streaming already flushed new messages mid-turn,
+                             persist_after_turn_or_workspace still persists
+                             workspace state when nothing new was appended. *)
+                          persist_after_turn_or_workspace mgr ~key
+                            ~history_before:!persisted_up_to agent;
                           match mgr.db with
                           | Some db when mgr.config.security.audit_enabled ->
                               Audit.log ~db

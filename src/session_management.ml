@@ -82,7 +82,7 @@ let set_session_model_with_compact mgr ~key ~model =
       | Some _ ->
           (* Compaction happened — mark mid-turn so persistence includes the
              compacted history, not just new messages. *)
-          agent.Agent.compacted_mid_turn <- true
+          Agent.mark_compacted agent
       | None -> (
           let current_tokens =
             Agent.estimate_history_tokens agent.Agent.history

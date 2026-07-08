@@ -260,7 +260,7 @@ let run ~(config : Runtime_config.t) =
                         history before the tool result is in agent.history,
                         leaving an orphaned tool call in the DB if the
                         subsequent LLM call fails. *)
-                     agent.Agent.compacted_mid_turn <- true;
+                     Agent.mark_compacted agent;
                      Lwt.return
                        (Printf.sprintf
                           "Compacted: %dk -> %dk tokens (context window: %dk)"

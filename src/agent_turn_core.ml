@@ -533,7 +533,7 @@ let run_turn agent ~mk_io ~user_message ?db ?session_key ?interrupt_check
             let* mid_turn_compaction = compact_history_if_needed agent ?db () in
             (match mid_turn_compaction with
             | Some _ ->
-                agent.compacted_mid_turn <- true;
+                mark_compacted agent;
                 Logs.info (fun m ->
                     m "Mid-turn compaction triggered at iteration %d" iteration)
             | None -> ());
