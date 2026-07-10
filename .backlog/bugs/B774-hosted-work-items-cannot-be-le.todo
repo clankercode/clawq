@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-10T05:56:05Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 depends_on:
@@ -8,8 +10,8 @@ depends_on:
 estimate_hours: 1
 id: B774
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-10T05:56:05Z"
+status: in_progress
 tags: []
 title: Hosted work items cannot be leased to remote subscriber workers
 ---
