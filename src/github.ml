@@ -1091,6 +1091,26 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
                       Lwt.return
                         (Ok (Printf.sprintf "work item %d queued" item.id))))))
 
+(* B774: periodic publication sweep — publish terminal-but-unpublished
+   items (e.g. completed by a remote worker). Publication is idempotent, so
+   overlapping sweeps are safe. Unlike recover_work_items this never re-arms
+   watchers and is safe to run repeatedly. *)
+let publish_unpublished_work_items
+    ~(github_config : Runtime_config.github_config)
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~db () =
+  List.iter
+    (fun (item : Github_work_item.t) ->
+      if
+        Github_work_item.is_terminal_status item.status
+        && not (Github_work_item.already_published item)
+      then
+        Lwt.async (fun () ->
+            publish_work_item_result ~github_config ~resolve_headers
+              ~egress_rules ~egress_audit ~api_limiter ~db item))
+    (Github_work_item.list ~db ())
+
 (* Restart recovery: re-align work items with their background tasks and
    re-arm publication for anything terminal-but-unpublished. Call once at
    channel startup. *)

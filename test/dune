@@ -242,6 +242,7 @@
   test_runner_isolation
   test_repo_execution_policy
   test_github_trigger
+  test_work_item_lease
   test_github_work_item
   test_structured_pipeline
   test_xiaomi

@@ -439,3 +439,118 @@ let cmd_delegate args =
             (Background_task.string_of_runner runner)
             repo_path id id
       | Error msg -> "Error: " ^ msg)
+
+(* B774: subscriber-worker CLI. *)
+let worker_usage =
+  "Usage:\n\
+  \  clawq worker run --server URL --id WORKER_ID --repos o/r[,o2/r2] [--token \
+   T] [--runners codex,claude] [--hosts herdr,direct] [--poll SECS] [--lease \
+   SECS] [--once]\n\
+  \  clawq worker status --server URL [--token T]"
+
+let parse_worker_flags args =
+  let tbl = Hashtbl.create 8 in
+  let flags = ref [] in
+  let rec loop = function
+    | [] -> Ok ()
+    | key :: value :: rest
+      when String.length key > 2
+           && String.sub key 0 2 = "--"
+           && value <> ""
+           && not (String.length value > 2 && String.sub value 0 2 = "--") ->
+        Hashtbl.replace tbl key value;
+        loop rest
+    | key :: rest when String.length key > 2 && String.sub key 0 2 = "--" ->
+        flags := key :: !flags;
+        loop rest
+    | arg :: _ -> Error (Printf.sprintf "unexpected argument %S" arg)
+  in
+  Result.map (fun () -> (tbl, !flags)) (loop args)
+
+let split_csv value =
+  String.split_on_char ',' value
+  |> List.map String.trim
+  |> List.filter (fun s -> s <> "")
+
+let cmd_worker args =
+  match args with
+  | "status" :: rest -> (
+      match parse_worker_flags rest with
+      | Error msg -> "Error: " ^ msg ^ "\n" ^ worker_usage
+      | Ok (tbl, _) -> (
+          match Hashtbl.find_opt tbl "--server" with
+          | None -> "Error: --server URL is required\n" ^ worker_usage
+          | Some server ->
+              let headers =
+                match Hashtbl.find_opt tbl "--token" with
+                | Some t -> [ ("Authorization", "Bearer " ^ t) ]
+                | None -> []
+              in
+              let status, body =
+                Lwt_main.run
+                  (Http_client.get ~uri:(server ^ "/worker/status") ~headers)
+              in
+              if status = 200 then body
+              else Printf.sprintf "Error: HTTP %d %s" status body))
+  | "run" :: rest | "once" :: rest -> (
+      let once = args <> [] && List.hd args = "once" in
+      match parse_worker_flags rest with
+      | Error msg -> "Error: " ^ msg ^ "\n" ^ worker_usage
+      | Ok (tbl, flags) -> (
+          let get key = Hashtbl.find_opt tbl key in
+          match (get "--server", get "--id", get "--repos") with
+          | None, _, _ -> "Error: --server URL is required\n" ^ worker_usage
+          | _, None, _ ->
+              "Error: --id WORKER_ID (stable identity) is required\n"
+              ^ worker_usage
+          | _, _, None ->
+              "Error: --repos owner/repo[,owner2/repo2] is required (workers \
+               only see repositories they are allowed to serve)\n"
+              ^ worker_usage
+          | Some server, Some worker_id, Some repos ->
+              let cfg_runtime = get_config () in
+              let capabilities =
+                {
+                  Work_item_lease.worker_id;
+                  runners =
+                    (match get "--runners" with
+                    | Some v -> split_csv v
+                    | None -> [ "claude"; "codex" ]);
+                  hosts =
+                    (match get "--hosts" with
+                    | Some v -> split_csv v
+                    | None -> [ "herdr"; "direct" ]);
+                  repos = split_csv repos;
+                  max_concurrent = 1;
+                }
+              in
+              let cfg =
+                {
+                  Worker_client.server;
+                  token = Option.value (get "--token") ~default:"";
+                  capabilities;
+                  poll_seconds =
+                    (match get "--poll" with
+                    | Some v -> ( try float_of_string v with _ -> 15.0)
+                    | None -> 15.0);
+                  lease_seconds =
+                    (match get "--lease" with
+                    | Some v -> ( try int_of_string v with _ -> 120)
+                    | None -> 120);
+                  isolation =
+                    Runner_isolation.policy_of_config cfg_runtime.security;
+                }
+              in
+              let once = once || List.mem "--once" flags in
+              if once then
+                match Lwt_main.run (Worker_client.run_once ~cfg ()) with
+                | Ok msg -> msg
+                | Error msg -> "Error: " ^ msg
+              else begin
+                Printf.printf
+                  "worker %s polling %s every %.0fs (Ctrl-C to stop)\n%!"
+                  worker_id server cfg.poll_seconds;
+                Lwt_main.run (Worker_client.run_loop ~cfg ());
+                "worker loop exited"
+              end))
+  | _ -> worker_usage

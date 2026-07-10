@@ -115,6 +115,7 @@ let () =
        ("runner_isolation", Test_runner_isolation.suite);
        ("repo_execution_policy", Test_repo_execution_policy.suite);
        ("github_trigger", Test_github_trigger.suite);
+       ("work_item_lease", Test_work_item_lease.suite);
        ("resilience", Test_resilience.suite);
        ("perf", Test_perf.suite);
        ("memory_retention", Test_memory_retention.suite);

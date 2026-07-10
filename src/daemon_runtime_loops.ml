@@ -54,6 +54,7 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
       Lwt.catch
         (fun () ->
           let last_memory_cleanup = ref (Unix.gettimeofday ()) in
+          let last_lease_sweep = ref 0.0 in
           let last_retention_run = ref 0.0 in
           let rec loop () =
             let open Lwt.Syntax in
@@ -68,6 +69,28 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
             let now = Unix.gettimeofday () in
             let cur_config = Session.get_config session_manager in
             let* () = Ambient_daemon.tick ~db ~config:cur_config () in
+            (* B774: reclaim expired remote-worker leases and publish results
+               completed by remote workers (both idempotent). *)
+            (match cur_config.channels.github with
+            | Some github_config ->
+                if now -. !last_lease_sweep >= 30.0 then begin
+                  last_lease_sweep := now;
+                  Work_item_lease.init_schema db;
+                  let requeued, failed =
+                    Work_item_lease.reclaim_expired ~db ~now
+                  in
+                  if requeued > 0 || failed > 0 then
+                    Logs.info (fun m ->
+                        m "work-item leases: %d requeued, %d failed" requeued
+                          failed);
+                  let api_limiter =
+                    Rate_limiter.create ~rate_per_minute:60
+                      ~burst_multiplier:1.0
+                  in
+                  Github.publish_unpublished_work_items ~github_config
+                    ~api_limiter ~db ()
+                end
+            | None -> ());
             if now -. !last_memory_cleanup >= 3600.0 then begin
               last_memory_cleanup := now;
               let mem = cur_config.memory in

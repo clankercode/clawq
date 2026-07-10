@@ -83,6 +83,37 @@ let handler ~session_manager ~require_pairing ~auth_token
   | `POST, "/chat" ->
       Http_server_chat.handle_chat ~session_manager ~require_pairing ~auth_token
         ?ip_limiter ?session_limiter ?pairing req body
+  | meth, path when String.length path >= 8 && String.sub path 0 8 = "/worker/"
+    -> (
+      if
+        (* B774: remote worker lease surface. Requires the gateway auth token;
+         subscriber workers connect outbound only. *)
+        require_pairing && not (pairing_auth_ok ~auth_token ?pairing req)
+      then
+        let* _ = Cohttp_lwt.Body.drain_body body in
+        Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+          ~headers:json_headers
+          ~body:
+            {|{"error":"pairing required; use a valid paired token to access this endpoint"}|}
+          ()
+      else if not (auth_ok ~auth_token ?pairing req) then
+        let* _ = Cohttp_lwt.Body.drain_body body in
+        Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+          ~headers:json_headers ~body:{|{"error":"unauthorized"}|} ()
+      else
+        let* body_str = Cohttp_lwt.Body.to_string body in
+        match Session.get_db session_manager with
+        | None ->
+            Cohttp_lwt_unix.Server.respond_string ~status:`Service_unavailable
+              ~headers:json_headers
+              ~body:{|{"error":"control-plane database unavailable"}|} ()
+        | Some db -> (
+            match Http_server_workers.handle ~db ~meth ~path ~body_str () with
+            | Some response -> response
+            | None ->
+                Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+                  ~headers:json_headers
+                  ~body:{|{"error":"unknown /worker endpoint"}|} ()))
   | `POST, "/session/inject" -> (
       if require_pairing && not (pairing_auth_ok ~auth_token ?pairing req) then
         let* _ = Cohttp_lwt.Body.drain_body body in

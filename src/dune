@@ -241,6 +241,7 @@
   github_review_run
   github_work_item
   repo_execution_policy
+  work_item_lease
   workflow_run_trigger
   room_progress_checklist
   teams_progress_card
@@ -321,6 +322,8 @@
  (modules
   http_server_0_util
   http_server_webhooks
+  http_server_workers
+  worker_client
   http_server_models
   http_server_chat
   http_server

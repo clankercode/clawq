@@ -636,6 +636,7 @@ let handle args =
   | "runner" :: rest -> cmd_runner rest
   | "cron" :: rest -> cmd_cron rest
   | "background" :: rest -> cmd_background rest
+  | "worker" :: rest -> cmd_worker rest
   | "subagents" :: rest -> cmd_subagents rest
   | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> Command_bridge_agent_cmds.cmd_skills rest
