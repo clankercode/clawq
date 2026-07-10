@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-10T06:26:52Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on:
     - B772
@@ -8,12 +11,9 @@ depends_on:
 estimate_hours: 1
 id: B776
 priority: medium
-status: pending
-tags:
-    - docs
-    - work-queue
-    - remote-worker
-    - readiness
+started_at: "2026-07-10T06:26:52Z"
+status: in_progress
+tags: []
 title: Worker-fleet setup and readiness are not documented or diagnosable
 ---
 After hosted GitHub work items and remote workers exist, operators need one supported way to configure the lightweight control plane, enroll subscriber PCs, authenticate local Codex and Claude CLIs, choose Herdr or tmux, grant repositories, and diagnose why a job is not running. Without this, each provider or machine will develop a different operational interface.\n\nAdd one worker-fleet setup, status, readiness, and troubleshooting surface plus durable documentation. It should validate control-plane reachability, worker identity, queue authentication, local runner authentication and quota visibility, session-host capabilities, repository mappings, sandbox readiness, publication capability, and version compatibility without exposing secrets.\n\nAcceptance:\n- A documented setup flow enrolls a second PC without copying provider subscription credentials to the control plane.\n- One readiness command reports pass, warning, or fail for queue, worker, runner, host, repository, sandbox, and publisher boundaries with actionable repair steps.\n- Status shows queued work, online and stale workers, active leases, hosted session identities, and where to attach or inspect logs.\n- Configuration uses one provider-neutral worker interface with optional runner preference, not separate operational commands per provider.\n- Upgrade, credential expiry, worker drain, cancellation, retry, lease loss, and emergency disable procedures are documented.\n- Documentation includes the distinction between the queue transport, Herdr or tmux session host, Codex or Claude runner, and repository publication policy.\n- Automated tests cover redaction and readiness classification; a two-worker smoke-test recipe is reproducible.
