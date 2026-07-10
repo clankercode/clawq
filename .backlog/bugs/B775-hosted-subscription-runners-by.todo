@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-10T05:04:15Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on:
     - B768
@@ -6,13 +9,9 @@ depends_on:
 estimate_hours: 1
 id: B775
 priority: critical
-status: pending
-tags:
-    - security
-    - background-tasks
-    - codex
-    - claude
-    - credentials
+started_at: "2026-07-10T05:04:15Z"
+status: in_progress
+tags: []
 title: Hosted subscription runners bypass isolation and publisher credential boundaries
 ---
 External Codex and Claude background runners are currently launched with their provider permission bypass flags. On a subscriber PC this can expose the user's broader filesystem, inherited credentials, sockets, and GitHub publisher authority to issue-controlled prompts. Worktree isolation alone is not an adequate trust boundary.\n\nHarden the shared hosted-runner path before remote worker deployment. Apply an explicit repository and host sandbox policy, construct a minimal environment, separate provider login credentials from publication credentials, and ensure only the trusted result publisher can push or comment. The design must work for both Codex and Claude through the shared host interface rather than provider-specific exceptions.\n\nAcceptance:\n- Hosted agents can access only the selected worktree plus explicitly granted caches, tools, sockets, and network destinations.\n- GitHub App keys, GitHub tokens, SSH agents, unrelated cloud credentials, and other users' provider credentials are absent from the agent environment.\n- The local provider CLI can still use that worker identity's subscription authentication without copying tokens into Clawq records or the control plane.\n- Permission-bypass runner flags cannot silently defeat the outer OS sandbox; startup fails closed when required isolation is unavailable.\n- Repository and actor allowlists, concurrency limits, cancellation, and audit events are enforced outside the model.\n- Tests attempt path escape, environment leakage, shell injection, publisher-token access, unauthorized repository selection, and stale host takeover.\n- Operator documentation states the remaining trust assumptions for dedicated users, VMs, Herdr, and tmux.
