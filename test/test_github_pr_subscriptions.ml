@@ -1,5 +1,15 @@
 let with_db f = Test_helpers.with_memory_store f
 
+let replace_subscriptions_with_failing_view db =
+  Memory.exec_exn db "DROP TABLE github_pr_subscriptions";
+  Sqlite3.create_fun0 db "fail_subscription_query" (fun () ->
+      failwith "forced subscription query failure");
+  Memory.exec_exn db
+    "CREATE VIEW github_pr_subscriptions AS SELECT 1 AS id, 'room-1' AS \
+     room_id, 'owner/repo' AS repo, 42 AS pr_number, 1 AS profile_id, 1 AS \
+     enabled, '{}' AS notification_preferences, '' AS created_at, '' AS \
+     updated_at WHERE fail_subscription_query()"
+
 let test_add_subscription () =
   with_db (fun db ->
       let sub =
@@ -88,6 +98,20 @@ let test_find_not_found () =
       match found with
       | Some _ -> Alcotest.fail "expected None"
       | None -> Alcotest.(check bool) "not found" true true)
+
+let test_find_raises_on_sqlite_error () =
+  with_db (fun db ->
+      replace_subscriptions_with_failing_view db;
+      match
+        Github_pr_subscriptions.find ~db ~room_id:"room-1" ~repo:"owner/repo"
+          ~pr_number:42
+      with
+      | _ -> Alcotest.fail "expected SQLite failure"
+      | exception Failure msg ->
+          Alcotest.(check bool)
+            "error identifies find" true
+            (String.starts_with ~prefix:"github_pr_subscriptions find failed:"
+               msg))
 
 let test_remove () =
   with_db (fun db ->
@@ -304,6 +328,17 @@ let test_count () =
       let count = Github_pr_subscriptions.count ~db () in
       Alcotest.(check int) "count" 2 count)
 
+let test_count_raises_on_sqlite_error () =
+  with_db (fun db ->
+      replace_subscriptions_with_failing_view db;
+      match Github_pr_subscriptions.count ~db () with
+      | _ -> Alcotest.fail "expected SQLite failure"
+      | exception Failure msg ->
+          Alcotest.(check bool)
+            "error identifies count" true
+            (String.starts_with ~prefix:"github_pr_subscriptions count failed:"
+               msg))
+
 let test_should_notify () =
   let open Github_pr_subscriptions in
   let sub =
@@ -416,6 +451,8 @@ let suite =
     Alcotest.test_case "add upserts existing" `Quick test_add_upserts_existing;
     Alcotest.test_case "find" `Quick test_find;
     Alcotest.test_case "find not found" `Quick test_find_not_found;
+    Alcotest.test_case "find raises on SQLite error" `Quick
+      test_find_raises_on_sqlite_error;
     Alcotest.test_case "remove" `Quick test_remove;
     Alcotest.test_case "remove not found" `Quick test_remove_not_found;
     Alcotest.test_case "update preferences" `Quick test_update_preferences;
@@ -427,6 +464,8 @@ let suite =
     Alcotest.test_case "delete by room" `Quick test_delete_by_room;
     Alcotest.test_case "delete by repo" `Quick test_delete_by_repo;
     Alcotest.test_case "count" `Quick test_count;
+    Alcotest.test_case "count raises on SQLite error" `Quick
+      test_count_raises_on_sqlite_error;
     Alcotest.test_case "should notify" `Quick test_should_notify;
     Alcotest.test_case "json roundtrip" `Quick test_json_roundtrip;
     Alcotest.test_case "migration adds schema" `Quick test_migration_adds_schema;
