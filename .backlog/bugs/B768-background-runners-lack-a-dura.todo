@@ -1,0 +1,14 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B768
+priority: high
+status: pending
+tags:
+    - background-tasks
+    - runner-lifecycle
+    - session-host
+title: Background runners lack a durable session-host abstraction
+---
+ClawQ background tasks currently launch Codex, Claude, and other external runners directly through Process_group and persist only the provider session id. This prevents the same task lifecycle from being hosted in Herdr or tmux and makes daemon-restart recovery depend on a local PID/log file.\n\nImplement a provider-neutral session-host interface below Background_task and Runner_framework. It must cover start, health/status, read output, send follow-up input, wait, cancel/terminate, attach metadata, and restart recovery. Persist host kind plus stable host/session identity on background_tasks. Keep the existing direct Process_group behavior as an adapter so current users do not regress. Runner/provider command construction must remain separate from hosting.\n\nAcceptance:\n- Codex and Claude use the same host interface with no provider-specific host branching.\n- Existing direct-process behavior and tests continue to pass.\n- A fake/in-memory host proves start/read/send/wait/cancel/recovery semantics, including negative cases for missing and stale sessions.\n- background show exposes host kind and host/session identity without leaking credentials.\n- daemon restart can re-adopt or accurately mark a hosted task instead of relying only on the old PID.\n- user-controlled prompt text is never interpolated into a shell command.

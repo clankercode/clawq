@@ -761,3 +761,4 @@ bugs:
     - file: B765-egress-policy-defaults-to-deny.todo
     - file: B766-bash-tool-output-preview-durin.todo
     - file: B767-integrate-c2c-see-src-c2c-and.todo
+    - file: B768-background-runners-lack-a-dura.todo
