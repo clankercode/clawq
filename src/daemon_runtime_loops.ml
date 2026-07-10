@@ -35,7 +35,17 @@ let recover_background_tasks ~db ~(config : Runtime_config.t)
   if readopted > 0 then
     Logs.info (fun m ->
         m "Re-adopted %d running background task(s) from previous daemon"
-          readopted)
+          readopted);
+  (* B771: re-align GitHub work items with their background tasks and re-arm
+     publication of terminal-but-unpublished results. *)
+  match config.channels.github with
+  | Some github_config ->
+      Github_work_item.init_schema db;
+      let api_limiter =
+        Rate_limiter.create ~rate_per_minute:60 ~burst_multiplier:1.0
+      in
+      Github.recover_work_items ~github_config ~api_limiter ~db ()
+  | None -> ()
 
 let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
     ~session_limiter ~chat_limiter ~discord_message_limiter ~slack_event_limiter

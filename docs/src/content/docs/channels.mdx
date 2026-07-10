@@ -412,6 +412,16 @@ defined lifecycle to provide clear feedback:
 4. **Finalize** --- the placeholder comment is edited with the final response
    (or a new comment/reply is posted if no placeholder exists). All bot
    replies include a `<!-- clawq-reply -->` marker.
+
+Bare `/clawq <request>` runs this inline session flow. Commands with leading
+`runner=<auto|codex|claude>` and/or `host=<direct|herdr>` tokens instead route
+through a durable work-item envelope: the request is deduplicated on
+repo#issue:comment (a redelivered webhook cannot launch a second agent),
+acknowledged as `Queued as work item N...`, executed as a background task on
+the selected runner and session host, and the ack comment is later edited into
+the final answer. Work items track queued/running/blocked/succeeded/failed/
+cancelled states, and daemon-restart recovery re-publishes any completed but
+unpublished result.
 5. **Notify** --- a channel notifier is registered for the session so that
    autonomous or deferred agent responses are posted to the same GitHub
    thread.
@@ -434,6 +444,9 @@ any processing occurs.
   as ambiguous.
 - **Stable sessions** --- repeated `/clawq` interactions on the same issue or
   PR resume the same session context (see Session Keys above).
+- **Durable work items** --- `/clawq runner=<auto|codex|claude>
+  host=<direct|herdr> <request>` executes through a persistent, deduplicated
+  work-item envelope with restart recovery (see Comment/Reply Lifecycle).
 - **Async processing** --- the webhook returns HTTP 200 immediately; agent
   processing happens asynchronously with acknowledgment, placeholder, and
   edit lifecycle (see Comment/Reply Lifecycle above).

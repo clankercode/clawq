@@ -423,6 +423,363 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
         author log_result);
   Lwt.return (Ok log_result)
 
+(* B771: durable work-item execution path for /clawq, selected by leading
+   "runner="/"host=" tokens. The envelope is persisted before any agent
+   launch (duplicate deliveries collapse onto one item) and the final reply
+   is published idempotently from the work-item record. *)
+
+(* Best-effort final-message extraction from a runner log. Codex `exec
+   --json` emits JSONL with agent messages; other runners print plain text.
+   Falls back to the raw tail. *)
+let extract_final_agent_message log_text =
+  let lines = String.split_on_char '\n' log_text in
+  let agent_text line =
+    match Yojson.Safe.from_string (String.trim line) with
+    | exception _ -> None
+    | json -> (
+        let open Yojson.Safe.Util in
+        match member "item" json with
+        | `Assoc _ as item -> (
+            match (member "type" item, member "text" item) with
+            | `String "agent_message", `String text when String.trim text <> ""
+              ->
+                Some text
+            | _ | (exception _) -> None)
+        | _ | (exception _) -> None)
+  in
+  let rec last_agent acc = function
+    | [] -> acc
+    | line :: rest ->
+        last_agent
+          (match agent_text line with Some t -> Some t | None -> acc)
+          rest
+  in
+  match last_agent None lines with
+  | Some text -> text
+  | None -> String.trim log_text
+
+let work_item_reply_limit = 8000
+
+let work_item_prompt (item : Github_work_item.t) =
+  String.concat "\n\n"
+    [
+      item.preamble;
+      "## Request\n" ^ item.prompt;
+      "## Execution contract\n\
+       - Answer or plan only: do NOT create commits, branches, tags, or pull \
+       requests.\n\
+       - Your final message is posted verbatim to the GitHub thread; write it \
+       for the requester.";
+    ]
+
+let publish_work_item_result ~(github_config : Runtime_config.github_config)
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~db
+    (item : Github_work_item.t) =
+  let open Lwt.Syntax in
+  match Github_work_item.get ~db ~id:item.id with
+  | None -> Lwt.return_unit
+  | Some item when Github_work_item.already_published item -> Lwt.return_unit
+  | Some item when not (Github_work_item.is_terminal_status item.status) ->
+      Lwt.return_unit
+  | Some item -> (
+      match split_repo_full_name item.repo_full_name with
+      | None -> Lwt.return_unit
+      | Some (owner, repo) ->
+          let body_text =
+            let summary =
+              Option.value item.result_summary ~default:"(no output captured)"
+            in
+            let summary =
+              if String.length summary > work_item_reply_limit then
+                String.sub summary 0 work_item_reply_limit ^ "\n... (truncated)"
+              else summary
+            in
+            match item.status with
+            | Github_work_item.Succeeded ->
+                format_reply ~command:item.prompt ~response:summary
+            | _ ->
+                Printf.sprintf "> /clawq %s\n\nWork item %s: %s\n%s"
+                  (String.sub item.prompt 0
+                     (min 120 (String.length item.prompt)))
+                  (Github_work_item.string_of_status item.status)
+                  summary bot_reply_marker
+          in
+          let* posted =
+            Lwt.catch
+              (fun () ->
+                let* _ok =
+                  Rate_limiter.check_and_consume api_limiter
+                    ~key:(Printf.sprintf "github:%s/%s" owner repo)
+                in
+                match item.ack_comment_id with
+                | Some cid ->
+                    let* () =
+                      Github_api.edit_comment
+                        ~app_token:(Github_app_token.resolve_app_token ())
+                        ~auth:github_config.auth ~resolve_headers ~egress_rules
+                        ~egress_audit ~owner ~repo ~comment_id:cid
+                        ~body:body_text ()
+                    in
+                    Lwt.return (Result.Ok (Some cid))
+                | None ->
+                    let* id =
+                      Github_api.post_comment_returning_id
+                        ~app_token:(Github_app_token.resolve_app_token ())
+                        ~auth:github_config.auth ~resolve_headers ~egress_rules
+                        ~egress_audit ~owner ~repo
+                        ~issue_number:item.issue_number ~body:body_text ()
+                    in
+                    Lwt.return (Result.Ok id))
+              (fun exn -> Lwt.return (Result.Error (Printexc.to_string exn)))
+          in
+          (match posted with
+          | Result.Ok comment_id ->
+              ignore
+                (Github_work_item.record_publication ~db ~id:item.id ~comment_id
+                   ~publication_status:"published")
+          | Result.Error msg ->
+              ignore
+                (Github_work_item.record_publication ~db ~id:item.id
+                   ~comment_id:None ~publication_status:("failed: " ^ msg));
+              Logs.err (fun m ->
+                  m "GitHub work item %d: publication failed: %s" item.id msg));
+          Lwt.return_unit)
+
+(* Follow the owning background task to a terminal state, then record and
+   publish the result. Crash-safe: recover_work_items redoes this after a
+   daemon restart. *)
+let watch_work_item ~(github_config : Runtime_config.github_config)
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~db
+    (item : Github_work_item.t) ~task_id =
+  let open Lwt.Syntax in
+  let rec follow () =
+    let* outcome =
+      Background_task.wait_until_terminal ~timeout_seconds:3600.0
+        ~poll_seconds:2.0 ~db ~id:task_id ()
+    in
+    match outcome with
+    | Background_task.Finished task -> Lwt.return (Some task)
+    | Background_task.Not_found -> Lwt.return None
+    | Background_task.Timeout _ -> follow ()
+    | Background_task.Interrupted task ->
+        if Background_task.is_terminal_status task.status then
+          Lwt.return (Some task)
+        else follow ()
+  in
+  let* task = follow () in
+  (match task with
+  | None ->
+      Github_work_item.record_result ~db ~id:item.id
+        ~status:Github_work_item.Failed
+        ~result_kind:Github_work_item.Result_failed
+        ~result_summary:"Background task record disappeared"
+  | Some task ->
+      let summary =
+        let log_text =
+          match task.log_path with
+          | Some path -> Background_task.read_log_tail path (64 * 1024)
+          | None -> ""
+        in
+        let extracted = extract_final_agent_message log_text in
+        if String.trim extracted <> "" then extracted
+        else Option.value task.result_preview ~default:""
+      in
+      let status, kind =
+        match task.status with
+        | Background_task.Succeeded ->
+            (Github_work_item.Succeeded, Github_work_item.Reply)
+        | Background_task.Cancelled ->
+            (Github_work_item.Cancelled, Github_work_item.Result_failed)
+        | _ -> (Github_work_item.Failed, Github_work_item.Result_failed)
+      in
+      Github_work_item.record_result ~db ~id:item.id ~status ~result_kind:kind
+        ~result_summary:summary);
+  publish_work_item_result ~github_config ~resolve_headers ~egress_rules
+    ~egress_audit ~api_limiter ~db item
+
+let run_clawq_work_item ~(github_config : Runtime_config.github_config)
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~db
+    ~(config : Runtime_config.t option) ~api_limiter ~delivery_id ~owner ~repo
+    ~author event ~(options : Github_work_item.command_options) ~preamble =
+  let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
+  let issue_number = issue_number_of_event event in
+  let comment_id, is_pr =
+    match event with
+    | Github_webhook.IssueComment e -> (Some e.comment_id, e.is_pr)
+    | Github_webhook.PrReviewComment e -> (Some e.comment_id, true)
+    | _ -> (None, false)
+  in
+  let dedup_key =
+    Github_work_item.dedup_key_for ~repo_full_name ~issue_number ~comment_id
+      ~delivery_id:(Some delivery_id)
+  in
+  match
+    Github_work_item.create_if_new ~db ~dedup_key ~delivery_id ~repo_full_name
+      ~is_pr ~issue_number ~requester:author ?runner_pref:options.runner_opt
+      ?host_pref:options.host_opt ~prompt:options.request ~preamble ()
+  with
+  | Result.Error msg -> Lwt.return (Ok ("work item refused: " ^ msg))
+  | Result.Ok (Github_work_item.Duplicate existing) ->
+      Logs.info (fun m ->
+          m "GitHub: duplicate delivery for work item %d (%s); not launching"
+            existing.id dedup_key);
+      Lwt.return (Ok "duplicate work item")
+  | Result.Ok (Github_work_item.Created item) -> (
+      let* () =
+        acknowledge_reaction ~github_config ~resolve_headers ~egress_rules
+          ~egress_audit ~api_limiter ~owner ~repo event
+      in
+      let* ack_id =
+        Lwt.catch
+          (fun () ->
+            let* _ok =
+              Rate_limiter.check_and_consume api_limiter
+                ~key:(Printf.sprintf "github:%s/%s" owner repo)
+            in
+            Github_api.post_comment_returning_id
+              ~app_token:(Github_app_token.resolve_app_token ())
+              ~auth:github_config.auth ~resolve_headers ~egress_rules
+              ~egress_audit ~owner ~repo ~issue_number
+              ~body:
+                (Printf.sprintf
+                   "> /clawq %s\n\n\xE2\x8F\xB3 Queued as work item %d...\n%s"
+                   options.request item.id bot_reply_marker)
+              ())
+          (fun _ -> Lwt.return None)
+      in
+      (match ack_id with
+      | Some cid ->
+          Github_work_item.set_ack_comment ~db ~id:item.id ~comment_id:cid
+      | None -> ());
+      let allow_claude =
+        match config with
+        | Some cfg -> cfg.security.allow_anthropic_oauth_inference
+        | None -> false
+      in
+      let preferred =
+        match options.runner_opt with
+        | Some r when String.lowercase_ascii r <> "auto" ->
+            Background_task.runner_of_string r
+        | _ -> None
+      in
+      let block reason =
+        Github_work_item.record_result ~db ~id:item.id
+          ~status:Github_work_item.Blocked
+          ~result_kind:Github_work_item.Result_blocked ~result_summary:reason;
+        Github_work_item.set_status ~db ~id:item.id
+          ~status:Github_work_item.Blocked;
+        (* Blocked is non-terminal for retries, but the requester still gets
+           an actionable reply now. *)
+        let* () =
+          match item.ack_comment_id with
+          | _ -> (
+              match Github_work_item.get ~db ~id:item.id with
+              | Some fresh -> (
+                  match fresh.ack_comment_id with
+                  | Some cid ->
+                      Lwt.catch
+                        (fun () ->
+                          Github_api.edit_comment
+                            ~app_token:(Github_app_token.resolve_app_token ())
+                            ~auth:github_config.auth ~resolve_headers
+                            ~egress_rules ~egress_audit ~owner ~repo
+                            ~comment_id:cid
+                            ~body:
+                              (Printf.sprintf "Work item %d is blocked: %s\n%s"
+                                 item.id reason bot_reply_marker)
+                            ())
+                        (fun _ -> Lwt.return_unit)
+                  | None -> Lwt.return_unit)
+              | None -> Lwt.return_unit)
+        in
+        Lwt.return (Ok "work item blocked")
+      in
+      match (options.runner_opt, preferred) with
+      | Some r, None when String.lowercase_ascii r <> "auto" ->
+          block
+            (Printf.sprintf
+               "Unknown runner %S. Use runner=auto, codex, or claude." r)
+      | _ -> (
+          match
+            Background_task.resolve_runner ~check_available:true ?preferred
+              ~allow_claude ()
+          with
+          | Error msg -> block msg
+          | Ok (runner, auto_model) -> (
+              let repo_path =
+                match config with
+                | Some cfg -> Runtime_config.effective_workspace cfg
+                | None -> Filename.get_temp_dir_name ()
+              in
+              match
+                Background_task.enqueue ~db ~runner ?model:auto_model
+                  ~require_git:false ~automerge:false ~use_worktree:false
+                  ?host_kind:options.host_opt ~repo_path
+                  ~prompt:(work_item_prompt item) ~channel:"github"
+                  ~channel_id:repo_full_name
+                  ~session_key:(Github_webhook.session_key event)
+                  ~requester:author ()
+              with
+              | Error msg -> block msg
+              | Ok task_id ->
+                  Github_work_item.attach_task ~db ~id:item.id
+                    ~background_task_id:task_id;
+                  Lwt.async (fun () ->
+                      watch_work_item ~github_config ~resolve_headers
+                        ~egress_rules ~egress_audit ~api_limiter ~db item
+                        ~task_id);
+                  Lwt.return (Ok (Printf.sprintf "work item %d queued" item.id))
+              )))
+
+(* Restart recovery: re-align work items with their background tasks and
+   re-arm publication for anything terminal-but-unpublished. Call once at
+   channel startup. *)
+let recover_work_items ~(github_config : Runtime_config.github_config)
+    ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~db () =
+  let items = Github_work_item.list ~db () in
+  List.iter
+    (fun (item : Github_work_item.t) ->
+      let terminal = Github_work_item.is_terminal_status item.status in
+      match item.background_task_id with
+      | None -> ()
+      | Some task_id -> (
+          match Background_task.get_task ~db ~id:task_id with
+          | None -> ()
+          | Some task ->
+              if not terminal then
+                ignore
+                  (Github_work_item.sync_from_task ~db item
+                     ~task_status:task.status ~task_result:task.result_preview);
+              let needs_publication =
+                match Github_work_item.get ~db ~id:item.id with
+                | Some fresh ->
+                    Github_work_item.is_terminal_status fresh.status
+                    && not (Github_work_item.already_published fresh)
+                | None -> false
+              in
+              if needs_publication then
+                Lwt.async (fun () ->
+                    publish_work_item_result ~github_config ~resolve_headers
+                      ~egress_rules ~egress_audit ~api_limiter ~db item)
+              else if
+                (not terminal)
+                && not (Background_task.is_terminal_status task.status)
+              then
+                Lwt.async (fun () ->
+                    watch_work_item ~github_config ~resolve_headers
+                      ~egress_rules ~egress_audit ~api_limiter ~db item ~task_id)
+          ))
+    items
+
 (** Detect and trigger review runs from label events. When a PR is labeled with
     a review-trigger label (e.g., "review", "security"), creates a review run
     record. Returns the number of review runs triggered. *)
@@ -761,11 +1118,24 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                   in
                   let db_opt = Session.get_db session_manager in
                   match Github_webhook.extract_clawq ~event ~pr_files with
-                  | Some (user_message, preamble) ->
-                      run_clawq_command ~github_config ~resolve_headers
-                        ~egress_rules ~egress_audit ?db:db_opt ~session_manager
-                        ~api_limiter ~owner ~repo ~author event ~user_message
-                        ~preamble
+                  | Some (user_message, preamble) -> (
+                      let options =
+                        Github_work_item.parse_command_options user_message
+                      in
+                      match db_opt with
+                      | Some db
+                        when Github_work_item.wants_work_item options
+                             && options.request <> "" ->
+                          Github_work_item.init_schema db;
+                          run_clawq_work_item ~github_config ~resolve_headers
+                            ~egress_rules ~egress_audit ~db ~config ~api_limiter
+                            ~delivery_id ~owner ~repo ~author event ~options
+                            ~preamble
+                      | _ ->
+                          run_clawq_command ~github_config ~resolve_headers
+                            ~egress_rules ~egress_audit ?db:db_opt
+                            ~session_manager ~api_limiter ~owner ~repo ~author
+                            event ~user_message ~preamble)
                   | None ->
                       let* hook_count =
                         Github_hooks.run_matching_hooks ~session_manager
