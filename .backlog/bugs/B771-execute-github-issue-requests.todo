@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-07-10T04:46:02Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-10T05:04:01Z"
 complexity: high
 depends_on:
     - B768
     - B769
+duration_minutes: 17.995317267033332
 estimate_hours: 1
 id: B771
 priority: high
 started_at: "2026-07-10T04:46:02Z"
-status: in_progress
+status: done
 tags: []
 title: Execute GitHub issue requests through one hosted Codex or Claude work-item path
 ---
