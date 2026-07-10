@@ -471,3 +471,22 @@ let subagents_cmd =
       subagents_send_cmd;
       subagents_transcript_cmd;
     ]
+
+(* B776: worker-fleet CLI. Subcommands pass through to the command bridge
+   (run "worker" ...), which owns readiness/setup/run/status logic. *)
+let worker_cmd =
+  let args = Arg.(value & pos_all string [] & info [] ~docv:"ARGS") in
+  Cmd.v
+    (Cmd.info "worker"
+       ~doc:"Run and diagnose a remote subscriber worker or the worker fleet."
+       ~man:
+         [
+           `S "EXAMPLES";
+           `P "clawq worker setup";
+           `P
+             "clawq worker run --server https://cachy --id pc-1 --repos \
+              owner/repo";
+           `P "clawq worker readiness --id pc-1 --repos owner/repo";
+           `P "clawq worker status --server https://cachy";
+         ])
+    Term.(ret (const (fun args -> run "worker" args) $ args))

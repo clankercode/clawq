@@ -15,8 +15,8 @@ let backend_to_string = function
 let is_available b =
   let cmd =
     match b with
-    | Firejail -> "which firejail 2>/dev/null"
-    | Bubblewrap -> "which bwrap 2>/dev/null"
+    | Firejail -> "command -v firejail >/dev/null 2>&1"
+    | Bubblewrap -> "command -v bwrap >/dev/null 2>&1"
     | None -> ""
   in
   if cmd = "" then true else Sys.command cmd = 0

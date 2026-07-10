@@ -443,6 +443,9 @@ let cmd_delegate args =
 (* B774: subscriber-worker CLI. *)
 let worker_usage =
   "Usage:\n\
+  \  clawq worker setup\n\
+  \  clawq worker readiness [--role worker|control-plane] [--id ID] [--repos \
+   o/r] [--runners ..] [--hosts ..] [--server URL] [--token T]\n\
   \  clawq worker run --server URL --id WORKER_ID --repos o/r[,o2/r2] [--token \
    T] [--runners codex,claude] [--hosts herdr,direct] [--poll SECS] [--lease \
    SECS] [--once]\n\
@@ -492,6 +495,89 @@ let cmd_worker args =
               in
               if status = 200 then body
               else Printf.sprintf "Error: HTTP %d %s" status body))
+  | "readiness" :: rest | "doctor" :: rest -> (
+      match parse_worker_flags rest with
+      | Error msg -> "Error: " ^ msg ^ "\n" ^ worker_usage
+      | Ok (tbl, _) ->
+          let get key = Hashtbl.find_opt tbl key in
+          let cfg_runtime = get_config () in
+          let role =
+            match get "--role" with
+            | Some "control-plane" | Some "control" ->
+                Worker_readiness.Control_plane
+            | _ -> Worker_readiness.Worker
+          in
+          let db_present =
+            match get "--server" with
+            | Some server ->
+                let headers =
+                  match get "--token" with
+                  | Some t -> [ ("Authorization", "Bearer " ^ t) ]
+                  | None -> []
+                in
+                let status, _ =
+                  try
+                    Lwt_main.run
+                      (Http_client.get
+                         ~uri:(server ^ "/worker/status")
+                         ~headers)
+                  with _ -> (0, "")
+                in
+                status = 200
+            | None -> (
+                try
+                  ignore (get_db ());
+                  true
+                with _ -> false)
+          in
+          let split_opt key default =
+            match get key with Some v -> split_csv v | None -> default
+          in
+          let inputs =
+            {
+              Worker_readiness.role;
+              db_present;
+              worker_id = get "--id";
+              token =
+                (match get "--token" with
+                | Some _ as t -> t
+                | None -> cfg_runtime.gateway.auth_token);
+              runners = split_opt "--runners" [ "claude"; "codex" ];
+              hosts = split_opt "--hosts" [ "herdr"; "tmux"; "direct" ];
+              repos = split_opt "--repos" [];
+              isolation = Runner_isolation.policy_of_config cfg_runtime.security;
+              github_configured = Option.is_some cfg_runtime.channels.github;
+            }
+          in
+          Worker_readiness.format (Worker_readiness.run inputs))
+  | "setup" :: _ ->
+      String.concat "\n"
+        [
+          "Clawq worker-fleet setup (provider-neutral):";
+          "";
+          "Control plane (lightweight coordinator, e.g. cachy):";
+          "  1. Run the Clawq daemon with a GitHub channel configured and a";
+          "     gateway.auth_token set (this authenticates workers).";
+          "  2. The daemon stores queued work durably and publishes results;";
+          "     it performs NO inference or build workload.";
+          "";
+          "Each subscriber PC (trusted worker):";
+          "  1. Install the official Codex and/or Claude CLI and sign in";
+          "     locally. Subscription credentials never leave this machine.";
+          "  2. Install a session host: herdr (preferred) or tmux (fallback).";
+          "  3. Set security.hosted_runner_isolation=require (needs bubblewrap";
+          "     or firejail) so runner environments are sandboxed.";
+          "  4. Connect outbound:";
+          "     clawq worker run --server https://<control-plane> \\";
+          "       --id <stable-worker-id> --repos owner/repo[,owner2/repo2] \\";
+          "       --token <gateway-auth-token> [--runners claude,codex] \\";
+          "       [--hosts herdr,tmux]";
+          "  5. Verify: clawq worker readiness --id <id> --repos <repos>";
+          "";
+          "See docs/worker-fleet.md for procedures (upgrade, credential";
+          "expiry, drain, cancellation, retry, lease loss, emergency disable)";
+          "and the two-worker smoke test.";
+        ]
   | "run" :: rest | "once" :: rest -> (
       let once = args <> [] && List.hd args = "once" in
       match parse_worker_flags rest with

@@ -325,6 +325,7 @@
   http_server_webhooks
   http_server_workers
   worker_client
+  worker_readiness
   http_server_models
   http_server_chat
   http_server

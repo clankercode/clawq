@@ -658,6 +658,18 @@ let help_env var = match var with "MANPAGER" -> None | _ -> Sys.getenv_opt var
 
 let () =
   Printexc.record_backtrace true;
+  (* B776: the worker CLI takes free-form --flags (server/id/repos/...) that
+     cmdliner would try to parse as its own options. Route it straight to
+     the command bridge before cmdliner sees it, so flags pass through
+     without requiring a "--" separator. *)
+  (match Array.to_list Sys.argv with
+  | _ :: "worker" :: rest ->
+      print_string
+        (String_util.unescape_newlines
+           (Command_bridge.handle ("worker" :: rest)));
+      print_newline ();
+      exit 0
+  | _ -> ());
   let argv =
     let args = Array.to_list Sys.argv in
     match args with
@@ -687,6 +699,7 @@ let () =
       cron_cmd;
       Main_background_cmds.background_cmd;
       Main_background_cmds.subagents_cmd;
+      Main_background_cmds.worker_cmd;
       delegate_cmd;
       Main_plan_cmds.plan_cmd;
       Main_audit_cmds.audit_cmd;
