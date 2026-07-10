@@ -53,6 +53,15 @@ The `local` runner executes agent turns in-process using clawq's own LLM provide
 - Use **log-file freshness** for health diagnosis — stall detection checks the log modification time, not just elapsed wall-clock time
 - Can be bound to an agent template via `--agent <name>`, or use the default session turn
 
+### Hosted Runner Isolation
+
+External runners can be isolated from the host when
+`security.hosted_runner_isolation` is `"prefer"` or `"require"`: a minimal
+allowlisted environment (credentials stripped by construction) plus a
+bubblewrap/firejail sandbox restricted to the task worktree, log directory,
+and provider auth directories. `"require"` fails task startup closed when no
+sandbox backend is available. See `docs/hosted-runner-isolation.md`.
+
 ### Native Subagents
 
 `clawq subagents` is the human-friendly wrapper for native/local background tasks:

@@ -221,6 +221,8 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                      (fun s -> `String s)
                      cfg.security.allowed_cwd_patterns) );
               ("sandbox_backend", `String cfg.security.sandbox_backend);
+              ( "hosted_runner_isolation",
+                `String cfg.security.hosted_runner_isolation );
               ( "attachment_downloads_enabled",
                 `Bool cfg.security.attachment_downloads_enabled );
               ( "allow_anthropic_oauth_inference",

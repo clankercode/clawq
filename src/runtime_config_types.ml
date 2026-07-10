@@ -415,6 +415,12 @@ type security_config = {
           Supports $CLAWQ_WORKSPACE and $USER_HOME pseudo-variables. *)
   sandbox_backend : string;
       (** Sandbox backend: "auto", "firejail", "bubblewrap", or "none" *)
+  hosted_runner_isolation : string;
+      (** B775: OS isolation for hosted external runners (codex/claude
+          background tasks): "off" (legacy behavior), "prefer" (sandbox when a
+          backend is available, warn otherwise), or "require" (fail closed when
+          no isolation backend is available). Remote worker deployment must use
+          "require". *)
   attachment_downloads_enabled : bool;
   allow_anthropic_oauth_inference : bool;
       (** B606: Anthropic's recent policy changes require explicit opt-in for

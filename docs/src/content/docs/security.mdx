@@ -96,6 +96,28 @@ Auto-detection order: Firejail → Bubblewrap → None. Set `sandbox_backend` ex
 Sandboxing only applies when `workspace_only: true`. With `workspace_only: false` and `sandbox_backend: "none"`, shell commands have full filesystem and network access.
 </Callout>
 
+## Hosted Runner Isolation
+
+Hosted external runners (Codex/Claude background tasks) run with their
+provider permission-bypass flags, so the boundary must come from the host.
+`security.hosted_runner_isolation` controls it:
+
+- **`"off"`** (default): legacy behavior — only acceptable on a dedicated,
+  trusted machine.
+- **`"prefer"`**: sandbox when bubblewrap/firejail is available; warn and
+  continue otherwise.
+- **`"require"`**: fail closed — task startup fails with an actionable error
+  when no backend is available. Remote worker deployment must use this.
+
+Unknown values are treated as `"require"` (fail closed). When enabled, the
+runner gets a minimal allowlisted environment (GitHub tokens, SSH agent
+sockets, cloud credentials, and provider API keys are absent by
+construction) and an argv-level bubblewrap/firejail sandbox limited to the
+task worktree, log directory, and provider auth directories (`~/.codex`,
+`~/.claude`, `~/.cache`). GitHub publication stays with the trusted daemon
+publisher; the agent never holds publisher credentials. Threat model and
+remaining trust assumptions: `docs/hosted-runner-isolation.md`.
+
 ## Working Directory Restrictions
 
 The `change_working_dir` tool lets agents move their effective CWD to a subdirectory. All path-resolving tools (file_read, file_write, file_edit, glob, list_dir, grep, shell_exec) resolve relative paths against the effective CWD, while security checks still use the original workspace root.

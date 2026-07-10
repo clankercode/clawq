@@ -240,8 +240,10 @@ let prepare_worktree ?(run_simple_command = run_simple_command) task =
 let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
     ?(on_task_finished = fun _ -> Lwt.return_unit)
     ?(run_simple_command = run_simple_command) ?command_override
-    ?(augment_env = fun ~session_key:_ ~task_id:_ env -> env) ~db (task : task)
-    =
+    ?(augment_env = fun ~session_key:_ ~task_id:_ env -> env)
+    ?(isolation_policy =
+      Runner_isolation.{ mode = Off; backend = Sandbox.None; extra_paths = [] })
+    ~db (task : task) =
   Hashtbl.replace running task.id { cancelled = ref false };
   Lwt.async (fun () ->
       let open Lwt.Syntax in
@@ -355,151 +357,199 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                       augment_env ~session_key:sk ~task_id:task.id base_env
                   | None -> base_env
                 in
-                write_log_preamble ~log_path ~task_id:task.id ~command;
-                let spawn_time = Unix.gettimeofday () in
-                match Session_host_registry.find task.host_kind with
-                | None ->
-                    let err =
-                      Session_host_registry.unknown_kind_error task.host_kind
-                    in
+                (* B775: hosted runners get a minimal allowlisted
+                   environment and an argv-level OS sandbox; publisher and
+                   cloud credentials are absent by construction. Fails
+                   closed under isolation=require with no backend. *)
+                match Runner_isolation.preflight isolation_policy with
+                | Error err ->
                     append_log_error ~log_path err;
                     finish ~db ~id:task.id ~status:Failed ~result_preview:err;
                     Lwt.return_unit
-                | Some host -> (
-                    let spec =
-                      {
-                        Session_host.command;
-                        cwd = worktree_path;
-                        env;
-                        log_path;
-                      }
+                | Ok () -> (
+                    let env =
+                      if
+                        isolation_policy.Runner_isolation.mode
+                        <> Runner_isolation.Off
+                      then Runner_isolation.minimal_env env
+                      else env
                     in
-                    let* started = host.Session_host.start spec in
-                    match started with
-                    | Error err ->
+                    let command =
+                      match command with
+                      | Process_group.Exec argv ->
+                          let wrapped, applied =
+                            Runner_isolation.wrap_argv isolation_policy
+                              ~worktree:worktree_path ~log_path argv
+                          in
+                          if applied then
+                            Logs.info (fun m ->
+                                m
+                                  "Background task %d: hosted runner sandboxed \
+                                   via %s (%s)"
+                                  task.id
+                                  (Sandbox.backend_to_string
+                                     isolation_policy.Runner_isolation.backend)
+                                  (Runner_isolation.string_of_mode
+                                     isolation_policy.Runner_isolation.mode));
+                          Process_group.Exec wrapped
+                      | Process_group.Shell _ as shell -> shell
+                    in
+                    write_log_preamble ~log_path ~task_id:task.id ~command;
+                    let spawn_time = Unix.gettimeofday () in
+                    match Session_host_registry.find task.host_kind with
+                    | None ->
+                        let err =
+                          Session_host_registry.unknown_kind_error
+                            task.host_kind
+                        in
                         append_log_error ~log_path err;
                         finish ~db ~id:task.id ~status:Failed
                           ~result_preview:err;
                         Lwt.return_unit
-                    | Ok session ->
-                        let pid =
-                          Option.value
-                            (Session_host_direct.pid_of_session_ref session)
-                            ~default:0
+                    | Some host -> (
+                        let spec =
+                          {
+                            Session_host.command;
+                            cwd = worktree_path;
+                            env;
+                            log_path;
+                          }
                         in
-                        if
-                          not
-                            (set_running ~db ~id:task.id ~branch ~worktree_path
-                               ~log_path ~pid)
-                        then begin
-                          Logs.warn (fun m ->
-                              m
-                                "Background task %d: set_running failed; \
-                                 cancelling host session %s/%s"
-                                task.id session.Session_host.host_kind
-                                session.Session_host.host_session_id);
-                          let err_msg =
-                            Printf.sprintf
-                              "set_running failed: task %d was no longer \
-                               queued (host session %s cancelled)"
-                              task.id session.Session_host.host_session_id
-                          in
-                          append_log_error ~log_path err_msg;
-                          let* _ =
-                            host.Session_host.cancel ~grace_seconds:0.0 session
-                          in
-                          let* _ = host.Session_host.wait session in
-                          finish ~db ~id:task.id ~status:Failed
-                            ~result_preview:err_msg;
-                          Lwt.return_unit
-                        end
-                        else begin
-                          set_host_identity ~db ~id:task.id
-                            ~host_kind:session.Session_host.host_kind
-                            ~host_session_id:
-                              session.Session_host.host_session_id;
-                          let* () =
-                            match get_task ~db ~id:task.id with
-                            | Some t -> on_task_started t
-                            | None -> Lwt.return_unit
-                          in
-                          let* wait_result = host.Session_host.wait session in
-                          let exit_code =
-                            match wait_result with
-                            | Ok code -> code
-                            | Error msg ->
-                                append_log_error ~log_path msg;
-                                1
-                          in
-                          let () =
-                            if exit_code = 0 then
-                              List.iter
-                                (fun (msg : queued_message) ->
-                                  delete_queued_message ~db ~queue_id:msg.id)
-                                queued_messages
-                          in
-                          (* B210 watchdog: after child exits, give process
+                        let* started = host.Session_host.start spec in
+                        match started with
+                        | Error err ->
+                            append_log_error ~log_path err;
+                            finish ~db ~id:task.id ~status:Failed
+                              ~result_preview:err;
+                            Lwt.return_unit
+                        | Ok session ->
+                            let pid =
+                              Option.value
+                                (Session_host_direct.pid_of_session_ref session)
+                                ~default:0
+                            in
+                            if
+                              not
+                                (set_running ~db ~id:task.id ~branch
+                                   ~worktree_path ~log_path ~pid)
+                            then begin
+                              Logs.warn (fun m ->
+                                  m
+                                    "Background task %d: set_running failed; \
+                                     cancelling host session %s/%s"
+                                    task.id session.Session_host.host_kind
+                                    session.Session_host.host_session_id);
+                              let err_msg =
+                                Printf.sprintf
+                                  "set_running failed: task %d was no longer \
+                                   queued (host session %s cancelled)"
+                                  task.id session.Session_host.host_session_id
+                              in
+                              append_log_error ~log_path err_msg;
+                              let* _ =
+                                host.Session_host.cancel ~grace_seconds:0.0
+                                  session
+                              in
+                              let* _ = host.Session_host.wait session in
+                              finish ~db ~id:task.id ~status:Failed
+                                ~result_preview:err_msg;
+                              Lwt.return_unit
+                            end
+                            else begin
+                              set_host_identity ~db ~id:task.id
+                                ~host_kind:session.Session_host.host_kind
+                                ~host_session_id:
+                                  session.Session_host.host_session_id;
+                              let* () =
+                                match get_task ~db ~id:task.id with
+                                | Some t -> on_task_started t
+                                | None -> Lwt.return_unit
+                              in
+                              let* wait_result =
+                                host.Session_host.wait session
+                              in
+                              let exit_code =
+                                match wait_result with
+                                | Ok code -> code
+                                | Error msg ->
+                                    append_log_error ~log_path msg;
+                                    1
+                              in
+                              let () =
+                                if exit_code = 0 then
+                                  List.iter
+                                    (fun (msg : queued_message) ->
+                                      delete_queued_message ~db ~queue_id:msg.id)
+                                    queued_messages
+                              in
+                              (* B210 watchdog: after child exits, give process
                              group 2s then kill remaining members (e.g.
                              grandchildren) *)
-                          if pid > 0 then
-                            Lwt.async (fun () ->
-                                let open Lwt.Syntax in
-                                let* () = Lwt_unix.sleep 2.0 in
-                                Logs.info (fun m ->
-                                    m
-                                      "Background task %d: child exited, \
-                                       killing remaining process group members"
-                                      task.id);
-                                Process_group.signal_group pid Sys.sigkill;
-                                Lwt.return_unit);
-                          let elapsed = Unix.gettimeofday () -. spawn_time in
-                          let output =
-                            let raw = read_log_tail log_path preview_limit in
-                            if elapsed < 5.0 then
-                              Printf.sprintf
-                                "%s\n[clawq] process exited in %.1fs" raw
-                                elapsed
-                            else raw
-                          in
-                          (* Extract runner session ID from log if not set *)
-                          (let current =
-                             match get_task ~db ~id:task.id with
-                             | Some t -> t.runner_session_id
-                             | None -> None
-                           in
-                           if current = None then
-                             let def =
-                               Runner_framework.runner_def_of_runner
-                                 (runner_to_framework_runner task.runner)
-                             in
-                             let full_output =
-                               read_log_tail log_path (64 * 1024)
-                             in
-                             match
-                               Runner_framework.extract_session_id def
-                                 full_output
-                             with
-                             | Some sid ->
-                                 set_runner_session_id ~db ~id:task.id
-                                   ~runner_session_id:sid
-                             | None -> ());
-                          ignore
-                            (finalize_completed_task ~db ~id:task.id ~exit_code
-                               ~output);
-                          let* () =
-                            match get_task ~db ~id:task.id with
-                            | Some finished_task ->
-                                on_task_finished finished_task
-                            | None -> Lwt.return_unit
-                          in
-                          Lwt.return_unit
-                        end)
+                              if pid > 0 then
+                                Lwt.async (fun () ->
+                                    let open Lwt.Syntax in
+                                    let* () = Lwt_unix.sleep 2.0 in
+                                    Logs.info (fun m ->
+                                        m
+                                          "Background task %d: child exited, \
+                                           killing remaining process group \
+                                           members"
+                                          task.id);
+                                    Process_group.signal_group pid Sys.sigkill;
+                                    Lwt.return_unit);
+                              let elapsed =
+                                Unix.gettimeofday () -. spawn_time
+                              in
+                              let output =
+                                let raw =
+                                  read_log_tail log_path preview_limit
+                                in
+                                if elapsed < 5.0 then
+                                  Printf.sprintf
+                                    "%s\n[clawq] process exited in %.1fs" raw
+                                    elapsed
+                                else raw
+                              in
+                              (* Extract runner session ID from log if not set *)
+                              (let current =
+                                 match get_task ~db ~id:task.id with
+                                 | Some t -> t.runner_session_id
+                                 | None -> None
+                               in
+                               if current = None then
+                                 let def =
+                                   Runner_framework.runner_def_of_runner
+                                     (runner_to_framework_runner task.runner)
+                                 in
+                                 let full_output =
+                                   read_log_tail log_path (64 * 1024)
+                                 in
+                                 match
+                                   Runner_framework.extract_session_id def
+                                     full_output
+                                 with
+                                 | Some sid ->
+                                     set_runner_session_id ~db ~id:task.id
+                                       ~runner_session_id:sid
+                                 | None -> ());
+                              ignore
+                                (finalize_completed_task ~db ~id:task.id
+                                   ~exit_code ~output);
+                              let* () =
+                                match get_task ~db ~id:task.id with
+                                | Some finished_task ->
+                                    on_task_finished finished_task
+                                | None -> Lwt.return_unit
+                              in
+                              Lwt.return_unit
+                            end))
               end)
         finalize)
 
-let default_spawn_task ?augment_env ~on_task_started ~on_task_finished ~db task
-    =
-  spawn_task ?augment_env ~on_task_started ~on_task_finished ~db task
+let default_spawn_task ?augment_env ?isolation_policy ~on_task_started
+    ~on_task_finished ~db task =
+  spawn_task ?augment_env ?isolation_policy ~on_task_started ~on_task_finished
+    ~db task
 
 let local_task_deps : Background_task_local.deps =
   {
@@ -583,29 +633,29 @@ let start_queued_with_callback_impl ?max_running_tasks ?max_local_running_tasks
   List.iter (spawn_task ~on_task_started ~on_task_finished ~db) queued
 
 let start_queued_with_callback ?max_running_tasks ?max_local_running_tasks
-    ?augment_env ~on_task_finished ~db
+    ?augment_env ?isolation_policy ~on_task_finished ~db
     ?(on_task_started = fun _ -> Lwt.return_unit) () =
   start_queued_with_callback_impl ?max_running_tasks ?max_local_running_tasks
-    ~spawn_task:(default_spawn_task ?augment_env)
+    ~spawn_task:(default_spawn_task ?augment_env ?isolation_policy)
     ~on_task_started ~on_task_finished ~db ()
 
-let start_queued ?max_running_tasks ?max_local_running_tasks ?augment_env ~db ()
-    =
+let start_queued ?max_running_tasks ?max_local_running_tasks ?augment_env
+    ?isolation_policy ~db () =
   start_queued_with_callback ?max_running_tasks ?max_local_running_tasks
-    ?augment_env
+    ?augment_env ?isolation_policy
     ~on_task_finished:(fun _ -> Lwt.return_unit)
     ~db ()
 
 let start_queued_with_local_runner ~run_turn ?timeout_seconds ?max_running_tasks
-    ?max_local_running_tasks ?augment_env ~on_task_finished ~on_task_started ~db
-    () =
+    ?max_local_running_tasks ?augment_env ?isolation_policy ~on_task_finished
+    ~on_task_started ~db () =
   let spawn ~on_task_started ~on_task_finished ~db (task : task) =
     if task.runner = Local then
       spawn_local_task ?timeout_seconds ~run_turn ~on_task_started
         ~on_task_finished ~db task
     else
-      default_spawn_task ?augment_env ~on_task_started ~on_task_finished ~db
-        task
+      default_spawn_task ?augment_env ?isolation_policy ~on_task_started
+        ~on_task_finished ~db task
   in
   start_queued_with_callback_impl ?max_running_tasks ?max_local_running_tasks
     ~spawn_task:spawn ~on_task_started ~on_task_finished ~db ()

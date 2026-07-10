@@ -239,6 +239,7 @@
   test_runner_integration
   test_runner_relay
   test_session_host
+  test_runner_isolation
   test_github_work_item
   test_structured_pipeline
   test_xiaomi

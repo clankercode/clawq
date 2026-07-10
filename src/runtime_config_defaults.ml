@@ -249,6 +249,7 @@ let default =
             "/clawq/path/to/somewhere/else/**";
           ];
         sandbox_backend = "auto";
+        hosted_runner_isolation = "off";
         attachment_downloads_enabled = true;
         allow_anthropic_oauth_inference = false;
       };

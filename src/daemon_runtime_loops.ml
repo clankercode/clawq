@@ -221,6 +221,8 @@ let start_background_task_loop ~db ~(config : Runtime_config.t)
                           |])
               in
               Background_task.start_queued_with_local_runner ?augment_env
+                ~isolation_policy:
+                  (Runner_isolation.policy_of_config current.security)
                 ?max_local_running_tasks:
                   (current_max_concurrent_native_agents current_config)
                 ~run_turn:(fun

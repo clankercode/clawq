@@ -377,6 +377,9 @@ let parse_security ~(default : Runtime_config.t) json :
     let sandbox_backend =
       try s |> member "sandbox_backend" |> to_string with _ -> "auto"
     in
+    let hosted_runner_isolation =
+      try s |> member "hosted_runner_isolation" |> to_string with _ -> "off"
+    in
     let attachment_downloads_enabled =
       try s |> member "attachment_downloads_enabled" |> to_bool
       with _ -> default.security.attachment_downloads_enabled
@@ -398,6 +401,7 @@ let parse_security ~(default : Runtime_config.t) json :
       extra_allowed_paths;
       allowed_cwd_patterns;
       sandbox_backend;
+      hosted_runner_isolation;
       attachment_downloads_enabled;
       allow_anthropic_oauth_inference;
     }

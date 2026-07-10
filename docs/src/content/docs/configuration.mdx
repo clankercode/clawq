@@ -340,6 +340,8 @@ Teams or Discord group session to load recent captured messages into context.
     "tools_enabled": true,
     "audit_enabled": true,
     "encrypt_secrets": false,
+    "sandbox_backend": "auto",
+    "hosted_runner_isolation": "off",
     "rate_limit_rpm": 60,
     "audit_retention_days": 90
   }
@@ -355,6 +357,8 @@ Teams or Discord group session to load recent captured messages into context.
 | `rate_limit_rpm` | `60` | Requests per minute rate limit |
 | `audit_retention_days` | `90` | Days to retain audit log entries |
 | `allowed_cwd_patterns` | `["$CLAWQ_WORKSPACE/**", "$USER_HOME/src/projects-clawq/**", "/clawq/path/to/somewhere/else/**"]` | Glob patterns for directories agents may `change_working_dir` into. Supports `$CLAWQ_WORKSPACE` and `$USER_HOME` pseudo-variables. |
+| `sandbox_backend` | `"auto"` | Sandbox backend for shell/runner isolation: `"auto"` (detects firejail > bubblewrap > none), `"firejail"`, `"bubblewrap"`, or `"none"` |
+| `hosted_runner_isolation` | `"off"` | Isolation for hosted codex/claude background runners: `"off"`, `"prefer"` (sandbox when a backend is available), `"require"` (fail closed without one). Applies a minimal allowlisted environment plus an argv-level sandbox. See the hosted-runner-isolation operator doc. |
 
 ### gateway
 

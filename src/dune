@@ -214,6 +214,7 @@
   cdp_client
   browser_agent
   sandbox
+  runner_isolation
   pairing
   chat_ui_assets
   config_set
