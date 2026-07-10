@@ -1,17 +1,16 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
     - B771
     - B769
+    - B775
 estimate_hours: 1
 id: B774
 priority: high
+started_at: null
 status: pending
-tags:
-    - work-queue
-    - remote-worker
-    - leases
-    - herdr
+tags: []
 title: Hosted work items cannot be leased to remote subscriber workers
 ---
 The Clawq background-task queue and capacity scheduler are local to one daemon and one SQLite database. Multiple trusted PCs cannot subscribe, advertise their locally authenticated Codex or Claude capabilities, exclusively claim work, or return results to the lightweight control plane.\n\nAdd a remote worker protocol around the normalized work-item contract. The control plane stores queued work durably; workers connect outbound, advertise repository, runner, host, and capacity capabilities, claim one matching item with an expiring lease, heartbeat it while the hosted session runs, and complete or release it idempotently. Execution remains on the worker in Herdr; the control plane performs only coordination and result publication.\n\nAcceptance:\n- Two workers racing for one item cannot both obtain a valid lease or publish duplicate results.\n- A worker can advertise runner=codex or claude, host=herdr or tmux, allowed repositories, concurrency, and a stable worker identity.\n- Claims are atomic; leases expire and are reclaimable after worker loss; heartbeats cannot revive an item completed or claimed by another lease token.\n- Delivery is at least once while execution and publication remain idempotent.\n- Workers initiate outbound authenticated connections so subscriber PCs require no inbound port forwarding.\n- Prompt and repository data are visible only to authorized workers; provider subscription credentials never leave the worker.\n- Queue depth, worker availability, lease owner, age, retry count, and terminal failures are inspectable.\n- Tests cover races, expiry, reconnect, stale completion, capability mismatch, cancellation, and control-plane restart.
