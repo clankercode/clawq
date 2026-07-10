@@ -291,7 +291,11 @@ let find ~db ~room_id ~repo ~pr_number =
         ];
       match Sqlite3.step stmt with
       | Sqlite3.Rc.ROW -> Some (subscription_of_stmt stmt)
-      | _ -> None)
+      | Sqlite3.Rc.DONE -> None
+      | rc ->
+          failwith
+            (Printf.sprintf "github_pr_subscriptions find failed: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 (** [find_by_room ~db ~room_id] returns all subscriptions for a room. *)
 let find_by_room ~db ~room_id =
@@ -427,7 +431,10 @@ let count ~db () =
           match Sqlite3.column stmt 0 with
           | Sqlite3.Data.INT n -> Int64.to_int n
           | _ -> 0)
-      | _ -> 0)
+      | rc ->
+          failwith
+            (Printf.sprintf "github_pr_subscriptions count failed: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 (** [should_notify ~subscription ~event_type] checks if the subscription should
     be notified for the given event type. *)
