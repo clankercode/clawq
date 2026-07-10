@@ -85,8 +85,8 @@ let rec cmd_background args =
         \  background show <id>                                    - Show task \
          details\n\
         \  background add <codex|claude|kimi|gemini|opencode|cursor|local> \
-         [--model <model>] [--agent <name>] [--host <direct|herdr>] <repo> \
-         [--branch <name>] <prompt> - Queue a task\n\
+         [--model <model>] [--agent <name>] [--host <direct|herdr|tmux>] \
+         <repo> [--branch <name>] <prompt> - Queue a task\n\
         \  background start <runner> ...                           - Alias for \
          background add\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \

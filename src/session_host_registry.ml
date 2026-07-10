@@ -6,6 +6,7 @@ let table : (string, Session_host.t) Hashtbl.t = Hashtbl.create 4
 let register (host : Session_host.t) = Hashtbl.replace table host.kind host
 let () = register Session_host_direct.host
 let () = register Session_host_herdr.host
+let () = register Session_host_tmux.host
 
 let find session_kind : Session_host.t option =
   let key = String.lowercase_ascii (String.trim session_kind) in

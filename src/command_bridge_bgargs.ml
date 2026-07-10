@@ -65,7 +65,7 @@ let parse_background_add_args args =
             Error
               "Usage: clawq background add \
                <codex|claude|kimi|gemini|opencode|cursor|local> [--model \
-               <name>] [--agent <name>] [--host <direct|herdr>] <repo> \
+               <name>] [--agent <name>] [--host <direct|herdr|tmux>] <repo> \
                [--branch <name>] <prompt>")
     | "--model" :: value :: rest ->
         loop (Some value) branch agent_name host_kind positionals rest

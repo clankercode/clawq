@@ -143,6 +143,7 @@
   session_host
   session_host_direct
   session_host_herdr
+  session_host_tmux
   session_host_registry
   background_task_local
   background_task_db

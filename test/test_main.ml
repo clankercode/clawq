@@ -111,6 +111,7 @@ let () =
        ("runner_integration", Test_runner_integration.suite);
        ("runner_relay", Test_runner_relay.suite);
        ("session_host", Test_session_host.suite);
+       ("session_host_tmux", Test_session_host_tmux.suite);
        ("github_work_item", Test_github_work_item.suite);
        ("runner_isolation", Test_runner_isolation.suite);
        ("repo_execution_policy", Test_repo_execution_policy.suite);
