@@ -1,0 +1,16 @@
+---
+complexity: medium
+depends_on:
+    - B771
+estimate_hours: 1
+id: B773
+priority: high
+status: pending
+tags:
+    - github
+    - mentions
+    - assignments
+    - work-items
+title: GitHub at-mentions and assignments cannot trigger hosted work items
+---
+Clawq currently recognizes /clawq in selected GitHub comment bodies, but it does not expose one canonical trigger parser for a configured at-mention login or issues assigned events. Users therefore cannot naturally mention the agent in a thread or assign an issue to it and get the same hosted Codex or Claude behavior.\n\nExtend GitHub intake so /clawq, a configured leading at-mention, and assignment to a configured identity all normalize into the same work-item path. Preserve stable issue or PR sessions, acknowledgements, authorization, deduplication, and bot self-loop protection. Assignment support must fail clearly when the configured GitHub identity is not assignable; document a configurable label trigger as the fallback.\n\nAcceptance:\n- Leading at-mentions in issue, PR, and review-comment surfaces launch exactly one work item and strip only the addressed prefix from the request.\n- Assignment launches only when the new assignee matches the configured identity and the actor is authorized.\n- Unaddressed comments, mentions in quoted or generated content, edits, bot replies, and assignment of another user do not launch work.\n- /clawq remains backward compatible and uses the same parser and executor.\n- Trigger identity and optional fallback label are configuration, not Amaroo-specific constants.\n- Positive and negative webhook tests cover issue comments, PR comments, review comments, assigned and unassigned actions, duplicate deliveries, and self-replies.
