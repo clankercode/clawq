@@ -765,3 +765,4 @@ bugs:
     - file: B769-background-runners-cannot-be-h.todo
     - file: B770-background-runners-cannot-use.todo
     - file: B771-execute-github-issue-requests.todo
+    - file: B772-publish-code-changing-work-ite.todo

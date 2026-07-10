@@ -1,0 +1,16 @@
+---
+complexity: high
+depends_on:
+    - B771
+estimate_hours: 1
+id: B772
+priority: high
+status: pending
+tags:
+    - github
+    - work-items
+    - draft-pr
+    - repository-policy
+title: Publish code-changing work items as draft PRs under repository policy
+---
+Clawq's generic delegate prompt assumes a master branch, instructs rebasing, defaults toward automerge, and prohibits the agent from pushing. Those assumptions are incompatible with repositories such as Amaroo and cannot safely decide whether a GitHub request should produce only a reply or a reviewable pull request.\n\nExtend the hosted work-item path with repository-owned execution and publication policy. The agent may inspect, edit, test, and commit within its isolated worktree, but a trusted publisher decides whether to post a reply or push a restricted branch and open a draft PR. Policies must define the base branch, history rules, allowed publication behavior, validation expectations, and whether generic automerge is forbidden.\n\nAcceptance:\n- A no-change run posts only the answer or plan; a run with commits creates one draft PR and links it to the source issue.\n- Default branch comes from repository metadata or policy and is never hardcoded to master.\n- Repository policy can forbid rebase, force-push, direct merge, generic automerge, and selected labels or commands.\n- GitHub publisher credentials are unavailable to the agent process and are used only after the run result is validated.\n- Repeated completion delivery is idempotent and cannot create duplicate branches or PRs.\n- Dirty worktrees, empty commits, publication conflicts, and failed validation have explicit recoverable outcomes.\n- Existing background-task callers preserve behavior through an explicit compatibility policy rather than implicit hardcoded instructions.
