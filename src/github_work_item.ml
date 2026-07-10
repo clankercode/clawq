@@ -80,6 +80,10 @@ type t = {
       (** GitHub comment id of the published result; presence short-circuits
           re-publication on retries *)
   publication_status : string option;  (** "published" | "failed: ..." *)
+  publication_branch : string option;
+      (** deterministic restricted branch pushed by the publisher *)
+  published_pr_number : int option;
+      (** draft PR number once published; presence short-circuits retries *)
   ack_comment_id : int option;
       (** placeholder/ack comment posted at intake; edited into the final reply
           at publication *)
@@ -121,6 +125,8 @@ let init_schema db =
     \  result_summary TEXT,\n\
     \  published_comment_id INTEGER,\n\
     \  publication_status TEXT,\n\
+    \  publication_branch TEXT,\n\
+    \  published_pr_number INTEGER,\n\
     \  ack_comment_id INTEGER,\n\
     \  attempt_count INTEGER NOT NULL DEFAULT 0,\n\
     \  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
@@ -168,6 +174,8 @@ let of_stmt stmt : t =
     started_at = text 21;
     finished_at = text 22;
     ack_comment_id = int_opt 23;
+    publication_branch = text 24;
+    published_pr_number = int_opt 25;
   }
 
 let select_columns =
@@ -175,7 +183,7 @@ let select_columns =
    trigger, runner_pref, host_pref, prompt, preamble, policy_ref, status, \
    background_task_id, result_kind, result_summary, published_comment_id, \
    publication_status, attempt_count, created_at, started_at, finished_at, \
-   ack_comment_id"
+   ack_comment_id, publication_branch, published_pr_number"
 
 (** {1 Creation (idempotent)} *)
 
@@ -338,6 +346,23 @@ let exec_update ~db sql binds =
       List.iteri (fun i data -> ignore (Sqlite3.bind stmt (i + 1) data)) binds;
       ignore (Sqlite3.step stmt);
       Sqlite3.changes db > 0)
+
+(* PR publication is idempotent like comment publication: first PR wins. *)
+let record_pr_publication ~db ~id ~branch ~pr_number ~publication_status =
+  exec_update ~db
+    "UPDATE github_work_items SET publication_branch = ?, published_pr_number \
+     = COALESCE(?, published_pr_number), publication_status = ? WHERE id = ? \
+     AND published_pr_number IS NULL"
+    [
+      Sqlite3.Data.TEXT branch;
+      (match pr_number with
+      | Some n -> Sqlite3.Data.INT (Int64.of_int n)
+      | None -> Sqlite3.Data.NULL);
+      Sqlite3.Data.TEXT publication_status;
+      Sqlite3.Data.INT (Int64.of_int id);
+    ]
+
+let already_published_pr (item : t) = Option.is_some item.published_pr_number
 
 let set_ack_comment ~db ~id ~comment_id =
   ignore

@@ -249,6 +249,7 @@ let build_full_multi_repo () =
         allow_users = [ "*" ];
         react_to = [];
         include_pr_files = true;
+        local_repo_path = None;
       };
       {
         name = "acme/lib";
@@ -258,6 +259,7 @@ let build_full_multi_repo () =
         allow_users = [ "alice" ];
         react_to = [ "pull_request" ];
         include_pr_files = false;
+        local_repo_path = None;
       };
     ]
   in

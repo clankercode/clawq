@@ -510,3 +510,126 @@ let get_pr_files ~(app_token : Github_app_token.t option) ~auth
                 else fetch_page (page + 1) acc
       in
       fetch_page 1 []
+
+(* B772: repository metadata + draft-PR publication (trusted publisher only). *)
+
+let get_repo_default_branch ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~owner ~repo () =
+  let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
+  let uri = Printf.sprintf "%s/repos/%s/%s" (github_api_base ()) owner repo in
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~egress_rules
+      ~egress_audit ~repo_full_name ()
+  in
+  match headers with
+  | None -> Lwt.return None
+  | Some headers -> (
+      let* result =
+        maybe_get ~rules:egress_rules ~uri ~headers ~audit:egress_audit ()
+      in
+      match result with
+      | Error _ -> Lwt.return None
+      | Ok (status, body) ->
+          if status < 200 || status >= 300 then Lwt.return None
+          else
+            Lwt.return
+              (try
+                 match
+                   Yojson.Safe.from_string body
+                   |> Yojson.Safe.Util.member "default_branch"
+                 with
+                 | `String b when b <> "" -> Some b
+                 | _ -> None
+               with _ -> None))
+
+(* Open PR whose head is [branch]; used to make PR creation idempotent. *)
+let find_open_pr_by_head ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~owner ~repo ~branch () =
+  let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
+  let uri =
+    Printf.sprintf "%s/repos/%s/%s/pulls?state=open&head=%s"
+      (github_api_base ()) owner repo
+      (Uri.pct_encode (owner ^ ":" ^ branch))
+  in
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~egress_rules
+      ~egress_audit ~repo_full_name ()
+  in
+  match headers with
+  | None -> Lwt.return None
+  | Some headers -> (
+      let* result =
+        maybe_get ~rules:egress_rules ~uri ~headers ~audit:egress_audit ()
+      in
+      match result with
+      | Error _ -> Lwt.return None
+      | Ok (status, body) ->
+          if status < 200 || status >= 300 then Lwt.return None
+          else
+            Lwt.return
+              (try
+                 match Yojson.Safe.from_string body with
+                 | `List (pr :: _) -> (
+                     match Yojson.Safe.Util.member "number" pr with
+                     | `Int n -> Some n
+                     | _ -> None)
+                 | _ -> None
+               with _ -> None))
+
+let create_draft_pull_request ~(app_token : Github_app_token.t option) ~auth
+    ?(resolve_headers = (None : resolve_headers_fn option))
+    ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
+    ?(egress_audit = Policy_http_client.no_audit) ~owner ~repo ~title ~body
+    ~head ~base () =
+  let open Lwt.Syntax in
+  let repo_full_name = owner ^ "/" ^ repo in
+  let uri =
+    Printf.sprintf "%s/repos/%s/%s/pulls" (github_api_base ()) owner repo
+  in
+  let* headers =
+    get_auth_headers ~app_token ~auth ~resolve_headers ~egress_rules
+      ~egress_audit ~repo_full_name ()
+  in
+  match headers with
+  | None -> Lwt.return (Error "credential lease denied for PR creation")
+  | Some headers -> (
+      let req_body =
+        `Assoc
+          [
+            ("title", `String title);
+            ("body", `String body);
+            ("head", `String head);
+            ("base", `String base);
+            ("draft", `Bool true);
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* result =
+        maybe_post_json ~rules:egress_rules ~uri ~headers ~body:req_body
+          ~audit:egress_audit ()
+      in
+      match result with
+      | Error err ->
+          Lwt.return (Error (Policy_http_client.policy_error_to_string err))
+      | Ok (status, resp_body) ->
+          if status < 200 || status >= 300 then
+            Lwt.return
+              (Error
+                 (Printf.sprintf "PR creation returned HTTP %d: %s" status
+                    (String.sub resp_body 0 (min 300 (String.length resp_body)))))
+          else
+            Lwt.return
+              (try
+                 match
+                   Yojson.Safe.from_string resp_body
+                   |> Yojson.Safe.Util.member "number"
+                 with
+                 | `Int n -> Ok n
+                 | _ -> Error "PR creation response lacked a number"
+               with exn -> Error (Printexc.to_string exn)))

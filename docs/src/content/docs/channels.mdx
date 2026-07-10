@@ -447,6 +447,16 @@ any processing occurs.
 - **Durable work items** --- `/clawq runner=<auto|codex|claude>
   host=<direct|herdr> <request>` executes through a persistent, deduplicated
   work-item envelope with restart recovery (see Comment/Reply Lifecycle).
+- **Repository publication policy** --- when a repo config sets
+  `local_repo_path`, code-changing work items run in an isolated worktree of
+  that checkout under `.clawq/publication-policy.json` (publication
+  `reply_only`/`draft_pr`, base branch, branch prefix, rebase/force-push/
+  merge/automerge prohibitions, validation expectations). The trusted
+  publisher decides the outcome: no commits posts a reply; commits push a
+  deterministic `clawq/wi-<id>` branch and open exactly one draft PR linked
+  to the issue (idempotent on redelivery); dirty worktrees and publication
+  failures produce explicit recoverable replies. Base branch resolves
+  policy > origin HEAD > GitHub API — never hardcoded.
 - **Async processing** --- the webhook returns HTTP 200 immediately; agent
   processing happens asynchronously with acknowledgment, placeholder, and
   edit lifecycle (see Comment/Reply Lifecycle above).

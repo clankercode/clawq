@@ -113,6 +113,7 @@ let () =
        ("session_host", Test_session_host.suite);
        ("github_work_item", Test_github_work_item.suite);
        ("runner_isolation", Test_runner_isolation.suite);
+       ("repo_execution_policy", Test_repo_execution_policy.suite);
        ("resilience", Test_resilience.suite);
        ("perf", Test_perf.suite);
        ("memory_retention", Test_memory_retention.suite);

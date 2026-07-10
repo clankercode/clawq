@@ -92,6 +92,7 @@ let build_github_json ~pat_token ~repo_name ~webhook_secret ~webhook_path
       allow_users;
       react_to;
       include_pr_files;
+      local_repo_path = None;
     }
   in
   build_full_github_json ~pat_token ~repos:[ repo ] ()
@@ -321,6 +322,7 @@ let prompt_repo_fields ?(existing : Runtime_config.github_repo_config option) ()
      allow_users;
      react_to;
      include_pr_files;
+     local_repo_path = None;
    }
     : Runtime_config.github_repo_config)
 

@@ -162,6 +162,9 @@ type github_repo_config = {
   allow_users : string list;
   react_to : string list;
   include_pr_files : bool;
+  local_repo_path : string option;
+      (** B772: local checkout of this repository on the worker, used for
+          code-changing work items (worktree base + policy file source). *)
 }
 
 type github_config = {

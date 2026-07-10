@@ -240,6 +240,7 @@
   github_pr_policy
   github_review_run
   github_work_item
+  repo_execution_policy
   workflow_run_trigger
   room_progress_checklist
   teams_progress_card

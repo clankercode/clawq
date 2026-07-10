@@ -1213,6 +1213,7 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
                     allow_users = [ "octocat" ];
                     react_to = [ "issue_comment" ];
                     include_pr_files = false;
+                    local_repo_path = None;
                   };
                 ];
               default_model = None;
@@ -1317,6 +1318,7 @@ let test_github_pr_synchronize_reuses_pr_session () =
                     allow_users = [ "alice" ];
                     react_to = [ "pull_request" ];
                     include_pr_files = false;
+                    local_repo_path = None;
                   };
                 ];
               default_model = None;
@@ -1423,6 +1425,7 @@ Payload: {{payload_path}}
                 allow_users = [ "octocat" ];
                 react_to = [ "workflow_job" ];
                 include_pr_files = false;
+                local_repo_path = None;
               };
             ];
           default_model = None;
@@ -1500,6 +1503,7 @@ let test_github_webhook_accepts_repo_case_mismatch () =
             allow_users = [ "octocat" ];
             react_to = [ "workflow_job" ];
             include_pr_files = false;
+            local_repo_path = None;
           };
         ];
       default_model = None;
@@ -1583,6 +1587,7 @@ This should never run.
                 allow_users = [ "octocat" ];
                 react_to = [ "workflow_job" ];
                 include_pr_files = false;
+                local_repo_path = None;
               };
             ];
           default_model = None;
@@ -1670,6 +1675,7 @@ let test_github_webhook_reaction_and_placeholder_edit () =
                     allow_users = [ "octocat" ];
                     react_to = [ "issue_comment" ];
                     include_pr_files = false;
+                    local_repo_path = None;
                   };
                 ];
               default_model = None;
@@ -1778,6 +1784,7 @@ let test_github_webhook_rejects_ambiguous_path () =
             allow_users = [ "octocat" ];
             react_to = [ "workflow_job" ];
             include_pr_files = false;
+            local_repo_path = None;
           };
           {
             Runtime_config.name = "acme/frontend";
@@ -1787,6 +1794,7 @@ let test_github_webhook_rejects_ambiguous_path () =
             allow_users = [ "octocat" ];
             react_to = [ "workflow_job" ];
             include_pr_files = false;
+            local_repo_path = None;
           };
         ];
       default_model = None;

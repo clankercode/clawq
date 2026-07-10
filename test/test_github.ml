@@ -580,6 +580,7 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
           allow_users = [ "nobody" ];
           react_to = [];
           include_pr_files = true;
+          local_repo_path = None;
         }
       in
       let github_config : Runtime_config.github_config =
@@ -1168,6 +1169,7 @@ let make_webhook_env ~secret ~body ~allow_users =
       allow_users;
       react_to = [];
       include_pr_files = false;
+      local_repo_path = None;
     }
   in
   let github_config : Runtime_config.github_config =
@@ -1414,6 +1416,7 @@ let handle_webhook_dedup_delivery_id () =
                 allow_users = [ "bob" ];
                 react_to = [];
                 include_pr_files = false;
+                local_repo_path = None;
               }
             in
             let github_config : Runtime_config.github_config =
