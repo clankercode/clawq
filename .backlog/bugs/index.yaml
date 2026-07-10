@@ -762,3 +762,4 @@ bugs:
     - file: B766-bash-tool-output-preview-durin.todo
     - file: B767-integrate-c2c-see-src-c2c-and.todo
     - file: B768-background-runners-lack-a-dura.todo
+    - file: B769-background-runners-cannot-be-h.todo

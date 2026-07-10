@@ -1,0 +1,15 @@
+---
+complexity: high
+depends_on:
+    - B768
+estimate_hours: 1
+id: B769
+priority: high
+status: pending
+tags:
+    - background-tasks
+    - herdr
+    - runner-lifecycle
+title: Background runners cannot be hosted and recovered in Herdr
+---
+ClawQ cannot currently run a Codex or Claude background task inside a persistent Herdr agent terminal, even though Herdr exposes non-interactive lifecycle commands for agent start/list/get/read/send/wait/attach and pane close. As a result, queued GitHub work cannot use Herdr as the inspectable, recoverable execution host on subscriber PCs.\n\nAdd a Herdr adapter to the session-host interface from B768. Use herdr agent start with an explicit cwd and argv, store the returned/stable terminal or agent identity, map read/send/wait/attach/cancel operations to Herdr's structured CLI, and recover state after a ClawQ daemon restart. Prefer argv-based execution and literal send operations; never construct a shell command from issue text or prompts.\n\nAcceptance:\n- A background task can select host=herdr while runner remains auto/codex/claude.\n- ClawQ can read progress, send a follow-up, wait for idle/done, cancel, and surface an attach command.\n- Restart recovery distinguishes live, completed, missing, and stale Herdr terminals.\n- Herdr absence or version/capability mismatch returns an actionable error or configured fallback without losing the queued task.\n- Unit tests use a fake Herdr command boundary; opt-in integration tests skip cleanly when herdr is unavailable.\n- Provider subscription credentials remain owned by the local Codex/Claude CLI environment, not copied into ClawQ records.
