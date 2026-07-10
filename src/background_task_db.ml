@@ -404,7 +404,10 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
-    match validate_repo_path ~require_git repo_path with
+    match
+      Result.bind (Session_host_registry.validate_kind host_kind) (fun () ->
+          validate_repo_path ~require_git repo_path)
+    with
     | Error _ as err -> err
     | Ok () ->
         let sql =

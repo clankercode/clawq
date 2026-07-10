@@ -4,6 +4,7 @@ type background_add_args = {
   repo_path : string;
   branch : string option;
   agent_name : string option;
+  host_kind : string option;
   prompt : string;
 }
 
@@ -36,7 +37,7 @@ let default_delegate_repo_path (cfg : Runtime_config.t) =
   if path_is_git_repo cwd then cwd else Runtime_config.effective_workspace cfg
 
 let parse_background_add_args args =
-  let rec loop model branch agent_name positionals = function
+  let rec loop model branch agent_name host_kind positionals = function
     | [] -> (
         let positionals = List.rev positionals in
         match positionals with
@@ -49,22 +50,35 @@ let parse_background_add_args args =
             | Some runner ->
                 let prompt = String.concat " " prompt_parts |> String.trim in
                 if prompt = "" then Error "Prompt is required"
-                else Ok { runner; model; repo_path; branch; agent_name; prompt }
-            )
+                else
+                  Ok
+                    {
+                      runner;
+                      model;
+                      repo_path;
+                      branch;
+                      agent_name;
+                      host_kind;
+                      prompt;
+                    })
         | _ ->
             Error
               "Usage: clawq background add \
                <codex|claude|kimi|gemini|opencode|cursor|local> [--model \
-               <name>] [--agent <name>] <repo> [--branch <name>] <prompt>")
+               <name>] [--agent <name>] [--host <direct|herdr>] <repo> \
+               [--branch <name>] <prompt>")
     | "--model" :: value :: rest ->
-        loop (Some value) branch agent_name positionals rest
+        loop (Some value) branch agent_name host_kind positionals rest
     | "--branch" :: value :: rest ->
-        loop model (Some value) agent_name positionals rest
+        loop model (Some value) agent_name host_kind positionals rest
     | "--agent" :: value :: rest ->
-        loop model branch (Some value) positionals rest
-    | arg :: rest -> loop model branch agent_name (arg :: positionals) rest
+        loop model branch (Some value) host_kind positionals rest
+    | "--host" :: value :: rest ->
+        loop model branch agent_name (Some value) positionals rest
+    | arg :: rest ->
+        loop model branch agent_name host_kind (arg :: positionals) rest
   in
-  loop None None None [] args
+  loop None None None None [] args
 
 let parse_background_wait_args args =
   let rec loop timeout id = function

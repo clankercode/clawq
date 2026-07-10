@@ -5,6 +5,7 @@
 let table : (string, Session_host.t) Hashtbl.t = Hashtbl.create 4
 let register (host : Session_host.t) = Hashtbl.replace table host.kind host
 let () = register Session_host_direct.host
+let () = register Session_host_herdr.host
 
 let find session_kind : Session_host.t option =
   let key = String.lowercase_ascii (String.trim session_kind) in
@@ -33,3 +34,10 @@ let with_host (host : Session_host.t) f =
       | Some prev -> Hashtbl.replace table host.kind prev
       | None -> Hashtbl.remove table host.kind)
     f
+
+(* Enqueue-time validation: unknown kinds and not-ready hosts are refused
+   before a task is queued, so nothing is lost to an unrunnable host. *)
+let validate_kind session_kind =
+  match find session_kind with
+  | None -> Error (unknown_kind_error session_kind)
+  | Some host -> host.ready ()

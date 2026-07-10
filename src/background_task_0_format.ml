@@ -517,6 +517,17 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   (match task.host_session_id with
   | Some sid -> add (Printf.sprintf "host_session: %s" sid)
   | None -> ());
+  (* Herdr sessions are attachable; derive the terminal id lexically so this
+     module stays independent of the host implementations. *)
+  (match (task.host_kind, task.host_session_id) with
+  | "herdr", Some sid ->
+      let terminal_id =
+        match String.index_opt sid '|' with
+        | Some i -> String.sub sid 0 i
+        | None -> sid
+      in
+      add (Printf.sprintf "attach: herdr agent attach %s" terminal_id)
+  | _ -> ());
   if task.acp then add "mode: acp";
   (match task.agent_name with
   | Some name -> add (Printf.sprintf "agent: %s" name)

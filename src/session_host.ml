@@ -38,6 +38,10 @@ type health =
 type t = {
   kind : string;
   supports_live_input : bool;
+  ready : unit -> (unit, string) result;
+      (** Cheap availability check (binary present, capability match) run at
+          enqueue time so a task is refused with an actionable error instead of
+          being queued onto a host that cannot run it. *)
   start : start_spec -> (session_ref, string) result Lwt.t;
   status : session_ref -> health;
       (** Cheap, non-blocking liveness probe; safe to call from synchronous

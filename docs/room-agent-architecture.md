@@ -617,6 +617,17 @@ Cursor) or the local runner:
 - Local runner: Runs in-process with the local turn function.
 - ACP mode: Interactive runner communication via ACP protocol.
 
+### Session Hosts
+
+External-runner tasks execute through a pluggable session-host seam (B768):
+
+- **direct** (default): child process group via fork+setsid+execve.
+- **herdr** (B769): a persistent Herdr agent terminal started over the
+  `herdr` JSON CLI. Identity is `<terminal_id>|<agent_name>` persisted in
+  `host_kind`/`host_session_id`; `background show` prints an
+  `attach: herdr agent attach <terminal_id>` line, and enqueue fails with an
+  actionable error when herdr is unavailable or the host kind is unknown.
+
 ### Repo Grant Enforcement
 
 Before launching, background tasks check:

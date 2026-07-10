@@ -209,7 +209,7 @@ Recovery loads the original task's prompt, repo path, and branch, then queues a 
 clawq background list                              # List all tasks
 clawq background show <id>                         # Show task details
 clawq background add <runner> [--model M] <repo>   # Queue a task
-              [--branch <name>] <prompt>
+              [--host <direct|herdr>] [--branch <name>] <prompt>
 clawq background wait <id> [--timeout <secs>]      # Wait for completion
 clawq background logs <id> [--lines N]             # Show log lines
               [--offset N] [--follow]

@@ -85,8 +85,8 @@ let rec cmd_background args =
         \  background show <id>                                    - Show task \
          details\n\
         \  background add <codex|claude|kimi|gemini|opencode|cursor|local> \
-         [--model <model>] [--agent <name>] <repo> [--branch <name>] <prompt> \
-         - Queue a task\n\
+         [--model <model>] [--agent <name>] [--host <direct|herdr>] <repo> \
+         [--branch <name>] <prompt> - Queue a task\n\
         \  background start <runner> ...                           - Alias for \
          background add\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \
@@ -134,8 +134,9 @@ let rec cmd_background args =
           match
             Background_task.enqueue ~db ~runner:parsed.runner
               ?model:parsed.model ?agent_name:parsed.agent_name
-              ~repo_path:parsed.repo_path ~prompt:parsed.prompt
-              ?branch:parsed.branch ?session_key ?channel ?channel_id ()
+              ?host_kind:parsed.host_kind ~repo_path:parsed.repo_path
+              ~prompt:parsed.prompt ?branch:parsed.branch ?session_key ?channel
+              ?channel_id ()
           with
           | Ok id ->
               Printf.sprintf

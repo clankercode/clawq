@@ -166,6 +166,7 @@ let host : Session_host.t =
   {
     kind;
     supports_live_input = false;
+    ready = (fun () -> Ok ());
     start;
     status;
     read_output = Session_host.default_read_output;
