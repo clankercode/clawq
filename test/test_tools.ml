@@ -776,6 +776,46 @@ let test_send_poll_text_fallback () =
 
 let test_send_poll_validation () =
   let tool = Tools_builtin.send_poll ~rich_send_fn:None ~send_fn:None in
+  let expected_schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "question",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "The poll question (required)");
+                  ] );
+              ( "options",
+                `Assoc
+                  [
+                    ("type", `String "array");
+                    ( "description",
+                      `String "Poll options, 2-10 items (required)" );
+                    ("items", `Assoc [ ("type", `String "string") ]);
+                    ("minItems", `Int 2);
+                    ("maxItems", `Int 10);
+                  ] );
+              ( "allows_multiple",
+                `Assoc
+                  [
+                    ("type", `String "boolean");
+                    ( "description",
+                      `String
+                        "Whether users can select multiple options (default: \
+                         false)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "question"; `String "options" ]);
+      ]
+  in
+  Alcotest.(check string)
+    "provider-facing schema remains byte-compatible"
+    (Yojson.Safe.to_string expected_schema)
+    (Yojson.Safe.to_string tool.Tool.parameters_schema);
   let result_empty_q =
     Lwt_main.run
       (tool.invoke
@@ -813,7 +853,146 @@ let test_send_poll_validation () =
   in
   Alcotest.(check bool)
     "too many options error" true
-    (Test_helpers.string_contains result_too_many "at most 10")
+    (Test_helpers.string_contains result_too_many "at most 10");
+  let result_non_string_option =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [
+              ("question", `String "Q?");
+              ("options", `List [ `String "A"; `Int 2 ]);
+            ]))
+  in
+  Alcotest.(check bool)
+    "invalid option type is actionable" true
+    (Test_helpers.string_contains result_non_string_option "array of strings")
+
+let test_provider_usage_descriptor_contract () =
+  let tool = Tools_builtin.provider_usage_tool ~config:Runtime_config.default in
+  let expected_schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "action",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String
+                        "Action (required): 'list' (all providers) or 'get' \
+                         (specific provider details)" );
+                    ("enum", `List [ `String "list"; `String "get" ]);
+                  ] );
+              ( "provider",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String
+                        "Provider name for 'get' action (e.g., 'openai', \
+                         'anthropic')" );
+                  ] );
+              ( "refresh",
+                `Assoc
+                  [
+                    ("type", `String "boolean");
+                    ( "description",
+                      `String
+                        "Force refresh quota data from provider APIs (default: \
+                         use cache if < 60s old)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "action" ]);
+      ]
+  in
+  Alcotest.(check string)
+    "provider-facing schema remains byte-compatible"
+    (Yojson.Safe.to_string expected_schema)
+    (Yojson.Safe.to_string tool.Tool.parameters_schema);
+  let open Yojson.Safe.Util in
+  let properties = tool.Tool.parameters_schema |> member "properties" in
+  let action_schema = properties |> member "action" in
+  Alcotest.(check (list string))
+    "action enum is model-visible" [ "list"; "get" ]
+    (action_schema |> member "enum" |> to_list |> List.map to_string);
+  let invalid_action =
+    Lwt_main.run (tool.invoke (`Assoc [ ("action", `String "unknown") ]))
+  in
+  Alcotest.(check string)
+    "invalid enum keeps the actionable error"
+    "Error: action must be 'list' or 'get'. Use 'list' to see all providers, \
+     or 'get' with a provider name for details."
+    invalid_action;
+  let missing_provider =
+    Lwt_main.run (tool.invoke (`Assoc [ ("action", `String "get") ]))
+  in
+  Alcotest.(check bool)
+    "optional provider is required by the get action" true
+    (Test_helpers.string_contains missing_provider
+       "provider parameter is required for 'get' action")
+
+let test_tool_param_rejects_invalid_descriptors () =
+  Alcotest.check_raises "empty enums cannot produce impossible schemas"
+    (Invalid_argument "Tool_param.string_enum: values must not be empty")
+    (fun () -> ignore (Tool_param.string_enum []));
+  Alcotest.check_raises "defaults must satisfy their kind"
+    (Invalid_argument
+       "Tool_param.defaulted: parameter 'action' must be one of: 'list', 'get'")
+    (fun () ->
+      ignore
+        (Tool_param.defaulted ~name:"action" ~description:"Action"
+           ~default:"unknown"
+           (Tool_param.string_enum [ "list"; "get" ])));
+  Alcotest.check_raises "array bounds cannot be negative"
+    (Invalid_argument "Tool_param.string_array: min_items must be >= 0")
+    (fun () -> ignore (Tool_param.string_array ~min_items:(-1) ()));
+  Alcotest.check_raises "array minimum cannot exceed maximum"
+    (Invalid_argument
+       "Tool_param.string_array: min_items must not exceed max_items")
+    (fun () -> ignore (Tool_param.string_array ~min_items:3 ~max_items:2 ()));
+  Alcotest.check_raises "enum values must be unique"
+    (Invalid_argument "Tool_param.string_enum: duplicate value 'list'")
+    (fun () -> ignore (Tool_param.string_enum [ "list"; "list" ]));
+  let first =
+    Tool_param.optional ~name:"same" ~description:"First" (Tool_param.string ())
+  in
+  let second =
+    Tool_param.optional ~name:"same" ~description:"Second"
+      (Tool_param.string ())
+  in
+  Alcotest.check_raises "object field names must be unique"
+    (Invalid_argument "Tool_param.object_schema: duplicate field 'same'")
+    (fun () ->
+      ignore
+        (Tool_param.object_schema
+           [ Tool_param.pack first; Tool_param.pack second ]));
+  let reject =
+    Tool_param.defaulted ~name:"flag" ~description:"Flag" ~default:false
+      Tool_param.boolean
+  in
+  let use_default =
+    Tool_param.defaulted ~on_invalid:`Use_default ~name:"flag"
+      ~description:"Flag" ~default:false Tool_param.boolean
+  in
+  (match Tool_param.parse reject (`Assoc [ ("flag", `String "false") ]) with
+  | Error detail ->
+      Alcotest.(check string)
+        "Reject reports malformed supplied values"
+        "parameter 'flag' must be a boolean" detail
+  | Ok _ -> Alcotest.fail "Reject accepted a malformed boolean");
+  (match
+     Tool_param.parse use_default (`Assoc [ ("flag", `String "false") ])
+   with
+  | Ok value ->
+      Alcotest.(check bool)
+        "Use_default preserves the legacy malformed-value fallback" false value
+  | Error detail -> Alcotest.fail detail);
+  match Tool_param.parse use_default (`Assoc []) with
+  | Ok value -> Alcotest.(check bool) "omitted value uses default" false value
+  | Error detail -> Alcotest.fail detail
 
 let test_rich_message_to_fallback_text () =
   let text_msg = Rich_message.Text "hello" in
@@ -4295,6 +4474,10 @@ let suite =
     Alcotest.test_case "send_poll text fallback" `Quick
       test_send_poll_text_fallback;
     Alcotest.test_case "send_poll validation" `Quick test_send_poll_validation;
+    Alcotest.test_case "provider_usage descriptor contract" `Quick
+      test_provider_usage_descriptor_contract;
+    Alcotest.test_case "tool_param rejects invalid descriptors" `Quick
+      test_tool_param_rejects_invalid_descriptors;
     Alcotest.test_case "rich_message to_fallback_text" `Quick
       test_rich_message_to_fallback_text;
     Alcotest.test_case "file_attachment fallback with URL" `Quick

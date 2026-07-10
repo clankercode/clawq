@@ -192,40 +192,27 @@ let send_poll
     ~(rich_send_fn :
        (session_key:string -> Rich_message.t -> Rich_message.send_result Lwt.t)
        option) ~(send_fn : (text:string -> unit Lwt.t) option) =
+  let question_param =
+    Tool_param.required ~name:"question"
+      ~description:"The poll question (required)"
+      (Tool_param.string ~non_empty:true ())
+  in
+  let options_param =
+    Tool_param.required ~name:"options"
+      ~description:"Poll options, 2-10 items (required)"
+      (Tool_param.string_array ~min_items:2 ~max_items:10 ())
+  in
+  let allows_multiple_param =
+    Tool_param.defaulted ~on_invalid:`Use_default ~name:"allows_multiple"
+      ~description:"Whether users can select multiple options (default: false)"
+      ~default:false Tool_param.boolean
+  in
   let schema =
-    `Assoc
+    Tool_param.object_schema
       [
-        ("type", `String "object");
-        ( "properties",
-          `Assoc
-            [
-              ( "question",
-                `Assoc
-                  [
-                    ("type", `String "string");
-                    ("description", `String "The poll question (required)");
-                  ] );
-              ( "options",
-                `Assoc
-                  [
-                    ("type", `String "array");
-                    ( "description",
-                      `String "Poll options, 2-10 items (required)" );
-                    ("items", `Assoc [ ("type", `String "string") ]);
-                    ("minItems", `Int 2);
-                    ("maxItems", `Int 10);
-                  ] );
-              ( "allows_multiple",
-                `Assoc
-                  [
-                    ("type", `String "boolean");
-                    ( "description",
-                      `String
-                        "Whether users can select multiple options (default: \
-                         false)" );
-                  ] );
-            ] );
-        ("required", `List [ `String "question"; `String "options" ]);
+        Tool_param.pack question_param;
+        Tool_param.pack options_param;
+        Tool_param.pack allows_multiple_param;
       ]
   in
   let param_err detail =
@@ -241,59 +228,49 @@ let send_poll
     parameters_schema = schema;
     invoke =
       (fun ?context args ->
-        let open Yojson.Safe.Util in
-        let question =
-          try args |> member "question" |> to_string with _ -> ""
-        in
-        let options =
-          try args |> member "options" |> to_list |> List.map to_string
-          with _ -> []
-        in
-        let allows_multiple =
-          try args |> member "allows_multiple" |> to_bool with _ -> false
-        in
-        if question = "" then
-          Lwt.return
-            (param_err "parameter 'question' must be a non-empty string")
-        else if List.length options < 2 then
-          Lwt.return
-            (param_err
-               "parameter 'options' must be an array with at least 2 items")
-        else if List.length options > 10 then
-          Lwt.return
-            (param_err "parameter 'options' must have at most 10 items")
-        else
-          let session_key =
-            match context with Some ctx -> ctx.Tool.session_key | None -> None
-          in
-          let msg = Rich_message.Poll { question; options; allows_multiple } in
-          match (rich_send_fn, session_key) with
-          | Some rsf, Some sk ->
-              Lwt.catch
-                (fun () ->
-                  let open Lwt.Syntax in
-                  let* result = rsf ~session_key:sk msg in
-                  Lwt.return
-                    (Printf.sprintf "Poll sent. message_id=%s"
-                       result.Rich_message.message_id))
-                (fun exn ->
-                  Lwt.return ("Error sending poll: " ^ Printexc.to_string exn))
-          | _ -> (
-              let fallback_text = Rich_message.to_fallback_text msg in
-              match send_fn with
-              | Some f ->
-                  Lwt.catch
-                    (fun () ->
-                      let open Lwt.Syntax in
-                      let* () = f ~text:fallback_text in
-                      Lwt.return "Poll sent (rendered as text)")
-                    (fun exn ->
-                      Lwt.return
-                        ("Error sending poll: " ^ Printexc.to_string exn))
-              | None ->
-                  Lwt.return
-                    "Error: no active session notifier or configured \
-                     notification channel."));
+        match
+          ( Tool_param.parse question_param args,
+            Tool_param.parse options_param args,
+            Tool_param.parse allows_multiple_param args )
+        with
+        | Error detail, _, _ | _, Error detail, _ | _, _, Error detail ->
+            Lwt.return (param_err detail)
+        | Ok question, Ok options, Ok allows_multiple -> (
+            let session_key =
+              match context with
+              | Some ctx -> ctx.Tool.session_key
+              | None -> None
+            in
+            let msg =
+              Rich_message.Poll { question; options; allows_multiple }
+            in
+            match (rich_send_fn, session_key) with
+            | Some rsf, Some sk ->
+                Lwt.catch
+                  (fun () ->
+                    let open Lwt.Syntax in
+                    let* result = rsf ~session_key:sk msg in
+                    Lwt.return
+                      (Printf.sprintf "Poll sent. message_id=%s"
+                         result.Rich_message.message_id))
+                  (fun exn ->
+                    Lwt.return ("Error sending poll: " ^ Printexc.to_string exn))
+            | _ -> (
+                let fallback_text = Rich_message.to_fallback_text msg in
+                match send_fn with
+                | Some f ->
+                    Lwt.catch
+                      (fun () ->
+                        let open Lwt.Syntax in
+                        let* () = f ~text:fallback_text in
+                        Lwt.return "Poll sent (rendered as text)")
+                      (fun exn ->
+                        Lwt.return
+                          ("Error sending poll: " ^ Printexc.to_string exn))
+                | None ->
+                    Lwt.return
+                      "Error: no active session notifier or configured \
+                       notification channel.")));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;

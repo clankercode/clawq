@@ -434,58 +434,55 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
 
 let provider_usage_tool ~(config : Runtime_config.t) =
   Provider_quota.set_cache_ttl config.quota_cache_ttl_s;
+  let action_param =
+    Tool_param.required ~name:"action"
+      ~description:
+        "Action (required): 'list' (all providers) or 'get' (specific provider \
+         details)"
+      (Tool_param.string_enum [ "list"; "get" ])
+  in
+  let provider_param =
+    Tool_param.optional ~name:"provider"
+      ~description:
+        "Provider name for 'get' action (e.g., 'openai', 'anthropic')"
+      (Tool_param.string ())
+  in
+  let refresh_param =
+    Tool_param.defaulted ~on_invalid:`Use_default ~name:"refresh"
+      ~description:
+        "Force refresh quota data from provider APIs (default: use cache if < \
+         60s old)"
+      ~default:false Tool_param.boolean
+  in
+  let schema =
+    Tool_param.object_schema
+      [
+        Tool_param.pack action_param;
+        Tool_param.pack provider_param;
+        Tool_param.pack refresh_param;
+      ]
+  in
+  let invalid_action_error =
+    "Error: action must be 'list' or 'get'. Use 'list' to see all providers, \
+     or 'get' with a provider name for details."
+  in
+  let missing_provider_error =
+    "Error: provider parameter is required for 'get' action. Specify a \
+     provider name (e.g., 'openai', 'anthropic'). Use 'provider_usage list' to \
+     see available providers."
+  in
   {
     Tool.name = "provider_usage";
     description =
       "Check quota and usage information for configured LLM providers. Shows \
        session, weekly, and monthly usage limits when available. Use 'list' to \
        see all providers, or 'get' with a provider name for details.";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "action",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String
-                          "Action (required): 'list' (all providers) or 'get' \
-                           (specific provider details)" );
-                      ("enum", `List [ `String "list"; `String "get" ]);
-                    ] );
-                ( "provider",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String
-                          "Provider name for 'get' action (e.g., 'openai', \
-                           'anthropic')" );
-                    ] );
-                ( "refresh",
-                  `Assoc
-                    [
-                      ("type", `String "boolean");
-                      ( "description",
-                        `String
-                          "Force refresh quota data from provider APIs \
-                           (default: use cache if < 60s old)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "action" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Lwt.Syntax in
-        let open Yojson.Safe.Util in
-        let action = try args |> member "action" |> to_string with _ -> "" in
-        let refresh =
-          try args |> member "refresh" |> to_bool with _ -> false
-        in
+        let parsed_action = Tool_param.parse action_param args in
+        let parsed_refresh = Tool_param.parse refresh_param args in
         let format_quota (name, pq) =
           let sess, week, mon =
             match pq.Provider_quota.state with
@@ -499,8 +496,13 @@ let provider_usage_tool ~(config : Runtime_config.t) =
           in
           Printf.sprintf "%s\t%s\t%s\t%s" name sess week mon
         in
-        match action with
-        | "list" ->
+        match (parsed_action, parsed_refresh) with
+        | Error _, _ -> Lwt.return invalid_action_error
+        | _, Error detail ->
+            Lwt.return
+              (Tool.make_param_error ~tool_name:"provider_usage"
+                 ~parameters_schema:schema ~detail)
+        | Ok "list", Ok refresh ->
             let* results =
               if refresh then
                 let* refreshed = Provider_quota.refresh_all ~config () in
@@ -520,48 +522,40 @@ let provider_usage_tool ~(config : Runtime_config.t) =
               let header = "Provider\tSession\tWeekly\tMonthly" in
               let lines = List.map format_quota results in
               Lwt.return (String.concat "\n" (header :: lines))
-        | "get" -> (
-            let provider =
-              try args |> member "provider" |> to_string with _ -> ""
-            in
-            if provider = "" then
-              Lwt.return
-                "Error: provider parameter is required for 'get' action. \
-                 Specify a provider name (e.g., 'openai', 'anthropic'). Use \
-                 'provider_usage list' to see available providers."
-            else
-              match Provider_quota.get_cached provider with
-              | Some pq -> Lwt.return (Provider_quota.to_summary_string pq)
-              | None ->
-                  if refresh then
-                    let* refreshed = Provider_quota.refresh_all ~config () in
-                    let results =
-                      List.map
-                        (fun pq -> (pq.Provider_quota.provider_name, pq))
-                        refreshed
-                    in
-                    match
-                      List.find_opt (fun (n, _) -> n = provider) results
-                    with
-                    | Some (_, pq) ->
-                        Lwt.return (Provider_quota.to_summary_string pq)
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf
-                             "Provider '%s' not found. Use 'provider_usage \
-                              list' to see available providers."
-                             provider)
-                  else
-                    Lwt.return
-                      (Printf.sprintf
-                         "No cached data for provider '%s'. Set refresh=true \
-                          to fetch current data, or use 'provider_usage list' \
-                          to see available providers."
-                         provider))
-        | _ ->
-            Lwt.return
-              "Error: action must be 'list' or 'get'. Use 'list' to see all \
-               providers, or 'get' with a provider name for details.");
+        | Ok "get", Ok refresh -> (
+            match Tool_param.parse provider_param args with
+            | Error _ | Ok None | Ok (Some "") ->
+                Lwt.return missing_provider_error
+            | Ok (Some provider) -> (
+                match Provider_quota.get_cached provider with
+                | Some pq -> Lwt.return (Provider_quota.to_summary_string pq)
+                | None ->
+                    if refresh then
+                      let* refreshed = Provider_quota.refresh_all ~config () in
+                      let results =
+                        List.map
+                          (fun pq -> (pq.Provider_quota.provider_name, pq))
+                          refreshed
+                      in
+                      match
+                        List.find_opt (fun (n, _) -> n = provider) results
+                      with
+                      | Some (_, pq) ->
+                          Lwt.return (Provider_quota.to_summary_string pq)
+                      | None ->
+                          Lwt.return
+                            (Printf.sprintf
+                               "Provider '%s' not found. Use 'provider_usage \
+                                list' to see available providers."
+                               provider)
+                    else
+                      Lwt.return
+                        (Printf.sprintf
+                           "No cached data for provider '%s'. Set refresh=true \
+                            to fetch current data, or use 'provider_usage \
+                            list' to see available providers."
+                           provider)))
+        | Ok _, Ok _ -> Lwt.return invalid_action_error);
     invoke_stream = None;
     risk_level = Low;
     deferred = false;

@@ -90,6 +90,7 @@
   session
   stt
   tool
+  tool_param
   tool_registry
   tools_builtin_proc
   tools_builtin_session
