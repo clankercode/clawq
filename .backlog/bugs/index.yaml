@@ -769,3 +769,4 @@ bugs:
     - file: B773-github-at-mentions-and-assignm.todo
     - file: B774-hosted-work-items-cannot-be-le.todo
     - file: B775-hosted-subscription-runners-by.todo
+    - file: B776-worker-fleet-setup-and-readine.todo
