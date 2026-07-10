@@ -88,6 +88,9 @@ let format_backlink_footer ~repo ~pr_number
   | PullRequest pr ->
       if pr.html_url <> "" then
         parts := Printf.sprintf "[PR](%s)" pr.html_url :: !parts
+  | IssueAssigned issue ->
+      if issue.html_url <> "" then
+        parts := Printf.sprintf "[Issue](%s)" issue.html_url :: !parts
   | Ignored -> ());
   match !parts with
   | [] -> ""
@@ -128,6 +131,9 @@ let format_backlink_footer_for_slack ~repo ~pr_number
   | PullRequest pr ->
       if pr.html_url <> "" then
         parts := Printf.sprintf "<%s|PR>" pr.html_url :: !parts
+  | IssueAssigned issue ->
+      if issue.html_url <> "" then
+        parts := Printf.sprintf "<%s|Issue>" issue.html_url :: !parts
   | Ignored -> ());
   match !parts with
   | [] -> ""
@@ -363,6 +369,10 @@ let sanitize_payload_summary (event : Github_webhook.parsed_event) =
       truncate
         (Printf.sprintf "Comment on issue #%d by @%s" comment.issue_number
            comment.comment_author)
+  | IssueAssigned issue ->
+      truncate
+        (Printf.sprintf "Issue #%d assigned to @%s" issue.issue_number
+           issue.assignee)
   | Ignored -> "ignored"
 
 (** {1 Slack mrkdwn formatters}
@@ -512,6 +522,7 @@ let event_type_to_preference_key (event : Github_webhook.parsed_event) =
       Some "review_comment" (* Use review_comment, not review *)
   | PullRequestReview _ -> Some "review"
   | CheckRun _ | CheckSuite _ | WorkflowRun _ -> Some "status"
+  | IssueAssigned _ -> None
   | Ignored -> None
 
 (** Check if a subscription should be notified for a given event. *)
@@ -617,6 +628,7 @@ let dispatch_to_subscriptions ~(db : Sqlite3.db)
             if suite.conclusion <> "" then suite.conclusion else suite.status
         | Github_webhook.WorkflowRun run ->
             if run.conclusion <> "" then run.conclusion else run.status
+        | Github_webhook.IssueAssigned _ -> "assigned"
         | Github_webhook.Ignored -> "unknown"
       in
       let is_slack = String.lowercase_ascii connector = "slack" in

@@ -649,6 +649,8 @@ let init_from_config_pat_sets_none () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -675,6 +677,8 @@ let init_from_config_app_sets_token () =
           auth = Runtime_config.GithubApp app_config;
           repos = [];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in
@@ -698,6 +702,8 @@ let init_from_config_invalid_key_sets_none () =
       auth = Runtime_config.GithubApp app_config;
       repos = [];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -724,6 +730,8 @@ let invalidate_all_clears_token () =
           auth = Runtime_config.GithubApp app_config;
           repos = [];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in

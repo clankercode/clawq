@@ -86,6 +86,21 @@ type workflow_run_event = {
   actor : string;
 }
 
+type issue_assigned_event = {
+  owner : string;
+  repo : string;
+  issue_number : int;
+  issue_title : string;
+  issue_body : string;
+  assignee : string;  (** login the issue was assigned to ("" for labels) *)
+  actor : string;  (** login that performed the assignment *)
+  label : string option;
+      (** label name when the trigger was action=labeled (the configured
+          fallback for identities that are not assignable) *)
+  html_url : string;
+}
+(** B773: [issues] webhook with action=assigned or labeled. *)
+
 type parsed_event =
   | PullRequest of pr_event
   | IssueComment of issue_comment_event
@@ -94,6 +109,7 @@ type parsed_event =
   | CheckRun of check_run_event
   | CheckSuite of check_suite_event
   | WorkflowRun of workflow_run_event
+  | IssueAssigned of issue_assigned_event
   | Ignored
 
 type ci_summary = {
@@ -196,7 +212,7 @@ let ci_summary_of_event event =
           details_url = "";
         }
   | PullRequest _ | IssueComment _ | PrReviewComment _ | PullRequestReview _
-  | Ignored ->
+  | IssueAssigned _ | Ignored ->
       None
 
 (** Parse a raw GitHub review state string into a normalized [review_state]. *)
@@ -239,7 +255,7 @@ let review_summary_of_event event =
           head_sha = e.head_sha;
         }
   | PullRequest _ | IssueComment _ | CheckRun _ | CheckSuite _ | WorkflowRun _
-  | Ignored ->
+  | IssueAssigned _ | Ignored ->
       None
 
 (** Detect mergeability-relevant changes from a PR webhook event. Returns a list
@@ -457,6 +473,41 @@ let parse_event ~event_type ~body =
                 base_branch;
                 head_branch;
                 html_url;
+              }
+        | _ -> Ignored)
+    | "issues" -> (
+        let action = try json |> member "action" |> to_string with _ -> "" in
+        match action with
+        | "assigned" | "labeled" ->
+            let issue = json |> member "issue" in
+            let get_str node key =
+              try node |> member key |> to_string with _ -> ""
+            in
+            IssueAssigned
+              {
+                owner;
+                repo;
+                issue_number =
+                  (try issue |> member "number" |> to_int with _ -> 0);
+                issue_title = get_str issue "title";
+                issue_body = get_str issue "body";
+                assignee =
+                  (if action = "assigned" then
+                     try
+                       json |> member "assignee" |> member "login" |> to_string
+                     with _ -> ""
+                   else "");
+                actor =
+                  (try json |> member "sender" |> member "login" |> to_string
+                   with _ -> "");
+                label =
+                  (if action = "labeled" then
+                     try
+                       Some
+                         (json |> member "label" |> member "name" |> to_string)
+                     with _ -> None
+                   else None);
+                html_url = get_str issue "html_url";
               }
         | _ -> Ignored)
     | "issue_comment" -> (
@@ -750,6 +801,8 @@ let session_key event =
   | CheckSuite e -> Printf.sprintf "github:%s/%s:check_suite" e.owner e.repo
   | WorkflowRun e ->
       Printf.sprintf "github:%s/%s:workflow:%s" e.owner e.repo e.name
+  | IssueAssigned e ->
+      Printf.sprintf "github:%s/%s:issue:%d" e.owner e.repo e.issue_number
   | Ignored -> "github:unknown"
 
 let repo_of_event event =
@@ -761,6 +814,7 @@ let repo_of_event event =
   | CheckRun e -> (e.owner, e.repo)
   | CheckSuite e -> (e.owner, e.repo)
   | WorkflowRun e -> (e.owner, e.repo)
+  | IssueAssigned e -> (e.owner, e.repo)
   | Ignored -> ("", "")
 
 let author_of_event event =
@@ -770,6 +824,7 @@ let author_of_event event =
   | PrReviewComment e -> e.comment_author
   | PullRequestReview e -> e.review_author
   | CheckRun _ | CheckSuite _ | WorkflowRun _ -> "github-app"
+  | IssueAssigned e -> e.actor
   | Ignored -> ""
 
 let event_type_string event =
@@ -781,6 +836,7 @@ let event_type_string event =
   | CheckRun _ -> "check_run"
   | CheckSuite _ -> "check_suite"
   | WorkflowRun _ -> "workflow_run"
+  | IssueAssigned _ -> "issues"
   | Ignored -> "ignored"
 
 let extract_clawq ~event ~pr_files =
@@ -791,6 +847,7 @@ let extract_clawq ~event ~pr_files =
     | PrReviewComment e -> e.comment_body
     | PullRequestReview e -> e.body
     | CheckRun _ | CheckSuite _ | WorkflowRun _ -> ""
+    | IssueAssigned _ -> ""
     | Ignored -> ""
   in
   let lines = String.split_on_char '\n' text in
@@ -912,6 +969,16 @@ let extract_clawq ~event ~pr_files =
               if e.actor <> "" then
                 Buffer.add_string buf (Printf.sprintf "Actor: %s\n" e.actor);
               Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
+          | IssueAssigned e ->
+              Buffer.add_string buf
+                (Printf.sprintf "Issue #%d: %S\n" e.issue_number e.issue_title);
+              Buffer.add_string buf
+                (Printf.sprintf "Assigned to @%s by @%s\n" e.assignee e.actor);
+              if String.trim e.issue_body <> "" then
+                Buffer.add_string buf
+                  (Printf.sprintf "\nIssue Description:\n  %s\n"
+                     (truncate e.issue_body 2000));
+              Buffer.add_string buf (Printf.sprintf "URL: %s\n" e.html_url)
           | Ignored -> ());
           if pr_files <> [] then begin
             let count = List.length pr_files in
@@ -935,6 +1002,7 @@ let extract_clawq ~event ~pr_files =
               | PrReviewComment e -> e.pr_number
               | IssueComment e -> e.issue_number
               | PullRequestReview e -> e.pr_number
+              | IssueAssigned e -> e.issue_number
               | CheckRun _ | CheckSuite _ | WorkflowRun _ | Ignored -> 0
             in
             Buffer.add_string buf
@@ -947,3 +1015,79 @@ let extract_clawq ~event ~pr_files =
         else find_clawq rest
   in
   find_clawq lines
+
+(* B773: leading at-mention trigger. Only the FIRST non-blank line may
+   address the agent, quoted lines ("> ...") never trigger, and only the
+   addressed prefix is stripped — the rest of the request is untouched. The
+   rewritten body then flows through the same /clawq extractor so mention,
+   assignment, and slash-command triggers share one parser and preamble. *)
+let rewrite_leading_mention ~login text =
+  let mention = "@" ^ String.lowercase_ascii login in
+  let mlen = String.length mention in
+  let lines = String.split_on_char '\n' text in
+  let rec split_blank_prefix acc = function
+    | line :: rest when String.trim line = "" ->
+        split_blank_prefix (line :: acc) rest
+    | rest -> (List.rev acc, rest)
+  in
+  let blanks, rest = split_blank_prefix [] lines in
+  match rest with
+  | [] -> None
+  | first :: tail ->
+      let trimmed = String.trim first in
+      let lower = String.lowercase_ascii trimmed in
+      let addressed =
+        String.length lower >= mlen
+        && String.sub lower 0 mlen = mention
+        && (String.length lower = mlen
+           ||
+           match lower.[mlen] with
+           | ' ' | '\t' | ':' | ',' -> true
+           | _ -> false)
+      in
+      if (not addressed) || (String.length trimmed > 0 && trimmed.[0] = '>')
+      then None
+      else
+        let after =
+          let rest_of_line =
+            String.sub trimmed mlen (String.length trimmed - mlen)
+          in
+          let rest_of_line =
+            match rest_of_line with
+            | "" -> ""
+            | r when r.[0] = ':' || r.[0] = ',' ->
+                String.sub r 1 (String.length r - 1)
+            | r -> r
+          in
+          String.trim rest_of_line
+        in
+        Some (String.concat "\n" (blanks @ (("/clawq " ^ after) :: tail)))
+
+(** B773: canonical trigger parser — /clawq (legacy, unchanged) or a configured
+    leading at-mention, normalized into the same extraction. *)
+let extract_trigger ?trigger_login ~event ~pr_files () =
+  match extract_clawq ~event ~pr_files with
+  | Some _ as result -> result
+  | None -> (
+      match trigger_login with
+      | None -> None
+      | Some login -> (
+          let rewritten =
+            match event with
+            | IssueComment e ->
+                Option.map
+                  (fun body -> IssueComment { e with comment_body = body })
+                  (rewrite_leading_mention ~login e.comment_body)
+            | PrReviewComment e ->
+                Option.map
+                  (fun body -> PrReviewComment { e with comment_body = body })
+                  (rewrite_leading_mention ~login e.comment_body)
+            | PullRequestReview e ->
+                Option.map
+                  (fun body -> PullRequestReview { e with body })
+                  (rewrite_leading_mention ~login e.body)
+            | _ -> None
+          in
+          match rewritten with
+          | Some event -> extract_clawq ~event ~pr_files
+          | None -> None))

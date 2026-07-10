@@ -755,6 +755,69 @@ let test_herdr_integration_roundtrip () =
                | Error msg -> Alcotest.fail msg);
                Lwt.return_unit))
 
+(* Opt-in e2e: a real Claude session (haiku) hosted in Herdr must produce a
+   reply through the wrapper/log/exit-marker path. Skips without herdr or
+   claude, and on provider auth errors. Uses claude (subscription) per repo
+   quota guidance; codex is not exercised here. *)
+let looks_like_auth_error out =
+  let lower = String.lowercase_ascii out in
+  List.exists
+    (fun needle -> String_util.contains lower needle)
+    [ "unauthorized"; "api key"; "401"; "please log in"; "not logged in" ]
+
+let test_herdr_claude_haiku_roundtrip () =
+  if not (Session_host_herdr.herdr_available ()) then Alcotest.skip ()
+  else if not (Background_task.command_exists "claude") then Alcotest.skip ()
+  else
+    with_temp_log (fun log_path ->
+        let def =
+          Runner_framework.runner_def_of_runner Runner_framework.Claude
+        in
+        let result =
+          Runner_framework.build_command_for ~model:(Some "haiku")
+            ~prompt:
+              "Reply with exactly the word OK and nothing else. Do not use any \
+               tools."
+            ~runner_session_id:None def Runner_framework.Fresh
+        in
+        let host = Session_host_herdr.host in
+        Lwt_main.run
+          (let open Lwt.Syntax in
+           let* started =
+             host.start
+               {
+                 Session_host.command =
+                   Process_group.Exec result.Runner_framework.argv;
+                 cwd = "/tmp";
+                 env = Unix.environment ();
+                 log_path;
+               }
+           in
+           match started with
+           | Error msg ->
+               Printf.printf "skipping herdr+claude e2e: %s\n" msg;
+               Lwt.return_unit
+           | Ok session -> (
+               let timeout =
+                 let* () = Lwt_unix.sleep 180.0 in
+                 let* _ = host.cancel session in
+                 Lwt.return (Error "timed out waiting for claude in herdr")
+               in
+               let* waited = Lwt.pick [ host.wait session; timeout ] in
+               let out = Background_task.read_log_tail log_path (64 * 1024) in
+               match waited with
+               | Error msg -> Alcotest.failf "herdr wait failed: %s" msg
+               | Ok _ when looks_like_auth_error out ->
+                   Printf.printf
+                     "skipping herdr+claude e2e: claude not authenticated\n";
+                   Lwt.return_unit
+               | Ok code ->
+                   Alcotest.(check int) "claude exited cleanly" 0 code;
+                   Alcotest.(check bool)
+                     "claude replied OK through the herdr-hosted log" true
+                     (String_util.contains out "OK");
+                   Lwt.return_unit)))
+
 let suite =
   [
     Alcotest.test_case "fake host start/send/wait lifecycle" `Quick
@@ -805,4 +868,6 @@ let suite =
       test_herdr_enqueue_unknown_kind_refused;
     Alcotest.test_case "herdr integration roundtrip" `Slow
       test_herdr_integration_roundtrip;
+    Alcotest.test_case "herdr hosts a real claude haiku session" `Slow
+      test_herdr_claude_haiku_roundtrip;
   ]

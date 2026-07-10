@@ -171,6 +171,12 @@ type github_config = {
   auth : github_auth;
   repos : github_repo_config list;
   default_model : string option;
+  trigger_login : string option;
+      (** B773: GitHub login that triggers work when a comment leads with
+          @login or when an issue is assigned to it. *)
+  trigger_label : string option;
+      (** B773: optional fallback label that triggers work when added, for repos
+          where the trigger identity is not assignable. *)
   auth_credential_handle : string option;
       (** If set, GitHub API calls resolve credentials through the credential
           lease API using this handle ID, scoped by the access snapshot. When

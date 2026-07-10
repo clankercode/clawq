@@ -588,6 +588,8 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
           auth = Runtime_config.GithubPat "ghp_test12345";
           repos = [ repo_config ];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in
@@ -805,6 +807,8 @@ let hook_post_back_to_github_posts_comment () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -867,6 +871,8 @@ let hook_post_back_skips_without_issue_number () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -894,6 +900,8 @@ let hook_post_back_skips_without_repo () =
       auth = Runtime_config.GithubPat "ghp_test";
       repos = [];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -949,6 +957,8 @@ let run_matching_hooks_post_back_integration () =
           auth = Runtime_config.GithubPat "ghp_test";
           repos = [];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in
@@ -1036,6 +1046,8 @@ let run_matching_hooks_no_post_back_when_false () =
           auth = Runtime_config.GithubPat "ghp_test";
           repos = [];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in
@@ -1177,6 +1189,8 @@ let make_webhook_env ~secret ~body ~allow_users =
       auth = Runtime_config.GithubPat "ghp_test12345";
       repos = [ repo_config ];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -1424,6 +1438,8 @@ let handle_webhook_dedup_delivery_id () =
                 auth = Runtime_config.GithubPat "ghp_test12345";
                 repos = [ repo_config ];
                 default_model = None;
+                trigger_login = None;
+                trigger_label = None;
                 auth_credential_handle = None;
               }
             in
@@ -1475,6 +1491,8 @@ let resolve_headers_uses_lease_when_handle_set () =
           auth = Runtime_config.GithubPat "ghp_legacy_token_12345";
           repos = [];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = Some "github-pat:main";
         }
       in
@@ -1531,6 +1549,8 @@ let resolve_headers_denies_unauthorized_handle () =
           auth = Runtime_config.GithubPat "ghp_legacy_token_12345";
           repos = [];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = Some "github-pat:main";
         }
       in
@@ -1571,6 +1591,8 @@ let resolve_headers_falls_back_to_legacy_when_no_handle () =
       auth = Runtime_config.GithubPat "ghp_legacy_token_12345";
       repos = [];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in

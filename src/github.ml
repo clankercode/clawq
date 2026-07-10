@@ -177,7 +177,8 @@ let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
       | Github_webhook.IssueComment e -> if e.is_pr then e.issue_number else 0
       | Github_webhook.PullRequestReview e -> e.pr_number
       | Github_webhook.CheckRun _ | Github_webhook.CheckSuite _
-      | Github_webhook.WorkflowRun _ | Github_webhook.Ignored ->
+      | Github_webhook.WorkflowRun _ | Github_webhook.IssueAssigned _
+      | Github_webhook.Ignored ->
           0
     in
     if pr_n <= 0 then Lwt.return []
@@ -203,7 +204,7 @@ let comment_body_of_event = function
   | Github_webhook.PullRequestReview e -> Some e.body
   | Github_webhook.PullRequest _ | Github_webhook.CheckRun _
   | Github_webhook.CheckSuite _ | Github_webhook.WorkflowRun _
-  | Github_webhook.Ignored ->
+  | Github_webhook.IssueAssigned _ | Github_webhook.Ignored ->
       None
 
 let acknowledge_reaction ~(github_config : Runtime_config.github_config)
@@ -242,6 +243,7 @@ let issue_number_of_event = function
   | Github_webhook.IssueComment e -> e.issue_number
   | Github_webhook.PrReviewComment e -> e.pr_number
   | Github_webhook.PullRequestReview e -> e.pr_number
+  | Github_webhook.IssueAssigned e -> e.issue_number
   | Github_webhook.CheckRun _ | Github_webhook.CheckSuite _
   | Github_webhook.WorkflowRun _ | Github_webhook.Ignored ->
       0
@@ -303,6 +305,15 @@ let post_reply ~(github_config : Runtime_config.github_config)
                   ~app_token:(Github_app_token.resolve_app_token ())
                   ~auth:github_config.auth ~resolve_headers ~egress_rules
                   ~egress_audit ~owner ~repo ~issue_number:e.pr_number
+                  ~body:reply_text ()
+              in
+              Lwt.return (Option.map string_of_int id)
+          | Github_webhook.IssueAssigned e ->
+              let* id =
+                Github_api.post_comment_returning_id
+                  ~app_token:(Github_app_token.resolve_app_token ())
+                  ~auth:github_config.auth ~resolve_headers ~egress_rules
+                  ~egress_audit ~owner ~repo ~issue_number:e.issue_number
                   ~body:reply_text ()
               in
               Lwt.return (Option.map string_of_int id)
@@ -1459,35 +1470,102 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                     | _ -> Lwt.return 0
                   in
                   let db_opt = Session.get_db session_manager in
-                  match Github_webhook.extract_clawq ~event ~pr_files with
-                  | Some (user_message, preamble) -> (
-                      let options =
-                        Github_work_item.parse_command_options user_message
+                  match event with
+                  | Github_webhook.IssueAssigned assigned -> (
+                      (* B773: assignment intake — launches only when the new
+                         assignee matches the configured trigger identity. *)
+                      let matches =
+                        match assigned.label with
+                        | None -> (
+                            (* action=assigned: only the configured identity *)
+                            match github_config.trigger_login with
+                            | Some login ->
+                                String.lowercase_ascii assigned.assignee
+                                = String.lowercase_ascii login
+                            | None -> false)
+                        | Some label -> (
+                            (* action=labeled: configured fallback label for
+                               identities that are not assignable *)
+                            match github_config.trigger_label with
+                            | Some configured ->
+                                String.lowercase_ascii label
+                                = String.lowercase_ascii configured
+                            | None -> false)
                       in
-                      match db_opt with
-                      | Some db
-                        when Github_work_item.wants_work_item options
-                             && options.request <> "" ->
-                          Github_work_item.init_schema db;
-                          run_clawq_work_item ~github_config ~resolve_headers
-                            ~egress_rules ~egress_audit ~db ~repo_config ~config
-                            ~api_limiter ~delivery_id ~owner ~repo ~author event
-                            ~options ~preamble
-                      | _ ->
-                          run_clawq_command ~github_config ~resolve_headers
-                            ~egress_rules ~egress_audit ?db:db_opt
-                            ~session_manager ~api_limiter ~owner ~repo ~author
-                            event ~user_message ~preamble)
-                  | None ->
-                      let* hook_count =
-                        Github_hooks.run_matching_hooks ~session_manager
-                          ~prepared ~github_config:(Some github_config)
-                          ~resolve_headers ~egress_rules ~egress_audit
-                          ~api_limiter ()
-                      in
-                      if hook_count > 0 then
-                        Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
-                      else Lwt.return (Ok "no /clawq command"))
+                      if not matches then Lwt.return (Ok "assignment ignored")
+                      else
+                        match db_opt with
+                        | None -> Lwt.return (Ok "assignment ignored (no db)")
+                        | Some db ->
+                            Github_work_item.init_schema db;
+                            let options =
+                              {
+                                Github_work_item.runner_opt = Some "auto";
+                                host_opt = None;
+                                request =
+                                  Printf.sprintf
+                                    "You were assigned issue #%d: %S. Analyze \
+                                     it and reply with an answer or an \
+                                     actionable plan."
+                                    assigned.issue_number assigned.issue_title;
+                              }
+                            in
+                            let preamble =
+                              Printf.sprintf
+                                "## GitHub Context\n\
+                                 Repository: %s/%s\n\
+                                 Issue #%d: %S\n\
+                                 Assigned to @%s by @%s\n\n\
+                                 Issue Description:\n\
+                                \  %s\n\
+                                 URL: %s\n"
+                                owner repo assigned.issue_number
+                                assigned.issue_title assigned.assignee
+                                assigned.actor
+                                (String.sub assigned.issue_body 0
+                                   (min 2000
+                                      (String.length assigned.issue_body)))
+                                assigned.html_url
+                            in
+                            run_clawq_work_item ~github_config ~resolve_headers
+                              ~egress_rules ~egress_audit ~db ~repo_config
+                              ~config ~api_limiter ~delivery_id ~owner ~repo
+                              ~author event ~options ~preamble)
+                  | _ -> (
+                      match
+                        Github_webhook.extract_trigger
+                          ?trigger_login:github_config.trigger_login ~event
+                          ~pr_files ()
+                      with
+                      | Some (user_message, preamble) -> (
+                          let options =
+                            Github_work_item.parse_command_options user_message
+                          in
+                          match db_opt with
+                          | Some db
+                            when Github_work_item.wants_work_item options
+                                 && options.request <> "" ->
+                              Github_work_item.init_schema db;
+                              run_clawq_work_item ~github_config
+                                ~resolve_headers ~egress_rules ~egress_audit ~db
+                                ~repo_config ~config ~api_limiter ~delivery_id
+                                ~owner ~repo ~author event ~options ~preamble
+                          | _ ->
+                              run_clawq_command ~github_config ~resolve_headers
+                                ~egress_rules ~egress_audit ?db:db_opt
+                                ~session_manager ~api_limiter ~owner ~repo
+                                ~author event ~user_message ~preamble)
+                      | None ->
+                          let* hook_count =
+                            Github_hooks.run_matching_hooks ~session_manager
+                              ~prepared ~github_config:(Some github_config)
+                              ~resolve_headers ~egress_rules ~egress_audit
+                              ~api_limiter ()
+                          in
+                          if hook_count > 0 then
+                            Lwt.return
+                              (Ok (Printf.sprintf "hooked:%d" hook_count))
+                          else Lwt.return (Ok "no /clawq command")))
         else
           (* Non-user-generated events (check_run, workflow_run, etc.) *)
           let event = Github_webhook.parse_event ~event_type ~body in

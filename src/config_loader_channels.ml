@@ -277,8 +277,21 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
           try Some (g |> member "auth_credential_handle" |> to_string)
           with _ -> None
         in
+        let str_opt key =
+          try match g |> member key |> to_string with "" -> None | v -> Some v
+          with _ -> None
+        in
+        let trigger_login = str_opt "trigger_login" in
+        let trigger_label = str_opt "trigger_label" in
         Some
-          ({ auth; repos; default_model; auth_credential_handle }
+          ({
+             auth;
+             repos;
+             default_model;
+             trigger_login;
+             trigger_label;
+             auth_credential_handle;
+           }
             : Runtime_config.github_config)
       with exn ->
         Logs.warn (fun m ->

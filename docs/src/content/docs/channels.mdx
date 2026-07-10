@@ -447,6 +447,13 @@ any processing occurs.
 - **Durable work items** --- `/clawq runner=<auto|codex|claude>
   host=<direct|herdr> <request>` executes through a persistent, deduplicated
   work-item envelope with restart recovery (see Comment/Reply Lifecycle).
+- **Mention and assignment triggers** --- set `channels.github.trigger_login`
+  to let a leading `@login` on issue/PR/review comments, or assignment of an
+  issue to that identity, launch the same work-item path as `/clawq` (same
+  parser, authorization, dedup, and self-loop protection). Quoted or
+  mid-text mentions never trigger. `channels.github.trigger_label` is the
+  documented fallback for identities that cannot be assigned: adding that
+  label launches the same intake.
 - **Repository publication policy** --- when a repo config sets
   `local_repo_path`, code-changing work items run in an isolated worktree of
   that checkout under `.clawq/publication-policy.json` (publication

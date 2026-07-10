@@ -68,6 +68,8 @@ let test_github_app_roundtrip () =
                 auth = Runtime_config.GithubApp app;
                 repos = [];
                 default_model = None;
+                trigger_login = None;
+                trigger_label = None;
                 auth_credential_handle = None;
               };
         };

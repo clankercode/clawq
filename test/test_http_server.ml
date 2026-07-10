@@ -1217,6 +1217,8 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
                   };
                 ];
               default_model = None;
+              trigger_login = None;
+              trigger_label = None;
               auth_credential_handle = None;
             }
           in
@@ -1322,6 +1324,8 @@ let test_github_pr_synchronize_reuses_pr_session () =
                   };
                 ];
               default_model = None;
+              trigger_login = None;
+              trigger_label = None;
               auth_credential_handle = None;
             }
           in
@@ -1429,6 +1433,8 @@ Payload: {{payload_path}}
               };
             ];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in
@@ -1507,6 +1513,8 @@ let test_github_webhook_accepts_repo_case_mismatch () =
           };
         ];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
@@ -1591,6 +1599,8 @@ This should never run.
               };
             ];
           default_model = None;
+          trigger_login = None;
+          trigger_label = None;
           auth_credential_handle = None;
         }
       in
@@ -1679,6 +1689,8 @@ let test_github_webhook_reaction_and_placeholder_edit () =
                   };
                 ];
               default_model = None;
+              trigger_login = None;
+              trigger_label = None;
               auth_credential_handle = None;
             }
           in
@@ -1798,6 +1810,8 @@ let test_github_webhook_rejects_ambiguous_path () =
           };
         ];
       default_model = None;
+      trigger_login = None;
+      trigger_label = None;
       auth_credential_handle = None;
     }
   in
