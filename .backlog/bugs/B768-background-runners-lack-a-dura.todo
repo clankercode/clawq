@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-07-10T04:09:59Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-10T04:31:05Z"
 complexity: high
 depends_on: []
+duration_minutes: 21.111664004133335
 estimate_hours: 1
 id: B768
 priority: high
 started_at: "2026-07-10T04:09:59Z"
-status: in_progress
+status: done
 tags: []
 title: Background runners lack a durable session-host abstraction
 ---
