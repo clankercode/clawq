@@ -1,15 +1,24 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - B768
 estimate_hours: 1
 id: B770
 priority: medium
+started_at: null
 status: pending
-tags:
-    - background-tasks
-    - tmux
-    - runner-lifecycle
+tags: []
 title: Background runners cannot use tmux as a persistent session host
 ---
-ClawQ cannot currently host external Codex or Claude runners in named detached tmux sessions. A tmux backend is needed as a widely available fallback when Herdr is not installed and as a simple inspectable host for autonomous work items.\n\nAdd a tmux adapter to the session-host interface from B768. It must create collision-safe named sessions, launch the runner in the task worktree, capture output, deliver literal follow-up input safely, check liveness, terminate the session, expose the attach command, and recover or classify sessions after daemon restart. Prompt and issue text must not be shell-interpolated; use a safe argv/script-file or tmux buffer mechanism.\n\nAcceptance:\n- A background task can select host=tmux independently of runner=auto/codex/claude.\n- list/show/logs/message/wait/cancel map consistently onto the shared host lifecycle.\n- Session names are deterministic enough for recovery but collision-safe across ClawQ homes and task IDs.\n- Missing tmux, missing sessions, already-completed sessions, and failed startup have explicit negative tests.\n- Integration tests skip cleanly when tmux is unavailable.\n- Existing direct-process behavior remains the default until configuration explicitly selects or prefers tmux.
+Clawq cannot currently host external Codex or Claude runners in named detached tmux sessions. A tmux backend is needed as a widely available fallback when Herdr is not installed and as a simple inspectable host for autonomous work items.
+
+Add a tmux adapter to the session-host interface from B768. It must create collision-safe named sessions, launch the runner in the task worktree, capture output, deliver literal follow-up input safely, check liveness, terminate the session, expose the attach command, and recover or classify sessions after daemon restart. Prompt and issue text must not be shell-interpolated; use a safe argv/script-file or tmux buffer mechanism.
+
+Acceptance:
+- A background task can select host=tmux independently of runner=auto/codex/claude.
+- list/show/logs/message/wait/cancel map consistently onto the shared host lifecycle.
+- Session names are deterministic enough for recovery but collision-safe across Clawq homes and task IDs.
+- Missing tmux, missing sessions, already-completed sessions, and failed startup have explicit negative tests.
+- Integration tests skip cleanly when tmux is unavailable.
+- Existing direct-process behavior remains the default until configuration explicitly selects or prefers tmux.
