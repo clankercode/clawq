@@ -1,0 +1,18 @@
+---
+complexity: high
+depends_on:
+    - B768
+    - B769
+estimate_hours: 1
+id: B771
+priority: high
+status: pending
+tags:
+    - github
+    - work-items
+    - background-tasks
+    - codex
+    - claude
+title: Execute GitHub issue requests through one hosted Codex or Claude work-item path
+---
+The existing GitHub /clawq path runs a normal Clawq session turn, while delegated Codex and Claude work use a separate background-task path. There is no normalized work-item contract that can carry a GitHub request through a hosted external agent and return a durable result.\n\nBuild the first complete work-item slice using the existing /clawq issue-comment trigger: normalize the verified event into a stable work-item envelope, execute it through the shared runner and session-host abstractions, and publish a no-code answer or plan back to the originating issue thread. The envelope and result must be provider-neutral and reusable by later queue transports.\n\nAcceptance:\n- One /clawq issue comment can launch runner=auto, codex, or claude through host=herdr and receive a final GitHub reply.\n- Work items persist a deduplication key, repository identity, issue or PR identity, requester, runner preference, host preference, prompt context, policy reference, status, and result summary.\n- Duplicate webhook delivery cannot launch a second agent.\n- Answer and planning requests can complete successfully without creating commits or requiring a dirty worktree.\n- Clawq acknowledges promptly and exposes queued, running, blocked, succeeded, failed, and cancelled state.\n- Tests cover unauthorized actors, duplicate delivery, unavailable runner or host, cancellation, and restart recovery.\n- The public execution entry point accepts structured data; issue text is never shell-interpolated.
