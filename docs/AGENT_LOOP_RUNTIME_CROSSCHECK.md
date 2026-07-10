@@ -1,15 +1,16 @@
 # Agent Loop Runtime Cross-Check (P5.M3.E1.T003)
 
 This note links the `coq/theories/Clawq/AgentLoop.v` model to shipped runtime
-behavior in `src/agent.ml` and existing tests.
+behavior in `src/agent_turn_core.ml` and existing tests.
 
 ## Model-to-runtime mapping
 
 - `loop_steps_bounded_by_fuel` / `run_turn_global_iteration_bound`
-  - Runtime analogue: `max_tool_iterations` limit in `Agent.turn` / `Agent.turn_stream`.
+  - Runtime analogue: `max_tool_iterations` limit in
+    `Agent_turn_core.run_turn`, reached through `Agent.turn` / `Agent.turn_stream`.
 - `append_tool_cycle_extends_history`
   - Runtime analogue: assistant tool-call shell plus ordered tool-result insertion in
-    `execute_tool_calls` and `execute_tool_calls_stream`.
+    `Agent_2_tools.execute_tools`.
 - `trim_history_idempotent`, `trim_history_preserves_prefix`
   - Runtime analogue: `trim_history` and force-compression ordering constraints.
 - `ensure_tool_group_integrity_replay_safe`

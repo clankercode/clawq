@@ -961,7 +961,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               in
                               send_text text))))
 
-(* Channel.S start — webhook-only, no polling loop needed *)
+(* Channel start — webhook-only, no polling loop needed *)
 let start ~(config : Runtime_config.t) ~(_session_manager : Session.t) =
   match config.channels.teams with
   | None ->

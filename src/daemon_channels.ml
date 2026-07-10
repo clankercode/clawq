@@ -3,128 +3,104 @@
 let start_non_telegram_channels ~(config : Runtime_config.t)
     ~(session_manager : Session.t) ~db ~discord_message_limiter
     ~slack_event_limiter =
-  Lwt.async (fun () ->
-      Lwt.catch
-        (fun () ->
-          Discord.start ~config ~session_manager ~db
-            ~message_limiter:discord_message_limiter)
-        (fun exn ->
-          Logs.err (fun m ->
-              m "Discord channel error: %s" (Printexc.to_string exn));
-          Lwt.return_unit));
-  (match config.channels.slack with
-  | Some sc when sc.socket_mode && sc.app_token <> "" ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () ->
-              Slack_socket.start ~config ~session_manager
-                ~event_limiter:slack_event_limiter)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Slack Socket Mode error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | _ -> ());
-  Lwt.async (fun () ->
-      Lwt.catch
-        (fun () -> Mattermost.start ~config ~session_manager)
-        (fun exn ->
-          Logs.err (fun m ->
-              m "Mattermost channel error: %s" (Printexc.to_string exn));
-          Lwt.return_unit));
-  Lwt.async (fun () ->
-      Lwt.catch
-        (fun () -> Imessage.start ~config ~session_manager)
-        (fun exn ->
-          Logs.err (fun m ->
-              m "iMessage channel error: %s" (Printexc.to_string exn));
-          Lwt.return_unit));
-  (match config.channels.signal with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Signal.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Signal channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.matrix with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Matrix.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Matrix channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.irc with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Irc.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "IRC channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.email with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Email_channel.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Email channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.nostr with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Nostr.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Nostr channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.dingtalk with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Dingtalk.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "DingTalk channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.onebot with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Onebot.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "OneBot channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ());
-  (match config.channels.lark with
-  | Some lk when lk.enabled ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Lark.start ~config ~session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Lark channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | Some _ | None -> ());
-  match config.channels.teams with
-  | Some _ ->
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () -> Teams.start ~config ~_session_manager:session_manager)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Teams channel error: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
-  | None -> ()
+  let always (_ : Runtime_config.t) = true in
+  let has f (c : Runtime_config.t) = Option.is_some (f c.channels) in
+  (* Order preserved from the previous hand-written fanout. Each channel closes
+     over exactly the arguments it needs; the supervision (async + catch + log)
+     is applied uniformly by the fold below. *)
+  let channels : Channel.t list =
+    [
+      {
+        Channel.name = "Discord";
+        enabled = always;
+        start =
+          (fun () ->
+            Discord.start ~config ~session_manager ~db
+              ~message_limiter:discord_message_limiter);
+      };
+      {
+        name = "Slack Socket Mode";
+        enabled =
+          (fun (c : Runtime_config.t) ->
+            match c.channels.slack with
+            | Some sc -> sc.socket_mode && sc.app_token <> ""
+            | None -> false);
+        start =
+          (fun () ->
+            Slack_socket.start ~config ~session_manager
+              ~event_limiter:slack_event_limiter);
+      };
+      {
+        name = "Mattermost";
+        enabled = always;
+        start = (fun () -> Mattermost.start ~config ~session_manager);
+      };
+      {
+        name = "iMessage";
+        enabled = always;
+        start = (fun () -> Imessage.start ~config ~session_manager);
+      };
+      {
+        name = "Signal";
+        enabled = has (fun ch -> ch.signal);
+        start = (fun () -> Signal.start ~config ~session_manager);
+      };
+      {
+        name = "Matrix";
+        enabled = has (fun ch -> ch.matrix);
+        start = (fun () -> Matrix.start ~config ~session_manager);
+      };
+      {
+        name = "IRC";
+        enabled = has (fun ch -> ch.irc);
+        start = (fun () -> Irc.start ~config ~session_manager);
+      };
+      {
+        name = "Email";
+        enabled = has (fun ch -> ch.email);
+        start = (fun () -> Email_channel.start ~config ~session_manager);
+      };
+      {
+        name = "Nostr";
+        enabled = has (fun ch -> ch.nostr);
+        start = (fun () -> Nostr.start ~config ~session_manager);
+      };
+      {
+        name = "DingTalk";
+        enabled = has (fun ch -> ch.dingtalk);
+        start = (fun () -> Dingtalk.start ~config ~session_manager);
+      };
+      {
+        name = "OneBot";
+        enabled = has (fun ch -> ch.onebot);
+        start = (fun () -> Onebot.start ~config ~session_manager);
+      };
+      {
+        name = "Lark";
+        enabled =
+          (fun (c : Runtime_config.t) ->
+            match c.channels.lark with Some lk -> lk.enabled | None -> false);
+        start = (fun () -> Lark.start ~config ~session_manager);
+      };
+      {
+        name = "Teams";
+        enabled = has (fun ch -> ch.teams);
+        start =
+          (fun () -> Teams.start ~config ~_session_manager:session_manager);
+      };
+    ]
+  in
+  List.iter
+    (fun (ch : Channel.t) ->
+      if ch.enabled config then
+        Lwt.async (fun () ->
+            Lwt.catch ch.start (fun exn ->
+                Logs.err (fun m ->
+                    (* Slack's established label omits the word "channel". *)
+                    let channel =
+                      if String.equal ch.name "Slack Socket Mode" then ""
+                      else " channel"
+                    in
+                    m "%s%s error: %s" ch.name channel (Printexc.to_string exn));
+                Lwt.return_unit)))
+    channels

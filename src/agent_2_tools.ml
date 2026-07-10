@@ -154,9 +154,15 @@ let perform_cwd_history_wipe agent =
    its own before-state) — slightly duplicate FS reads for batches that
    modify the same file, accepted in exchange for keeping attribution
    correct. *)
-let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-    ?raw_tool_calls_json ?interrupt_check ?on_tool_round_complete
-    ?on_llm_call_debug ~on_chunk calls =
+(* Unified tool-round executor. [emit] surfaces per-tool events (ToolStart /
+   ToolOutputDelta / ToolResult) and is a no-op in buffered mode. [streaming]
+   gates the two things a no-op [emit] cannot express: whether [send_progress]
+   is offered to a tool, and whether a tool's streaming [invoke_stream] is
+   preferred over its buffered [invoke]. The buffered and streaming executors
+   were near-identical ~250-line twins; both are now thin wrappers below. *)
+let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
+    ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug ~emit ~streaming
+    calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let notification_promises = ref [] in
@@ -211,7 +217,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                })
       | _ -> ());
       notify_async (fun () ->
-          on_chunk
+          emit
             (Provider.ToolStart
                { id = tc.id; name = tc.function_name; arguments = tc.arguments })))
     calls;
@@ -289,7 +295,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
               ~content:"[skipped: interrupted by user]"
           in
           notify_async (fun () ->
-              on_chunk
+              emit
                 (Provider.ToolResult
                    {
                      id = tc.id;
@@ -337,12 +343,14 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                         {
                           Tool.session_key;
                           send_progress =
-                            Some
-                              (fun text ->
-                                streamed_output := true;
-                                on_chunk
-                                  (Provider.ToolOutputDelta
-                                     { id = tc.id; chunk = text }));
+                            (if streaming then
+                               Some
+                                 (fun text ->
+                                   streamed_output := true;
+                                   emit
+                                     (Provider.ToolOutputDelta
+                                        { id = tc.id; chunk = text }))
+                             else None);
                           interrupt_check;
                           inject_system_messages =
                             Some
@@ -374,14 +382,14 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                         }
                       in
                       match tool.invoke_stream with
-                      | Some invoke_stream ->
+                      | Some invoke_stream when streaming ->
                           invoke_stream ~context
                             ~on_output_chunk:(fun chunk ->
                               streamed_output := true;
-                              on_chunk
+                              emit
                                 (Provider.ToolOutputDelta { id = tc.id; chunk }))
                             args
-                      | None -> tool.invoke ~context args)
+                      | _ -> tool.invoke ~context args)
                     (fun exn ->
                       Lwt.return
                         ("Error invoking tool: " ^ Printexc.to_string exn))
@@ -448,10 +456,10 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           in
           if forward_to_user && success && not !streamed_output then
             notify_async (fun () ->
-                on_chunk
+                emit
                   (Provider.ToolOutputDelta { id = tc.id; chunk = raw_result }));
           notify_async (fun () ->
-              on_chunk
+              emit
                 (Provider.ToolResult
                    {
                      id = tc.id;
@@ -492,261 +500,20 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
   in
   Lwt.return_unit
 
+let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
+    ?raw_tool_calls_json ?interrupt_check ?on_tool_round_complete
+    ?on_llm_call_debug ~on_chunk calls =
+  execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
+    ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug ~emit:on_chunk
+    ~streaming:true calls
+
 let execute_tool_calls agent ~db ~audit_enabled ~session_key
     ?raw_tool_calls_json ?interrupt_check ?on_tool_round_complete
     ?on_llm_call_debug calls =
-  let open Lwt.Syntax in
-  let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
-  let pending_history_wipe = ref false in
-  let interrupted = ref false in
-  let check_interrupt () =
-    if !interrupted then true
-    else
-      match interrupt_check with
-      | Some check -> (
-          match check () with
-          | Some reason when reason = queued_message_interrupt_token -> false
-          | Some _ ->
-              interrupted := true;
-              true
-          | None -> false)
-      | None -> false
-  in
-  let reserved_no_arg_skills = Hashtbl.create 8 in
-  (* B607: emit tool invocation audit entries up-front for the whole batch. *)
-  List.iter
-    (fun (tc : Provider.tool_call) ->
-      Logs.info (fun m ->
-          m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
-            tc.arguments);
-      match (db, audit_enabled, session_key) with
-      | Some db, true, Some sk ->
-          let risk =
-            match agent.tool_registry with
-            | Some reg -> (
-                match Tool_registry.find reg tc.function_name with
-                | Some t -> risk_level_to_string t.risk_level
-                | None -> "unknown")
-            | None -> "unknown"
-          in
-          Audit.log ~db
-            (ToolInvocation
-               {
-                 session_key = sk;
-                 tool_name = tc.function_name;
-                 risk_level = risk;
-                 args_preview = tc.arguments;
-               })
-      | _ -> ())
-    calls;
-  (* F1 fix: pre-validate tool calls serially (see streaming path above). *)
-  let pre_validations =
-    List.map
-      (fun (tc : Provider.tool_call) ->
-        if check_interrupt () then (tc, Error "[skipped: interrupted by user]")
-        else
-          match
-            room_profile_tool_denial agent ~session_key
-              ~tool_name:tc.function_name
-          with
-          | Some msg -> (tc, Error msg)
-          | None -> (
-              match tc.function_name with
-              | "tool_search" -> (tc, Ok None)
-              | _ -> (
-                  match agent.tool_registry with
-                  | None -> (tc, Error "Error: no tool registry available")
-                  | Some registry -> (
-                      match Tool_registry.find registry tc.function_name with
-                      | None ->
-                          ( tc,
-                            Error
-                              (Printf.sprintf "Error: unknown tool '%s'"
-                                 tc.function_name) )
-                      | Some tool -> (
-                          match parse_tool_arguments tc with
-                          | Error msg -> (tc, Error msg)
-                          | Ok args -> (
-                              match
-                                validate_required_with_escalation agent tool
-                                  args
-                              with
-                              | Error msg -> (tc, Error msg)
-                              | Ok () -> (
-                                  match
-                                    Skill_invocation_guard.use_skill_loaded_noop
-                                      ~reserved_no_arg_skills
-                                      ~history:agent.history tool args
-                                  with
-                                  | Some response -> (tc, Error response)
-                                  | None -> (tc, Ok (Some (tool, args))))))))))
-      calls
-  in
-  let* results =
-    Lwt_list.map_p
-      (fun ((tc : Provider.tool_call), pre_validation) ->
-        if check_interrupt () then begin
-          Logs.info (fun m ->
-              m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
-          (match (db, audit_enabled, session_key) with
-          | Some db, true, Some sk ->
-              Audit.log ~db
-                (ToolResult
-                   {
-                     session_key = sk;
-                     tool_name = tc.function_name;
-                     success = false;
-                   })
-          | _ -> ());
-          Lwt.return
-            ( tc,
-              Provider.make_tool_result ~tool_call_id:tc.id
-                ~name:tc.function_name ~content:"[skipped: interrupted by user]",
-              None )
-        end
-        else
-          let before_active_workspace_files =
-            capture_active_workspace_file_state agent
-          in
-          let* result_msg, result_for_status =
-            match pre_validation with
-            | Error err_msg ->
-                Lwt.return
-                  ( Provider.make_tool_result ~tool_call_id:tc.id
-                      ~name:tc.function_name ~content:err_msg,
-                    err_msg )
-            | Ok None ->
-                let msg = resolve_tool_search agent tc in
-                Lwt.return (msg, msg.Provider.content)
-            | Ok (Some ((tool : Tool.t), args)) ->
-                let* result =
-                  Lwt.catch
-                    (fun () ->
-                      let egress_rules =
-                        let scoped_rules =
-                          match session_key with
-                          | Some key ->
-                              let access =
-                                Runtime_config.resolve_effective_access
-                                  agent.config ~session_key:key ()
-                              in
-                              access.egress_rules
-                          | None -> []
-                        in
-                        Runtime_config.effective_egress_rules agent.config
-                          scoped_rules
-                      in
-                      let context =
-                        {
-                          Tool.session_key;
-                          send_progress = None;
-                          interrupt_check;
-                          inject_system_messages =
-                            Some
-                              (fun msgs ->
-                                let msgs =
-                                  Skill_dedup.dedup_skill_injections
-                                    ~history:agent.history msgs
-                                in
-                                List.iter
-                                  (fun content ->
-                                    agent.history <-
-                                      Provider.make_message ~role:"system"
-                                        ~content
-                                      :: agent.history)
-                                  msgs);
-                          effective_cwd = agent.effective_cwd;
-                          request_cwd_change =
-                            Some
-                              (fun new_cwd wipe ->
-                                agent.effective_cwd <- Some new_cwd;
-                                if wipe then pending_history_wipe := true);
-                          egress_rules;
-                          snapshot_id = agent.access_snapshot_id;
-                          profile_id =
-                            (match agent.access_snapshot with
-                            | Some snap -> snap.Access_snapshot.profile_id
-                            | None -> None);
-                          egress_audit_db = db;
-                        }
-                      in
-                      tool.invoke ~context args)
-                    (fun exn ->
-                      Lwt.return
-                        ("Error invoking tool: " ^ Printexc.to_string exn))
-                in
-                let* result_for_history =
-                  Tool_postprocess.process_tool_result ~config:agent.config ~db
-                    ~session_key ~tool_name:tc.function_name
-                    ~history:agent.history ?on_llm_call_debug ~raw_result:result
-                    ()
-                in
-                Lwt.return
-                  ( Provider.make_tool_result ~tool_call_id:tc.id
-                      ~name:tc.function_name ~content:result_for_history,
-                    result )
-          in
-          let result = result_msg.Provider.content in
-          let success =
-            not (String.starts_with ~prefix:"Error:" result_for_status)
-          in
-          (* B625: structured is_error stamp; see execute_tool_calls_stream. *)
-          let result_msg =
-            { result_msg with Provider.is_error = not success }
-          in
-          (match (db, audit_enabled, session_key) with
-          | Some db, true, Some sk ->
-              Audit.log ~db
-                (ToolResult
-                   { session_key = sk; tool_name = tc.function_name; success })
-          | _ -> ());
-          let truncated =
-            let limit = if success then 200 else 1000 in
-            if String.length result > limit then
-              String.sub result 0 limit ^ "..."
-            else result
-          in
-          if success then
-            Logs.info (fun m ->
-                m "%sTool result: %s -> %s" sk_tag tc.function_name truncated)
-          else begin
-            Logs.warn (fun m ->
-                m "%sTool error: %s -> %s" sk_tag tc.function_name truncated);
-            log_raw_tool_call_failure sk_tag ?raw_tool_calls_json tc
-              ~reason:truncated
-          end;
-          let refresh =
-            observe_workspace_refresh agent tc result
-              ~before_active_workspace_files
-          in
-          if Option.is_some refresh.message then
-            agent.observed_active_workspace_files <- refresh.after_state;
-          Lwt.return (tc, result_msg, refresh.message))
-      pre_validations
-  in
-  (* Results already reflect execution order; append deterministically. *)
-  List.iter
-    (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
-      append_tool_history agent tool_msg refresh_msg)
-    results;
-  if !pending_history_wipe then perform_cwd_history_wipe agent;
-  List.iter
-    (fun ((tc : Provider.tool_call), _, _) ->
-      let doc_events = observe_project_docs agent tc in
-      List.iter (fun msg -> agent.history <- msg :: agent.history) doc_events)
-    results;
-  let* () =
-    match on_tool_round_complete with
-    | Some cb ->
-        let pairs =
-          List.map
-            (fun (tc, (rm : Provider.message), _) -> (tc, rm.content))
-            results
-        in
-        cb pairs
-    | None -> Lwt.return_unit
-  in
-  Lwt.return_unit
+  execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
+    ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
+    ~emit:(fun _ -> Lwt.return_unit)
+    ~streaming:false calls
 
 let filter_content_parts_for_model config content_parts =
   let model_id = config.Runtime_config.agent_defaults.primary_model in

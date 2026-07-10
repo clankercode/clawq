@@ -71,6 +71,7 @@
   agent_provider_ledger
   agent_room_budget
   agent_turn_setup
+  agent_turn_core
   agent
   session_types
   session_queue

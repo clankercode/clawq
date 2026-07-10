@@ -48,6 +48,20 @@ exception Restart_requested
 exception Stop_requested
 exception Budget_exceeded of string
 
+(* [compacted_mid_turn] is a deferred "history was compacted since the last
+   persist" signal. It is set both by the turn loop (mid-turn compaction) and
+   out-of-band (the /compact command in the daemon, model-switch compaction),
+   and the session persist layer reads-and-clears it to decide whether to write
+   the full compacted history or only the new messages. Mediating every access
+   through mark/take keeps that read-then-clear protocol in one place instead of
+   poking a raw mutable field across five modules. *)
+let mark_compacted agent = agent.compacted_mid_turn <- true
+
+let take_compaction_dirty agent =
+  let dirty = agent.compacted_mid_turn in
+  agent.compacted_mid_turn <- false;
+  dirty
+
 type compaction_info = {
   pre_tokens : int;
   post_tokens : int;

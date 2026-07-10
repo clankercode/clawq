@@ -41,24 +41,24 @@ webhook-driven integrations such as GitHub and MS Teams.
   <code>bg_shell_result</code> tools to track it.
 </Callout>
 
-## The Channel.S Module Type
+## The Channel Startup Specification
 
-Every channel implements the `Channel.S` OCaml module signature:
+`daemon_channels.ml` describes each daemon-managed transport with a concrete
+`Channel.t` value:
 
 ```ocaml
-module type S = sig
-  val name : string
-  val start :
-    config:Runtime_config.t ->
-    session_manager:Session.t ->
-    unit Lwt.t
-end
+type t = {
+  name : string;
+  enabled : Runtime_config.t -> bool;
+  start : unit -> unit Lwt.t;
+}
 ```
 
-The contract is intentionally narrow. A channel receives the global runtime
-configuration and a session manager, then runs as a long-lived Lwt promise.
-The daemon supervisor (`daemon.ml`) starts all enabled channels in parallel and
-monitors them for failures.
+The registry entry closes over the configuration, session manager, database,
+and any channel-specific limiters it needs. `daemon_channels.ml` evaluates the
+enabled predicates, starts the selected channels in parallel, and applies one
+shared failure-supervision policy. Individual channel modules retain their
+protocol-specific start signatures.
 
 ## Channel Overview
 
@@ -1232,12 +1232,13 @@ authentication. The channel is served by the main HTTP gateway.
 
 To add a new channel:
 
-1. Create a new module that satisfies `Channel.S`.
+1. Create the protocol-specific channel module and its long-lived `start`
+   function.
 2. Add the corresponding config type to `runtime_config.ml`.
-3. Wire it into `daemon.ml` alongside the existing channels.
+3. Add a `Channel.t` entry to the registry in `daemon_channels.ml`, closing over
+   any channel-specific dependencies.
 4. Place it in `clawq_runtime_integrations` (not core) per the runtime split
    rules.
 
-The narrow `Channel.S` interface means most of the work is in the
-protocol-specific implementation --- the integration point with the rest of
-clawq is minimal.
+The narrow registry entry keeps startup and supervision uniform while allowing
+each protocol implementation to accept the dependencies it actually needs.

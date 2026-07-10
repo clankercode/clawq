@@ -73,7 +73,7 @@ Not every `Axiom` is bad. Crypto primitives and OS availability checks may remai
 - [x] replace vacuous session-isolation claims with non-vacuous invariants
 - [x] align `SecretStore.v` with the real `src/secret_store.ml` API
 - [x] remove core admissions from `ChannelAuth.v` or replace the model
-- [x] refine `AgentLoop.v` toward the real turn structure in `src/agent.ml`
+- [x] refine `AgentLoop.v` toward the real turn structure in `src/agent_turn_core.ml`
 - [x] revisit the public verification status page after high-risk proof areas improve
 
 ## Phase 1: Audit Retention Correctness
@@ -251,7 +251,7 @@ Move from generic allowlist lemmas to proofs that match the actual authorization
 
 ### Objective
 
-Model the real loop in `src/agent.ml` more faithfully so that theorem work starts buying guarantees about history growth, tool-call structure, and termination bounds that matter in practice.
+Model the real loop in `src/agent_turn_core.ml` more faithfully so that theorem work starts buying guarantees about history growth, tool-call structure, and termination bounds that matter in practice.
 
 ### Deliverables
 
