@@ -238,6 +238,7 @@
   test_repo_manager
   test_runner_integration
   test_runner_relay
+  test_session_host
   test_structured_pipeline
   test_xiaomi
   test_provider_xiaomi)

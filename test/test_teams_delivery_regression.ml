@@ -68,6 +68,8 @@ let make_task ?(id = 100) ?(channel = Some "teams")
     requester = None;
     progress_state = None;
     access_snapshot_id = None;
+    host_kind = "direct";
+    host_session_id = None;
     restart_policy = Background_task.Reenqueue;
     restart_count = 0;
     max_restarts = Background_task.max_restarts_default;

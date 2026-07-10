@@ -110,6 +110,7 @@ let () =
        ("mcp_credential_lease", Test_mcp.credential_lease_suite);
        ("runner_integration", Test_runner_integration.suite);
        ("runner_relay", Test_runner_relay.suite);
+       ("session_host", Test_session_host.suite);
        ("resilience", Test_resilience.suite);
        ("perf", Test_perf.suite);
        ("memory_retention", Test_memory_retention.suite);

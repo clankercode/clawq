@@ -654,13 +654,18 @@ what happens on daemon startup:
 **Startup sequence** (in `daemon.ml`):
 
 1. `reap_dead_running_tasks` — marks orphaned external-runner tasks as failed.
+   B768: liveness is checked through the session-host seam using the persisted
+   `host_kind`/`host_session_id`; a reused PID is detected as a stale session
+   and marked failed instead of being mistaken for the original process.
 2. `reenqueue_stale_local_tasks` — scans for Local tasks in `Running` state
    that are no longer tracked in memory (i.e. daemon was restarted):
    - `restart_policy=fail` → `Failed` with reason "Interrupted by daemon restart".
    - `restart_count >= max_restarts` → `Failed` with reason "Max restarts exceeded".
    - Room budget exceeded → `Failed` with reason "Budget exceeded on restart".
    - Otherwise → transition to `Queued`, increment `restart_count`.
-3. `readopt_running_tasks` — re-adopts external-runner processes still alive.
+3. `readopt_running_tasks` — re-adopts hosted sessions whose host confirms
+   the recorded identity is still live (B768); dead or stale sessions are left
+   for reaping.
 
 Re-enqueued Local tasks resume via the normal scheduler. Agent history is
 hydrated from the session's persisted messages (`Memory.load_history`), so

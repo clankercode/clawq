@@ -272,7 +272,7 @@ local sessions.
 
 ```
 clawq background list                            List queued, running, and completed tasks
-clawq background show <id>                       Show detailed task status
+clawq background show <id>                       Show detailed task status (incl. session host kind/identity)
 clawq background add <runner> <repo> [--model M] [--branch B] [--agent A] <prompt...>
     Queue a background coding task
 clawq background start <runner> <repo> ...       Alias for add

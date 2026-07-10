@@ -90,6 +90,10 @@ let task_of_stmt stmt : task =
          | Sqlite3.Data.INT i -> Int64.to_int i
          | _ -> max_restarts_default
        with _ -> max_restarts_default);
+    host_kind =
+      (try Sqlite3.column stmt 41 |> sql_text |> Option.value ~default:"direct"
+       with _ -> "direct");
+    host_session_id = (try Sqlite3.column stmt 42 |> sql_text with _ -> None);
   }
 
 let init_schema db =
@@ -182,6 +186,10 @@ let init_schema db =
   try_alter
     "ALTER TABLE background_tasks ADD COLUMN max_restarts INTEGER NOT NULL \
      DEFAULT 2";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN host_kind TEXT NOT NULL DEFAULT \
+     'direct'";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN host_session_id TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -392,7 +400,7 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?follow_up_prompt ?description ?context_snapshot ?profile_id ?origin_json
     ?thread_id ?requester ?access_snapshot_id
     ?(restart_policy = restart_policy_default)
-    ?(max_restarts = max_restarts_default) () =
+    ?(max_restarts = max_restarts_default) ?(host_kind = "direct") () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -404,8 +412,9 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
            branch, session_key, channel, channel_id, automerge, use_worktree, \
            parent_task_id, acp, agent_name, follow_up_prompt, description, \
            context_snapshot, profile_id, origin_json, thread_id, requester, \
-           access_snapshot_id, restart_policy, max_restarts) VALUES (?, ?, ?, \
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+           access_snapshot_id, restart_policy, max_restarts, host_kind) VALUES \
+           (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+           ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -458,6 +467,10 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             ignore
               (Sqlite3.bind stmt 23
                  (Sqlite3.Data.INT (Int64.of_int max_restarts)));
+            ignore
+              (Sqlite3.bind stmt 24
+                 (Sqlite3.Data.TEXT
+                    (if String.trim host_kind = "" then "direct" else host_kind)));
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
@@ -483,7 +496,8 @@ let select_columns =
    COALESCE(notification_attempts, 0), follow_up_prompt, description, \
    context_snapshot, profile_id, origin_json, thread_id, requester, \
    progress_state, access_snapshot_id, COALESCE(restart_policy, 'reenqueue'), \
-   COALESCE(restart_count, 0), COALESCE(max_restarts, 2)"
+   COALESCE(restart_count, 0), COALESCE(max_restarts, 2), COALESCE(host_kind, \
+   'direct'), host_session_id"
 
 let list_tasks ~db : task list =
   let sql =
@@ -580,6 +594,20 @@ let set_runner_session_id ~db ~id ~runner_session_id =
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT runner_session_id));
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
+
+let set_host_identity ~db ~id ~host_kind ~host_session_id =
+  let sql =
+    "UPDATE background_tasks SET host_kind = ?, host_session_id = ? WHERE id = \
+     ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT host_kind));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT host_session_id));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
       ignore (Sqlite3.step stmt))
 
 let set_progress_state ~db ~id ~(state : progress_state) =

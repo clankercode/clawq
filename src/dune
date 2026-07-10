@@ -140,6 +140,9 @@
   scheduler
   runner_framework
   background_task_0_format
+  session_host
+  session_host_direct
+  session_host_registry
   background_task_local
   background_task_db
   background_task_log

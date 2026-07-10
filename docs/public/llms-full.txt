@@ -61,7 +61,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `debate --show ID` | Show a specific past debate round |
 | `background` | Inspect and control background coding tasks (default: list) |
 | `background list` | List queued, running, and completed background tasks |
-| `background show ID` | Show detailed status for a background task |
+| `background show ID` | Show detailed status for a background task, including session host kind and host session identity |
 | `background add RUNNER [--model MODEL] [--agent NAME] REPO [--branch NAME] PROMPT` | Queue a background coding task (Codex, Claude, Kimi, Gemini, Opencode, Cursor, or Local) in a git worktree or local session |
 | `background wait ID [--timeout SECONDS]` | Wait for a background task to finish, then print its final status/result summary |
 | `background logs ID [--lines COUNT] [--offset LINE] [--follow/-f]` | Print the captured log for a background task; `--offset` reads forward from a line number, `--follow` tails live output (mutually exclusive) |

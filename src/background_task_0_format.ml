@@ -49,6 +49,13 @@ type task = {
   channel : string option;
   channel_id : string option;
   pid : int option;
+  host_kind : string;
+      (** B768: session host kind hosting this task ("direct", "herdr", "tmux").
+          Legacy rows read back as "direct". *)
+  host_session_id : string option;
+      (** B768: durable host-session identity (e.g. "pid:start-token" for the
+          direct host). Never contains credentials; shown by `background show`
+          and used for daemon-restart recovery. *)
   result_preview : string option;
   created_at : string;
   started_at : string option;
@@ -503,6 +510,12 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   | _ -> ());
   (match task.runner_session_id with
   | Some sid -> add (Printf.sprintf "runner_session: %s" sid)
+  | None -> ());
+  add
+    (Printf.sprintf "host: %s"
+       (if task.host_kind = "" then "direct" else task.host_kind));
+  (match task.host_session_id with
+  | Some sid -> add (Printf.sprintf "host_session: %s" sid)
   | None -> ());
   if task.acp then add "mode: acp";
   (match task.agent_name with

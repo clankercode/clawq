@@ -1672,6 +1672,8 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     requester = None;
     progress_state = None;
     access_snapshot_id = None;
+    host_kind = "direct";
+    host_session_id = None;
     restart_policy = Background_task.Reenqueue;
     restart_count = 0;
     max_restarts = Background_task.max_restarts_default;

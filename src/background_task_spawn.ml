@@ -328,7 +328,9 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                 Lwt.return_unit
               end
               else begin
-                (* Legacy CLI-argument spawn path *)
+                (* Legacy CLI-argument spawn path, hosted through the
+                   session-host seam (B768). Prompt text reaches the host
+                   only as a single Exec argv element. *)
                 let command, pre_session_id =
                   match command_override with
                   | Some cmd -> (cmd, None)
@@ -355,94 +357,143 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                 in
                 write_log_preamble ~log_path ~task_id:task.id ~command;
                 let spawn_time = Unix.gettimeofday () in
-                let proc =
-                  Process_group.start_to_file ~cwd:worktree_path ~env ~log_path
-                    command
-                in
-                let pid = proc.file_pid in
-                if
-                  not
-                    (set_running ~db ~id:task.id ~branch ~worktree_path
-                       ~log_path ~pid)
-                then begin
-                  Logs.warn (fun m ->
-                      m "Background task %d: set_running failed; killing pid %d"
-                        task.id pid);
-                  let err_msg =
-                    Printf.sprintf
-                      "set_running failed: task %d was no longer queued (pid \
-                       %d killed)"
-                      task.id pid
-                  in
-                  append_log_error ~log_path err_msg;
-                  let* () = Process_group.terminate_immediately pid in
-                  let* _ = Process_group.wait pid in
-                  finish ~db ~id:task.id ~status:Failed ~result_preview:err_msg;
-                  Lwt.return_unit
-                end
-                else
-                  let* () =
-                    match get_task ~db ~id:task.id with
-                    | Some t -> on_task_started t
-                    | None -> Lwt.return_unit
-                  in
-                  let* status = Process_group.wait pid in
-                  let exit_code = exit_code_of_status status in
-                  let () =
-                    if exit_code = 0 then
-                      List.iter
-                        (fun (msg : queued_message) ->
-                          delete_queued_message ~db ~queue_id:msg.id)
-                        queued_messages
-                  in
-                  (* B210 watchdog: after child exits, give process group
-                     2s then kill remaining members (e.g. grandchildren) *)
-                  Lwt.async (fun () ->
-                      let open Lwt.Syntax in
-                      let* () = Lwt_unix.sleep 2.0 in
-                      Logs.info (fun m ->
-                          m
-                            "Background task %d: child exited, killing \
-                             remaining process group members"
-                            task.id);
-                      Process_group.signal_group pid Sys.sigkill;
-                      Lwt.return_unit);
-                  let elapsed = Unix.gettimeofday () -. spawn_time in
-                  let output =
-                    let raw = read_log_tail log_path preview_limit in
-                    if elapsed < 5.0 then
-                      Printf.sprintf "%s\n[clawq] process exited in %.1fs" raw
-                        elapsed
-                    else raw
-                  in
-                  (* Extract runner session ID from log if not set *)
-                  (let current =
-                     match get_task ~db ~id:task.id with
-                     | Some t -> t.runner_session_id
-                     | None -> None
-                   in
-                   if current = None then
-                     let def =
-                       Runner_framework.runner_def_of_runner
-                         (runner_to_framework_runner task.runner)
-                     in
-                     let full_output = read_log_tail log_path (64 * 1024) in
-                     match
-                       Runner_framework.extract_session_id def full_output
-                     with
-                     | Some sid ->
-                         set_runner_session_id ~db ~id:task.id
-                           ~runner_session_id:sid
-                     | None -> ());
-                  let exit_code = exit_code_of_status status in
-                  ignore
-                    (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
-                  let* () =
-                    match get_task ~db ~id:task.id with
-                    | Some finished_task -> on_task_finished finished_task
-                    | None -> Lwt.return_unit
-                  in
-                  Lwt.return_unit
+                match Session_host_registry.find task.host_kind with
+                | None ->
+                    let err =
+                      Session_host_registry.unknown_kind_error task.host_kind
+                    in
+                    append_log_error ~log_path err;
+                    finish ~db ~id:task.id ~status:Failed ~result_preview:err;
+                    Lwt.return_unit
+                | Some host -> (
+                    let spec =
+                      {
+                        Session_host.command;
+                        cwd = worktree_path;
+                        env;
+                        log_path;
+                      }
+                    in
+                    let* started = host.Session_host.start spec in
+                    match started with
+                    | Error err ->
+                        append_log_error ~log_path err;
+                        finish ~db ~id:task.id ~status:Failed
+                          ~result_preview:err;
+                        Lwt.return_unit
+                    | Ok session ->
+                        let pid =
+                          Option.value
+                            (Session_host_direct.pid_of_session_ref session)
+                            ~default:0
+                        in
+                        if
+                          not
+                            (set_running ~db ~id:task.id ~branch ~worktree_path
+                               ~log_path ~pid)
+                        then begin
+                          Logs.warn (fun m ->
+                              m
+                                "Background task %d: set_running failed; \
+                                 cancelling host session %s/%s"
+                                task.id session.Session_host.host_kind
+                                session.Session_host.host_session_id);
+                          let err_msg =
+                            Printf.sprintf
+                              "set_running failed: task %d was no longer \
+                               queued (host session %s cancelled)"
+                              task.id session.Session_host.host_session_id
+                          in
+                          append_log_error ~log_path err_msg;
+                          let* _ =
+                            host.Session_host.cancel ~grace_seconds:0.0 session
+                          in
+                          let* _ = host.Session_host.wait session in
+                          finish ~db ~id:task.id ~status:Failed
+                            ~result_preview:err_msg;
+                          Lwt.return_unit
+                        end
+                        else begin
+                          set_host_identity ~db ~id:task.id
+                            ~host_kind:session.Session_host.host_kind
+                            ~host_session_id:
+                              session.Session_host.host_session_id;
+                          let* () =
+                            match get_task ~db ~id:task.id with
+                            | Some t -> on_task_started t
+                            | None -> Lwt.return_unit
+                          in
+                          let* wait_result = host.Session_host.wait session in
+                          let exit_code =
+                            match wait_result with
+                            | Ok code -> code
+                            | Error msg ->
+                                append_log_error ~log_path msg;
+                                1
+                          in
+                          let () =
+                            if exit_code = 0 then
+                              List.iter
+                                (fun (msg : queued_message) ->
+                                  delete_queued_message ~db ~queue_id:msg.id)
+                                queued_messages
+                          in
+                          (* B210 watchdog: after child exits, give process
+                             group 2s then kill remaining members (e.g.
+                             grandchildren) *)
+                          if pid > 0 then
+                            Lwt.async (fun () ->
+                                let open Lwt.Syntax in
+                                let* () = Lwt_unix.sleep 2.0 in
+                                Logs.info (fun m ->
+                                    m
+                                      "Background task %d: child exited, \
+                                       killing remaining process group members"
+                                      task.id);
+                                Process_group.signal_group pid Sys.sigkill;
+                                Lwt.return_unit);
+                          let elapsed = Unix.gettimeofday () -. spawn_time in
+                          let output =
+                            let raw = read_log_tail log_path preview_limit in
+                            if elapsed < 5.0 then
+                              Printf.sprintf
+                                "%s\n[clawq] process exited in %.1fs" raw
+                                elapsed
+                            else raw
+                          in
+                          (* Extract runner session ID from log if not set *)
+                          (let current =
+                             match get_task ~db ~id:task.id with
+                             | Some t -> t.runner_session_id
+                             | None -> None
+                           in
+                           if current = None then
+                             let def =
+                               Runner_framework.runner_def_of_runner
+                                 (runner_to_framework_runner task.runner)
+                             in
+                             let full_output =
+                               read_log_tail log_path (64 * 1024)
+                             in
+                             match
+                               Runner_framework.extract_session_id def
+                                 full_output
+                             with
+                             | Some sid ->
+                                 set_runner_session_id ~db ~id:task.id
+                                   ~runner_session_id:sid
+                             | None -> ());
+                          ignore
+                            (finalize_completed_task ~db ~id:task.id ~exit_code
+                               ~output);
+                          let* () =
+                            match get_task ~db ~id:task.id with
+                            | Some finished_task ->
+                                on_task_finished finished_task
+                            | None -> Lwt.return_unit
+                          in
+                          Lwt.return_unit
+                        end)
               end)
         finalize)
 
@@ -561,6 +612,37 @@ let start_queued_with_local_runner ~run_turn ?timeout_seconds ?max_running_tasks
 
 let clear_all_tracked () = Hashtbl.clear running
 
+(* B768: resolve the session host + durable session identity for a task.
+   Rows recorded before the host seam fall back to bare-PID identity on the
+   direct host (alive/dead detection only, no PID-reuse detection). *)
+let host_session_of_task (task : task) :
+    (Session_host.t * Session_host.session_ref) option =
+  let kind =
+    if String.trim task.host_kind = "" then Session_host_direct.kind
+    else task.host_kind
+  in
+  match Session_host_registry.find kind with
+  | None -> None
+  | Some host ->
+      let session_id =
+        match task.host_session_id with
+        | Some sid when String.trim sid <> "" -> Some sid
+        | _ -> (
+            match task.pid with
+            | Some pid when pid > 0 && kind = Session_host_direct.kind ->
+                Some (string_of_int pid)
+            | _ -> None)
+      in
+      Option.map
+        (fun sid ->
+          ( host,
+            {
+              Session_host.host_kind = kind;
+              host_session_id = sid;
+              log_path = task.log_path;
+            } ))
+        session_id
+
 let reap_dead_running_tasks ~db ~on_task_finished =
   let running_in_db =
     List.filter
@@ -573,29 +655,38 @@ let reap_dead_running_tasks ~db ~on_task_finished =
   let count = ref 0 in
   List.iter
     (fun task ->
-      let pid_alive =
-        match task.pid with
-        | Some pid when pid > 0 -> Process_group.group_alive pid
-        | _ -> false
+      let health =
+        match host_session_of_task task with
+        | Some (host, session) -> host.Session_host.status session
+        | None -> Session_host.Missing
       in
-      if not pid_alive then begin
+      if health <> Session_host.Live then begin
         let reason =
-          match task.pid with
-          | Some _pid when _pid <= 0 ->
+          match health with
+          | Session_host.Stale ->
               Printf.sprintf
-                "Local in-process task %d did not survive daemon restart — use \
+                "Host session %s is stale: identity no longer matches the \
+                 recorded session (e.g. PID reused by another process) — use \
                  'background retry %d' to re-queue"
-                task.id task.id
-          | Some pid ->
-              Printf.sprintf
-                "Process group %d no longer alive (orphaned/crashed) — use \
-                 'background retry %d' to re-queue"
-                pid task.id
-          | None ->
-              Printf.sprintf
-                "No PID recorded for running task — use 'background retry %d' \
-                 to re-queue"
+                (Option.value task.host_session_id ~default:"?")
                 task.id
+          | _ -> (
+              match task.pid with
+              | Some _pid when _pid <= 0 ->
+                  Printf.sprintf
+                    "Local in-process task %d did not survive daemon restart — \
+                     use 'background retry %d' to re-queue"
+                    task.id task.id
+              | Some pid ->
+                  Printf.sprintf
+                    "Process group %d no longer alive (orphaned/crashed) — use \
+                     'background retry %d' to re-queue"
+                    pid task.id
+              | None ->
+                  Printf.sprintf
+                    "No PID recorded for running task — use 'background retry \
+                     %d' to re-queue"
+                    task.id)
         in
         Logs.warn (fun m ->
             m "Reaping stale background task %d: %s" task.id reason);
@@ -732,14 +823,6 @@ let reenqueue_stale_local_tasks ~db ~on_task_finished =
   !re_enqueued
 
 let readopt_running_tasks ~db ~on_task_finished =
-  let pid_or_group_alive pid =
-    Process_group.group_alive pid
-    ||
-      try
-        Unix.kill pid 0;
-        true
-      with Unix.Unix_error _ -> false
-  in
   let all_running =
     List.filter
       (fun (t : task) -> t.status = Running && not (Hashtbl.mem running t.id))
@@ -756,73 +839,53 @@ let readopt_running_tasks ~db ~on_task_finished =
                 t.id)
       | _ -> ())
     all_running;
-  let orphaned =
-    List.filter
+  (* B768: adopt a session only when its host confirms the recorded identity
+     is still live. A dead or stale (e.g. PID-reused) session is left for
+     reap_dead_running_tasks to mark accurately. *)
+  let adoptable =
+    List.filter_map
       (fun (t : task) ->
-        match t.pid with
-        | Some pid when pid > 0 -> pid_or_group_alive pid
-        | _ -> false)
+        match host_session_of_task t with
+        | Some (host, session)
+          when host.Session_host.status session = Session_host.Live ->
+            Some (t, host, session)
+        | _ -> None)
       all_running
   in
   let count = ref 0 in
   List.iter
-    (fun task ->
-      match task.pid with
-      | Some pid ->
-          Hashtbl.replace running task.id { cancelled = ref false };
-          incr count;
-          Lwt.async (fun () ->
-              Lwt.finalize
-                (fun () ->
-                  let open Lwt.Syntax in
-                  (* The readopted process may not be our child (reparented to
-                     init after daemon restart), so waitpid can fail with
-                     ECHILD. Fall back to polling group_alive in that case. *)
-                  let* exit_code =
-                    Lwt.catch
-                      (fun () ->
-                        let* status = Lwt_unix.waitpid [] pid in
-                        Lwt.return (exit_code_of_status (snd status)))
-                      (function
-                        | Unix.Unix_error (Unix.ECHILD, _, _) ->
-                            (* ECHILD means the process is not our child
-                               (likely reparented to init after daemon
-                               restart). Poll group_alive: once the process
-                               group is gone, return 0 (clean exit) since we
-                               cannot inspect the real exit status. Return 1
-                               only if we time out while still alive. *)
-                            let deadline = Unix.gettimeofday () +. 300.0 in
-                            let rec poll () =
-                              if not (Process_group.group_alive pid) then
-                                Lwt.return 0
-                              else if Unix.gettimeofday () >= deadline then
-                                Lwt.return 1
-                              else
-                                let* () = Lwt_unix.sleep 5.0 in
-                                poll ()
-                            in
-                            poll ()
-                        | exn -> Lwt.fail exn)
-                  in
-                  (* B210 watchdog: kill remaining process group members *)
+    (fun ((task : task), (host : Session_host.t), session) ->
+      Hashtbl.replace running task.id { cancelled = ref false };
+      incr count;
+      Lwt.async (fun () ->
+          Lwt.finalize
+            (fun () ->
+              let open Lwt.Syntax in
+              let* wait_result = host.Session_host.wait session in
+              let exit_code =
+                match wait_result with Ok code -> code | Error _ -> 1
+              in
+              (* B210 watchdog: kill remaining process group members *)
+              (match Session_host_direct.pid_of_session_ref session with
+              | Some pid when pid > 0 ->
                   Lwt.async (fun () ->
                       let open Lwt.Syntax in
                       let* () = Lwt_unix.sleep 2.0 in
                       Process_group.signal_group pid Sys.sigkill;
-                      Lwt.return_unit);
-                  let output =
-                    match task.log_path with
-                    | Some path -> read_log_tail path preview_limit
-                    | None -> ""
-                  in
-                  ignore
-                    (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
-                  match get_task ~db ~id:task.id with
-                  | Some t -> on_task_finished t
-                  | None -> Lwt.return_unit)
-                (fun () ->
-                  Hashtbl.remove running task.id;
-                  Lwt.return_unit))
-      | None -> ())
-    orphaned;
+                      Lwt.return_unit)
+              | _ -> ());
+              let output =
+                match task.log_path with
+                | Some path -> read_log_tail path preview_limit
+                | None -> ""
+              in
+              ignore
+                (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
+              match get_task ~db ~id:task.id with
+              | Some t -> on_task_finished t
+              | None -> Lwt.return_unit)
+            (fun () ->
+              Hashtbl.remove running task.id;
+              Lwt.return_unit)))
+    adoptable;
   !count
