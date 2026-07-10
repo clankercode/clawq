@@ -1,16 +1,17 @@
 ---
 claimed_at: "2026-07-10T05:15:55Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-10T05:33:01Z"
 complexity: high
 depends_on:
     - B771
     - B775
+duration_minutes: 17.10587249705
 estimate_hours: 1
 id: B772
 priority: high
 started_at: "2026-07-10T05:15:55Z"
-status: in_progress
+status: done
 tags: []
 title: Publish code-changing work items as draft PRs under repository policy
 ---
