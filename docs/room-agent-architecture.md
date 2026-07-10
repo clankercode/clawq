@@ -59,7 +59,7 @@ Connector → Session Manager → Room Policy → Scope Resolution → Access Sn
 | `background_task_spawn.ml` | Process spawning, worktrees, scheduling, restart/readoption |
 | `background_task_room.ml` | Room and GitHub-triggered background task launching |
 | `background_task_workflow.ml` | Workflow-triggered background task launches |
-| `agent.ml` / `agent_2_tools.ml` | Agent creation, tool execution, snapshot-scoped access |
+| `agent_turn_setup.ml` / `agent_turn_core.ml` / `agent_2_tools.ml` | Agent creation, shared turn loop, tool execution, snapshot-scoped access |
 
 ---
 
@@ -1002,14 +1002,15 @@ For the full invariant catalogue, see
 | `src/access_snapshot.ml` | `create`, `create_and_persist`, `tool_denial`, `record_for_work` | Snapshot creation, persistence, tool denial |
 | `src/room_policy.ml` | `classification_from_context`, `evaluate`, `room_status_message` | Room classification and policy evaluation |
 | `src/invocation_restrict.ml` | `check_role`, `check_room_policy_and_role` | Role-based invocation restrictions |
-| `src/session_turn.ml` | `turn`, `run_locked_turn`, `drain_queued_messages` | Session lifecycle and turn orchestration |
+| `src/session_turn.ml` | `run_session_turn`, `run_locked_turn`, `drain_queued_messages` | Shared buffered/streaming session lifecycle and turn orchestration |
 | `src/session_management.ml` | `update_config`, `reset`, `compact`, `dump_json` | Session management operations |
 | `src/background_task_context.ml` | `routing_from_context`, `origin_fields_from_context`, `build_delegate_prompt` | Background task context/origin routing |
 | `src/background_task_spawn.ml` | `spawn_task`, `start_queued`, `readopt_running_tasks` | Process spawning, scheduling, and restart/readoption |
 | `src/background_task_room.ml` | `launch_room_bg_task`, `launch_triggered_run` | Room and GitHub-triggered task launching |
 | `src/background_task_workflow.ml` | `trigger_workflow_from_room_command`, `trigger_security_review_workflow` | Workflow-triggered background task launches |
-| `src/agent.ml` | `create`, `room_profile_tool_denial`, `turn`, `turn_stream` | Agent creation and tool execution |
-| `src/agent_2_tools.ml` | `execute_tool_calls_stream`, `room_profile_tool_denial` | Tool execution with snapshot-scoped access |
+| `src/agent_turn_setup.ml` | `create` | Agent construction and turn preparation |
+| `src/agent_turn_core.ml` | `run_turn`, `buffered_io`, `streaming_io` | Shared buffered/streaming agent loop |
+| `src/agent_2_tools.ml` | `execute_tools`, `room_profile_tool_denial` | Tool execution with snapshot-scoped access |
 | `src/runtime_config.ml` | `resolve_effective_access`, `sort_scopes` | Scope resolution and effective access |
 | `src/runtime_config_types.ml` | `access_bundle`, `access_scope`, `effective_access`, `room_profile` | Type definitions |
 

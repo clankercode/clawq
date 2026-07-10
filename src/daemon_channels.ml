@@ -96,6 +96,11 @@ let start_non_telegram_channels ~(config : Runtime_config.t)
         Lwt.async (fun () ->
             Lwt.catch ch.start (fun exn ->
                 Logs.err (fun m ->
-                    m "%s channel error: %s" ch.name (Printexc.to_string exn));
+                    (* Slack's established label omits the word "channel". *)
+                    let channel =
+                      if String.equal ch.name "Slack Socket Mode" then ""
+                      else " channel"
+                    in
+                    m "%s%s error: %s" ch.name channel (Printexc.to_string exn));
                 Lwt.return_unit)))
     channels

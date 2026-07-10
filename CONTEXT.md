@@ -34,7 +34,7 @@ _Avoid_: connector (that is a distinct concept — see below), integration, plat
 
 **Connector**:
 The delivery identity of a chat surface used to pick formatting and capabilities (can it edit, react, send cards, capture ambient history). What `format_adapter` and `connector_capabilities` key on.
-_Avoid_: channel (a Channel is the live transport; a Connector is the rendering identity). Note: the code currently conflates the two — `channel.ml` calls its type "module type for connectors" — pinning them apart is deliberate.
+_Avoid_: channel (a Channel is the live transport; a Connector is the rendering identity). Older `Channel.S` terminology conflated the two; the concrete `Channel.t` startup specification now models only the live transport lifecycle.
 
 ## Commands
 

@@ -1,13 +1,22 @@
 open Session_postmortem
 include Session_agents
 
+let persist_compacted_if_dirty mgr ~key agent =
+  if Agent.take_compaction_dirty agent then (
+    try
+      Session_core.persist_compacted_history mgr ~key agent;
+      true
+    with exn ->
+      Agent.mark_compacted agent;
+      raise exn)
+  else false
+
 (* Persist history after a turn. If compaction happened (this turn, or
    out-of-band since the last flush) write the full compacted history; else
    append only the messages added since [history_before]. Reads-and-clears the
    compaction signal via Agent.take_compaction_dirty. *)
 let persist_after_turn mgr ~key ~history_before agent =
-  if Agent.take_compaction_dirty agent then
-    Session_core.persist_compacted_history mgr ~key agent
+  if persist_compacted_if_dirty mgr ~key agent then ()
   else Session_core.persist_new_messages mgr ~key ~history_before agent
 
 (* Like [persist_after_turn] but for streaming paths that may have already
@@ -15,11 +24,24 @@ let persist_after_turn mgr ~key ~history_before agent =
    [history_before], still persist workspace state (effective_cwd may have
    changed). *)
 let persist_after_turn_or_workspace mgr ~key ~history_before agent =
-  if Agent.take_compaction_dirty agent then
-    Session_core.persist_compacted_history mgr ~key agent
+  if persist_compacted_if_dirty mgr ~key agent then ()
   else if List.length agent.Agent.history > history_before then
     Session_core.persist_new_messages mgr ~key ~history_before agent
   else Session_core.persist_session_workspace_state mgr ~key agent
+
+type turn_io = { emit : Provider.stream_event -> unit Lwt.t; streaming : bool }
+
+let buffered_turn_io = { emit = (fun _ -> Lwt.return_unit); streaming = false }
+let streaming_turn_io emit = { emit; streaming = true }
+let emit_progress io text = io.emit (Provider.Delta (text ^ "\n"))
+
+let finish_response io response =
+  let open Lwt.Syntax in
+  if io.streaming then
+    let* () = io.emit (Provider.Delta response) in
+    let* () = io.emit Provider.Done in
+    Lwt.return response
+  else Lwt.return response
 
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ?on_tool_round_complete
@@ -114,15 +136,20 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?user_group ?channel ?channel_id
-    ?on_tool_round_complete () =
+    ?on_tool_round_complete ?(io = buffered_turn_io) () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
   (* Check for @agent mention at start of message *)
   let notify = Session_core.find_registered_notifier mgr ~key in
-  let* agent_response = handle_agent_mention mgr ~key ?notify message in
+  let mention_notify =
+    if io.streaming then Some (emit_progress io) else notify
+  in
+  let* agent_response =
+    handle_agent_mention mgr ~key ?notify:mention_notify message
+  in
   match agent_response with
-  | Some response -> Lwt.return response
+  | Some response -> finish_response io response
   | None ->
       let skip_loaded =
         Skill_dedup.loaded_skill_names_in_history agent.Agent.history
@@ -162,6 +189,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       (match Session_core.find_registered_notifier mgr ~key with
       | Some send -> notify_skill_loads ~send skill_injections
+      | None when io.streaming ->
+          notify_skill_loads ~send:(emit_progress io) skill_injections
       | None -> ());
       List.iter
         (fun content ->
@@ -198,15 +227,22 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         in
         ws_msgs @ pd_msgs
       in
-      let* () = Session_core.notify_event_messages ?notify refresh_messages in
+      let on_chunk = if io.streaming then Some io.emit else None in
+      let* () =
+        Session_core.notify_event_messages ?notify ?on_chunk refresh_messages
+      in
       let* compaction_info =
         Agent.prepare_turn_history agent ~user_message:effective_message
           ~content_parts ~workspace_refresh_checked:true ?db:mgr.db
           ~session_key:key ?room_id:channel_id ?on_llm_call_debug ()
       in
       let compacted = Option.is_some compaction_info in
+      let compaction_notify =
+        if io.streaming then Some (emit_progress io) else notify
+      in
       let* () =
-        Session_core.notify_compaction_if_needed ?notify compaction_info
+        Session_core.notify_compaction_if_needed ?notify:compaction_notify
+          compaction_info
       in
       if compacted then Session_core.persist_compacted_history mgr ~key agent
       else Session_core.persist_new_messages mgr ~key ~history_before agent;
@@ -246,7 +282,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
               new_msgs;
             persisted_up_to := List.length agent.Agent.history
         | None -> ());
-        Session_core.notify_event_messages ?notify new_msgs
+        Session_core.notify_event_messages ?notify ?on_chunk new_msgs
       in
       let inject_messages () =
         let msgs =
@@ -300,9 +336,19 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       let* response =
         Lwt.catch
           (fun () ->
-            let* draining_response = Session_core.respond_if_draining mgr in
+            let* draining_response =
+              Session_core.respond_if_draining ?on_chunk mgr
+            in
             match draining_response with
             | Some response -> Lwt.return response
+            | None when io.streaming ->
+                (* Direct streaming historically does not inject observer
+                   corrections or launch postmortems mid-turn. *)
+                Agent.turn_stream agent ~user_message:effective_message
+                  ?db:mgr.db ~session_key:key ~interrupt_check ~inject_messages
+                  ?on_tool_round_complete ?runtime_context
+                  ~history_prepared:true ~on_history_update ?on_llm_call_debug
+                  ~on_chunk:io.emit ()
             | None -> (
                 match notify with
                 | Some send
@@ -323,7 +369,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                 persist_after_turn mgr ~key ~history_before:!persisted_up_to
                   agent;
                 Session_core.set_response_deferred mgr ~key;
-                Lwt.return Session_core.draining_message
+                finish_response io Session_core.draining_message
             | exn ->
                 persist_after_turn mgr ~key ~history_before:!persisted_up_to
                   agent;
@@ -331,8 +377,9 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       (match notify with
       | Some _
-        when mgr.config.agent_defaults.show_thinking
-             || mgr.config.agent_defaults.show_tool_calls ->
+        when (not io.streaming)
+             && (mgr.config.agent_defaults.show_thinking
+               || mgr.config.agent_defaults.show_tool_calls) ->
           ()
       | _ ->
           if not (Session_core.response_deferred mgr ~key) then begin
@@ -511,36 +558,43 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         ~drained_any:false ())
 
-let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
-    ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?user_group ?channel ?channel_id ?message_id ?cwd
-    ?(deferred_if_busy = false) ?before_drain ?snapshot_work_type
-    ?(has_external_users = false) () =
+let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
+    ?(attachments = []) ?(skill_injections = []) ?channel_name ?channel_type
+    ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id ?cwd
+    ?(deferred_if_busy = false) ?on_tool_round_complete ?on_drain_progress
+    ?before_drain ?snapshot_work_type ?(has_external_users = false) () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
       let raw_message = message in
       let* message = normalize_incoming_message mgr ~key ~message in
+      let send_progress =
+        if io.streaming then Some (emit_progress io)
+        else Session_core.find_registered_notifier mgr ~key
+      in
       let* handled =
-        Session_core.handle_special_command mgr ~key ~message
-          ?send_progress:(Session_core.find_registered_notifier mgr ~key)
+        Session_core.handle_special_command mgr ~key ~message ?send_progress
           ~interrupt_check:(Session_core.interrupt_check_if_present mgr ~key)
           ()
       in
       match handled with
-      | Some response -> Lwt.return response
+      | Some response -> finish_response io response
       | None -> (
           (* Check external room policy before proceeding with work *)
           let policy_denial =
-            match
-              evaluate_room_policy mgr.Session_core.config ~key ~channel
-                ~channel_id ~user_group ~has_external_users ()
-            with
-            | Ok _ -> None
-            | Error msg -> Some msg
+            (* The public streaming path historically records policy in its
+               access snapshot but does not short-circuit the turn. *)
+            if io.streaming then None
+            else
+              match
+                evaluate_room_policy mgr.Session_core.config ~key ~channel
+                  ~channel_id ~user_group ~has_external_users ()
+              with
+              | Ok _ -> None
+              | Error msg -> Some msg
           in
           match policy_denial with
-          | Some deny_msg -> Lwt.return deny_msg
+          | Some deny_msg -> finish_response io deny_msg
           | None ->
               let queued_message : Session_core.queued_message =
                 {
@@ -563,7 +617,10 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                 }
               in
               let on_draining () =
-                let* draining_response = Session_core.respond_if_draining mgr in
+                let on_chunk = if io.streaming then Some io.emit else None in
+                let* draining_response =
+                  Session_core.respond_if_draining ?on_chunk mgr
+                in
                 match draining_response with
                 | Some response -> Lwt.return response
                 | None -> Lwt.return Session_core.draining_message
@@ -612,7 +669,8 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       run_locked_turn mgr ~key agent interrupt ~message
                         ~content_parts ~attachments ~skill_injections
                         ?channel_name ?channel_type ?sender_id ?sender_name
-                        ?user_group ?channel ?channel_id ()
+                        ?user_group ?channel ?channel_id ?on_tool_round_complete
+                        ~io ()
                     in
                     (* Persist effective_cwd after turn (may have changed via
                    change_working_dir tool) *)
@@ -627,7 +685,8 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       | None -> Lwt.return_unit
                     in
                     let* () =
-                      drain_queued_messages mgr ~key agent interrupt ()
+                      drain_queued_messages mgr ~key agent interrupt
+                        ?on_drain_progress ()
                     in
                     Lwt.return response)
               in
@@ -662,6 +721,16 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                 else
                   Session_core.with_session_lock_unless_draining mgr ~key
                     ~on_draining run_with_lock))
+
+let turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
+    ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
+    ?user_group ?channel ?channel_id ?message_id ?cwd
+    ?(deferred_if_busy = false) ?before_drain ?snapshot_work_type
+    ?(has_external_users = false) () =
+  run_session_turn mgr ~io:buffered_turn_io ~key ~message ~content_parts
+    ~attachments ~skill_injections ?channel_name ?channel_type ?sender_id
+    ?sender_name ?user_group ?channel ?channel_id ?message_id ?cwd
+    ~deferred_if_busy ?before_drain ?snapshot_work_type ~has_external_users ()
 
 let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
@@ -715,350 +784,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
     ?user_group ?channel ?channel_id ?message_id ?cwd ?on_tool_round_complete
     ?on_drain_progress ?before_drain ?snapshot_work_type ~on_chunk () =
-  Session_core.with_live_activity mgr ~key (fun () ->
-      let open Lwt.Syntax in
-      let* () = Session_core.mark_autonomous_activity_started mgr ~key in
-      let raw_message = message in
-      let* message = normalize_incoming_message mgr ~key ~message in
-      let send_progress text = on_chunk (Provider.Delta (text ^ "\n")) in
-      let* handled =
-        Session_core.handle_special_command mgr ~key ~message ~send_progress
-          ~interrupt_check:(Session_core.interrupt_check_if_present mgr ~key)
-          ()
-      in
-      match handled with
-      | Some response ->
-          let* () = on_chunk (Provider.Delta response) in
-          let* () = on_chunk Provider.Done in
-          Lwt.return response
-      | None ->
-          let queued_message : Session_core.queued_message =
-            {
-              message;
-              content_parts;
-              attachments;
-              channel_name;
-              channel_type;
-              sender_id;
-              sender_name;
-              user_group;
-              channel;
-              channel_id;
-              message_id;
-              inbound_queue_id = None;
-              bang = false;
-              deferred_followup = false;
-              snapshot_work_type;
-              has_external_users = false;
-            }
-          in
-          let* queued =
-            Session_core.enqueue_message_if_busy mgr ~key ~raw_message
-              queued_message
-          in
-          if queued then Lwt.return Session_core.queued_message_response
-          else
-            Session_core.with_session_lock_unless_draining mgr ~key
-              ~on_draining:(fun () ->
-                let* draining_response =
-                  Session_core.respond_if_draining ~on_chunk mgr
-                in
-                match draining_response with
-                | Some response -> Lwt.return response
-                | None -> Lwt.return Session_core.draining_message)
-              (fun agent interrupt ->
-                Session_core.with_in_flight mgr (fun () ->
-                    (* Record effective-access snapshot when work begins and
-                       store the snapshot on the agent. Clear any stale
-                       snapshot from a previous turn when no snapshot_work_type
-                       is set. Also evaluate the external room policy. *)
-                    let room_classification_for_snap, room_decision_for_snap =
-                      match
-                        evaluate_room_policy mgr.Session_core.config ~key
-                          ~channel ~channel_id ~user_group
-                          ~has_external_users:false ()
-                      with
-                      | Ok (cls, dec) -> (cls.scope, dec)
-                      | Error _msg -> (Runtime_config_types.Rm_unknown, "denied")
-                    in
-                    (match snapshot_work_type with
-                    | Some work_type -> (
-                        match mgr.Session_core.db with
-                        | Some db ->
-                            let snap =
-                              Access_snapshot.create_and_persist ~db
-                                ~config:mgr.Session_core.config ~work_type
-                                ~session_key:key ?room_id:channel_id
-                                ~room_classification:
-                                  room_classification_for_snap
-                                ~room_policy_decision:room_decision_for_snap ()
-                            in
-                            agent.Agent.access_snapshot_id <- Some snap.id;
-                            agent.Agent.access_snapshot <- Some snap
-                        | None -> ())
-                    | None ->
-                        agent.Agent.access_snapshot_id <- None;
-                        agent.Agent.access_snapshot <- None);
-                    (match cwd with
-                    | Some c ->
-                        Session_room_profile.apply_cwd_change_for_turn mgr ~key
-                          agent ~cwd:c
-                    | None -> ());
-                    let interrupt_check () = !interrupt in
-                    interrupt := None;
-                    (* Check for @agent mention at start of message *)
-                    let notify_fn text =
-                      on_chunk (Provider.Delta (text ^ "\n"))
-                    in
-                    let* agent_response =
-                      handle_agent_mention mgr ~key ~notify:notify_fn message
-                    in
-                    match agent_response with
-                    | Some response ->
-                        let* () = on_chunk (Provider.Delta response) in
-                        let* () = on_chunk Provider.Done in
-                        Lwt.return response
-                    | None ->
-                        let skip_loaded =
-                          Skill_dedup.loaded_skill_names_in_history
-                            agent.Agent.history
-                        in
-                        let* message, auto_injections, auto_md_skills =
-                          !expand_skill_refs_fn ~skip_loaded message
-                        in
-                        let all_injections =
-                          skill_injections @ auto_injections
-                        in
-                        let md_skills =
-                          if user_group = Some "admin" then auto_md_skills
-                          else
-                            List.filter
-                              (fun (name, _) ->
-                                not (Builtin_skills.is_test_skill_name name))
-                              auto_md_skills
-                        in
-                        (match mgr.db with
-                        | Some db when mgr.config.security.audit_enabled ->
-                            Audit.log ~db
-                              (ChatMessage
-                                 {
-                                   session_key = key;
-                                   role = "user";
-                                   content_preview = message;
-                                 })
-                        | _ -> ());
-                        Session_core.inject_attachment_context agent attachments;
-                        let all_injections =
-                          dedup_skill_injections ~history:agent.Agent.history
-                            all_injections
-                        in
-                        (match
-                           Session_core.find_registered_notifier mgr ~key
-                         with
-                        | Some send -> notify_skill_loads ~send all_injections
-                        | None ->
-                            notify_skill_loads
-                              ~send:(fun text ->
-                                on_chunk (Provider.Delta (text ^ "\n")))
-                              all_injections);
-                        List.iter
-                          (fun content ->
-                            agent.Agent.history <-
-                              Provider.make_message ~role:"system" ~content
-                              :: agent.Agent.history)
-                          all_injections;
-                        let effective_message =
-                          Session_core.effective_message_for_turn ~message
-                            ?channel_name ?channel_type ?sender_id ?sender_name
-                            ?user_group ()
-                        in
-                        let history_before = List.length agent.history in
-                        let notify =
-                          Session_core.find_registered_notifier mgr ~key
-                        in
-                        let on_llm_call_debug =
-                          Session_heartbeat.debug_callback_for mgr ~key notify
-                        in
-                        (match notify with
-                        | Some send ->
-                            agent.Agent.on_project_doc_loaded <-
-                              Some
-                                (fun msg ->
-                                  Lwt.catch
-                                    (fun () -> send msg)
-                                    (fun _ -> Lwt.return_unit))
-                        | None -> ());
-                        let refresh_messages =
-                          let ws_msgs =
-                            match
-                              Agent.note_external_workspace_refresh_if_needed
-                                agent
-                            with
-                            | Some msg -> [ msg ]
-                            | None -> []
-                          in
-                          let pd_msgs =
-                            match
-                              Agent.refresh_project_docs_if_changed agent
-                            with
-                            | Some msg -> [ msg ]
-                            | None -> []
-                          in
-                          ws_msgs @ pd_msgs
-                        in
-                        let* () =
-                          Session_core.notify_event_messages ?notify ~on_chunk
-                            refresh_messages
-                        in
-                        let* compaction_info =
-                          Agent.prepare_turn_history agent
-                            ~user_message:effective_message ~content_parts
-                            ~workspace_refresh_checked:true ?db:mgr.db
-                            ~session_key:key ?room_id:channel_id
-                            ?on_llm_call_debug ()
-                        in
-                        let compacted = Option.is_some compaction_info in
-                        let* () =
-                          Session_core.notify_compaction_if_needed
-                            ~notify:(fun text ->
-                              on_chunk (Provider.Delta (text ^ "\n")))
-                            compaction_info
-                        in
-                        if compacted then
-                          Session_core.persist_compacted_history mgr ~key agent
-                        else
-                          Session_core.persist_new_messages mgr ~key
-                            ~history_before agent;
-                        let runtime_context =
-                          Prompt_builder.build_runtime_context
-                            ~config:mgr.config ~md_skills
-                            ~details:
-                              (Session_core.runtime_context_details mgr ~agent
-                                 ~key ~compacted_before_turn:compacted)
-                            ()
-                        in
-                        let prepared_history_len = List.length agent.history in
-                        Session_core.record_agent_turn mgr ~key ?channel
-                          ?channel_id ();
-                        let persisted_up_to = ref prepared_history_len in
-                        let on_history_update new_msgs =
-                          (match mgr.db with
-                          | Some db ->
-                              List.iter
-                                (fun msg ->
-                                  Memory.store_message ~db ~session_key:key msg;
-                                  (* B734: fire-and-forget embedding for scoped messages *)
-                                  let scope_info =
-                                    match channel_id with
-                                    | Some room_id -> (
-                                        match
-                                          Memory.get_room_profile_binding ~db
-                                            ~room_id
-                                        with
-                                        | Some _binding ->
-                                            Some
-                                              ( Sqlite3.last_insert_rowid db,
-                                                "room",
-                                                room_id )
-                                        | None -> None)
-                                    | None -> None
-                                  in
-                                  match scope_info with
-                                  | Some (message_id, scope_kind, scope_key) ->
-                                      Lwt.async (fun () ->
-                                          Vector.embed_and_store_message
-                                            ~config:mgr.config ~db
-                                            ~session_key:key ~message_id
-                                            ~content:msg.content ~scope_kind
-                                            ~scope_key ())
-                                  | None -> ())
-                                new_msgs;
-                              persisted_up_to := List.length agent.Agent.history
-                          | None -> ());
-                          Session_core.notify_event_messages ?notify ~on_chunk
-                            new_msgs
-                        in
-                        let inject_messages () =
-                          let msgs =
-                            Session_core.take_all_queued_messages_for_injection
-                              ~interrupt mgr ~key
-                          in
-                          List.map
-                            (fun (qm : Session_core.queued_message) ->
-                              Session_core.queued_message_prompt
-                                (Session_core.effective_message_for_turn
-                                   ~message:qm.message
-                                   ?channel_name:qm.channel_name
-                                   ?channel_type:qm.channel_type
-                                   ?sender_id:qm.sender_id
-                                   ?sender_name:qm.sender_name
-                                   ?user_group:qm.user_group ()))
-                            msgs
-                        in
-                        let* response =
-                          Lwt.catch
-                            (fun () ->
-                              let* draining_response =
-                                Session_core.respond_if_draining ~on_chunk mgr
-                              in
-                              match draining_response with
-                              | Some response -> Lwt.return response
-                              | None ->
-                                  Agent.turn_stream agent
-                                    ~user_message:effective_message ?db:mgr.db
-                                    ~session_key:key ~interrupt_check
-                                    ~inject_messages ?on_tool_round_complete
-                                    ?runtime_context ~history_prepared:true
-                                    ~on_history_update ?on_llm_call_debug
-                                    ~on_chunk ())
-                            (function
-                              | Agent.Restart_requested ->
-                                  persist_after_turn mgr ~key
-                                    ~history_before:!persisted_up_to agent;
-                                  Session_core.set_response_deferred mgr ~key;
-                                  let* () =
-                                    on_chunk
-                                      (Provider.Delta
-                                         Session_core.draining_message)
-                                  in
-                                  let* () = on_chunk Provider.Done in
-                                  Lwt.return Session_core.draining_message
-                              | exn ->
-                                  persist_after_turn mgr ~key
-                                    ~history_before:!persisted_up_to agent;
-                                  Lwt.fail exn)
-                        in
-                        if not (Session_core.response_deferred mgr ~key) then begin
-                          (* If streaming already flushed new messages mid-turn,
-                             persist_after_turn_or_workspace still persists
-                             workspace state when nothing new was appended. *)
-                          persist_after_turn_or_workspace mgr ~key
-                            ~history_before:!persisted_up_to agent;
-                          match mgr.db with
-                          | Some db when mgr.config.security.audit_enabled ->
-                              Audit.log ~db
-                                (ChatMessage
-                                   {
-                                     session_key = key;
-                                     role = "assistant";
-                                     content_preview = response;
-                                   })
-                          | _ -> ()
-                        end;
-                        (* Persist effective_cwd after turn (may have changed
-                           via change_working_dir tool) *)
-                        (match mgr.Session_core.db with
-                        | Some db ->
-                            Memory.set_session_cwd ~db ~session_key:key
-                              ~cwd:agent.Agent.effective_cwd
-                        | None -> ());
-                        let* () =
-                          match before_drain with
-                          | Some f -> f response
-                          | None -> Lwt.return_unit
-                        in
-                        let* () =
-                          drain_queued_messages mgr ~key agent interrupt
-                            ?on_drain_progress ()
-                        in
-                        Lwt.return response)))
+  run_session_turn mgr
+    ~io:(streaming_turn_io on_chunk)
+    ~key ~message ~content_parts ~attachments ~skill_injections ?channel_name
+    ?channel_type ?sender_id ?sender_name ?user_group ?channel ?channel_id
+    ?message_id ?cwd ?on_tool_round_complete ?on_drain_progress ?before_drain
+    ?snapshot_work_type ()

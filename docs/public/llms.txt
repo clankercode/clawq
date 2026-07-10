@@ -8,7 +8,7 @@
 - [Quick Start](https://clawq.org/quickstart): Install from npm, configure a provider, open the web UI, add a channel — 5 minutes
 - [Configuration](https://clawq.org/configuration): Full config reference — providers, channels, security, gateway, memory, resilience, MCP, tunnels
 - [CLI Reference](https://clawq.org/cli-reference): Complete command reference for all clawq commands and subcommands
-- [Channels](https://clawq.org/channels): Telegram, Discord, Slack, GitHub, MS Teams setup and Channel.S interface
+- [Channels](https://clawq.org/channels): Telegram, Discord, Slack, GitHub, MS Teams setup and channel startup registry
 - [Architecture](https://clawq.org/architecture): Coq-to-OCaml build pipeline, runtime module map, library dependency structure
 - [Tools](https://clawq.org/tools): Built-in tools reference, MCP server/client, skills overview, sandbox backends, shell allowlist
 - [Background Tasks](https://clawq.org/background-tasks): Delegate coding tasks to background agent runners with git worktree isolation

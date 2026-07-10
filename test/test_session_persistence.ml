@@ -418,6 +418,27 @@ let test_room_sessions_resolve_independent_cwd () =
   Alcotest.(check (option string))
     "room A CWD stable" (Some "/workspace/room-a") cwd_a_again
 
+let test_compaction_dirty_restored_when_persist_raises () =
+  let db = make_db () in
+  let config = Runtime_config.default in
+  let mgr = make_mgr ~config ~db () in
+  let agent = Agent.create ~config () in
+  agent.Agent.history <-
+    [ Provider.make_message ~role:"assistant" ~content:"compacted" ];
+  Agent.mark_compacted agent;
+  ignore (Sqlite3.db_close db);
+  let raised =
+    try
+      Session.persist_after_turn mgr ~key:"persist-failure" ~history_before:0
+        agent;
+      false
+    with _ -> true
+  in
+  Alcotest.(check bool) "persistence raises" true raised;
+  Alcotest.(check bool)
+    "compaction remains dirty for retry" true
+    (Agent.take_compaction_dirty agent)
+
 let suite : unit Alcotest.test_case list =
   [
     Alcotest.test_case "discord resume state round trip" `Quick
@@ -468,4 +489,6 @@ let suite : unit Alcotest.test_case list =
     Alcotest.test_case
       "room sessions resolve independent CWD without cross-contamination" `Quick
       test_room_sessions_resolve_independent_cwd;
+    Alcotest.test_case "failed compaction persist preserves retry signal" `Quick
+      test_compaction_dirty_restored_when_persist_raises;
   ]
