@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-10T06:26:52Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-10T06:42:13Z"
 complexity: medium
 depends_on:
     - B772
     - B773
     - B774
     - B775
+duration_minutes: 15.362359180516666
 estimate_hours: 1
 id: B776
 priority: medium
 started_at: "2026-07-10T06:26:52Z"
-status: in_progress
+status: done
 tags: []
 title: Worker-fleet setup and readiness are not documented or diagnosable
 ---
