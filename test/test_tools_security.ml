@@ -1477,6 +1477,49 @@ let test_b677_resets_on_different_key () =
     "circuit breaker not armed (streak interrupted)" true
     (agent.hard_abort_reason = None)
 
+(* B723: repeated invalid calls in one model-emitted batch consume one
+   correction chance, rather than one chance per call. *)
+let test_b723_batch_missing_required_counts_once () =
+  let tool : Tool.t =
+    {
+      name = "web_search";
+      description = "Web search";
+      parameters_schema =
+        `Assoc
+          [
+            ( "properties",
+              `Assoc [ ("query", `Assoc [ ("type", `String "string") ]) ] );
+            ("required", `List [ `String "query" ]);
+          ];
+      invoke = (fun ?context:_ _args -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  let registry = Tool_registry.create () in
+  Tool_registry.register registry tool;
+  let agent =
+    Agent.create ~config:Runtime_config.default ~tool_registry:registry ()
+  in
+  let calls =
+    List.init 3 (fun i ->
+        {
+          Provider.id = Printf.sprintf "call-%d" i;
+          function_name = "web_search";
+          arguments = "{}";
+        })
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:None calls);
+  Alcotest.(check int)
+    "one identical invalid batch consumes one chance" 1
+    agent.last_missing_required_count;
+  Alcotest.(check bool)
+    "batch does not hard-abort immediately" true
+    (agent.hard_abort_reason = None)
+
 let test_validate_required_params_passes_valid () =
   let mock_tool : Tool.t =
     {
@@ -1649,4 +1692,6 @@ let suite =
     Alcotest.test_case
       "B677: streak resets when failing on a different tool/key" `Quick
       test_b677_resets_on_different_key;
+    Alcotest.test_case "B723: repeated invalid calls in one batch count once"
+      `Quick test_b723_batch_missing_required_counts_once;
   ]

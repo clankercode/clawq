@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-06-27T17:58:42Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-10T03:24:48Z"
 complexity: medium
 depends_on: []
+duration_minutes: 17846.102687671068
 estimate_hours: 1
 id: B723
 priority: high
 started_at: "2026-06-27T17:58:42Z"
-status: in_progress
+status: done
 tags: []
 title: Stuck detection counts per tool call in batch, triggering abort too aggressively
 ---

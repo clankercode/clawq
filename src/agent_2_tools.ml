@@ -95,6 +95,24 @@ let parse_tool_arguments (tc : Provider.tool_call) =
           schema."
          tc.function_name tc.arguments)
 
+let missing_required_key (tool : Tool.t) missing =
+  let sorted = List.sort String.compare missing in
+  tool.name ^ "|" ^ String.concat "," sorted
+
+let validate_required_for_batch agent batch_cache (tool : Tool.t) args =
+  match Tool.find_missing_required_params tool args with
+  | [] -> validate_required_with_escalation agent tool args
+  | missing -> (
+      let key = missing_required_key tool missing in
+      match Hashtbl.find_opt batch_cache key with
+      | Some msg -> Error msg
+      | None -> (
+          match validate_required_with_escalation agent tool args with
+          | Error msg ->
+              Hashtbl.add batch_cache key msg;
+              Error msg
+          | Ok () -> Ok ()))
+
 let summarize_history_for_wipe history =
   let lines = ref [] in
   let add line = lines := line :: !lines in
@@ -232,6 +250,7 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
      post-tool workspace refresh. These are safe under OCaml 5.1 cooperative
      Lwt scheduling (no yield points in the mutation paths). If multi-domain
      parallelism is introduced, these would need synchronization. *)
+  let batch_validation_cache = Hashtbl.create 8 in
   let pre_validations =
     List.map
       (fun (tc : Provider.tool_call) ->
@@ -260,8 +279,8 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                           | Error msg -> (tc, Error msg)
                           | Ok args -> (
                               match
-                                validate_required_with_escalation agent tool
-                                  args
+                                validate_required_for_batch agent
+                                  batch_validation_cache tool args
                               with
                               | Error msg -> (tc, Error msg)
                               | Ok () -> (
