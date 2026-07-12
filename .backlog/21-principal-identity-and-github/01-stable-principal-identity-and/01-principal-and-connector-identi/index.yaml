@@ -32,12 +32,18 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M1.E1.T002
-      estimate_hours: 4
+        - P21.M1.E1.T005
+        - P21.M1.E1.T006
+        - P21.M1.E1.T007
+        - P21.M1.E1.T008
+        - P21.M1.E1.T009
+      estimate_hours: 5
       file: T003-resolve-verified-connector-act.todo
       id: T003
       priority: critical
       status: pending
-      title: Resolve verified Connector Actors to stable Principals
+      tags: []
+      title: Resolve adapter-verified Connector actors to stable Principals
     - complexity: high
       depends_on:
         - P21.M1.E1.T003
