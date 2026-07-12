@@ -34,6 +34,7 @@ tasks:
       id: T003
       priority: critical
       status: pending
+      tags: []
       title: Implement Item Repo Org no-fallthrough matching
     - complexity: medium
       depends_on:
