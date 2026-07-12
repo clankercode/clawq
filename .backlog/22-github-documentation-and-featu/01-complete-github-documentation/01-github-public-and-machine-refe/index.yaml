@@ -34,11 +34,13 @@ tasks:
     - complexity: high
       depends_on:
         - P22.M1.E1.T002
-      estimate_hours: 6
+        - P22.M1.E1.T006
+      estimate_hours: 5
       file: T003-publish-github-machine-referen.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Publish GitHub machine references and update llms indexes
     - complexity: high
       depends_on:
