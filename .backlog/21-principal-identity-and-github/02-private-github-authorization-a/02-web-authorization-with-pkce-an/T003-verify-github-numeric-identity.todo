@@ -1,19 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:44Z"
 depends_on:
     - P21.M2.E2.T002
-    - P21.M1.E2.T002
-    - P21.M2.E4.T004
+    - P21.M2.E2.T004
 estimate_hours: 4
 id: P21.M2.E2.T003
 priority: critical
+started_at: null
 status: pending
-tags:
-    - github
-    - identity
-    - setup
-title: Verify GitHub numeric identity and prepare a confirmable binding plan
+tags: []
+title: Route web authorization through shared verified activation
 updated_at: "2026-07-12T14:51:44Z"
 ---
-Acceptance: Validate response shape and call GitHub /user before sealing pending credentials; present a redacted revision-bound plan to the same Principal, and only explicit matching confirmation atomically activates the binding; mismatch/collision destroys pending material and preserves prior state. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: A successful web code exchange passes its still-pending credential and transaction context into the shared flow-neutral /user verification, plan, confirmation, collision, and atomic activation transaction. It adds no web-only binding semantics; mismatch, replay, expiry, cancellation, or activation failure destroys pending material and returns a private repair state. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
