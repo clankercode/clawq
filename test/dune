@@ -1,6 +1,8 @@
 (test
  (name test_main)
- (deps ../src/main.exe)
+ (deps
+  ../src/main.exe
+  (source_tree fixtures))
  (modules
   test_main
   test_ambient_policy
@@ -58,6 +60,7 @@
   test_github_app_setup_callback
   test_github_app_installation_scope
   test_github_app_webhook_ingress
+  test_github_event_envelope
   test_github_auth_selection
   test_github_pr_subscriptions
   test_github_pr_dispatch

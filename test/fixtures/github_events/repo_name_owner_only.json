@@ -1,0 +1,18 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 3,
+    "title": "Owner name only",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/3",
+    "head": { "sha": "own1", "ref": "t" },
+    "base": { "ref": "main" }
+  },
+  "repository": {
+    "name": "widgets",
+    "owner": { "login": "acme" }
+  },
+  "sender": { "login": "alice", "id": 1, "type": "User" }
+}

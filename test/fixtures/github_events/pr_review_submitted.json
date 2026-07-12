@@ -1,0 +1,24 @@
+{
+  "action": "submitted",
+  "review": {
+    "id": 99,
+    "user": { "login": "reviewer1", "id": 9, "type": "User" },
+    "body": "Looks good but please fix the tests. SECRET_TOKEN=xyz",
+    "state": "approved",
+    "html_url": "https://github.com/acme/widgets/pull/42#pullrequestreview-99",
+    "commit_id": "revsha1",
+    "submitted_at": "2026-07-12T17:00:00Z"
+  },
+  "pull_request": {
+    "number": 42,
+    "title": "Add feature",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/42",
+    "head": { "sha": "revsha1", "ref": "feature-x" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "reviewer1", "id": 9, "type": "User" }
+}

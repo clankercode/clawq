@@ -1,0 +1,14 @@
+{
+  "action": "closed",
+  "issue": {
+    "number": 10,
+    "title": "Bug report",
+    "state": "closed",
+    "html_url": "https://github.com/acme/widgets/issues/10",
+    "updated_at": "2026-07-12T22:00:00Z",
+    "labels": [{ "name": "bug" }],
+    "assignees": []
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "alice", "id": 1, "type": "User" }
+}

@@ -1,0 +1,7 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 99
+  },
+  "repository": { "full_name": "acme/widgets" }
+}

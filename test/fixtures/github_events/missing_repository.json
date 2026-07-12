@@ -1,0 +1,9 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 1,
+    "title": "No repo",
+    "state": "open"
+  },
+  "sender": { "login": "alice", "id": 1 }
+}
