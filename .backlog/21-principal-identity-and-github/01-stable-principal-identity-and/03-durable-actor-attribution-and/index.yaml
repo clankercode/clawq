@@ -38,14 +38,16 @@ tasks:
       title: Carry Actor snapshots through P19 action intents and confirmations
     - complexity: high
       depends_on:
-        - P21.M1.E1.T004
+        - P21.M1.E1.T011
+        - P21.M1.E1.T012
         - P21.M1.E2.T003
         - P21.M1.E3.T001
-      estimate_hours: 4
+      estimate_hours: 5
       file: T003-migrate-legacy-requester-ident.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Migrate legacy requester identities without unsafe coalescing
     - complexity: high
       depends_on:
