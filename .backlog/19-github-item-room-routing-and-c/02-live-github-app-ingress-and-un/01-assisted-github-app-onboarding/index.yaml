@@ -30,7 +30,8 @@ tasks:
       file: T002-verify-and-exchange-one-time-b.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Verify and exchange one-time browser callbacks
     - complexity: high
       depends_on:
