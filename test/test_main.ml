@@ -111,6 +111,7 @@ let () =
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
        ( "github_app_installation_scope",
          Test_github_app_installation_scope.suite );
+       ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);
