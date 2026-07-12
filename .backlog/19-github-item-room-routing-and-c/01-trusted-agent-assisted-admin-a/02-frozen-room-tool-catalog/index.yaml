@@ -29,7 +29,8 @@ tasks:
       file: T002-capture-an-immutable-per-turn.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Capture an immutable per-turn Room Tool catalog
     - complexity: high
       depends_on:
