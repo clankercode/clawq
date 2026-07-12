@@ -114,6 +114,7 @@ let () =
        ("mcp_catalog", Test_mcp_catalog.suite);
        ("mcp_room_scope", Test_mcp_room_scope.suite);
        ("mcp_registry_publish", Test_mcp_registry_publish.suite);
+       ("tool_scope_conformance", Test_tool_scope_conformance.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);

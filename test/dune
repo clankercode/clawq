@@ -148,6 +148,7 @@
   test_mcp_catalog
   test_mcp_room_scope
   test_mcp_registry_publish
+  test_tool_scope_conformance
   test_service
   test_session
   test_session_observer
