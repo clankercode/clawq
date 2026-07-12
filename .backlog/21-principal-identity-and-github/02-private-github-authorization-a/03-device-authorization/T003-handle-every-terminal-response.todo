@@ -1,18 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:45Z"
 depends_on:
     - P21.M2.E3.T002
-    - P21.M2.E2.T003
-estimate_hours: 5
+    - P21.M2.E2.T004
+estimate_hours: 4
 id: P21.M2.E3.T003
 priority: critical
+started_at: null
 status: pending
-tags:
-    - github
-    - oauth
-    - device-flow
+tags: []
 title: Handle every terminal response and prepare verified binding
 updated_at: "2026-07-12T14:51:45Z"
 ---
-Acceptance: Success reuses /user verification, collision, vault, and confirmable binding plan paths; expiry, denial, disabled flow, incorrect client/code, unsupported grant, malformed, and unknown errors terminate explicitly with no active partial binding. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Device success passes its still-pending credential and transaction context into the shared flow-neutral /user verification and activation transaction; expiry, denial, disabled flow, incorrect client/code, unsupported grant, malformed, and unknown responses terminate explicitly with no active partial binding. No web-owned task is a device-flow prerequisite. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
