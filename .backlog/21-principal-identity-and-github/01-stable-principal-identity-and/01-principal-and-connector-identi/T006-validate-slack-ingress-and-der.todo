@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T17:00:16Z"
 depends_on:
@@ -6,12 +7,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M1.E1.T006
 priority: critical
+started_at: null
 status: pending
-tags:
-    - identity
-    - slack
-    - security
+tags: []
 title: Validate Slack ingress and derive canonical user identity
 updated_at: "2026-07-12T17:00:16Z"
 ---
-Acceptance: Verify Slack request signature, timestamp/replay window, workspace/enterprise namespace, event provenance, and supported human-user fields before emitting canonical workspace/enterprise plus immutable user ID. Bots, apps, forged, replayed, missing, or ambiguous actors fail closed. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Treat the authenticated Slack Socket Mode connection as the production trust boundary: obtain the rotating WSS URL only through apps.connections.open with the configured app-level token over TLS, validate hello app identity, envelope type and unique envelope_id, expected enterprise/team namespace and immutable user_id, acknowledge exactly once, and reject replayed, malformed, disconnected, mismatched-workspace, bot, or display-only evidence. If HTTP Events mode is later enabled it separately requires Slack signing-secret verification; it cannot inherit Socket Mode trust. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
