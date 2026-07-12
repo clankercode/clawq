@@ -168,6 +168,7 @@
   access_explanation
   setup_plan
   setup_plan_apply
+  setup_plan_consent
   credential_lease
   skills
   skills_cmd_inject

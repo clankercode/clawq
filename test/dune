@@ -139,6 +139,7 @@
   test_access_explanation
   test_setup_plan
   test_setup_plan_apply
+  test_setup_plan_consent
   test_service
   test_session
   test_session_observer
