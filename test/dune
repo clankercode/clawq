@@ -64,6 +64,7 @@
   test_github_route_store
   test_github_route_match
   test_github_route_transfer
+  test_github_route_migrate
   test_github_auth_selection
   test_github_pr_subscriptions
   test_github_pr_dispatch
