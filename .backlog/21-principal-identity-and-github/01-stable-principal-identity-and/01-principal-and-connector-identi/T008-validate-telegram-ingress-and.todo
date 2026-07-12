@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T17:00:20Z"
 depends_on:
@@ -6,12 +7,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M1.E1.T008
 priority: critical
+started_at: null
 status: pending
-tags:
-    - identity
-    - telegram
-    - security
+tags: []
 title: Validate Telegram ingress and derive canonical user identity
 updated_at: "2026-07-12T17:00:20Z"
 ---
-Acceptance: Verify the configured Telegram webhook secret and connector provenance, bind bot/tenant namespace plus immutable from-user ID, and reject bots, channels, forwarded identity, forged, missing, or ambiguous actors. Mutable usernames, chats, and threads never identify a Principal. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Treat successful Telegram Bot API getUpdates long polling over HTTPS with the configured bot token as the production trust boundary. Persist and advance update_id offsets monotonically, deduplicate replay across restart, bind identity to the configured bot/account namespace plus immutable from.id, distinguish private/chat context, and reject malformed, missing-user, bot, stale/replayed, cross-bot, or display-only evidence. Webhook secret-token verification remains a separate adapter if webhook ingress is enabled. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
