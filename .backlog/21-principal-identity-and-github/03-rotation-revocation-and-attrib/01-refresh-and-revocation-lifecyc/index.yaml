@@ -22,6 +22,7 @@ tasks:
       id: T001
       priority: critical
       status: pending
+      tags: []
       title: Refresh expiring tokens using server-returned lifetimes
     - complexity: high
       depends_on:
