@@ -22,7 +22,7 @@ tasks:
       priority: critical
       status: pending
       tags: []
-      title: Require preview and confirm for create close reopen workflow and code-changing work
+      title: Require shared revision-bound preview confirm apply for GitHub actions
     - complexity: high
       depends_on:
         - P19.M4.E2.T001

@@ -10,7 +10,7 @@ priority: critical
 started_at: null
 status: pending
 tags: []
-title: Require preview and confirm for create close reopen workflow and code-changing work
+title: Require shared revision-bound preview confirm apply for GitHub actions
 updated_at: "2026-07-12T12:34:05Z"
 ---
-Acceptance: Implement confirmed end-to-end Issue creation, Issue and PR close/reopen, and typed workflow dispatch. Each operation generates a resolved target/action/typed-input preview and fresh confirmation tied to current revisions and authority, executes through the live GitHub boundary, emits a durable redacted receipt, and reconciles its resulting webhook without duplicate visible output. Success, policy rejection, expired or replayed confirmation, changed target, stale state, idempotent retry, provider failure, receipt, and webhook tests prove no unauthorized or duplicate external mutation. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
+Acceptance: Build one reusable action framework that resolves target, actor mode, typed inputs, policy and authority into a redacted revision-bound preview; fresh confirmation applies exactly once, emits a durable receipt, and exposes correlation for webhook reconciliation. Expiry, replay, target/actor/policy change, stale state, cancellation, retry, and provider failure fail closed. Action families and rollout gates are separate tasks. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
