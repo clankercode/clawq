@@ -66,14 +66,21 @@ tasks:
       title: Keep personal tokens out of automation runners shell and Git transport
     - complexity: high
       depends_on:
+        - P19.M2.E1.T004
         - P19.M4.E2.T004
         - P21.M3.E3.T001
         - P21.M3.E3.T002
-      estimate_hours: 4
+        - P21.M3.E3.T003
+        - P21.M3.E3.T006
+        - P21.M3.E3.T007
+        - P21.M3.E3.T008
+        - P21.M3.E3.T009
+      estimate_hours: 6
       file: T005-reconcile-resulting-webhooks-w.todo
       id: T005
       priority: high
       status: pending
+      tags: []
       title: Reconcile resulting webhooks with native attribution receipts
     - complexity: high
       depends_on:
