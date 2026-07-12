@@ -44,6 +44,7 @@ tasks:
       id: T003
       priority: critical
       status: pending
+      tags: []
       title: Add independently enabled fresh-confirmed merge with live policy checks
     - complexity: high
       depends_on:
