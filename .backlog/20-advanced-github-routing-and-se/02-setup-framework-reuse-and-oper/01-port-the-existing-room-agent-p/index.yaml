@@ -16,3 +16,22 @@ tasks:
       priority: high
       status: pending
       title: Adapt room-agent pilot planning to the shared typed setup framework
+    - complexity: high
+      depends_on:
+        - P20.M2.E1.T001
+        - P19.M1.E1.T004
+      estimate_hours: 4
+      file: T002-adapt-room-agent-confirmation.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Adapt room-agent confirmation apply and repair to the shared framework
+    - complexity: medium
+      depends_on:
+        - P20.M2.E1.T002
+      estimate_hours: 3
+      file: T003-add-shared-contract-tests-and.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add shared contract tests and retire parallel wizard semantics

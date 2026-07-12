@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T12:34:13Z"
+depends_on:
+    - P20.M2.E1.T001
+    - P19.M1.E1.T004
+estimate_hours: 4
+id: P20.M2.E1.T002
+priority: high
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Adapt room-agent confirmation apply and repair to the shared framework
+updated_at: "2026-07-12T12:34:13Z"
+---
+Acceptance: Pilot apply uses common digest, authority, destination consent, atomicity, idempotency, audit, and managed-bundle semantics while preserving existing behavior and repair guidance. Stale/replayed confirmations and partial failure tests pass. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

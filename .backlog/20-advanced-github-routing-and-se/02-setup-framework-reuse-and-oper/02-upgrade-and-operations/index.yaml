@@ -7,4 +7,32 @@ id: P20.M2.E2
 locked: false
 name: Upgrade and Operations
 status: pending
-tasks: []
+tasks:
+    - complexity: medium
+      depends_on:
+        - P20.M1.E2.T001
+        - P20.M2.E1.T003
+      estimate_hours: 3
+      file: T001-add-route-and-filter-setup-dia.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add route and filter setup diagnostics and redacted export
+    - complexity: high
+      depends_on:
+        - P20.M2.E2.T001
+      estimate_hours: 4
+      file: T002-add-upgrade-validation-drift-c.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add upgrade validation drift checks and admin guidance
+    - complexity: high
+      depends_on:
+        - P20.M2.E2.T002
+      estimate_hours: 4
+      file: T003-run-final-setup-framework-and.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Run final setup-framework and advanced-routing regression verification
