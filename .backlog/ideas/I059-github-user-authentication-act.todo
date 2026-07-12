@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-12T14:53:59Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:27:20Z"
@@ -9,8 +11,8 @@ depends_on:
 estimate_hours: 40
 id: I059
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-12T14:53:59Z"
+status: in_progress
 tags:
     - github
     - github-app
@@ -19,7 +21,7 @@ tags:
     - identity
     - security
 title: GitHub App user access tokens for attributed GitHub actions
-updated_at: "2026-07-12T12:27:20Z"
+updated_at: "2026-07-12T14:53:59Z"
 ---
 ## Capability
 

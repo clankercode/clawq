@@ -390,7 +390,7 @@ ideas:
       file: I059-github-user-authentication-act.todo
       id: I059
       priority: high
-      status: pending
+      status: in_progress
       tags:
         - github
         - github-app
