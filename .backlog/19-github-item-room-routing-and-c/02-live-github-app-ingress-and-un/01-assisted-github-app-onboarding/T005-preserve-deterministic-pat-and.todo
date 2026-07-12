@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-12T23:22:45Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-12T12:33:49Z"
 depends_on:
@@ -7,11 +10,10 @@ depends_on:
 estimate_hours: 3
 id: P19.M2.E1.T005
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-12T23:22:45Z"
+status: in_progress
+tags: []
 title: Preserve deterministic PAT and legacy per-Repo compatibility
-updated_at: "2026-07-12T12:33:49Z"
+updated_at: "2026-07-12T23:22:45Z"
 ---
 Acceptance: PAT-only exact-Repo workflows remain functional; Org routes require a verified App installation. Mixed auth selects deterministically and explains the selected path, while migration never deletes PAT config before confirmed apply. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
