@@ -385,3 +385,5 @@ ideas:
       id: I059
     - file: I060-microsoft-teams-secret-bearing.todo
       id: I060
+    - file: I061-slack-secret-bearing-admin-onb.todo
+      id: I061
