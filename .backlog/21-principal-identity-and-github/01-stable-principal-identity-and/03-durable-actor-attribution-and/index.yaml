@@ -66,12 +66,14 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M1.E3.T001
+        - P21.M1.E3.T002
         - P19.M3.E3.T001
       estimate_hours: 5
       file: T005-propagate-actor-snapshots-thro.todo
       id: T005
       priority: critical
       status: pending
+      tags: []
       title: Propagate Actor snapshots through durable jobs retries and outbox
     - complexity: high
       depends_on:

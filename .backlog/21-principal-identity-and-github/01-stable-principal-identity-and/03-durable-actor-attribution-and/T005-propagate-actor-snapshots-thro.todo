@@ -1,17 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T17:00:40Z"
 depends_on:
     - P21.M1.E3.T001
+    - P21.M1.E3.T002
     - P19.M3.E3.T001
 estimate_hours: 5
 id: P21.M1.E3.T005
 priority: critical
+started_at: null
 status: pending
-tags:
-    - identity
-    - background
-    - audit
+tags: []
 title: Propagate Actor snapshots through durable jobs retries and outbox
 updated_at: "2026-07-12T17:00:40Z"
 ---
