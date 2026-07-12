@@ -112,6 +112,7 @@ let () =
        ( "github_app_installation_scope",
          Test_github_app_installation_scope.suite );
        ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);
+       ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);
