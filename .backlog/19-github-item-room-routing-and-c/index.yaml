@@ -15,7 +15,7 @@ milestones:
       locked: false
       name: Trusted Agent-Assisted Admin and Room Tool Scope
       path: 01-trusted-agent-assisted-admin-a
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M1

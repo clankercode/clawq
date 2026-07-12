@@ -29,7 +29,7 @@ epics:
       locked: false
       name: MCP Catalog and Live Reload Security
       path: 03-mcp-catalog-and-live-reload-se
-      status: pending
+      status: done
 estimate_hours: 52
 id: P19.M1
 locked: false
@@ -40,4 +40,4 @@ stats:
     in_progress: 0
     pending: 13
     total_tasks: 13
-status: pending
+status: done
