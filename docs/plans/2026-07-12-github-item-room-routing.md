@@ -37,6 +37,12 @@ updates counts and latest-comment metadata without forwarding comment bodies.
 Issue transfers are matched against both source and destination scope and are
 deduplicated to at most one delivery per Room.
 
+For a destination and canonical selector, at most one active route may exist.
+Persistence rejects or deterministically resolves legacy/concurrent collisions.
+After specificity and filter evaluation, a GitHub delivery plus canonical item
+may produce at most one accepted routed event per destination, even when duplicate
+webhooks, concurrent route changes, or migrated subscriptions overlap.
+
 ### Session and projection model
 
 The shared Room Session is authoritative. Every matched normalized event is
@@ -94,14 +100,27 @@ paginated discovery, `list_changed` refresh, metadata limits, collision checks,
 and fail-closed Room allowlists. MCP credentials and credential-bearing clients
 must not cross Room access scopes.
 
+Remote `list_changed` is security-significant: it immediately quarantines the
+affected server/revision for new turns before relisting. A failed, malformed, or
+timed-out relist leaves that server unavailable until a successful retry or
+explicit repair; removals are published atomically. Already-running turns retain
+their frozen catalog, but final invocation revalidates the MCP server and tool
+revision and refuses a quarantined, removed, or replaced revision. By contrast,
+failure while building a replacement from local configuration may retain the
+previously validated local state because no remote change has been asserted.
+
 ### GitHub collaboration policy
 
 - Read, search, status, and summarization require current repository and tool
   access.
 - Explicit comments, metadata changes, reviewer requests, and reviews may execute
   after resolving and displaying the target.
-- Create, close/reopen, workflow triggers, and code-changing/background work
-  require preview and fresh confirmation.
+- Issue creation, Issue or PR close/reopen, typed workflow dispatch, and
+  code-changing/background work require preview and fresh confirmation. The
+  confirmed implementation covers these operations end to end, including stale
+  state, rejection, replay/idempotency, receipts, and webhook reconciliation.
+- Confirmed code-changing work may create a PR only from an explicitly supplied
+  branch or the branch/result produced by the confirmed code-work operation.
 - Merge is independently enabled per Room/Repo, defaults off, and always requires
   fresh confirmation after live head, draft, mergeability, checks, reviews,
   branch-policy, method, and authority validation.
@@ -132,6 +151,10 @@ Agent and CLI surfaces provide route `plan`, `apply`, `inspect`, `change`,
 aliases over Item routes.
 
 ## Backlog structure
+
+The backlog is authoritative for task status, acceptance bodies, estimates, and
+dependencies. This checked-in inventory is a reviewable snapshot of the ingested
+structure: 63 tasks totaling 265 hours.
 
 ### P19: GitHub Item Room Routing and Collaboration
 
@@ -174,8 +197,12 @@ prevention.
 
 Core completion requires a live GitHub App -> Clawq -> Teams pilot exercising new
 cards, edits, a thread reply, a Room question, an authorized mutation/review,
-background work, merge, restart recovery, transient delivery retry, a redacted
-receipt, and cleanup.
+confirmed Issue creation, Issue and PR close/reopen, typed workflow dispatch,
+confirmed code-changing work and resulting PR creation, background work, merge,
+restart recovery, transient delivery retry, a redacted receipt, and cleanup. The
+pilot begins inside the Teams Room with assisted manifest/callback/plan/confirm/
+apply, observes the managed access bundle, and invokes a newly enabled GitHub tool
+on the immediately following turn without restarting Clawq.
 
 After non-trivial OCaml changes run focused tests, `make test`, and
 `make fmt-check`. Runtime/library reshaping also requires `make test-all` and at
@@ -191,3 +218,100 @@ least one optimized build.
 - Teams, Slack, and remaining secret-bearing Connector onboarding adapters are
   separate future Ideas, not part of P19/P20 implementation.
 
+## Complete task inventory
+
+Dependencies shown as `-` mean no explicit dependency. Task status and full
+acceptance criteria remain authoritative in `.backlog`.
+
+### P19.M1 — Trusted Agent-Assisted Admin and Room Tool Scope
+
+| ID | Title | Estimate | Dependencies |
+|---|---|---:|---|
+| P19.M1.E1.T001 | Build reusable typed admin setup plans | 4h | - |
+| P19.M1.E1.T002 | Enforce confirmation revision idempotency and redacted audit | 4h | P19.M1.E1.T001 |
+| P19.M1.E1.T003 | Enforce current-Room and cross-Room admin consent rules | 3h | P19.M1.E1.T002 |
+| P19.M1.E1.T004 | Manage setup-owned Room access-bundle attachment and detachment | 3h | P19.M1.E1.T002, P19.M1.E1.T003 |
+| P19.M1.E2.T001 | Make canonical and alias authorization deny-wins | 3h | - |
+| P19.M1.E2.T002 | Capture an immutable per-turn Room Tool catalog | 5h | P19.M1.E2.T001 |
+| P19.M1.E2.T003 | Scope provider serialization discovery and execution to the frozen catalog | 4h | P19.M1.E2.T002 |
+| P19.M1.E2.T004 | Implement portable search_tools inspect and call discovery | 4h | P19.M1.E2.T003 |
+| P19.M1.E2.T005 | Add OpenAI and Anthropic native deferred-discovery adapters | 5h | P19.M1.E2.T004 |
+| P19.M1.E3.T001 | Add canonical MCP identities pagination list_changed and metadata limits | 5h | P19.M1.E2.T002 |
+| P19.M1.E3.T002 | Isolate MCP server access credentials and clients by Room scope | 5h | P19.M1.E3.T001, P19.M1.E2.T003 |
+| P19.M1.E3.T003 | Publish transactional registry and MCP reloads and refresh active Rooms | 4h | P19.M1.E3.T001, P19.M1.E3.T002, P19.M1.E1.T004 |
+| P19.M1.E3.T004 | Replace optimistic tool-scope docs with end-to-end conformance checks | 3h | P19.M1.E3.T003 |
+
+### P19.M2 — Live GitHub App Ingress and Unified Routes
+
+| ID | Title | Estimate | Dependencies |
+|---|---|---:|---|
+| P19.M2.E1.T001 | Create resumable GitHub App manifest setup transactions | 4h | P19.M1.E1.T002 |
+| P19.M2.E1.T002 | Verify and exchange one-time browser callbacks | 5h | P19.M2.E1.T001 |
+| P19.M2.E1.T003 | Persist and reconcile live Org and repository installation scope | 5h | P19.M2.E1.T002 |
+| P19.M2.E1.T004 | Build verified shared App webhook ingress with durable delivery identity | 5h | P19.M2.E1.T003 |
+| P19.M2.E1.T005 | Preserve deterministic PAT and legacy per-Repo compatibility | 3h | P19.M2.E1.T003, P19.M2.E1.T004 |
+| P19.M2.E2.T001 | Normalize PR Issue review comment CI and transfer events | 5h | P19.M2.E1.T004 |
+| P19.M2.E2.T002 | Persist Item Repo and Org routes filters comment modes and capability policy | 5h | P19.M2.E2.T001 |
+| P19.M2.E2.T003 | Implement Item Repo Org no-fallthrough matching | 4h | P19.M2.E2.T002 |
+| P19.M2.E2.T004 | Deduplicate Issue transfer across source and destination matches per Room | 3h | P19.M2.E2.T003 |
+| P19.M2.E2.T005 | Migrate per-PR subscriptions into Item routes with CLI aliases | 4h | P19.M2.E2.T003 |
+| P19.M2.E3.T001 | Resume App setup in the originating Room with readiness and a confirmable plan | 4h | P19.M2.E1.T002, P19.M2.E2.T002, P19.M1.E1.T002 |
+| P19.M2.E3.T002 | Add agent and CLI route plan inspect change disable and remove interfaces | 5h | P19.M2.E3.T001 |
+| P19.M2.E3.T003 | Apply confirmed routes and refresh managed Room access immediately | 4h | P19.M2.E3.T002, P19.M1.E3.T003 |
+| P19.M2.E3.T004 | Add route and App readiness explain audit repair and redaction tests | 4h | P19.M2.E3.T003 |
+| P19.M2.E3.T005 | Write route-model setup ADRs glossary and operator contract | 3h | P19.M2.E3.T004 |
+
+### P19.M3 — Durable Room Delivery and Item Projections
+
+| ID | Title | Estimate | Dependencies |
+|---|---|---:|---|
+| P19.M3.E1.T001 | Journal routed events and append hidden Room Session event messages | 5h | P19.M2.E2.T003 |
+| P19.M3.E1.T002 | Reduce events into deterministic per-Room item projections | 5h | P19.M3.E1.T001 |
+| P19.M3.E1.T003 | Implement off summary and threaded comment behavior | 3h | P19.M3.E1.T002 |
+| P19.M3.E1.T004 | Index Room and item history for current and compacted Session context | 4h | P19.M3.E1.T001, P19.M3.E1.T002 |
+| P19.M3.E2.T001 | Define connector-neutral lifecycle-card update and reply intents | 4h | P19.M3.E1.T002 |
+| P19.M3.E2.T002 | Render and edit rich Teams Adaptive Cards | 5h | P19.M3.E2.T001 |
+| P19.M3.E2.T003 | Add plain-message and editless fallbacks for other Channels and Sessions | 4h | P19.M3.E2.T001 |
+| P19.M3.E2.T004 | Resolve card actions thread replies and Room mentions back to item context | 5h | P19.M3.E2.T002, P19.M3.E2.T003, P19.M3.E1.T004 |
+| P19.M3.E3.T001 | Add the 24-hour retrying delivery outbox and per-event dead letters | 5h | P19.M3.E1.T001, P19.M3.E2.T001 |
+| P19.M3.E3.T002 | Reconcile recovery into one current-state catch-up per item | 4h | P19.M3.E3.T001, P19.M3.E1.T002 |
+| P19.M3.E3.T003 | Add delivery diagnostics metrics repair and restart-reordering tests | 4h | P19.M3.E3.T001, P19.M3.E3.T002 |
+
+### P19.M4 — Conversational GitHub Collaboration and Live Pilot
+
+| ID | Title | Estimate | Dependencies |
+|---|---|---:|---|
+| P19.M4.E1.T001 | Ground thread and main-Room questions in journal plus live GitHub state | 4h | P19.M3.E1.T004, P19.M3.E2.T004 |
+| P19.M4.E1.T002 | Expose Room-scoped GitHub read search and status tools | 4h | P19.M4.E1.T001, P19.M1.E3.T004 |
+| P19.M4.E1.T003 | Add direct explicit comments and metadata mutations | 5h | P19.M4.E1.T002 |
+| P19.M4.E1.T004 | Add reviewer requests and PR review submission | 4h | P19.M4.E1.T002, P19.M4.E1.T003 |
+| P19.M4.E2.T001 | Require preview and confirm for create close reopen workflow and code-changing work | 4h | P19.M4.E1.T003 |
+| P19.M4.E2.T002 | Bring Claude-tag-equivalent background work into Room threads | 5h | P19.M4.E2.T001, P19.M3.E3.T001 |
+| P19.M4.E2.T003 | Add independently enabled fresh-confirmed merge with live policy checks | 5h | P19.M4.E1.T004, P19.M4.E2.T001 |
+| P19.M4.E2.T004 | Reconcile action receipts backlinks and resulting webhooks without loops | 4h | P19.M4.E2.T002, P19.M4.E2.T003 |
+| P19.M4.E3.T001 | Add cross-Connector policy migration and failure-path integration coverage | 5h | P19.M4.E2.T004 |
+| P19.M4.E3.T002 | Run the live GitHub App to Clawq to Teams pilot | 6h | P19.M4.E3.T001, P19.M2.E3.T003, P19.M2.E3.T004 |
+| P19.M4.E3.T003 | Publish the redacted pilot receipt rollout backout guide and cleanup result | 3h | P19.M4.E3.T002 |
+
+### P20.M1 — Advanced Structured Org and Repo Forwarding
+
+| ID | Title | Estimate | Dependencies |
+|---|---|---:|---|
+| P20.M1.E1.T001 | Add versioned advanced PR and Issue filter fields and migration | 4h | P19.M2.E2.T002 |
+| P20.M1.E1.T002 | Add demand-driven changed-path and team-membership enrichment | 5h | P20.M1.E1.T001 |
+| P20.M1.E1.T003 | Implement PR branch path label author team and draft predicates | 5h | P20.M1.E1.T001, P20.M1.E1.T002 |
+| P20.M1.E1.T004 | Implement Issue label author team assignee and milestone predicates | 4h | P20.M1.E1.T001, P20.M1.E1.T002 |
+| P20.M1.E2.T001 | Add filter preview and explain with structured rejection reasons | 4h | P20.M1.E1.T003, P20.M1.E1.T004 |
+| P20.M1.E2.T002 | Add indexed and cached matching without raw JSON predicates | 5h | P20.M1.E2.T001 |
+| P20.M1.E2.T003 | Add migration fixtures rate-limit behavior and Org-scale benchmarks | 4h | P20.M1.E2.T002 |
+
+### P20.M2 — Setup Framework Reuse and Operational Polish
+
+| ID | Title | Estimate | Dependencies |
+|---|---|---:|---|
+| P20.M2.E1.T001 | Adapt room-agent pilot planning to the shared typed setup framework | 4h | P19.M1.E1.T002 |
+| P20.M2.E1.T002 | Adapt room-agent confirmation apply and repair to the shared framework | 4h | P20.M2.E1.T001, P19.M1.E1.T004 |
+| P20.M2.E1.T003 | Add shared contract tests and retire parallel wizard semantics | 3h | P20.M2.E1.T002 |
+| P20.M2.E2.T001 | Add route and filter setup diagnostics and redacted export | 3h | P20.M1.E2.T001, P20.M2.E1.T003 |
+| P20.M2.E2.T002 | Add upgrade validation drift checks and admin guidance | 4h | P20.M2.E2.T001 |
+| P20.M2.E2.T003 | Run final setup-framework and advanced-routing regression verification | 4h | P20.M2.E2.T002 |
