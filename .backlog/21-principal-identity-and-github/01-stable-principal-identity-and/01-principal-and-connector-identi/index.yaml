@@ -112,12 +112,13 @@ tasks:
       title: Execute private two-sided cross-Connector link proof transaction
     - complexity: high
       depends_on:
-        - P21.M1.E1.T004
-      estimate_hours: 6
+        - P21.M1.E1.T010
+      estimate_hours: 7
       file: T011-merge-or-adopt-principals-dete.todo
       id: T011
       priority: critical
       status: pending
+      tags: []
       title: Merge or adopt Principals deterministically after verified linking
     - complexity: high
       depends_on:
