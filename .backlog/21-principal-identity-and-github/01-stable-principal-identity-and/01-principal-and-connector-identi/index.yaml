@@ -123,9 +123,10 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M1.E1.T011
-      estimate_hours: 6
+      estimate_hours: 7
       file: T012-implement-unlink-split-and-ide.todo
       id: T012
       priority: critical
       status: pending
+      tags: []
       title: Implement unlink split and identity revocation lifecycle
