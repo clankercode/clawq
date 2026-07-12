@@ -147,6 +147,7 @@
   test_tool_discovery_adapters
   test_mcp_catalog
   test_mcp_room_scope
+  test_mcp_registry_publish
   test_service
   test_session
   test_session_observer

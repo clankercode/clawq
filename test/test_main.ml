@@ -113,6 +113,7 @@ let () =
        ("tool_discovery_adapters", Test_tool_discovery_adapters.suite);
        ("mcp_catalog", Test_mcp_catalog.suite);
        ("mcp_room_scope", Test_mcp_room_scope.suite);
+       ("mcp_registry_publish", Test_mcp_registry_publish.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);
