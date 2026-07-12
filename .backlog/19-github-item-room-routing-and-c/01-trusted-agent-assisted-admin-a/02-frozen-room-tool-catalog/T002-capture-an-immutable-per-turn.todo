@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-12T22:17:42Z"
 claimed_by: grok-bl-fix-many
-completed_at: null
+completed_at: "2026-07-12T22:19:32Z"
 complexity: high
 created_at: "2026-07-12T12:33:45Z"
 depends_on:
     - P19.M1.E2.T001
+duration_minutes: 1.8363341584500001
 estimate_hours: 5
 id: P19.M1.E2.T002
 priority: critical
 started_at: "2026-07-12T22:17:42Z"
-status: in_progress
+status: done
 tags: []
 title: Capture an immutable per-turn Room Tool catalog
-updated_at: "2026-07-12T22:17:42Z"
+updated_at: "2026-07-12T22:19:32Z"
 ---
 Acceptance: Freeze allowed Tool references plus canonical identity, aliases, origin, MCP server, schema revision, deferred flag, and effective-access revision before provider request construction. Simultaneous Rooms see distinct catalogs and an in-flight turn cannot gain or replace tools after reload. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
