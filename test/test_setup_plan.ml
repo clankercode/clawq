@@ -259,6 +259,114 @@ let test_make_is_pure_no_config_mutation () =
   Alcotest.(check string) "deterministic digest" p1.digest p2.digest;
   Alcotest.(check bool) "readiness_ok" true (Setup_plan.readiness_ok p1)
 
+let test_redact_path_scalar_secrets_in_diff () =
+  let plan =
+    Setup_plan.make ~principal:sample_principal ~source:sample_source
+      ~destination:sample_dest ~current_state:(`Assoc [])
+      ~planned_state:(`Assoc [])
+      ~diff:
+        [
+          Setup_plan.Update
+            {
+              path = "channels.slack.bot_token";
+              from_ = `String "xoxb-old-secret";
+              to_ = `String "xoxb-new-secret";
+            };
+          Setup_plan.Create
+            {
+              path = "profile.credential_handle";
+              value = `String "cred_handle_abc";
+            };
+        ]
+      ~readiness:[] ~warnings:[] ~base_revision:"rev" ~now:1_700_000_000.0
+      ~id:"plan_path_secret"
+      ~apply_payload:
+        {
+          kind = Setup_plan.Generic "test";
+          ops =
+            `List
+              [
+                `Assoc
+                  [
+                    ("op", `String "set");
+                    ("path", `String "bot_token");
+                    ("value", `String "xoxb-apply-secret");
+                  ];
+              ];
+          data = `Assoc [];
+        }
+      ()
+  in
+  let persist = Yojson.Safe.to_string (Setup_plan.to_persist_json plan) in
+  Alcotest.(check bool)
+    "no raw old secret" false
+    (String_util.contains persist "xoxb-old-secret");
+  Alcotest.(check bool)
+    "no raw new secret" false
+    (String_util.contains persist "xoxb-new-secret");
+  Alcotest.(check bool)
+    "no raw apply secret" false
+    (String_util.contains persist "xoxb-apply-secret");
+  Alcotest.(check bool)
+    "credential handle preserved" true
+    (String_util.contains persist "cred_handle_abc");
+  Alcotest.(check bool)
+    "redacted markers present" true
+    (String_util.contains persist "***")
+
+let test_digest_mismatch_on_load () =
+  let plan = make_clean_plan ~now:1_700_000_000.0 ~id:"plan_bad" () in
+  let j = Setup_plan.to_persist_json plan in
+  let tampered =
+    match j with
+    | `Assoc fields ->
+        `Assoc
+          (List.map
+             (fun (k, v) ->
+               if k = "base_revision" then (k, `String "tampered") else (k, v))
+             fields)
+    | other -> other
+  in
+  match Setup_plan.of_persist_json tampered with
+  | Ok _ -> Alcotest.fail "expected digest mismatch"
+  | Error msg ->
+      Alcotest.(check bool)
+        "digest mismatch message" true
+        (String_util.contains msg "digest")
+
+let test_diff_ops_round_trip () =
+  let diff =
+    [
+      Setup_plan.Create { path = "a.b"; value = `String "v" };
+      Setup_plan.Update { path = "a.c"; from_ = `String "1"; to_ = `String "2" };
+      Setup_plan.Delete { path = "a.d"; old = `String "gone" };
+      Setup_plan.Bind { path = "binding"; target = "room-1"; active = true };
+      Setup_plan.Note { path = "a"; message = "note" };
+    ]
+  in
+  let plan =
+    Setup_plan.make ~principal:sample_principal ~source:sample_source
+      ~destination:sample_dest ~current_state:(`Assoc [])
+      ~planned_state:(`Assoc []) ~diff ~readiness:[] ~warnings:[]
+      ~base_revision:"rev" ~now:1_700_000_000.0 ~id:"plan_ops"
+      ~apply_payload:
+        {
+          kind = Setup_plan.Generic "roundtrip";
+          ops = `List [];
+          data = `Assoc [ ("k", `String "v") ];
+        }
+      ()
+  in
+  match Setup_plan.of_persist_json (Setup_plan.to_persist_json plan) with
+  | Error e -> Alcotest.fail e
+  | Ok loaded ->
+      Alcotest.(check int) "diff ops" 5 (List.length loaded.diff);
+      Alcotest.(check bool)
+        "generic kind" true
+        (match loaded.apply_payload.kind with
+        | Setup_plan.Generic "roundtrip" -> true
+        | _ -> false)
+
 let suite =
   [
     ( "make populates contract fields",
@@ -284,4 +392,9 @@ let suite =
     ("digests_equal", `Quick, test_digests_equal);
     ("base_revision_of_config", `Quick, test_base_revision_of_config);
     ("make is pure", `Quick, test_make_is_pure_no_config_mutation);
+    ( "redact path scalar secrets in diff",
+      `Quick,
+      test_redact_path_scalar_secrets_in_diff );
+    ("digest mismatch on load", `Quick, test_digest_mismatch_on_load);
+    ("diff ops round-trip", `Quick, test_diff_ops_round_trip);
   ]

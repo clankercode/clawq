@@ -223,19 +223,66 @@ let compute_digest (plan : t) : string =
   let canonical = to_canonical_json plan in
   digest_hex (Yojson.Safe.to_string canonical)
 
+(** Last segment of a dotted/slashed path (e.g. [channels.slack.bot_token]). *)
+let path_leaf path =
+  let parts =
+    path |> String.split_on_char '.'
+    |> List.concat_map (String.split_on_char '/')
+    |> List.filter (fun s -> s <> "")
+  in
+  match List.rev parts with [] -> path | leaf :: _ -> leaf
+
+(** Redact a scalar value when [path] ends in a sensitive key name. Nested
+    objects still go through [Config_show.redact_json]. *)
+let redact_value_for_path path (value : Yojson.Safe.t) : Yojson.Safe.t =
+  let leaf = path_leaf path in
+  match value with
+  | `String s when String.length s > 0 && Config_show.is_secret_key leaf ->
+      `String "***"
+  | other -> Config_show.redact_json other
+
 let redact_diff_op = function
   | Create { path; value } ->
-      Create { path; value = Config_show.redact_json value }
+      Create { path; value = redact_value_for_path path value }
   | Update { path; from_; to_ } ->
       Update
         {
           path;
-          from_ = Config_show.redact_json from_;
-          to_ = Config_show.redact_json to_;
+          from_ = redact_value_for_path path from_;
+          to_ = redact_value_for_path path to_;
         }
-  | Delete { path; old } -> Delete { path; old = Config_show.redact_json old }
+  | Delete { path; old } ->
+      Delete { path; old = redact_value_for_path path old }
   | Bind b -> Bind b
   | Note n -> Note n
+
+(** Walk free-form apply JSON and redact string [value]/[from]/[to]/[old] fields
+    when a sibling [path]/[field]/[key] names a secret. *)
+let rec redact_path_oriented_json (j : Yojson.Safe.t) : Yojson.Safe.t =
+  match j with
+  | `Assoc fields ->
+      let path_hint =
+        List.find_map
+          (fun (k, v) ->
+            match (k, v) with
+            | ("path" | "field" | "key"), `String s -> Some s
+            | _ -> None)
+          fields
+      in
+      let fields =
+        List.map
+          (fun (k, v) ->
+            match (k, path_hint, v) with
+            | ("value" | "from" | "to" | "old"), Some path, `String _
+              when Config_show.is_secret_key (path_leaf path) ->
+                (k, `String "***")
+            | _ -> (k, redact_path_oriented_json v))
+          fields
+      in
+      (* Also apply key-based Config_show redaction. *)
+      Config_show.redact_json (`Assoc fields)
+  | `List items -> `List (List.map redact_path_oriented_json items)
+  | other -> other
 
 let redact (plan : t) : t =
   let redacted =
@@ -247,8 +294,8 @@ let redact (plan : t) : t =
       apply_payload =
         {
           plan.apply_payload with
-          ops = Config_show.redact_json plan.apply_payload.ops;
-          data = Config_show.redact_json plan.apply_payload.data;
+          ops = redact_path_oriented_json plan.apply_payload.ops;
+          data = redact_path_oriented_json plan.apply_payload.data;
         };
       source =
         {
