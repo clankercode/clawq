@@ -49,10 +49,12 @@ tasks:
     - complexity: medium
       depends_on:
         - P21.M1.E2.T003
+        - P21.M1.E1.T012
         - P19.M1.E1.T002
-      estimate_hours: 3
+      estimate_hours: 4
       file: T004-expose-redacted-account-inspec.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Expose redacted account inspection preference and unlink operations
