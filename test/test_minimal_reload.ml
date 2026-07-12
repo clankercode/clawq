@@ -280,23 +280,23 @@ let test_minimal_room_profile_tool_access_after_reload () =
         "shell denied before reload" true
         (Option.is_some
            (Runtime_config.room_profile_tool_denial_for_session cfg1
-              ~session_key:"chat:R1" ~tool_name:"shell_exec"));
+              ~session_key:"chat:R1" ~tool_name:"shell_exec" ()));
       Alcotest.(check bool)
         "file_read allowed before reload" true
         (Option.is_none
            (Runtime_config.room_profile_tool_denial_for_session cfg1
-              ~session_key:"chat:R1" ~tool_name:"file_read"));
+              ~session_key:"chat:R1" ~tool_name:"file_read" ()));
       let cfg2 = Config_loader.load () in
       Alcotest.(check bool)
         "shell denied after reload" true
         (Option.is_some
            (Runtime_config.room_profile_tool_denial_for_session cfg2
-              ~session_key:"chat:R1" ~tool_name:"shell_exec"));
+              ~session_key:"chat:R1" ~tool_name:"shell_exec" ()));
       Alcotest.(check bool)
         "file_read allowed after reload" true
         (Option.is_none
            (Runtime_config.room_profile_tool_denial_for_session cfg2
-              ~session_key:"chat:R1" ~tool_name:"file_read")))
+              ~session_key:"chat:R1" ~tool_name:"file_read" ())))
 
 let test_minimal_room_profiles_with_bundles_reload () =
   Test_helpers.with_temp_home (fun home ->

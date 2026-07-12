@@ -637,25 +637,15 @@ let create_and_persist ~(db : Sqlite3.db) ~(config : Runtime_config.t)
   (try persist ~db snap with _ -> ());
   snap
 
-(** [tool_denial snap ~tool_name] checks whether a tool should be denied based
-    on the snapshot's resolved allowed/denied tools. Returns [Some msg] if
-    denied, [None] if allowed. When the snapshot has a non-empty allowed_tools
-    list, the tool must be present in it. If the tool is in denied_tools, it is
-    always denied. *)
-let tool_denial (snap : t) ~tool_name : string option =
-  if List.mem tool_name snap.denied_tools then
-    Some
-      (Printf.sprintf
-         "Error: Tool '%s' is denied by the access snapshot policy." tool_name)
-  else if
-    snap.allowed_tools <> [] && not (List.mem tool_name snap.allowed_tools)
-  then
-    Some
-      (Printf.sprintf
-         "Error: Tool '%s' is not in the allowed tools list for this access \
-          snapshot."
-         tool_name)
-  else None
+(** [tool_denial snap ~tool_name ?equivalence_names] checks whether a tool
+    should be denied based on the snapshot's resolved allowed/denied tools.
+    Deny-wins over the full equivalence class (canonical + aliases): any deny
+    hit denies the class; otherwise a nonempty allowlist admits any allowed
+    equivalent. Returns [Some msg] if denied, [None] if allowed. *)
+let tool_denial (snap : t) ~tool_name ?(equivalence_names = [ tool_name ]) () :
+    string option =
+  Tool_authz.denial_message ~canonical:tool_name ~equivalence_names
+    ~allowed_tools:snap.allowed_tools ~denied_tools:snap.denied_tools ()
 
 let export_json ~(db : Sqlite3.db) ?(limit = 100) ?work_type ?session_key
     ?room_id ?config_hash ~path () =

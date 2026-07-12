@@ -39,30 +39,23 @@ let room_profile_tool_denial agent ~session_key ~tool_name =
      resolved allowed/denied tools instead of re-resolving from the live
      config. This ensures config changes during execution don't alter
      in-flight access. *)
-  (* B755: check all known names (primary + aliases) for the tool so that
-     room profiles using the old name "shell_exec" still work with "bash".
-     If ANY name is allowed, the tool is allowed. Only if ALL names are
-     denied is the tool denied. *)
-  let names_to_check =
+  (* P19.M1.E2.T001: deny-wins over the full equivalence class (canonical +
+     aliases). Any denied equivalent denies the class; otherwise a nonempty
+     allowlist may admit any allowed equivalent (e.g. legacy shell_exec). *)
+  let equivalence_names =
     match agent.tool_registry with
     | Some reg -> Tool_registry.all_names reg tool_name
     | None -> [ tool_name ]
   in
-  let check_one name =
-    match agent.access_snapshot with
-    | Some snap -> Access_snapshot.tool_denial snap ~tool_name:name
-    | None -> (
-        match session_key with
-        | None -> None
-        | Some session_key ->
-            Runtime_config.room_profile_tool_denial_for_session agent.config
-              ~session_key ~tool_name:name)
-  in
-  (* If any name is allowed (returns None), the tool is allowed. *)
-  let all_denied =
-    List.for_all (fun name -> Option.is_some (check_one name)) names_to_check
-  in
-  if all_denied then check_one (List.hd names_to_check) else None
+  match agent.access_snapshot with
+  | Some snap ->
+      Access_snapshot.tool_denial snap ~tool_name ~equivalence_names ()
+  | None -> (
+      match session_key with
+      | None -> None
+      | Some session_key ->
+          Runtime_config.room_profile_tool_denial_for_session agent.config
+            ~session_key ~tool_name ~equivalence_names ())
 
 let normalized_tool_call_json (tc : Provider.tool_call) =
   `Assoc

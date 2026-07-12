@@ -17,7 +17,7 @@ let expect_some label = function
 let test_tool_denial_message_includes_grant_metadata () =
   let denial =
     Profile_policy.tool_denial ~profile_id:"profile-a" ~tool_name:"tool_b"
-      ~allowed_tools:[ "tool_a" ] ~denied_tools:[]
+      ~allowed_tools:[ "tool_a" ] ~denied_tools:[] ()
     |> expect_some "tool grant"
   in
   assert_denial_contains "tool denial" denial ~grant_type:"tool"

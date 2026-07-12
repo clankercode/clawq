@@ -590,7 +590,7 @@ let check_card_action_room_policy ~(config : Runtime_config.t) ?session_key
         if
           Option.is_some
             (Runtime_config.room_profile_tool_denial_for_session config
-               ~session_key:key ~tool_name)
+               ~session_key:key ~tool_name ())
         then Error (Printf.sprintf "Action denied by room policy: %s" tool_name)
         else Ok ()
     | None -> Ok ()

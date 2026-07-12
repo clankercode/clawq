@@ -1230,17 +1230,17 @@ let test_parse_room_profiles () =
     "bundle denied tool enforced" true
     (Option.is_some
        (Runtime_config.room_profile_tool_denial_for_session cfg
-          ~session_key:"chat:general" ~tool_name:"shell_exec"));
+          ~session_key:"chat:general" ~tool_name:"shell_exec" ()));
   Alcotest.(check bool)
     "bundle allowed tool permitted" true
     (Option.is_none
        (Runtime_config.room_profile_tool_denial_for_session cfg
-          ~session_key:"chat:general" ~tool_name:"file_read"));
+          ~session_key:"chat:general" ~tool_name:"file_read" ()));
   Alcotest.(check bool)
     "bundle allowlist fails closed" true
     (Option.is_some
        (Runtime_config.room_profile_tool_denial_for_session cfg
-          ~session_key:"chat:general" ~tool_name:"file_write"))
+          ~session_key:"chat:general" ~tool_name:"file_write" ()))
 
 let test_room_profiles_roundtrip () =
   let cfg =
@@ -1394,7 +1394,8 @@ let test_room_profile_legacy_fields_compile_to_implicit_bundle () =
   Alcotest.(check bool)
     "legacy denied tool still denied" true
     (Option.is_some
-       (Runtime_config.room_profile_tool_denial profile ~tool_name:"shell_exec"))
+       (Runtime_config.room_profile_tool_denial profile ~tool_name:"shell_exec"
+          ()))
 
 let test_room_profiles_to_json_omits_empty () =
   let json = Runtime_config.to_json Runtime_config.default in
@@ -1456,7 +1457,7 @@ let test_room_profiles_duplicate_active_bindings_rejects () =
               "duplicate binding denies profile-scoped tool" true
               (Option.is_some
                  (Runtime_config.room_profile_tool_denial_for_session cfg
-                    ~session_key:"chat:general" ~tool_name:"file_read")))
+                    ~session_key:"chat:general" ~tool_name:"file_read" ())))
       in
       Alcotest.(check bool)
         "warns about duplicate active room binding" true
@@ -1489,7 +1490,7 @@ let test_room_profiles_multi_room_binding_rejects () =
               "multi-room binding denies profile-scoped tool" true
               (Option.is_some
                  (Runtime_config.room_profile_tool_denial_for_session cfg
-                    ~session_key:"chat:general" ~tool_name:"file_read")))
+                    ~session_key:"chat:general" ~tool_name:"file_read" ())))
       in
       Alcotest.(check bool)
         "warns about multi-room binding" true
@@ -1535,7 +1536,7 @@ let test_room_profile_orphan_binding_rejects () =
               "orphan binding denies profile-scoped tool" true
               (Option.is_some
                  (Runtime_config.room_profile_tool_denial_for_session cfg
-                    ~session_key:"chat:general" ~tool_name:"file_read")))
+                    ~session_key:"chat:general" ~tool_name:"file_read" ())))
       in
       Alcotest.(check bool)
         "warns about non-existent profile" true
@@ -1569,7 +1570,7 @@ let test_room_profile_invalid_access_bundle_reference_rejects () =
               "missing bundle reference denies profile-scoped tool" true
               (Option.is_some
                  (Runtime_config.room_profile_tool_denial_for_session cfg
-                    ~session_key:"chat:general" ~tool_name:"file_read")))
+                    ~session_key:"chat:general" ~tool_name:"file_read" ())))
       in
       Alcotest.(check bool)
         "warns about missing access bundle" true
@@ -1591,7 +1592,7 @@ let assert_access_policy_fail_closed json ~warning_substring =
               "invalid access policy denies profile-scoped tool" true
               (Option.is_some
                  (Runtime_config.room_profile_tool_denial_for_session cfg
-                    ~session_key:"chat:general" ~tool_name:"file_read")))
+                    ~session_key:"chat:general" ~tool_name:"file_read" ())))
       in
       Alcotest.(check bool)
         "warns about access policy validation" true

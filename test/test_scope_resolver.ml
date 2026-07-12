@@ -944,7 +944,7 @@ let test_legacy_effective_matches_tool_denial () =
     (fun tool ->
       let legacy_denial =
         Runtime_config.room_profile_tool_denial_for_session cfg ~session_key
-          ~tool_name:tool
+          ~tool_name:tool ()
       in
       let resolver_denied =
         List.mem tool denied_set
@@ -1040,7 +1040,7 @@ let test_empty_legacy_profile_resolves_cleanly () =
   (* Empty allowed_tools means ALL tools are permitted by the legacy path *)
   let denial =
     Runtime_config.room_profile_tool_denial_for_session cfg
-      ~session_key:"slack:C300" ~tool_name:"any_tool"
+      ~session_key:"slack:C300" ~tool_name:"any_tool" ()
   in
   Alcotest.(check bool) "legacy path also allows" true (denial = None)
 
@@ -1224,7 +1224,7 @@ let test_legacy_snapshot_matches_resolver () =
   (* Verify snapshot tool denial matches resolver *)
   List.iter
     (fun tool ->
-      let snap_denial = Access_snapshot.tool_denial snap ~tool_name:tool in
+      let snap_denial = Access_snapshot.tool_denial snap ~tool_name:tool () in
       let is_denied_by_resolver =
         List.mem tool (item_values effective.denied_tools)
         ||
@@ -1264,7 +1264,7 @@ let test_legacy_no_binding_resolves_nothing () =
     (List.length effective.allowed_tools);
   let denial =
     Runtime_config.room_profile_tool_denial_for_session cfg
-      ~session_key:"slack:C800" ~tool_name:"tool_x"
+      ~session_key:"slack:C800" ~tool_name:"tool_x" ()
   in
   Alcotest.(check bool) "legacy path has no denial" true (denial = None)
 

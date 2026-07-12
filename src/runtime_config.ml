@@ -767,11 +767,14 @@ let room_profile_codebase_grants_for_profile (cfg : t) ~profile_id =
               (String.concat "," missing);
           ])
 
-let room_profile_tool_denial (profile : room_profile) ~tool_name =
+let room_profile_tool_denial (profile : room_profile) ~tool_name
+    ?(equivalence_names = [ tool_name ]) () =
   Profile_policy.tool_denial ~profile_id:profile.id ~tool_name
     ~allowed_tools:profile.allowed_tools ~denied_tools:profile.denied_tools
+    ~equivalence_names ()
 
-let room_profile_tool_denial_for_session cfg ~session_key ~tool_name =
+let room_profile_tool_denial_for_session cfg ~session_key ~tool_name
+    ?(equivalence_names = [ tool_name ]) () =
   match resolve_room_profile cfg ~session_key with
   | None -> None
   | Some profile -> (
@@ -802,7 +805,7 @@ let room_profile_tool_denial_for_session cfg ~session_key ~tool_name =
             |> unique_strings
           in
           Profile_policy.tool_denial ~profile_id:profile.id ~tool_name
-            ~allowed_tools ~denied_tools)
+            ~allowed_tools ~denied_tools ~equivalence_names ())
 
 let effective_compaction_threshold_percent (memory : memory_config) =
   let p = memory.compaction_threshold_percent in

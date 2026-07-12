@@ -164,6 +164,7 @@
   migrate
   audit
   egress_audit
+  tool_authz
   access_snapshot
   access_explanation
   setup_plan
