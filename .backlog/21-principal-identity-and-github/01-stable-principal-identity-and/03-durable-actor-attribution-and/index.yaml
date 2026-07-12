@@ -78,10 +78,12 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M1.E3.T001
+        - P21.M1.E3.T002
         - P19.M4.E2.T004
       estimate_hours: 4
       file: T006-propagate-actor-snapshots-thro.todo
       id: T006
       priority: critical
       status: pending
+      tags: []
       title: Propagate Actor snapshots through receipts and webhook reconciliation

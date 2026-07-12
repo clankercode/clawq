@@ -1,17 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T17:00:41Z"
 depends_on:
     - P21.M1.E3.T001
+    - P21.M1.E3.T002
     - P19.M4.E2.T004
 estimate_hours: 4
 id: P21.M1.E3.T006
 priority: critical
+started_at: null
 status: pending
-tags:
-    - identity
-    - webhook
-    - audit
+tags: []
 title: Propagate Actor snapshots through receipts and webhook reconciliation
 updated_at: "2026-07-12T17:00:41Z"
 ---
