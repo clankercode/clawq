@@ -1,7 +1,32 @@
 critical_path:
-    - I008
+    - P19.M1.E1.T001
+    - P19.M1.E1.T002
+    - P19.M2.E1.T001
+    - P19.M2.E1.T002
+    - P19.M2.E1.T003
+    - P19.M2.E1.T004
+    - P19.M2.E2.T001
+    - P19.M2.E2.T002
+    - P19.M2.E2.T003
+    - P19.M3.E1.T001
+    - P19.M3.E1.T002
+    - P19.M3.E2.T001
+    - P19.M3.E2.T002
+    - P19.M3.E2.T004
+    - P19.M4.E1.T001
+    - P19.M4.E1.T002
+    - P19.M4.E1.T003
+    - P19.M4.E2.T001
+    - P19.M4.E2.T002
+    - P19.M4.E2.T004
+    - P21.M3.E2.T001
+    - P21.M3.E2.T004
+    - P21.M3.E2.T005
+    - P21.M3.E3.T003
+    - P21.M3.E3.T004
+    - I063
 description: A formally verified fully autonomous AI assistant.
-next_available: B754
+next_available: P21.M1.E1.T001
 phases:
     - depends_on: []
       description: 'Features identified via nullclaw comparison and doc review. Organized by effort tier: quick wins, high impact, ecosystem expansion, and formalization.'
@@ -208,11 +233,34 @@ phases:
       priority: high
       status: pending
       weeks: 5
+    - depends_on: []
+      description: 'Promotes I059: stable cross-Connector Principals, Principal-owned GitHub App user authorization through web and device flows, a fail-closed mutable token vault, per-action native user/App attribution, shared-Room isolation, and live Teams verification. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.'
+      estimate_hours: 214
+      id: P21
+      locked: false
+      name: Principal Identity and GitHub User Attribution
+      path: 21-principal-identity-and-github
+      priority: high
+      status: pending
+      weeks: 10
+    - depends_on:
+        - P19
+        - P20
+        - P21
+      description: 'After the GitHub implementation phases ship, publish complete public/machine documentation, verify Claude Tag parity documentation, and expose a shared shipped-feature catalog through concise /new-features and expansive clawq_help renderers. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.'
+      estimate_hours: 76
+      id: P22
+      locked: false
+      name: GitHub Documentation and Feature Discovery
+      path: 22-github-documentation-and-featu
+      priority: high
+      status: pending
+      weeks: 4
 project: Clawq
 stats:
     blocked: 0
-    done: 1205
-    in_progress: 21
-    pending: 23
-    total_tasks: 1250
+    done: 1229
+    in_progress: 20
+    pending: 151
+    total_tasks: 1401
 timeline_weeks: 0

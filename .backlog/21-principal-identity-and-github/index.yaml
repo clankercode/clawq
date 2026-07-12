@@ -1,0 +1,51 @@
+complexity: medium
+depends_on: []
+estimate_hours: 214
+id: P21
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Define durable Principals and verified Connector actors, bind GitHub numeric accounts, preserve attribution through delayed work, and migrate legacy requester evidence without unsafe coalescing.
+      estimate_hours: 44
+      id: M1
+      locked: false
+      name: Stable Principal Identity and Account Binding
+      path: 01-stable-principal-identity-and
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Add App readiness, private restart-safe web/device authorization, and a mutable encrypted token vault that fails closed under tampering and rotation races.
+      estimate_hours: 63
+      id: M2
+      locked: false
+      name: Private GitHub Authorization and Token Vault
+      path: 02-private-github-authorization-a
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Rotate and revoke user tokens safely, select attribution by policy, and integrate native user/App attribution into every P19 GitHub mutation.
+      estimate_hours: 69
+      id: M3
+      locked: false
+      name: Rotation Revocation and Attributed Actions
+      path: 03-rotation-revocation-and-attrib
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Deliver user/admin surfaces, diagnostics, compatibility, integration/security tests, a live Teams pilot, and final operator contracts.
+      estimate_hours: 38
+      id: M4
+      locked: false
+      name: UX Operations Verification and Security Contract
+      path: 04-ux-operations-verification-and
+      status: pending
+name: Principal Identity and GitHub User Attribution
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 50
+    total_tasks: 50
+status: pending
+weeks: 10

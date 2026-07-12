@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Expose private self-service account operations and admin enablement/readiness without allowing authorization on another user's behalf.
+      estimate_hours: 14
+      id: E1
+      locked: false
+      name: User and Admin Experience
+      path: 01-user-and-admin-experience
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Prove shared-Room isolation, redaction, restart/concurrency behavior, web/device flows, native attribution, revocation, and cleanup.
+      estimate_hours: 18
+      id: E2
+      locked: false
+      name: Integration and Live Pilot
+      path: 02-integration-and-live-pilot
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Keep ADRs, glossary, implementation inventory, security boundary, and repair contract aligned with the shipped design.
+      estimate_hours: 6
+      id: E3
+      locked: false
+      name: Architecture and Operator Documentation
+      path: 03-architecture-and-operator-docu
+      status: pending
+estimate_hours: 38
+id: P21.M4
+locked: false
+name: UX Operations Verification and Security Contract
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 10
+    total_tasks: 10
+status: pending

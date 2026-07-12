@@ -5,6 +5,12 @@ estimate_hours: 13
 id: P20.M1.E2
 locked: false
 name: Explainability and Org-Scale Evaluation
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high

@@ -1,0 +1,23 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Map FT-01 through FT-46 and P11-P18 to current evidence and ensure every shipped capability has honest human and machine documentation.
+      estimate_hours: 19
+      id: E1
+      locked: false
+      name: Parity Crosswalk and Documentation Equivalence
+      path: 01-parity-crosswalk-and-documenta
+      status: pending
+estimate_hours: 19
+id: P22.M2
+locked: false
+name: Claude Tag Parity Documentation Audit
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total_tasks: 3
+status: pending

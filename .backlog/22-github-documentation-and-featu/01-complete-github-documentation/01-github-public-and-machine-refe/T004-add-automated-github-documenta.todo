@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:35Z"
+depends_on:
+    - P22.M1.E1.T003
+estimate_hours: 6
+id: P22.M1.E1.T004
+priority: high
+status: pending
+tags:
+    - docs
+    - github
+    - test
+title: Add automated GitHub documentation coverage validation
+updated_at: "2026-07-12T14:53:35Z"
+---
+Acceptance: A repeatable docs check compares code inventories with public/machine references, validates llms.txt structure and links, detects obsolete command/config/tool/event names, runs the Astro build, and reports the exact missing symbol or page. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

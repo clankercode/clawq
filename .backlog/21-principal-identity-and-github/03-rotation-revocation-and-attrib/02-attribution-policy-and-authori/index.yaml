@@ -1,0 +1,66 @@
+complexity: high
+depends_on: []
+estimate_hours: 26
+id: P21.M3.E2
+locked: false
+name: Attribution Policy and Authorization Resolution
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M1.E1.T002
+        - P19.M4.E2.T004
+      estimate_hours: 5
+      file: T001-add-attribution-requirements-a.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Add attribution requirements and risk-tier defaults
+    - complexity: high
+      depends_on:
+        - P21.M1.E2.T003
+        - P21.M2.E2.T003
+        - P21.M2.E3.T003
+      estimate_hours: 4
+      file: T002-resolve-eligible-accounts-and.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Resolve eligible accounts and first-use context preferences
+    - complexity: high
+      depends_on:
+        - P21.M3.E2.T002
+        - P21.M3.E1.T002
+      estimate_hours: 8
+      file: T003-resolve-opaque-leases-after-al.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Resolve opaque leases after all current policy checks
+    - complexity: high
+      depends_on:
+        - P21.M3.E2.T001
+        - P21.M3.E2.T003
+      estimate_hours: 4
+      file: T004-enforce-visible-app-fallback-a.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Enforce visible App fallback and fail-closed user-required behavior
+    - complexity: high
+      depends_on:
+        - P21.M3.E2.T003
+        - P21.M3.E2.T004
+        - P19.M4.E2.T004
+      estimate_hours: 5
+      file: T005-add-attribution-previews-recei.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Add attribution previews receipts repair states and audit

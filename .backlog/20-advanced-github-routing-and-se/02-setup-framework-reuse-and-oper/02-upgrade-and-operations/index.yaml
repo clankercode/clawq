@@ -6,6 +6,12 @@ estimate_hours: 11
 id: P20.M2.E2
 locked: false
 name: Upgrade and Operations
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: medium

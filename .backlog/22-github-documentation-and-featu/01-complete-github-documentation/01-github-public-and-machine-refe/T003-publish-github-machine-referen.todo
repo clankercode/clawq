@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:34Z"
+depends_on:
+    - P22.M1.E1.T002
+estimate_hours: 6
+id: P22.M1.E1.T003
+priority: high
+status: pending
+tags:
+    - docs
+    - github
+    - llms
+title: Publish GitHub machine references and update llms indexes
+updated_at: "2026-07-12T14:53:34Z"
+---
+Acceptance: Add integrations/github/llms.txt with detailed setup/operation context, keep public/llms.txt spec-compliant as an index, and update llms-full.txt for every shipped command, config/default, tool, endpoint/event, route/filter, attribution mode, receipt, and diagnostic; distinguish PAT, App installation, and user tokens. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

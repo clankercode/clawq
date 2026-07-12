@@ -1,0 +1,55 @@
+complexity: high
+depends_on: []
+estimate_hours: 17
+id: P21.M3.E1
+locked: false
+name: Refresh and Revocation Lifecycle
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P21.M2.E2.T003
+        - P21.M2.E3.T003
+        - P21.M2.E4.T004
+      estimate_hours: 4
+      file: T001-refresh-expiring-tokens-using.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Refresh expiring tokens using server-returned lifetimes
+    - complexity: high
+      depends_on:
+        - P21.M3.E1.T001
+      estimate_hours: 5
+      file: T002-add-durable-single-flight-refr.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Add durable single-flight refresh with CAS rotation
+    - complexity: high
+      depends_on:
+        - P19.M2.E1.T004
+        - P21.M2.E4.T004
+      estimate_hours: 4
+      file: T003-process-github-app-authorizati.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Process GitHub App authorization revocation webhooks
+    - complexity: high
+      depends_on:
+        - P21.M3.E1.T002
+        - P21.M3.E1.T003
+        - P21.M1.E1.T004
+      estimate_hours: 4
+      file: T004-implement-unlink-and-principal.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Implement unlink and Principal or Connector removal invalidation

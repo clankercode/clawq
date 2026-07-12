@@ -1,0 +1,42 @@
+complexity: high
+depends_on: []
+estimate_hours: 12
+id: P21.M2.E1
+locked: false
+name: App Readiness and Authorization Transactions
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M2.E1.T003
+      estimate_hours: 4
+      file: T001-extend-github-app-user-authori.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Extend GitHub App user-authorization readiness
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T004
+        - P19.M1.E1.T002
+      estimate_hours: 4
+      file: T002-persist-one-time-principal-bou.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Persist one-time Principal-bound authorization transactions
+    - complexity: high
+      depends_on:
+        - P21.M2.E1.T002
+      estimate_hours: 4
+      file: T003-deliver-authorization-continua.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Deliver authorization continuations privately

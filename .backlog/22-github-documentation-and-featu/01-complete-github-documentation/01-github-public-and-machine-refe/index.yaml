@@ -1,0 +1,49 @@
+complexity: high
+depends_on: []
+estimate_hours: 24
+id: P22.M1.E1
+locked: false
+name: GitHub Public and Machine Reference
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 4
+      file: T001-build-a-code-and-backlog-backe.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Build a code- and backlog-backed GitHub docs coverage matrix
+    - complexity: high
+      depends_on:
+        - P22.M1.E1.T001
+      estimate_hours: 8
+      file: T002-publish-the-complete-astro-git.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Publish the complete Astro GitHub documentation set
+    - complexity: high
+      depends_on:
+        - P22.M1.E1.T002
+      estimate_hours: 6
+      file: T003-publish-github-machine-referen.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Publish GitHub machine references and update llms indexes
+    - complexity: high
+      depends_on:
+        - P22.M1.E1.T003
+      estimate_hours: 6
+      file: T004-add-automated-github-documenta.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Add automated GitHub documentation coverage validation

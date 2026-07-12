@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:12Z"
+depends_on:
+    - P21.M1.E3.T002
+    - P21.M1.E3.T003
+estimate_hours: 4
+id: P21.M1.E3.T004
+priority: critical
+status: pending
+tags:
+    - identity
+    - security
+    - test
+title: Prove cross-Principal isolation and delayed-work attribution
+updated_at: "2026-07-12T14:51:12Z"
+---
+Acceptance: Tests cover two users in one Room, same user ID across tenants, display/login rename, cross-Connector link, duplicate account exception, ambiguity, unlink/revocation, restart/retry, stale snapshots, and legacy rows; no selection uses Room history or another credential. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

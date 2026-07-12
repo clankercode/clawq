@@ -40,6 +40,38 @@ _Avoid_: channel (a Channel is the live transport; a Connector is the rendering 
 A durable shared conversation identity on a Connector, bound to one shared Room Session and, when configured, a room-agent profile. A Teams Channel, Slack channel, Discord channel, Matrix room, or Telegram group can be a Room.
 _Avoid_: channel (the Channel is the live transport), thread (a thread is nested interaction context), conversation (too generic).
 
+**Connector actor**:
+Verified ingress evidence for one sender: Connector plus tenant/workspace/account scope plus the Connector's immutable user ID. Display names are mutable metadata and never identity.
+_Avoid_: Actor (a GitHub event has a separate actor), user name, requester string, Session identity.
+
+**Principal**:
+A durable Clawq human identity that may own several explicitly linked Connector actors and external-account bindings. A Principal can participate in many Rooms; a Room or Session never owns the Principal's credentials.
+_Avoid_: Room user, Session owner, Connector account.
+
+**Identity link**:
+The revisioned association between a verified Connector actor and a Principal. Cross-Connector links require private two-sided proof or audited admin repair.
+_Avoid_: account match, email match, display-name match.
+
+**Actor snapshot**:
+Immutable attribution evidence captured from a Connector actor when an intent or delayed job is created. It never grants authority; execution re-resolves the live Principal, identity link, account binding, and policy.
+_Avoid_: credential snapshot, authorization cache, Session owner.
+
+**GitHub account binding**:
+A verified association between one Principal, a GitHub App, and a GitHub numeric user ID, with mutable login/avatar metadata and an opaque encrypted-credential reference.
+_Avoid_: PAT, GitHub login (logins can change), Room credential.
+
+**Attribution mode**:
+The actor requirement declared by a GitHub mutation: `App`, `User_required`, or `User_preferred`. It controls authorization selection and fallback, independently of action confirmation.
+_Avoid_: auth type, OAuth scope, impersonation mode.
+
+**Authorization transaction**:
+A private, expiring, one-time web or device flow bound to an initiating Principal and source context. Completing it links an account but does not confirm a GitHub mutation.
+_Avoid_: login Session, setup confirmation, action approval.
+
+**Token generation**:
+A monotonically changing version of one encrypted GitHub user-token record. Leases, refresh, unlink, and revocation use it to prevent stale credentials from regaining authority.
+_Avoid_: token ID, Session revision.
+
 **GitHub item**:
 A pull request or issue identified by repository, kind, and number. The stable subject used by event routes, journal entries, projections, and GitHub tools.
 _Avoid_: ticket (not all items are issues), PR (excludes issues), notification (an event produces a notification).

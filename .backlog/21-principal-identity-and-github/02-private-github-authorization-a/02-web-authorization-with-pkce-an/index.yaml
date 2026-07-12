@@ -1,0 +1,46 @@
+complexity: high
+depends_on: []
+estimate_hours: 13
+id: P21.M2.E2
+locked: false
+name: Web Authorization with PKCE and State
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P21.M2.E1.T001
+        - P21.M2.E1.T002
+        - P21.M2.E1.T003
+      estimate_hours: 4
+      file: T001-start-state-bound-s256-pkce-au.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Start state-bound S256 PKCE authorization
+    - complexity: high
+      depends_on:
+        - P21.M2.E2.T001
+        - P21.M2.E4.T002
+      estimate_hours: 5
+      file: T002-verify-callback-and-exchange-t.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Verify callback and exchange the code exactly once
+    - complexity: high
+      depends_on:
+        - P21.M2.E2.T002
+        - P21.M1.E2.T002
+        - P21.M2.E4.T004
+      estimate_hours: 4
+      file: T003-verify-github-numeric-identity.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Verify GitHub numeric identity and prepare a confirmable binding plan

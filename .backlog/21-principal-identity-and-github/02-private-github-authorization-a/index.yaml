@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Validate GitHub App user-auth prerequisites and bind one-time transactions to the initiating Principal and private continuation.
+      estimate_hours: 12
+      id: E1
+      locked: false
+      name: App Readiness and Authorization Transactions
+      path: 01-app-readiness-and-authorizatio
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Implement one-time web authorization, identity verification, and explicit confirmable binding activation.
+      estimate_hours: 13
+      id: E2
+      locked: false
+      name: Web Authorization with PKCE and State
+      path: 02-web-authorization-with-pkce-an
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Implement first-class restart-safe GitHub device flow with private code delivery and correct polling state.
+      estimate_hours: 14
+      id: E3
+      locked: false
+      name: Device Authorization
+      path: 03-device-authorization
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Seal rotating Principal-owned token material and expose only generation-bound callback leases at the GitHub HTTP boundary.
+      estimate_hours: 24
+      id: E4
+      locked: false
+      name: Fail-Closed Mutable Token Vault
+      path: 04-fail-closed-mutable-token-vaul
+      status: pending
+estimate_hours: 63
+id: P21.M2
+locked: false
+name: Private GitHub Authorization and Token Vault
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 14
+    total_tasks: 14
+status: pending

@@ -1,0 +1,60 @@
+complexity: high
+depends_on: []
+estimate_hours: 24
+id: P21.M2.E4
+locked: false
+name: Fail-Closed Mutable Token Vault
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 5
+      file: T001-define-versioned-encrypted-git.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Define versioned encrypted GitHub user-token records
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T001
+      estimate_hours: 5
+      file: T002-implement-fail-closed-mutable.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Implement fail-closed mutable vault CRUD and key handling
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T002
+        - P21.M1.E2.T001
+      estimate_hours: 4
+      file: T003-expose-callback-scoped-opaque.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Expose callback-scoped opaque leases at the GitHub HTTP boundary
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T002
+        - P21.M2.E4.T003
+      estimate_hours: 5
+      file: T004-add-generation-based-cas-trans.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Add generation-based CAS transitions and lease invalidation
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T004
+      estimate_hours: 5
+      file: T005-prove-vault-tamper-restart-del.todo
+      id: T005
+      priority: critical
+      status: pending
+      title: Prove vault tamper restart deletion and rollback behavior

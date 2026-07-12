@@ -5,6 +5,12 @@ estimate_hours: 21
 id: P19.M1.E2
 locked: false
 name: Frozen Room Tool Catalog
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
 status: pending
 tasks:
     - complexity: medium

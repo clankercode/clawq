@@ -28,4 +28,10 @@ estimate_hours: 22
 id: P20.M2
 locked: false
 name: Setup Framework Reuse and Operational Polish
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 6
+    total_tasks: 6
 status: pending

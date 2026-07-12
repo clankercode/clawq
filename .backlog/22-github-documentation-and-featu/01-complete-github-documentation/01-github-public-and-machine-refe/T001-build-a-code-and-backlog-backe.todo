@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:34Z"
+depends_on: []
+estimate_hours: 4
+id: P22.M1.E1.T001
+priority: high
+status: pending
+tags:
+    - docs
+    - github
+    - audit
+title: Build a code- and backlog-backed GitHub docs coverage matrix
+updated_at: "2026-07-12T14:53:34Z"
+---
+Acceptance: Inventory shipped GitHub commands, setup transactions, config/defaults, tools, endpoints, webhook/event families, Item/Repo/Org routes, filters, action/attribution modes, receipts, diagnostics, migration, and recovery against actual code and completed P19-P21 tasks; old prose is not treated as evidence. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

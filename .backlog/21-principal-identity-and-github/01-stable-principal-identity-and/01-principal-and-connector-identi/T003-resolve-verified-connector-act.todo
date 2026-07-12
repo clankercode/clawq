@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:07Z"
+depends_on:
+    - P21.M1.E1.T002
+estimate_hours: 4
+id: P21.M1.E1.T003
+priority: critical
+status: pending
+tags:
+    - identity
+    - connectors
+    - security
+title: Resolve verified Connector Actors to stable Principals
+updated_at: "2026-07-12T14:51:07Z"
+---
+Acceptance: Authenticated Teams, Slack, Discord, Telegram, web, CLI, and direct-session inputs use one resolver; same user IDs in different namespaces remain distinct, renames retain identity, and bots, forged, missing, or ambiguous provenance never resolve as a human Principal. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

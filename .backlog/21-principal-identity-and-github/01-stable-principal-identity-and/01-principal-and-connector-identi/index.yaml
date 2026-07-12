@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+estimate_hours: 15
+id: P21.M1.E1
+locked: false
+name: Principal and Connector Identity Foundation
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 3
+      file: T001-define-principal-connector-act.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Define Principal Connector actor and Identity Link domain model
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T001
+      estimate_hours: 4
+      file: T002-persist-principals-and-collisi.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Persist Principals and collision-safe Connector identity links
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+      estimate_hours: 4
+      file: T003-resolve-verified-connector-act.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Resolve verified Connector Actors to stable Principals
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T003
+        - P19.M1.E1.T002
+      estimate_hours: 4
+      file: T004-add-private-cross-connector-li.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Add private cross-Connector linking unlinking and revocation

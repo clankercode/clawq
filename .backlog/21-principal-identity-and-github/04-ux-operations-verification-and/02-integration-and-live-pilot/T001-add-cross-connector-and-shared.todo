@@ -1,0 +1,21 @@
+---
+complexity: high
+created_at: "2026-07-12T14:52:51Z"
+depends_on:
+    - P21.M4.E1.T001
+    - P21.M4.E1.T002
+    - P21.M4.E1.T003
+    - P21.M4.E1.T004
+    - P21.M3.E3.T005
+estimate_hours: 5
+id: P21.M4.E2.T001
+priority: critical
+status: pending
+tags:
+    - github
+    - connectors
+    - integration-test
+title: Add cross-Connector and shared-Room integration coverage
+updated_at: "2026-07-12T14:52:51Z"
+---
+Acceptance: Teams plus generic Connector fixtures cover two linked Principals and one unlinked participant, cross-tenant IDs, private continuation, account ambiguity, App fallback, high-risk denial, delayed work, restart, and no credential/status/receipt borrowing. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

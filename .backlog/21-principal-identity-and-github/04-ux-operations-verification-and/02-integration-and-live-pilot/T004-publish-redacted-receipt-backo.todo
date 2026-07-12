@@ -1,0 +1,17 @@
+---
+complexity: medium
+created_at: "2026-07-12T14:52:52Z"
+depends_on:
+    - P21.M4.E2.T003
+estimate_hours: 2
+id: P21.M4.E2.T004
+priority: high
+status: pending
+tags:
+    - github
+    - docs
+    - pilot
+title: Publish redacted receipt backout cleanup and limitations
+updated_at: "2026-07-12T14:52:52Z"
+---
+Acceptance: Save a credential-free receipt linking setup, bindings, action receipts, GitHub native attribution, rotation/revocation, denials, cleanup of GitHub artifacts and local secrets, backout steps, and deliberate GitHub.com/API-only limitations. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

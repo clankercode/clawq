@@ -5,6 +5,12 @@ estimate_hours: 17
 id: P19.M3.E1
 locked: false
 name: Room Event Journal and Deterministic Projections
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high

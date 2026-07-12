@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Use server lifetimes, single-flight CAS refresh, GitHub authorization webhooks, unlink, and Principal/Connector invalidation.
+      estimate_hours: 17
+      id: E1
+      locked: false
+      name: Refresh and Revocation Lifecycle
+      path: 01-refresh-and-revocation-lifecyc
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Define App/User_required/User_preferred policy, select accounts, intersect live authority, and record redacted previews and receipts.
+      estimate_hours: 26
+      id: E2
+      locked: false
+      name: Attribution Policy and Authorization Resolution
+      path: 02-attribution-policy-and-authori
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Apply native attribution to low/high-risk actions and delayed work without exposing personal credentials to automation or Git transport.
+      estimate_hours: 26
+      id: E3
+      locked: false
+      name: P19 Action Integration
+      path: 03-p19-action-integration
+      status: pending
+estimate_hours: 69
+id: P21.M3
+locked: false
+name: Rotation Revocation and Attributed Actions
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 14
+    total_tasks: 14
+status: pending

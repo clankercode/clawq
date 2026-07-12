@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:36Z"
+depends_on:
+    - P22.M3.E1.T001
+estimate_hours: 6
+id: P22.M3.E1.T002
+priority: high
+status: pending
+tags:
+    - feature-catalog
+    - github
+    - claude-tag
+title: Populate GitHub and historical Claude Tag-parity batches
+updated_at: "2026-07-12T14:53:36Z"
+---
+Acceptance: Add a latest github-collaboration batch covering routing, setup, Teams cards, Room GitHub work, scoped tools/MCP, advanced filters, and user attribution plus a historical claude-tag-parity batch mapped across all shipped parity capabilities; each entry has concise/expansive material, safe role-aware start action, docs, and source tasks. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

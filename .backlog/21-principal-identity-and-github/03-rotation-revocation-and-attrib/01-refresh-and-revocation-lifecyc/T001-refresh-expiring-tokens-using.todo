@@ -1,0 +1,19 @@
+---
+complexity: high
+created_at: "2026-07-12T14:52:44Z"
+depends_on:
+    - P21.M2.E2.T003
+    - P21.M2.E3.T003
+    - P21.M2.E4.T004
+estimate_hours: 4
+id: P21.M3.E1.T001
+priority: critical
+status: pending
+tags:
+    - github
+    - oauth
+    - refresh
+title: Refresh expiring tokens using server-returned lifetimes
+updated_at: "2026-07-12T14:52:44Z"
+---
+Acceptance: Lease acquisition refreshes only inside a documented skew, records returned access/refresh expiries, validates bearer token and empty scope, uses the correct client secret boundary, and never treats nominal eight-hour/six-month lifetimes as invariants. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

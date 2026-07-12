@@ -37,4 +37,10 @@ estimate_hours: 48
 id: P19.M3
 locked: false
 name: Durable Room Delivery and Item Projections
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 11
+    total_tasks: 11
 status: pending

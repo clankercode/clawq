@@ -1,0 +1,19 @@
+---
+complexity: high
+created_at: "2026-07-12T14:52:45Z"
+depends_on:
+    - P21.M3.E1.T002
+    - P21.M3.E1.T003
+    - P21.M1.E1.T004
+estimate_hours: 4
+id: P21.M3.E1.T004
+priority: critical
+status: pending
+tags:
+    - github
+    - identity
+    - revocation
+title: Implement unlink and Principal or Connector removal invalidation
+updated_at: "2026-07-12T14:52:45Z"
+---
+Acceptance: Local disable precedes network work, remote token/grant revoke uses a narrow lease, secrets are destroyed regardless of remote outcome, Principal/Connector removal shares the path, and remote failure never re-enables access. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

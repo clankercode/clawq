@@ -38,4 +38,10 @@ estimate_hours: 49
 id: P19.M4
 locked: false
 name: Conversational GitHub Collaboration and Live Pilot
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 11
+    total_tasks: 11
 status: pending

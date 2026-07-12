@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:35Z"
+depends_on:
+    - P22.M2.E1.T001
+estimate_hours: 8
+id: P22.M2.E1.T002
+priority: high
+status: pending
+tags:
+    - docs
+    - claude-tag
+    - onboarding
+title: Close all shipped parity documentation gaps
+updated_at: "2026-07-12T14:53:35Z"
+---
+Acceptance: Every implemented or partial parity capability has user-discoverable setup/use/troubleshooting and a machine-readable equivalent; deliberate Room-first, multi-Connector, local-runtime, App/user attribution, confirmation, and unsupported differences are stated without broad overclaiming. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

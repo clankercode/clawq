@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:09Z"
+depends_on:
+    - P21.M1.E2.T002
+estimate_hours: 3
+id: P21.M1.E2.T003
+priority: high
+status: pending
+tags:
+    - github
+    - identity
+    - ux
+title: Implement repository- and Room-aware account preferences
+updated_at: "2026-07-12T14:51:09Z"
+---
+Acceptance: Selection precedence is explicit action, Room+Repo, Room+Org, Principal+Repo, Principal+Org, Principal default, sole eligible account, then private prompt; disabled accounts cannot remain effective and no choice is inferred from login or recency. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

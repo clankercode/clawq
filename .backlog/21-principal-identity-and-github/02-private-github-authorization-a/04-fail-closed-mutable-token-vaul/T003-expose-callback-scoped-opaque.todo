@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:45Z"
+depends_on:
+    - P21.M2.E4.T002
+    - P21.M1.E2.T001
+estimate_hours: 4
+id: P21.M2.E4.T003
+priority: critical
+status: pending
+tags:
+    - github
+    - credentials
+    - security
+title: Expose callback-scoped opaque leases at the GitHub HTTP boundary
+updated_at: "2026-07-12T14:51:45Z"
+---
+Acceptance: Access snapshots, jobs, receipts, and tools carry opaque handle plus binding/generation; raw token exists only inside a GitHub HTTP callback and cannot be returned, serialized, logged, or injected into runner, shell, or Git transport. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

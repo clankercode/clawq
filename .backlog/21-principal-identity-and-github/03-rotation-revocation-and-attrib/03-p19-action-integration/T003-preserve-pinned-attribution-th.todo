@@ -1,0 +1,19 @@
+---
+complexity: high
+created_at: "2026-07-12T14:52:50Z"
+depends_on:
+    - P19.M4.E2.T002
+    - P21.M1.E3.T002
+    - P21.M3.E2.T005
+estimate_hours: 6
+id: P21.M3.E3.T003
+priority: critical
+status: pending
+tags:
+    - github
+    - background
+    - attribution
+title: Preserve pinned attribution through delayed and background work
+updated_at: "2026-07-12T14:52:50Z"
+---
+Acceptance: Jobs store Principal, binding, requested/resolved mode, confirmation, expected actor, and generation but no credential; execution leases/revalidates before each mutation, retry never switches identity, and revoked/SSO/repo/SHA/policy changes pause or fail with repair. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

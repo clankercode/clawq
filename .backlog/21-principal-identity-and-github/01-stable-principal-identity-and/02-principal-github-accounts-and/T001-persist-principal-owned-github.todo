@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:08Z"
+depends_on:
+    - P21.M1.E1.T002
+    - P19.M2.E1.T003
+estimate_hours: 4
+id: P21.M1.E2.T001
+priority: critical
+status: pending
+tags:
+    - github
+    - identity
+    - sqlite
+title: Persist Principal-owned GitHub account bindings
+updated_at: "2026-07-12T14:51:08Z"
+---
+Acceptance: Binding stores Principal, GitHub host/App/numeric user ID, mutable login/avatar, authorization status and revisions, timestamps, and opaque vault reference only; login changes do not create a new account. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

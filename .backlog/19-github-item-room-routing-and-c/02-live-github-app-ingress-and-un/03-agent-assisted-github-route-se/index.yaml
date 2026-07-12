@@ -6,6 +6,12 @@ estimate_hours: 20
 id: P19.M2.E3
 locked: false
 name: Agent-Assisted GitHub Route Setup
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
 status: pending
 tasks:
     - complexity: high

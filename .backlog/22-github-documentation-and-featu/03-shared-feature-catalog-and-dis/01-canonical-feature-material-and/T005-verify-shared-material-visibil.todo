@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:36Z"
+depends_on:
+    - P22.M3.E1.T003
+    - P22.M3.E1.T004
+estimate_hours: 5
+id: P22.M3.E1.T005
+priority: critical
+status: pending
+tags:
+    - feature-catalog
+    - test
+    - security
+title: Verify shared material visibility generation and Connector fallbacks
+updated_at: "2026-07-12T14:53:36Z"
+---
+Acceptance: Slash and tool renderers expose the same ordered visible feature IDs and docs links while intentionally differing in verbosity; only shipped entries appear, sensitive operator-only entries respect visibility, role guidance is safe, generated drift fails, and all Connector/minimal fallbacks pass. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

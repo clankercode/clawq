@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Create the security identity model, collision-safe persistence, ingress resolution, and explicit cross-Connector linking lifecycle.
+      estimate_hours: 15
+      id: E1
+      locked: false
+      name: Principal and Connector Identity Foundation
+      path: 01-principal-and-connector-identi
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Persist verified Principal-owned GitHub accounts and deterministic Room/Repo/Org selection hints without transferring authority.
+      estimate_hours: 14
+      id: E2
+      locked: false
+      name: Principal GitHub Accounts and Preferences
+      path: 02-principal-github-accounts-and
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Freeze attribution evidence for intents/jobs, re-resolve live authority at execution, and migrate only unambiguous legacy actors.
+      estimate_hours: 15
+      id: E3
+      locked: false
+      name: Durable Actor Attribution and Migration
+      path: 03-durable-actor-attribution-and
+      status: pending
+estimate_hours: 44
+id: P21.M1
+locked: false
+name: Stable Principal Identity and Account Binding
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 12
+    total_tasks: 12
+status: pending

@@ -48,5 +48,11 @@ milestones:
       path: 04-conversational-github-collabor
       status: pending
 name: GitHub Item Room Routing and Collaboration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 50
+    total_tasks: 50
 status: pending
 weeks: 14

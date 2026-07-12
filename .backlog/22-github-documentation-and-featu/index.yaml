@@ -1,0 +1,45 @@
+complexity: medium
+depends_on:
+    - P19
+    - P20
+    - P21
+estimate_hours: 76
+id: P22
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Publish code-backed GitHub setup/routing/collaboration/attribution/operations documentation and machine references with automated coverage checks.
+      estimate_hours: 24
+      id: M1
+      locked: false
+      name: Complete GitHub Documentation
+      path: 01-complete-github-documentation
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Refresh the complete parity evidence crosswalk, close documentation gaps, state deliberate differences, and make the audit repeatable.
+      estimate_hours: 19
+      id: M2
+      locked: false
+      name: Claude Tag Parity Documentation Audit
+      path: 02-claude-tag-parity-documentatio
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Generate one shipped-feature catalog for concise slash discovery and expansive agent help, then make its upkeep a repository contract.
+      estimate_hours: 33
+      id: M3
+      locked: false
+      name: Shared Feature Catalog and Discovery
+      path: 03-shared-feature-catalog-and-dis
+      status: pending
+name: GitHub Documentation and Feature Discovery
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 13
+    total_tasks: 13
+status: pending
+weeks: 4

@@ -1,0 +1,68 @@
+complexity: high
+depends_on: []
+estimate_hours: 26
+id: P21.M3.E3
+locked: false
+name: P19 Action Integration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M4.E1.T003
+        - P21.M3.E2.T005
+      estimate_hours: 5
+      file: T001-integrate-user-preferred-comme.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Integrate user-preferred comments and metadata writes
+    - complexity: high
+      depends_on:
+        - P19.M4.E1.T004
+        - P19.M4.E2.T001
+        - P19.M4.E2.T002
+        - P19.M4.E2.T003
+        - P21.M3.E2.T005
+      estimate_hours: 8
+      file: T002-integrate-user-required-high-r.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Integrate user-required high-risk GitHub mutations
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T002
+        - P21.M1.E3.T002
+        - P21.M3.E2.T005
+      estimate_hours: 6
+      file: T003-preserve-pinned-attribution-th.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Preserve pinned attribution through delayed and background work
+    - complexity: high
+      depends_on:
+        - P21.M3.E3.T003
+      estimate_hours: 3
+      file: T004-keep-personal-tokens-out-of-au.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Keep personal tokens out of automation runners shell and Git transport
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T004
+        - P21.M3.E3.T001
+        - P21.M3.E3.T002
+      estimate_hours: 4
+      file: T005-reconcile-resulting-webhooks-w.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Reconcile resulting webhooks with native attribution receipts

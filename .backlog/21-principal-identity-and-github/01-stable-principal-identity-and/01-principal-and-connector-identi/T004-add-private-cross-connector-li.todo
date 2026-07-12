@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:07Z"
+depends_on:
+    - P21.M1.E1.T003
+    - P19.M1.E1.T002
+estimate_hours: 4
+id: P21.M1.E1.T004
+priority: high
+status: pending
+tags:
+    - identity
+    - setup
+    - audit
+title: Add private cross-Connector linking unlinking and revocation
+updated_at: "2026-07-12T14:51:07Z"
+---
+Acceptance: Self-link uses expiring private two-sided proof; no display/email auto-link occurs; admin repair uses revision-bound plan-confirm-apply and redacted audit; unlink or revocation immediately denies new authority while preserving historical attribution. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

@@ -27,5 +27,11 @@ milestones:
       path: 02-setup-framework-reuse-and-oper
       status: pending
 name: Advanced GitHub Routing and Setup Reuse
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 13
+    total_tasks: 13
 status: pending
 weeks: 5

@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:45Z"
+depends_on:
+    - P21.M2.E4.T002
+    - P21.M2.E4.T003
+estimate_hours: 5
+id: P21.M2.E4.T004
+priority: critical
+status: pending
+tags:
+    - github
+    - credentials
+    - concurrency
+title: Add generation-based CAS transitions and lease invalidation
+updated_at: "2026-07-12T14:51:45Z"
+---
+Acceptance: Replacement compares binding, generation, and active state transactionally; disable/revoke/unlink increments generation, old leases fail immediately, and concurrent stale writers cannot restore older token or active state. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

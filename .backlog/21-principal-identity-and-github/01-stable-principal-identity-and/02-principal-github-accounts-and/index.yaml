@@ -1,0 +1,53 @@
+complexity: high
+depends_on: []
+estimate_hours: 14
+id: P21.M1.E2
+locked: false
+name: Principal GitHub Accounts and Preferences
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+        - P19.M2.E1.T003
+      estimate_hours: 4
+      file: T001-persist-principal-owned-github.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Persist Principal-owned GitHub account bindings
+    - complexity: high
+      depends_on:
+        - P21.M1.E2.T001
+        - P21.M1.E1.T004
+      estimate_hours: 4
+      file: T002-enforce-verified-ownership-and.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Enforce verified ownership and duplicate-account policy
+    - complexity: high
+      depends_on:
+        - P21.M1.E2.T002
+      estimate_hours: 3
+      file: T003-implement-repository-and-room.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Implement repository- and Room-aware account preferences
+    - complexity: medium
+      depends_on:
+        - P21.M1.E2.T003
+        - P19.M1.E1.T002
+      estimate_hours: 3
+      file: T004-expose-redacted-account-inspec.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Expose redacted account inspection preference and unlink operations

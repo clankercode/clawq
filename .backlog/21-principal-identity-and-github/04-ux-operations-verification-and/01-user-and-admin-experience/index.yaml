@@ -1,0 +1,52 @@
+complexity: high
+depends_on: []
+estimate_hours: 14
+id: P21.M4.E1
+locked: false
+name: User and Admin Experience
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P21.M3.E1.T004
+      estimate_hours: 4
+      file: T001-add-github-account-cli-and-red.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add GitHub account CLI and redacted agent surfaces
+    - complexity: high
+      depends_on:
+        - P21.M4.E1.T001
+        - P19.M2.E3.T004
+      estimate_hours: 4
+      file: T002-add-admin-enablement-readiness.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add admin enablement readiness and repair
+    - complexity: high
+      depends_on:
+        - P21.M4.E1.T001
+        - P21.M3.E2.T005
+      estimate_hours: 3
+      file: T003-add-user-authorization-diagnos.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add user-authorization diagnostics and metrics
+    - complexity: high
+      depends_on:
+        - P21.M3.E3.T005
+      estimate_hours: 3
+      file: T004-preserve-app-pat-and-minimal-b.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Preserve App PAT and minimal-build compatibility

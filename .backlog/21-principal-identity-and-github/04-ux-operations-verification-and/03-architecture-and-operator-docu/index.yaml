@@ -1,0 +1,34 @@
+complexity: medium
+depends_on: []
+estimate_hours: 6
+id: P21.M4.E3
+locked: false
+name: Architecture and Operator Documentation
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 2
+    total: 2
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P21.M4.E2.T004
+      estimate_hours: 3
+      file: T001-finalize-principal-token-vault.todo
+      id: T001
+      priority: high
+      status: pending
+      tags: []
+      title: Finalize Principal token-vault security boundary ADRs and glossary
+    - complexity: medium
+      depends_on:
+        - P21.M4.E3.T001
+      estimate_hours: 3
+      file: T002-maintain-implementation-invent.todo
+      id: T002
+      priority: high
+      status: pending
+      tags: []
+      title: Maintain implementation inventory and user-auth operator contract

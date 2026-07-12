@@ -1,0 +1,55 @@
+complexity: high
+depends_on: []
+estimate_hours: 15
+id: P21.M1.E3
+locked: false
+name: Durable Actor Attribution and Migration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T003
+        - P21.M1.E2.T003
+      estimate_hours: 3
+      file: T001-define-immutable-actor-snapsho.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Define immutable Actor snapshots for intents and delayed work
+    - complexity: high
+      depends_on:
+        - P21.M1.E3.T001
+        - P19.M4.E2.T004
+      estimate_hours: 4
+      file: T002-carry-actor-snapshots-through.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Carry Actor snapshots through P19 actions jobs retries and receipts
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T004
+        - P21.M1.E2.T003
+        - P21.M1.E3.T001
+      estimate_hours: 4
+      file: T003-migrate-legacy-requester-ident.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Migrate legacy requester identities without unsafe coalescing
+    - complexity: high
+      depends_on:
+        - P21.M1.E3.T002
+        - P21.M1.E3.T003
+      estimate_hours: 4
+      file: T004-prove-cross-principal-isolatio.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Prove cross-Principal isolation and delayed-work attribution

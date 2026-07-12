@@ -5,6 +5,12 @@ estimate_hours: 22
 id: P19.M2.E1
 locked: false
 name: Assisted GitHub App Onboarding and Installation Scope
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 5
+    total: 5
 status: pending
 tasks:
     - complexity: high

@@ -4,6 +4,12 @@ estimate_hours: 14
 id: P19.M1.E1
 locked: false
 name: Reusable Plan-Confirm-Apply Administration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high

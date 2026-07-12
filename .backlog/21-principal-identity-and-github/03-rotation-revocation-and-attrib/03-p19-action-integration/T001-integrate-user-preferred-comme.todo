@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:52:49Z"
+depends_on:
+    - P19.M4.E1.T003
+    - P21.M3.E2.T005
+estimate_hours: 5
+id: P21.M3.E3.T001
+priority: critical
+status: pending
+tags:
+    - github
+    - actions
+    - attribution
+title: Integrate user-preferred comments and metadata writes
+updated_at: "2026-07-12T14:52:49Z"
+---
+Acceptance: Comments, labels, assignees, and ordinary metadata use native GitHub user/App attribution when available or only the explicitly previewed policy-permitted App fallback; success, denial, stale state, idempotency, and receipts are tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T14:52:51Z"
+depends_on:
+    - P21.M3.E1.T004
+estimate_hours: 4
+id: P21.M4.E1.T001
+priority: high
+status: pending
+tags:
+    - github
+    - cli
+    - agent
+    - ux
+title: Add GitHub account CLI and redacted agent surfaces
+updated_at: "2026-07-12T14:52:51Z"
+---
+Acceptance: clawq github account and a narrow github_account tool support link/list/status/use/relink/unlink for the current Principal; tools return redacted status while private continuations deliver authorization material; minimal builds return disabled guidance. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

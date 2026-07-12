@@ -1,0 +1,19 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:11Z"
+depends_on:
+    - P21.M1.E1.T004
+    - P21.M1.E2.T003
+    - P21.M1.E3.T001
+estimate_hours: 4
+id: P21.M1.E3.T003
+priority: high
+status: pending
+tags:
+    - identity
+    - migration
+    - compatibility
+title: Migrate legacy requester identities without unsafe coalescing
+updated_at: "2026-07-12T14:51:11Z"
+---
+Acceptance: Backfill only rows with unambiguous Connector namespace and immutable user ID; mark others legacy_unresolved, preserve read/audit and allowed App behavior, deny user-attributed authority, and prove upgrade/rollback fixtures. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

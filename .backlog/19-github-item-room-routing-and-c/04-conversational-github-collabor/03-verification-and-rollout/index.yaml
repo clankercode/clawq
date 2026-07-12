@@ -5,6 +5,12 @@ estimate_hours: 14
 id: P19.M4.E3
 locked: false
 name: Verification and Rollout
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: high

@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T14:51:45Z"
+depends_on: []
+estimate_hours: 5
+id: P21.M2.E4.T001
+priority: critical
+status: pending
+tags:
+    - github
+    - encryption
+    - credentials
+title: Define versioned encrypted GitHub user-token records
+updated_at: "2026-07-12T14:51:45Z"
+---
+Acceptance: Ordinary columns contain only opaque identity/status metadata and authenticated ciphertext; payload holds access/refresh tokens, returned expiries, App/client, GitHub numeric ID, flow origin, generation, and revocation state with unique nonce and record-bound associated data. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

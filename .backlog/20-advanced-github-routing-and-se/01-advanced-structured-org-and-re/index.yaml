@@ -25,4 +25,10 @@ estimate_hours: 31
 id: P20.M1
 locked: false
 name: Advanced Structured Org and Repo Forwarding
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 7
+    total_tasks: 7
 status: pending

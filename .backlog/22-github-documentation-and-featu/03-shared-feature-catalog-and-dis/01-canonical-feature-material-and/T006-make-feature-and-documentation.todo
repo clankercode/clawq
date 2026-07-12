@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:36Z"
+depends_on:
+    - P22.M3.E1.T005
+estimate_hours: 4
+id: P22.M3.E1.T006
+priority: high
+status: pending
+tags:
+    - docs
+    - agents
+    - maintenance
+title: Make feature and documentation maintenance a repository contract
+updated_at: "2026-07-12T14:53:36Z"
+---
+Acceptance: Update root AGENTS.md, docs/CLAUDE.md, relevant builtin agent prompt sources and generated templates, contribution/check guidance, and Makefile or CI targets so any shipped user-facing feature must update the canonical feature catalog and applicable public docs, integration llms, llms.txt index, llms-full.txt, CLI/tool help, and tests; instructions distinguish when no catalog entry is warranted and enforce generation/drift checks. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

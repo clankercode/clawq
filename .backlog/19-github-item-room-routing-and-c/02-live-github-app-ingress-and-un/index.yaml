@@ -37,4 +37,10 @@ estimate_hours: 63
 id: P19.M2
 locked: false
 name: Live GitHub App Ingress and Unified Routes
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 15
+    total_tasks: 15
 status: pending
