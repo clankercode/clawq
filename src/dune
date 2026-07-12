@@ -171,6 +171,7 @@
   tool_discovery
   tool_discovery_adapters
   mcp_catalog
+  mcp_room_scope
   setup_plan
   setup_plan_apply
   setup_plan_consent
