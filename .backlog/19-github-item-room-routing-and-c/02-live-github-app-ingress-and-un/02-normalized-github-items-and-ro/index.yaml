@@ -30,7 +30,7 @@ tasks:
       file: T002-persist-item-repo-and-org-rout.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Persist Item Repo and Org routes filters comment modes and capability policy
     - complexity: high
