@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-12T23:27:43Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:33:50Z"
 depends_on:
@@ -6,11 +9,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M2.E2.T001
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-12T23:27:43Z"
+status: in_progress
+tags: []
 title: Normalize PR Issue review comment CI and transfer events
-updated_at: "2026-07-12T12:33:50Z"
+updated_at: "2026-07-12T23:27:43Z"
 ---
 Acceptance: Versioned envelopes identify repo, item kind/number, delivery/installation, actor, lifecycle/update family, safe before/after state, URL, head SHA where relevant, and timestamps. Fixtures cover all approved PR and Issue lifecycle states, reviews, comments, commits, CI, transfer, missing fields, and unsupported actions. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

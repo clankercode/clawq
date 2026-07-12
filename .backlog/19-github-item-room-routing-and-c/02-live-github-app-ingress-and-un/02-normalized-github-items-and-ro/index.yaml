@@ -20,7 +20,8 @@ tasks:
       file: T001-normalize-pr-issue-review-comm.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Normalize PR Issue review comment CI and transfer events
     - complexity: high
       depends_on:
