@@ -40,7 +40,8 @@ tasks:
       file: T003-persist-and-reconcile-live-org.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Persist and reconcile live Org and repository installation scope
     - complexity: high
       depends_on:
