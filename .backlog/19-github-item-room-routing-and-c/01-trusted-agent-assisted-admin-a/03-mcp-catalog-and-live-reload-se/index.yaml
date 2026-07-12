@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -43,7 +43,7 @@ tasks:
       file: T003-publish-transactional-registry.todo
       id: T003
       priority: critical
-      status: pending
+      status: done
       tags: []
       title: Publish transactional registry and MCP reloads and refresh active Rooms
     - complexity: medium
@@ -53,5 +53,6 @@ tasks:
       file: T004-replace-optimistic-tool-scope.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Replace optimistic tool-scope docs with end-to-end conformance checks
