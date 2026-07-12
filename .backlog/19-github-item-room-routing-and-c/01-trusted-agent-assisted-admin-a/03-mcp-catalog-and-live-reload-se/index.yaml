@@ -15,6 +15,7 @@ tasks:
       id: T001
       priority: critical
       status: pending
+      tags: []
       title: Add canonical MCP identities pagination list_changed and metadata limits
     - complexity: high
       depends_on:
