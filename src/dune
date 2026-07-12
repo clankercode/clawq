@@ -169,6 +169,7 @@
   setup_plan
   setup_plan_apply
   setup_plan_consent
+  setup_plan_bundle
   credential_lease
   skills
   skills_cmd_inject

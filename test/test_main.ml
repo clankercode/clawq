@@ -106,6 +106,7 @@ let () =
        ("setup_plan", Test_setup_plan.suite);
        ("setup_plan_apply", Test_setup_plan_apply.suite);
        ("setup_plan_consent", Test_setup_plan_consent.suite);
+       ("setup_plan_bundle", Test_setup_plan_bundle.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);
