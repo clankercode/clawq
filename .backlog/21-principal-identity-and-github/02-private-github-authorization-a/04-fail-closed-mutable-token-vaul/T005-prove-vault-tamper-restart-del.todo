@@ -1,17 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:45Z"
 depends_on:
     - P21.M2.E4.T004
-estimate_hours: 5
+    - P21.M2.E4.T008
+estimate_hours: 6
 id: P21.M2.E4.T005
 priority: critical
+started_at: null
 status: pending
-tags:
-    - github
-    - security
-    - test
-title: Prove vault tamper restart deletion and rollback behavior
+tags: []
+title: Prove vault tamper restart deletion and rollback limits
 updated_at: "2026-07-12T14:51:45Z"
 ---
-Acceptance: Restart, corruption, ciphertext swap, rollback, concurrent CAS, key loss, destruction, and database-copy tests fail closed; deleted records leave no plaintext/token-bearing secondary rows, audit fields, or caches. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Restart, corruption, ciphertext/row swap, record replay, concurrent stale CAS write, key loss, destruction, rotation crash, rewrap, and backup/restore tests fail closed as specified; deleted records leave no token-bearing secondary state. State explicitly and test the security boundary: generation CAS detects live stale writes and record swaps, but an internally consistent whole-store rollback under the same key is undetectable without an external monotonic anchor and therefore requires operator restore controls/revocation. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
