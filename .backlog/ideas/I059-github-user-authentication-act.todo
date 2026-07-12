@@ -211,3 +211,5 @@ scattering token work through P19 action tasks.
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens
 - https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app
 - https://docs.github.com/en/enterprise-cloud@latest/apps/using-github-apps/saml-and-github-apps
+
+\n## Promotion receipt\n\nPromoted on 2026-07-13 into P21 (50 tasks / 214h) for Principal identity, private GitHub web/device authorization, fail-closed token storage, native attribution, action integration, and live verification. Follow-on public documentation, Claude Tag parity documentation audit, and shared /new-features plus clawq_help discovery were ingested as P22 (13 tasks / 76h). Authenticated Git transport remains separate in I063. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. Idea completion records decomposition only; implementation remains pending in P21/P22.
