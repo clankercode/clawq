@@ -39,7 +39,7 @@ tasks:
       file: T003-scope-provider-serialization-d.todo
       id: T003
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Scope provider serialization discovery and execution to the frozen catalog
     - complexity: high
