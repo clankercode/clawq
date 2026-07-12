@@ -66,6 +66,7 @@ tasks:
       id: T005
       priority: high
       status: pending
+      tags: []
       title: Add attribution previews receipts repair states and audit
     - complexity: high
       depends_on:
