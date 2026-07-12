@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 5
     total: 5
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -61,6 +61,6 @@ tasks:
       file: T005-preserve-deterministic-pat-and.todo
       id: T005
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Preserve deterministic PAT and legacy per-Repo compatibility
