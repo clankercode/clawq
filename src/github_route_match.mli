@@ -7,8 +7,10 @@
     Org (or Repo) route — narrow routes can mute broader feeds.
 
     After specificity + filter evaluation, [resolve] yields at most one accepted
-    ([Matched]) decision per call (destination + envelope). Durable delivery
-    idempotency for duplicate webhooks is owned by the journal layer. *)
+    ([Matched]) decision per call (destination + envelope).
+
+    [try_accept] adds a durable idempotency ledger so one GitHub delivery plus
+    canonical item yields at most one accepted routed event per destination. *)
 
 type match_input = {
   destination : Github_route_store.destination;
@@ -63,3 +65,28 @@ val selector_applies :
     does not consider enabled/filter). *)
 
 val specificity_of_selector : Github_route_store.selector -> specificity
+
+val ensure_schema : Sqlite3.db -> unit
+(** Idempotent ledger schema for accepted routed events. *)
+
+val canonical_item_key : Github_event_envelope.t -> string
+(** Stable item identity for idempotency. *)
+
+type accept_result =
+  | Accepted of decision
+  | Duplicate of {
+      delivery_id : string;
+      item_key : string;
+      route_id : string option;
+    }
+  | Not_accepted of decision
+
+val try_accept :
+  db:Sqlite3.db ->
+  destination:Github_route_store.destination ->
+  envelope:Github_event_envelope.t ->
+  ?now:float ->
+  unit ->
+  accept_result
+(** [resolve] then, on [Matched], insert durable unique (destination,
+    delivery_id, canonical_item). Duplicates yield [Duplicate]. *)

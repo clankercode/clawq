@@ -333,6 +333,41 @@ let test_at_most_one_matched_decision () =
   | M.Matched _ -> ()
   | _ -> Alcotest.fail "expected single Matched"
 
+let test_try_accept_idempotent () =
+  with_db (fun db ->
+      M.ensure_schema db;
+      ignore (create ~db ~id:"item-1" ());
+      let env = make_envelope ~delivery_id:(Some "deliv-dup-1") () in
+      (match
+         M.try_accept ~db ~destination:room ~envelope:env ~now:fixed_now ()
+       with
+      | M.Accepted (M.Matched { route; _ }) ->
+          Alcotest.(check string) "first accept" "item-1" route.id
+      | other -> Alcotest.fail "expected first Accepted");
+      match
+        M.try_accept ~db ~destination:room ~envelope:env ~now:fixed_now ()
+      with
+      | M.Duplicate { delivery_id; item_key; _ } ->
+          Alcotest.(check string) "delivery" "deliv-dup-1" delivery_id;
+          Alcotest.(check bool)
+            "item key non-empty" true
+            (String.length item_key > 0)
+      | M.Accepted _ -> Alcotest.fail "second accept must be Duplicate"
+      | M.Not_accepted _ ->
+          Alcotest.fail "second should be Duplicate not Not_accepted")
+
+let test_try_accept_muted_not_recorded () =
+  with_db (fun db ->
+      M.ensure_schema db;
+      ignore (create ~db ~id:"item-off" ~enabled:false ());
+      ignore (create ~db ~id:"org-on" ~selector:org_sel ~enabled:true ());
+      let env = make_envelope ~delivery_id:(Some "deliv-mute") () in
+      match
+        M.try_accept ~db ~destination:room ~envelope:env ~now:fixed_now ()
+      with
+      | M.Not_accepted (M.Muted _) -> ()
+      | _ -> Alcotest.fail "muted must not accept")
+
 let suite =
   [
     ("only Org matched", `Quick, test_only_org_matched);
@@ -354,4 +389,6 @@ let suite =
       test_disabled_repo_no_org_fallthrough );
     ("Item over Repo over Org", `Quick, test_item_over_repo_over_org);
     ("at most one Matched decision", `Quick, test_at_most_one_matched_decision);
+    ("try_accept durable idempotency", `Quick, test_try_accept_idempotent);
+    ("try_accept muted not recorded", `Quick, test_try_accept_muted_not_recorded);
   ]
