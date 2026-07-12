@@ -109,6 +109,8 @@ let () =
        ("setup_plan_bundle", Test_setup_plan_bundle.suite);
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
+       ( "github_app_installation_scope",
+         Test_github_app_installation_scope.suite );
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);
