@@ -1,17 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:09Z"
 depends_on:
     - P21.M1.E2.T002
-estimate_hours: 3
+    - P21.M1.E1.T011
+estimate_hours: 4
 id: P21.M1.E2.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - github
-    - identity
-    - ux
+tags: []
 title: Implement repository- and Room-aware account preferences
 updated_at: "2026-07-12T14:51:09Z"
 ---
-Acceptance: Selection precedence is explicit action, Room+Repo, Room+Org, Principal+Repo, Principal+Org, Principal default, sole eligible account, then private prompt; disabled accounts cannot remain effective and no choice is inferred from login or recency. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Resolve explicit Principal, repository, Room, and Org account preferences with deterministic precedence and private ambiguity prompts. Preferences follow approved Principal adoption, split only by an explicit conflict-resolving plan, and never select by login, display name, recency, or another Room participant. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

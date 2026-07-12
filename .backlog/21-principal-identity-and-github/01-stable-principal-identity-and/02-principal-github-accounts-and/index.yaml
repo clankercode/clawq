@@ -38,11 +38,13 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M1.E2.T002
-      estimate_hours: 3
+        - P21.M1.E1.T011
+      estimate_hours: 4
       file: T003-implement-repository-and-room.todo
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Implement repository- and Room-aware account preferences
     - complexity: medium
       depends_on:
