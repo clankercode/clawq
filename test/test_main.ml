@@ -103,6 +103,7 @@ let () =
        ("invariant_conformance", Test_invariant_conformance.suite);
        ("access_snapshot", Test_access_snapshot.suite);
        ("access_explanation", Test_access_explanation.suite);
+       ("setup_plan", Test_setup_plan.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);

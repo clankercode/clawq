@@ -166,6 +166,7 @@
   egress_audit
   access_snapshot
   access_explanation
+  setup_plan
   credential_lease
   skills
   skills_cmd_inject

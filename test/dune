@@ -137,6 +137,7 @@
   test_invariant_conformance
   test_access_snapshot
   test_access_explanation
+  test_setup_plan
   test_service
   test_session
   test_session_observer
