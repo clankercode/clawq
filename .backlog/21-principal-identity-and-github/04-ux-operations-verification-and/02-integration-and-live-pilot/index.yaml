@@ -51,12 +51,14 @@ tasks:
       depends_on:
         - P21.M4.E2.T001
         - P21.M4.E2.T002
+        - P21.M3.E2.T006
         - P19.M4.E3.T002
-      estimate_hours: 6
+      estimate_hours: 8
       file: T003-run-a-live-teams-dual-attribut.todo
       id: T003
       priority: critical
       status: pending
+      tags: []
       title: Run a live Teams dual-attribution pilot
     - complexity: medium
       depends_on:

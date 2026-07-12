@@ -1,19 +1,19 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:52Z"
 depends_on:
     - P21.M4.E2.T001
     - P21.M4.E2.T002
+    - P21.M3.E2.T006
     - P19.M4.E3.T002
-estimate_hours: 6
+estimate_hours: 8
 id: P21.M4.E2.T003
 priority: critical
+started_at: null
 status: pending
-tags:
-    - github
-    - teams
-    - pilot
+tags: []
 title: Run a live Teams dual-attribution pilot
 updated_at: "2026-07-12T14:52:52Z"
 ---
-Acceptance: Two Teams Principals in one Channel link separate GitHub accounts via web and device flows, GitHub attributes writes correctly, an unlinked third user is denied, and App-only, permitted fallback, delayed work, rotation, revoke, SSO/permission denial, restart, and immediate cleanup are exercised. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Under the staged attribution rollout, two Teams Principals in one Channel link separate GitHub accounts via web and device flows, GitHub attributes each action family correctly, and an unlinked third user is denied. Exercise permitted App fallback, delayed work across normal refresh, lineage-breaking relink/revoke, key rotation, SSO/permission denial, restart, webhook reconciliation, rollback, cleanup, and return the gate to its safe default. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
