@@ -1,0 +1,10 @@
+complexity: high
+depends_on:
+    - P19.M1.E3
+    - P19.M3.E3
+estimate_hours: 17
+id: P19.M4.E1
+locked: false
+name: Policy-Aware Item Context and Ordinary Collaboration
+status: pending
+tasks: []

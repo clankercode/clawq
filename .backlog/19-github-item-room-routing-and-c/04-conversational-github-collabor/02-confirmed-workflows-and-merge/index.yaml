@@ -1,0 +1,9 @@
+complexity: high
+depends_on:
+    - P19.M4.E1
+estimate_hours: 18
+id: P19.M4.E2
+locked: false
+name: Confirmed Workflows and Merge
+status: pending
+tasks: []

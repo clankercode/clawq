@@ -1,0 +1,41 @@
+complexity: high
+depends_on:
+    - P19.M1
+    - P19.M3
+epics:
+    - complexity: high
+      depends_on:
+        - P19.M1.E3
+        - P19.M3.E3
+      description: Room/item grounding, GitHub reads, ordinary mutations, and review collaboration.
+      estimate_hours: 17
+      id: E1
+      locked: false
+      name: Policy-Aware Item Context and Ordinary Collaboration
+      path: 01-policy-aware-item-context-and
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M4.E1
+      description: Risk-tiered confirmation, Claude-tag-equivalent background work, merge safeguards, and receipts.
+      estimate_hours: 18
+      id: E2
+      locked: false
+      name: Confirmed Workflows and Merge
+      path: 02-confirmed-workflows-and-merge
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M4.E2
+      description: Integration coverage, live GitHub App to Teams pilot, receipt, rollout, backout, and cleanup.
+      estimate_hours: 14
+      id: E3
+      locked: false
+      name: Verification and Rollout
+      path: 03-verification-and-rollout
+      status: pending
+estimate_hours: 49
+id: P19.M4
+locked: false
+name: Conversational GitHub Collaboration and Live Pilot
+status: pending

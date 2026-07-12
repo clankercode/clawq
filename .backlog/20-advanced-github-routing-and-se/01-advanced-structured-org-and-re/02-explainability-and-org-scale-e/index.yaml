@@ -1,0 +1,9 @@
+complexity: high
+depends_on:
+    - P20.M1.E1
+estimate_hours: 13
+id: P20.M1.E2
+locked: false
+name: Explainability and Org-Scale Evaluation
+status: pending
+tasks: []

@@ -1,0 +1,37 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Typed read-only plans, explicit confirmation, authority, idempotency, audit, and managed bundle lifecycle.
+      estimate_hours: 14
+      id: E1
+      locked: false
+      name: Reusable Plan-Confirm-Apply Administration
+      path: 01-reusable-plan-confirm-apply-ad
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M1.E1
+      description: One immutable allowed tool view for provider serialization, discovery, risk reporting, and execution.
+      estimate_hours: 21
+      id: E2
+      locked: false
+      name: Frozen Room Tool Catalog
+      path: 02-frozen-room-tool-catalog
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M1.E2
+      description: Canonical MCP identity, dynamic discovery, credential isolation, transactional reload, and conformance.
+      estimate_hours: 17
+      id: E3
+      locked: false
+      name: MCP Catalog and Live Reload Security
+      path: 03-mcp-catalog-and-live-reload-se
+      status: pending
+estimate_hours: 52
+id: P19.M1
+locked: false
+name: Trusted Agent-Assisted Admin and Room Tool Scope
+status: pending

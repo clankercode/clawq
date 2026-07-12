@@ -1,0 +1,52 @@
+complexity: medium
+depends_on:
+    - P16
+    - P17
+    - P18
+estimate_hours: 212
+id: P19
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Reusable confirmed setup plus provider-visible and execution-time Room tool/MCP isolation.
+      estimate_hours: 52
+      id: M1
+      locked: false
+      name: Trusted Agent-Assisted Admin and Room Tool Scope
+      path: 01-trusted-agent-assisted-admin-a
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M1
+      description: Assisted App onboarding, live installation scope, normalized events, unified routes, migration, and setup.
+      estimate_hours: 63
+      id: M2
+      locked: false
+      name: Live GitHub App Ingress and Unified Routes
+      path: 02-live-github-app-ingress-and-un
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M2
+      description: Hidden event history, durable projections, Teams cards, Connector fallbacks, outbox, and reconciliation.
+      estimate_hours: 48
+      id: M3
+      locked: false
+      name: Durable Room Delivery and Item Projections
+      path: 03-durable-room-delivery-and-item
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M1
+        - P19.M3
+      description: Policy-aware item questions and actions, background-work parity, merge safeguards, and live verification.
+      estimate_hours: 49
+      id: M4
+      locked: false
+      name: Conversational GitHub Collaboration and Live Pilot
+      path: 04-conversational-github-collabor
+      status: pending
+name: GitHub Item Room Routing and Collaboration
+status: pending
+weeks: 14

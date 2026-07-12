@@ -1,0 +1,9 @@
+complexity: high
+depends_on:
+    - P19.M2.E1
+estimate_hours: 21
+id: P19.M2.E2
+locked: false
+name: Normalized GitHub Items and Route Resolution
+status: pending
+tasks: []

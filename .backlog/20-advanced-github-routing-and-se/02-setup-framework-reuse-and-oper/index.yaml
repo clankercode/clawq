@@ -1,0 +1,31 @@
+complexity: high
+depends_on:
+    - P19.M1
+    - P19.M2
+epics:
+    - complexity: high
+      depends_on:
+        - P19.M1.E1
+      description: Move room-agent pilot planning, apply, and repair onto the reusable typed setup framework.
+      estimate_hours: 11
+      id: E1
+      locked: false
+      name: Port the Existing Room-Agent Pilot
+      path: 01-port-the-existing-room-agent-p
+      status: pending
+    - complexity: high
+      depends_on:
+        - P20.M1
+        - P20.M2.E1
+      description: Diagnostics, redacted export, upgrade validation, drift checks, guidance, and regression verification.
+      estimate_hours: 11
+      id: E2
+      locked: false
+      name: Upgrade and Operations
+      path: 02-upgrade-and-operations
+      status: pending
+estimate_hours: 22
+id: P20.M2
+locked: false
+name: Setup Framework Reuse and Operational Polish
+status: pending

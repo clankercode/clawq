@@ -1,0 +1,9 @@
+complexity: high
+depends_on:
+    - P19.M1.E1
+estimate_hours: 21
+id: P19.M1.E2
+locked: false
+name: Frozen Room Tool Catalog
+status: pending
+tasks: []

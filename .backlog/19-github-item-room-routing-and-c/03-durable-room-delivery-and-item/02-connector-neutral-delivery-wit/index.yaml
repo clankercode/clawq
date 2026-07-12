@@ -1,0 +1,9 @@
+complexity: high
+depends_on:
+    - P19.M3.E1
+estimate_hours: 18
+id: P19.M3.E2
+locked: false
+name: Connector-Neutral Delivery with Teams Cards
+status: pending
+tasks: []

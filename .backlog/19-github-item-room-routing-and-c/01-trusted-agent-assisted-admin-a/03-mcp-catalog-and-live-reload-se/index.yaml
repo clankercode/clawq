@@ -1,0 +1,9 @@
+complexity: high
+depends_on:
+    - P19.M1.E2
+estimate_hours: 17
+id: P19.M1.E3
+locked: false
+name: MCP Catalog and Live Reload Security
+status: pending
+tasks: []

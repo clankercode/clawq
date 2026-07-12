@@ -1,0 +1,40 @@
+complexity: high
+depends_on:
+    - P19.M2
+epics:
+    - complexity: high
+      depends_on:
+        - P19.M2.E2
+      description: Hidden Room Session events, durable journal, reproducible item projections, comments, and retrieval.
+      estimate_hours: 17
+      id: E1
+      locked: false
+      name: Room Event Journal and Deterministic Projections
+      path: 01-room-event-journal-and-determi
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M3.E1
+      description: Connector-neutral intents, rich Teams cards, fallbacks, and interaction-to-item resolution.
+      estimate_hours: 18
+      id: E2
+      locked: false
+      name: Connector-Neutral Delivery with Teams Cards
+      path: 02-connector-neutral-delivery-wit
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M3.E1
+        - P19.M3.E2
+      description: Retrying delivery, per-event dead letters, current-state catch-up, diagnostics, metrics, and repair.
+      estimate_hours: 13
+      id: E3
+      locked: false
+      name: Durable Outbox Reconciliation and Operations
+      path: 03-durable-outbox-reconciliation
+      status: pending
+estimate_hours: 48
+id: P19.M3
+locked: false
+name: Durable Room Delivery and Item Projections
+status: pending

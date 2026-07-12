@@ -1,0 +1,28 @@
+complexity: high
+depends_on:
+    - P19
+epics:
+    - complexity: high
+      depends_on: []
+      description: Typed PR and Issue predicates with schema migration and demand-driven enrichment.
+      estimate_hours: 18
+      id: E1
+      locked: false
+      name: Versioned Advanced Filter Language
+      path: 01-versioned-advanced-filter-lang
+      status: pending
+    - complexity: high
+      depends_on:
+        - P20.M1.E1
+      description: Preview/explain, indexed evaluation, rate-limit behavior, migration fixtures, and benchmarks.
+      estimate_hours: 13
+      id: E2
+      locked: false
+      name: Explainability and Org-Scale Evaluation
+      path: 02-explainability-and-org-scale-e
+      status: pending
+estimate_hours: 31
+id: P20.M1
+locked: false
+name: Advanced Structured Org and Repo Forwarding
+status: pending

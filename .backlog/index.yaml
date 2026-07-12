@@ -184,6 +184,30 @@ phases:
       priority: high
       status: done
       weeks: 4
+    - depends_on:
+        - P16
+        - P17
+        - P18
+      description: Room-first GitHub PR and Issue routing, trusted setup, scoped tools, durable projections, conversational actions, and the live Teams pilot.
+      estimate_hours: 212
+      id: P19
+      locked: false
+      name: GitHub Item Room Routing and Collaboration
+      path: 19-github-item-room-routing-and-c
+      priority: critical
+      status: pending
+      weeks: 14
+    - depends_on:
+        - P19
+      description: Advanced structured Org/Repo filters, explainability, scale, and reuse of the trusted setup framework.
+      estimate_hours: 53
+      id: P20
+      locked: false
+      name: Advanced GitHub Routing and Setup Reuse
+      path: 20-advanced-github-routing-and-se
+      priority: high
+      status: pending
+      weeks: 5
 project: Clawq
 stats:
     blocked: 0

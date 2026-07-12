@@ -1,0 +1,31 @@
+complexity: medium
+depends_on:
+    - P19
+estimate_hours: 53
+id: P20
+locked: false
+milestones:
+    - complexity: high
+      depends_on:
+        - P19
+      description: Versioned PR/Issue predicates, demand-driven enrichment, preview/explain, and Org-scale evaluation.
+      estimate_hours: 31
+      id: M1
+      locked: false
+      name: Advanced Structured Org and Repo Forwarding
+      path: 01-advanced-structured-org-and-re
+      status: pending
+    - complexity: high
+      depends_on:
+        - P19.M1
+        - P19.M2
+      description: Port the room-agent pilot and complete shared setup diagnostics, upgrade, drift, and regression work.
+      estimate_hours: 22
+      id: M2
+      locked: false
+      name: Setup Framework Reuse and Operational Polish
+      path: 02-setup-framework-reuse-and-oper
+      status: pending
+name: Advanced GitHub Routing and Setup Reuse
+status: pending
+weeks: 5

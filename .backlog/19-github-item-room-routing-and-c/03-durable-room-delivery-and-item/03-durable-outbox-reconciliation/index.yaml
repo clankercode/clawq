@@ -1,0 +1,10 @@
+complexity: high
+depends_on:
+    - P19.M3.E1
+    - P19.M3.E2
+estimate_hours: 13
+id: P19.M3.E3
+locked: false
+name: Durable Outbox Reconciliation and Operations
+status: pending
+tasks: []
