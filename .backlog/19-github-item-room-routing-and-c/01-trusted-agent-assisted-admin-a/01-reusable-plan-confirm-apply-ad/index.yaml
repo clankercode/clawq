@@ -18,7 +18,8 @@ tasks:
       file: T001-build-reusable-typed-admin-set.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Build reusable typed admin setup plans
     - complexity: high
       depends_on:
