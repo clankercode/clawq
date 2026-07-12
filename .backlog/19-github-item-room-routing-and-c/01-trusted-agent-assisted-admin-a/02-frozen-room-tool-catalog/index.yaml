@@ -19,7 +19,7 @@ tasks:
       file: T001-make-canonical-and-alias-autho.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Make canonical and alias authorization deny-wins
     - complexity: high
