@@ -1,0 +1,19 @@
+---
+complexity: high
+created_at: "2026-07-12T14:53:50Z"
+depends_on:
+    - P21.M3.E3.T004
+estimate_hours: 40
+id: I063
+priority: medium
+status: pending
+tags:
+    - github
+    - git
+    - credentials
+    - identity
+    - security
+title: Brokered GitHub Git transport and verified user plus LLM commit authorship
+updated_at: "2026-07-12T14:53:50Z"
+---
+Investigate and design authenticated Git push on behalf of an explicitly consenting Principal without exposing GitHub user tokens to runners, shell, process environments, remotes, worktrees, or prompts. Cover a narrow credential broker, one-operation leases, repository/ref constraints, signing, audit/revocation, verified commit email consent, GitHub attribution behavior, co-author/trailer alternatives, and whether a display such as {Name} + LLMs <{email}> is desirable and technically honest. This is deliberately outside P21 API-action attribution. Source: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
