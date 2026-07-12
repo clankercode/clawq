@@ -1,15 +1,17 @@
 ---
+claimed_at: "2026-07-12T22:11:33Z"
+claimed_by: grok-bl-fix-many
+completed_at: null
 complexity: medium
 created_at: "2026-07-12T12:33:44Z"
 depends_on: []
 estimate_hours: 3
 id: P19.M1.E2.T001
 priority: critical
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-12T22:11:33Z"
+status: in_progress
+tags: []
 title: Make canonical and alias authorization deny-wins
-updated_at: "2026-07-12T12:33:44Z"
+updated_at: "2026-07-12T22:11:33Z"
 ---
 Acceptance: Any denied canonical name or alias denies its whole equivalence class; otherwise a nonempty allowlist may admit an allowed equivalent. Access snapshots, help/list surfaces, provider exposure, slash commands, discovery, and execution use the same rule with canonical/legacy alias tests. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
