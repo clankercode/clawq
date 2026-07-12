@@ -49,7 +49,8 @@ tasks:
       file: T004-implement-portable-search-tool.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement portable search_tools inspect and call discovery
     - complexity: high
       depends_on:
