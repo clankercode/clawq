@@ -77,7 +77,6 @@ tasks:
       title: Publish GitHub collaboration attribution and operations documentation
     - complexity: medium
       depends_on:
-        - P22.M1.E1.T002
         - P22.M1.E1.T003
         - P22.M1.E1.T004
         - P22.M1.E1.T006
@@ -86,4 +85,5 @@ tasks:
       id: T007
       priority: high
       status: pending
+      tags: []
       title: Validate Astro navigation orphan pages and deployment docs check
