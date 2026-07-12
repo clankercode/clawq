@@ -26,6 +26,7 @@ tasks:
     - complexity: high
       depends_on:
         - P19.M4.E2.T001
+        - P19.M4.E2.T007
         - P19.M3.E3.T001
       estimate_hours: 5
       file: T002-bring-claude-tag-equivalent-ba.todo
