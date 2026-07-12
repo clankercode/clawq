@@ -28,7 +28,8 @@ tasks:
       file: T002-enforce-confirmation-revision.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Enforce confirmation revision idempotency and redacted audit
     - complexity: medium
       depends_on:
