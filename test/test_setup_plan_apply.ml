@@ -5,6 +5,19 @@ let with_db f =
   Setup_plan_apply.init_schema db;
   Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
 
+let with_shared_db f =
+  let path = Filename.temp_file "clawq-setup-plan-" ".sqlite" in
+  let db1 = Sqlite3.db_open path in
+  let db2 = Sqlite3.db_open path in
+  Setup_plan_apply.init_schema db1;
+  Setup_plan_apply.init_schema db2;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sqlite3.db_close db2);
+      ignore (Sqlite3.db_close db1);
+      Sys.remove path)
+    (fun () -> f db1 db2)
+
 let principal =
   Setup_plan.{ id = "principal:alice"; kind = Principal; label = Some "Alice" }
 
@@ -214,39 +227,88 @@ let test_apply_failure_audited () =
   | Setup_plan_apply.Applied { first_time = true; _ } -> ()
   | _ -> Alcotest.fail "retry after failure should succeed"
 
-let test_concurrency_single_receipt () =
+let test_retry_reuses_stable_receipt_after_failed_apply () =
   with_db @@ fun db ->
-  let plan = make_plan ~id:"plan_race" ~base_revision:"rev-1" () in
+  let plan = make_plan ~id:"plan_stable_retry_receipt" () in
   ignore (Setup_plan_apply.store_plan ~db plan);
+  let received = ref [] in
+  let ambiguous_failure ~plan:_ ~receipt_id =
+    received := receipt_id :: !received;
+    (* An adapter can have crossed its external mutation boundary before it
+       reports failure to this process. A retry must use its same idempotency
+       key. *)
+    Error "simulated crash after external mutation"
+  in
+  let first =
+    do_apply db plan ~revision:"rev-1" ~now:1_700_000_000.0 ~authority:allow_all
+      ~apply_ops:ambiguous_failure
+  in
+  assert_rejected first "apply_error";
+  let succeeding_retry ~plan:_ ~receipt_id =
+    received := receipt_id :: !received;
+    Ok ()
+  in
+  match
+    do_apply db plan ~revision:"rev-1" ~now:1_700_000_001.0 ~authority:allow_all
+      ~apply_ops:succeeding_retry
+  with
+  | Setup_plan_apply.Applied { first_time = true; _ } -> (
+      Alcotest.(check int)
+        "apply boundary invoked twice" 2 (List.length !received);
+      match List.rev !received with
+      | [ first_receipt; retry_receipt ] ->
+          Alcotest.(check string)
+            "retry uses the same external idempotency key" first_receipt
+            retry_receipt
+      | _ -> Alcotest.fail "expected exactly two receipt observations")
+  | outcome ->
+      Alcotest.fail
+        ("retry after ambiguous failure should apply, got "
+        ^ Setup_plan_apply.string_of_outcome outcome)
+
+let test_concurrency_single_receipt () =
+  with_shared_db @@ fun db1 db2 ->
+  let plan = make_plan ~id:"plan_race" ~base_revision:"rev-1" () in
+  ignore (Setup_plan_apply.store_plan ~db:db1 plan);
   let calls = ref 0 in
   let counting ~plan:_ ~receipt_id:_ =
     incr calls;
     Ok ()
   in
-  let first =
-    do_apply db plan ~revision:"rev-1" ~now:1_700_000_000.0 ~authority:allow_all
-      ~apply_ops:counting
+  (match Sqlite3.exec db1 "BEGIN IMMEDIATE" with
+  | Sqlite3.Rc.OK -> ()
+  | rc ->
+      Alcotest.fail ("failed to hold writer lock: " ^ Sqlite3.Rc.to_string rc));
+  (* This apply overlaps a separate connection's active writer transaction.
+     A zero timeout makes the contention deterministic and proves that no
+     stale overwrite or un-audited mutation is attempted. *)
+  Sqlite3.busy_timeout db2 0;
+  let blocked =
+    do_apply db2 plan ~revision:"rev-1" ~now:1_700_000_000.0
+      ~authority:allow_all ~apply_ops:counting
   in
-  (* Simulate a late concurrent attempt that re-enters after first commit:
-     must not re-run apply_ops or change receipt. *)
-  let late =
-    do_apply db plan ~revision:"rev-1" ~now:1_700_000_001.0 ~authority:allow_all
-      ~apply_ops:counting
-  in
-  (* Stale revision on still-pending would fail; after applied, advanced rev is
-     still idempotent. *)
-  let advanced =
-    do_apply db plan ~revision:"rev-2" ~now:1_700_000_002.0 ~authority:allow_all
-      ~apply_ops:counting
-  in
-  match (first, late, advanced) with
-  | ( Setup_plan_apply.Applied { receipt_id = r1; first_time = true },
-      Setup_plan_apply.Applied { receipt_id = r2; first_time = false },
-      Setup_plan_apply.Applied { receipt_id = r3; first_time = false } ) ->
-      Alcotest.(check string) "late same receipt" r1 r2;
-      Alcotest.(check string) "advanced same receipt" r1 r3;
-      Alcotest.(check int) "apply_ops exactly once" 1 !calls
-  | _ -> Alcotest.fail "concurrency receipt stability failed"
+  (match blocked with
+  | Setup_plan_apply.Rejected { reason = Apply_error; message } ->
+      Alcotest.(check bool)
+        "required audit failure is explicit" true
+        (String_util.contains message "required rejection audit")
+  | outcome ->
+      Alcotest.fail
+        ("writer contention should fail closed, got "
+        ^ Setup_plan_apply.string_of_outcome outcome));
+  Alcotest.(check int) "contention never runs apply_ops" 0 !calls;
+  ignore (Sqlite3.exec db1 "ROLLBACK");
+  Sqlite3.busy_timeout db2 5_000;
+  match
+    do_apply db2 plan ~revision:"rev-1" ~now:1_700_000_001.0
+      ~authority:allow_all ~apply_ops:counting
+  with
+  | Setup_plan_apply.Applied { first_time = true; _ } ->
+      Alcotest.(check int) "retry runs apply_ops once" 1 !calls
+  | outcome ->
+      Alcotest.fail
+        ("retry after writer contention should apply once, got "
+        ^ Setup_plan_apply.string_of_outcome outcome)
 
 let test_audit_details_redacted () =
   with_db @@ fun db ->
@@ -265,6 +327,26 @@ let test_audit_details_redacted () =
       Alcotest.(check bool)
         "no raw secret in audit details" false
         (String_util.contains a.Setup_plan_apply.details "xoxb-should-not-leak"))
+    audits
+
+let test_audit_redacts_private_key_error () =
+  with_db @@ fun db ->
+  let plan = make_plan ~id:"plan_private_key_redact" () in
+  ignore (Setup_plan_apply.store_plan ~db plan);
+  let apply_with_private_key ~plan:_ ~receipt_id:_ =
+    Error "private_key: raw-private-key-must-not-persist"
+  in
+  let _ =
+    do_apply db plan ~revision:"rev-1" ~now:1_700_000_000.0 ~authority:allow_all
+      ~apply_ops:apply_with_private_key
+  in
+  let audits = Setup_plan_apply.list_audit ~db ~plan_id:plan.id () in
+  List.iter
+    (fun audit ->
+      Alcotest.(check bool)
+        "no raw private key in audit details" false
+        (String_util.contains audit.Setup_plan_apply.details
+           "raw-private-key-must-not-persist"))
     audits
 
 let test_plan_not_found () =
@@ -289,7 +371,13 @@ let suite =
     ("destination mismatch", `Quick, test_destination_mismatch);
     ("authority denied", `Quick, test_authority_denied);
     ("apply failure audited", `Quick, test_apply_failure_audited);
+    ( "retry reuses stable receipt after failed apply",
+      `Quick,
+      test_retry_reuses_stable_receipt_after_failed_apply );
     ("concurrency single receipt", `Quick, test_concurrency_single_receipt);
     ("audit details redacted", `Quick, test_audit_details_redacted);
+    ( "audit private key error redacted",
+      `Quick,
+      test_audit_redacts_private_key_error );
     ("plan not found", `Quick, test_plan_not_found);
   ]

@@ -30,6 +30,7 @@ type detach_result =
 let owner_setup = "setup"
 
 let init_schema db =
+  Sqlite3.busy_timeout db 5_000;
   let sql =
     {|CREATE TABLE IF NOT EXISTS setup_owned_bundle_links (
       id TEXT PRIMARY KEY NOT NULL,
@@ -228,16 +229,37 @@ let record_managed_feature ~db ~room_id ~bundle_id ~feature_id () =
   | Ok _ -> Ok ()
   | Error e -> Error e
 
+let with_remove_savepoint db f =
+  match Sqlite3.exec db "SAVEPOINT setup_bundle_remove" with
+  | Sqlite3.Rc.OK -> (
+      match f () with
+      | Ok _ as result -> (
+          match Sqlite3.exec db "RELEASE SAVEPOINT setup_bundle_remove" with
+          | Sqlite3.Rc.OK -> result
+          | rc ->
+              ignore
+                (Sqlite3.exec db "ROLLBACK TO SAVEPOINT setup_bundle_remove");
+              ignore (Sqlite3.exec db "RELEASE SAVEPOINT setup_bundle_remove");
+              Error
+                (Printf.sprintf "failed to commit managed bundle removal: %s"
+                   (Sqlite3.Rc.to_string rc)))
+      | Error _ as result ->
+          ignore (Sqlite3.exec db "ROLLBACK TO SAVEPOINT setup_bundle_remove");
+          ignore (Sqlite3.exec db "RELEASE SAVEPOINT setup_bundle_remove");
+          result)
+  | rc ->
+      Error
+        (Printf.sprintf "failed to lock managed bundle removal: %s"
+           (Sqlite3.Rc.to_string rc))
+
 let remove_managed_feature ~db ~room_id ~bundle_id ~feature_id
     ?(now = Unix.gettimeofday ()) () =
   match find_link ~db ~room_id ~bundle_id ~feature_id with
   | None -> Ok Not_found
   | Some link when link.provenance.owner <> owner_setup -> Ok Preserved_manual
   | Some link when link.status <> "attached" -> Ok Not_found
-  | Some link ->
-      let remaining_before =
-        count_attached_features ~db ~room_id ~bundle_id ()
-      in
+  | Some link -> (
+      with_remove_savepoint db @@ fun () ->
       let detached_at = Time_util.iso8601_utc ~t:now () in
       let sql =
         {|UPDATE setup_owned_bundle_links
@@ -249,17 +271,24 @@ let remove_managed_feature ~db ~room_id ~bundle_id ~feature_id
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT link.id));
       let rc = Sqlite3.step stmt in
       ignore (Sqlite3.finalize stmt);
-      if rc <> Sqlite3.Rc.DONE || Sqlite3.changes db = 0 then Ok Not_found
-      else
-        let updated =
-          { link with status = "detached"; detached_at = Some detached_at }
-        in
-        let remaining = remaining_before - 1 in
-        if remaining > 0 then
-          Ok
-            (Still_attached
-               { linkage = updated; remaining_features = remaining })
-        else Ok (Detached { linkage = updated })
+      match rc with
+      | Sqlite3.Rc.DONE when Sqlite3.changes db = 0 -> Ok Not_found
+      | Sqlite3.Rc.DONE ->
+          let updated =
+            { link with status = "detached"; detached_at = Some detached_at }
+          in
+          (* The savepoint holds the write lock from the guarded update through
+             this count, so exactly one concurrent remover observes zero. *)
+          let remaining = count_attached_features ~db ~room_id ~bundle_id () in
+          if remaining > 0 then
+            Ok
+              (Still_attached
+                 { linkage = updated; remaining_features = remaining })
+          else Ok (Detached { linkage = updated })
+      | rc ->
+          Error
+            (Printf.sprintf "failed to detach managed bundle feature: %s"
+               (Sqlite3.Rc.to_string rc)))
 
 let list_by ~db ~room_id ~status_filter () =
   let sql, bind_status =

@@ -31,6 +31,8 @@ type consent_record = {
   id : string;
   destination_room_id : string;
   principal_id : string;  (** Destination Room admin who consented. *)
+  admin_room_id : string;
+      (** Room for which the consenting principal was authenticated as admin. *)
   plan_id : string option;
   granted_at : string;
   expires_at : string;
@@ -59,14 +61,16 @@ val signal_counts_as_confirm : consent_signal -> bool
 val grant_consent :
   db:Sqlite3.db ->
   destination_room_id:string ->
-  principal_id:string ->
+  actor:actor ->
   ?plan_id:string ->
   signal:consent_signal ->
   ?ttl_seconds:float ->
   ?now:float ->
   unit ->
   (consent_record, string) result
-(** Persist consent. Rejects non-explicit signals. *)
+(** Persist consent from a [Room_admin] for exactly [destination_room_id].
+    Global admins apply cross-Room changes directly and do not mint substitute
+    destination consent. Rejects non-explicit signals. *)
 
 val find_valid_consent :
   db:Sqlite3.db ->

@@ -22,6 +22,7 @@ type consent_record = {
   id : string;
   destination_room_id : string;
   principal_id : string;
+  admin_room_id : string;
   plan_id : string option;
   granted_at : string;
   expires_at : string;
@@ -86,7 +87,7 @@ let evaluate ~(actor : actor) ~destination_room_id
           match consent with
           | Some c
             when c.destination_room_id = dest
-                 && consent_valid ~now c
+                 && c.admin_room_id = dest && consent_valid ~now c
                  && c.signal = "explicit_confirm" ->
               Allow
                 {
@@ -119,6 +120,7 @@ let init_schema db =
       id TEXT PRIMARY KEY NOT NULL,
       destination_room_id TEXT NOT NULL,
       principal_id TEXT NOT NULL,
+      admin_room_id TEXT,
       plan_id TEXT,
       granted_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
@@ -137,9 +139,30 @@ let init_schema db =
           failwith
             (Printf.sprintf "setup_plan_consent schema: %s"
                (Sqlite3.Rc.to_string rc)))
-    [ sql; idx ]
+    [ sql; idx ];
+  let stmt = Sqlite3.prepare db "PRAGMA table_info(setup_plan_consents)" in
+  let rec has_admin_room_column () =
+    match Sqlite3.step stmt with
+    | Sqlite3.Rc.ROW -> (
+        match Sqlite3.column stmt 1 with
+        | Sqlite3.Data.TEXT "admin_room_id" -> true
+        | _ -> has_admin_room_column ())
+    | _ -> false
+  in
+  let has_column = has_admin_room_column () in
+  ignore (Sqlite3.finalize stmt);
+  if not has_column then
+    match
+      Sqlite3.exec db
+        "ALTER TABLE setup_plan_consents ADD COLUMN admin_room_id TEXT"
+    with
+    | Sqlite3.Rc.OK -> ()
+    | rc ->
+        failwith
+          (Printf.sprintf "setup_plan_consent schema migration: %s"
+             (Sqlite3.Rc.to_string rc))
 
-let grant_consent ~db ~destination_room_id ~principal_id ?plan_id ~signal
+let grant_consent ~db ~destination_room_id ~(actor : actor) ?plan_id ~signal
     ?(ttl_seconds = default_consent_ttl) ?(now = Unix.gettimeofday ()) () =
   if not (signal_counts_as_confirm signal) then
     Error
@@ -148,46 +171,65 @@ let grant_consent ~db ~destination_room_id ~principal_id ?plan_id ~signal
           explicit_confirm)"
          (signal_to_string signal))
   else
-    let id =
-      Printf.sprintf "consent_%d_%06d" (int_of_float now) (Random.int 1_000_000)
-    in
-    let granted_at = Time_util.iso8601_utc ~t:now () in
-    let expires_at = Time_util.iso8601_utc ~t:(now +. ttl_seconds) () in
-    let rec_ =
-      {
-        id;
-        destination_room_id;
-        principal_id;
-        plan_id;
-        granted_at;
-        expires_at;
-        signal = "explicit_confirm";
-      }
-    in
-    let sql =
-      {|INSERT INTO setup_plan_consents
-        (id, destination_room_id, principal_id, plan_id, granted_at, expires_at, signal)
-        VALUES (?, ?, ?, ?, ?, ?, ?)|}
-    in
-    let stmt = Sqlite3.prepare db sql in
-    let bind i v = ignore (Sqlite3.bind stmt i v) in
-    bind 1 (Sqlite3.Data.TEXT rec_.id);
-    bind 2 (Sqlite3.Data.TEXT destination_room_id);
-    bind 3 (Sqlite3.Data.TEXT principal_id);
-    bind 4
-      (match plan_id with
-      | None -> Sqlite3.Data.NULL
-      | Some p -> Sqlite3.Data.TEXT p);
-    bind 5 (Sqlite3.Data.TEXT granted_at);
-    bind 6 (Sqlite3.Data.TEXT expires_at);
-    bind 7 (Sqlite3.Data.TEXT rec_.signal);
-    let rc = Sqlite3.step stmt in
-    ignore (Sqlite3.finalize stmt);
-    match rc with
-    | Sqlite3.Rc.DONE -> Ok rec_
-    | rc ->
+    match actor.role with
+    | Room_admin admin_room when admin_room = destination_room_id -> (
+        let id =
+          Printf.sprintf "consent_%d_%06d" (int_of_float now)
+            (Random.int 1_000_000)
+        in
+        let granted_at = Time_util.iso8601_utc ~t:now () in
+        let expires_at = Time_util.iso8601_utc ~t:(now +. ttl_seconds) () in
+        let rec_ =
+          {
+            id;
+            destination_room_id;
+            principal_id = actor.principal_id;
+            admin_room_id = admin_room;
+            plan_id;
+            granted_at;
+            expires_at;
+            signal = "explicit_confirm";
+          }
+        in
+        let sql =
+          {|INSERT INTO setup_plan_consents
+            (id, destination_room_id, principal_id, admin_room_id, plan_id,
+             granted_at, expires_at, signal)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)|}
+        in
+        let stmt = Sqlite3.prepare db sql in
+        let bind i v = ignore (Sqlite3.bind stmt i v) in
+        bind 1 (Sqlite3.Data.TEXT rec_.id);
+        bind 2 (Sqlite3.Data.TEXT destination_room_id);
+        bind 3 (Sqlite3.Data.TEXT actor.principal_id);
+        bind 4 (Sqlite3.Data.TEXT admin_room);
+        bind 5
+          (match plan_id with
+          | None -> Sqlite3.Data.NULL
+          | Some p -> Sqlite3.Data.TEXT p);
+        bind 6 (Sqlite3.Data.TEXT granted_at);
+        bind 7 (Sqlite3.Data.TEXT expires_at);
+        bind 8 (Sqlite3.Data.TEXT rec_.signal);
+        let rc = Sqlite3.step stmt in
+        ignore (Sqlite3.finalize stmt);
+        match rc with
+        | Sqlite3.Rc.DONE -> Ok rec_
+        | rc ->
+            Error
+              (Printf.sprintf "grant_consent failed: %s"
+                 (Sqlite3.Rc.to_string rc)))
+    | Room_admin _ ->
         Error
-          (Printf.sprintf "grant_consent failed: %s" (Sqlite3.Rc.to_string rc))
+          "consent actor must be a Room-admin for the destination Room; ask \
+           that Room's admin to confirm"
+    | Global_admin ->
+        Error
+          "global-admins may apply cross-Room changes directly; destination \
+           consent must come from that Room's Room-admin"
+    | None_ ->
+        Error
+          "consent actor is not a Room-admin; ask the destination Room-admin \
+           to confirm"
 
 let find_valid_consent ~db ~destination_room_id ?plan_id
     ?(now = Unix.gettimeofday ()) () =
@@ -195,18 +237,20 @@ let find_valid_consent ~db ~destination_room_id ?plan_id
   let sql, has_plan =
     match plan_id with
     | None ->
-        ( {|SELECT id, destination_room_id, principal_id, plan_id, granted_at,
-                  expires_at, signal
+        ( {|SELECT id, destination_room_id, principal_id, plan_id, admin_room_id,
+                  granted_at, expires_at, signal
            FROM setup_plan_consents
-           WHERE destination_room_id = ? AND signal = 'explicit_confirm'
+           WHERE destination_room_id = ? AND admin_room_id = destination_room_id
+             AND signal = 'explicit_confirm'
              AND expires_at >= ?
            ORDER BY granted_at DESC LIMIT 1|},
           false )
     | Some _ ->
-        ( {|SELECT id, destination_room_id, principal_id, plan_id, granted_at,
-                  expires_at, signal
+        ( {|SELECT id, destination_room_id, principal_id, plan_id, admin_room_id,
+                  granted_at, expires_at, signal
            FROM setup_plan_consents
-           WHERE destination_room_id = ? AND signal = 'explicit_confirm'
+           WHERE destination_room_id = ? AND admin_room_id = destination_room_id
+             AND signal = 'explicit_confirm'
              AND expires_at >= ?
              AND (plan_id IS NULL OR plan_id = ?)
            ORDER BY granted_at DESC LIMIT 1|},
@@ -236,9 +280,10 @@ let find_valid_consent ~db ~destination_room_id ?plan_id
             destination_room_id = text 1;
             principal_id = text 2;
             plan_id = plan_id_opt;
-            granted_at = text 4;
-            expires_at = text 5;
-            signal = text 6;
+            admin_room_id = text 4;
+            granted_at = text 5;
+            expires_at = text 6;
+            signal = text 7;
           }
     | _ -> None
   in

@@ -22,6 +22,22 @@ let actor_room_a =
       source_room_id = Some "room-a";
     }
 
+let actor_room_b =
+  Setup_plan_consent.
+    {
+      principal_id = "principal:bob";
+      role = Room_admin "room-b";
+      source_room_id = Some "room-b";
+    }
+
+let actor_room_c =
+  Setup_plan_consent.
+    {
+      principal_id = "principal:carol";
+      role = Room_admin "room-c";
+      source_room_id = Some "room-c";
+    }
+
 let actor_none =
   Setup_plan_consent.
     {
@@ -79,7 +95,7 @@ let test_grant_rejects_nl () =
   with_db @@ fun db ->
   match
     Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
-      ~principal_id:"principal:bob" ~signal:Natural_language ()
+      ~actor:actor_room_b ~signal:Natural_language ()
   with
   | Error msg ->
       Alcotest.(check bool)
@@ -91,7 +107,7 @@ let test_grant_rejects_callback () =
   with_db @@ fun db ->
   match
     Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
-      ~principal_id:"principal:bob" ~signal:External_callback ()
+      ~actor:actor_room_b ~signal:External_callback ()
   with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "callback consent must be rejected"
@@ -101,7 +117,7 @@ let test_cross_room_with_explicit_consent () =
   let now = 1_700_000_000.0 in
   match
     Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
-      ~principal_id:"principal:bob" ~signal:Explicit_confirm ~now ()
+      ~actor:actor_room_b ~signal:Explicit_confirm ~now ()
   with
   | Error e -> Alcotest.fail e
   | Ok consent -> (
@@ -111,6 +127,30 @@ let test_cross_room_with_explicit_consent () =
       with
       | Allow _ -> ()
       | Deny { reason; _ } -> Alcotest.fail reason)
+
+let test_grant_rejects_non_destination_admin () =
+  with_db @@ fun db ->
+  match
+    Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
+      ~actor:actor_room_c ~signal:Explicit_confirm ()
+  with
+  | Error message ->
+      Alcotest.(check bool)
+        "actionable destination admin error" true
+        (String_util.contains message "destination Room")
+  | Ok _ -> Alcotest.fail "wrong-Room admin must not mint destination consent"
+
+let test_grant_rejects_non_admin () =
+  with_db @@ fun db ->
+  match
+    Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
+      ~actor:actor_none ~signal:Explicit_confirm ()
+  with
+  | Error message ->
+      Alcotest.(check bool)
+        "mentions Room-admin" true
+        (String_util.contains message "Room-admin")
+  | Ok _ -> Alcotest.fail "non-admin must not mint destination consent"
 
 let test_authority_check_integration () =
   with_db @@ fun db ->
@@ -138,7 +178,7 @@ let test_authority_check_integration () =
   (* Grant explicit consent and recheck. *)
   (match
      Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
-       ~principal_id:"principal:bob" ~signal:Explicit_confirm ~now ()
+       ~actor:actor_room_b ~signal:Explicit_confirm ~now ()
    with
   | Ok _ -> ()
   | Error e -> Alcotest.fail e);
@@ -199,7 +239,7 @@ let test_apply_uses_consent_authority () =
         ^ Setup_plan_apply.string_of_outcome other));
   ignore
     (Setup_plan_consent.grant_consent ~db ~destination_room_id:"room-b"
-       ~principal_id:"principal:bob" ~signal:Explicit_confirm ~now ());
+       ~actor:actor_room_b ~signal:Explicit_confirm ~now ());
   match
     Setup_plan_apply.apply ~db ~plan_id:plan.id ~digest:plan.digest ~principal
       ~current_base_revision:"rev-1" ~destination_room:"room-b" ~now
@@ -225,6 +265,10 @@ let suite =
     ( "cross-room with explicit consent",
       `Quick,
       test_cross_room_with_explicit_consent );
+    ( "grant rejects non-destination admin",
+      `Quick,
+      test_grant_rejects_non_destination_admin );
+    ("grant rejects non-admin", `Quick, test_grant_rejects_non_admin);
     ("authority_check integration", `Quick, test_authority_check_integration);
     ("apply uses consent authority", `Quick, test_apply_uses_consent_authority);
   ]

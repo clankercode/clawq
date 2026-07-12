@@ -54,6 +54,9 @@ let string_of_outcome = function
       Printf.sprintf "rejected %s: %s" (string_of_reject_reason reason) message
 
 let init_schema db =
+  (* Wait for a competing short-lived writer so a rejected/successful apply can
+     still durably record its audit rather than silently losing the record. *)
+  Sqlite3.busy_timeout db 5_000;
   let plans_sql =
     {|CREATE TABLE IF NOT EXISTS setup_plans (
       id TEXT PRIMARY KEY NOT NULL,
@@ -98,10 +101,11 @@ let init_schema db =
 
 let rejected reason message = Rejected { reason; message }
 
-let generate_receipt_id ?(now = Unix.gettimeofday ()) () =
-  let ts = int_of_float now in
-  let rand = Random.int 1_000_000 in
-  Printf.sprintf "rcpt_%d_%06d" ts rand
+let receipt_id_for_plan plan_id =
+  (* The idempotency key reaches the adapter before the plan row can be marked
+     applied. Deriving it from the unique plan id makes crash retries reuse the
+     same external idempotency key instead of issuing a second mutation. *)
+  "rcpt_" ^ Digest.to_hex (Digest.string plan_id)
 
 let scrub_token_patterns s =
   (* Defense-in-depth for free-text error/audit strings that may embed secrets
@@ -116,7 +120,9 @@ let scrub_token_patterns s =
   in
   let s =
     Str.global_replace
-      (Str.regexp "\\(token\\|secret\\|password\\|api_key\\)[=:][^ &;,\"']+")
+      (Str.regexp_case_fold
+         "\\(token\\|secret\\|password\\|api_key\\|private_key\\)[ \\t]*[=:][ \
+          \\t]*.*")
       "\\1=[REDACTED]" s
   in
   s
@@ -154,10 +160,8 @@ let audit_insert ~db ~plan_id ~digest ~principal_id ~outcome ~reason ~details
   let rc = Sqlite3.step stmt in
   ignore (Sqlite3.finalize stmt);
   match rc with
-  | Sqlite3.Rc.DONE -> ()
-  | rc ->
-      Logs.warn (fun m ->
-          m "setup_plan_apply audit insert failed: %s" (Sqlite3.Rc.to_string rc))
+  | Sqlite3.Rc.DONE -> Ok ()
+  | rc -> Error (Sqlite3.Rc.to_string rc)
 
 let store_plan ~db (plan : Setup_plan.t) =
   let plan = Setup_plan.redact plan in
@@ -313,9 +317,14 @@ let applied_idempotent ~db ~plan_id ~digest ~principal_id ~receipt_id ~now =
       (`Assoc
          [ ("receipt_id", `String receipt_id); ("plan_id", `String plan_id) ])
   in
-  audit_insert ~db ~plan_id ~digest ~principal_id ~outcome:"applied_idempotent"
-    ~reason:None ~details ~now ();
-  Applied { receipt_id; first_time = false }
+  match
+    audit_insert ~db ~plan_id ~digest ~principal_id
+      ~outcome:"applied_idempotent" ~reason:None ~details ~now ()
+  with
+  | Ok () -> Applied { receipt_id; first_time = false }
+  | Error audit_error ->
+      rejected Apply_error
+        ("already applied, but could not persist retry audit: " ^ audit_error)
 
 let apply_kind_name = function
   | Setup_plan.Room_profile -> "room_profile"
@@ -329,8 +338,14 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
     ~authority ~apply_ops () =
   let principal_id = principal.id in
   let reject reason message extra =
-    audit_reject ~db ~plan_id ~digest ~principal_id ~reason ~message ~extra ~now;
-    rejected reason message
+    match
+      audit_reject ~db ~plan_id ~digest ~principal_id ~reason ~message ~extra
+        ~now
+    with
+    | Ok () -> rejected reason message
+    | Error audit_error ->
+        rejected Apply_error
+          ("could not persist required rejection audit: " ^ audit_error)
   in
   match load_row ~db ~plan_id with
   | None ->
@@ -423,12 +438,12 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
                     rollback db;
                     reject Stale_revision "base revision changed under lock" []
                 | Some _locked -> (
-                    let receipt_id = generate_receipt_id ~now () in
+                    let receipt_id = receipt_id_for_plan plan_id in
                     (* Domain ops then durable CAS. apply_ops must tolerate
-                       retry with the same receipt_id if crash occurs after
+                       retry with this stable receipt_id if crash occurs after
                        domain success but before commit. *)
                     match apply_ops ~plan ~receipt_id with
-                    | Error err ->
+                    | Error err -> (
                         rollback db;
                         let details =
                           redact_details_json
@@ -438,10 +453,16 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
                                  ("plan_id", `String plan_id);
                                ])
                         in
-                        audit_insert ~db ~plan_id ~digest ~principal_id
-                          ~outcome:"failed" ~reason:(Some "apply_error")
-                          ~details ~now ();
-                        rejected Apply_error err
+                        match
+                          audit_insert ~db ~plan_id ~digest ~principal_id
+                            ~outcome:"failed" ~reason:(Some "apply_error")
+                            ~details ~now ()
+                        with
+                        | Ok () -> rejected Apply_error err
+                        | Error audit_error ->
+                            rejected Apply_error
+                              ("apply failed, but could not persist required \
+                                failure audit: " ^ audit_error))
                     | Ok () -> (
                         match
                           cas_mark_applied ~db ~plan_id ~digest:plan.digest
@@ -470,14 +491,24 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
                                             plan.apply_payload.kind) );
                                    ])
                             in
-                            audit_insert ~db ~plan_id ~digest ~principal_id
-                              ~outcome:"applied" ~reason:None ~details ~now ();
-                            match commit db with
-                            | Error e ->
+                            match
+                              audit_insert ~db ~plan_id ~digest ~principal_id
+                                ~outcome:"applied" ~reason:None ~details ~now ()
+                            with
+                            | Error audit_error ->
                                 rollback db;
-                                reject Apply_error e []
-                            | Ok () -> Applied { receipt_id; first_time = true }
-                            ))))))
+                                reject Apply_error
+                                  ("could not persist required success audit: "
+                                 ^ audit_error)
+                                  []
+                            | Ok () -> (
+                                match commit db with
+                                | Error e ->
+                                    rollback db;
+                                    reject Apply_error e []
+                                | Ok () ->
+                                    Applied { receipt_id; first_time = true })))
+                    ))))
 
 let list_audit ~db ?plan_id ?(limit = 100) () =
   let sql, bind_plan =

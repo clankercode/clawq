@@ -72,6 +72,29 @@ let test_detach_preserves_when_other_features () =
   | Ok _ -> Alcotest.fail "expected still_attached"
   | Error e -> Alcotest.fail e
 
+let test_last_removal_reports_detached_after_previous_removal () =
+  with_db @@ fun db ->
+  ignore
+    (Setup_plan_bundle.attach ~db ~room_id:"room-a" ~bundle_id:"b"
+       ~feature_id:"f1" ());
+  ignore
+    (Setup_plan_bundle.attach ~db ~room_id:"room-a" ~bundle_id:"b"
+       ~feature_id:"f2" ());
+  ignore
+    (Setup_plan_bundle.remove_managed_feature ~db ~room_id:"room-a"
+       ~bundle_id:"b" ~feature_id:"f1" ());
+  match
+    Setup_plan_bundle.remove_managed_feature ~db ~room_id:"room-a"
+      ~bundle_id:"b" ~feature_id:"f2" ()
+  with
+  | Ok (Detached _) ->
+      Alcotest.(check bool)
+        "no setup-owned linkage remains" false
+        (Setup_plan_bundle.is_setup_owned ~db ~room_id:"room-a" ~bundle_id:"b"
+           ())
+  | Ok _ -> Alcotest.fail "last feature removal must detach the linkage"
+  | Error e -> Alcotest.fail e
+
 let test_unrelated_bundle_untouched () =
   with_db @@ fun db ->
   ignore
@@ -141,6 +164,9 @@ let suite =
     ( "detach preserves when other features",
       `Quick,
       test_detach_preserves_when_other_features );
+    ( "last removal detaches after prior removal",
+      `Quick,
+      test_last_removal_reports_detached_after_previous_removal );
     ("unrelated bundle untouched", `Quick, test_unrelated_bundle_untouched);
     ("inspect room", `Quick, test_inspect_room);
     ("remove missing", `Quick, test_remove_missing);
