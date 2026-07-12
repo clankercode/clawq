@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-12T22:26:54Z"
 claimed_by: grok-bl-fix-many
-completed_at: null
+completed_at: "2026-07-12T22:28:20Z"
 complexity: high
 created_at: "2026-07-12T12:33:45Z"
 depends_on:
     - P19.M1.E2.T004
+duration_minutes: 1.4499056981833334
 estimate_hours: 5
 id: P19.M1.E2.T005
 priority: high
 started_at: "2026-07-12T22:26:54Z"
-status: in_progress
+status: done
 tags: []
 title: Add OpenAI and Anthropic native deferred-discovery adapters
-updated_at: "2026-07-12T22:26:54Z"
+updated_at: "2026-07-12T22:28:20Z"
 ---
 Acceptance: Capability-aware per-vendor adapters preserve the frozen authorized catalog and canonical identity, use native behavior where supported, and fall back portably otherwise. OpenAI request fixtures exclude unselected client-search schemas; Anthropic may receive only authorized deferred definitions, never denied ones. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

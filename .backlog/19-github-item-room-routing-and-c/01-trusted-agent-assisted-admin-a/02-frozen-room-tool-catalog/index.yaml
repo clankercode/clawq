@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 5
     total: 5
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -59,6 +59,6 @@ tasks:
       file: T005-add-openai-and-anthropic-nativ.todo
       id: T005
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add OpenAI and Anthropic native deferred-discovery adapters

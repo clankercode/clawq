@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Frozen Room Tool Catalog
       path: 02-frozen-room-tool-catalog
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M1.E2
