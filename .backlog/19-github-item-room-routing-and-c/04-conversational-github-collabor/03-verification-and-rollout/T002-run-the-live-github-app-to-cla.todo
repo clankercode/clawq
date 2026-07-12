@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T12:34:08Z"
+depends_on:
+    - P19.M4.E3.T001
+estimate_hours: 6
+id: P19.M4.E3.T002
+priority: critical
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Run the live GitHub App to Clawq to Teams pilot
+updated_at: "2026-07-12T12:34:08Z"
+---
+Acceptance: In one real Teams Channel exercise PR opened, ready, minor update, comment/review, Room read, authorized mutation/review, background work, merge, restart with pending delivery, and transient Teams failure. Verify new card, edit, thread interaction, durable recovery, retry, no duplicates, and live policy enforcement. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

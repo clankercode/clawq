@@ -6,4 +6,31 @@ id: P19.M4.E3
 locked: false
 name: Verification and Rollout
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T004
+      estimate_hours: 5
+      file: T001-add-cross-connector-policy-mig.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add cross-Connector policy migration and failure-path integration coverage
+    - complexity: high
+      depends_on:
+        - P19.M4.E3.T001
+      estimate_hours: 6
+      file: T002-run-the-live-github-app-to-cla.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Run the live GitHub App to Clawq to Teams pilot
+    - complexity: medium
+      depends_on:
+        - P19.M4.E3.T002
+      estimate_hours: 3
+      file: T003-publish-the-redacted-pilot-rec.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Publish the redacted pilot receipt rollout backout guide and cleanup result

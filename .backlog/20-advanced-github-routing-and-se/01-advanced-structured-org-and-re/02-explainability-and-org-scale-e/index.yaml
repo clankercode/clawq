@@ -6,4 +6,32 @@ id: P20.M1.E2
 locked: false
 name: Explainability and Org-Scale Evaluation
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P20.M1.E1.T003
+        - P20.M1.E1.T004
+      estimate_hours: 4
+      file: T001-add-filter-preview-and-explain.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add filter preview and explain with structured rejection reasons
+    - complexity: high
+      depends_on:
+        - P20.M1.E2.T001
+      estimate_hours: 5
+      file: T002-add-indexed-and-cached-matchin.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add indexed and cached matching without raw JSON predicates
+    - complexity: high
+      depends_on:
+        - P20.M1.E2.T002
+      estimate_hours: 4
+      file: T003-add-migration-fixtures-rate-li.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add migration fixtures rate-limit behavior and Org-scale benchmarks

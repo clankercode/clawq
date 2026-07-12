@@ -5,4 +5,42 @@ id: P20.M1.E1
 locked: false
 name: Versioned Advanced Filter Language
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M2.E2.T002
+      estimate_hours: 4
+      file: T001-add-versioned-advanced-pr-and.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add versioned advanced PR and Issue filter fields and migration
+    - complexity: high
+      depends_on:
+        - P20.M1.E1.T001
+      estimate_hours: 5
+      file: T002-add-demand-driven-changed-path.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add demand-driven changed-path and team-membership enrichment
+    - complexity: high
+      depends_on:
+        - P20.M1.E1.T001
+        - P20.M1.E1.T002
+      estimate_hours: 5
+      file: T003-implement-pr-branch-path-label.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Implement PR branch path label author team and draft predicates
+    - complexity: high
+      depends_on:
+        - P20.M1.E1.T001
+        - P20.M1.E1.T002
+      estimate_hours: 4
+      file: T004-implement-issue-label-author-t.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Implement Issue label author team assignee and milestone predicates
