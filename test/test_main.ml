@@ -109,6 +109,7 @@ let () =
        ("setup_plan_bundle", Test_setup_plan_bundle.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
+       ("tool_discovery", Test_tool_discovery.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);

@@ -168,6 +168,7 @@
   access_snapshot
   access_explanation
   tool_catalog
+  tool_discovery
   setup_plan
   setup_plan_apply
   setup_plan_consent
