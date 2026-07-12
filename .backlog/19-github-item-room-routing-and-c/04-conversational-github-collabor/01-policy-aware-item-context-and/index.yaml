@@ -52,4 +52,5 @@ tasks:
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Add reviewer requests and PR review submission
