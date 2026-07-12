@@ -28,13 +28,14 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M1.E3.T001
-        - P19.M4.E2.T004
+        - P19.M4.E2.T001
       estimate_hours: 4
       file: T002-carry-actor-snapshots-through.todo
       id: T002
       priority: critical
       status: pending
-      title: Carry Actor snapshots through P19 actions jobs retries and receipts
+      tags: []
+      title: Carry Actor snapshots through P19 action intents and confirmations
     - complexity: high
       depends_on:
         - P21.M1.E1.T004
