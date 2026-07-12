@@ -20,7 +20,8 @@ tasks:
       file: T001-create-resumable-github-app-ma.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Create resumable GitHub App manifest setup transactions
     - complexity: high
       depends_on:
