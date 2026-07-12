@@ -15,6 +15,7 @@ tasks:
       id: T001
       priority: critical
       status: pending
+      tags: []
       title: Require preview and confirm for create close reopen workflow and code-changing work
     - complexity: high
       depends_on:
