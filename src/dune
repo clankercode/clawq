@@ -167,6 +167,7 @@
   tool_authz
   access_snapshot
   access_explanation
+  tool_catalog
   setup_plan
   setup_plan_apply
   setup_plan_consent
