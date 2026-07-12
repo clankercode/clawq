@@ -18,12 +18,22 @@ tasks:
         - P21.M4.E1.T002
         - P21.M4.E1.T003
         - P21.M4.E1.T004
+        - P21.M1.E3.T004
+        - P21.M3.E3.T001
+        - P21.M3.E3.T002
+        - P21.M3.E3.T003
+        - P21.M3.E3.T004
         - P21.M3.E3.T005
-      estimate_hours: 5
+        - P21.M3.E3.T006
+        - P21.M3.E3.T007
+        - P21.M3.E3.T008
+        - P21.M3.E3.T009
+      estimate_hours: 7
       file: T001-add-cross-connector-and-shared.todo
       id: T001
       priority: critical
       status: pending
+      tags: []
       title: Add cross-Connector and shared-Room integration coverage
     - complexity: high
       depends_on:
