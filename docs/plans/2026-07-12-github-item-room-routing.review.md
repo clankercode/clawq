@@ -1,7 +1,13 @@
-# GitHub Item Routing Plan Ingest Review Receipt
+# GitHub Item Routing Plan Ingest Review Receipt (Historical Snapshot)
 
 Date: 2026-07-12
-Result: PASS
+Result: HISTORICAL PASS — superseded
+
+> This receipt records the original P19/P20 ingest at its 2026-07-12 review
+> boundary (50 P19 tasks, 13 P20 tasks). It is not a current inventory or a
+> review of the later P19-P22 phase seam. The current integrated review and
+> repaired totals are recorded in
+> `docs/plans/2026-07-13-p19-p22-integrated-review.md`.
 
 ## Reviewed artifacts
 

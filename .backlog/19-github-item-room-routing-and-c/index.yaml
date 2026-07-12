@@ -3,7 +3,7 @@ depends_on:
     - P16
     - P17
     - P18
-estimate_hours: 212
+estimate_hours: 231
 id: P19
 locked: false
 milestones:
@@ -41,7 +41,7 @@ milestones:
         - P19.M1
         - P19.M3
       description: Policy-aware item questions and actions, background-work parity, merge safeguards, and live verification.
-      estimate_hours: 49
+      estimate_hours: 68
       id: M4
       locked: false
       name: Conversational GitHub Collaboration and Live Pilot
@@ -52,7 +52,7 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 50
-    total_tasks: 50
+    pending: 53
+    total_tasks: 53
 status: pending
 weeks: 14

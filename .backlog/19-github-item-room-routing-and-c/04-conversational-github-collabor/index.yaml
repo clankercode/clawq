@@ -18,7 +18,7 @@ epics:
       depends_on:
         - P19.M4.E1
       description: Risk-tiered confirmation, Claude-tag-equivalent background work, merge safeguards, and receipts.
-      estimate_hours: 18
+      estimate_hours: 33
       id: E2
       locked: false
       name: Confirmed Workflows and Merge
@@ -28,13 +28,13 @@ epics:
       depends_on:
         - P19.M4.E2
       description: Integration coverage, live GitHub App to Teams pilot, receipt, rollout, backout, and cleanup.
-      estimate_hours: 14
+      estimate_hours: 18
       id: E3
       locked: false
       name: Verification and Rollout
       path: 03-verification-and-rollout
       status: pending
-estimate_hours: 49
+estimate_hours: 68
 id: P19.M4
 locked: false
 name: Conversational GitHub Collaboration and Live Pilot
@@ -42,6 +42,6 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 11
-    total_tasks: 11
+    pending: 14
+    total_tasks: 14
 status: pending

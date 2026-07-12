@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 24
+estimate_hours: 34
 id: P22.M1.E1
 locked: false
 name: GitHub Public and Machine Reference
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 4
-    total: 4
+    pending: 7
+    total: 7
 status: pending
 tasks:
     - complexity: high

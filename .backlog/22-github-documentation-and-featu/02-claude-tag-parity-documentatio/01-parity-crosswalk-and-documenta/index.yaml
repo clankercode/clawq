@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 19
+estimate_hours: 22
 id: P22.M2.E1
 locked: false
 name: Parity Crosswalk and Documentation Equivalence
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 3
-    total: 3
+    pending: 4
+    total: 4
 status: pending
 tasks:
     - complexity: high

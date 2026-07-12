@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 15
+estimate_hours: 28
 id: P21.M1.E3
 locked: false
 name: Durable Actor Attribution and Migration
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 4
-    total: 4
+    pending: 6
+    total: 6
 status: pending
 tasks:
     - complexity: high

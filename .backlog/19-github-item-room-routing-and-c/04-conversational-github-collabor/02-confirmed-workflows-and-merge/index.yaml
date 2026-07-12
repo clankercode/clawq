@@ -1,7 +1,7 @@
 complexity: high
 depends_on:
     - P19.M4.E1
-estimate_hours: 18
+estimate_hours: 33
 id: P19.M4.E2
 locked: false
 name: Confirmed Workflows and Merge
@@ -9,8 +9,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 4
-    total: 4
+    pending: 7
+    total: 7
 status: pending
 tasks:
     - complexity: high

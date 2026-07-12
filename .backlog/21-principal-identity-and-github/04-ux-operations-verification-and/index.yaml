@@ -13,7 +13,7 @@ epics:
     - complexity: high
       depends_on: []
       description: Prove shared-Room isolation, redaction, restart/concurrency behavior, web/device flows, native attribution, revocation, and cleanup.
-      estimate_hours: 18
+      estimate_hours: 25
       id: E2
       locked: false
       name: Integration and Live Pilot
@@ -22,13 +22,13 @@ epics:
     - complexity: medium
       depends_on: []
       description: Keep ADRs, glossary, implementation inventory, security boundary, and repair contract aligned with the shipped design.
-      estimate_hours: 6
+      estimate_hours: 9
       id: E3
       locked: false
       name: Architecture and Operator Documentation
       path: 03-architecture-and-operator-docu
       status: pending
-estimate_hours: 38
+estimate_hours: 48
 id: P21.M4
 locked: false
 name: UX Operations Verification and Security Contract

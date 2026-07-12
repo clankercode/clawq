@@ -4,13 +4,13 @@ epics:
     - complexity: high
       depends_on: []
       description: Inventory every shipped GitHub surface, publish Astro and llms references, and fail documentation checks on drift.
-      estimate_hours: 24
+      estimate_hours: 34
       id: E1
       locked: false
       name: GitHub Public and Machine Reference
       path: 01-github-public-and-machine-refe
       status: pending
-estimate_hours: 24
+estimate_hours: 34
 id: P22.M1
 locked: false
 name: Complete GitHub Documentation
@@ -18,6 +18,6 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 4
-    total_tasks: 4
+    pending: 7
+    total_tasks: 7
 status: pending

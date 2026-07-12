@@ -13,7 +13,7 @@ epics:
     - complexity: high
       depends_on: []
       description: Implement one-time web authorization, identity verification, and explicit confirmable binding activation.
-      estimate_hours: 13
+      estimate_hours: 19
       id: E2
       locked: false
       name: Web Authorization with PKCE and State
@@ -22,7 +22,7 @@ epics:
     - complexity: high
       depends_on: []
       description: Implement first-class restart-safe GitHub device flow with private code delivery and correct polling state.
-      estimate_hours: 14
+      estimate_hours: 13
       id: E3
       locked: false
       name: Device Authorization
@@ -31,13 +31,13 @@ epics:
     - complexity: high
       depends_on: []
       description: Seal rotating Principal-owned token material and expose only generation-bound callback leases at the GitHub HTTP boundary.
-      estimate_hours: 24
+      estimate_hours: 40
       id: E4
       locked: false
       name: Fail-Closed Mutable Token Vault
       path: 04-fail-closed-mutable-token-vaul
       status: pending
-estimate_hours: 63
+estimate_hours: 84
 id: P21.M2
 locked: false
 name: Private GitHub Authorization and Token Vault
@@ -45,6 +45,6 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 14
-    total_tasks: 14
+    pending: 18
+    total_tasks: 18
 status: pending

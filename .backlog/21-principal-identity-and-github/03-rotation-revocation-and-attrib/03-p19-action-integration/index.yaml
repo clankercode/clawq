@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 26
+estimate_hours: 44
 id: P21.M3.E3
 locked: false
 name: P19 Action Integration
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 5
-    total: 5
+    pending: 9
+    total: 9
 status: pending
 tasks:
     - complexity: high
@@ -37,7 +37,7 @@ tasks:
       priority: critical
       status: pending
       tags: []
-      title: Integrate user-required reviews and reviewer actions
+      title: Integrate attributed reviewer requests and user-required PR reviews
     - complexity: high
       depends_on:
         - P19.M4.E2.T002

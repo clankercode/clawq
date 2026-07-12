@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 33
+estimate_hours: 38
 id: P22.M3.E1
 locked: false
 name: Canonical Feature Material and Dual Renderers
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 6
-    total: 6
+    pending: 7
+    total: 7
 status: pending
 tasks:
     - complexity: high

@@ -1,7 +1,7 @@
 complexity: high
 depends_on:
     - P19.M4.E2
-estimate_hours: 14
+estimate_hours: 18
 id: P19.M4.E3
 locked: false
 name: Verification and Rollout

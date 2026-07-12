@@ -1,6 +1,6 @@
 complexity: medium
 depends_on: []
-estimate_hours: 6
+estimate_hours: 9
 id: P21.M4.E3
 locked: false
 name: Architecture and Operator Documentation

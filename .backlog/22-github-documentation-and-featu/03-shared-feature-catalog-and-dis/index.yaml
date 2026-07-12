@@ -4,13 +4,13 @@ epics:
     - complexity: high
       depends_on: []
       description: Define canonical data, populate GitHub and Claude Tag batches, render /new-features and clawq_help, validate parity, and enforce future maintenance.
-      estimate_hours: 33
+      estimate_hours: 38
       id: E1
       locked: false
       name: Canonical Feature Material and Dual Renderers
       path: 01-canonical-feature-material-and
       status: pending
-estimate_hours: 33
+estimate_hours: 38
 id: P22.M3
 locked: false
 name: Shared Feature Catalog and Discovery
@@ -18,6 +18,6 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 6
-    total_tasks: 6
+    pending: 7
+    total_tasks: 7
 status: pending

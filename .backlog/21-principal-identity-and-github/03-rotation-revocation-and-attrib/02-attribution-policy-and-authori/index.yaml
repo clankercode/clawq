@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 26
+estimate_hours: 32
 id: P21.M3.E2
 locked: false
 name: Attribution Policy and Authorization Resolution
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 5
-    total: 5
+    pending: 7
+    total: 7
 status: pending
 tasks:
     - complexity: high

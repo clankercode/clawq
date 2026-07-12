@@ -113,17 +113,34 @@ previously validated local state because no remote change has been asserted.
 
 - Read, search, status, and summarization require current repository and tool
   access.
-- Explicit comments, metadata changes, reviewer requests, and reviews may execute
-  after resolving and displaying the target.
-- Issue creation, Issue or PR close/reopen, typed workflow dispatch, and
-  code-changing/background work require preview and fresh confirmation. The
-  confirmed implementation covers these operations end to end, including stale
-  state, rejection, replay/idempotency, receipts, and webhook reconciliation.
+- Explicit comments, ordinary metadata changes, and reviewer requests may execute
+  after resolving and displaying the target under current Room/App policy. PR
+  review submission also revalidates the displayed head and review policy, but is
+  a high-risk App-attributed action subject to the pilot/production gate below.
+- One shared action framework resolves the target, actor mode, typed inputs,
+  policy, and authority into a redacted revision-bound preview. Fresh confirmation
+  applies the preview exactly once, emits a durable receipt, and exposes
+  correlation for webhook reconciliation. Expiry, replay, target/actor/policy
+  change, stale state, cancellation, retry, and provider failure fail closed.
+- Confirmed Issue creation and Issue/PR close/reopen, typed workflow dispatch,
+  and code-changing work with constrained PR creation are separate action-family
+  implementations over that framework, with independent failure-path tests.
 - Confirmed code-changing work may create a PR only from an explicitly supplied
-  branch or the branch/result produced by the confirmed code-work operation.
+  branch or the branch/result produced by the confirmed code-work operation, and
+  revalidates head and base before dispatch.
 - Merge is independently enabled per Room/Repo, defaults off, and always requires
   fresh confirmation after live head, draft, mergeability, checks, reviews,
-  branch-policy, method, and authority validation.
+  branch-policy, method, actor mode, and authority validation.
+
+PR review submission, Issue creation and lifecycle actions, workflow dispatch,
+code-changing work/PR creation, and merge are high-risk App-attributed actions in
+P19. They remain off by default outside one named, isolated, time-bounded P19
+pilot and must not be presented as production-ready. Production enablement waits
+for P21 to migrate them to `User_required`, complete attribution readiness, and
+pass an audited enablement gate. If P21 user authorization is disabled,
+unconfigured, stale, revoked, or loses authority, these actions remain denied;
+they never silently fall back to App or PAT. The P19 pilot gate is disabled and
+cleaned up after verification rather than inherited as a production exception.
 
 Route setup never grants mutation authority implicitly. Actions produce durable
 receipts and backlinks, and their resulting webhooks reconcile without loops or
@@ -154,9 +171,10 @@ aliases over Item routes.
 
 The backlog is authoritative for task status, acceptance bodies, estimates, and
 dependencies. This checked-in inventory is a reviewable snapshot of the ingested
-structure: 63 tasks totaling 265 hours.
+structure: P19 has 53 tasks totaling 231 hours, P20 has 13 tasks totaling 53
+hours, and the combined plan has 66 tasks totaling 284 hours.
 
-### P19: GitHub Item Room Routing and Collaboration
+### P19: GitHub Item Room Routing and Collaboration — 53 tasks / 231h
 
 1. Trusted Agent-Assisted Admin and Room Tool Scope
    - Reusable Plan-Confirm-Apply Administration
@@ -170,12 +188,12 @@ structure: 63 tasks totaling 265 hours.
    - Room Event Journal and Deterministic Projections
    - Connector-Neutral Delivery with Teams Cards
    - Durable Outbox, Reconciliation, and Operations
-4. Conversational GitHub Collaboration and Live Pilot
+4. Conversational GitHub Collaboration and Live Pilot — 14 tasks / 68h
    - Policy-Aware Item Context and Ordinary Collaboration
    - Confirmed Workflows and Merge
    - Verification and Rollout
 
-### P20: Advanced GitHub Routing and Setup Reuse
+### P20: Advanced GitHub Routing and Setup Reuse — 13 tasks / 53h
 
 1. Advanced Structured Org and Repo Forwarding
    - Versioned Advanced Filter Language
@@ -195,14 +213,22 @@ alias deny-wins, MCP cross-Room and credential isolation, list changes and reloa
 races, risk-tiered GitHub actions, merge revalidation, and webhook self-loop
 prevention.
 
-Core completion requires a live GitHub App -> Clawq -> Teams pilot exercising new
-cards, edits, a thread reply, a Room question, an authorized mutation/review,
-confirmed Issue creation, Issue and PR close/reopen, typed workflow dispatch,
-confirmed code-changing work and resulting PR creation, background work, merge,
-restart recovery, transient delivery retry, a redacted receipt, and cleanup. The
-pilot begins inside the Teams Room with assisted manifest/callback/plan/confirm/
-apply, observes the managed access bundle, and invokes a newly enabled GitHub tool
-on the immediately following turn without restarting Clawq.
+P19 verification requires a live GitHub App -> Clawq -> Teams pilot exercising
+new cards, edits, a thread reply, a Room question, reads, comments/reviews, each
+confirmed action family, background work, merge, restart recovery, transient
+delivery retry, a redacted receipt, and cleanup. The pilot begins inside one named
+isolated Teams Room with assisted manifest/callback/plan/confirm/apply, observes
+the managed access bundle, and invokes a newly enabled GitHub tool on the
+immediately following turn without restarting Clawq. High-risk App-attributed
+actions run only under an explicit time-bounded pilot gate that is off by default,
+records actor labels and gate state in receipts, and is disabled during cleanup.
+This pilot proves P19 mechanics, not production user attribution or authorization.
+
+The rollout/backout receipt must document the safe handoff to P21. Installing P21
+while user authorization is disabled leaves high-risk actions denied; completing
+admin readiness and the audited attribution gate enables them only with a current
+Principal-owned user lease. Authority loss returns repair or reconfirmation and
+never re-enables the P19 App pilot path or falls back silently to App/PAT.
 
 After non-trivial OCaml changes run focused tests, `make test`, and
 `make fmt-check`. Runtime/library reshaping also requires `make test-all` and at
@@ -211,6 +237,8 @@ least one optimized build.
 ## Assumptions and exclusions
 
 - Teams is the required rich-card pilot; architecture remains Connector-neutral.
+- P19 high-risk App actions are experimental and default-off outside the isolated
+  pilot; their production rollout is a P21 user-attribution responsibility.
 - Direct Sessions are supported with weaker continuity than durable Rooms.
 - Advanced branch/path/team/assignee/milestone predicates land in P20; P19 has
   versioned baseline event and repository forwarding controls.
@@ -277,7 +305,7 @@ acceptance criteria remain authoritative in `.backlog`.
 | P19.M3.E3.T002 | Reconcile recovery into one current-state catch-up per item | 4h | P19.M3.E3.T001, P19.M3.E1.T002 |
 | P19.M3.E3.T003 | Add delivery diagnostics metrics repair and restart-reordering tests | 4h | P19.M3.E3.T001, P19.M3.E3.T002 |
 
-### P19.M4 — Conversational GitHub Collaboration and Live Pilot
+### P19.M4 — Conversational GitHub Collaboration and Live Pilot (14 tasks / 68h)
 
 | ID | Title | Estimate | Dependencies |
 |---|---|---:|---|
@@ -285,13 +313,16 @@ acceptance criteria remain authoritative in `.backlog`.
 | P19.M4.E1.T002 | Expose Room-scoped GitHub read search and status tools | 4h | P19.M4.E1.T001, P19.M1.E3.T004 |
 | P19.M4.E1.T003 | Add direct explicit comments and metadata mutations | 5h | P19.M4.E1.T002 |
 | P19.M4.E1.T004 | Add reviewer requests and PR review submission | 4h | P19.M4.E1.T002, P19.M4.E1.T003 |
-| P19.M4.E2.T001 | Require preview and confirm for create close reopen workflow and code-changing work | 4h | P19.M4.E1.T003 |
-| P19.M4.E2.T002 | Bring Claude-tag-equivalent background work into Room threads | 5h | P19.M4.E2.T001, P19.M3.E3.T001 |
+| P19.M4.E2.T001 | Require shared revision-bound preview confirm apply for GitHub actions | 4h | P19.M4.E1.T003 |
+| P19.M4.E2.T002 | Bring Claude-tag-equivalent background work into Room threads | 5h | P19.M4.E2.T001, P19.M4.E2.T007, P19.M3.E3.T001 |
 | P19.M4.E2.T003 | Add independently enabled fresh-confirmed merge with live policy checks | 5h | P19.M4.E1.T004, P19.M4.E2.T001 |
-| P19.M4.E2.T004 | Reconcile action receipts backlinks and resulting webhooks without loops | 4h | P19.M4.E2.T002, P19.M4.E2.T003 |
-| P19.M4.E3.T001 | Add cross-Connector policy migration and failure-path integration coverage | 5h | P19.M4.E2.T004 |
-| P19.M4.E3.T002 | Run the live GitHub App to Clawq to Teams pilot | 6h | P19.M4.E3.T001, P19.M2.E3.T003, P19.M2.E3.T004 |
-| P19.M4.E3.T003 | Publish the redacted pilot receipt rollout backout guide and cleanup result | 3h | P19.M4.E3.T002 |
+| P19.M4.E2.T004 | Reconcile action receipts backlinks and resulting webhooks without loops | 5h | P19.M4.E1.T003, P19.M4.E1.T004, P19.M4.E2.T002, P19.M4.E2.T003, P19.M4.E2.T005, P19.M4.E2.T006, P19.M4.E2.T007 |
+| P19.M4.E2.T005 | Implement confirmed Issue creation and lifecycle actions | 5h | P19.M4.E2.T001 |
+| P19.M4.E2.T006 | Implement confirmed typed workflow dispatch | 4h | P19.M4.E2.T001 |
+| P19.M4.E2.T007 | Implement confirmed code-changing work and constrained PR creation | 5h | P19.M4.E2.T001 |
+| P19.M4.E3.T001 | Add cross-Connector policy migration and failure-path integration coverage | 6h | P19.M4.E2.T004 |
+| P19.M4.E3.T002 | Run the live GitHub App to Clawq to Teams pilot | 8h | P19.M4.E3.T001, P19.M2.E3.T003, P19.M2.E3.T004 |
+| P19.M4.E3.T003 | Publish the redacted pilot receipt rollout backout guide and cleanup result | 4h | P19.M4.E3.T002 |
 
 ### P20.M1 — Advanced Structured Org and Repo Forwarding
 

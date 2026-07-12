@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 14
+estimate_hours: 13
 id: P21.M2.E3
 locked: false
 name: Device Authorization

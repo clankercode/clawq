@@ -41,7 +41,7 @@ A durable shared conversation identity on a Connector, bound to one shared Room 
 _Avoid_: channel (the Channel is the live transport), thread (a thread is nested interaction context), conversation (too generic).
 
 **Connector actor**:
-Verified ingress evidence for one sender: Connector plus tenant/workspace/account scope plus the Connector's immutable user ID. Display names are mutable metadata and never identity.
+Verified ingress evidence for one sender: Connector plus tenant/workspace/account scope plus the Connector's immutable user ID. Unverified Teams or web claims, CLI or direct-call metadata, and display names never establish this identity.
 _Avoid_: Actor (a GitHub event has a separate actor), user name, requester string, Session identity.
 
 **Principal**:
@@ -51,6 +51,18 @@ _Avoid_: Room user, Session owner, Connector account.
 **Identity link**:
 The revisioned association between a verified Connector actor and a Principal. Cross-Connector links require private two-sided proof or audited admin repair.
 _Avoid_: account match, email match, display-name match.
+
+**Principal merge**:
+The consolidation of two Principals after their verified Connector actors are linked, leaving one current Principal and one stable merged alias. Historical evidence may resolve through the alias but does not thereby gain credential authority.
+_Avoid_: account deduplication, credential merge, automatic account match.
+
+**Merged Principal alias**:
+An immutable tombstone that maps a former Principal identity to the surviving Principal after a Principal merge. It is a reference-resolution identity, not a credential owner.
+_Avoid_: secondary Principal, duplicate Principal, shared credential owner.
+
+**Identity unlink**:
+The separation of a Connector actor from its current Principal into a new empty Principal. It does not carry external-account bindings or credential authority with it.
+_Avoid_: credential transfer, merge reversal.
 
 **Actor snapshot**:
 Immutable attribution evidence captured from a Connector actor when an intent or delayed job is created. It never grants authority; execution re-resolves the live Principal, identity link, account binding, and policy.
@@ -69,8 +81,12 @@ A private, expiring, one-time web or device flow bound to an initiating Principa
 _Avoid_: login Session, setup confirmation, action approval.
 
 **Token generation**:
-A monotonically changing version of one encrypted GitHub user-token record. Leases, refresh, unlink, and revocation use it to prevent stale credentials from regaining authority.
+A monotonically changing version of one GitHub access/refresh-token lineage. It tracks credential mutation and is independent of the vault master-key version used to encrypt the record.
 _Avoid_: token ID, Session revision.
+
+**Vault master-key version**:
+The versioned identity of a vault encryption key under which a credential record is sealed. Rewrapping can change it without changing the GitHub token generation.
+_Avoid_: token generation, credential revision.
 
 **GitHub item**:
 A pull request or issue identified by repository, kind, and number. The stable subject used by event routes, journal entries, projections, and GitHub tools.

@@ -17,6 +17,7 @@ critical_path:
     - P19.M4.E1.T002
     - P19.M4.E1.T003
     - P19.M4.E2.T001
+    - P19.M4.E2.T007
     - P19.M4.E2.T002
     - P19.M4.E2.T004
     - P21.M3.E2.T001
@@ -214,7 +215,7 @@ phases:
         - P17
         - P18
       description: Room-first GitHub PR and Issue routing, trusted setup, scoped tools, durable projections, conversational actions, and the live Teams pilot.
-      estimate_hours: 212
+      estimate_hours: 231
       id: P19
       locked: false
       name: GitHub Item Room Routing and Collaboration
@@ -235,7 +236,7 @@ phases:
       weeks: 5
     - depends_on: []
       description: 'Promotes I059: stable cross-Connector Principals, Principal-owned GitHub App user authorization through web and device flows, a fail-closed mutable token vault, per-action native user/App attribution, shared-Room isolation, and live Teams verification. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.'
-      estimate_hours: 214
+      estimate_hours: 328
       id: P21
       locked: false
       name: Principal Identity and GitHub User Attribution
@@ -248,7 +249,7 @@ phases:
         - P20
         - P21
       description: 'After the GitHub implementation phases ship, publish complete public/machine documentation, verify Claude Tag parity documentation, and expose a shared shipped-feature catalog through concise /new-features and expansive clawq_help renderers. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.'
-      estimate_hours: 76
+      estimate_hours: 94
       id: P22
       locked: false
       name: GitHub Documentation and Feature Discovery
@@ -261,6 +262,6 @@ stats:
     blocked: 0
     done: 1229
     in_progress: 20
-    pending: 151
-    total_tasks: 1401
+    pending: 179
+    total_tasks: 1429
 timeline_weeks: 0

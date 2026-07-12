@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 15
+estimate_hours: 57
 id: P21.M1.E1
 locked: false
 name: Principal and Connector Identity Foundation
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 4
-    total: 4
+    pending: 12
+    total: 12
 status: pending
 tasks:
     - complexity: high
@@ -72,6 +72,7 @@ tasks:
       id: T006
       priority: critical
       status: pending
+      tags: []
       title: Validate Slack ingress and derive canonical user identity
     - complexity: high
       depends_on:
@@ -81,6 +82,7 @@ tasks:
       id: T007
       priority: critical
       status: pending
+      tags: []
       title: Validate Discord ingress and derive canonical user identity
     - complexity: high
       depends_on:
@@ -90,6 +92,7 @@ tasks:
       id: T008
       priority: critical
       status: pending
+      tags: []
       title: Validate Telegram ingress and derive canonical user identity
     - complexity: high
       depends_on:

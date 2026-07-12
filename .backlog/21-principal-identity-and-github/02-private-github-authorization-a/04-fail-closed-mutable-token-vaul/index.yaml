@@ -1,6 +1,6 @@
 complexity: high
 depends_on: []
-estimate_hours: 24
+estimate_hours: 40
 id: P21.M2.E4
 locked: false
 name: Fail-Closed Mutable Token Vault
@@ -8,8 +8,8 @@ stats:
     blocked: 0
     done: 0
     in_progress: 0
-    pending: 5
-    total: 5
+    pending: 8
+    total: 8
 status: pending
 tasks:
     - complexity: high
