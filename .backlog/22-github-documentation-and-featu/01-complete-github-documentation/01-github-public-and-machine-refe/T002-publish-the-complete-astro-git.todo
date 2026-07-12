@@ -1,17 +1,16 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:53:34Z"
 depends_on:
-    - P22.M1.E1.T001
-estimate_hours: 8
+    - P22.M1.E1.T005
+estimate_hours: 5
 id: P22.M1.E1.T002
 priority: high
+started_at: null
 status: pending
-tags:
-    - docs
-    - github
-    - astro
-title: Publish the complete Astro GitHub documentation set
+tags: []
+title: Publish GitHub setup routing and delivery documentation
 updated_at: "2026-07-12T14:53:34Z"
 ---
-Acceptance: Public pages cover App manifest/callback setup, installation scope, PAT compatibility, route specificity and filters, Teams delivery, item collaboration, confirmation, web/device account linking, native attribution, background work, diagnostics, outbox recovery, security, migration, and examples; existing guides link to this source without contradiction. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Publish focused Astro pages for App manifest/callback setup, installation scope, PAT compatibility, Item/Repo/Org route precedence, filters, Teams/cards/fallback delivery, migration, and concrete examples. Every documented surface maps to the canonical coverage matrix, and existing guides link to the canonical pages without contradiction. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

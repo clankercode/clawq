@@ -23,13 +23,14 @@ tasks:
       title: Define canonical machine-readable GitHub coverage matrix
     - complexity: high
       depends_on:
-        - P22.M1.E1.T001
-      estimate_hours: 8
+        - P22.M1.E1.T005
+      estimate_hours: 5
       file: T002-publish-the-complete-astro-git.todo
       id: T002
       priority: high
       status: pending
-      title: Publish the complete Astro GitHub documentation set
+      tags: []
+      title: Publish GitHub setup routing and delivery documentation
     - complexity: high
       depends_on:
         - P22.M1.E1.T002
