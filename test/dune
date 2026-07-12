@@ -58,6 +58,7 @@
   test_github_app_config
   test_github_app_setup_tx
   test_github_app_setup_callback
+  test_github_app_setup_resume
   test_github_app_installation_scope
   test_github_app_webhook_ingress
   test_github_event_envelope
