@@ -27,11 +27,31 @@ let resolve_tool_search agent (tc : Provider.tool_call) =
       Provider.make_tool_result ~tool_call_id:tc.id ~name:"tool_search"
         ~content:"No tool registry available"
   | Some registry ->
-      let results = Tool_registry.search registry ~query in
-      let top = List.filteri (fun i _ -> i < 10) results in
-      let tools_json = `List (List.map Tool_registry.tool_to_openai_json top) in
+      (* Discovery is scoped to the frozen catalog (not the live registry). *)
+      let cat =
+        Tool_catalog.freeze_for_access ~registry ?snap:agent.access_snapshot ()
+      in
+      let top = Tool_catalog.search cat ~query ~limit:10 in
+      let tools_json =
+        `List
+          (List.map
+             (fun (e : Tool_catalog.entry) ->
+               `Assoc
+                 [
+                   ("type", `String "function");
+                   ( "function",
+                     `Assoc
+                       [
+                         ("name", `String e.canonical);
+                         ("description", `String e.description);
+                         ("parameters", e.parameters_schema);
+                       ] );
+                 ])
+             top)
+      in
       Logs.info (fun m ->
-          m "Tool search query=%S found=%d tools" query (List.length top));
+          m "Tool search query=%S found=%d tools (frozen catalog)" query
+            (List.length top));
       Provider.make_tool_search_result ~tool_call_id:tc.id ~tools_json
 
 let room_profile_tool_denial agent ~session_key ~tool_name =
@@ -261,29 +281,44 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                   match agent.tool_registry with
                   | None -> (tc, Error "Error: no tool registry available")
                   | Some registry -> (
-                      match Tool_registry.find registry tc.function_name with
-                      | None ->
-                          ( tc,
-                            Error
-                              (Printf.sprintf "Error: unknown tool '%s'"
-                                 tc.function_name) )
-                      | Some tool -> (
-                          match parse_tool_arguments tc with
-                          | Error msg -> (tc, Error msg)
-                          | Ok args -> (
-                              match
-                                validate_required_for_batch agent
-                                  batch_validation_cache tool args
-                              with
+                      (* Final execution guard: must be in frozen catalog. *)
+                      let cat =
+                        Tool_catalog.freeze_for_access ~registry
+                          ?snap:agent.access_snapshot ()
+                      in
+                      match
+                        Tool_catalog.authorize_invoke cat
+                          ~tool_name:tc.function_name
+                      with
+                      | Error msg -> (tc, Error msg)
+                      | Ok _entry -> (
+                          match
+                            Tool_registry.find registry tc.function_name
+                          with
+                          | None ->
+                              ( tc,
+                                Error
+                                  (Printf.sprintf "Error: unknown tool '%s'"
+                                     tc.function_name) )
+                          | Some tool -> (
+                              match parse_tool_arguments tc with
                               | Error msg -> (tc, Error msg)
-                              | Ok () -> (
+                              | Ok args -> (
                                   match
-                                    Skill_invocation_guard.use_skill_loaded_noop
-                                      ~reserved_no_arg_skills
-                                      ~history:agent.history tool args
+                                    validate_required_for_batch agent
+                                      batch_validation_cache tool args
                                   with
-                                  | Some response -> (tc, Error response)
-                                  | None -> (tc, Ok (Some (tool, args))))))))))
+                                  | Error msg -> (tc, Error msg)
+                                  | Ok () -> (
+                                      match
+                                        Skill_invocation_guard
+                                        .use_skill_loaded_noop
+                                          ~reserved_no_arg_skills
+                                          ~history:agent.history tool args
+                                      with
+                                      | Some response -> (tc, Error response)
+                                      | None -> (tc, Ok (Some (tool, args)))))))
+                      ))))
       calls
   in
   let* results =

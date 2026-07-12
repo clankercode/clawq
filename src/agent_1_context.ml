@@ -123,11 +123,17 @@ let runtime_context_usage agent ~compacted_before_turn =
   }
 
 let tools_json agent =
+  (* P19.M1.E2.T003: provider payloads come only from a frozen catalog so
+     unauthorized names/schemas/aliases never reach the model. *)
   match agent.tool_registry with
   | Some r when agent.config.security.tools_enabled ->
+      let cat =
+        Tool_catalog.freeze_for_access ~registry:r ?snap:agent.access_snapshot
+          ()
+      in
       if agent.config.agent_defaults.tool_search_enabled then
-        Some (Tool_registry.to_openai_json_with_search r)
-      else Some (Tool_registry.to_openai_json r)
+        Some (Tool_catalog.to_openai_json_with_search cat)
+      else Some (Tool_catalog.to_openai_json cat)
   | _ -> None
 
 let risk_level_to_string = function

@@ -145,3 +145,83 @@ let entry_to_openai_json (e : entry) =
     ]
 
 let to_openai_json (cat : t) = `List (List.map entry_to_openai_json cat.entries)
+
+let tool_search_entry =
+  `Assoc
+    [
+      ("type", `String "function");
+      ( "function",
+        `Assoc
+          [
+            ("name", `String "tool_search");
+            ( "description",
+              `String
+                "Search for available tools by keyword. Use when you need a \
+                 tool that isn't currently loaded." );
+            ( "parameters",
+              `Assoc
+                [
+                  ("type", `String "object");
+                  ( "properties",
+                    `Assoc
+                      [
+                        ( "query",
+                          `Assoc
+                            [
+                              ("type", `String "string");
+                              ( "description",
+                                `String
+                                  "Keywords to search for relevant tools \
+                                   (required)" );
+                            ] );
+                      ] );
+                  ("required", `List [ `String "query" ]);
+                  ("additionalProperties", `Bool false);
+                ] );
+          ] );
+    ]
+
+let to_openai_json_with_search (cat : t) =
+  let has_deferred = List.exists (fun (e : entry) -> e.deferred) cat.entries in
+  let entries = List.map entry_to_openai_json cat.entries in
+  if has_deferred then `List (tool_search_entry :: entries) else `List entries
+
+let authorize_invoke (cat : t) ~tool_name =
+  match lookup cat tool_name with
+  | Some e -> Ok e
+  | None ->
+      Error
+        (Printf.sprintf
+           "Error: Tool '%s' is not in the frozen turn catalog (unauthorized \
+            or not frozen for this Room/turn)."
+           tool_name)
+
+let search (cat : t) ~query ~limit =
+  let q = String.lowercase_ascii query in
+  let words = String.split_on_char ' ' q |> List.filter (fun s -> s <> "") in
+  let score (e : entry) =
+    let hay =
+      String.lowercase_ascii
+        (e.canonical ^ " " ^ e.description ^ " " ^ String.concat " " e.aliases)
+    in
+    List.fold_left
+      (fun acc w -> if String_util.contains hay w then acc + 1 else acc)
+      0 words
+  in
+  cat.entries
+  |> List.filter_map (fun e ->
+      let s = score e in
+      if s > 0 then Some (s, e) else None)
+  |> List.sort (fun (a, _) (b, _) -> compare b a)
+  |> fun scored ->
+  let rec take n xs acc =
+    match (n, xs) with
+    | 0, _ | _, [] -> List.rev acc
+    | n, (_, e) :: rest -> take (n - 1) rest (e :: acc)
+  in
+  take limit scored []
+
+let freeze_for_access ~registry ?snap ?room_id ?session_key () =
+  match snap with
+  | Some s -> freeze_from_snapshot ~registry ~snap:s ?room_id ?session_key ()
+  | None -> freeze ~registry ?room_id ?session_key ()

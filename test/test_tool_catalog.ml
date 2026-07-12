@@ -135,6 +135,36 @@ let test_openai_json_uses_canonical_only () =
     "no shell_exec name in provider payload" false
     (String_util.contains s "shell_exec")
 
+let test_authorize_invoke_guard () =
+  let reg = make_registry () in
+  let cat =
+    Tool_catalog.freeze ~registry:reg ~allowed_tools:[ "file_read" ]
+      ~denied_tools:[] ~now:1.0 ~id:"guard" ()
+  in
+  (match Tool_catalog.authorize_invoke cat ~tool_name:"file_read" with
+  | Ok e -> Alcotest.(check string) "ok" "file_read" e.canonical
+  | Error e -> Alcotest.fail e);
+  match Tool_catalog.authorize_invoke cat ~tool_name:"bash" with
+  | Ok _ -> Alcotest.fail "bash should be unauthorized"
+  | Error msg ->
+      Alcotest.(check bool)
+        "frozen catalog message" true
+        (String_util.contains msg "frozen")
+
+let test_search_scoped_to_catalog () =
+  let reg = make_registry () in
+  let cat =
+    Tool_catalog.freeze ~registry:reg ~allowed_tools:[ "file_read" ]
+      ~denied_tools:[] ~now:1.0 ~id:"search" ()
+  in
+  let hits = Tool_catalog.search cat ~query:"file" ~limit:5 in
+  Alcotest.(check bool)
+    "finds file_read" true
+    (List.exists (fun e -> e.Tool_catalog.canonical = "file_read") hits);
+  Alcotest.(check bool)
+    "no bash" false
+    (List.exists (fun e -> e.Tool_catalog.canonical = "bash") hits)
+
 let suite =
   [
     ("freeze filters deny-wins", `Quick, test_freeze_filters_deny_wins);
@@ -149,4 +179,6 @@ let suite =
     ( "openai json uses canonical only",
       `Quick,
       test_openai_json_uses_canonical_only );
+    ("authorize invoke guard", `Quick, test_authorize_invoke_guard);
+    ("search scoped to catalog", `Quick, test_search_scoped_to_catalog);
   ]

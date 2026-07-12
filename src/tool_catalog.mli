@@ -65,4 +65,23 @@ val names : t -> string list
 val contains : t -> string -> bool
 val equal_revision : t -> t -> bool
 val to_openai_json : t -> Yojson.Safe.t
+
+val to_openai_json_with_search : t -> Yojson.Safe.t
+(** Like [Tool_registry.to_openai_json_with_search] but only frozen entries. *)
+
 val entry_count : t -> int
+
+val authorize_invoke : t -> tool_name:string -> (entry, string) result
+(** Final execution guard: tool must resolve in this catalog. *)
+
+val search : t -> query:string -> limit:int -> entry list
+(** Keyword discovery restricted to frozen entries (deferred preferred). *)
+
+val freeze_for_access :
+  registry:Tool_registry.t ->
+  ?snap:Access_snapshot.t ->
+  ?room_id:string ->
+  ?session_key:string ->
+  unit ->
+  t
+(** Convenience: freeze from registry using snapshot allow/deny when present. *)
