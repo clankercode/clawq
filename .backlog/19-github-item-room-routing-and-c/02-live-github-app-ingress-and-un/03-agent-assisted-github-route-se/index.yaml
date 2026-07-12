@@ -7,4 +7,52 @@ id: P19.M2.E3
 locked: false
 name: Agent-Assisted GitHub Route Setup
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M2.E1.T002
+        - P19.M2.E2.T002
+        - P19.M1.E1.T002
+      estimate_hours: 4
+      file: T001-resume-app-setup-in-the-origin.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Resume App setup in the originating Room with readiness and a confirmable plan
+    - complexity: high
+      depends_on:
+        - P19.M2.E3.T001
+      estimate_hours: 5
+      file: T002-add-agent-and-cli-route-plan-i.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Add agent and CLI route plan inspect change disable and remove interfaces
+    - complexity: high
+      depends_on:
+        - P19.M2.E3.T002
+        - P19.M1.E3.T003
+      estimate_hours: 4
+      file: T003-apply-confirmed-routes-and-ref.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Apply confirmed routes and refresh managed Room access immediately
+    - complexity: high
+      depends_on:
+        - P19.M2.E3.T003
+      estimate_hours: 4
+      file: T004-add-route-and-app-readiness-ex.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Add route and App readiness explain audit repair and redaction tests
+    - complexity: medium
+      depends_on:
+        - P19.M2.E3.T004
+      estimate_hours: 3
+      file: T005-write-route-model-setup-adrs-g.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Write route-model setup ADRs glossary and operator contract

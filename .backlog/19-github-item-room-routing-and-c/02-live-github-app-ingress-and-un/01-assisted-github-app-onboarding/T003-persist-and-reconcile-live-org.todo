@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:47Z"
+depends_on:
+    - P19.M2.E1.T002
+estimate_hours: 5
+id: P19.M2.E1.T003
+priority: critical
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Persist and reconcile live Org and repository installation scope
+updated_at: "2026-07-12T12:33:47Z"
+---
+Acceptance: Store installation account, selection mode, authorized repositories, permissions, suspension, and revision. Installation/repository/suspension/deletion webhooks and startup reconciliation are idempotent; all-repo additions become eligible automatically and removals fail closed immediately. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

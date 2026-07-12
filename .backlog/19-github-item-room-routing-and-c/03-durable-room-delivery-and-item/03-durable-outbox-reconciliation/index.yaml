@@ -7,4 +7,34 @@ id: P19.M3.E3
 locked: false
 name: Durable Outbox Reconciliation and Operations
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M3.E1.T001
+        - P19.M3.E2.T001
+      estimate_hours: 5
+      file: T001-add-the-24-hour-retrying-deliv.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Add the 24-hour retrying delivery outbox and per-event dead letters
+    - complexity: high
+      depends_on:
+        - P19.M3.E3.T001
+        - P19.M3.E1.T002
+      estimate_hours: 4
+      file: T002-reconcile-recovery-into-one-cu.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Reconcile recovery into one current-state catch-up per item
+    - complexity: high
+      depends_on:
+        - P19.M3.E3.T001
+        - P19.M3.E3.T002
+      estimate_hours: 4
+      file: T003-add-delivery-diagnostics-metri.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add delivery diagnostics metrics repair and restart-reordering tests

@@ -6,4 +6,50 @@ id: P19.M2.E1
 locked: false
 name: Assisted GitHub App Onboarding and Installation Scope
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M1.E1.T002
+      estimate_hours: 4
+      file: T001-create-resumable-github-app-ma.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Create resumable GitHub App manifest setup transactions
+    - complexity: high
+      depends_on:
+        - P19.M2.E1.T001
+      estimate_hours: 5
+      file: T002-verify-and-exchange-one-time-b.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Verify and exchange one-time browser callbacks
+    - complexity: high
+      depends_on:
+        - P19.M2.E1.T002
+      estimate_hours: 5
+      file: T003-persist-and-reconcile-live-org.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Persist and reconcile live Org and repository installation scope
+    - complexity: high
+      depends_on:
+        - P19.M2.E1.T003
+      estimate_hours: 5
+      file: T004-build-verified-shared-app-webh.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Build verified shared App webhook ingress with durable delivery identity
+    - complexity: medium
+      depends_on:
+        - P19.M2.E1.T003
+        - P19.M2.E1.T004
+      estimate_hours: 3
+      file: T005-preserve-deterministic-pat-and.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Preserve deterministic PAT and legacy per-Repo compatibility

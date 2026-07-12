@@ -1,0 +1,15 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:43Z"
+depends_on: []
+estimate_hours: 4
+id: P19.M1.E1.T001
+priority: high
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Build reusable typed admin setup plans
+updated_at: "2026-07-12T12:33:43Z"
+---
+Acceptance: Plans contain principal, source and destination context, current and planned state, structured diff, readiness, warnings, base revision, expiry, digest, and typed apply payload. Planning performs no config, database, external-system, Connector, or Session mutation; persisted and rendered plans redact secret-bearing fields. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

@@ -6,4 +6,42 @@ id: P19.M3.E2
 locked: false
 name: Connector-Neutral Delivery with Teams Cards
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M3.E1.T002
+      estimate_hours: 4
+      file: T001-define-connector-neutral-lifec.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Define connector-neutral lifecycle-card update and reply intents
+    - complexity: high
+      depends_on:
+        - P19.M3.E2.T001
+      estimate_hours: 5
+      file: T002-render-and-edit-rich-teams-ada.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Render and edit rich Teams Adaptive Cards
+    - complexity: medium
+      depends_on:
+        - P19.M3.E2.T001
+      estimate_hours: 4
+      file: T003-add-plain-message-and-editless.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add plain-message and editless fallbacks for other Channels and Sessions
+    - complexity: high
+      depends_on:
+        - P19.M3.E2.T002
+        - P19.M3.E2.T003
+        - P19.M3.E1.T004
+      estimate_hours: 5
+      file: T004-resolve-card-actions-thread-re.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Resolve card actions thread replies and Room mentions back to item context

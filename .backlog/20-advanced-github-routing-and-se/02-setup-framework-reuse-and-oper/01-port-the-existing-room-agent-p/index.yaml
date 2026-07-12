@@ -6,4 +6,13 @@ id: P20.M2.E1
 locked: false
 name: Port the Existing Room-Agent Pilot
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M1.E1.T002
+      estimate_hours: 4
+      file: T001-adapt-room-agent-pilot-plannin.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Adapt room-agent pilot planning to the shared typed setup framework

@@ -6,4 +6,48 @@ id: P19.M1.E2
 locked: false
 name: Frozen Room Tool Catalog
 status: pending
-tasks: []
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T001-make-canonical-and-alias-autho.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Make canonical and alias authorization deny-wins
+    - complexity: high
+      depends_on:
+        - P19.M1.E2.T001
+      estimate_hours: 5
+      file: T002-capture-an-immutable-per-turn.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Capture an immutable per-turn Room Tool catalog
+    - complexity: high
+      depends_on:
+        - P19.M1.E2.T002
+      estimate_hours: 4
+      file: T003-scope-provider-serialization-d.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Scope provider serialization discovery and execution to the frozen catalog
+    - complexity: high
+      depends_on:
+        - P19.M1.E2.T003
+      estimate_hours: 4
+      file: T004-implement-portable-search-tool.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Implement portable search_tools inspect and call discovery
+    - complexity: high
+      depends_on:
+        - P19.M1.E2.T004
+      estimate_hours: 5
+      file: T005-add-openai-and-anthropic-nativ.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Add OpenAI and Anthropic native deferred-discovery adapters

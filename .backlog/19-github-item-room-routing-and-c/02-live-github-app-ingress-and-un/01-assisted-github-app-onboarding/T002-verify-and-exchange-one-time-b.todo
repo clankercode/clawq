@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:47Z"
+depends_on:
+    - P19.M2.E1.T001
+estimate_hours: 5
+id: P19.M2.E1.T002
+priority: critical
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Verify and exchange one-time browser callbacks
+updated_at: "2026-07-12T12:33:47Z"
+---
+Acceptance: Validate state, expiry, origin transaction, callback path, and non-reuse before conversion. Verify App and installation data using authenticated GitHub responses, store returned secrets through credential handling, and fail replay, forged/swapped Room, duplicate, expired, and partial exchanges without active partial config. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:46Z"
+depends_on:
+    - P19.M1.E3.T001
+    - P19.M1.E2.T003
+estimate_hours: 5
+id: P19.M1.E3.T002
+priority: critical
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Isolate MCP server access credentials and clients by Room scope
+updated_at: "2026-07-12T12:33:46Z"
+---
+Acceptance: Provider exposure, search, and invocation enforce the frozen mcp_servers policy. Invocation uses the in-flight access snapshot; HTTP credentials are leased per call and credential-bearing stdio clients are scope-keyed or rejected. Two differently granted Rooms cannot see or use each others servers or credentials. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

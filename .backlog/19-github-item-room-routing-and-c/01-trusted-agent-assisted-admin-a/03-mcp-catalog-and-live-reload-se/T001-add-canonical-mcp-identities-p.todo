@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:46Z"
+depends_on:
+    - P19.M1.E2.T002
+estimate_hours: 5
+id: P19.M1.E3.T001
+priority: critical
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Add canonical MCP identities pagination list_changed and metadata limits
+updated_at: "2026-07-12T12:33:46Z"
+---
+Acceptance: MCP tools use collision-safe server plus remote-name identity; tools/list pagination is drained; list_changed refreshes only the affected server. Names, descriptions, annotations, and schemas have documented size/depth/control-character validation, and hostile or colliding definitions fail closed. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

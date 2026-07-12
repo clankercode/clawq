@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:58Z"
+depends_on:
+    - P19.M3.E2.T001
+estimate_hours: 5
+id: P19.M3.E2.T002
+priority: high
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Render and edit rich Teams Adaptive Cards
+updated_at: "2026-07-12T12:33:58Z"
+---
+Acceptance: Cards show repository, item kind/number, title, author, lifecycle, checks/reviews, GitHub link, and safe Open, Ask/Summarize, and policy-gated Review actions. Persist activity/conversation/service/thread identities, support edits, and replace missing/uneditable cards once without retrying obsolete identity. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

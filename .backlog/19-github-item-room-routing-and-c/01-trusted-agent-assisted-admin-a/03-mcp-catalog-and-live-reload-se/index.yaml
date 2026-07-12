@@ -6,4 +6,43 @@ id: P19.M1.E3
 locked: false
 name: MCP Catalog and Live Reload Security
 status: pending
-tasks: []
+tasks:
+    - complexity: high
+      depends_on:
+        - P19.M1.E2.T002
+      estimate_hours: 5
+      file: T001-add-canonical-mcp-identities-p.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: Add canonical MCP identities pagination list_changed and metadata limits
+    - complexity: high
+      depends_on:
+        - P19.M1.E3.T001
+        - P19.M1.E2.T003
+      estimate_hours: 5
+      file: T002-isolate-mcp-server-access-cred.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: Isolate MCP server access credentials and clients by Room scope
+    - complexity: high
+      depends_on:
+        - P19.M1.E3.T001
+        - P19.M1.E3.T002
+        - P19.M1.E1.T004
+      estimate_hours: 4
+      file: T003-publish-transactional-registry.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: Publish transactional registry and MCP reloads and refresh active Rooms
+    - complexity: medium
+      depends_on:
+        - P19.M1.E3.T003
+      estimate_hours: 3
+      file: T004-replace-optimistic-tool-scope.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Replace optimistic tool-scope docs with end-to-end conformance checks

@@ -1,0 +1,16 @@
+---
+complexity: high
+created_at: "2026-07-12T12:33:45Z"
+depends_on:
+    - P19.M1.E2.T004
+estimate_hours: 5
+id: P19.M1.E2.T005
+priority: high
+status: pending
+tags:
+    - github-routing
+    - room-agent
+title: Add OpenAI and Anthropic native deferred-discovery adapters
+updated_at: "2026-07-12T12:33:45Z"
+---
+Acceptance: Capability-aware per-vendor adapters preserve the frozen authorized catalog and canonical identity, use native behavior where supported, and fall back portably otherwise. OpenAI request fixtures exclude unselected client-search schemas; Anthropic may receive only authorized deferred definitions, never denied ones. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
