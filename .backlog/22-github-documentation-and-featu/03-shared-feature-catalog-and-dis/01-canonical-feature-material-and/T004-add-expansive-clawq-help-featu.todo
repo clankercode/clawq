@@ -1,17 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:53:36Z"
 depends_on:
     - P22.M3.E1.T002
+    - P22.M3.E1.T007
 estimate_hours: 5
 id: P22.M3.E1.T004
 priority: high
+started_at: null
 status: pending
-tags:
-    - tools
-    - feature-catalog
-    - help
+tags: []
 title: Add expansive clawq_help feature rendering
 updated_at: "2026-07-12T14:53:36Z"
 ---
-Acceptance: clawq_help topic=new-features accepts optional batch, feature, and page and renders expanded prerequisites, admin requirements, availability, setup, commands/tools, troubleshooting, and references from the same entries; schema/topic/help/llms documentation and bounded continuation are updated. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: clawq_help topic=new-features consumes the verified caller audience from Tool context and supports bounded batch, feature, and page selectors. It renders only visible expanded prerequisites, admin requirements, lifecycle/availability, setup, commands/tools, troubleshooting, replacement/removal, and references from shared catalog entries; missing role defaults public and cannot self-elevate. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

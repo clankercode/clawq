@@ -48,11 +48,13 @@ tasks:
     - complexity: high
       depends_on:
         - P22.M3.E1.T002
+        - P22.M3.E1.T007
       estimate_hours: 5
       file: T004-add-expansive-clawq-help-featu.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Add expansive clawq_help feature rendering
     - complexity: high
       depends_on:
