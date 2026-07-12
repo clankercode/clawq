@@ -1,18 +1,18 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:49Z"
 depends_on:
     - P21.M3.E2.T002
     - P21.M3.E1.T002
-estimate_hours: 8
+    - P19.M1.E2.T003
+estimate_hours: 5
 id: P21.M3.E2.T003
 priority: critical
+started_at: null
 status: pending
-tags:
-    - github
-    - policy
-    - credentials
-title: Resolve opaque leases after all current policy checks
+tags: []
+title: Resolve attribution authorization after all current policy checks
 updated_at: "2026-07-12T14:52:49Z"
 ---
-Acceptance: Immediately before dispatch intersect current Room/session tools and repo grant, Principal and confirmation, binding generation, App installation/permissions/repo selection, user/Org/SSO authority, and action state; return only a callback-scoped lease at the GitHub HTTP boundary. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Resolve a typed allow/deny decision by intersecting the frozen current-turn Room/session Tool catalog, repo grant, Principal/confirmation, logical binding lineage and state, App installation/permissions/repo selection, user/Org/SSO authority, and live action state. Record checked revisions and repair reason but issue no token or lease; stale or ambiguous inputs deny. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

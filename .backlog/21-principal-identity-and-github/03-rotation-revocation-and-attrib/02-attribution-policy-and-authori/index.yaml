@@ -37,12 +37,14 @@ tasks:
       depends_on:
         - P21.M3.E2.T002
         - P21.M3.E1.T002
-      estimate_hours: 8
+        - P19.M1.E2.T003
+      estimate_hours: 5
       file: T003-resolve-opaque-leases-after-al.todo
       id: T003
       priority: critical
       status: pending
-      title: Resolve opaque leases after all current policy checks
+      tags: []
+      title: Resolve attribution authorization after all current policy checks
     - complexity: high
       depends_on:
         - P21.M3.E2.T001
