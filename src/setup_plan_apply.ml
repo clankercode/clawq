@@ -307,9 +307,26 @@ let audit_reject ~db ~plan_id ~digest ~principal_id ~reason ~message ~extra ~now
     ~reason:(Some (string_of_reject_reason reason))
     ~details ~now ()
 
+let applied_idempotent ~db ~plan_id ~digest ~principal_id ~receipt_id ~now =
+  let details =
+    redact_details_json
+      (`Assoc
+         [ ("receipt_id", `String receipt_id); ("plan_id", `String plan_id) ])
+  in
+  audit_insert ~db ~plan_id ~digest ~principal_id ~outcome:"applied_idempotent"
+    ~reason:None ~details ~now ();
+  Applied { receipt_id; first_time = false }
+
+let apply_kind_name = function
+  | Setup_plan.Room_profile -> "room_profile"
+  | Github_app_setup -> "github_app_setup"
+  | Github_route -> "github_route"
+  | Access_bundle -> "access_bundle"
+  | Generic s -> s
+
 let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
-    ~current_base_revision ?expected_destination_room
-    ?(now = Unix.gettimeofday ()) ~authority ~apply_ops () =
+    ~current_base_revision ~destination_room ?(now = Unix.gettimeofday ())
+    ~authority ~apply_ops () =
   let principal_id = principal.id in
   let reject reason message extra =
     audit_reject ~db ~plan_id ~digest ~principal_id ~reason ~message ~extra ~now;
@@ -320,6 +337,7 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
       reject Plan_not_found "plan not found" [ ("plan_id", `String plan_id) ]
   | Some row -> (
       let plan = row.plan in
+      (* 1. Identity checks (always). *)
       if not (Setup_plan.digests_equal plan.digest digest) then
         reject Digest_mismatch "plan digest does not match"
           [
@@ -335,7 +353,25 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
             ("plan_principal", `String plan.principal.id);
             ("apply_principal", `String principal_id);
           ]
-      else if Setup_plan.is_expired ~now plan then
+      else if
+        (* 2. Already-applied short-circuit: retry-idempotent. Does not recheck
+           expiry / base_revision / authority so post-apply state advances still
+           return the original receipt. *)
+        row.status = "applied"
+      then
+        match row.receipt_id with
+        | Some receipt_id ->
+            applied_idempotent ~db ~plan_id ~digest ~principal_id ~receipt_id
+              ~now
+        | None -> reject Concurrent_conflict "applied plan missing receipt" []
+      else if row.status <> "pending" then
+        reject Concurrent_conflict
+          (Printf.sprintf "plan status is %s" row.status)
+          [ ("status", `String row.status) ]
+      else if
+        (* 3. Live rechecks for first apply only. *)
+        Setup_plan.is_expired ~now plan
+      then
         reject Expired "plan has expired"
           [ ("expires_at", `String plan.expires_at) ]
       else if plan.base_revision <> current_base_revision then
@@ -344,161 +380,104 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
             ("plan_base_revision", `String plan.base_revision);
             ("current_base_revision", `String current_base_revision);
           ]
+      else if plan.destination.room_id <> Some destination_room then
+        reject Destination_mismatch "destination room does not match expected"
+          [
+            ( "plan_destination",
+              match plan.destination.room_id with
+              | None -> `Null
+              | Some r -> `String r );
+            ("expected", `String destination_room);
+          ]
+      else if not (Setup_plan.readiness_ok plan) then
+        reject Readiness_failed "plan readiness has failing checks" []
       else
-        match expected_destination_room with
-        | Some expected when plan.destination.room_id <> Some expected ->
-            reject Destination_mismatch
-              "destination room does not match expected"
-              [
-                ( "plan_destination",
-                  match plan.destination.room_id with
-                  | None -> `Null
-                  | Some r -> `String r );
-                ("expected", `String expected);
-              ]
-        | _ -> (
-            if not (Setup_plan.readiness_ok plan) then
-              reject Readiness_failed "plan readiness has failing checks" []
-            else
-              match authority ~principal ~destination:plan.destination with
-              | Error msg ->
-                  reject Authority_denied msg
-                    [ ("authority_message", `String msg) ]
-              | Ok () -> (
-                  if
-                    (* Retry-idempotent path: already applied with same digest. *)
-                    row.status = "applied"
-                  then
-                    match row.receipt_id with
+        match authority ~principal ~destination:plan.destination with
+        | Error msg ->
+            reject Authority_denied msg [ ("authority_message", `String msg) ]
+        | Ok () -> (
+            (* 4. Atomic apply under IMMEDIATE lock. *)
+            match begin_immediate db with
+            | Error e -> reject Apply_error e []
+            | Ok () -> (
+                match load_row ~db ~plan_id with
+                | None ->
+                    rollback db;
+                    reject Plan_not_found "plan disappeared" []
+                | Some locked when locked.status = "applied" -> (
+                    rollback db;
+                    match locked.receipt_id with
                     | Some receipt_id ->
+                        applied_idempotent ~db ~plan_id ~digest ~principal_id
+                          ~receipt_id ~now
+                    | None ->
+                        reject Concurrent_conflict
+                          "applied plan missing receipt" [])
+                | Some locked when locked.status <> "pending" ->
+                    rollback db;
+                    reject Concurrent_conflict
+                      (Printf.sprintf "plan status is %s" locked.status)
+                      []
+                | Some locked when locked.base_revision <> current_base_revision
+                  ->
+                    rollback db;
+                    reject Stale_revision "base revision changed under lock" []
+                | Some _locked -> (
+                    let receipt_id = generate_receipt_id ~now () in
+                    (* Domain ops then durable CAS. apply_ops must tolerate
+                       retry with the same receipt_id if crash occurs after
+                       domain success but before commit. *)
+                    match apply_ops ~plan ~receipt_id with
+                    | Error err ->
+                        rollback db;
                         let details =
                           redact_details_json
                             (`Assoc
                                [
-                                 ("receipt_id", `String receipt_id);
+                                 ("error", `String err);
                                  ("plan_id", `String plan_id);
                                ])
                         in
                         audit_insert ~db ~plan_id ~digest ~principal_id
-                          ~outcome:"applied_idempotent" ~reason:None ~details
-                          ~now ();
-                        Applied { receipt_id; first_time = false }
-                    | None ->
-                        reject Concurrent_conflict
-                          "applied plan missing receipt" []
-                  else if row.status <> "pending" then
-                    reject Concurrent_conflict
-                      (Printf.sprintf "plan status is %s" row.status)
-                      [ ("status", `String row.status) ]
-                  else
-                    (* Atomic apply under IMMEDIATE lock. *)
-                    match begin_immediate db with
-                    | Error e -> reject Apply_error e []
+                          ~outcome:"failed" ~reason:(Some "apply_error")
+                          ~details ~now ();
+                        rejected Apply_error err
                     | Ok () -> (
-                        (* Re-load under lock to prevent stale overwrite. *)
-                        match load_row ~db ~plan_id with
-                        | None ->
+                        match
+                          cas_mark_applied ~db ~plan_id ~digest:plan.digest
+                            ~receipt_id ~now
+                        with
+                        | Error "concurrent_conflict" ->
                             rollback db;
-                            reject Plan_not_found "plan disappeared" []
-                        | Some locked when locked.status = "applied" -> (
-                            rollback db;
-                            match locked.receipt_id with
-                            | Some receipt_id ->
-                                let details =
-                                  redact_details_json
-                                    (`Assoc
-                                       [
-                                         ("receipt_id", `String receipt_id);
-                                         ("plan_id", `String plan_id);
-                                       ])
-                                in
-                                audit_insert ~db ~plan_id ~digest ~principal_id
-                                  ~outcome:"applied_idempotent" ~reason:None
-                                  ~details ~now ();
-                                Applied { receipt_id; first_time = false }
-                            | None ->
-                                reject Concurrent_conflict
-                                  "applied plan missing receipt" [])
-                        | Some locked when locked.status <> "pending" ->
-                            rollback db;
-                            reject Concurrent_conflict
-                              (Printf.sprintf "plan status is %s" locked.status)
+                            reject Concurrent_conflict "lost CAS race on apply"
                               []
-                        | Some locked
-                          when locked.base_revision <> current_base_revision ->
+                        | Error e ->
                             rollback db;
-                            reject Stale_revision
-                              "base revision changed under lock" []
-                        | Some _locked -> (
-                            let receipt_id = generate_receipt_id ~now () in
-                            match apply_ops ~plan ~receipt_id with
-                            | Error err ->
+                            reject Apply_error e []
+                        | Ok () -> (
+                            (* Success audit inside the same transaction. *)
+                            let details =
+                              redact_details_json
+                                (`Assoc
+                                   [
+                                     ("receipt_id", `String receipt_id);
+                                     ("plan_id", `String plan_id);
+                                     ( "destination_room",
+                                       `String destination_room );
+                                     ( "apply_kind",
+                                       `String
+                                         (apply_kind_name
+                                            plan.apply_payload.kind) );
+                                   ])
+                            in
+                            audit_insert ~db ~plan_id ~digest ~principal_id
+                              ~outcome:"applied" ~reason:None ~details ~now ();
+                            match commit db with
+                            | Error e ->
                                 rollback db;
-                                let details =
-                                  redact_details_json
-                                    (`Assoc
-                                       [
-                                         ("error", `String err);
-                                         ("plan_id", `String plan_id);
-                                       ])
-                                in
-                                audit_insert ~db ~plan_id ~digest ~principal_id
-                                  ~outcome:"failed" ~reason:(Some "apply_error")
-                                  ~details ~now ();
-                                rejected Apply_error err
-                            | Ok () -> (
-                                match
-                                  cas_mark_applied ~db ~plan_id
-                                    ~digest:plan.digest ~receipt_id ~now
-                                with
-                                | Error "concurrent_conflict" ->
-                                    rollback db;
-                                    reject Concurrent_conflict
-                                      "lost CAS race on apply" []
-                                | Error e ->
-                                    rollback db;
-                                    reject Apply_error e []
-                                | Ok () -> (
-                                    match commit db with
-                                    | Error e ->
-                                        rollback db;
-                                        reject Apply_error e []
-                                    | Ok () ->
-                                        let details =
-                                          redact_details_json
-                                            (`Assoc
-                                               [
-                                                 ( "receipt_id",
-                                                   `String receipt_id );
-                                                 ("plan_id", `String plan_id);
-                                                 ( "destination_room",
-                                                   match
-                                                     plan.destination.room_id
-                                                   with
-                                                   | None -> `Null
-                                                   | Some r -> `String r );
-                                                 ( "apply_kind",
-                                                   `String
-                                                     (match
-                                                        plan.apply_payload.kind
-                                                      with
-                                                     | Room_profile ->
-                                                         "room_profile"
-                                                     | Github_app_setup ->
-                                                         "github_app_setup"
-                                                     | Github_route ->
-                                                         "github_route"
-                                                     | Access_bundle ->
-                                                         "access_bundle"
-                                                     | Generic s -> s) );
-                                               ])
-                                        in
-                                        audit_insert ~db ~plan_id ~digest
-                                          ~principal_id ~outcome:"applied"
-                                          ~reason:None ~details ~now ();
-                                        Applied
-                                          { receipt_id; first_time = true })))))
-            ))
+                                reject Apply_error e []
+                            | Ok () -> Applied { receipt_id; first_time = true }
+                            ))))))
 
 let list_audit ~db ?plan_id ?(limit = 100) () =
   let sql, bind_plan =

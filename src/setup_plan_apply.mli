@@ -47,8 +47,10 @@ type authority_check =
 (** Return [Ok ()] if the principal may apply to the destination. *)
 
 type apply_ops = plan:Setup_plan.t -> receipt_id:string -> (unit, string) result
-(** Domain mutation. Must be safe to call only after rechecks pass. For
-    retry-idempotency of the engine, this is only invoked on first apply. *)
+(** Domain mutation after rechecks. Invoked only on the first successful CAS
+    path (not on idempotent retries). Implementations must tolerate retry with
+    the same [receipt_id] if the process crashes between domain success and
+    durable commit. *)
 
 val init_schema : Sqlite3.db -> unit
 
@@ -63,14 +65,20 @@ val apply :
   digest:string ->
   principal:Setup_plan.principal ->
   current_base_revision:string ->
-  ?expected_destination_room:string ->
+  destination_room:string ->
   ?now:float ->
   authority:authority_check ->
   apply_ops:apply_ops ->
   unit ->
   outcome
-(** Recheck + atomic apply. Concurrent writers using different revisions or
-    racing first-apply are rejected with [Stale_revision] /
+(** Recheck + atomic apply.
+
+    Order: identity (id/digest/principal) → already-applied short-circuit
+    (retry-idempotent; ignores advanced revision/expiry) → live rechecks
+    (expiry, base revision, destination, readiness, authority) → BEGIN IMMEDIATE
+    \+ CAS pending→applied + in-tx success audit.
+
+    Concurrent writers are rejected with [Stale_revision] /
     [Concurrent_conflict] rather than overwriting a committed apply. *)
 
 val list_audit :
