@@ -26,11 +26,12 @@ tasks:
     - complexity: high
       depends_on:
         - P22.M2.E1.T001
-      estimate_hours: 8
+      estimate_hours: 7
       file: T002-close-all-shipped-parity-docum.todo
       id: T002
       priority: high
       status: pending
+      tags: []
       title: Close all shipped parity documentation gaps
     - complexity: high
       depends_on:
