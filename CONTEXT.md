@@ -36,6 +36,30 @@ _Avoid_: connector (that is a distinct concept — see below), integration, plat
 The delivery identity of a chat surface used to pick formatting and capabilities (can it edit, react, send cards, capture ambient history). What `format_adapter` and `connector_capabilities` key on.
 _Avoid_: channel (a Channel is the live transport; a Connector is the rendering identity). Older `Channel.S` terminology conflated the two; the concrete `Channel.t` startup specification now models only the live transport lifecycle.
 
+**Room**:
+A durable shared conversation identity on a Connector, bound to one shared Room Session and, when configured, a room-agent profile. A Teams Channel, Slack channel, Discord channel, Matrix room, or Telegram group can be a Room.
+_Avoid_: channel (the Channel is the live transport), thread (a thread is nested interaction context), conversation (too generic).
+
+**GitHub item**:
+A pull request or issue identified by repository, kind, and number. The stable subject used by event routes, journal entries, projections, and GitHub tools.
+_Avoid_: ticket (not all items are issues), PR (excludes issues), notification (an event produces a notification).
+
+**GitHub event route**:
+A durable rule mapping GitHub item events at Item, Repo, or Org scope to a Room or Session, with a versioned filter and delivery policy.
+_Avoid_: subscription (reserved as the compatibility name for the older per-PR model), webhook (the webhook is ingress, not the routing rule).
+
+**Lifecycle event**:
+A normalized GitHub event that changes the major lifecycle of an item and therefore creates a new visible card, such as opened, ready, reopened, closed, transferred, or merged.
+_Avoid_: update (updates edit the current projection), webhook event (too transport-specific).
+
+**Event journal**:
+The durable ordered record of normalized events accepted for a Room or Session. It preserves structured history beyond Session compaction and is the source for projection replay and agent retrieval.
+_Avoid_: audit ledger (the audit ledger records security and operational decisions), chat history (journal entries may be hidden).
+
+**Item projection**:
+The durable per-destination view of one GitHub item's current visible state, including the current card/message identity and render revision. Derived from the Event journal.
+_Avoid_: card (a card is one Connector rendering), session (the Room Session remains authoritative).
+
 ## Commands
 
 **Command**:
