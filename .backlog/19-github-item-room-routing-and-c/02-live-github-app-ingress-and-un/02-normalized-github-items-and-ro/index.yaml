@@ -24,6 +24,7 @@ tasks:
       id: T002
       priority: high
       status: pending
+      tags: []
       title: Persist Item Repo and Org routes filters comment modes and capability policy
     - complexity: high
       depends_on:
