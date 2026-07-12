@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-12T21:51:54Z"
 claimed_by: grok-bl-fix-many
-completed_at: null
+completed_at: "2026-07-12T21:55:11Z"
 complexity: medium
 created_at: "2026-07-12T12:33:44Z"
 depends_on:
     - P19.M1.E1.T002
+duration_minutes: 3.2991434831833333
 estimate_hours: 3
 id: P19.M1.E1.T003
 priority: critical
 started_at: "2026-07-12T21:51:54Z"
-status: in_progress
+status: done
 tags: []
 title: Enforce current-Room and cross-Room admin consent rules
-updated_at: "2026-07-12T21:51:54Z"
+updated_at: "2026-07-12T21:55:11Z"
 ---
 Acceptance: Current-Room changes require Room-admin or global-admin authority. A global admin may target another Room; otherwise destination Room admin consent is mandatory. Natural-language requests and external callbacks never count as confirmation. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
