@@ -25,7 +25,7 @@ tasks:
     - complexity: medium
       depends_on:
         - P21.M4.E3.T001
-      estimate_hours: 3
+      estimate_hours: 4
       file: T002-maintain-implementation-invent.todo
       id: T002
       priority: high

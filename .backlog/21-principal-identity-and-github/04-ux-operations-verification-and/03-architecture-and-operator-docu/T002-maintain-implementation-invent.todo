@@ -4,7 +4,7 @@ complexity: medium
 created_at: "2026-07-12T14:52:53Z"
 depends_on:
     - P21.M4.E3.T001
-estimate_hours: 3
+estimate_hours: 4
 id: P21.M4.E3.T002
 priority: high
 started_at: null
@@ -13,4 +13,4 @@ tags: []
 title: Maintain implementation inventory and user-auth operator contract
 updated_at: "2026-07-12T14:52:53Z"
 ---
-Acceptance: Update the canonical inventory and operator guide with actual commands, config/defaults, tool schemas, endpoints, readiness, self-link/admin boundaries, selection precedence, repair, metrics, migration, rollback, and live receipt; facts are verified against shipped code. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Maintain a task/source/schema/API/test crosswalk plus operator contract for trust-adapter readiness, linking conflicts, authorization, key lifecycle, attribution rollout, delayed-job repair, revoke/relink, backup/restore, pilot cleanup, and compatibility. It names safe defaults and actionable failure states without secrets or unsupported guarantees. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
