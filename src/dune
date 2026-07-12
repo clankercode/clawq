@@ -180,6 +180,7 @@
   github_app_setup_tx
   github_app_setup_callback
   github_app_installation_scope
+  github_auth_selection
   credential_lease
   skills
   skills_cmd_inject
