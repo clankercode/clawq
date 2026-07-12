@@ -23,7 +23,8 @@ tasks:
       file: T001-resume-app-setup-in-the-origin.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Resume App setup in the originating Room with readiness and a confirmable plan
     - complexity: high
       depends_on:
