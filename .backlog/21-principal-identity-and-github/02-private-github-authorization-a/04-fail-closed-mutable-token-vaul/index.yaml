@@ -23,12 +23,14 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M2.E4.T001
+        - P21.M2.E4.T006
       estimate_hours: 5
       file: T002-implement-fail-closed-mutable.todo
       id: T002
       priority: critical
       status: pending
-      title: Implement fail-closed mutable vault CRUD and key handling
+      tags: []
+      title: Implement fail-closed mutable vault CRUD
     - complexity: high
       depends_on:
         - P21.M2.E4.T002
