@@ -1,17 +1,18 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:53:36Z"
 depends_on:
     - P22.M3.E1.T005
-estimate_hours: 4
+    - P22.M2.E1.T003
+    - P22.M1.E1.T007
+estimate_hours: 5
 id: P22.M3.E1.T006
 priority: high
+started_at: null
 status: pending
-tags:
-    - docs
-    - agents
-    - maintenance
+tags: []
 title: Make feature and documentation maintenance a repository contract
 updated_at: "2026-07-12T14:53:36Z"
 ---
-Acceptance: Update root AGENTS.md, docs/CLAUDE.md, relevant builtin agent prompt sources and generated templates, contribution/check guidance, and Makefile or CI targets so any shipped user-facing feature must update the canonical feature catalog and applicable public docs, integration llms, llms.txt index, llms-full.txt, CLI/tool help, and tests; instructions distinguish when no catalog entry is warranted and enforce generation/drift checks. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Update repository agent/contribution guidance, generated prompt/template sources, and maintenance targets so shipped user-facing changes update the canonical feature catalog, GitHub matrix, parity crosswalk when applicable, public docs, integration llms, llms indexes, CLI/tool help, and tests. One repository-owned docs-check command enforces generation, matrix/parity, navigation/orphan, links, and Astro build identically in PR CI and Pages deployment; guidance defines valid no-catalog cases. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
