@@ -223,7 +223,8 @@ type accept_result =
     }
   | Not_accepted of decision
 
-let try_accept ~db ~destination ~envelope ?(now = Unix.gettimeofday ()) () =
+let try_accept ~db ~destination ~envelope ?(now = Unix.gettimeofday ())
+    ?item_key () =
   ensure_schema db;
   let decision = resolve ~db ~destination ~envelope () in
   match decision with
@@ -231,7 +232,11 @@ let try_accept ~db ~destination ~envelope ?(now = Unix.gettimeofday ()) () =
   | Matched { route; _ } as matched -> (
       let dest_key = Github_route_store.destination_key destination in
       let delivery_id = delivery_key envelope in
-      let item_key = canonical_item_key envelope in
+      let item_key =
+        match item_key with
+        | Some k when String.trim k <> "" -> String.trim k
+        | _ -> canonical_item_key envelope
+      in
       let accepted_at = Time_util.iso8601_utc ~t:now () in
       let sql =
         {|INSERT INTO github_route_accepts
