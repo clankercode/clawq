@@ -60,11 +60,13 @@ tasks:
       depends_on:
         - P22.M3.E1.T003
         - P22.M3.E1.T004
-      estimate_hours: 5
+        - P22.M3.E1.T007
+      estimate_hours: 6
       file: T005-verify-shared-material-visibil.todo
       id: T005
       priority: critical
       status: pending
+      tags: []
       title: Verify shared material visibility generation and Connector fallbacks
     - complexity: high
       depends_on:
