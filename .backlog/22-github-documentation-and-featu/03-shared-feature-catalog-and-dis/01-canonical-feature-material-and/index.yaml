@@ -26,11 +26,14 @@ tasks:
     - complexity: high
       depends_on:
         - P22.M3.E1.T001
+        - P22.M2.E1.T003
+        - P22.M1.E1.T007
       estimate_hours: 6
       file: T002-populate-github-and-historical.todo
       id: T002
       priority: high
       status: pending
+      tags: []
       title: Populate GitHub and historical Claude Tag-parity batches
     - complexity: high
       depends_on:
