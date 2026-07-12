@@ -19,7 +19,8 @@ tasks:
       id: T001
       priority: high
       status: pending
-      title: Build a code- and backlog-backed GitHub docs coverage matrix
+      tags: []
+      title: Define canonical machine-readable GitHub coverage matrix
     - complexity: high
       depends_on:
         - P22.M1.E1.T001
