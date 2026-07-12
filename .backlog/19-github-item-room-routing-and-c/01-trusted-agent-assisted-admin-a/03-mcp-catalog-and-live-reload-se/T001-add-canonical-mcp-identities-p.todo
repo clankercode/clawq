@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-12T22:30:03Z"
+claimed_by: grok-bl-fix-many
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:33:46Z"
@@ -7,10 +9,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M1.E3.T001
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-12T22:30:03Z"
+status: in_progress
 tags: []
 title: Add canonical MCP identities pagination list_changed and metadata limits
-updated_at: "2026-07-12T12:33:46Z"
+updated_at: "2026-07-12T22:30:03Z"
 ---
 Acceptance: MCP tools use collision-safe server plus remote-name identity and an explicit server/tool revision. tools/list pagination is drained and list_changed immediately quarantines only the affected server/revision for new turns before relisting. Failed, malformed, or timed-out relists leave that server unavailable pending successful retry or explicit repair; removed tools never remain discoverable. Names, descriptions, annotations, and schemas have documented size, depth, and control-character validation, and hostile or colliding definitions fail closed. Tests cover removal, malformed pages, timeout, duplicate notifications, and a concurrent invocation racing quarantine. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
