@@ -167,6 +167,7 @@
   access_snapshot
   access_explanation
   setup_plan
+  setup_plan_apply
   credential_lease
   skills
   skills_cmd_inject
