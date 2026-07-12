@@ -21,7 +21,7 @@ epics:
       locked: false
       name: Normalized GitHub Items and Route Resolution
       path: 02-normalized-github-items-and-ro
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M1.E3

@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 5
     total: 5
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -60,6 +60,6 @@ tasks:
       file: T005-migrate-per-pr-subscriptions-i.todo
       id: T005
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Migrate per-PR subscriptions into Item routes with CLI aliases
