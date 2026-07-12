@@ -102,13 +102,13 @@ tasks:
       title: Fail closed for web CLI and direct-session Principal bootstrap
     - complexity: high
       depends_on:
-        - P21.M1.E1.T003
-        - P19.M1.E1.T002
+        - P21.M1.E1.T004
       estimate_hours: 4
       file: T010-execute-private-two-sided-cros.todo
       id: T010
       priority: critical
       status: pending
+      tags: []
       title: Execute private two-sided cross-Connector link proof transaction
     - complexity: high
       depends_on:

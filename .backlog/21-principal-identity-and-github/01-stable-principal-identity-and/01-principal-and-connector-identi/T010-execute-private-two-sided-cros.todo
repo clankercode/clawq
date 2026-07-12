@@ -1,18 +1,16 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T17:00:23Z"
 depends_on:
-    - P21.M1.E1.T003
-    - P19.M1.E1.T002
+    - P21.M1.E1.T004
 estimate_hours: 4
 id: P21.M1.E1.T010
 priority: critical
+started_at: null
 status: pending
-tags:
-    - identity
-    - setup
-    - security
+tags: []
 title: Execute private two-sided cross-Connector link proof transaction
 updated_at: "2026-07-12T17:00:23Z"
 ---
-Acceptance: Self-link uses an expiring one-time private two-sided proof bound to both verified Connector actors, current link revisions, and initiating Principal; display/email matching is forbidden. Replay, expiry, actor change, ambiguity, cancellation, and concurrent attempts fail without changing ownership and emit redacted audit. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Execute the versioned private link protocol as an expiring one-time two-sided proof bound to both adapter-verified actors, current link revisions, and initiating Principal. Replay, expiry, actor change, ambiguity, cancellation, and concurrent attempts fail without changing ownership and emit one redacted audit result. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
