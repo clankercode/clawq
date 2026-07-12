@@ -381,8 +381,24 @@ ideas:
       id: I057
     - file: I058-add-a-tui-that-can-remotely-co.todo
       id: I058
-    - file: I059-github-user-authentication-act.todo
+    - complexity: high
+      depends_on:
+        - P19.M1.E1.T002
+        - P19.M2.E1.T003
+        - P19.M4.E1.T002
+      estimate_hours: 40
+      file: I059-github-user-authentication-act.todo
       id: I059
+      priority: high
+      status: pending
+      tags:
+        - github
+        - github-app
+        - user-access-token
+        - oauth
+        - identity
+        - security
+      title: GitHub App user access tokens for attributed GitHub actions
     - file: I060-microsoft-teams-secret-bearing.todo
       id: I060
     - file: I061-slack-secret-bearing-admin-onb.todo

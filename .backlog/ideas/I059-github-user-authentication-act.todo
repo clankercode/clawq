@@ -1,61 +1,213 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:27:20Z"
-depends_on: []
-estimate_hours: 10
+depends_on:
+    - P19.M1.E1.T002
+    - P19.M2.E1.T003
+    - P19.M4.E1.T002
+estimate_hours: 40
 id: I059
 priority: high
+started_at: null
 status: pending
 tags:
     - github
-    - auth
-    - identity
+    - github-app
+    - user-access-token
     - oauth
-title: GitHub user authentication (act-as-user) for GitHub write actions
+    - identity
+    - security
+title: GitHub App user access tokens for attributed GitHub actions
 updated_at: "2026-07-12T12:27:20Z"
 ---
 ## Capability
 
-Authenticate individual users via GitHub (user-level OAuth / device flow) so Clawq can
-act **as that user** on GitHub — not just as the GitHub App or a shared PAT. Actions
-attributed to the real person, gated by that person's own GitHub permissions.
+Authorize an individual Clawq principal with the same GitHub App used by P19 so
+Clawq can perform explicitly requested GitHub actions as that GitHub user. The
+result must preserve the real GitHub actor, be limited by both the user and App,
+and never let one participant in a shared Room inherit another participants
+credential.
 
-This is the identity/authorization foundation that the GitHub collaboration features
-(P19/P20) build on: commenting, requesting/submitting PR reviews, merging PRs,
-closing/reopening PRs & issues, creating issues, editing metadata, etc.
+This is an additive attribution and least-privilege enhancement for P19/P20. P19
+may still operate through the App identity where policy permits; I059 is not a
+hidden prerequisite for basic routing or bot-attributed actions.
 
-## Why user identity (not just App/PAT)
+## Locked architecture decisions
 
-- App-installation tokens and shared PATs act as a bot/service, not the person. Merges,
-  reviews, and comments should be attributable and authorized to the actual user.
-- Per-user OAuth means every write is bounded by that user's real GitHub permissions
-  (branch protection, CODEOWNERS, repo/org roles) — least privilege by construction.
-- Enables per-user consent and per-user audit of privileged actions.
+### Use GitHub App user access tokens
 
-## Scope
+Use GitHub App user-to-server access tokens, not a separate OAuth App and not a
+shared PAT.
 
-- **Auth flow:** GitHub OAuth (Authorization Code, and Device Flow for headless/CLI/chat
-  contexts). Resumable, confirmable link/callback exchange initiated from a Room/session.
-- **Token lifecycle:** securely store per-user access + refresh tokens, refresh on expiry,
-  revoke/unlink, handle scope upgrades. Redacted in all logs/audit.
-- **Identity mapping:** bind a Clawq user/session/channel identity <-> GitHub user login,
-  across connectors (Telegram/Discord/Slack/Teams/web). Handle multiple accounts and
-  unmapped users gracefully.
-- **Authorization use:** issue user-scoped GitHub API calls for write actions; distinguish
-  read (App token OK) from write-as-user (requires user token + fresh consent for
-  high-risk actions like merge).
-- **Fallback/compat:** preserve existing App-installation and PAT paths; user token is
-  additive, chosen per action based on attribution/permission needs.
+- Browser-capable Room/web flows use the GitHub App web authorization flow.
+- CLI, headless, or inaccessible-callback contexts may use GitHub Apps device
+  flow when device flow is enabled for the App.
+- Every flow is a resumable, expiring transaction bound to the initiating Clawq
+  principal, Connector/tenant identity, source Room or Session, one-time state,
+  and intended GitHub account.
+- OAuth authorization proves GitHub identity and grants a token; it does not
+  satisfy Clawq confirmation for a high-risk action.
 
-## Open questions
+GitHub App user tokens do not use traditional OAuth scopes: the returned scope is
+empty and effective authority is the intersection of the users GitHub
+permissions, the Apps approved permissions, the installation repository
+selection, organization policy, and SSO state. Permission upgrades therefore
+follow GitHub App permission/install approval and reauthorization, not arbitrary
+runtime scope escalation.
 
-- Scopes requested (repo, read:org, workflow, etc.) — minimal set vs. one-time broad grant.
-- Where consent lives per action risk tier (merge/close vs. comment).
-- Encryption-at-rest strategy for user tokens (reuse existing secret storage?).
-- Interaction with GitHub App installation permissions (user token still bounded by App
-  install scope on that repo).
+### Stable principal and account binding
 
-## Enables (downstream, tracked separately)
+Persist a first-class binding:
 
-Commenting, review requests + review submission, PR merge (fresh-confirmed), close/reopen
-PRs & issues, create issues, metadata mutations — see P19 M4 collaboration work.
+- stable Clawq principal ID;
+- Connector plus tenant/workspace plus immutable Connector user ID provenance;
+- GitHub numeric user ID as the canonical identity, with login/avatar as mutable
+  display metadata;
+- GitHub App ID, authorization status, timestamps, and encrypted credential
+  reference;
+- optional user-selected default when the principal has multiple GitHub accounts.
+
+Bindings belong to a principal, never a Room Session. Each action resolves the
+current message actor and exact binding. Shared-Room history, card actions,
+background completion, retries, and another participant must never reuse the
+initiators token accidentally. Account ambiguity requires explicit selection.
+
+Changing Connector display names or GitHub logins does not change identity.
+Linking the same GitHub account to a second Clawq principal is rejected by
+default and requires an audited admin policy exception.
+
+### Mutable encrypted token vault
+
+Extend the credential boundary with a mutable, encrypted, per-principal GitHub
+user-token record containing access token, refresh token when issued, access and
+refresh expiry, App/client identity, GitHub numeric user ID, token generation,
+and last refresh/revocation status.
+
+- Only an opaque handle/reference enters access snapshots, receipts, jobs, or
+  audit records.
+- Raw tokens never enter config JSON, prompts, Session history, Connector
+  messages, logs, ordinary SQLite columns, tool arguments/results, worktrees, or
+  runner environments.
+- Refresh uses single-flight rotation with compare-and-swap generation so
+  concurrent actions cannot overwrite a newly rotated refresh token.
+- Expiring user tokens are required when the App supports them. Treat the normal
+  eight-hour access and six-month refresh lifetimes as server-returned values,
+  not hardcoded invariants.
+- Expired/revoked refresh, revoked App authorization, account mismatch, encryption
+  failure, and malformed responses fail closed and require relink/repair.
+- Unlink revokes remotely when possible, immediately disables the local binding,
+  destroys local secrets, invalidates leases/jobs, and records a redacted audit
+  receipt.
+
+The existing config-backed credential_handle/lease path should be reused for
+authorization semantics, but it needs a provider capable of atomic mutable
+encrypted records rather than storing rotating tokens in static config.
+
+### Per-action auth selection
+
+Add an explicit GitHub attribution requirement to each operation:
+
+- App: service/bot attribution is required or explicitly chosen.
+- User_required: refuse unless the current actor has a valid authorized binding.
+- User_preferred: use the current actors token when valid; App fallback is allowed
+  only when the action policy explicitly permits it and the preview names the
+  resulting actor.
+
+Reads remain App-first unless user context is necessary. User-attributed writes
+must never silently fall back to App/PAT. Immediately before dispatch, intersect:
+
+1. current Room/Session tool and repository capability;
+2. current Clawq actor and action confirmation;
+3. current GitHub user binding and token generation;
+4. current App installation/repository selection and permissions;
+5. current GitHub user/organization/SSO authorization; and
+6. action-specific live state such as head SHA or branch protection.
+
+An OAuth authorization is not transferable to ambient automation. Background
+work may retain only an actor/binding reference and confirmation receipt; it
+leases the token at the GitHub API boundary and does not expose it to external
+runners. Any future authenticated Git transport requires a separate narrow
+credential-broker design.
+
+## User and admin experience
+
+- Link, status, list accounts, choose default, relink, and unlink are available
+  from the agent and CLI.
+- Linking started in a Room returns to that initiating principal without posting
+  secrets or reusable codes to the Room.
+- Status shows GitHub login/ID, App, authorization health, SSO/permission repair
+  hints, expiry class, and last successful validation, never tokens.
+- Before a user-attributed mutation, preview shows repository/item, operation,
+  selected GitHub account, expected GitHub actor, attribution mode, and whether
+  separate action confirmation is required.
+- SAML-protected organization failures explain that the user may need an active
+  SSO session followed by reauthorization.
+- Removing a user from a Connector/tenant, revoking their Clawq principal, or
+  unlinking GitHub makes new leases fail immediately.
+
+## Feasibility and current Clawq seams
+
+Reusable foundations already exist:
+
+- P19 typed plan-confirm-apply and callback setup transactions;
+- P19 live GitHub App installation/repository scope;
+- P19 Room-scoped tools, action policy, receipts, and high-risk confirmation;
+- credential handles, access snapshots, encrypted secret resolution, and
+  credential leases; and
+- Github_api.resolve_github_auth_headers as the existing centralized API auth
+  seam.
+
+Missing foundations owned by this Idea are the stable cross-Connector principal
+binding, mutable encrypted rotating-token provider, GitHub user authorization
+transactions, and per-action attribution-aware auth resolution.
+
+## Candidate decomposition when promoted
+
+1. GitHub user authorization transaction and web/device adapters.
+2. Principal-to-GitHub-account binding schema and link/status/unlink surfaces.
+3. Atomic encrypted rotating token provider and revocation lifecycle.
+4. Attribution-aware GitHub auth resolver and P19 action integration.
+5. Shared-Room isolation, SSO/permission repair, audit, migration, and live pilot.
+
+Prefer a dedicated milestone or cohesive epic after P19 foundations rather than
+scattering token work through P19 action tasks.
+
+## Acceptance contract
+
+- Web and enabled device flows bind only the initiating principal and survive
+  restart without replay or cross-Room completion.
+- The returned GitHub numeric identity is verified through GitHub before binding.
+- Two users in one Room can invoke the same action and GitHub attributes each to
+  the correct user; an unlinked third user cannot borrow either credential.
+- Effective access is constrained by Clawq policy plus user, App, installation,
+  repository, organization, and SSO authorization.
+- Access/refresh rotation is atomic under concurrency and refresh-token replay
+  cannot roll state backward.
+- Revocation, unlink, expiry, App permission changes, repository removal, SSO
+  failure, and Connector identity changes fail closed with actionable repair.
+- App, User_required, and User_preferred selection is deterministic and recorded
+  in redacted previews, receipts, and audit.
+- No raw token appears in config serialization, logs, prompts, Session history,
+  Connector output, tool payloads, jobs, worktrees, runner environments, or audit
+  export.
+- Existing App-installation and PAT behavior remains compatible and no write-as-
+  user action silently falls back to either.
+- Live verification links two test principals, performs separately attributed
+  writes, rotates a token, tests denial/revocation, and cleans up bindings and
+  GitHub artifacts with a redacted receipt.
+
+## Out of scope
+
+- Using GitHub authorization as Clawqs general login/session authentication.
+- A generic OAuth broker for non-GitHub services.
+- Impersonation without a user-granted GitHub App token.
+- Passing GitHub user tokens into coding-agent runners or arbitrary shell tools.
+- Automatically approving new GitHub App permissions or organization access.
+
+## Official references
+
+- https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app
+- https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens
+- https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app
+- https://docs.github.com/en/enterprise-cloud@latest/apps/using-github-apps/saml-and-github-apps
