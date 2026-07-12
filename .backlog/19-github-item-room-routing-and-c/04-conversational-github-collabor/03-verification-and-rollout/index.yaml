@@ -16,7 +16,7 @@ tasks:
     - complexity: high
       depends_on:
         - P19.M4.E2.T004
-      estimate_hours: 5
+      estimate_hours: 6
       file: T001-add-cross-connector-policy-mig.todo
       id: T001
       priority: high
