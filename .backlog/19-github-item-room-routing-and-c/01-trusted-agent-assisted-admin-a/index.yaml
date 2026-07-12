@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Reusable Plan-Confirm-Apply Administration
       path: 01-reusable-plan-confirm-apply-ad
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M1.E1

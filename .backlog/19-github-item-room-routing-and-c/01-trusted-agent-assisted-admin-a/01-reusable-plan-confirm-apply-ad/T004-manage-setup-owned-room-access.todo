@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-12T21:55:17Z"
 claimed_by: grok-bl-fix-many
-completed_at: null
+completed_at: "2026-07-12T21:56:51Z"
 complexity: medium
 created_at: "2026-07-12T12:33:44Z"
 depends_on:
     - P19.M1.E1.T002
     - P19.M1.E1.T003
+duration_minutes: 1.5719252622166666
 estimate_hours: 3
 id: P19.M1.E1.T004
 priority: high
 started_at: "2026-07-12T21:55:17Z"
-status: in_progress
+status: done
 tags: []
 title: Manage setup-owned Room access-bundle attachment and detachment
-updated_at: "2026-07-12T21:55:17Z"
+updated_at: "2026-07-12T21:56:51Z"
 ---
 Acceptance: Confirmed setup atomically attaches or reuses a provenance-tracked managed bundle. Removing the last managed feature detaches only setup-owned linkage and preserves manual grants and unrelated bundles; reruns are idempotent and inspectable. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
