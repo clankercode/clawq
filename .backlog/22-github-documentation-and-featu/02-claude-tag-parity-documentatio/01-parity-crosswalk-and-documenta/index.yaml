@@ -15,12 +15,14 @@ tasks:
     - complexity: high
       depends_on:
         - P22.M1.E1.T003
+        - P22.M2.E1.T004
       estimate_hours: 6
       file: T001-refresh-the-ft-01-through-ft-4.todo
       id: T001
       priority: high
       status: pending
-      title: Refresh the FT-01 through FT-46 and P11 through P18 evidence crosswalk
+      tags: []
+      title: Populate the machine-readable FT parity evidence crosswalk
     - complexity: high
       depends_on:
         - P22.M2.E1.T001

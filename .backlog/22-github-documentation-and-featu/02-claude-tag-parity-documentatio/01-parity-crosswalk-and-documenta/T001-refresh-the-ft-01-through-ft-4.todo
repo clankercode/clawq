@@ -1,17 +1,17 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:53:35Z"
 depends_on:
     - P22.M1.E1.T003
+    - P22.M2.E1.T004
 estimate_hours: 6
 id: P22.M2.E1.T001
 priority: high
+started_at: null
 status: pending
-tags:
-    - docs
-    - claude-tag
-    - audit
-title: Refresh the FT-01 through FT-46 and P11 through P18 evidence crosswalk
+tags: []
+title: Populate the machine-readable FT parity evidence crosswalk
 updated_at: "2026-07-12T14:53:35Z"
 ---
-Acceptance: Re-evaluate every parity capability against current code, tests, backlog completion, public docs, and machine references; mark equivalent, Clawq-different-but-equivalent, partial, excluded, or missing with observable evidence and include completed GitHub/Teams/access/memory/governance work. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Check in a versioned machine-readable FT-01 through FT-46 and P11-P18 crosswalk keyed to the hashed source manifest. Each entry declares equivalent, Clawq-different-but-equivalent, partial, excluded, or missing; links current code/test/completed-task/public/machine-doc evidence; names owner/follow-up for partials; and includes GitHub/Teams/access/memory/governance work without overclaiming. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
