@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:33:46Z"
 depends_on:
@@ -8,11 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P19.M1.E3.T003
 priority: critical
+started_at: null
 status: pending
-tags:
-    - github-routing
-    - room-agent
+tags: []
 title: Publish transactional registry and MCP reloads and refresh active Rooms
 updated_at: "2026-07-12T12:33:46Z"
 ---
-Acceptance: Build and validate replacement registry/client state before atomic publish; failure retains the old state. Added, changed, and removed MCP servers refresh active Rooms for their next turn while existing turns retain frozen catalogs, and removed clients are disconnected. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
+Acceptance: Build and validate local configuration replacement registry/client state before atomic publish; local replacement failure retains the previously validated old state. Remote list_changed follows the fail-closed quarantine contract from T001: the server remains unavailable to new turns until a successful relist or repair, then added, changed, and removed definitions publish atomically and refresh active Rooms for their next turn. Existing turns retain frozen catalogs, but final invocation revalidates current server/tool revision and refuses quarantined, removed, or replaced revisions; retired clients disconnect only after safe handoff. Tests cover removal, malformed and timed-out relists, local replacement rollback, recovery, and concurrent invocations. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

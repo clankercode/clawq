@@ -37,6 +37,7 @@ tasks:
       id: T003
       priority: critical
       status: pending
+      tags: []
       title: Publish transactional registry and MCP reloads and refresh active Rooms
     - complexity: medium
       depends_on:
