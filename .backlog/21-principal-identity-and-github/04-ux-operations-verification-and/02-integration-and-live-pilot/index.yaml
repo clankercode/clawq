@@ -63,9 +63,10 @@ tasks:
     - complexity: medium
       depends_on:
         - P21.M4.E2.T003
-      estimate_hours: 2
+      estimate_hours: 3
       file: T004-publish-redacted-receipt-backo.todo
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Publish redacted receipt backout cleanup and limitations

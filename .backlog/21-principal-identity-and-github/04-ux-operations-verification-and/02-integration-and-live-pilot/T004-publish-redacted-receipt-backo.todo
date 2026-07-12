@@ -1,17 +1,16 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-07-12T14:52:52Z"
 depends_on:
     - P21.M4.E2.T003
-estimate_hours: 2
+estimate_hours: 3
 id: P21.M4.E2.T004
 priority: high
+started_at: null
 status: pending
-tags:
-    - github
-    - docs
-    - pilot
+tags: []
 title: Publish redacted receipt backout cleanup and limitations
 updated_at: "2026-07-12T14:52:52Z"
 ---
-Acceptance: Save a credential-free receipt linking setup, bindings, action receipts, GitHub native attribution, rotation/revocation, denials, cleanup of GitHub artifacts and local secrets, backout steps, and deliberate GitHub.com/API-only limitations. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Publish a redacted receipt covering verified actors, link/adoption state, web/device authorization, vault key version/rotation, each actor mode/action family, delayed lineage, denial, restart, webhook correlation, commands, and limitations including whole-store rollback. Back out the attribution gate, revoke/destroy pilot credentials and bindings, clean artifacts, prove no residual authority, and record any deliberate limitation. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
