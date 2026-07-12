@@ -62,6 +62,7 @@ tasks:
       id: T005
       priority: high
       status: pending
+      tags: []
       title: Populate the canonical GitHub coverage matrix from shipped evidence
     - complexity: high
       depends_on:
