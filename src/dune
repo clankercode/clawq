@@ -169,6 +169,7 @@
   access_explanation
   tool_catalog
   tool_discovery
+  tool_discovery_adapters
   setup_plan
   setup_plan_apply
   setup_plan_consent

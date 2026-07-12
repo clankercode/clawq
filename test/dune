@@ -144,6 +144,7 @@
   test_tool_authz
   test_tool_catalog
   test_tool_discovery
+  test_tool_discovery_adapters
   test_service
   test_session
   test_session_observer

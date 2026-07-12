@@ -110,6 +110,7 @@ let () =
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);
+       ("tool_discovery_adapters", Test_tool_discovery_adapters.suite);
        ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("provider_openai_codex", Test_provider_openai_codex.suite);
        ("tools_security", Test_tools_security.suite);
