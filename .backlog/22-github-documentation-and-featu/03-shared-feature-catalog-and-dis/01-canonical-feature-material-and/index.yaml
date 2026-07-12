@@ -16,12 +16,13 @@ tasks:
       depends_on:
         - P22.M1.E1.T004
         - P22.M2.E1.T002
-      estimate_hours: 8
+      estimate_hours: 7
       file: T001-define-canonical-feature-schem.todo
       id: T001
       priority: high
       status: pending
-      title: Define canonical feature schema generation and checks
+      tags: []
+      title: Define versioned feature catalog lifecycle schema and generation
     - complexity: high
       depends_on:
         - P22.M3.E1.T001
