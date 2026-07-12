@@ -40,7 +40,7 @@ tasks:
       file: T003-implement-item-repo-org-no-fal.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Implement Item Repo Org no-fallthrough matching
     - complexity: medium
