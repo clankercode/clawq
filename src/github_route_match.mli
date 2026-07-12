@@ -86,7 +86,9 @@ val try_accept :
   destination:Github_route_store.destination ->
   envelope:Github_event_envelope.t ->
   ?now:float ->
+  ?item_key:string ->
   unit ->
   accept_result
 (** [resolve] then, on [Matched], insert durable unique (destination,
-    delivery_id, canonical_item). Duplicates yield [Duplicate]. *)
+    delivery_id, item key). [item_key] overrides [canonical_item_key] when set
+    (used for transfer-stable identity). Duplicates yield [Duplicate]. *)
