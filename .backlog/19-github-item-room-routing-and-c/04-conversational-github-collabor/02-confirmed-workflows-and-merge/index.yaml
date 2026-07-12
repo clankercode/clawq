@@ -26,6 +26,7 @@ tasks:
       id: T002
       priority: high
       status: pending
+      tags: []
       title: Bring Claude-tag-equivalent background work into Room threads
     - complexity: high
       depends_on:
