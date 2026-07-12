@@ -170,6 +170,7 @@
   tool_catalog
   tool_discovery
   tool_discovery_adapters
+  mcp_catalog
   setup_plan
   setup_plan_apply
   setup_plan_consent
