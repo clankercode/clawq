@@ -385,7 +385,7 @@ ideas:
       depends_on:
         - P19.M1.E1.T002
         - P19.M2.E1.T003
-        - P19.M4.E1.T002
+        - P19.M4.E2.T004
       estimate_hours: 40
       file: I059-github-user-authentication-act.todo
       id: I059
