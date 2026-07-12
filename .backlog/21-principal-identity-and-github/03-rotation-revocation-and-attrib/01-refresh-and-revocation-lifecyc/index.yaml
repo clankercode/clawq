@@ -47,10 +47,11 @@ tasks:
       depends_on:
         - P21.M3.E1.T002
         - P21.M3.E1.T003
-        - P21.M1.E1.T004
+        - P21.M1.E1.T012
       estimate_hours: 4
       file: T004-implement-unlink-and-principal.todo
       id: T004
       priority: critical
       status: pending
+      tags: []
       title: Implement unlink and Principal or Connector removal invalidation
