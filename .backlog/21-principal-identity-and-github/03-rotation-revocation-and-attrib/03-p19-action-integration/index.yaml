@@ -56,11 +56,13 @@ tasks:
     - complexity: high
       depends_on:
         - P21.M3.E3.T003
-      estimate_hours: 3
+        - P21.M3.E3.T008
+      estimate_hours: 4
       file: T004-keep-personal-tokens-out-of-au.todo
       id: T004
       priority: critical
       status: pending
+      tags: []
       title: Keep personal tokens out of automation runners shell and Git transport
     - complexity: high
       depends_on:
