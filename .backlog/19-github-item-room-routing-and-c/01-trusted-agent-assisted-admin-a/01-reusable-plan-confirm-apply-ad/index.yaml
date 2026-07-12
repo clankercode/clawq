@@ -38,7 +38,8 @@ tasks:
       file: T003-enforce-current-room-and-cross.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Enforce current-Room and cross-Room admin consent rules
     - complexity: medium
       depends_on:
