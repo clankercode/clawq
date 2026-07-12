@@ -387,3 +387,5 @@ ideas:
       id: I060
     - file: I061-slack-secret-bearing-admin-onb.todo
       id: I061
+    - file: I062-secret-bearing-connector-onboa.todo
+      id: I062
