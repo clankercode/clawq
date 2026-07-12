@@ -62,6 +62,7 @@
   test_github_app_webhook_ingress
   test_github_event_envelope
   test_github_route_store
+  test_github_route_match
   test_github_auth_selection
   test_github_pr_subscriptions
   test_github_pr_dispatch

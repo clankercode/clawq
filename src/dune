@@ -182,6 +182,7 @@
   github_app_installation_scope
   github_event_envelope
   github_route_store
+  github_route_match
   github_auth_selection
   credential_lease
   skills

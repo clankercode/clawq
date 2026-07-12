@@ -114,6 +114,7 @@ let () =
        ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);
        ("github_event_envelope", Test_github_event_envelope.suite);
        ("github_route_store", Test_github_route_store.suite);
+       ("github_route_match", Test_github_route_match.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
