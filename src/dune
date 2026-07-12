@@ -179,6 +179,7 @@
   setup_plan_bundle
   github_app_setup_tx
   github_app_setup_callback
+  github_app_setup_resume
   github_app_installation_scope
   github_event_envelope
   github_route_store

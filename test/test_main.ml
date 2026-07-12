@@ -109,6 +109,7 @@ let () =
        ("setup_plan_bundle", Test_setup_plan_bundle.suite);
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
+       ("github_app_setup_resume", Test_github_app_setup_resume.suite);
        ( "github_app_installation_scope",
          Test_github_app_installation_scope.suite );
        ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);
@@ -116,7 +117,6 @@ let () =
        ("github_route_store", Test_github_route_store.suite);
        ("github_route_match", Test_github_route_match.suite);
        ("github_route_transfer", Test_github_route_transfer.suite);
-||||||| parent of 77f2e885 (feat(github): migrate per-PR subscriptions to Item routes)
        ("github_route_migrate", Test_github_route_migrate.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
