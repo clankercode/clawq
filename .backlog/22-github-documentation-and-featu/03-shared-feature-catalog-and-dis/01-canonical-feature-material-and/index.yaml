@@ -43,6 +43,7 @@ tasks:
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Add concise Connector-neutral new-features slash command
     - complexity: high
       depends_on:

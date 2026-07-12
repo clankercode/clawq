@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:53:36Z"
 depends_on:
@@ -6,12 +7,10 @@ depends_on:
 estimate_hours: 5
 id: P22.M3.E1.T003
 priority: high
+started_at: null
 status: pending
-tags:
-    - slash-command
-    - feature-catalog
-    - connectors
+tags: []
 title: Add concise Connector-neutral new-features slash command
 updated_at: "2026-07-12T14:53:36Z"
 ---
-Acceptance: /new-features shows latest available entries as title, one-sentence value, and first setup/docs action; list and batch/page selectors are bounded and deterministic; Teams mention stripping, rich/plain pagination, Slack/Discord/Telegram/web/generic rendering, unknown usage, minimal builds, and non-admin ask-an-admin guidance are tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: /new-features renders only entries visible to the verified current public/user/admin/operator audience as title, one-sentence value, and safe first action. Latest/list/batch/page ordering is bounded and deterministic; mention stripping, rich/plain Connector pagination, unknown usage, minimal builds, removed/deprecated entries, and non-admin ask-an-admin guidance are tested without disclosure. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
