@@ -53,4 +53,5 @@ tasks:
       id: T005
       priority: high
       status: pending
+      tags: []
       title: Migrate per-PR subscriptions into Item routes with CLI aliases
