@@ -38,7 +38,7 @@ tasks:
     - complexity: medium
       depends_on:
         - P19.M4.E3.T002
-      estimate_hours: 3
+      estimate_hours: 4
       file: T003-publish-the-redacted-pilot-rec.todo
       id: T003
       priority: high
