@@ -20,11 +20,14 @@ tasks:
     - complexity: high
       depends_on:
         - P19.M4.E3.T001
+        - P19.M2.E3.T003
+        - P19.M2.E3.T004
       estimate_hours: 6
       file: T002-run-the-live-github-app-to-cla.todo
       id: T002
       priority: critical
       status: pending
+      tags: []
       title: Run the live GitHub App to Clawq to Teams pilot
     - complexity: medium
       depends_on:
