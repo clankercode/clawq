@@ -42,12 +42,16 @@ tasks:
       depends_on:
         - P19.M4.E2.T002
         - P21.M1.E3.T002
+        - P21.M1.E3.T005
         - P21.M3.E2.T005
+        - P21.M3.E2.T006
+        - P21.M3.E2.T007
       estimate_hours: 6
       file: T003-preserve-pinned-attribution-th.todo
       id: T003
       priority: critical
       status: pending
+      tags: []
       title: Preserve pinned attribution through delayed and background work
     - complexity: high
       depends_on:
