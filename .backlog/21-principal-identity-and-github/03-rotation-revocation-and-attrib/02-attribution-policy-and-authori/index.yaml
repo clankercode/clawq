@@ -54,6 +54,7 @@ tasks:
       id: T004
       priority: critical
       status: pending
+      tags: []
       title: Enforce visible App fallback and fail-closed user-required behavior
     - complexity: high
       depends_on:
