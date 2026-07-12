@@ -595,9 +595,30 @@ let mark_consumed ~db ~id ~principal_id ?(now = Unix.gettimeofday ()) () =
         ignore (set_status ~db ~id:tx.id ~status:Expired ~now ());
         Error "setup transaction expired")
       else
-        match set_status ~db ~id:tx.id ~status:Consumed ~now () with
-        | Error e -> Error e
-        | Ok () -> Ok { tx with status = Consumed })
+        (* Atomic consume: only one concurrent caller wins (status still open). *)
+        let updated_at = Time_util.iso8601_utc ~t:now () in
+        let sql =
+          {|UPDATE github_app_setup_tx
+            SET status = 'consumed', updated_at = ?
+            WHERE id = ? AND status = 'open' AND principal_id = ?|}
+        in
+        let stmt = Sqlite3.prepare db sql in
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT updated_at));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT id));
+        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT principal_id));
+        let rc = Sqlite3.step stmt in
+        ignore (Sqlite3.finalize stmt);
+        match rc with
+        | Sqlite3.Rc.DONE ->
+            if Sqlite3.changes db = 0 then
+              Error
+                "setup transaction already consumed or no longer open \
+                 (concurrent exchange)"
+            else Ok { tx with status = Consumed }
+        | rc ->
+            Error
+              (Printf.sprintf "github_app_setup_tx mark_consumed failed: %s"
+                 (Sqlite3.Rc.to_string rc)))
 
 let channel_render (tx : t) =
   (* Channel-safe: public metadata + exact browser URL only.

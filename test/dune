@@ -55,6 +55,7 @@
   test_github_app_token
   test_github_app_config
   test_github_app_setup_tx
+  test_github_app_setup_callback
   test_github_pr_subscriptions
   test_github_pr_dispatch
   test_github_pr_policy

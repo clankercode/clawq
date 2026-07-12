@@ -178,6 +178,7 @@
   setup_plan_consent
   setup_plan_bundle
   github_app_setup_tx
+  github_app_setup_callback
   credential_lease
   skills
   skills_cmd_inject
