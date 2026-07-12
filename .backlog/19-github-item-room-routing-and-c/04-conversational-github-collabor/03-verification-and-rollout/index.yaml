@@ -37,4 +37,5 @@ tasks:
       id: T003
       priority: high
       status: pending
+      tags: []
       title: Publish the redacted pilot receipt rollout backout guide and cleanup result
