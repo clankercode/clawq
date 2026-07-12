@@ -53,7 +53,8 @@ tasks:
       id: T004
       priority: high
       status: pending
-      title: Add private cross-Connector linking unlinking and revocation
+      tags: []
+      title: Define private cross-Connector linking and admin repair protocol
     - complexity: high
       depends_on:
         - P21.M1.E1.T002
