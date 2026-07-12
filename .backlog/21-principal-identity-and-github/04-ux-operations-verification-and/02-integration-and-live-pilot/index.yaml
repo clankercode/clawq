@@ -39,11 +39,13 @@ tasks:
       depends_on:
         - P21.M4.E2.T001
         - P21.M2.E4.T005
-      estimate_hours: 5
+        - P21.M3.E3.T004
+      estimate_hours: 7
       file: T002-run-token-leak-restart-concurr.todo
       id: T002
       priority: critical
       status: pending
+      tags: []
       title: Run token-leak restart concurrency and private-delivery verification
     - complexity: high
       depends_on:
