@@ -49,5 +49,6 @@ tasks:
       file: T004-manage-setup-owned-room-access.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Manage setup-owned Room access-bundle attachment and detachment
