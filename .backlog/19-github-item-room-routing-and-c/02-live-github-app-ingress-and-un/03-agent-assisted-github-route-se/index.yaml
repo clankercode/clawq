@@ -33,7 +33,8 @@ tasks:
       file: T002-add-agent-and-cli-route-plan-i.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add agent and CLI route plan inspect change disable and remove interfaces
     - complexity: high
       depends_on:
