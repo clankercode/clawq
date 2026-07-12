@@ -1,0 +1,22 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 10,
+    "node_id": "I_kwDO",
+    "title": "Bug report",
+    "state": "open",
+    "html_url": "https://github.com/acme/widgets/issues/10",
+    "labels": [{ "name": "bug" }],
+    "assignees": [],
+    "updated_at": "2026-07-12T18:00:00Z"
+  },
+  "comment": {
+    "id": 555,
+    "body": "I can reproduce this. Please do not store this body.",
+    "html_url": "https://github.com/acme/widgets/issues/10#issuecomment-555",
+    "user": { "login": "dave", "id": 4 },
+    "created_at": "2026-07-12T18:00:00Z"
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "dave", "id": 4, "type": "User" }
+}

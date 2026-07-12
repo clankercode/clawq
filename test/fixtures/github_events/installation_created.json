@@ -1,0 +1,9 @@
+{
+  "action": "created",
+  "installation": {
+    "id": 1001,
+    "app_id": 42,
+    "account": { "login": "acme", "id": 1, "type": "Organization" }
+  },
+  "sender": { "login": "alice", "id": 1 }
+}

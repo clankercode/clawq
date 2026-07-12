@@ -1,0 +1,19 @@
+{
+  "action": "edited",
+  "changes": {
+    "title": { "from": "Old title" }
+  },
+  "pull_request": {
+    "number": 42,
+    "title": "New title",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/42",
+    "body": "body should not appear in envelope",
+    "head": { "sha": "edit1", "ref": "feature-x" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "alice", "id": 1, "type": "User" }
+}

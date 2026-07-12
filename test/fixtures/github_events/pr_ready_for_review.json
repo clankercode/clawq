@@ -1,0 +1,16 @@
+{
+  "action": "ready_for_review",
+  "pull_request": {
+    "number": 7,
+    "title": "Experiment ready",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/7",
+    "updated_at": "2026-07-12T12:00:00Z",
+    "head": { "sha": "readyhash", "ref": "wip" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "carol", "id": 3, "type": "User" }
+}

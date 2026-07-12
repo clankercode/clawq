@@ -1,0 +1,20 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 7,
+    "node_id": "PR_draft",
+    "title": "WIP: experiment",
+    "state": "open",
+    "draft": true,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/7",
+    "url": "https://api.github.com/repos/acme/widgets/pulls/7",
+    "updated_at": "2026-07-12T11:00:00Z",
+    "labels": [],
+    "assignees": [],
+    "head": { "sha": "draftsha1", "ref": "wip" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "carol", "id": 3, "type": "User" }
+}

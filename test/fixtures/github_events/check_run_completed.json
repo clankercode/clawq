@@ -1,0 +1,15 @@
+{
+  "action": "completed",
+  "check_run": {
+    "id": 1,
+    "name": "unit-tests",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/acme/widgets/runs/1",
+    "head_sha": "cisha01",
+    "completed_at": "2026-07-12T20:00:00Z",
+    "pull_requests": [{ "number": 42 }]
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "github-actions[bot]", "id": 41898282, "type": "Bot" }
+}

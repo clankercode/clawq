@@ -1,0 +1,16 @@
+{
+  "action": "converted_to_draft",
+  "pull_request": {
+    "number": 7,
+    "title": "Back to draft",
+    "state": "open",
+    "draft": true,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/7",
+    "updated_at": "2026-07-12T12:30:00Z",
+    "head": { "sha": "draftagain", "ref": "wip" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "carol", "id": 3, "type": "User" }
+}

@@ -1,0 +1,18 @@
+{
+  "action": "labeled",
+  "label": { "name": "bug" },
+  "pull_request": {
+    "number": 42,
+    "title": "Add feature",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "html_url": "https://github.com/acme/widgets/pull/42",
+    "labels": [{ "name": "enhancement" }, { "name": "bug" }],
+    "assignees": [],
+    "head": { "sha": "lab1", "ref": "feature-x" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "bob", "id": 2, "type": "User" }
+}

@@ -1,0 +1,23 @@
+{
+  "action": "transferred",
+  "issue": {
+    "number": 10,
+    "title": "Bug report",
+    "state": "open",
+    "html_url": "https://github.com/acme/widgets/issues/10",
+    "updated_at": "2026-07-12T23:00:00Z"
+  },
+  "changes": {
+    "new_repository": {
+      "full_name": "acme/platform",
+      "name": "platform",
+      "owner": { "login": "acme" }
+    },
+    "new_issue": {
+      "number": 88,
+      "html_url": "https://github.com/acme/platform/issues/88"
+    }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "alice", "id": 1, "type": "User" }
+}

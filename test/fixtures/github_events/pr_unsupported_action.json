@@ -1,0 +1,11 @@
+{
+  "action": "completely_made_up",
+  "pull_request": {
+    "number": 42,
+    "title": "Add feature",
+    "state": "open",
+    "html_url": "https://github.com/acme/widgets/pull/42"
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "alice", "id": 1 }
+}

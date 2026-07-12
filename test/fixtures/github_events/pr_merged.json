@@ -1,0 +1,17 @@
+{
+  "action": "closed",
+  "pull_request": {
+    "number": 42,
+    "title": "Add feature",
+    "state": "closed",
+    "draft": false,
+    "merged": true,
+    "html_url": "https://github.com/acme/widgets/pull/42",
+    "updated_at": "2026-07-12T15:00:00Z",
+    "merged_at": "2026-07-12T15:00:00Z",
+    "head": { "sha": "merged1", "ref": "feature-x" },
+    "base": { "ref": "main" }
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "alice", "id": 1, "type": "User" }
+}

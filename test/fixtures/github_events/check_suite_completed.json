@@ -1,0 +1,14 @@
+{
+  "action": "completed",
+  "check_suite": {
+    "id": 2,
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/acme/widgets",
+    "head_sha": "cssha01",
+    "updated_at": "2026-07-12T21:30:00Z",
+    "pull_requests": [{ "number": 7 }]
+  },
+  "repository": { "full_name": "acme/widgets" },
+  "sender": { "login": "github-actions[bot]", "id": 41898282, "type": "Bot" }
+}
