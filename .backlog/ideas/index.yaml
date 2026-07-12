@@ -383,3 +383,5 @@ ideas:
       id: I058
     - file: I059-github-user-authentication-act.todo
       id: I059
+    - file: I060-microsoft-teams-secret-bearing.todo
+      id: I060
