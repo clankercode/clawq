@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:01:18Z"
+depends_on:
+    - P21.M2.E4.T001
+estimate_hours: 4
+id: P21.M2.E4.T006
+priority: critical
+status: pending
+tags:
+    - github
+    - encryption
+    - key-management
+title: Define master-key source version and startup boundary
+updated_at: "2026-07-12T17:01:18Z"
+---
+Acceptance: Define the supported master-key source, permissions, key ID/version metadata, startup readiness, redacted diagnostics, and fail-closed behavior for missing, wrong, duplicated, unsupported, or inaccessible keys. No key or plaintext token enters config exports, logs, prompts, DB rows, backups, or fallback storage. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:18Z"
+depends_on:
+    - P21.M1.E1.T002
+estimate_hours: 4
+id: P21.M1.E1.T007
+priority: critical
+status: pending
+tags:
+    - identity
+    - discord
+    - security
+title: Validate Discord ingress and derive canonical user identity
+updated_at: "2026-07-12T17:00:18Z"
+---
+Acceptance: Verify Discord request signature/timestamp and interaction provenance, bind guild/application namespace plus immutable user ID, and reject bots, webhooks, forged, replayed, missing, or ambiguous actors. Mutable names and channel/session IDs never identify a Principal. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

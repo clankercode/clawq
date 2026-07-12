@@ -1,0 +1,20 @@
+---
+complexity: high
+created_at: "2026-07-12T17:01:24Z"
+depends_on:
+    - P19.M4.E2.T005
+    - P21.M3.E2.T005
+    - P21.M3.E2.T006
+    - P21.M3.E2.T007
+estimate_hours: 5
+id: P21.M3.E3.T006
+priority: critical
+status: pending
+tags:
+    - github
+    - actions
+    - attribution
+title: Integrate user-required lifecycle and creation actions
+updated_at: "2026-07-12T17:01:24Z"
+---
+Acceptance: Issue creation and Issue/PR close/reopen execute only with the same current Principal's valid user lease after fresh confirmation; App/PAT fallback is forbidden. Success, denial, actor change, stale target, replay, idempotent retry, receipt, and webhook reconciliation are independently tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:16Z"
+depends_on:
+    - P21.M1.E1.T002
+estimate_hours: 4
+id: P21.M1.E1.T006
+priority: critical
+status: pending
+tags:
+    - identity
+    - slack
+    - security
+title: Validate Slack ingress and derive canonical user identity
+updated_at: "2026-07-12T17:00:16Z"
+---
+Acceptance: Verify Slack request signature, timestamp/replay window, workspace/enterprise namespace, event provenance, and supported human-user fields before emitting canonical workspace/enterprise plus immutable user ID. Bots, apps, forged, replayed, missing, or ambiguous actors fail closed. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

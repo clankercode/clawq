@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:25Z"
+depends_on:
+    - P21.M1.E1.T011
+estimate_hours: 6
+id: P21.M1.E1.T012
+priority: critical
+status: pending
+tags:
+    - identity
+    - revocation
+    - security
+title: Implement unlink split and identity revocation lifecycle
+updated_at: "2026-07-12T17:00:25Z"
+---
+Acceptance: Unlink distinguishes removing one Connector actor from reversing a merge, creates a new Principal only through an explicit revision-bound split plan, defines account/preference ownership and conflicts, and immediately revokes new authority. Historical snapshots remain immutable; pending confirmations/jobs and account leases are invalidated or require explicit rebind, with idempotent concurrent and admin-repair tests. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

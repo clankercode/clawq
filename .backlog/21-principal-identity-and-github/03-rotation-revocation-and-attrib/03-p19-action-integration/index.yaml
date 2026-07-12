@@ -66,3 +66,52 @@ tasks:
       priority: high
       status: pending
       title: Reconcile resulting webhooks with native attribution receipts
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T005
+        - P21.M3.E2.T005
+        - P21.M3.E2.T006
+        - P21.M3.E2.T007
+      estimate_hours: 5
+      file: T006-integrate-user-required-lifecy.todo
+      id: T006
+      priority: critical
+      status: pending
+      title: Integrate user-required lifecycle and creation actions
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T006
+        - P21.M3.E2.T005
+        - P21.M3.E2.T006
+        - P21.M3.E2.T007
+      estimate_hours: 4
+      file: T007-integrate-user-required-typed.todo
+      id: T007
+      priority: critical
+      status: pending
+      title: Integrate user-required typed workflow dispatch
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T002
+        - P19.M4.E2.T007
+        - P21.M3.E2.T005
+        - P21.M3.E2.T006
+        - P21.M3.E2.T007
+      estimate_hours: 5
+      file: T008-integrate-user-required-code-w.todo
+      id: T008
+      priority: critical
+      status: pending
+      title: Integrate user-required code work and constrained PR creation
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T003
+        - P21.M3.E2.T005
+        - P21.M3.E2.T006
+        - P21.M3.E2.T007
+      estimate_hours: 4
+      file: T009-integrate-user-required-merge.todo
+      id: T009
+      priority: critical
+      status: pending
+      title: Integrate user-required merge attribution

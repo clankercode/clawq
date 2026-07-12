@@ -53,3 +53,23 @@ tasks:
       priority: critical
       status: pending
       title: Prove cross-Principal isolation and delayed-work attribution
+    - complexity: high
+      depends_on:
+        - P21.M1.E3.T001
+        - P19.M3.E3.T001
+      estimate_hours: 5
+      file: T005-propagate-actor-snapshots-thro.todo
+      id: T005
+      priority: critical
+      status: pending
+      title: Propagate Actor snapshots through durable jobs retries and outbox
+    - complexity: high
+      depends_on:
+        - P21.M1.E3.T001
+        - P19.M4.E2.T004
+      estimate_hours: 4
+      file: T006-propagate-actor-snapshots-thro.todo
+      id: T006
+      priority: critical
+      status: pending
+      title: Propagate Actor snapshots through receipts and webhook reconciliation

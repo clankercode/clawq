@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:40Z"
+depends_on:
+    - P21.M1.E3.T001
+    - P19.M3.E3.T001
+estimate_hours: 5
+id: P21.M1.E3.T005
+priority: critical
+status: pending
+tags:
+    - identity
+    - background
+    - audit
+title: Propagate Actor snapshots through durable jobs retries and outbox
+updated_at: "2026-07-12T17:00:40Z"
+---
+Acceptance: Durable jobs, retries, outbox entries, cancellation, and restart preserve the immutable initiating Actor snapshot and logical Principal/account lineage without tokens. Execution re-resolves current authority; stale, split, revoked, or mismatched lineage fails closed and never borrows another participant identity. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

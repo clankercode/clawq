@@ -64,3 +64,26 @@ tasks:
       priority: high
       status: pending
       title: Add attribution previews receipts repair states and audit
+    - complexity: high
+      depends_on:
+        - P21.M3.E2.T001
+        - P21.M3.E2.T004
+        - P19.M4.E2.T004
+      estimate_hours: 5
+      file: T006-define-p19-to-p21-attribution.todo
+      id: T006
+      priority: critical
+      status: pending
+      title: Define P19 to P21 attribution migration and staged rollout
+    - complexity: high
+      depends_on:
+        - P21.M3.E2.T003
+        - P21.M2.E4.T003
+        - P21.M2.E4.T004
+        - P19.M1.E2.T003
+      estimate_hours: 4
+      file: T007-issue-opaque-github-leases-aft.todo
+      id: T007
+      priority: critical
+      status: pending
+      title: Issue opaque GitHub leases after final authorization revalidation

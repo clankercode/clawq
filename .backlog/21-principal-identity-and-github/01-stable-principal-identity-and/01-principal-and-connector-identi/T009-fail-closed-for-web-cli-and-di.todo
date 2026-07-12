@@ -1,0 +1,18 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:22Z"
+depends_on:
+    - P21.M1.E1.T002
+estimate_hours: 5
+id: P21.M1.E1.T009
+priority: critical
+status: pending
+tags:
+    - identity
+    - web
+    - cli
+    - security
+title: Fail closed for web CLI and direct-session Principal bootstrap
+updated_at: "2026-07-12T17:00:22Z"
+---
+Acceptance: Define authenticated web, CLI, and direct-session trust adapters with durable issuer plus immutable subject, explicit bootstrap/enrolment, and revocation. Local process/session/display identity alone never grants a Principal; absent, shared, forged, stale, or ambiguous provenance remains anonymous and cannot start linking or user authorization. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

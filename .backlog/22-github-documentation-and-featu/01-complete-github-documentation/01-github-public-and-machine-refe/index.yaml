@@ -47,3 +47,34 @@ tasks:
       priority: high
       status: pending
       title: Add automated GitHub documentation coverage validation
+    - complexity: high
+      depends_on:
+        - P22.M1.E1.T001
+      estimate_hours: 5
+      file: T005-populate-the-canonical-github.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Populate the canonical GitHub coverage matrix from shipped evidence
+    - complexity: high
+      depends_on:
+        - P22.M1.E1.T002
+        - P22.M1.E1.T005
+      estimate_hours: 6
+      file: T006-publish-github-collaboration-a.todo
+      id: T006
+      priority: high
+      status: pending
+      title: Publish GitHub collaboration attribution and operations documentation
+    - complexity: medium
+      depends_on:
+        - P22.M1.E1.T002
+        - P22.M1.E1.T003
+        - P22.M1.E1.T004
+        - P22.M1.E1.T006
+      estimate_hours: 4
+      file: T007-validate-astro-navigation-orph.todo
+      id: T007
+      priority: high
+      status: pending
+      title: Validate Astro navigation orphan pages and deployment docs check

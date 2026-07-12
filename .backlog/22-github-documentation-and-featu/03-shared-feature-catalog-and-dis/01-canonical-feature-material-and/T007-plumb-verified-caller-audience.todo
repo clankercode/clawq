@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:01:55Z"
+depends_on:
+    - P22.M3.E1.T001
+estimate_hours: 4
+id: P22.M3.E1.T007
+priority: critical
+status: pending
+tags:
+    - tools
+    - feature-catalog
+    - security
+title: Plumb verified caller audience role into clawq_help
+updated_at: "2026-07-12T17:01:55Z"
+---
+Acceptance: Extend Tool invocation context and every clawq_help entry path with a verified public, authenticated-user, room-admin, or operator audience role derived from trusted current request context. Missing/ambiguous role defaults to public; callers cannot self-assert elevation, minimal/direct-session behavior is explicit, and tests prove operator-only feature material cannot leak through tool rendering. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

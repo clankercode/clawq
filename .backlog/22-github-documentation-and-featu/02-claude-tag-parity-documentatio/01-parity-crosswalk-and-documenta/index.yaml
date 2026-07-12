@@ -39,3 +39,12 @@ tasks:
       priority: high
       status: pending
       title: Add a repeatable parity documentation audit
+    - complexity: high
+      depends_on:
+        - P22.M1.E1.T003
+      estimate_hours: 4
+      file: T004-create-a-repository-owned-hash.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Create a repository-owned hashed FT source manifest

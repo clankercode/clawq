@@ -48,3 +48,76 @@ tasks:
       priority: high
       status: pending
       title: Add private cross-Connector linking unlinking and revocation
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+      estimate_hours: 6
+      file: T005-validate-teams-ingress-and-der.todo
+      id: T005
+      priority: critical
+      status: pending
+      title: Validate Teams ingress and derive canonical user identity
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+      estimate_hours: 4
+      file: T006-validate-slack-ingress-and-der.todo
+      id: T006
+      priority: critical
+      status: pending
+      title: Validate Slack ingress and derive canonical user identity
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+      estimate_hours: 4
+      file: T007-validate-discord-ingress-and-d.todo
+      id: T007
+      priority: critical
+      status: pending
+      title: Validate Discord ingress and derive canonical user identity
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+      estimate_hours: 4
+      file: T008-validate-telegram-ingress-and.todo
+      id: T008
+      priority: critical
+      status: pending
+      title: Validate Telegram ingress and derive canonical user identity
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T002
+      estimate_hours: 5
+      file: T009-fail-closed-for-web-cli-and-di.todo
+      id: T009
+      priority: critical
+      status: pending
+      title: Fail closed for web CLI and direct-session Principal bootstrap
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T003
+        - P19.M1.E1.T002
+      estimate_hours: 4
+      file: T010-execute-private-two-sided-cros.todo
+      id: T010
+      priority: critical
+      status: pending
+      title: Execute private two-sided cross-Connector link proof transaction
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T004
+      estimate_hours: 6
+      file: T011-merge-or-adopt-principals-dete.todo
+      id: T011
+      priority: critical
+      status: pending
+      title: Merge or adopt Principals deterministically after verified linking
+    - complexity: high
+      depends_on:
+        - P21.M1.E1.T011
+      estimate_hours: 6
+      file: T012-implement-unlink-split-and-ide.todo
+      id: T012
+      priority: critical
+      status: pending
+      title: Implement unlink split and identity revocation lifecycle

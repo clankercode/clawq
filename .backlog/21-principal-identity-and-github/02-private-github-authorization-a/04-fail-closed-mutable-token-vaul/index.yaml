@@ -58,3 +58,31 @@ tasks:
       priority: critical
       status: pending
       title: Prove vault tamper restart deletion and rollback behavior
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T001
+      estimate_hours: 4
+      file: T006-define-master-key-source-versi.todo
+      id: T006
+      priority: critical
+      status: pending
+      title: Define master-key source version and startup boundary
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T002
+        - P21.M2.E4.T006
+      estimate_hours: 6
+      file: T007-implement-staged-master-key-ro.todo
+      id: T007
+      priority: critical
+      status: pending
+      title: Implement staged master-key rotation and resumable rewrap
+    - complexity: high
+      depends_on:
+        - P21.M2.E4.T007
+      estimate_hours: 5
+      file: T008-define-vault-backup-restore-an.todo
+      id: T008
+      priority: critical
+      status: pending
+      title: Define vault backup restore and key-compromise recovery

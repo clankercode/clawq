@@ -68,3 +68,12 @@ tasks:
       priority: high
       status: pending
       title: Make feature and documentation maintenance a repository contract
+    - complexity: high
+      depends_on:
+        - P22.M3.E1.T001
+      estimate_hours: 4
+      file: T007-plumb-verified-caller-audience.todo
+      id: T007
+      priority: critical
+      status: pending
+      title: Plumb verified caller audience role into clawq_help

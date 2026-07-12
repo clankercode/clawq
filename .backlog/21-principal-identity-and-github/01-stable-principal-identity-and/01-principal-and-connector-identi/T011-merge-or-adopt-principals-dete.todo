@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:24Z"
+depends_on:
+    - P21.M1.E1.T004
+estimate_hours: 6
+id: P21.M1.E1.T011
+priority: critical
+status: pending
+tags:
+    - identity
+    - migration
+    - security
+title: Merge or adopt Principals deterministically after verified linking
+updated_at: "2026-07-12T17:00:24Z"
+---
+Acceptance: A verified link chooses the survivor by a documented stable rule and atomically adopts active identity links, account bindings, preferences, and current authority. Define duplicate/conflict refusal, optimistic revisions, loser tombstone/redirect, concurrent-link serialization, and immutable historical Actor snapshots/jobs that retain original evidence while re-resolving only authorized current lineage. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

@@ -54,3 +54,30 @@ tasks:
       priority: high
       status: pending
       title: Reconcile action receipts backlinks and resulting webhooks without loops
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T001
+      estimate_hours: 5
+      file: T005-implement-confirmed-issue-crea.todo
+      id: T005
+      priority: critical
+      status: pending
+      title: Implement confirmed Issue creation and lifecycle actions
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T001
+      estimate_hours: 4
+      file: T006-implement-confirmed-typed-work.todo
+      id: T006
+      priority: critical
+      status: pending
+      title: Implement confirmed typed workflow dispatch
+    - complexity: high
+      depends_on:
+        - P19.M4.E2.T001
+      estimate_hours: 5
+      file: T007-implement-confirmed-code-chang.todo
+      id: T007
+      priority: critical
+      status: pending
+      title: Implement confirmed code-changing work and constrained PR creation

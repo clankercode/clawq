@@ -44,3 +44,13 @@ tasks:
       priority: critical
       status: pending
       title: Verify GitHub numeric identity and prepare a confirmable binding plan
+    - complexity: high
+      depends_on:
+        - P21.M1.E2.T002
+        - P21.M2.E4.T004
+      estimate_hours: 6
+      file: T004-build-shared-verified-pending.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Build shared verified pending-credential activation transaction

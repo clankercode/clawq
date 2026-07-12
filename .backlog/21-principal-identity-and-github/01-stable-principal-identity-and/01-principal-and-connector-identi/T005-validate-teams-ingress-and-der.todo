@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:14Z"
+depends_on:
+    - P21.M1.E1.T002
+estimate_hours: 6
+id: P21.M1.E1.T005
+priority: critical
+status: pending
+tags:
+    - identity
+    - teams
+    - security
+title: Validate Teams ingress and derive canonical user identity
+updated_at: "2026-07-12T17:00:14Z"
+---
+Acceptance: Verify Bot Connector OpenID metadata/JWKS and RS256 signature, issuer, audience, time claims, tenant, activity serviceUrl against its token claim, and channel/key endorsements when supplied; cache keys with rotation/refetch and fail closed on fetch, key, claim, tenant, or provenance failure. Only immutable tenant plus Teams user ID forms the canonical human identity; bots and mutable display fields cannot. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

@@ -1,0 +1,17 @@
+---
+complexity: high
+created_at: "2026-07-12T17:00:20Z"
+depends_on:
+    - P21.M1.E1.T002
+estimate_hours: 4
+id: P21.M1.E1.T008
+priority: critical
+status: pending
+tags:
+    - identity
+    - telegram
+    - security
+title: Validate Telegram ingress and derive canonical user identity
+updated_at: "2026-07-12T17:00:20Z"
+---
+Acceptance: Verify the configured Telegram webhook secret and connector provenance, bind bot/tenant namespace plus immutable from-user ID, and reject bots, channels, forwarded identity, forged, missing, or ambiguous actors. Mutable usernames, chats, and threads never identify a Principal. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
