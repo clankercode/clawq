@@ -73,6 +73,7 @@ tasks:
       id: T006
       priority: high
       status: pending
+      tags: []
       title: Publish GitHub collaboration attribution and operations documentation
     - complexity: medium
       depends_on:
