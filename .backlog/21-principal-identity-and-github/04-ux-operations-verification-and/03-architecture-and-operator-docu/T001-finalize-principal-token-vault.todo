@@ -4,7 +4,7 @@ complexity: medium
 created_at: "2026-07-12T14:52:52Z"
 depends_on:
     - P21.M4.E2.T004
-estimate_hours: 3
+estimate_hours: 5
 id: P21.M4.E3.T001
 priority: high
 started_at: null
@@ -13,4 +13,4 @@ tags: []
 title: Finalize Principal token-vault security boundary ADRs and glossary
 updated_at: "2026-07-12T14:52:52Z"
 ---
-Acceptance: CONTEXT.md and ADRs 0005-0006 match final schema, Actor snapshot semantics, plan-confirm-apply binding activation, private web/device data flow, token lease boundary, attribution modes, revocation, and App/PAT coexistence without redefining P19 Rooms/routes. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+Acceptance: Final ADRs and glossary define verified Connector trust adapters, Principal adoption/tombstone/split semantics, immutable Actor snapshots versus current authority, authorization activation, logical credential lineage, key source/version/rotation/backup/compromise boundary, undetectable whole-store rollback limitation, P19-to-P21 rollout states, and token confinement exactly as shipped. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

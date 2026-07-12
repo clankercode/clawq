@@ -15,7 +15,7 @@ tasks:
     - complexity: medium
       depends_on:
         - P21.M4.E2.T004
-      estimate_hours: 3
+      estimate_hours: 5
       file: T001-finalize-principal-token-vault.todo
       id: T001
       priority: high
