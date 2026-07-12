@@ -6,7 +6,7 @@ depends_on:
     - P19.M4.E3.T001
     - P19.M2.E3.T003
     - P19.M2.E3.T004
-estimate_hours: 6
+estimate_hours: 8
 id: P19.M4.E3.T002
 priority: critical
 started_at: null
@@ -15,4 +15,4 @@ tags: []
 title: Run the live GitHub App to Clawq to Teams pilot
 updated_at: "2026-07-12T12:34:08Z"
 ---
-Acceptance: Begin in one real Teams Room and complete assisted GitHub App manifest launch, verified callback/resume, readiness, typed plan, explicit confirm, and apply. Observe the setup-owned managed access bundle, then use a newly enabled GitHub tool on the immediately following agent turn without daemon restart. In the same Channel exercise PR opened, ready, minor update, comment/review, Room read, authorized mutation/review, confirmed Issue creation, Issue and PR close/reopen, typed workflow dispatch, confirmed code-changing work with constrained PR creation, background work, merge, restart with pending delivery, and transient Teams failure. Verify cards, edits, thread interaction, receipts, webhook reconciliation, durable recovery, retry, no duplicates, and live policy enforcement. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
+Acceptance: In one named isolated Teams Room complete App setup, confirm/apply, immediate Tool-catalog refresh, routing, cards, delivery/restart, reads, comments/reviews, and each confirmed action family. High-risk App-attributed actions run only under an explicit time-bounded pilot feature gate that is off by default and cannot be generalized as production-ready; verify actor labels, receipts/webhooks, cleanup, and backout. Production rollout of user-required actions waits for P21 migration/readiness. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

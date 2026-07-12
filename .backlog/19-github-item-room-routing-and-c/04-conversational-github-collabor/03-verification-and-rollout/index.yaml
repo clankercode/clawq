@@ -28,7 +28,7 @@ tasks:
         - P19.M4.E3.T001
         - P19.M2.E3.T003
         - P19.M2.E3.T004
-      estimate_hours: 6
+      estimate_hours: 8
       file: T002-run-the-live-github-app-to-cla.todo
       id: T002
       priority: critical
