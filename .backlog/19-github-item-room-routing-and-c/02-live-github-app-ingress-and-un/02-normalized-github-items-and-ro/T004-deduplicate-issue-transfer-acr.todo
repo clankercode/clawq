@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-12T23:46:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-12T23:52:53Z"
 complexity: medium
 created_at: "2026-07-12T12:33:52Z"
 depends_on:
     - P19.M2.E2.T003
+duration_minutes: 6.2654585971
 estimate_hours: 3
 id: P19.M2.E2.T004
 priority: high
 started_at: "2026-07-12T23:46:38Z"
-status: in_progress
+status: done
 tags: []
 title: Deduplicate Issue transfer across source and destination matches per Room
-updated_at: "2026-07-12T23:46:38Z"
+updated_at: "2026-07-12T23:52:53Z"
 ---
 Acceptance: Evaluate transfer against both old and new repository/Org scope, deliver to every distinct matching destination, and produce at most one accepted route event per Room. Tests cover same-Room dual match, source-only, destination-only, and different-Room matches. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

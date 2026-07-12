@@ -50,7 +50,7 @@ tasks:
       file: T004-deduplicate-issue-transfer-acr.todo
       id: T004
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Deduplicate Issue transfer across source and destination matches per Room
     - complexity: high
