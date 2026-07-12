@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-12T23:33:30Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:33:51Z"
@@ -7,10 +9,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M2.E2.T002
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-12T23:33:30Z"
+status: in_progress
 tags: []
 title: Persist Item Repo and Org routes filters comment modes and capability policy
-updated_at: "2026-07-12T12:33:51Z"
+updated_at: "2026-07-12T23:33:30Z"
 ---
 Acceptance: Durable versioned routes support Room-first and direct Session destinations, Item/Repo/Org selector, baseline event/repository filter, off-summary-threaded comments, independent action capabilities, enabled state, revision, provenance, indexes, and optimistic concurrency. The store permits at most one active route for each destination plus canonical selector; creation, update, restore, and concurrent writes either reject a collision transactionally or apply one documented deterministic winner. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
