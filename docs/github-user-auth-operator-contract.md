@@ -74,7 +74,7 @@ FROM principal_legacy_migration_records
 WHERE run_id = :run_id
 ORDER BY source_kind, source_id;
 
-SELECT source_kind, source_id, reason, invalidated_at
+SELECT source_kind, source_id, reason, created_at
 FROM principal_legacy_invalidated_jobs
 WHERE run_id = :run_id;
 ```

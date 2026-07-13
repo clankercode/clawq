@@ -771,7 +771,7 @@ let insert_record ~db (r : migration_record) =
 let insert_invalidation ~db ~run_id ~source_kind ~source_id ~reason ~created_at
     =
   let sql =
-    {|INSERT OR REPLACE INTO principal_legacy_invalidated_jobs
+    {|INSERT OR IGNORE INTO principal_legacy_invalidated_jobs
       (source_kind, source_id, run_id, reason, created_at)
       VALUES (?, ?, ?, ?, ?)|}
   in
@@ -787,7 +787,7 @@ let insert_invalidation ~db ~run_id ~source_kind ~source_id ~reason ~created_at
       ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT reason));
       ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT created_at));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> Ok ()
+      | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db > 0)
       | rc ->
           Error
             (Printf.sprintf "insert invalidation failed: %s (%s)"
@@ -1022,6 +1022,23 @@ let require_migrated_user_dispatch ~db ~source_kind ~source_id =
 (* Migrate                                                                    *)
 (* -------------------------------------------------------------------------- *)
 
+let revalidate_existing_backfill ~db ~run_id ~created_at
+    (record : migration_record) =
+  match record.status with
+  | Backfilled -> (
+      match classify_row ~db record.row with
+      | Error e -> Error e
+      | Ok (Backfill _) -> Ok false
+      | Ok (Legacy_unresolved { reason }) ->
+          (* A prior backfill is immutable audit evidence, not permanent
+             authority.  Keep the record untouched and permanently revoke the
+             old source if its live identity no longer satisfies backfill. *)
+          insert_invalidation ~db ~run_id
+            ~source_kind:record.row.source_kind
+            ~source_id:record.row.source_id
+            ~reason:(string_of_unresolved_reason reason) ~created_at)
+  | Unresolved | Job_invalidated -> Ok false
+
 let migrate_rows ~db ~rows ?run_id ?(now = Unix.gettimeofday ()) () =
   let ( let* ) = Result.bind in
   ensure_schema db;
@@ -1055,9 +1072,25 @@ let migrate_rows ~db ~rows ?run_id ?(now = Unix.gettimeofday ()) () =
                 ~source_id:row.source_id
             with
             | Error e -> Error e
-            | Ok (Some _) ->
-                (* Already migrated under a prior unrolled-back run — skip. *)
-                go acc_back acc_unres acc_inv acc_recs rest
+            | Ok (Some _) -> (
+                match
+                  get_record ~db ~source_kind:row.source_kind
+                    ~source_id:row.source_id
+                with
+                | Error e -> Error e
+                | Ok None ->
+                    Error
+                      "migration record disappeared while revalidating existing \
+                       source"
+                | Ok (Some record) ->
+                    let created_at = Time_util.iso8601_utc ~t:now () in
+                    let* inserted =
+                      revalidate_existing_backfill ~db ~run_id ~created_at
+                        record
+                    in
+                    go acc_back acc_unres
+                      (if inserted then acc_inv + 1 else acc_inv)
+                      acc_recs rest)
             | Ok None -> (
                 match classify_row ~db row with
                 | Error e -> Error e
@@ -1091,12 +1124,12 @@ let migrate_rows ~db ~rows ?run_id ?(now = Unix.gettimeofday ()) () =
                                 string_of_unresolved_reason reason
                             | Backfill _ -> "unexpected"
                           in
-                          let* () =
+                          let* inserted =
                             insert_invalidation ~db ~run_id
                               ~source_kind:row.source_kind
                               ~source_id:row.source_id ~reason ~created_at
                           in
-                          Ok (acc_inv + 1)
+                          Ok (if inserted then acc_inv + 1 else acc_inv)
                       | Backfilled | Unresolved -> Ok acc_inv
                     in
                     let acc_back, acc_unres =

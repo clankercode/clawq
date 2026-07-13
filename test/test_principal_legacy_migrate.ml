@@ -42,6 +42,32 @@ let seed_actor ~db ~principal_id ~connector ~tenant ~user
   ignore (assert_ok (S.insert_identity_link ~db link));
   key
 
+let invalidation_audit ~db ~source_kind ~source_id =
+  let stmt =
+    Sqlite3.prepare db
+      {|SELECT run_id, created_at FROM principal_legacy_invalidated_jobs
+        WHERE source_kind = ? AND source_id = ?|}
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1
+           (Sqlite3.Data.TEXT (L.string_of_source_kind source_kind)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT source_id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let text i =
+            match Sqlite3.column stmt i with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> Alcotest.fail "missing invalidation audit column"
+          in
+          Some (text 0, text 1)
+      | Sqlite3.Rc.DONE -> None
+      | rc ->
+          Alcotest.failf "read invalidation audit failed: %s"
+            (Sqlite3.Rc.to_string rc))
+
 (* -------------------------------------------------------------------------- *)
 (* Classification                                                             *)
 (* -------------------------------------------------------------------------- *)
@@ -181,6 +207,123 @@ let test_unlinked_actor_without_active_link_invalidates_active_work () =
   match assert_ok (L.classify_row ~db row) with
   | L.Legacy_unresolved { reason = L.Active_identity_link_missing } -> ()
   | _ -> Alcotest.fail "active actor without active link must not backfill"
+
+let test_existing_backfill_is_permanently_invalidated_after_link_loss () =
+  with_db @@ fun db ->
+  let principal_id = pid "prin_revalidate" in
+  let key =
+    seed_actor ~db ~principal_id ~connector:P.Teams ~tenant:"tenant-revalidate"
+      ~user:"aad-revalidate" ~link_id:"link-revalidate" ()
+  in
+  let row =
+    assert_ok
+      (L.make_legacy_row ~source_kind:L.Background_task
+         ~source_id:"legacy-revalidate-task" ~connector:"teams"
+         ~tenant_or_workspace:"tenant-revalidate"
+         ~immutable_user_id:"aad-revalidate" ~job_active:true ())
+  in
+  let first =
+    assert_ok
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"backfill-run"
+         ~now:fixed_now ())
+  in
+  Alcotest.(check int) "initial backfill" 1 first.backfilled;
+  let original =
+    match
+      assert_ok
+        (L.get_record ~db ~source_kind:L.Background_task
+           ~source_id:"legacy-revalidate-task")
+    with
+    | Some record -> record
+    | None -> Alcotest.fail "missing initial migration record"
+  in
+  ignore
+    (assert_ok
+       (S.update_identity_link ~db ~id:"link-revalidate" ~status:P.Unlinked
+          ~unlinked_at:(Some "2026-07-14T00:00:00Z")
+          ~now:(fixed_now +. 1.) ()));
+  let restart =
+    assert_ok
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"revalidation-run"
+         ~now:(fixed_now +. 2.) ())
+  in
+  Alcotest.(check int) "restart does not rewrite backfill" 0 restart.backfilled;
+  Alcotest.(check int) "restart does not add unresolved record" 0
+    restart.unresolved;
+  Alcotest.(check int) "restart invalidates stale task" 1
+    restart.jobs_invalidated;
+  Alcotest.(check bool)
+    "stale task invalidated" true
+    (assert_ok
+       (L.is_job_invalidated ~db ~source_kind:L.Background_task
+          ~source_id:"legacy-revalidate-task"));
+  let preserved =
+    match
+      assert_ok
+        (L.get_record ~db ~source_kind:L.Background_task
+           ~source_id:"legacy-revalidate-task")
+    with
+    | Some record -> record
+    | None -> Alcotest.fail "migration evidence must remain"
+  in
+  Alcotest.(check string) "original record id preserved" original.id preserved.id;
+  Alcotest.(check string)
+    "original evidence preserved" original.row.evidence_json
+    preserved.row.evidence_json;
+  let audit_before =
+    match
+      invalidation_audit ~db ~source_kind:L.Background_task
+        ~source_id:"legacy-revalidate-task"
+    with
+    | Some audit -> audit
+    | None -> Alcotest.fail "missing invalidation audit"
+  in
+  Alcotest.(check string) "invalidation run" "revalidation-run"
+    (fst audit_before);
+  let repeated =
+    assert_ok
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"repeat-unlinked-run"
+         ~now:(fixed_now +. 3.) ())
+  in
+  Alcotest.(check int) "repeat restart does not reinvalidate" 0
+    repeated.jobs_invalidated;
+  Alcotest.(check (option (pair string string)))
+    "invalidation audit unchanged while unresolved" (Some audit_before)
+    (invalidation_audit ~db ~source_kind:L.Background_task
+       ~source_id:"legacy-revalidate-task");
+  ignore
+    (assert_ok
+       (S.insert_identity_link ~db ~now:(fixed_now +. 4.)
+          (P.make_identity_link ~id:"link-revalidate-new" ~principal_id
+             ~actor_key:key ~linked_at:"2026-07-14T00:00:01Z" ())));
+  let relinked =
+    assert_ok
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"relinked-run"
+         ~now:(fixed_now +. 5.) ())
+  in
+  Alcotest.(check int) "relink cannot re-authorize old task" 0
+    relinked.jobs_invalidated;
+  Alcotest.(check bool)
+    "invalidation survives relink" true
+    (assert_ok
+       (L.is_job_invalidated ~db ~source_kind:L.Background_task
+          ~source_id:"legacy-revalidate-task"));
+  (match
+     L.require_migrated_user_dispatch ~db ~source_kind:L.Background_task
+       ~source_id:"legacy-revalidate-task"
+   with
+  | Ok () -> Alcotest.fail "old task must require replanning"
+  | Error msg ->
+      Alcotest.(check bool)
+        "old task requires replanning" true
+        (String_util.contains msg "job_invalidated"));
+  Alcotest.(check (option (pair string string)))
+    "invalidation audit unchanged on relink" (Some audit_before)
+    (invalidation_audit ~db ~source_kind:L.Background_task
+       ~source_id:"legacy-revalidate-task");
+  assert_ok
+    (L.require_migrated_user_dispatch ~db ~source_kind:L.Background_task
+       ~source_id:"fresh-explicit-app-request")
 
 let test_no_coalesce_on_shared_display_name () =
   with_db @@ fun db ->
@@ -520,6 +663,9 @@ let suite =
     ( "unlinked actor without active link invalidates active work",
       `Quick,
       test_unlinked_actor_without_active_link_invalidates_active_work );
+    ( "existing backfill is permanently invalidated after link loss",
+      `Quick,
+      test_existing_backfill_is_permanently_invalidated_after_link_loss );
     ( "no coalesce on shared display name",
       `Quick,
       test_no_coalesce_on_shared_display_name );

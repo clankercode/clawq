@@ -501,19 +501,41 @@ let test_worker_retry_revalidates_work_item_snapshot () =
         "retry cites durable guard" true
         (contains msg "human-attributed" || contains msg "attribution")
 
-let invalidate_legacy_background_task_without_work_item ~db ~task_id =
+let invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id =
   (match Github_work_item.find_by_task ~db ~background_task_id:task_id with
   | None -> ()
   | Some _ -> Alcotest.fail "fixture must have no GitHub work item");
+  let _principal_id, _key, link, _binding = seed_ada ~db in
   let row =
     assert_ok
       (L.make_legacy_row ~source_kind:L.Background_task
          ~source_id:(string_of_int task_id) ~connector:"teams"
-         ~tenant_or_workspace:"legacy-tenant" ~immutable_user_id:"legacy-user"
+         ~tenant_or_workspace:"tenant-acme" ~immutable_user_id:"user-ada"
          ~job_active:true ())
   in
-  let report = assert_ok (L.migrate_rows ~db ~rows:[ row ] ~now:fixed_now ()) in
-  Alcotest.(check int) "legacy task invalidated" 1 report.jobs_invalidated
+  let initial =
+    assert_ok
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"initial-backfill"
+         ~now:fixed_now ())
+  in
+  Alcotest.(check int) "legacy task backfilled first" 1 initial.backfilled;
+  ignore
+    (assert_ok
+       (S.update_identity_link ~db ~id:link.id ~status:P.Unlinked
+          ~unlinked_at:(Some "2026-07-14T00:00:00Z")
+          ~now:(fixed_now +. 1.) ()));
+  let restart =
+    assert_ok
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"restart-revalidation"
+         ~now:(fixed_now +. 2.) ())
+  in
+  Alcotest.(check int) "legacy task invalidated on restart" 1
+    restart.jobs_invalidated;
+  Alcotest.(check bool)
+    "revalidated legacy task invalidated" true
+    (assert_ok
+       (L.is_job_invalidated ~db ~source_kind:L.Background_task
+          ~source_id:(string_of_int task_id)))
 
 let enqueue_legacy_background_task ~db ~prompt =
   assert_ok
@@ -524,7 +546,7 @@ let enqueue_legacy_background_task ~db ~prompt =
 let test_worker_spawn_rejects_invalidated_task_without_work_item () =
   with_db @@ fun db ->
   let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy spawn" in
-  invalidate_legacy_background_task_without_work_item ~db ~task_id;
+  invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id;
   let task =
     match Background_task.get_task ~db ~id:task_id with
     | Some task -> task
@@ -552,7 +574,7 @@ let test_worker_spawn_rejects_invalidated_task_without_work_item () =
 let test_worker_retry_rejects_invalidated_task_without_work_item () =
   with_db @@ fun db ->
   let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy retry" in
-  invalidate_legacy_background_task_without_work_item ~db ~task_id;
+  invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id;
   Background_task.finish ~db ~id:task_id ~status:Background_task.Failed
     ~result_preview:"initial failure";
   (match Background_task.retry ~db ~id:task_id with

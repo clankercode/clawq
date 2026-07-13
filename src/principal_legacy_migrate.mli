@@ -205,9 +205,11 @@ val migrate_rows :
   (migrate_report, string) result
 (** Classify and persist results for the given rows. Idempotent per
     [(source_kind, source_id)] within a re-run of the same content: existing
-    records for a source are left as-is when already migrated under a prior
-    unrolled-back run. Never rewrites historical actor snapshots. Active
-    ambiguous jobs are recorded in the invalidation table. *)
+    records remain immutable audit evidence, while an existing [Backfilled]
+    record is revalidated against live identity state. If it no longer
+    backfills, its old source is invalidated once and stays invalidated even if
+    the identity is later relinked. Never rewrites historical actor snapshots.
+    Active ambiguous jobs are recorded in the invalidation table. *)
 
 val load_legacy_from_db : db:Sqlite3.db -> (legacy_row list, string) result
 (** Load candidate rows from [background_tasks] and [workflow_runs] when those
