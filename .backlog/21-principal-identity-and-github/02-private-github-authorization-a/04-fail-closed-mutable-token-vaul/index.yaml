@@ -40,7 +40,8 @@ tasks:
       file: T003-expose-callback-scoped-opaque.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Expose callback-scoped opaque leases at the GitHub HTTP boundary
     - complexity: high
       depends_on:
