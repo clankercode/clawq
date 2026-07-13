@@ -22,7 +22,8 @@ tasks:
       file: T001-add-route-and-filter-setup-dia.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add route and filter setup diagnostics and redacted export
     - complexity: high
       depends_on:

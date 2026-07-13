@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T02:19:43Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:46Z"
 depends_on:
@@ -7,12 +10,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M3.E2.T001
 priority: critical
-status: pending
-tags:
-    - github
-    - policy
-    - attribution
+started_at: "2026-07-13T02:19:43Z"
+status: in_progress
+tags: []
 title: Add attribution requirements and risk-tier defaults
-updated_at: "2026-07-12T14:52:46Z"
+updated_at: "2026-07-13T02:19:43Z"
 ---
 Acceptance: Every P19 mutation declares App, User_required, or User_preferred; reads and ambient work remain App-first; comments/metadata are user-preferred; review, lifecycle, workflow, creation, code work, and merge are user-required; OAuth remains separate from action confirmation. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

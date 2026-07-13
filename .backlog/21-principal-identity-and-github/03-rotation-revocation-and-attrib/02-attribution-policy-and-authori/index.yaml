@@ -20,7 +20,8 @@ tasks:
       file: T001-add-attribution-requirements-a.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Add attribution requirements and risk-tier defaults
     - complexity: high
       depends_on:
