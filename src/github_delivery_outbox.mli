@@ -64,7 +64,11 @@ val mark_failure :
     Error strings are redacted so secrets never land in storage. *)
 
 val list_dead_letters :
-  db:Sqlite3.db -> ?limit:int -> unit -> (entry list, string) result
+  db:Sqlite3.db ->
+  ?room_id:string ->
+  ?limit:int ->
+  unit ->
+  (entry list, string) result
 
 val count_open_for_item :
   db:Sqlite3.db -> room_id:string -> item_key:string -> (int, string) result
@@ -78,3 +82,15 @@ val supersede_pending_for_item :
 
 val mark_superseded : db:Sqlite3.db -> id:string -> (unit, string) result
 (** Mark a single Pending/In_flight row as [Superseded]. *)
+
+val count_status :
+  db:Sqlite3.db ->
+  status:status ->
+  ?room_id:string ->
+  unit ->
+  (int, string) result
+(** Count rows with [status], optionally restricted to [room_id]. *)
+
+val oldest_pending_created_at :
+  db:Sqlite3.db -> ?room_id:string -> unit -> (string option, string) result
+(** [created_at] of the oldest Pending row, if any. *)
