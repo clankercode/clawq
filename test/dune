@@ -116,6 +116,7 @@
   test_github_p21_pilot_dryrun
   test_github_p21_docs
   test_github_p21_adr_glossary
+  test_github_p21_operator_docs
   test_github_room_tools
   test_github_auth_selection
   test_github_attribution_policy
