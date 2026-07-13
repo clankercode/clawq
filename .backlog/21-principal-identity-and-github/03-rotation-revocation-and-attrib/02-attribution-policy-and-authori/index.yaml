@@ -91,5 +91,6 @@ tasks:
       file: T007-issue-opaque-github-leases-aft.todo
       id: T007
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Issue opaque GitHub leases after final authorization revalidation
