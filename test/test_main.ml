@@ -181,6 +181,7 @@ let () =
        ( "github_user_auth_pkce_callback",
          Test_github_user_auth_pkce_callback.suite );
        ("github_user_auth_device", Test_github_user_auth_device.suite);
+       ("github_user_auth_device_poll", Test_github_user_auth_device_poll.suite);
        ("github_user_token", Test_github_user_token_store.suite);
        ("github_user_token_master_key", Test_github_user_token_master_key.suite);
        ("github_user_token_vault", Test_github_user_token_vault.suite);
