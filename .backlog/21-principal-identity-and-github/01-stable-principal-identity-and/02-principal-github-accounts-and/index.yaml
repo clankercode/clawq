@@ -21,7 +21,7 @@ tasks:
       file: T001-persist-principal-owned-github.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Persist Principal-owned GitHub account bindings
     - complexity: high
