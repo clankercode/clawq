@@ -198,6 +198,7 @@ let () =
        ("github_p19_integration", Test_github_p19_integration.suite);
        ("github_p21_integration", Test_github_p21_integration.suite);
        ("github_p21_security", Test_github_p21_security.suite);
+       ("github_p21_pilot_dryrun", Test_github_p21_pilot_dryrun.suite);
        ("github_room_tools", Test_github_room_tools.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("github_attribution_policy", Test_github_attribution_policy.suite);
