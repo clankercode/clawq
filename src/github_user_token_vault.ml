@@ -787,6 +787,214 @@ let destroy ~db ~id =
                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
 
 (* -------------------------------------------------------------------------- *)
+(* Staged rewrap (generation CAS, no generation advance)                      *)
+(* -------------------------------------------------------------------------- *)
+
+let count_all ~db =
+  let sql = "SELECT COUNT(*) FROM github_user_token_vault" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> Ok (int_col stmt 0)
+      | rc ->
+          Error
+            (Storage
+               (Printf.sprintf "COUNT all failed: %s (%s)"
+                  (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
+
+let count_for_key ~db ~key_id =
+  let sql = "SELECT COUNT(*) FROM github_user_token_vault WHERE key_id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key_id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> Ok (int_col stmt 0)
+      | rc ->
+          Error
+            (Storage
+               (Printf.sprintf "COUNT by key failed: %s (%s)"
+                  (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
+
+let list_ids_for_key ~db ~key_id ?after_id ?(limit = 64) () =
+  let limit = if limit < 1 then 1 else limit in
+  let sql, bind_after =
+    match after_id with
+    | None ->
+        ( {|SELECT id FROM github_user_token_vault
+            WHERE key_id = ?
+            ORDER BY id ASC
+            LIMIT ?|},
+          None )
+    | Some aid ->
+        ( {|SELECT id FROM github_user_token_vault
+            WHERE key_id = ? AND id > ?
+            ORDER BY id ASC
+            LIMIT ?|},
+          Some aid )
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key_id));
+      (match bind_after with
+      | None ->
+          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)))
+      | Some aid ->
+          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT aid));
+          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit))));
+      let rec go acc =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> go (text_col stmt 0 :: acc)
+        | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+        | rc ->
+            Error
+              (Storage
+                 (Printf.sprintf "list_ids_for_key failed: %s (%s)"
+                    (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+      in
+      go [])
+
+let list_distinct_key_ids ~db =
+  let sql =
+    "SELECT DISTINCT key_id FROM github_user_token_vault ORDER BY key_id ASC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let rec go acc =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> go (text_col stmt 0 :: acc)
+        | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+        | rc ->
+            Error
+              (Storage
+                 (Printf.sprintf "list_distinct_key_ids failed: %s (%s)"
+                    (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+      in
+      go [])
+
+let ciphertext_of ~db ~id =
+  match load_by_id db id with
+  | Error e -> Error e
+  | Ok None -> Error Not_found
+  | Ok (Some row) -> Ok row.ciphertext
+
+let cas_conflict ~expected_generation ~actual =
+  Error (Generation_conflict { expected = expected_generation; actual })
+
+let commit_rewrap ~db ~now ~id ~(meta : vault_record) ~target_material
+    ~record_version ~scopes ~expires_at ~ciphertext ~expected_generation =
+  let fp = key_fingerprint target_material.aes_key in
+  let updated_at = Time_util.iso8601_utc ~t:now () in
+  let sql =
+    {|UPDATE github_user_token_vault
+      SET record_version = ?, key_id = ?, key_version = ?, key_fingerprint = ?,
+          ciphertext = ?, updated_at = ?
+      WHERE id = ? AND generation = ? AND key_id = ?|}
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let bind i d = ignore (Sqlite3.bind stmt i d) in
+      bind 1 (Sqlite3.Data.INT (Int64.of_int record_version));
+      bind 2 (Sqlite3.Data.TEXT target_material.key_id);
+      bind 3 (Sqlite3.Data.INT (Int64.of_int target_material.key_version));
+      bind 4 (Sqlite3.Data.TEXT fp);
+      bind 5 (Sqlite3.Data.TEXT ciphertext);
+      bind 6 (Sqlite3.Data.TEXT updated_at);
+      bind 7 (Sqlite3.Data.TEXT id);
+      bind 8 (Sqlite3.Data.INT (Int64.of_int expected_generation));
+      bind 9 (Sqlite3.Data.TEXT meta.key_id);
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE ->
+          if Sqlite3.changes db <> 1 then
+            cas_conflict ~expected_generation ~actual:meta.generation
+          else
+            Ok
+              {
+                id;
+                account = meta.account;
+                record_version;
+                key_id = target_material.key_id;
+                key_version = target_material.key_version;
+                generation = meta.generation;
+                scopes;
+                expires_at;
+                created_at = meta.created_at;
+                updated_at;
+              }
+      | rc ->
+          Error
+            (Storage
+               (Printf.sprintf "rewrap UPDATE failed: %s (%s)"
+                  (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
+
+(** Open under the row's current key, reseal under [target_key_id] without
+    advancing generation. CAS matches [expected_generation] and optional
+    [expected_key_id]. Produces a fresh AEAD nonce. Idempotent when the row is
+    already under the target key at the expected generation. *)
+let rewrap ~db ~keys ?(now = Unix.gettimeofday ()) ~id ~expected_generation
+    ~target_key_id ?expected_key_id () =
+  if expected_generation < 1 then
+    Error (Invalid_input "expected_generation must be positive")
+  else
+    let target_key_id = String.trim target_key_id in
+    if target_key_id = "" then
+      Error (Invalid_input "target_key_id must be non-empty")
+    else
+      match keys.resolve ~key_id:target_key_id with
+      | Error () -> Error (Missing_key { key_id = target_key_id })
+      | Ok target_material -> (
+          match validate_aes_key target_material.aes_key with
+          | Error _ -> Error Crypto_failure
+          | Ok () -> (
+              match load_by_id db id with
+              | Error e -> Error e
+              | Ok None -> Error Not_found
+              | Ok (Some row) -> (
+                  let meta = row.meta in
+                  if meta.generation <> expected_generation then
+                    cas_conflict ~expected_generation ~actual:meta.generation
+                  else
+                    match expected_key_id with
+                    | Some ek when not (String.equal meta.key_id ek) ->
+                        (* Concurrent rewrap / key change: surface as generation-
+                           style CAS conflict so callers can reload. *)
+                        cas_conflict ~expected_generation
+                          ~actual:meta.generation
+                    | _ when String.equal meta.key_id target_key_id ->
+                        (* Already under target; generation matches — done. *)
+                        Ok meta
+                    | _ -> (
+                        match open_row ~keys row with
+                        | Error e -> Error e
+                        | Ok opened -> (
+                            let tokens = opened.tokens in
+                            let scopes = opened.record.scopes in
+                            let expires_at = opened.record.expires_at in
+                            let record_version = schema_version in
+                            match
+                              seal_envelope ~aes_key:target_material.aes_key
+                                ~account:meta.account ~record_version
+                                ~generation:meta.generation
+                                ~key_id:target_material.key_id ~tokens ~scopes
+                                ~expires_at
+                            with
+                            | Error e -> Error e
+                            | Ok ciphertext ->
+                                commit_rewrap ~db ~now ~id ~meta
+                                  ~target_material ~record_version ~scopes
+                                  ~expires_at ~ciphertext ~expected_generation))
+                  )))
+
+(* -------------------------------------------------------------------------- *)
 (* Introspection                                                              *)
 (* -------------------------------------------------------------------------- *)
 

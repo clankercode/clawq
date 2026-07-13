@@ -232,6 +232,7 @@
   github_user_token_store
   github_user_token_master_key
   github_user_token_vault
+  github_user_token_rewrap
   credential_lease
   skills
   skills_cmd_inject
