@@ -239,6 +239,7 @@
   github_user_token_store
   github_user_token_master_key
   github_user_token_vault
+  github_user_token_lease
   github_user_token_rewrap
   github_user_token_vault_recovery
   credential_lease
