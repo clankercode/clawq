@@ -28,7 +28,8 @@ tasks:
       file: T002-persist-principals-and-collisi.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Persist Principals and collision-safe Connector identity links
     - complexity: high
       depends_on:
