@@ -1,20 +1,21 @@
 ---
 claimed_at: "2026-07-13T05:13:51Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T05:34:01Z"
 complexity: high
 created_at: "2026-07-12T17:00:41Z"
 depends_on:
     - P21.M1.E3.T001
     - P21.M1.E3.T002
     - P19.M4.E2.T004
+duration_minutes: 20.17758428355
 estimate_hours: 4
 id: P21.M1.E3.T006
 priority: critical
 started_at: "2026-07-13T05:13:51Z"
-status: in_progress
+status: done
 tags: []
 title: Propagate Actor snapshots through receipts and webhook reconciliation
-updated_at: "2026-07-13T05:13:51Z"
+updated_at: "2026-07-13T05:34:01Z"
 ---
 Acceptance: Receipts and resulting-webhook correlation retain the initiating immutable Actor snapshot, requested/resolved attribution, action identity, and revisions without becoming authority. Reconciliation preserves historical identity across later merge/rename, closes once, and cannot associate unrelated human actions or another Principal. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
