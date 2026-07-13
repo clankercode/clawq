@@ -30,7 +30,8 @@ tasks:
       file: T002-reduce-events-into-determinist.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Reduce events into deterministic per-Room item projections
     - complexity: medium
       depends_on:
