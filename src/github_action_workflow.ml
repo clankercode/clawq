@@ -8,6 +8,7 @@ module Review_attr = Github_pr_review_attribution
 module Issue_attr = Github_issue_attribution
 module Merge_attr = Github_merge_attribution
 module Wd_attr = Github_workflow_dispatch_attribution
+module Code_attr = Github_code_change_attribution
 
 type action_kind =
   | Collab of Github_collab_actions.action
@@ -19,6 +20,8 @@ type action_kind =
     }
   | Issue of Github_issue_actions.action
   | Workflow_dispatch of Github_workflow_dispatch.request
+  | Code_work of Github_code_change_action.code_work_request
+  | Pr_create of Github_code_change_action.pr_create_request
 
 let action_kind_label = function
   | Collab _ -> "collab"
@@ -27,12 +30,14 @@ let action_kind_label = function
   | Merge _ -> "merge"
   | Issue _ -> "issue"
   | Workflow_dispatch _ -> "workflow_dispatch"
+  | Code_work _ -> "code_work"
+  | Pr_create _ -> "pr_create"
 
 let is_github_action_kind = function
   | Setup_plan.Generic
       ( "github_collab_action" | "github_request_reviewers"
-      | "github_submit_review" | "github_merge" | "github_workflow_dispatch" )
-    ->
+      | "github_submit_review" | "github_merge" | "github_workflow_dispatch"
+      | "github_code_work" | "github_pr_create" ) ->
       true
   | Setup_plan.Generic kind when Github_issue_actions.is_issue_action_kind kind
     ->
@@ -51,7 +56,7 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
          "github_action_workflow: unsupported apply kind for plan %s (receipt \
           %s); expected github_collab_action | github_request_reviewers | \
           github_submit_review | github_merge | github_issue_* | \
-          github_workflow_dispatch"
+          github_workflow_dispatch | github_code_work | github_pr_create"
          plan.id receipt_id)
   else Ok ()
 
@@ -93,11 +98,13 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(merge_pilot = Github_merge_action.default_pilot_gate)
     ?(issue_pilot = Github_issue_actions.default_pilot_gate)
     ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
+    ?(code_change_pilot = Github_code_change_action.default_pilot_gate)
     ?(user_auth_available = false) ?actor_key ?actor_snapshot
     ?account_binding_id ?session_id ?attribution_evidence
     ?(review_live = Review_attr.default_live_revalidation)
     ?(issue_live = Issue_attr.default_live_revalidation) ?merge_live
-    ?(workflow_live = Wd_attr.default_live_revalidation) ?github_user_id
+    ?(workflow_live = Wd_attr.default_live_revalidation)
+    ?(code_change_live = Code_attr.default_live_revalidation) ?github_user_id
     ?(now = Unix.gettimeofday ()) () =
   let plan_res =
     match action with
@@ -190,6 +197,36 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
         | None ->
             Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
               ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision
+              ?route ~now ())
+    | Code_work req -> (
+        match attribution_evidence with
+        | Some auth -> (
+            match
+              Code_attr.plan_with_attribution ~db ~principal ~room_id
+                ~family:(Code_attr.Code_work req) ~base_revision ~auth
+                ~live:code_change_live ~route ~pilot:code_change_pilot
+                ~user_auth_available ?actor_snapshot ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
+            Github_code_change_action.plan_code_work ~db ~principal ~room_id
+              ~pilot:code_change_pilot ~user_auth_available ~req ~base_revision
+              ?route ~now ())
+    | Pr_create req -> (
+        match attribution_evidence with
+        | Some auth -> (
+            match
+              Code_attr.plan_with_attribution ~db ~principal ~room_id
+                ~family:(Code_attr.Pr_create req) ~base_revision ~auth
+                ~live:code_change_live ~route ~pilot:code_change_pilot
+                ~user_auth_available ?actor_snapshot ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
+            Github_code_change_action.plan_pr_create ~db ~principal ~room_id
+              ~pilot:code_change_pilot ~user_auth_available ~req ~base_revision
               ?route ~now ())
   in
   match plan_res with
@@ -348,10 +385,33 @@ let maybe_workflow_dispatch_attribution_dispatch ~db ~plan ?attribution_live
             Wd_attr.revoke_issued_lease dispatched.issued;
             Ok (Some dispatched))
 
+(** When a code-work / PR-create plan carries staged attribution, revalidate
+    live evidence and issue an opaque user lease before receipt-only apply. *)
+let maybe_code_change_attribution_dispatch ~db ~plan ?attribution_live
+    ?(code_change_live = Code_attr.default_live_revalidation) ?vault_id
+    ?expected_account ?github_user_id ~now () =
+  if not (Code_attr.has_attribution_allow plan) then Ok None
+  else
+    match attribution_live with
+    | None ->
+        Error
+          "code-change plan has staged attribution_allow; apply requires \
+           attribution_live evidence for revalidation and dispatch lease"
+    | Some live_auth -> (
+        match
+          Code_attr.prepare_dispatch_from_plan ~db ~plan ~live_auth
+            ~live:code_change_live ?vault_id ?expected:expected_account
+            ?github_user_id ~now ()
+        with
+        | Error e -> Error e
+        | Ok dispatched ->
+            Code_attr.revoke_issued_lease dispatched.issued;
+            Ok (Some dispatched))
+
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
-    ?review_live ?issue_live ?workflow_live ?vault_id ?expected_account
-    ?github_user_id ?(now = Unix.gettimeofday ()) () =
+    ?review_live ?issue_live ?workflow_live ?code_change_live ?vault_id
+    ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
@@ -383,24 +443,31 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
                       ?expected_account ?github_user_id ~now ()
                   with
                   | Error msg -> Ok (reject_actor_attribution msg)
-                  | Ok _dispatched_opt ->
-                      (* Snapshot (when present) re-resolved; staged
-                         attribution dispatch revalidated. Proceed with
-                         receipt-only apply. *)
-                      let outcome =
-                        Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-                          ~current_base_revision ~destination_room ~now
-                          ~authority:authority_allow
-                          ~apply_ops:receipt_only_apply_ops ()
-                      in
-                      Ok
-                        (apply_outcome_with_correlation ~db ~plan ~now outcome)
-                  ))))
+                  | Ok _ -> (
+                      match
+                        maybe_code_change_attribution_dispatch ~db ~plan
+                          ?attribution_live ?code_change_live ?vault_id
+                          ?expected_account ?github_user_id ~now ()
+                      with
+                      | Error msg -> Ok (reject_actor_attribution msg)
+                      | Ok _dispatched_opt ->
+                          (* Snapshot (when present) re-resolved; staged
+                             attribution dispatch revalidated. Proceed with
+                             receipt-only apply. *)
+                          let outcome =
+                            Setup_plan_apply.apply ~db ~plan_id ~digest
+                              ~principal ~current_base_revision
+                              ~destination_room ~now ~authority:authority_allow
+                              ~apply_ops:receipt_only_apply_ops ()
+                          in
+                          Ok
+                            (apply_outcome_with_correlation ~db ~plan ~now
+                               outcome))))))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?attribution_live ?review_live
-    ?issue_live ?merge_live ?workflow_live ?vault_id ?expected_account
-    ?github_user_id ?(now = Unix.gettimeofday ()) () =
+    ?issue_live ?merge_live ?workflow_live ?code_change_live ?vault_id
+    ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
   Setup_plan_apply.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id with
   | None ->
@@ -450,4 +517,5 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
             apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
               ~current_base_revision ~destination_room ?current_target
               ?attribution_live ?review_live ?issue_live ?workflow_live
-              ?vault_id ?expected_account ?github_user_id ~now ())
+              ?code_change_live ?vault_id ?expected_account ?github_user_id ~now
+              ())

@@ -209,15 +209,19 @@ let runner_failure_message ~runner ~detail =
 
 let authorize_pilot_and_capability ~route ~pilot ~user_auth_available ~now
     ~action_label =
-  if (not pilot.enabled) || pilot_expired ~now pilot then
+  (* P21 production path (User_required): when user auth is available, route +
+     input checks alone authorize the plan; attribution authorize + user lease
+     at dispatch are required for execution (no App/PAT fallback). P19 App
+     pilot remains the only non-user path and is never a silent substitute. *)
+  let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+  if (not pilot_active) && not user_auth_available then
     Error (pilot_unavailable_reason ~pilot ~user_auth_available ~now)
   else
     match route with
     | None ->
         Error
           (Printf.sprintf
-             "no route available to authorize %s (capability extra %S \
-              required; pilot path only)"
+             "no route available to authorize %s (capability extra %S required)"
              action_label capability_key)
     | Some (r : t) ->
         if not (has_code_change_capability r.capability_policy) then
@@ -227,6 +231,10 @@ let authorize_pilot_and_capability ~route ~pilot ~user_auth_available ~now
                 (defaults off like allow_merge)"
                capability_key r.id action_label)
         else Ok ()
+
+let p21_user_path ~pilot ~user_auth_available ?(now = Unix.gettimeofday ()) () =
+  let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+  (not pilot_active) && user_auth_available
 
 let authorize_code_work ~route ~pilot ~user_auth_available
     ~(req : code_work_request) ?(now = Unix.gettimeofday ()) () =
@@ -422,11 +430,13 @@ let head_source_to_json = function
            | Some t when String.trim t = "" -> []
            | Some t -> [ ("finished_at", `String (String.trim t)) ]))
 
-let code_work_to_json ~(pilot : pilot_gate) ~(req : code_work_request) =
+let code_work_to_json ~(pilot : pilot_gate) ~(req : code_work_request) ~p21_user
+    =
   let prefix =
     let p = String.trim req.branch_prefix in
     if p = "" then default_branch_prefix else p
   in
+  let attribution_s = if p21_user then "User_required" else "App" in
   `Assoc
     (sort_assoc
        ([
@@ -438,9 +448,9 @@ let code_work_to_json ~(pilot : pilot_gate) ~(req : code_work_request) =
           ("output_authority", `String (String.trim req.output_authority));
           ("branch_prefix", `String prefix);
           ("pilot_name", `String pilot.pilot_name);
-          ("attribution", `String "App");
-          ("pilot_only", `Bool true);
-          ("production_ready", `Bool false);
+          ("attribution", `String attribution_s);
+          ("pilot_only", `Bool (not p21_user));
+          ("production_ready", `Bool p21_user);
           ("capability", `String capability_key);
         ]
        @ (match req.head_branch with
@@ -456,12 +466,14 @@ let code_work_to_json ~(pilot : pilot_gate) ~(req : code_work_request) =
        | None -> []
        | Some n -> [ ("related_issue", `Int n) ]))
 
-let pr_create_to_json ~(pilot : pilot_gate) ~(req : pr_create_request) =
+let pr_create_to_json ~(pilot : pilot_gate) ~(req : pr_create_request) ~p21_user
+    =
   let prefix =
     let p = String.trim req.branch_prefix in
     if p = "" then default_branch_prefix else p
   in
   let head = head_branch_of_source req.head in
+  let attribution_s = if p21_user then "User_required" else "App" in
   `Assoc
     (sort_assoc
        ([
@@ -474,9 +486,9 @@ let pr_create_to_json ~(pilot : pilot_gate) ~(req : pr_create_request) =
           ("branch_prefix", `String prefix);
           ("head_source", head_source_to_json req.head);
           ("pilot_name", `String pilot.pilot_name);
-          ("attribution", `String "App");
-          ("pilot_only", `Bool true);
-          ("production_ready", `Bool false);
+          ("attribution", `String attribution_s);
+          ("pilot_only", `Bool (not p21_user));
+          ("production_ready", `Bool p21_user);
           ("capability", `String capability_key);
           (* Correlation for webhook reconciliation (receipt ↔ PR opened). *)
           ("webhook_correlation", `String "pr_create");
@@ -502,6 +514,8 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
     with
     | Error e -> Error e
     | Ok () ->
+        let p21_user = p21_user_path ~pilot ~user_auth_available ~now () in
+        let attribution_s = if p21_user then "User_required" else "App" in
         let repo = String.trim req.repo_full_name in
         let base = String.trim req.base_branch in
         let scope = String.trim req.scope in
@@ -511,7 +525,7 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
           let p = String.trim req.branch_prefix in
           if p = "" then default_branch_prefix else p
         in
-        let action_json = code_work_to_json ~pilot ~req in
+        let action_json = code_work_to_json ~pilot ~req ~p21_user in
         let path = Printf.sprintf "github_code_work/%s@%s" repo base in
         let current_state =
           `Assoc
@@ -539,8 +553,8 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
                   ("pilot_name", `String pilot.pilot_name);
                   ("room_id", `String room_id);
                   ("status", `String "planned");
-                  ("attribution", `String "App");
-                  ("production_ready", `Bool false);
+                  ("attribution", `String attribution_s);
+                  ("production_ready", `Bool p21_user);
                 ]
                @
                match route with
@@ -551,21 +565,29 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
                      ("route_revision", `String r.revision);
                    ]))
         in
+        let plan_note =
+          if p21_user then
+            Printf.sprintf
+              "User_required code-changing work on %s base %s (scope: %s; \
+               runner: %s; output_authority: %s; branch_prefix: %s). Fresh \
+               confirmation and current Principal user lease required at \
+               dispatch via Github_code_change_attribution. Confirm before \
+               apply. No live runner dispatch or GitHub mutation at plan time. \
+               Personal token never reaches runner/shell/Git transport."
+              repo base scope runner authority prefix
+          else
+            Printf.sprintf
+              "High-risk App-attributed code-changing work on %s base %s under \
+               pilot %S (scope: %s; runner: %s; output_authority: %s; \
+               branch_prefix: %s). Fresh confirmation required. Not \
+               production-ready (P21 User_required pending). No live runner \
+               dispatch or GitHub mutation at plan time."
+              repo base pilot.pilot_name scope runner authority prefix
+        in
         let diff =
           [
             Setup_plan.Create { path; value = action_json };
-            Setup_plan.Note
-              {
-                path;
-                message =
-                  Printf.sprintf
-                    "High-risk App-attributed code-changing work on %s base %s \
-                     under pilot %S (scope: %s; runner: %s; output_authority: \
-                     %s; branch_prefix: %s). Fresh confirmation required. Not \
-                     production-ready (P21 User_required pending). No live \
-                     runner dispatch or GitHub mutation at plan time."
-                    repo base pilot.pilot_name scope runner authority prefix;
-              };
+            Setup_plan.Note { path; message = plan_note };
           ]
         in
         let readiness =
@@ -578,7 +600,8 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
             {
               name = "pilot";
               status = Setup_plan.Pass;
-              message = pilot.pilot_name;
+              message =
+                (if p21_user then "p21_user_required" else pilot.pilot_name);
             };
             {
               name = "repo_full_name";
@@ -599,15 +622,26 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
               message = prefix;
             };
             {
-              name = "not_production_ready";
+              name =
+                (if p21_user then "production_ready" else "not_production_ready");
               status = Setup_plan.Pass;
-              message = "P19 pilot only; production waits for P21 User_required";
+              message =
+                (if p21_user then
+                   "P21 User_required; opaque user lease at dispatch"
+                 else "P19 pilot only; production waits for P21 User_required");
             };
             {
               name = "no_live_mutation";
               status = Setup_plan.Pass;
               message =
                 "plan only; live runner/GitHub write requires confirm/apply";
+            };
+            {
+              name = "token_isolation";
+              status = Setup_plan.Pass;
+              message =
+                "personal token never on runner/shell/prompt/worktree/Git \
+                 transport/scheduled ambient work";
             };
           ]
         in
@@ -649,7 +683,7 @@ let plan_code_work ~db ~principal ~room_id ~pilot ~user_auth_available
                  ("branch_prefix", `String prefix);
                  ("pilot_name", `String pilot.pilot_name);
                  ("capability", `String capability_key);
-                 ("production_ready", `Bool false);
+                 ("production_ready", `Bool p21_user);
                  ("webhook_correlation", `String "code_work");
                ])
         in
@@ -673,6 +707,8 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
     with
     | Error e -> Error e
     | Ok () ->
+        let p21_user = p21_user_path ~pilot ~user_auth_available ~now () in
+        let attribution_s = if p21_user then "User_required" else "App" in
         let repo = String.trim req.repo_full_name in
         let base = String.trim req.base_branch in
         let title = String.trim req.title in
@@ -681,7 +717,7 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
           let p = String.trim req.branch_prefix in
           if p = "" then default_branch_prefix else p
         in
-        let action_json = pr_create_to_json ~pilot ~req in
+        let action_json = pr_create_to_json ~pilot ~req ~p21_user in
         let path = Printf.sprintf "github_pr_create/%s/%s->%s" repo head base in
         let current_state =
           `Assoc
@@ -711,8 +747,8 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
                   ("pilot_name", `String pilot.pilot_name);
                   ("room_id", `String room_id);
                   ("status", `String "planned");
-                  ("attribution", `String "App");
-                  ("production_ready", `Bool false);
+                  ("attribution", `String attribution_s);
+                  ("production_ready", `Bool p21_user);
                   ("webhook_correlation", `String "pr_create");
                 ]
                @
@@ -730,21 +766,29 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
           | Confirmed_code_work { code_work_plan_id; _ } ->
               Printf.sprintf "confirmed code-work plan %s" code_work_plan_id
         in
+        let plan_note =
+          if p21_user then
+            Printf.sprintf
+              "User_required constrained PR creation on %s (%s → %s, title %S, \
+               draft=%b) from %s; revalidate head/base immediately before \
+               dispatch. Current Principal user lease required via \
+               Github_code_change_attribution. Confirm before apply. No live \
+               GitHub mutation at plan time. Personal token never reaches \
+               runner/shell/Git transport."
+              repo head base title req.draft source_note
+          else
+            Printf.sprintf
+              "High-risk App-attributed constrained PR creation on %s (%s → \
+               %s, title %S, draft=%b) under pilot %S from %s; revalidate \
+               head/base immediately before dispatch. Confirm before apply. \
+               Not production-ready (P21 User_required pending). No live \
+               GitHub mutation at plan time."
+              repo head base title req.draft pilot.pilot_name source_note
+        in
         let diff =
           [
             Setup_plan.Create { path; value = action_json };
-            Setup_plan.Note
-              {
-                path;
-                message =
-                  Printf.sprintf
-                    "High-risk App-attributed constrained PR creation on %s \
-                     (%s → %s, title %S, draft=%b) under pilot %S from %s; \
-                     revalidate head/base immediately before dispatch. Confirm \
-                     before apply. Not production-ready (P21 User_required \
-                     pending). No live GitHub mutation at plan time."
-                    repo head base title req.draft pilot.pilot_name source_note;
-              };
+            Setup_plan.Note { path; message = plan_note };
           ]
         in
         let readiness =
@@ -757,7 +801,8 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
             {
               name = "pilot";
               status = Setup_plan.Pass;
-              message = pilot.pilot_name;
+              message =
+                (if p21_user then "p21_user_required" else pilot.pilot_name);
             };
             {
               name = "repo_full_name";
@@ -781,15 +826,26 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
                 | Confirmed_code_work _ -> "confirmed_code_work");
             };
             {
-              name = "not_production_ready";
+              name =
+                (if p21_user then "production_ready" else "not_production_ready");
               status = Setup_plan.Pass;
-              message = "P19 pilot only; production waits for P21 User_required";
+              message =
+                (if p21_user then
+                   "P21 User_required; opaque user lease at dispatch"
+                 else "P19 pilot only; production waits for P21 User_required");
             };
             {
               name = "no_live_mutation";
               status = Setup_plan.Pass;
               message =
                 "plan only; live GitHub PR create requires confirm/apply";
+            };
+            {
+              name = "token_isolation";
+              status = Setup_plan.Pass;
+              message =
+                "personal token never on runner/shell/prompt/worktree/Git \
+                 transport/scheduled ambient work";
             };
           ]
         in
@@ -833,7 +889,7 @@ let plan_pr_create ~db ~principal ~room_id ~pilot ~user_auth_available
                   ("branch_prefix", `String prefix);
                   ("pilot_name", `String pilot.pilot_name);
                   ("capability", `String capability_key);
-                  ("production_ready", `Bool false);
+                  ("production_ready", `Bool p21_user);
                   ("webhook_correlation", `String "pr_create");
                 ]
                @

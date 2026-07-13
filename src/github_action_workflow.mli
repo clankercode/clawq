@@ -1,16 +1,16 @@
 (** Shared revision-bound plan → confirm → apply for GitHub mutating actions
-    (P19.M4.E2.T001 / T003 / T005 / T006; actor attribution P21.M1.E3.T002; P21
-    collab/PR/issue/workflow_dispatch/merge attribution P21.M3.E3.T001 / T002 /
-    T006 / T007 / T009).
+    (P19.M4.E2.T001 / T003 / T005 / T006 / T007; actor attribution
+    P21.M1.E3.T002; P21 collab/PR/issue/workflow_dispatch/code_change/merge
+    attribution P21.M3.E3.T001 / T002 / T006 / T007 / T008 / T009).
 
     Unifies collab (comment / label / assign), PR review (request_reviewers /
     submit_review), independently gated merge, Issue create/open/close/reopen,
-    and typed workflow_dispatch into one preview/confirm/apply path over
-    [Setup_plan] + [Setup_plan_apply]. Preview authorizes and stores a pending
-    plan that shows target and effects; apply rechecks digest, principal,
-    expiry, and [base_revision], then records a receipt only (no live GitHub
-    mutation in this task). Merge may also revalidate a fresh [live_policy] when
-    supplied.
+    typed workflow_dispatch, and code work / constrained PR creation into one
+    preview/confirm/apply path over [Setup_plan] + [Setup_plan_apply]. Preview
+    authorizes and stores a pending plan that shows target and effects; apply
+    rechecks digest, principal, expiry, and [base_revision], then records a
+    receipt only (no live GitHub mutation in this task). Merge may also
+    revalidate a fresh [live_policy] when supplied.
 
     When [actor_key] or [actor_snapshot] is supplied at preview, an immutable
     [Actor_snapshot] is pinned onto the plan (intent / confirmation envelope).
@@ -31,11 +31,14 @@
     - merge → [Github_merge_attribution] (User_required critical; live merge
       policy revalidation)
     - workflow_dispatch → [Github_workflow_dispatch_attribution] (User_required)
+    - code work / constrained PR create → [Github_code_change_attribution]
+      (User_required; live refs / result revalidation)
 
     Apply then requires matching [attribution_live] (plus [review_live] /
-    [issue_live] / [workflow_live] / [merge_live] or [current_merge_policy]
-    where applicable) to revalidate, issue an opaque lease, and record a native
-    attribution receipt before the Setup_plan apply receipt.
+    [issue_live] / [workflow_live] / [code_change_live] / [merge_live] or
+    [current_merge_policy] where applicable) to revalidate, issue an opaque
+    lease, and record a native attribution receipt before the Setup_plan apply
+    receipt.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md, and
@@ -51,6 +54,8 @@ type action_kind =
     }
   | Issue of Github_issue_actions.action
   | Workflow_dispatch of Github_workflow_dispatch.request
+  | Code_work of Github_code_change_action.code_work_request
+  | Pr_create of Github_code_change_action.pr_create_request
 
 val preview :
   db:Sqlite3.db ->
@@ -63,6 +68,7 @@ val preview :
   ?merge_pilot:Github_merge_action.pilot_gate ->
   ?issue_pilot:Github_issue_actions.pilot_gate ->
   ?workflow_pilot:Github_workflow_dispatch.pilot_gate ->
+  ?code_change_pilot:Github_code_change_action.pilot_gate ->
   ?user_auth_available:bool ->
   ?actor_key:Principal_identity.connector_actor_key ->
   ?actor_snapshot:Actor_snapshot.t ->
@@ -73,6 +79,7 @@ val preview :
   ?issue_live:Github_issue_attribution.live_revalidation ->
   ?merge_live:Github_merge_attribution.live_revalidation ->
   ?workflow_live:Github_workflow_dispatch_attribution.live_revalidation ->
+  ?code_change_live:Github_code_change_attribution.live_revalidation ->
   ?github_user_id:int64 ->
   ?now:float ->
   unit ->
@@ -88,13 +95,14 @@ val preview :
     context only.
 
     Optional [attribution_evidence] stages family-specific P21 attribution
-    (collab / PR review / issue / workflow_dispatch / merge). [review_live],
-    [issue_live], [workflow_live], and [merge_live] supply live revalidation
-    inputs for those families.
+    (collab / PR review / issue / workflow_dispatch / code_change / merge).
+    [review_live], [issue_live], [workflow_live], [code_change_live], and
+    [merge_live] supply live revalidation inputs for those families.
 
     [pilot] gates PR submit_review; [merge_pilot] gates merge; [issue_pilot]
-    gates Issue create/lifecycle; [workflow_pilot] gates workflow_dispatch. All
-    high-risk pilots default off. *)
+    gates Issue create/lifecycle; [workflow_pilot] gates workflow_dispatch;
+    [code_change_pilot] gates code work / PR create. All high-risk pilots
+    default off. *)
 
 val apply_confirmed :
   db:Sqlite3.db ->
@@ -109,6 +117,7 @@ val apply_confirmed :
   ?issue_live:Github_issue_attribution.live_revalidation ->
   ?merge_live:Github_merge_attribution.live_revalidation ->
   ?workflow_live:Github_workflow_dispatch_attribution.live_revalidation ->
+  ?code_change_live:Github_code_change_attribution.live_revalidation ->
   ?vault_id:string ->
   ?expected_account:Github_user_token_vault.account_key ->
   ?github_user_id:int64 ->
@@ -134,8 +143,10 @@ val apply_confirmed :
 
 val is_github_action_plan : Setup_plan.t -> bool
 (** True when [apply_payload.kind] is a GitHub collab / request_reviewers /
-    submit_review / merge / github_issue_* / workflow_dispatch generic kind. *)
+    submit_review / merge / github_issue_* / workflow_dispatch /
+    github_code_work / github_pr_create generic kind. *)
 
 val action_kind_label : action_kind -> string
 (** Short stable label for diagnostics: ["collab"], ["request_reviewers"],
-    ["submit_review"], ["merge"], ["issue"], or ["workflow_dispatch"]. *)
+    ["submit_review"], ["merge"], ["issue"], ["workflow_dispatch"],
+    ["code_work"], or ["pr_create"]. *)
