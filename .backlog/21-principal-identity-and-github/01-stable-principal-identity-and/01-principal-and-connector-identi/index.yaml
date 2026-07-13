@@ -104,7 +104,7 @@ tasks:
       file: T009-fail-closed-for-web-cli-and-di.todo
       id: T009
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Fail closed for web CLI and direct-session Principal bootstrap
     - complexity: high
