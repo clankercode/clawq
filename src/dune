@@ -200,6 +200,7 @@
   github_teams_card_render
   github_plain_delivery_render
   github_item_context_resolve
+  github_collab_grounding
   github_auth_selection
   credential_lease
   skills
