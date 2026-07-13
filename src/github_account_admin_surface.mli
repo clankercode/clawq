@@ -294,7 +294,9 @@ val confirm_actor_unlink :
   ?now:float ->
   unit ->
   (U.split_plan, string) result
-(** Planned → Confirmed. Admin plans require the surface admin principal. *)
+(** Planned → Confirmed. The supplied surface must match the durable plan:
+    self-service requires its own source Principal and no admin binding; admin
+    requires both the plan's admin and subject Principals. *)
 
 val apply_actor_unlink :
   db:Sqlite3.db ->
@@ -305,8 +307,9 @@ val apply_actor_unlink :
   ?now:float ->
   unit ->
   U.apply_status
-(** Apply a Confirmed plan. Invalidates pending auth and leases immediately;
-    historical actor snapshots remain immutable. *)
+(** Apply a Confirmed plan only when the supplied surface matches the durable
+    plan's self-service or admin+subject binding. Invalidates pending auth and
+    leases immediately; historical actor snapshots remain immutable. *)
 
 val actor_unlink_self_service :
   db:Sqlite3.db ->

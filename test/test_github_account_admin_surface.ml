@@ -474,8 +474,12 @@ let test_admin_actor_unlink_plan_confirm_apply () =
   with_db @@ fun db ->
   seed_principal ~db ~id:"prin_src" ();
   seed_principal ~db ~id:"prin_admin" ();
+  seed_principal ~db ~id:"prin_intruder" ();
+  seed_principal ~db ~id:"prin_other_subject" ();
   let src = pid "prin_src" in
   let admin = pid "prin_admin" in
+  let intruder = pid "prin_intruder" in
+  let other_subject = pid "prin_other_subject" in
   let k_keep = actor_key ~user:"keep2" () in
   let k_split = actor_key ~connector:P.Discord ~tenant:"g" ~user:"split2" () in
   seed_owned_actor ~db ~principal_id:src ~key:k_keep ~link_id:"lk_keep" ();
@@ -487,6 +491,19 @@ let test_admin_actor_unlink_plan_confirm_apply () =
     assert_ok
       (Surf.make_admin ~admin_principal_id:admin ~subject_principal_id:src
          ~reason:"account takeover repair" ())
+  in
+  let source_self_service =
+    assert_ok (Surf.make_self_service ~principal_id:src ())
+  in
+  let wrong_admin_surface =
+    assert_ok
+      (Surf.make_admin ~admin_principal_id:intruder ~subject_principal_id:src
+         ~reason:"wrong operator" ())
+  in
+  let wrong_subject_surface =
+    assert_ok
+      (Surf.make_admin ~admin_principal_id:admin
+         ~subject_principal_id:other_subject ~reason:"wrong subject" ())
   in
   (* Admin one-shot is refused. *)
   (match
@@ -513,6 +530,36 @@ let test_admin_actor_unlink_plan_confirm_apply () =
   Alcotest.(check bool)
     "export has no vault tokens" false
     (Surf.json_contains_plaintext ~json:plan_json ~plaintext:"ghu_");
+  (* A plan id and digest are not authority. The surface must remain bound to
+     the exact admin + subject that created this revision-bound plan. *)
+  (match
+     Surf.confirm_actor_unlink ~db ~surface:source_self_service
+       ~plan_id:surf_plan.plan.id ~presented_digest:surf_plan.plan.digest
+       ~now:(fixed_now +. 1.) ()
+   with
+  | Error reason ->
+      Alcotest.(check bool)
+        "self-service cannot confirm admin plan" true
+        (String_util.contains reason "self-service surface")
+  | Ok _ -> Alcotest.fail "self-service must not confirm admin plan");
+  (match
+     Surf.confirm_actor_unlink ~db ~surface:wrong_admin_surface
+       ~plan_id:surf_plan.plan.id ~presented_digest:surf_plan.plan.digest
+       ~now:(fixed_now +. 1.) ()
+   with
+  | Error reason ->
+      Alcotest.(check bool) "wrong admin refused" true
+        (String_util.contains reason "admin principal")
+  | Ok _ -> Alcotest.fail "wrong admin must not confirm plan");
+  (match
+     Surf.confirm_actor_unlink ~db ~surface:wrong_subject_surface
+       ~plan_id:surf_plan.plan.id ~presented_digest:surf_plan.plan.digest
+       ~now:(fixed_now +. 1.) ()
+   with
+  | Error reason ->
+      Alcotest.(check bool) "wrong subject refused" true
+        (String_util.contains reason "subject principal")
+  | Ok _ -> Alcotest.fail "wrong subject must not confirm plan");
   let confirmed =
     assert_ok
       (Surf.confirm_actor_unlink ~db ~surface ~plan_id:surf_plan.plan.id
@@ -522,6 +569,14 @@ let test_admin_actor_unlink_plan_confirm_apply () =
     "confirmed"
     (U.string_of_plan_status U.Confirmed)
     (U.string_of_plan_status confirmed.status);
+  (match
+     Surf.apply_actor_unlink ~db ~surface:wrong_admin_surface
+       ~plan_id:surf_plan.plan.id ~now:(fixed_now +. 2.) ()
+   with
+  | U.Refused { reason; _ } ->
+      Alcotest.(check bool) "wrong admin cannot apply" true
+        (String_util.contains reason "admin principal")
+  | _ -> Alcotest.fail "wrong admin must not apply plan");
   match
     Surf.apply_actor_unlink ~db ~surface ~plan_id:surf_plan.plan.id
       ~now:(fixed_now +. 2.) ()

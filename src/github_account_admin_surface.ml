@@ -908,23 +908,59 @@ let plan_actor_unlink ~db ~surface ~actor_key ?(ownership = U.Retain_on_source)
                   hard_conflicts = conflicts_of_preview plan.preview;
                 }))
 
+let require_actor_unlink_plan_surface ~db ~surface ~plan_id =
+  match U.get_split_plan ~db ~id:plan_id with
+  | Error e -> Error e
+  | Ok None -> Error (Printf.sprintf "split plan not found: %s" plan_id)
+  | Ok (Some plan) -> (
+      match surface with
+      | Self_service { principal_id } ->
+          if Option.is_some plan.admin_principal_id then
+            Error
+              "self-service surface cannot confirm or apply an admin split plan"
+          else if not (P.principal_id_equal plan.source_principal_id principal_id)
+          then
+            Error
+              "self-service surface does not match the split plan source \
+               principal"
+          else Ok plan
+      | Admin { admin_principal_id; subject_principal_id; _ } -> (
+          match plan.admin_principal_id with
+          | None ->
+              Error "admin surface cannot confirm or apply a self-service split plan"
+          | Some planned_admin ->
+              if not (P.principal_id_equal planned_admin admin_principal_id) then
+                Error
+                  "admin surface does not match the split plan admin principal"
+              else if
+                not
+                  (P.principal_id_equal plan.source_principal_id
+                     subject_principal_id)
+              then
+                Error
+                  "admin surface does not match the split plan subject principal"
+              else Ok plan))
+
 let confirm_actor_unlink ~db ~surface ~plan_id ~presented_digest
     ?(now = Unix.gettimeofday ()) () =
-  let confirming_principal =
-    match surface with
-    | Self_service { principal_id } -> Some principal_id
-    | Admin { admin_principal_id; _ } -> Some admin_principal_id
-  in
-  U.confirm_split_plan ~db ~id:plan_id ~presented_digest ?confirming_principal
-    ~now ()
+  match require_actor_unlink_plan_surface ~db ~surface ~plan_id with
+  | Error e -> Error e
+  | Ok _ ->
+      let confirming_principal =
+        match surface with
+        | Self_service { principal_id } -> Some principal_id
+        | Admin { admin_principal_id; _ } -> Some admin_principal_id
+      in
+      U.confirm_split_plan ~db ~id:plan_id ~presented_digest
+        ?confirming_principal ~now ()
 
 let apply_actor_unlink ~db ~surface ~plan_id ?expected_source_revision
     ?expected_actor_revision ?(now = Unix.gettimeofday ()) () =
-  (* Surface is accepted for API symmetry / future ACL; apply is driven by the
-     durable plan's revision bindings. *)
-  let _ = surface in
-  U.apply_split_plan ~db ~id:plan_id ?expected_source_revision
-    ?expected_actor_revision ~now ()
+  match require_actor_unlink_plan_surface ~db ~surface ~plan_id with
+  | Error reason -> U.Refused { reason; conflicts = []; preview = None }
+  | Ok _ ->
+      U.apply_split_plan ~db ~id:plan_id ?expected_source_revision
+        ?expected_actor_revision ~now ()
 
 let actor_unlink_self_service ~db ~surface ~actor_key
     ?(ownership = U.Retain_on_source) ?expected_source_revision
