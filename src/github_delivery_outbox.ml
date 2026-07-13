@@ -436,34 +436,65 @@ let mark_failure ~db ~id ~error ?(now = Unix.gettimeofday ())
                   (Printf.sprintf "mark_failure retry failed: %s (%s)"
                      (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
 
-let list_dead_letters ~db ?(limit = 100) () =
+let list_dead_letters ~db ?room_id ?(limit = 100) () =
   ensure_schema db;
   let limit = max 1 limit in
-  let sql =
-    Printf.sprintf
-      {|SELECT %s FROM github_delivery_outbox
-        WHERE status = 'dead_letter'
-        ORDER BY dead_lettered_at DESC, id DESC
-        LIMIT ?|}
-      select_columns
-  in
-  let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int limit)));
-  let rec collect acc =
-    match Sqlite3.step stmt with
-    | Sqlite3.Rc.ROW -> (
-        match entry_of_stmt stmt with
-        | Ok e -> collect (e :: acc)
-        | Error e -> Error e)
-    | Sqlite3.Rc.DONE -> Ok (List.rev acc)
-    | rc ->
-        Error
-          (Printf.sprintf "list_dead_letters failed: %s (%s)"
-             (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
-  in
-  let result = collect [] in
-  ignore (Sqlite3.finalize stmt);
-  result
+  match room_id with
+  | None ->
+      let sql =
+        Printf.sprintf
+          {|SELECT %s FROM github_delivery_outbox
+            WHERE status = 'dead_letter'
+            ORDER BY dead_lettered_at DESC, id DESC
+            LIMIT ?|}
+          select_columns
+      in
+      let stmt = Sqlite3.prepare db sql in
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int limit)));
+      let rec collect acc =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match entry_of_stmt stmt with
+            | Ok e -> collect (e :: acc)
+            | Error e -> Error e)
+        | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+        | rc ->
+            Error
+              (Printf.sprintf "list_dead_letters failed: %s (%s)"
+                 (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+      in
+      let result = collect [] in
+      ignore (Sqlite3.finalize stmt);
+      result
+  | Some room_id ->
+      if String.trim room_id = "" then Error "room_id must be non-empty"
+      else
+        let sql =
+          Printf.sprintf
+            {|SELECT %s FROM github_delivery_outbox
+              WHERE status = 'dead_letter' AND room_id = ?
+              ORDER BY dead_lettered_at DESC, id DESC
+              LIMIT ?|}
+            select_columns
+        in
+        let stmt = Sqlite3.prepare db sql in
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
+        let rec collect acc =
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW -> (
+              match entry_of_stmt stmt with
+              | Ok e -> collect (e :: acc)
+              | Error e -> Error e)
+          | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+          | rc ->
+              Error
+                (Printf.sprintf "list_dead_letters failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+        in
+        let result = collect [] in
+        ignore (Sqlite3.finalize stmt);
+        result
 
 let count_open_for_item ~db ~room_id ~item_key =
   ensure_schema db;
@@ -534,3 +565,89 @@ let supersede_pending_for_item ~db ~room_id ~item_key =
         Error
           (Printf.sprintf "supersede_pending_for_item failed: %s (%s)"
              (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+
+let count_status ~db ~status ?room_id () =
+  ensure_schema db;
+  let status_s = string_of_status status in
+  match room_id with
+  | None ->
+      let sql =
+        {|SELECT COUNT(*) FROM github_delivery_outbox WHERE status = ?|}
+      in
+      let stmt = Sqlite3.prepare db sql in
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status_s));
+      let result =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> Ok (int_col stmt 0)
+        | rc ->
+            Error
+              (Printf.sprintf "count_status failed: %s (%s)"
+                 (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+      in
+      ignore (Sqlite3.finalize stmt);
+      result
+  | Some room_id ->
+      if String.trim room_id = "" then Error "room_id must be non-empty"
+      else
+        let sql =
+          {|SELECT COUNT(*) FROM github_delivery_outbox
+            WHERE status = ? AND room_id = ?|}
+        in
+        let stmt = Sqlite3.prepare db sql in
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status_s));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT room_id));
+        let result =
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW -> Ok (int_col stmt 0)
+          | rc ->
+              Error
+                (Printf.sprintf "count_status failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+        in
+        ignore (Sqlite3.finalize stmt);
+        result
+
+let oldest_pending_created_at ~db ?room_id () =
+  ensure_schema db;
+  match room_id with
+  | None ->
+      let sql =
+        {|SELECT created_at FROM github_delivery_outbox
+          WHERE status = 'pending'
+          ORDER BY created_at ASC, id ASC
+          LIMIT 1|}
+      in
+      let stmt = Sqlite3.prepare db sql in
+      let result =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> Ok (Some (text_col stmt 0))
+        | Sqlite3.Rc.DONE -> Ok None
+        | rc ->
+            Error
+              (Printf.sprintf "oldest_pending_created_at failed: %s (%s)"
+                 (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+      in
+      ignore (Sqlite3.finalize stmt);
+      result
+  | Some room_id ->
+      if String.trim room_id = "" then Error "room_id must be non-empty"
+      else
+        let sql =
+          {|SELECT created_at FROM github_delivery_outbox
+            WHERE status = 'pending' AND room_id = ?
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1|}
+        in
+        let stmt = Sqlite3.prepare db sql in
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+        let result =
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW -> Ok (Some (text_col stmt 0))
+          | Sqlite3.Rc.DONE -> Ok None
+          | rc ->
+              Error
+                (Printf.sprintf "oldest_pending_created_at failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+        in
+        ignore (Sqlite3.finalize stmt);
+        result
