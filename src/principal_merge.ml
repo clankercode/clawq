@@ -215,45 +215,16 @@ let detect_account_conflicts ~(survivor_accounts : external_account list)
     [] loser_accounts
 
 module GHB = Github_account_binding
+module GHop = Github_account_ownership_policy
 
 let detect_github_binding_conflicts ~(survivor_bindings : GHB.binding list)
     ~(loser_bindings : GHB.binding list) =
-  let survivor_by_identity =
-    List.fold_left
-      (fun acc (b : GHB.binding) ->
-        (GHB.account_identity_key b.identity, b) :: acc)
-      [] survivor_bindings
-  in
-  let survivor_slots =
-    List.fold_left
-      (fun acc (b : GHB.binding) ->
-        (GHB.uniqueness_domain b.identity, b) :: acc)
-      [] survivor_bindings
-  in
-  List.fold_left
-    (fun conflicts (lb : GHB.binding) ->
-      let idk = GHB.account_identity_key lb.identity in
-      match List.assoc_opt idk survivor_by_identity with
-      | Some _ -> conflicts (* identical host/app/user: coalesce *)
-      | None -> (
-          match
-            List.assoc_opt (GHB.uniqueness_domain lb.identity) survivor_slots
-          with
-          | None -> conflicts
-          | Some sb ->
-              External_account_collision
-                {
-                  uniqueness_domain = GHB.uniqueness_domain lb.identity;
-                  summary =
-                    Printf.sprintf
-                      "exclusive GitHub slot %s: survivor holds user %Ld, \
-                       loser holds distinct user %Ld (refuse silent credential \
-                       overwrite)"
-                      (GHB.uniqueness_domain lb.identity)
-                      sb.identity.github_user_id lb.identity.github_user_id;
-                }
-              :: conflicts))
-    [] loser_bindings
+  (* P21.M1.E2.T002: single ownership policy for exclusive host/App slots. *)
+  List.map
+    (fun (c : GHop.merge_conflict) ->
+      External_account_collision
+        { uniqueness_domain = c.uniqueness_domain; summary = c.summary })
+    (GHop.detect_merge_conflicts ~survivor_bindings ~loser_bindings)
 
 let build_preference_resolutions ~(survivor_prefs : preference list)
     ~(loser_prefs : preference list) =

@@ -118,6 +118,8 @@ let () =
        ("principal_link_exec", Test_principal_link_exec.suite);
        ("principal_merge", Test_principal_merge.suite);
        ("github_account_binding", Test_github_account_binding.suite);
+       ( "github_account_ownership_policy",
+         Test_github_account_ownership_policy.suite );
        ("principal_unlink_split", Test_principal_unlink_split.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);

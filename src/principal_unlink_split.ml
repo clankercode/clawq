@@ -1160,19 +1160,28 @@ let build_preview ~db ~source_principal_id ~actor_key
                     M.list_preferences ~db ~principal_id:source_principal_id,
                     M.get_pending_authorization_count ~db
                       ~principal_id:source_principal_id,
-                    list_account_leases ~db ~principal_id:source_principal_id )
+                    list_account_leases ~db ~principal_id:source_principal_id,
+                    Github_account_binding.list_for_principal ~db
+                      ~principal_id:source_principal_id )
                 with
-                | Error e, _, _, _
-                | _, Error e, _, _
-                | _, _, Error e, _
-                | _, _, _, Error e ->
+                | Error e, _, _, _, _
+                | _, Error e, _, _, _
+                | _, _, Error e, _, _
+                | _, _, _, Error e, _
+                | _, _, _, _, Error e ->
                     Error e
-                | Ok accounts, Ok prefs, Ok pending, Ok leases ->
+                | Ok accounts, Ok prefs, Ok pending, Ok leases, Ok gh_bindings
+                  ->
                     let all_acc_ids =
                       List.map (fun (a : M.external_account) -> a.id) accounts
                     in
                     let all_pref_keys =
                       List.map (fun (p : M.preference) -> p.key) prefs
+                    in
+                    let gh_binding_ids =
+                      List.map
+                        (fun (b : Github_account_binding.binding) -> b.id)
+                        gh_bindings
                     in
                     let rebind_acc, rebind_pref, conflicts =
                       match ownership with
@@ -1218,9 +1227,40 @@ let build_preview ~db ~source_principal_id ~actor_key
                                        }))
                               preference_keys
                           in
+                          (* P21.M1.E2.T002: refuse any attempt to rebind a
+                             live GitHub account binding on split. *)
+                          let gh_requested =
+                            List.filter
+                              (fun id ->
+                                List.exists (String.equal id) gh_binding_ids)
+                              account_ids
+                          in
+                          let gh_conflicts =
+                            match
+                              Github_account_ownership_policy
+                              .evaluate_split_ownership ~db ~source_principal_id
+                                ~requested_binding_ids:gh_requested ()
+                            with
+                            | Ok
+                                (Github_account_ownership_policy.Split_refuse
+                                   { conflicts = cs; _ }) ->
+                                List.map
+                                  (fun (c :
+                                         Github_account_ownership_policy
+                                         .split_conflict) ->
+                                    Other
+                                      {
+                                        code = "github_binding_split_refuse";
+                                        summary = c.summary;
+                                      })
+                                  cs
+                            | Ok (Github_account_ownership_policy.Split_ok _)
+                            | Error _ ->
+                                []
+                          in
                           ( account_ids,
                             preference_keys,
-                            acc_conflicts @ pref_conflicts )
+                            acc_conflicts @ pref_conflicts @ gh_conflicts )
                     in
                     let retained_acc =
                       List.filter
@@ -1253,6 +1293,9 @@ let build_preview ~db ~source_principal_id ~actor_key
                             "new principal starts empty unless explicit rebind";
                             "pending auth and account leases are invalidated";
                             "historical actor snapshots remain immutable";
+                            Printf.sprintf
+                              "github_bindings_retained_on_source=%d"
+                              (List.length gh_binding_ids);
                           ];
                       })))
 

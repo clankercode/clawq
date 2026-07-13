@@ -213,6 +213,7 @@
   test_principal_link_exec
   test_principal_merge
   test_github_account_binding
+  test_github_account_ownership_policy
   test_principal_unlink_split
   test_teams_principal_ingress
   test_slack_principal_ingress
