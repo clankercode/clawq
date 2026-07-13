@@ -137,7 +137,7 @@ let () =
        ("github_collab_actions", Test_github_collab_actions.suite);
        ("github_pr_review_actions", Test_github_pr_review_actions.suite);
        ("github_code_change", Test_github_code_change_action.suite);
-||||||| fdd10de5
+       ("github_room_background", Test_github_room_background_work.suite);
        ("github_merge_action", Test_github_merge_action.suite);
        ("github_issue_actions", Test_github_issue_actions.suite);
        ("github_workflow_dispatch", Test_github_workflow_dispatch.suite);
