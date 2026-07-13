@@ -450,6 +450,7 @@
   slack
   discord_api
   discord
+  discord_principal_ingress
   ws_client
   discord_gateway
   slack_socket
@@ -576,6 +577,7 @@
   mirage-crypto-rng
   mirage-crypto-rng.unix
   mirage-crypto-pk
+  mirage-crypto-ec
   x509
   kdf.pbkdf
   digestif.c

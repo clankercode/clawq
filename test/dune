@@ -195,6 +195,7 @@
   test_principal_bootstrap
   test_teams_principal_ingress
   test_slack_principal_ingress
+  test_discord_principal_ingress
   test_tool_authz
   test_tool_catalog
   test_tool_discovery
