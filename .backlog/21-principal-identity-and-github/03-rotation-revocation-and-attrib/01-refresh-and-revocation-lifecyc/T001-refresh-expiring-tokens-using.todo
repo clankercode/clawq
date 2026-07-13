@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T05:13:51Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:44Z"
@@ -9,10 +11,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M3.E1.T001
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T05:13:51Z"
+status: in_progress
 tags: []
 title: Refresh expiring tokens using server-returned lifetimes
-updated_at: "2026-07-12T14:52:44Z"
+updated_at: "2026-07-13T05:13:51Z"
 ---
 Acceptance: Lease acquisition refreshes only inside a documented skew, records returned access/refresh expiries, validates bearer type and empty scope, and uses the client-secret boundary without assumed lifetimes. Successful refresh advances credential generation within the same logical binding lineage so eligible pinned jobs can revalidate and continue without changing Principal/account/actor. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

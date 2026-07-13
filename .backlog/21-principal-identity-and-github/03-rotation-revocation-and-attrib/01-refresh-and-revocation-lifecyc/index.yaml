@@ -21,7 +21,7 @@ tasks:
       file: T001-refresh-expiring-tokens-using.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Refresh expiring tokens using server-returned lifetimes
     - complexity: high
