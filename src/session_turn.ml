@@ -149,6 +149,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?user_group ?channel ?channel_id
+    ?message_id
     ?on_tool_round_complete ?(io = buffered_turn_io) () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
@@ -265,6 +266,44 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
             (Session_core.runtime_context_details mgr ~agent ~key
                ~compacted_before_turn:compacted)
           ()
+      in
+      (* Grounding is deliberately runtime-only: [Agent_turn_core] injects this
+         into the outgoing provider request without adding it to history.  A
+         Room's GitHub journal must therefore never bleed into a later turn in
+         another Room (or into a resumed direct session). *)
+      let github_grounding =
+        match (mgr.Session_core.db, channel_id) with
+        | Some db, Some room_id when String.trim room_id <> "" -> (
+            let source =
+              match message_id with
+              | Some thread_ref when String.trim thread_ref <> "" ->
+                  Github_item_context_resolve.Thread_reply
+                    {
+                      room_id = String.trim room_id;
+                      thread_ref = Some (String.trim thread_ref);
+                      text = message;
+                    }
+              | None | Some _ ->
+                  Github_item_context_resolve.Room_mention
+                    {
+                      room_id = String.trim room_id;
+                      text = message;
+                      item_key_hint = None;
+                    }
+            in
+            match Github_collab_grounding.ground ~db ~source () with
+            | Ok grounding -> Some grounding.prompt_block
+            | Error err ->
+                Logs.warn (fun m ->
+                    m "GitHub Room grounding unavailable for this turn: %s" err);
+                None)
+        | _ -> None
+      in
+      let runtime_context =
+        match (runtime_context, github_grounding) with
+        | context, None -> context
+        | Some context, Some grounding -> Some (context ^ "\n\n" ^ grounding)
+        | None, Some grounding -> Some grounding
       in
       let prepared_history_len = List.length agent.history in
       Session_core.record_agent_turn mgr ~key ?channel ?channel_id ();
@@ -528,7 +567,8 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
               ?channel_name:queued.channel_name
               ?channel_type:queued.channel_type ?sender_id:queued.sender_id
               ?sender_name:queued.sender_name ?user_group:queued.user_group
-              ?channel:queued.channel ?channel_id:queued.channel_id ()
+              ?channel:queued.channel ?channel_id:queued.channel_id
+              ?message_id:queued.message_id ()
           in
           let* () = notify response in
           (match (queued.inbound_queue_id, mgr.Session_core.db) with
@@ -686,7 +726,8 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
                       run_locked_turn mgr ~key agent interrupt ~message
                         ~content_parts ~attachments ~skill_injections
                         ?channel_name ?channel_type ?sender_id ?sender_name
-                        ?user_group ?channel ?channel_id ?on_tool_round_complete
+                        ?user_group ?channel ?channel_id ?message_id
+                        ?on_tool_round_complete
                         ~io ()
                     in
                     (* Persist effective_cwd after turn (may have changed via

@@ -8,18 +8,22 @@
     typed workflow_dispatch, and code work / constrained PR creation into one
     preview/confirm/apply path over [Setup_plan] + [Setup_plan_apply]. Preview
     authorizes and stores a pending plan that shows target and effects; apply
-    rechecks digest, principal, expiry, and [base_revision], then records a
-    receipt only (no live GitHub mutation in this task). Merge may also
-    revalidate a fresh [live_policy] when supplied.
+    rechecks digest, principal, expiry, and [base_revision]. P19.M4.E1 collab,
+    reviewer, and Issue action kinds then fail closed because their live GitHub
+    REST mutation dispatcher is not implemented. Workflow dispatch and code
+    work / constrained PR creation retain their separately scoped attribution
+    dispatch and receipt/correlation paths; merge may also revalidate a fresh
+    [live_policy] when supplied.
 
     When [actor_key] or [actor_snapshot] is supplied at preview, an immutable
     [Actor_snapshot] is pinned onto the plan (intent / confirmation envelope).
     Confirm/apply re-resolves live Principal, identity link, and account
     lineage; actor, link, account, target, or policy changes invalidate
-    confirmation. Room history cannot supply identity. On first successful
-    apply, the initiating snapshot and requested/resolved attribution are
-    attached to a durable receipt correlation for webhook reconcile
-    (P21.M1.E3.T006); the snapshot is never reusable authority.
+    confirmation. Room history cannot supply identity. The P19.M4.E1 collab,
+    reviewer, and Issue apply path fails closed before dispatch, so it creates
+    neither an apply receipt nor a webhook correlation; the snapshot is never
+    reusable authority. This E1 boundary does not change the separately scoped
+    workflow-dispatch, code-work / PR-create, or merge paths.
 
     Optional [attribution_evidence] stages P21 attribution (authorize + audit
     preview + frozen prior Allow on the plan):
@@ -34,11 +38,11 @@
     - code work / constrained PR create → [Github_code_change_attribution]
       (User_required; live refs / result revalidation)
 
-    Apply then requires matching [attribution_live] (plus [review_live] /
-    [issue_live] / [workflow_live] / [code_change_live] / [merge_live] or
-    [current_merge_policy] where applicable) to revalidate, issue an opaque
-    lease, and record a native attribution receipt before the Setup_plan apply
-    receipt.
+    P19.M4.E1 collab, reviewer, and Issue apply keeps actor revalidation
+    side-effect-free and does not dispatch staged attribution, issue a lease,
+    or record a native attribution receipt before its fail-closed adapter.
+    Workflow dispatch and code work / PR create retain their separately scoped
+    attribution paths; merge retains its separate attribution path.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md, and
@@ -133,12 +137,14 @@ val apply_confirmed :
     live authority and optionally compares [current_target] before apply. Merge
     plans optionally revalidate [current_merge_policy].
 
-    Plans with staged [attribution_allow] require [attribution_live] (and
-    [vault_id] for User mode) plus family live revalidation to issue an opaque
-    lease and record a native attribution receipt before the Setup_plan apply
-    receipt. Merge attribution uses [merge_live] when provided, else
-    [current_merge_policy]. Returns [Error] only for structural issues (e.g.
-    missing destination room on the stored plan); domain rejects are
+    P19.M4.E1 collab, reviewer, and Issue plans with staged
+    [attribution_allow] do not dispatch that attribution while no live REST
+    action dispatcher exists: they fail closed without a lease, native
+    attribution receipt, apply receipt, or correlation. Workflow dispatch and
+    code-work / PR-create plans retain their existing separately scoped
+    attribution dispatch and receipt/correlation flow; merge retains its
+    separate [merge_live] path. Returns [Error] only for structural issues
+    (e.g. missing destination room on the stored plan); domain rejects are
     [Ok (Rejected _)]. *)
 
 val is_github_action_plan : Setup_plan.t -> bool

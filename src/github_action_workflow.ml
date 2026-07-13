@@ -47,8 +47,19 @@ let is_github_action_kind = function
 let is_github_action_plan (plan : Setup_plan.t) =
   is_github_action_kind plan.apply_payload.kind
 
-(** Receipt-only adapter: durable apply receipt is owned by Setup_plan_apply; no
-    live GitHub mutation until a later task wires real dispatch. *)
+let is_e1_fail_closed_kind = function
+  | Setup_plan.Generic
+      ( "github_collab_action" | "github_request_reviewers"
+      | "github_submit_review" ) ->
+      true
+  | Setup_plan.Generic kind when Github_issue_actions.is_issue_action_kind kind
+    ->
+      true
+  | _ -> false
+
+(** Ordinary P19 collaboration/review/issue actions have no live dispatcher.
+    Workflow and code-work paths retain their existing P21 attribution receipt
+    behavior until their separately scoped adapters change. *)
 let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
   if not (is_github_action_plan plan) then
     Error
@@ -58,6 +69,13 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
           github_submit_review | github_merge | github_issue_* | \
           github_workflow_dispatch | github_code_work | github_pr_create"
          plan.id receipt_id)
+  else if is_e1_fail_closed_kind plan.apply_payload.kind then
+    Error
+      (Printf.sprintf
+         "GitHub action apply is unavailable for plan %s: this pilot has no \
+          live GitHub REST dispatcher. The pending plan was not applied; no \
+         GitHub mutation, receipt, or webhook correlation was produced."
+         plan.id)
   else Ok ()
 
 let authority_allow ~principal:_ ~destination:_ = Ok ()
@@ -420,84 +438,56 @@ let maybe_code_change_attribution_dispatch ~db ~plan ?attribution_live
 
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
-    ?review_live ?issue_live ?workflow_live ?code_change_live ?vault_id
-    ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
+    ?review_live:_ ?issue_live:_ ?workflow_live ?code_change_live ?vault_id
+    ?expected_account ?github_user_id
+    ?(now = Unix.gettimeofday ()) () =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
   with
   | Error msg -> Ok (reject_actor_attribution msg)
+  | Ok _envelope_opt when is_e1_fail_closed_kind plan.apply_payload.kind ->
+      (* Attribution dispatch issues a native receipt/lease.  Until ordinary
+         P19 actions have a live REST dispatcher, that side effect would
+         falsely claim an apply that cannot occur.  Keep actor revalidation
+         side-effect-free and let the shared adapter reject before any receipt
+         or webhook correlation is created. *)
+      Ok
+        (Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+           ~current_base_revision ~destination_room ~now
+           ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ())
   | Ok _envelope_opt -> (
       match
-        maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
-          ?expected_account ?github_user_id ~now ()
+        maybe_workflow_dispatch_attribution_dispatch ~db ~plan
+          ?attribution_live ?workflow_live ?vault_id ?expected_account
+          ?github_user_id ~now ()
       with
       | Error msg -> Ok (reject_actor_attribution msg)
-      | Ok collab_d -> (
-          let attr_receipt_id =
-            Option.map (fun d -> d.Collab_attr.receipt.id) collab_d
+      | Ok workflow_d -> (
+          let attribution_receipt_id =
+            Option.map (fun d -> d.Wd_attr.receipt.id) workflow_d
           in
           match
-            maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
-              ?review_live ?vault_id ?expected_account ?github_user_id ~now ()
+            maybe_code_change_attribution_dispatch ~db ~plan
+              ?attribution_live ?code_change_live ?vault_id ?expected_account
+              ?github_user_id ~now ()
           with
           | Error msg -> Ok (reject_actor_attribution msg)
-          | Ok review_d -> (
-              let attr_receipt_id =
-                match review_d with
-                | Some d -> Some d.Review_attr.receipt.id
-                | None -> attr_receipt_id
+          | Ok code_d ->
+              let attribution_receipt_id =
+                match code_d with
+                | Some d -> Some d.Code_attr.receipt.id
+                | None -> attribution_receipt_id
               in
-              match
-                maybe_issue_attribution_dispatch ~db ~plan ?attribution_live
-                  ?issue_live ?vault_id ?expected_account ?github_user_id ~now
+              let outcome =
+                Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+                  ~current_base_revision ~destination_room ~now
+                  ~authority:authority_allow ~apply_ops:receipt_only_apply_ops
                   ()
-              with
-              | Error msg -> Ok (reject_actor_attribution msg)
-              | Ok issue_d -> (
-                  let attr_receipt_id =
-                    match issue_d with
-                    | Some d -> Some d.Issue_attr.receipt.id
-                    | None -> attr_receipt_id
-                  in
-                  match
-                    maybe_workflow_dispatch_attribution_dispatch ~db ~plan
-                      ?attribution_live ?workflow_live ?vault_id
-                      ?expected_account ?github_user_id ~now ()
-                  with
-                  | Error msg -> Ok (reject_actor_attribution msg)
-                  | Ok wd_d -> (
-                      let attr_receipt_id =
-                        match wd_d with
-                        | Some d -> Some d.Wd_attr.receipt.id
-                        | None -> attr_receipt_id
-                      in
-                      match
-                        maybe_code_change_attribution_dispatch ~db ~plan
-                          ?attribution_live ?code_change_live ?vault_id
-                          ?expected_account ?github_user_id ~now ()
-                      with
-                      | Error msg -> Ok (reject_actor_attribution msg)
-                      | Ok code_d ->
-                          let attribution_receipt_id =
-                            match code_d with
-                            | Some d -> Some d.Code_attr.receipt.id
-                            | None -> attr_receipt_id
-                          in
-                          (* Snapshot (when present) re-resolved; staged
-                             attribution dispatch revalidated. Proceed with
-                             receipt-only apply, then open webhook correlation
-                             linked to the native attribution receipt. *)
-                          let outcome =
-                            Setup_plan_apply.apply ~db ~plan_id ~digest
-                              ~principal ~current_base_revision
-                              ~destination_room ~now ~authority:authority_allow
-                              ~apply_ops:receipt_only_apply_ops ()
-                          in
-                          Ok
-                            (apply_outcome_with_correlation ~db ~plan ~now
-                               ?github_user_id ?attribution_receipt_id outcome))
-                  ))))
+              in
+              Ok
+                (apply_outcome_with_correlation ~db ~plan ~now ?github_user_id
+                   ?attribution_receipt_id outcome)))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?attribution_live ?review_live

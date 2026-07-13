@@ -16,6 +16,7 @@ module V = Github_user_token_vault
 module Token_store = Github_user_token_store
 module Token_lease = Github_user_token_lease
 module Workflow = Github_action_workflow
+module Reconcile = Github_action_reconcile
 
 let () = Secret_store.test_iterations_override := Some 1
 
@@ -561,7 +562,7 @@ let test_prepare_dispatch_from_plan () =
 (* Workflow wiring + idempotent apply                                          *)
 (* -------------------------------------------------------------------------- *)
 
-let test_workflow_preview_and_apply_with_attribution () =
+let test_workflow_attributed_apply_fails_closed_without_receipts () =
   with_db @@ fun db ->
   let keys = make_keys () in
   let acct = account () in
@@ -586,32 +587,27 @@ let test_workflow_preview_and_apply_with_attribution () =
          ~attribution_live:evidence ~vault_id:rec_.id ~expected_account:acct
          ~github_user_id:4242L ~now:fixed_now ())
   in
-  let receipt_id =
-    match outcome1 with
-    | Setup_plan_apply.Applied { first_time = true; receipt_id } -> receipt_id
-    | Setup_plan_apply.Applied { first_time = false; _ } ->
-        Alcotest.fail "expected first_time"
-    | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
-  in
-  Alcotest.(check bool) "receipt id" true (String.length receipt_id > 0);
-  (* Native attribution receipt exists. *)
-  Alcotest.(check bool)
-    "native receipt" true
-    (Audit.count ~db ~kind:Audit.Receipt () >= 1);
-  (* Idempotent re-apply: same plan digest → same apply receipt. *)
-  let outcome2 =
-    assert_ok
-      (Workflow.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest
-         ~principal ~current_base_revision:base_revision
-         ~attribution_live:evidence ~vault_id:rec_.id ~expected_account:acct
-         ~now:fixed_now ())
-  in
-  match outcome2 with
-  | Setup_plan_apply.Applied { first_time = false; receipt_id = r2 } ->
-      Alcotest.(check string) "same receipt" receipt_id r2
-  | Setup_plan_apply.Applied { first_time = true; _ } ->
-      Alcotest.fail "expected idempotent second apply"
-  | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
+  (match outcome1 with
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "attributed apply must fail closed without a live dispatcher"
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "apply error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (contains ~needle:"dispatcher" message));
+  Alcotest.(check (option string)) "plan stays pending" (Some "pending")
+    (Test_helpers.query_single_text_option db
+       (Printf.sprintf "SELECT status FROM setup_plans WHERE id = '%s'" plan.id));
+  Alcotest.(check (option string)) "no apply receipt" None
+    (Test_helpers.query_single_text_option db
+       (Printf.sprintf
+          "SELECT receipt_id FROM setup_plans WHERE id = '%s'" plan.id));
+  Alcotest.(check int) "no native attribution receipt" 0
+    (Audit.count ~db ~kind:Audit.Receipt ());
+  Reconcile.ensure_schema db;
+  Alcotest.(check bool) "no correlation" true
+    (Option.is_none (Reconcile.get_by_plan_id ~db ~plan_id:plan.id))
 
 let test_workflow_apply_requires_live_when_staged () =
   with_db @@ fun db ->
@@ -632,9 +628,8 @@ let test_workflow_apply_requires_live_when_staged () =
   with
   | Ok (Setup_plan_apply.Rejected { message; _ }) ->
       Alcotest.(check bool)
-        "mentions live" true
-        (contains ~needle:"attribution_live" message
-        || contains ~needle:"live evidence" message)
+        "mentions dispatcher" true
+        (contains ~needle:"dispatcher" message)
   | Ok (Setup_plan_apply.Applied _) ->
       Alcotest.fail "expected reject without live evidence"
   | Error e -> Alcotest.fail e
@@ -656,9 +651,12 @@ let test_workflow_legacy_collab_without_attribution () =
     Workflow.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest ~principal
       ~current_base_revision:base_revision ~now:fixed_now ()
   with
-  | Ok (Setup_plan_apply.Applied { first_time = true; _ }) -> ()
-  | Ok (Setup_plan_apply.Rejected { message; _ }) -> Alcotest.fail message
-  | Ok _ -> Alcotest.fail "unexpected outcome"
+  | Ok (Setup_plan_apply.Applied _) ->
+      Alcotest.fail "apply must fail closed without a live dispatcher"
+  | Ok (Setup_plan_apply.Rejected { message; _ }) ->
+      Alcotest.(check bool)
+        "mentions dispatcher" true
+        (contains ~needle:"dispatcher" message)
   | Error e -> Alcotest.fail e
 
 (* -------------------------------------------------------------------------- *)
@@ -693,8 +691,8 @@ let suite =
       test_dispatch_actor_mode_change_denies;
     Alcotest.test_case "prepare_dispatch_from_plan" `Quick
       test_prepare_dispatch_from_plan;
-    Alcotest.test_case "workflow preview/apply with attribution + idempotent"
-      `Quick test_workflow_preview_and_apply_with_attribution;
+    Alcotest.test_case "workflow attributed apply fails closed without receipts"
+      `Quick test_workflow_attributed_apply_fails_closed_without_receipts;
     Alcotest.test_case "workflow apply requires live when staged" `Quick
       test_workflow_apply_requires_live_when_staged;
     Alcotest.test_case "workflow legacy collab without attribution" `Quick

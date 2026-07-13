@@ -1,5 +1,15 @@
 # GitHub Item Routing and Room Collaboration Plan
 
+> **Current pilot limitation (implementation truth).** The GitHub action
+> workflow has no live GitHub REST mutation dispatcher for P19.M4.E1 ordinary
+> collaboration, reviewer, and Issue actions. A confirm/apply attempt
+> therefore fails closed before the pending plan can transition: it produces no
+> GitHub mutation, `Applied` outcome, apply receipt, or webhook correlation.
+> The P19.M4.E1 ordinary mutation exercise is blocked. Room grounding currently uses the
+> journal with an optional/best-effort live-state interface, but no runtime REST
+> fetcher; Room read/search/status tools are journal/projection reads, not a
+> fully live GitHub T002 read surface.
+
 Date: 2026-07-12
 Status: Approved for backlog ingest
 
@@ -121,15 +131,16 @@ previously validated local state because no remote change has been asserted.
 
 - Read, search, status, and summarization require current repository and tool
   access.
-- Explicit comments, ordinary metadata changes, and reviewer requests may execute
-  after resolving and displaying the target under current Room/App policy. PR
-  review submission also revalidates the displayed head and review policy, but is
-  a high-risk App-attributed action subject to the pilot/production gate below.
+- Explicit comments, ordinary metadata changes, and reviewer requests may be
+  planned and confirmed after resolving and displaying the target under current
+  Room/App policy. They are currently blocked before dispatch: no live GitHub
+  REST action dispatcher is wired for the ordinary P19 path.
 - One shared action framework resolves the target, actor mode, typed inputs,
-  policy, and authority into a redacted revision-bound preview. Fresh confirmation
-  applies the preview exactly once, emits a durable receipt, and exposes
-  correlation for webhook reconciliation. Expiry, replay, target/actor/policy
-  change, stale state, cancellation, retry, and provider failure fail closed.
+  policy, and authority into a redacted revision-bound preview. Until its live
+  dispatcher exists, fresh confirmation fails closed without an `Applied`
+  outcome, apply/native-attribution receipt, or webhook correlation. Expiry,
+  replay, target/actor/policy change, stale state, cancellation, retry, and
+  provider failure also fail closed.
 - Confirmed Issue creation and Issue/PR close/reopen, typed workflow dispatch,
   and code-changing work with constrained PR creation are separate action-family
   implementations over that framework, with independent failure-path tests.

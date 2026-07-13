@@ -1,5 +1,15 @@
 # P19 live pilot — rollout, backout, and cleanup
 
+> **Current implementation limit:** P19 has no live GitHub REST mutation
+> dispatcher for P19.M4.E1 ordinary collaboration/reviewer/Issue actions.
+> `Github_action_workflow` confirm/apply
+> fails closed before
+> `Applied`, leaving the
+> plan pending and producing no GitHub mutation, apply receipt, or webhook
+> correlation. A live mutation exercise is blocked. Grounding/read evidence is
+> journal/projection based; live state is optional/best-effort only and there is
+> no fully live T002 read surface.
+
 Operator runbook for the P19 GitHub App → Clawq → Teams pilot. Covers enabling
 and disabling high-risk pilot gates, rolling back routes and delivery work, and
 proving no residual delivery or action authority after cleanup.
@@ -202,11 +212,11 @@ Delivery uses a 24-hour retrying outbox with per-event dead letters
 
 1. Cancel or let complete any Room-triggered background work started under the
    pilot; do not leave pilot-gated runners scheduled.
-2. Confirmed action receipts and backlinks remain as durable audit; they must
-   stay redacted (handles, public ids, head SHAs, pilot_name — never secrets).
-3. Webhook self-loop prevention stays active: Clawq-originated mutations must not
-   create duplicate visible Room noise when residual webhooks arrive after
-   mute. Muted/No_route handles residual events.
+2. Future live-dispatch action receipts and backlinks remain durable audit; they
+   must stay redacted (handles, public ids, head SHAs, pilot_name — never
+   secrets). The current P19.M4.E1 ordinary path produces none while blocked.
+3. Webhook self-loop prevention stays active for future Clawq-originated
+   mutations; the blocked P19.M4.E1 ordinary path creates no correlation to close.
 
 ## Cleanup result (success criteria)
 

@@ -5,6 +5,16 @@ ids, handles, counts, digests, and pass/fail. **Never** include secrets, PEMs,
 PATs, bearer tokens, private issue/PR bodies, raw webhook JSON, or customer chat
 text.
 
+> **Current implementation limit:** no live GitHub REST mutation dispatcher
+> exists for P19.M4.E1 ordinary collaboration/reviewer/Issue actions. A
+> `Github_action_workflow` confirm/apply
+> denial occurs before
+> `Applied`; it creates no
+> GitHub mutation, apply receipt, or webhook correlation. Record mutation rows
+> as blocked, not exercised. Grounding and Room read/search/status evidence is
+> journal/projection based; the optional live-state interface has no runtime
+> REST fetcher or fully live T002 read surface.
+
 Companion runbook:
 [docs/pilots/p19-rollout-backout-guide.md](p19-rollout-backout-guide.md).
 
@@ -96,9 +106,9 @@ Plain-message fallback exercised (non-Teams or editless)? Yes / No / N/A
 | Family | Exercised | Result | Receipt / correlation id |
 |--------|-----------|--------|---------------------------|
 | Read / search / status | Y/N | Pass / Fail | |
-| Explicit comment | Y/N | Pass / Fail | |
-| Ordinary metadata mutation | Y/N | Pass / Fail | |
-| Reviewer request (not submit) | Y/N | Pass / Fail | |
+| Explicit comment | N | Blocked — no dispatcher | must be blank |
+| Ordinary metadata mutation | N | Blocked — no dispatcher | must be blank |
+| Reviewer request (not submit) | N | Blocked — no dispatcher | must be blank |
 
 Actor mode labels observed (e.g. `App`):  
 
@@ -119,21 +129,22 @@ Actor mode labels observed (e.g. `App`):
 
 Confirm: gates were **off by default** before this window. Yes / No  
 
-### Confirmed action families
+### Confirmed action families (currently blocked / no action receipt)
 
-| Family | Preview+confirm | Apply once | Live revalidate | Receipt id | Webhook reconcile no-loop | Result |
+| Family | Preview+confirm | Apply attempt | Live revalidate | Receipt id | Webhook reconcile no-loop | Result |
 |--------|-----------------|------------|-----------------|------------|---------------------------|--------|
-| PR review submit | | | | | | |
-| Issue create | | | | | | |
-| Issue/PR close-reopen | | | | | | |
-| Workflow dispatch | | | | | | |
-| Code-changing work | | | | | | |
-| Constrained PR create | | | | | | |
-| Background work | | | | | | |
-| Merge | | | | | | |
+| PR review submit | Y/N | Blocked | N/A | must be blank | N/A | Blocked / Skip |
+| Issue create | Y/N | Blocked | N/A | must be blank | N/A | Blocked / Skip |
+| Issue/PR close-reopen | Y/N | Blocked | N/A | must be blank | N/A | Blocked / Skip |
+| Workflow dispatch | N/A | Skip | N/A | separate scope | N/A | Separate scope |
+| Code-changing work | N/A | Skip | N/A | separate scope | N/A | Separate scope |
+| Constrained PR create | N/A | Skip | N/A | separate scope | N/A | Separate scope |
+| Background work | N/A | Skip | N/A | must be blank | N/A | Separate scope |
+| Merge | N/A | Skip | N/A | must be blank | N/A | Separate scope |
 
-Each receipt must record: `pilot_name`, gate state, actor/attribution label,
-target item key, head/base as applicable — **secret-free**.
+Do not record an action receipt or correlation while dispatch is blocked. A future
+live-dispatch receipt must record `pilot_name`, gate state, actor/attribution
+label, target item key, head/base as applicable — **secret-free**.
 
 Denial while gate off (sampled)? Pass / Fail / N/A  
 Denial when user_auth unavailable (no App/PAT fallback language)? Pass / Fail / N/A  
@@ -151,7 +162,7 @@ Denial when user_auth unavailable (no App/PAT fallback language)? Pass / Fail / 
 | Outbox succeeded | |
 | Outbox superseded | |
 | Outbox dead_letter | |
-| Action receipts durable (count) | |
+| Action receipts durable (count; current P19.M4.E1 ordinary pilot) | 0 |
 | Backlinks written (count) | |
 
 Timestamps (UTC): first event ____ ; last event ____ ; restart test at ____  
@@ -241,7 +252,7 @@ App id: 123456; installation: 789012; repos: example/pilot-repo
 Gates enabled: p19-pr-review-pilot, p19-merge-pilot (expires 18:00Z)
 Routes: route_01 repo:example/pilot-repo enabled→disabled at cleanup
 Outbox end state: pending=0 in_flight=0 succeeded=12 dead_letter=0 superseded=3
-High-risk: review submit + merge exercised; receipts rec_… / rec_…
+High-risk: ordinary action mutation exercise blocked; action receipts/correlations=0
 Cleanup: gates off; route muted; setup-owned bundle detached; cleanup_complete
 P21: user auth not in scope; high-risk remain denied without User_required
 Secrets: none in this document

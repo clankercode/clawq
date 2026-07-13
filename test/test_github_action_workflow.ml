@@ -148,8 +148,8 @@ let test_apply_wrong_digest_rejects () =
         "message mentions digest" true
         (contains message "digest")
 
-(* 3. apply success records receipt (adapter no-op / receipt only) *)
-let test_apply_success_records_receipt () =
+(* 3. no dispatcher means apply fails closed before receipt creation *)
+let test_apply_fails_closed_without_dispatcher () =
   with_db @@ fun db ->
   let route =
     make_route ~id:"rt_apply" ~policy:(caps ~reply:true ~review:false)
@@ -164,46 +164,14 @@ let test_apply_success_records_receipt () =
       (W.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest ~principal
          ~current_base_revision:base_revision ~now:fixed_now ())
   with
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "apply must not create a receipt without a live dispatcher"
   | Setup_plan_apply.Rejected { reason; message } ->
-      Alcotest.fail
-        (Printf.sprintf "unexpected reject %s: %s"
-           (Setup_plan_apply.string_of_reject_reason reason)
-           message)
-  | Setup_plan_apply.Applied { receipt_id; first_time } -> (
-      Alcotest.(check bool) "first apply" true first_time;
-      Alcotest.(check bool)
-        "receipt non-empty" true
-        (String.length receipt_id > 0);
-      (* Idempotent retry. *)
-      (match
-         assert_ok
-           (W.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest
-              ~principal ~current_base_revision:base_revision
-              ~now:(fixed_now +. 1.) ())
-       with
-      | Setup_plan_apply.Applied { receipt_id = r2; first_time = false } ->
-          Alcotest.(check string) "same receipt" receipt_id r2
-      | Setup_plan_apply.Applied { first_time = true; _ } ->
-          Alcotest.fail "retry should be idempotent"
-      | Setup_plan_apply.Rejected { message; _ } ->
-          Alcotest.fail ("retry rejected: " ^ message));
-      (* Stale revision would fail on first apply. *)
-      let plan2 =
-        assert_ok
-          (W.preview ~db ~principal ~room_id ~action:comment_action
-             ~base_revision ~route ~now:(fixed_now +. 2.) ())
-      in
-      match
-        assert_ok
-          (W.apply_confirmed ~db ~plan_id:plan2.id ~digest:plan2.digest
-             ~principal ~current_base_revision:"rev-stale"
-             ~now:(fixed_now +. 2.) ())
-      with
-      | Setup_plan_apply.Rejected { reason; _ } ->
-          Alcotest.(check string)
-            "stale" "stale_revision"
-            (Setup_plan_apply.string_of_reject_reason reason)
-      | Setup_plan_apply.Applied _ -> Alcotest.fail "expected stale revision")
+      Alcotest.(check string)
+        "reason" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (contains message "dispatcher")
 
 (* 4. submit_review denied when pilot off at preview *)
 let test_submit_review_denied_when_pilot_off () =
@@ -305,16 +273,22 @@ let test_request_reviewers_preview_apply () =
       (W.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest ~principal
          ~current_base_revision:base_revision ~now:fixed_now ())
   with
-  | Setup_plan_apply.Applied { first_time = true; _ } -> ()
-  | Setup_plan_apply.Applied { first_time = false; _ } ->
-      Alcotest.fail "expected first-time apply"
-  | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "apply must not create a receipt without a live dispatcher"
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "reason" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (contains message "dispatcher")
 
 let suite =
   [
     ("preview creates pending plan", `Quick, test_preview_creates_pending_plan);
     ("apply with wrong digest rejects", `Quick, test_apply_wrong_digest_rejects);
-    ("apply success records receipt", `Quick, test_apply_success_records_receipt);
+    ( "apply fails closed without dispatcher",
+      `Quick,
+      test_apply_fails_closed_without_dispatcher );
     ( "submit_review denied when pilot off at preview",
       `Quick,
       test_submit_review_denied_when_pilot_off );

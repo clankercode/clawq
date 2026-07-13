@@ -32,3 +32,12 @@ val dispatch :
     query over room projections (title/state/labels). [Get_status]: projection
     status fields. [List_room_items]: list projections. Deny if room has no
     access / empty, or auth rejects the repository. *)
+
+val runtime_tool_names : string list
+
+val runtime_tools : db:Sqlite3.db -> config:Runtime_config.t -> Tool.t list
+(** Runtime bindings obtain Room scope and policy only from the immutable
+    access snapshot attached to the current turn. *)
+
+val register_runtime_tools :
+  db:Sqlite3.db -> config:Runtime_config.t -> Tool_registry.t -> unit

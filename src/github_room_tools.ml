@@ -4,6 +4,7 @@ module P = Github_item_projection
 module J = Github_room_event_journal
 module Auth = Github_auth_selection
 module E = Github_event_envelope
+module Scope = Github_app_installation_scope
 
 type tool_name = Get_item | Search_items | Get_status | List_room_items
 type tool_request = { room_id : string; name : tool_name; args : Yojson.Safe.t }
@@ -439,3 +440,130 @@ let dispatch ~db ~request ?auth ?installation () : tool_result =
           | List_room_items ->
               dispatch_list ~db ~room_id ~args:request.args ?auth ?installation
                 ()))
+
+(** The catalog alone conveys no authority.  Runtime invocation reloads the
+    immutable access snapshot for this turn and obtains the Room only from it. *)
+let runtime_tool_names =
+  [ Get_item; Search_items; Get_status; List_room_items ]
+  |> List.map tool_name_to_string
+
+let runtime_auth ~(config : Runtime_config.t) =
+  Auth.snapshot_of_auth
+    (Option.map (fun (github : Runtime_config.github_config) -> github.auth)
+       config.channels.github)
+
+let active_installation ~db (auth : Auth.auth_snapshot) =
+  match auth.app with
+  | None -> None
+  | Some app -> (
+      match Scope.list ~db with
+      | Error _ -> None
+      | Ok scopes ->
+          List.find_opt
+            (fun (scope : Scope.t) ->
+              scope.app_id = Some app.app_id
+              && match scope.status with Scope.Active -> true | _ -> false)
+            scopes)
+
+let room_for_context ~db ~tool_name = function
+  | None ->
+      Result.Error
+        "GitHub Room tools require the current Room access snapshot; start a new Room turn."
+  | Some context -> (
+      match context.Tool.snapshot_id with
+      | None ->
+          Result.Error
+            "GitHub Room tools require a Room-scoped access snapshot; start a new Room turn."
+      | Some snapshot_id -> (
+          match Access_snapshot.get_by_id ~db snapshot_id with
+          | None ->
+              Result.Error
+                "GitHub Room tool access snapshot is unavailable; start a new Room turn."
+          | Some snapshot -> (
+              match snapshot.room_id with
+              | None | Some "" ->
+                  Result.Error
+                    "GitHub Room tools require a Room-scoped access snapshot; start a new Room turn."
+              | Some room_id ->
+                  let decision =
+                    String.lowercase_ascii
+                      (String.trim snapshot.room_policy_decision)
+                  in
+                  let policy_allows =
+                    decision = "allow"
+                    || String.starts_with ~prefix:"warn:" decision
+                    || String.starts_with ~prefix:"admin_override:" decision
+                  in
+                  if not policy_allows then
+                    Result.Error
+                      "GitHub Room tools are denied by the current Room policy snapshot."
+                  else
+                    match
+                      Tool_authz.decide ~canonical:tool_name
+                        ~equivalence_names:[ tool_name ]
+                        ~allowed_tools:snapshot.allowed_tools
+                        ~denied_tools:snapshot.denied_tools ()
+                    with
+                    | Tool_authz.Allowed -> Result.Ok room_id
+                    | Tool_authz.Denied message -> Result.Error message)))
+
+let runtime_definition = function
+  | `Assoc fields -> (
+      match List.assoc_opt "function" fields with
+      | Some (`Assoc function_fields) -> (
+          match
+            ( List.assoc_opt "name" function_fields,
+              List.assoc_opt "description" function_fields,
+              List.assoc_opt "parameters" function_fields )
+          with
+          | Some (`String name), Some (`String description), Some parameters ->
+              Some (name, description, parameters)
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+let tool_name_of_string = function
+  | "github_room_get_item" -> Some Get_item
+  | "github_room_search_items" -> Some Search_items
+  | "github_room_get_status" -> Some Get_status
+  | "github_room_list_items" -> Some List_room_items
+  | _ -> None
+
+let string_of_result = function
+  | Ok_json json -> Yojson.Safe.to_string json
+  | Denied message | Error message -> "Error: " ^ message
+
+let runtime_tools ~db ~(config : Runtime_config.t) =
+  let auth = runtime_auth ~config in
+  tool_definitions ()
+  |> List.filter_map (fun definition ->
+         match runtime_definition definition with
+         | Some (name, description, parameters) -> (
+             match tool_name_of_string name with
+             | None -> None
+             | Some request_name ->
+                 Some
+                   {
+                     Tool.name;
+                     description;
+                     parameters_schema = parameters;
+                     invoke =
+                       (fun ?context args ->
+                         match room_for_context ~db ~tool_name:name context with
+                         | Result.Error message -> Lwt.return ("Error: " ^ message)
+                         | Result.Ok room_id ->
+                             let installation = active_installation ~db auth in
+                             Lwt.return
+                               (string_of_result
+                                  (dispatch ~db
+                                     ~request:
+                                       { room_id; name = request_name; args }
+                                     ~auth ?installation ())));
+                     invoke_stream = None;
+                     risk_level = Tool.Low;
+                     deferred = false;
+                   })
+         | None -> None)
+
+let register_runtime_tools ~db ~config registry =
+  List.iter (Tool_registry.register registry) (runtime_tools ~db ~config)

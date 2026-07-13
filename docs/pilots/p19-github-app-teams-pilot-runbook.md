@@ -3,6 +3,17 @@
 **Task:** `P19.M4.E3.T002`  
 **Goal:** Run (or dry-run) a live GitHub App → Clawq → Microsoft Teams pilot that
 proves P19 routing, delivery, collaboration, and high-risk action mechanics.  
+
+> **Current mutation boundary.** No live GitHub REST mutation dispatcher exists
+> for P19.M4.E1 ordinary collaboration/reviewer/Issue actions. Any
+> `Github_action_workflow`
+> confirm/apply fails closed before
+> state transition:
+> no GitHub mutation, `Applied` result, apply receipt, or webhook correlation
+> is produced. Do not use this runbook to claim a live mutation exercise.
+> Grounding is journal-backed with optional/best-effort live state only, and the
+> Room read/search/status tools query journal/projections rather than a fully
+> live GitHub read surface.
 **Canonical contract:**
 [docs/plans/2026-07-12-github-item-room-routing.md](../plans/2026-07-12-github-item-room-routing.md)  
 **Operator contract:**
@@ -307,11 +318,12 @@ Via `Github_collab_actions` + `Github_action_workflow` preview/confirm/apply:
 - Reviewer request (`Github_pr_review_actions.plan_request_reviewers`) — ordinary
   path, not submit_review
 
-Each mutation: redacted revision-bound preview → fresh confirm → durable receipt
-→ webhook reconcile without loops (`Github_action_reconcile`).
+Each ordinary mutation attempt: redacted revision-bound preview → fresh confirm
+→ **Blocked before dispatch**. It must produce no GitHub mutation, `Applied`
+result, apply/native-attribution receipt, or webhook correlation.
 
-**Acceptance signal:** GitHub reflects the change; Teams shows at most one
-coherent projection update; correlation closes exactly once.
+**Acceptance signal:** the rejection is actionable and the plan remains pending;
+GitHub and Teams show no mutation-derived update or correlation.
 
 ---
 
@@ -332,19 +344,29 @@ Use `Github_action_workflow.preview` / `apply_confirmed` with the matching
 | Merge (also Room/Repo capability off by default) | `p19-merge-pilot` | `Github_merge_action` |
 | Background Room work | `p19-room-background-work-pilot` | `Github_room_background_work` |
 
-For each family exercised:
+The PR review and Issue rows are P19.M4.E1 ordinary action families. Mark their
+mutation exercise **Blocked / Skip** until a live REST dispatcher exists; do not
+claim an action receipt or webhook correlation. The workflow-dispatch,
+code-work / PR-create, merge, and background-work rows are separately scoped
+families, not evidence that E1 ordinary actions can run.
+
+For each separately implemented family exercised in a future live-dispatch pilot:
 
 1. Preview shows target, actor mode (**App** pilot), effects, gate name/expiry.
 2. Confirm once with plan id + digest; revalidation on expiry/stale head/policy.
-3. Receipt records actor labels and gate state (secret-free).
-4. Resulting webhook reconciles via `Github_action_reconcile` without re-enqueue
+3. Receipt records actor labels and gate state (secret-free) only after a real
+   live dispatch succeeds.
+4. A resulting webhook reconciles via `Github_action_reconcile` without re-enqueue
    loops or duplicate visible messages (`Closed` once; human events
    `Ignored_human_event`).
 5. Denial when gate off/expired or capability false — **no silent App/PAT
    fallback** when user auth is unavailable.
 
-**Acceptance signal:** each intended family succeeds under the gate; same action
-fails closed when gate disabled; receipts and webhooks consistent.
+**Acceptance signal:** for each separately implemented family, the intended
+action succeeds under its gate, fails closed when that gate is disabled, and
+has consistent receipts and webhooks. P19.M4.E1 ordinary collaboration,
+reviewer, and Issue actions instead remain **Blocked / Skip**, with no mutation
+receipt or webhook correlation, until their dispatcher exists.
 
 ---
 

@@ -722,6 +722,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (memory_forget ~db);
       Tool_registry.register registry (memory_list ~db);
       Tool_registry.register registry (Github_account_tool.tool ~db);
+      Github_room_tools.register_runtime_tools ~db ~config registry;
       register_room_memory_tools ~db
         ~ledger:(fun ~room_id ~event_type ~actor ~metadata ->
           ignore

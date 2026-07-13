@@ -393,6 +393,16 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                       | None -> skill_injections
                                     in
                                     let* response =
+                                      let message_id =
+                                        match String.trim reply_to_id with
+                                        | "" ->
+                                            let activity_id =
+                                              String.trim activity_id
+                                            in
+                                            if activity_id = "" then None
+                                            else Some activity_id
+                                        | reply_to_id -> Some reply_to_id
+                                      in
                                       session_turn session_manager ~key ~message
                                         ~content_parts ~attachments:att_list
                                         ~skill_injections ~channel_name:"teams"
@@ -404,6 +414,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                              ~service_url:effective_service_url
                                              ~conversation_id)
                                         ~sender_id:user_id ?sender_name
+                                        ?message_id
                                         ~has_external_users:is_external ()
                                     in
                                     Lwt.return (Ok response))

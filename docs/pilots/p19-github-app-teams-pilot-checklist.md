@@ -13,6 +13,15 @@ Use this checklist during a live pilot or as a dry-run gate list. Mark each row
 `Pass` / `Fail` / `Skip` with evidence (redacted). **Do not mark Pass for live
 signals if the live pilot was not executed.**
 
+> **Current mutation boundary:** no live GitHub REST mutation dispatcher is
+> implemented for P19.M4.E1 ordinary collaboration/reviewer/Issue actions.
+> `Github_action_workflow` confirm/apply
+> must fail closed before
+> `Applied`, receipt,
+> or webhook correlation; live mutation rows are blocked, not Pass/Fail pilot
+> exercises. Grounding/read checks cover journal/projection data only (the live
+> fetch interface is best-effort and no fully live T002 read surface exists).
+
 Pilot name: _______________________  
 Room id / session key: _______________________  
 Window (UTC): _______________________ → _______________________  
@@ -119,36 +128,36 @@ Mode: [ ] Live  [ ] Dry-run / blocked
 
 ---
 
-## H. Ordinary collaboration (policy-gated, not pilot-only)
+## H. Ordinary collaboration (currently BLOCKED before live dispatch)
 
 | # | Acceptance signal | Result | Evidence |
 |---|-------------------|--------|----------|
-| H1 | Explicit comment preview → confirm → apply → GitHub comment | | |
-| H2 | Label mutation under `allow_label` | | |
-| H3 | Assign mutation under `allow_assign` | | |
-| H4 | Request reviewers under ordinary path | | |
+| H1 | Explicit comment preview → confirm → **Blocked**; no GitHub comment | Skip / Blocked | |
+| H2 | Label mutation under `allow_label` → **Blocked** before dispatch | Skip / Blocked | |
+| H3 | Assign mutation under `allow_assign` → **Blocked** before dispatch | Skip / Blocked | |
+| H4 | Request reviewers under ordinary path → **Blocked** before dispatch | Skip / Blocked | |
 | H5 | Capability false → **Denied** before API | | |
-| H6 | Durable receipt + correlation recorded (secret-free) | | |
-| H7 | Resulting webhook reconciles **once**; no duplicate Teams noise | | |
+| H6 | No apply/native-attribution receipt or correlation is recorded | Pass | |
+| H7 | No mutation-derived webhook is expected | Skip / N/A | |
 
 ---
 
-## I. High-risk App-attributed families (time-bounded pilot gate)
+## I. High-risk App-attributed families (currently BLOCKED / SKIP)
 
 Enable only for the named pilot window. Defaults remain off outside pilot.
 
 | # | Acceptance signal | Result | Evidence |
 |---|-------------------|--------|----------|
 | I0 | Gate set enabled with explicit `pilot_name` + `expires_at` for this Room only | | |
-| I1 | **PR review submission** under `p19-pr-review-pilot` succeeds with receipt | | |
-| I2 | **Issue create** under `p19-issue-lifecycle-pilot` | | |
-| I3 | **Issue/PR close or reopen** under issue lifecycle pilot | | |
-| I4 | **Typed workflow_dispatch** under `p19-workflow-dispatch-pilot` | | |
-| I5 | **Code-changing work** and/or **constrained PR create** under `p19-code-change-pilot` | | |
-| I6 | **Merge** under `p19-merge-pilot` + live policy revalidation (if in scope) | | |
-| I7 | **Background Room work** under `p19-room-background-work-pilot` (if in scope) | | |
-| I8 | Receipts include **actor labels** and **gate state** | | |
-| I9 | Webhook self-loop prevention: action webhook closes correlation, no re-card loop | | |
+| I1 | PR review submission → **Blocked / Skip**; no receipt | Skip / Blocked | |
+| I2 | Issue create → **Blocked / Skip**; no receipt | Skip / Blocked | |
+| I3 | Issue/PR close or reopen → **Blocked / Skip**; no receipt | Skip / Blocked | |
+| I4 | Typed workflow_dispatch is separate scope; **Skip** | Skip | |
+| I5 | Code-changing work / constrained PR create is separate scope; **Skip** | Skip | |
+| I6 | Merge is separately scoped; **Skip** unless its own dispatcher is verified | Skip | |
+| I7 | Background Room work is separately scoped; **Skip** | Skip | |
+| I8 | No action receipt exists while dispatch is blocked | Pass | |
+| I9 | No mutation webhook/correlation exists while dispatch is blocked | Pass | |
 | I10 | Gate **disabled** or **expired** → high-risk preview/apply **fails closed** | | |
 | I11 | No silent fallback to App/PAT when user auth unavailable | | |
 | I12 | High-risk actions **not** presented as production-ready | | |

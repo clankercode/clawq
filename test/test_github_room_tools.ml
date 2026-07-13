@@ -11,6 +11,7 @@ let with_db f =
   let db = Sqlite3.db_open ":memory:" in
   J.ensure_schema db;
   P.ensure_schema db;
+  Access_snapshot.init_schema db;
   Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
 
 let fixed_now = 1_700_000_000.0
@@ -378,6 +379,76 @@ let test_deny_error_paths () =
     (contains_ci denied_inst "not authorized"
     || contains_ci denied_inst "no usable")
 
+(* 7. the real Tool_registry binding freezes Room scope and policy per turn *)
+let test_runtime_registry_uses_current_snapshot () =
+  with_db @@ fun db ->
+  seed_room db ~room:"room-a";
+  let github : Runtime_config.github_config =
+    {
+      auth = Runtime_config.GithubPat "ghp_test_token";
+      repos = [];
+      default_model = None;
+      trigger_login = None;
+      trigger_label = None;
+      auth_credential_handle = None;
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels = { Runtime_config.default.channels with github = Some github };
+    }
+  in
+  let registry = Tool_registry.create () in
+  T.register_runtime_tools ~db ~config registry;
+  let catalog = Yojson.Safe.to_string (Tool_registry.to_openai_json registry) in
+  Alcotest.(check bool) "catalog has get item" true
+    (contains_ci catalog "github_room_get_item");
+  let tool =
+    match Tool_registry.find registry "github_room_get_item" with
+    | Some tool -> tool
+    | None -> Alcotest.fail "runtime Tool_registry missed github_room_get_item"
+  in
+  let no_snapshot =
+    Lwt_main.run
+      (tool.invoke (`Assoc [ ("item_key", `String "pr:acme/widget:42") ]))
+  in
+  Alcotest.(check bool) "requires snapshot" true
+    (contains_ci no_snapshot "snapshot");
+  let snapshot =
+    Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+      ~session_key:"teams:room-a:thread" ~room_id:"room-a"
+      ~room_policy_decision:"allow" ()
+  in
+  let snapshot =
+    { snapshot with allowed_tools = [ "github_room_get_item" ] }
+  in
+  Access_snapshot.persist ~db snapshot;
+  let context = { Tool.default_context with snapshot_id = Some snapshot.id } in
+  let output =
+    Lwt_main.run
+      (tool.invoke ~context
+         (`Assoc [ ("item_key", `String "pr:acme/widget:42") ]))
+  in
+  Alcotest.(check bool) "uses snapshotted room" true
+    (contains_ci output "pr:acme/widget:42");
+  let denied_snapshot =
+    Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
+      ~session_key:"teams:room-a:thread" ~room_id:"room-a"
+      ~room_policy_decision:"denied" ()
+  in
+  Access_snapshot.persist ~db denied_snapshot;
+  let denied_context =
+    { Tool.default_context with snapshot_id = Some denied_snapshot.id }
+  in
+  let denied =
+    Lwt_main.run
+      (tool.invoke ~context:denied_context
+         (`Assoc [ ("item_key", `String "pr:acme/widget:42") ]))
+  in
+  Alcotest.(check bool) "denied snapshot blocks invocation" true
+    (contains_ci denied "room policy")
+
 let suite =
   [
     ("list_room_items returns projections", `Quick, test_list_room_items);
@@ -386,4 +457,7 @@ let suite =
     ("get_status", `Quick, test_get_status);
     ("tool_definitions has 4 tools", `Quick, test_tool_definitions);
     ("deny and error paths", `Quick, test_deny_error_paths);
+    ( "runtime registry uses current snapshot",
+      `Quick,
+      test_runtime_registry_uses_current_snapshot );
   ]

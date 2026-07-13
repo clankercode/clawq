@@ -439,26 +439,14 @@ let test_action_families_collab_and_pilot_denies () =
        (Workflow_shared.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest
           ~principal ~current_base_revision:base_revision ~now:fixed_now ())
    with
-  | Setup_plan_apply.Applied { first_time = true; receipt_id } -> (
-      Alcotest.(check bool)
-        "receipt non-empty" true
-        (String.length receipt_id > 0);
-      (* Idempotent re-apply. *)
-      match
-        assert_ok
-          (Workflow_shared.apply_confirmed ~db ~plan_id:plan.id
-             ~digest:plan.digest ~principal ~current_base_revision:base_revision
-             ~now:(fixed_now +. 1.) ())
-      with
-      | Setup_plan_apply.Applied { first_time = false; receipt_id = r2 } ->
-          Alcotest.(check string) "same receipt" receipt_id r2
-      | Setup_plan_apply.Applied { first_time = true; _ } ->
-          Alcotest.fail "retry must be idempotent"
-      | Setup_plan_apply.Rejected { message; _ } ->
-          Alcotest.fail ("retry rejected: " ^ message))
-  | Setup_plan_apply.Applied { first_time = false; _ } ->
-      Alcotest.fail "first apply should be first_time"
-  | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message);
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "apply must fail closed until a live dispatcher exists"
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "apply_error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (contains message "dispatcher"));
 
   (* Review submit denied when pilot off (default gate). *)
   let review_route =
