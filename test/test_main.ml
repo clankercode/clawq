@@ -117,6 +117,7 @@ let () =
        ("slack_principal", Test_slack_principal_ingress.suite);
 ||||||| 51cc10dd
        ("discord_principal", Test_discord_principal_ingress.suite);
+       ("telegram_principal", Test_telegram_principal_ingress.suite);
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
        ("github_app_setup_resume", Test_github_app_setup_resume.suite);
