@@ -43,7 +43,7 @@ tasks:
       file: T003-add-direct-explicit-comments-a.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add direct explicit comments and metadata mutations
     - complexity: high
