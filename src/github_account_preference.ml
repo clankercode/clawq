@@ -588,113 +588,114 @@ let find_explicit ~eligible (ctx : resolve_context) =
 (* Resolve                                                                    *)
 (* -------------------------------------------------------------------------- *)
 
-let resolve ~db ~(context : resolve_context) () =
+let resolve_with_eligible ~db ~(context : resolve_context)
+    ~(eligible : B.binding list) () =
   (* Bind fields once to avoid record-field disambiguation against
      private_prompt.principal_id : string in this module. *)
+  let principal_id = context.principal_id in
+  let host = context.host in
+  let examined = ref [] in
+  let note src = examined := string_of_resolution_source src :: !examined in
+  (* 1. Explicit choice *)
+  match find_explicit ~eligible context with
+  | Some b ->
+      Ok
+        (Resolved
+           { binding = b; source = Explicit_choice; matched_scope = None })
+  | None ->
+      let walk_scopes : (preference_scope * resolution_source) list =
+        let scopes = ref [] in
+        let add scope source = scopes := (scope, source) :: !scopes in
+        (match (context.room_id, context.repo_full_name) with
+        | Some room_id, Some repo_full_name -> (
+            match make_repo_ref ~host ~repo_full_name () with
+            | Error _ -> ()
+            | Ok repo -> (
+                match make_room_scope ~room_id ~repo () with
+                | Ok scope -> add scope From_room_repo
+                | Error _ -> ()))
+        | _ -> ());
+        (match (context.room_id, effective_org context) with
+        | Some room_id, Some org_login -> (
+            match make_org_ref ~host ~org_login () with
+            | Error _ -> ()
+            | Ok org -> (
+                match make_room_scope ~room_id ~org () with
+                | Ok scope -> add scope From_room_org
+                | Error _ -> ()))
+        | _ -> ());
+        (match context.room_id with
+        | Some room_id -> (
+            match make_room_scope ~room_id () with
+            | Ok scope -> add scope From_room_only
+            | Error _ -> ())
+        | None -> ());
+        (match context.repo_full_name with
+        | Some repo_full_name -> (
+            match make_repo_ref ~host ~repo_full_name () with
+            | Ok repo -> add (Repo repo) From_principal_repo
+            | Error _ -> ())
+        | None -> ());
+        (match effective_org context with
+        | Some org_login -> (
+            match make_org_ref ~host ~org_login () with
+            | Ok org -> add (Org org) From_principal_org
+            | Error _ -> ())
+        | None -> ());
+        add Principal_default From_principal_default;
+        List.rev !scopes
+      in
+      let rec walk = function
+        | [] -> (
+            (* Sole eligible, else private prompt. *)
+            match eligible with
+            | [ b ] ->
+                note Sole_eligible;
+                Ok
+                  (Resolved
+                     {
+                       binding = b;
+                       source = Sole_eligible;
+                       matched_scope = None;
+                     })
+            | [] ->
+                Ok
+                  (None_eligible
+                     {
+                       prompt =
+                         make_prompt ~context ~reason:"no_eligible_accounts"
+                           ~candidates:[] ~examined_sources:(List.rev !examined);
+                     })
+            | many ->
+                Ok
+                  (Ambiguous
+                     {
+                       prompt =
+                         make_prompt ~context
+                           ~reason:"multiple_eligible_no_preference"
+                           ~candidates:many
+                           ~examined_sources:(List.rev !examined);
+                     }))
+        | (scope, source) :: rest -> (
+            note source;
+            match try_scope ~db ~principal_id ~scope ~eligible with
+            | Error e -> Error e
+            | Ok None -> walk rest
+            | Ok (Some (b, matched_scope)) ->
+                Ok
+                  (Resolved
+                     { binding = b; source; matched_scope = Some matched_scope })
+            )
+      in
+      walk walk_scopes
+
+let resolve ~db ~(context : resolve_context) () =
   let principal_id = context.principal_id in
   let host = context.host in
   let app_id = context.app_id in
   match list_eligible_bindings ~db ~principal_id ~host ?app_id () with
   | Error e -> Error e
-  | Ok eligible -> (
-      let examined = ref [] in
-      let note src = examined := string_of_resolution_source src :: !examined in
-      (* 1. Explicit choice *)
-      match find_explicit ~eligible context with
-      | Some b ->
-          Ok
-            (Resolved
-               { binding = b; source = Explicit_choice; matched_scope = None })
-      | None ->
-          let walk_scopes : (preference_scope * resolution_source) list =
-            let scopes = ref [] in
-            let add scope source = scopes := (scope, source) :: !scopes in
-            (match (context.room_id, context.repo_full_name) with
-            | Some room_id, Some repo_full_name -> (
-                match make_repo_ref ~host ~repo_full_name () with
-                | Error _ -> ()
-                | Ok repo -> (
-                    match make_room_scope ~room_id ~repo () with
-                    | Ok scope -> add scope From_room_repo
-                    | Error _ -> ()))
-            | _ -> ());
-            (match (context.room_id, effective_org context) with
-            | Some room_id, Some org_login -> (
-                match make_org_ref ~host ~org_login () with
-                | Error _ -> ()
-                | Ok org -> (
-                    match make_room_scope ~room_id ~org () with
-                    | Ok scope -> add scope From_room_org
-                    | Error _ -> ()))
-            | _ -> ());
-            (match context.room_id with
-            | Some room_id -> (
-                match make_room_scope ~room_id () with
-                | Ok scope -> add scope From_room_only
-                | Error _ -> ())
-            | None -> ());
-            (match context.repo_full_name with
-            | Some repo_full_name -> (
-                match make_repo_ref ~host ~repo_full_name () with
-                | Ok repo -> add (Repo repo) From_principal_repo
-                | Error _ -> ())
-            | None -> ());
-            (match effective_org context with
-            | Some org_login -> (
-                match make_org_ref ~host ~org_login () with
-                | Ok org -> add (Org org) From_principal_org
-                | Error _ -> ())
-            | None -> ());
-            add Principal_default From_principal_default;
-            List.rev !scopes
-          in
-          let rec walk = function
-            | [] -> (
-                (* 8. Sole eligible, else private prompt. *)
-                match eligible with
-                | [ b ] ->
-                    note Sole_eligible;
-                    Ok
-                      (Resolved
-                         {
-                           binding = b;
-                           source = Sole_eligible;
-                           matched_scope = None;
-                         })
-                | [] ->
-                    Ok
-                      (None_eligible
-                         {
-                           prompt =
-                             make_prompt ~context ~reason:"no_eligible_accounts"
-                               ~candidates:[]
-                               ~examined_sources:(List.rev !examined);
-                         })
-                | many ->
-                    Ok
-                      (Ambiguous
-                         {
-                           prompt =
-                             make_prompt ~context
-                               ~reason:"multiple_eligible_no_preference"
-                               ~candidates:many
-                               ~examined_sources:(List.rev !examined);
-                         }))
-            | (scope, source) :: rest -> (
-                note source;
-                match try_scope ~db ~principal_id ~scope ~eligible with
-                | Error e -> Error e
-                | Ok None -> walk rest
-                | Ok (Some (b, matched_scope)) ->
-                    Ok
-                      (Resolved
-                         {
-                           binding = b;
-                           source;
-                           matched_scope = Some matched_scope;
-                         }))
-          in
-          walk walk_scopes)
+  | Ok eligible -> resolve_with_eligible ~db ~context ~eligible ()
 
 (* -------------------------------------------------------------------------- *)
 (* JSON                                                                       *)
