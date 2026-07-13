@@ -182,6 +182,8 @@ let () =
        ("github_issue_actions", Test_github_issue_actions.suite);
        ("github_issue_attribution", Test_github_issue_attribution.suite);
        ("github_workflow_dispatch", Test_github_workflow_dispatch.suite);
+       ( "github_workflow_dispatch_attribution",
+         Test_github_workflow_dispatch_attribution.suite );
        ("github_action_workflow", Test_github_action_workflow.suite);
        ( "github_action_actor_attribution",
          Test_github_action_actor_attribution.suite );

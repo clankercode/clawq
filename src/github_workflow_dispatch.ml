@@ -140,43 +140,49 @@ let validate_inputs ~(req : request) =
   in
   loop [] req.inputs
 
-let authorize ~route ~pilot ~user_auth_available ~(req : request)
-    ?(now = Unix.gettimeofday ()) () =
-  if (not pilot.enabled) || pilot_expired ~now pilot then
-    Error (pilot_unavailable_reason ~pilot ~user_auth_available ~now)
+let capability_inputs_ok ~route ~(req : request) =
+  let repo = String.trim req.repo_full_name in
+  let workflow_id = String.trim req.workflow_id in
+  let ref_ = String.trim req.ref_ in
+  if repo = "" then Error "workflow_dispatch repo_full_name must be non-empty"
+  else if not (looks_like_owner_repo repo) then
+    Error
+      (Printf.sprintf
+         "workflow_dispatch repo_full_name must be owner/repo form, got %S" repo)
+  else if workflow_id = "" then
+    Error "workflow_dispatch workflow_id must be non-empty (id or file name)"
+  else if ref_ = "" then
+    Error "workflow_dispatch ref must be non-empty (branch, tag, or SHA)"
   else
-    let repo = String.trim req.repo_full_name in
-    let workflow_id = String.trim req.workflow_id in
-    let ref_ = String.trim req.ref_ in
-    if repo = "" then Error "workflow_dispatch repo_full_name must be non-empty"
-    else if not (looks_like_owner_repo repo) then
-      Error
-        (Printf.sprintf
-           "workflow_dispatch repo_full_name must be owner/repo form, got %S"
-           repo)
-    else if workflow_id = "" then
-      Error "workflow_dispatch workflow_id must be non-empty (id or file name)"
-    else if ref_ = "" then
-      Error "workflow_dispatch ref must be non-empty (branch, tag, or SHA)"
-    else
-      match validate_inputs ~req with
-      | Error e -> Error e
-      | Ok _ -> (
-          match route with
-          | None ->
+    match validate_inputs ~req with
+    | Error e -> Error e
+    | Ok _ -> (
+        match route with
+        | None ->
+            Error
+              (Printf.sprintf
+                 "no route available to authorize workflow_dispatch \
+                  (capability extra %S required)"
+                 capability_key)
+        | Some (r : t) ->
+            if not (has_workflow_dispatch_capability r.capability_policy) then
               Error
                 (Printf.sprintf
-                   "no route available to authorize workflow_dispatch \
-                    (capability extra %S required; pilot path only)"
-                   capability_key)
-          | Some (r : t) ->
-              if not (has_workflow_dispatch_capability r.capability_policy) then
-                Error
-                  (Printf.sprintf
-                     "capability extra %S not granted by route %s policy for \
-                      workflow_dispatch (defaults off like allow_merge)"
-                     capability_key r.id)
-              else Ok ())
+                   "capability extra %S not granted by route %s policy for \
+                    workflow_dispatch (defaults off like allow_merge)"
+                   capability_key r.id)
+            else Ok ())
+
+let authorize ~route ~pilot ~user_auth_available ~(req : request)
+    ?(now = Unix.gettimeofday ()) () =
+  (* P21 production path (User_required): when user auth is available, route +
+     input checks alone authorize the plan; attribution authorize + user lease
+     at dispatch are required for execution (no App/PAT fallback). P19 App
+     pilot remains the only non-user path and is never a silent substitute. *)
+  let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+  if pilot_active then capability_inputs_ok ~route ~req
+  else if user_auth_available then capability_inputs_ok ~route ~req
+  else Error (pilot_unavailable_reason ~pilot ~user_auth_available ~now)
 
 let room_context ~room_id : Setup_plan.context =
   {
@@ -197,7 +203,7 @@ let inputs_to_json (inputs : (string * string) list) =
   `Assoc (sort_assoc (List.map (fun (k, v) -> (k, `String v)) inputs))
 
 let dispatch_to_json ~(pilot : pilot_gate) ~(req : request)
-    ~(inputs : (string * string) list) =
+    ~(inputs : (string * string) list) ~attribution ~production_ready =
   `Assoc
     (sort_assoc
        ([
@@ -207,10 +213,11 @@ let dispatch_to_json ~(pilot : pilot_gate) ~(req : request)
           ("ref", `String (String.trim req.ref_));
           ("inputs", inputs_to_json inputs);
           ("pilot_name", `String pilot.pilot_name);
-          ("attribution", `String "App");
-          ("pilot_only", `Bool true);
-          ("production_ready", `Bool false);
+          ("attribution", `String attribution);
+          ("pilot_only", `Bool (not production_ready));
+          ("production_ready", `Bool production_ready);
           ("capability", `String capability_key);
+          ("policy_action", `String "workflow_dispatch");
         ]
        @
        match req.item_key with
@@ -231,7 +238,16 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
             let repo = String.trim req.repo_full_name in
             let workflow_id = String.trim req.workflow_id in
             let ref_ = String.trim req.ref_ in
-            let action_json = dispatch_to_json ~pilot ~req ~inputs in
+            let pilot_active =
+              pilot.enabled && not (pilot_expired ~now pilot)
+            in
+            let p21_user = (not pilot_active) && user_auth_available in
+            let attribution_s = if p21_user then "User_required" else "App" in
+            let production_ready = p21_user in
+            let action_json =
+              dispatch_to_json ~pilot ~req ~inputs ~attribution:attribution_s
+                ~production_ready
+            in
             let path =
               Printf.sprintf "github_workflow_dispatch/%s/%s@%s" repo
                 workflow_id ref_
@@ -246,6 +262,7 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
                      ("room_id", `String room_id);
                      ("status", `String "pending_mutation");
                      ("pilot_name", `String pilot.pilot_name);
+                     ("attribution", `String attribution_s);
                    ])
             in
             let planned_state =
@@ -261,8 +278,9 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
                       ("pilot_name", `String pilot.pilot_name);
                       ("room_id", `String room_id);
                       ("status", `String "planned");
-                      ("attribution", `String "App");
-                      ("production_ready", `Bool false);
+                      ("attribution", `String attribution_s);
+                      ("production_ready", `Bool production_ready);
+                      ("policy_action", `String "workflow_dispatch");
                     ]
                    @ (match req.item_key with
                      | None -> []
@@ -281,22 +299,29 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
               if inputs = [] then "(none)"
               else String.concat "," (List.map fst inputs)
             in
+            let note_msg =
+              if p21_user then
+                Printf.sprintf
+                  "User_required workflow_dispatch of %s on %s@%s (inputs: \
+                   %s); revalidate workflow identity, ref, allowed inputs, \
+                   Principal user lease, and confirmation immediately before \
+                   apply via Github_workflow_dispatch_attribution. Confirm \
+                   before apply. No live GitHub mutation at plan time."
+                  workflow_id repo ref_ input_names
+              else
+                Printf.sprintf
+                  "High-risk App-attributed workflow_dispatch of %s on %s@%s \
+                   under pilot %S (inputs: %s); revalidate workflow identity, \
+                   ref, allowed inputs, and authority immediately before \
+                   apply. Confirm before apply. Not production-ready (P21 \
+                   User_required pending). No live GitHub mutation at plan \
+                   time."
+                  workflow_id repo ref_ pilot.pilot_name input_names
+            in
             let diff =
               [
                 Setup_plan.Create { path; value = action_json };
-                Setup_plan.Note
-                  {
-                    path;
-                    message =
-                      Printf.sprintf
-                        "High-risk App-attributed workflow_dispatch of %s on \
-                         %s@%s under pilot %S (inputs: %s); revalidate \
-                         workflow identity, ref, allowed inputs, and authority \
-                         immediately before apply. Confirm before apply. Not \
-                         production-ready (P21 User_required pending). No live \
-                         GitHub mutation at plan time."
-                        workflow_id repo ref_ pilot.pilot_name input_names;
-                  };
+                Setup_plan.Note { path; message = note_msg };
               ]
             in
             let readiness =
@@ -307,9 +332,15 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
                   message = capability_key;
                 };
                 {
+                  name = "attribution";
+                  status = Setup_plan.Pass;
+                  message = attribution_s;
+                };
+                {
                   name = "pilot";
                   status = Setup_plan.Pass;
-                  message = pilot.pilot_name;
+                  message =
+                    (if p21_user then "p21_user_required" else pilot.pilot_name);
                 };
                 {
                   name = "workflow_id";
@@ -328,10 +359,15 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
                   message = input_names;
                 };
                 {
-                  name = "not_production_ready";
+                  name =
+                    (if p21_user then "production_ready"
+                     else "not_production_ready");
                   status = Setup_plan.Pass;
                   message =
-                    "P19 pilot only; production waits for P21 User_required";
+                    (if p21_user then
+                       "P21 User_required path; App/PAT fallback forbidden"
+                     else
+                       "P19 pilot only; production waits for P21 User_required");
                 };
                 {
                   name = "no_live_mutation";
@@ -372,9 +408,12 @@ let plan_dispatch ~db ~principal ~room_id ~pilot ~user_auth_available
                      ("repo_full_name", `String repo);
                      ("workflow_id", `String workflow_id);
                      ("ref", `String ref_);
+                     ("inputs", inputs_to_json inputs);
                      ("pilot_name", `String pilot.pilot_name);
                      ("capability", `String capability_key);
-                     ("production_ready", `Bool false);
+                     ("production_ready", `Bool production_ready);
+                     ("attribution", `String attribution_s);
+                     ("policy_action", `String "workflow_dispatch");
                    ])
             in
             let ctx = room_context ~room_id in
