@@ -127,6 +127,7 @@ let () =
        ("github_comment_mode", Test_github_comment_mode.suite);
        ("github_event_history_index", Test_github_event_history_index.suite);
        ("github_delivery_intent", Test_github_delivery_intent.suite);
+       ("github_delivery_outbox", Test_github_delivery_outbox.suite);
        ("github_teams_card_render", Test_github_teams_card_render.suite);
        ("github_plain_delivery", Test_github_plain_delivery_render.suite);
        ("github_item_context", Test_github_item_context_resolve.suite);

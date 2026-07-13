@@ -75,6 +75,7 @@
   test_github_comment_mode
   test_github_event_history_index
   test_github_delivery_intent
+  test_github_delivery_outbox
   test_github_teams_card_render
   test_github_plain_delivery_render
   test_github_item_context_resolve
