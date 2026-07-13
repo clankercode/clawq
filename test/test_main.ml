@@ -123,6 +123,7 @@ let () =
        ("github_route_filter", Test_github_route_filter.suite);
        ("github_filter_enrichment", Test_github_filter_enrichment.suite);
        ("github_route_filter_eval", Test_github_route_filter_eval.suite);
+       ("github_route_filter_preview", Test_github_route_filter_preview.suite);
        ("github_route_store", Test_github_route_store.suite);
        ("github_route_match", Test_github_route_match.suite);
        ("github_route_transfer", Test_github_route_transfer.suite);

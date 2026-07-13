@@ -368,6 +368,9 @@ let list_inspect_for_destination ~db ~destination =
   | Error e -> Error e
   | Ok routes -> Ok (List.map build_inspect routes)
 
+let preview_filter ~db ~destination ~envelope ?enrichment () =
+  Github_route_filter_preview.preview ~db ~destination ~envelope ?enrichment ()
+
 (* ── Plan builders ─────────────────────────────────────────────── *)
 
 let ensure_plan_schema db = Setup_plan_apply.init_schema db

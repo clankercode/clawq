@@ -89,6 +89,16 @@ val list_inspect_for_destination :
   destination:Github_route_store.destination ->
   (inspect_view list, string) result
 
+val preview_filter :
+  db:Sqlite3.db ->
+  destination:Github_route_store.destination ->
+  envelope:Github_event_envelope.t ->
+  ?enrichment:Github_filter_enrichment.enrichment ->
+  unit ->
+  Github_route_filter_preview.preview
+(** Dry-run filter explain for agent/CLI setup (no delivery). See
+    [Github_route_filter_preview]. *)
+
 val list_plans_for_destination :
   db:Sqlite3.db ->
   destination:Github_route_store.destination ->

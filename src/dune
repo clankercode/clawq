@@ -187,6 +187,7 @@
   github_route_filter
   github_filter_enrichment
   github_route_filter_eval
+  github_route_filter_preview
   github_route_store
   github_route_match
   github_route_transfer
