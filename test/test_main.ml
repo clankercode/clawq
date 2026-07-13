@@ -133,6 +133,7 @@ let () =
        ("github_teams_card_render", Test_github_teams_card_render.suite);
        ("github_plain_delivery", Test_github_plain_delivery_render.suite);
        ("github_item_context", Test_github_item_context_resolve.suite);
+       ("github_collab_grounding", Test_github_collab_grounding.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
