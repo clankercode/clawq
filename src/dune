@@ -242,6 +242,7 @@
   github_attribution_fallback
   github_attribution_authorize
   github_attribution_dispatch_lease
+  github_attribution_audit
   github_user_auth_readiness
   github_user_auth_tx
   github_user_auth_delivery

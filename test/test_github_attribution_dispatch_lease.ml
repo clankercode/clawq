@@ -88,7 +88,8 @@ let base_request ?(action = "merge") ?(tool_authorized = true)
     ?(live_revision = Some "sha_abc") ?(pin = A.empty_revision_pin)
     ?(actor_snapshot_id = Some "snap_1") ?(catalog_revision = "cat_rev_1")
     ?(access_revision = "acc_rev_1") ?(principal_revision = 3)
-    ?(installation_revision = Some "inst_rev_1") () : A.request =
+    ?(installation_revision = Some "inst_rev_1")
+    ?(fallback = A.default_fallback_context) () : A.request =
   {
     action;
     tool_catalog =
@@ -131,6 +132,7 @@ let base_request ?(action = "merge") ?(tool_authorized = true)
       { ok = live_ok; revision = live_revision; detail = live_detail };
     pin;
     actor_snapshot_id;
+    fallback;
   }
 
 let prior_allow ?(request = base_request ()) () : A.allow =
@@ -206,6 +208,9 @@ let test_app_path_no_user_lease () =
   let preview =
     base_request ~action:"comment" ~confirmation_required:false
       ~confirmation_satisfied:true ~confirmation_id:None ~binding:A.Not_required
+      ~fallback:
+        (A.fallback_context ~preview_actor:Github_attribution_fallback.Names_app
+           ())
       ()
   in
   let prior = prior_allow ~request:preview () in
