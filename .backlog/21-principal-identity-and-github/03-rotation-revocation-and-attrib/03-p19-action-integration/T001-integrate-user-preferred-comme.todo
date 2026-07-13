@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T06:40:02Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:49Z"
@@ -10,10 +12,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M3.E3.T001
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T06:40:02Z"
+status: in_progress
 tags: []
 title: Integrate user-preferred comments and metadata writes
-updated_at: "2026-07-12T14:52:49Z"
+updated_at: "2026-07-13T06:40:02Z"
 ---
 Acceptance: Comments, labels, assignees, and ordinary metadata use the current user's native attribution when available or only the explicitly previewed policy-permitted App fallback. The staged attribution gate, success, denial, actor change, stale state, idempotency, native receipt, and webhook reconciliation are independently tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
