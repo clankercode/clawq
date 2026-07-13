@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T08:17:53Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T08:32:09Z"
 complexity: high
 created_at: "2026-07-12T14:52:50Z"
 depends_on:
     - P21.M3.E3.T003
     - P21.M3.E3.T008
+duration_minutes: 14.272018011016666
 estimate_hours: 4
 id: P21.M3.E3.T004
 priority: critical
 started_at: "2026-07-13T08:17:53Z"
-status: in_progress
+status: done
 tags: []
 title: Keep personal tokens out of automation runners shell and Git transport
-updated_at: "2026-07-13T08:17:53Z"
+updated_at: "2026-07-13T08:32:09Z"
 ---
 Acceptance: Scheduled and ambient work uses App identity; user tokens never reach external runners, process environments, shell tools, Git remotes, worktrees, prompts, tool data, job payloads, or crash output. Confirmed user-attributed code work receives only opaque action context and HTTP-boundary leases; attempted transport use is denied, scanned, and audited. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
