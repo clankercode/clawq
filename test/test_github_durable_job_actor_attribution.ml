@@ -607,6 +607,69 @@ let test_local_runner_rejects_invalidated_task_without_work_item () =
         | Some msg -> contains msg "invalidated"
         | None -> false)
 
+let test_local_runner_revalidates_work_item_snapshot () =
+  with_db @@ fun db ->
+  let _pid, key, _link, binding = seed_ada ~db in
+  let snap =
+    assert_ok
+      (Job.capture_for_delayed_job ~db ~actor_key:key
+         ~delayed_job_id:"local_runner_guard_item"
+         ~account_binding_id:binding.id ~room_id ~now:fixed_now ())
+  in
+  let item =
+    assert_ok
+      (Bg.enqueue_work_item ~db
+         ~req:(bg_req ~dedup:"local_runner_guard_item" ())
+         ~actor_snapshot:snap ())
+  in
+  let task_id =
+    assert_ok
+      (Background_task.enqueue ~db ~runner:Background_task.Local
+         ~require_git:false ~automerge:false ~use_worktree:false
+         ~repo_path:(Filename.get_temp_dir_name ())
+         ~prompt:"durable local dispatch" ())
+  in
+  Github_work_item.attach_task ~db ~id:item.id ~background_task_id:task_id;
+  assert_ok (Github_work_item.require_actor_snapshot_current ~db item);
+  ignore
+    (assert_ok
+       (B.update_authorization_status ~db ~id:binding.id ~status:B.Revoked
+          ~now:(fixed_now +. 1.) ()));
+  let run_turn_calls = ref 0 in
+  Background_task.start_queued_with_local_runner ~db
+    ~run_turn:(fun
+        ~key:_
+        ~message:_
+        ?model:_
+        ?agent_name:_
+        ?cwd:_
+        ?context_snapshot:_
+        ~interrupt_check:_
+        ~on_history_update:_
+        ()
+      ->
+      incr run_turn_calls;
+      Lwt.return "unexpected local turn")
+    ~on_task_started:(fun _ -> Lwt.return_unit)
+    ~on_task_finished:(fun _ -> Lwt.return_unit)
+    ();
+  Lwt_main.run (Lwt.pause ());
+  Alcotest.(check int) "run_turn not called" 0 !run_turn_calls;
+  match Background_task.get_task ~db ~id:task_id with
+  | None -> Alcotest.fail "missing failed background task"
+  | Some failed ->
+      Alcotest.(check string)
+        "status failed" "failed"
+        (Background_task.string_of_status failed.status);
+      Alcotest.(check bool)
+        "authority currentness reported" true
+        (match failed.result_preview with
+        | Some msg ->
+            contains msg "human attribution"
+            || contains msg "no longer executable"
+            || contains msg "unusable"
+        | None -> false)
+
 let test_worker_retry_rejects_invalidated_task_without_work_item () =
   with_db @@ fun db ->
   let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy retry" in
@@ -703,6 +766,9 @@ let suite =
     ( "local runner rejects invalidated task without work item",
       `Quick,
       test_local_runner_rejects_invalidated_task_without_work_item );
+    ( "local runner revalidates work item snapshot",
+      `Quick,
+      test_local_runner_revalidates_work_item_snapshot );
     ( "worker retry rejects invalidated task without work item",
       `Quick,
       test_worker_retry_rejects_invalidated_task_without_work_item );

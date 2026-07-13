@@ -261,6 +261,29 @@ let legacy_background_task_invalidation_guard ~db (task : task) =
       ("could not inspect legacy background task invalidation before dispatch: "
      ^ Printexc.to_string exn)
 
+let human_dispatch_guard ~db (task : task) =
+  try
+    let ( let* ) = Result.bind in
+    let* () = legacy_background_task_invalidation_guard ~db task in
+    if not (Github_work_item.schema_exists db) then Ok ()
+    else
+      match Github_work_item.find_by_task ~db ~background_task_id:task.id with
+      | None -> Ok ()
+      | Some item -> (
+          match item.actor_snapshot_json with
+          | None -> Ok ()
+          | Some _ ->
+              let* () =
+                Github_work_item.require_actor_snapshot_current ~db item
+              in
+              Principal_legacy_migrate.require_migrated_user_dispatch ~db
+                ~source_kind:Principal_legacy_migrate.Background_task
+                ~source_id:(string_of_int task.id))
+  with exn ->
+    Error
+      ("could not inspect durable human attribution before dispatch: "
+     ^ Printexc.to_string exn)
+
 let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
     ?(on_task_finished = fun _ -> Lwt.return_unit)
     ?(run_simple_command = run_simple_command) ?command_override
@@ -268,30 +291,7 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
     ?(isolation_policy =
       Runner_isolation.{ mode = Off; backend = Sandbox.None; extra_paths = [] })
     ~db (task : task) =
-  let human_dispatch_guard () =
-    try
-      let ( let* ) = Result.bind in
-      let* () = legacy_background_task_invalidation_guard ~db task in
-      if not (Github_work_item.schema_exists db) then Ok ()
-      else
-        match Github_work_item.find_by_task ~db ~background_task_id:task.id with
-        | None -> Ok ()
-        | Some item -> (
-            match item.actor_snapshot_json with
-            | None -> Ok ()
-            | Some _ ->
-                let* () =
-                  Github_work_item.require_actor_snapshot_current ~db item
-                in
-                Principal_legacy_migrate.require_migrated_user_dispatch ~db
-                  ~source_kind:Principal_legacy_migrate.Background_task
-                  ~source_id:(string_of_int task.id))
-    with exn ->
-      Error
-        ("could not inspect durable human attribution before dispatch: "
-       ^ Printexc.to_string exn)
-  in
-  match human_dispatch_guard () with
+  match human_dispatch_guard ~db task with
   | Error err ->
       finish ~db ~id:task.id ~status:Failed
         ~result_preview:("Human-attributed durable dispatch refused: " ^ err)
@@ -714,7 +714,7 @@ let start_queued_with_local_runner ~run_turn ?timeout_seconds ?max_running_tasks
     ~on_task_started ~db () =
   let spawn ~on_task_started ~on_task_finished ~db (task : task) =
     if task.runner = Local then
-      match legacy_background_task_invalidation_guard ~db task with
+      match human_dispatch_guard ~db task with
       | Error err ->
           finish ~db ~id:task.id ~status:Failed
             ~result_preview:("Human-attributed durable dispatch refused: " ^ err)
