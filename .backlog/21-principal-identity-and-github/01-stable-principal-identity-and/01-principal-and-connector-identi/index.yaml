@@ -124,7 +124,7 @@ tasks:
       file: T011-merge-or-adopt-principals-dete.todo
       id: T011
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Merge or adopt Principals deterministically after verified linking
     - complexity: high
