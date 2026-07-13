@@ -179,6 +179,7 @@
   setup_plan_bundle
   principal_identity
   principal_identity_store
+  principal_bootstrap
   github_app_setup_tx
   github_app_setup_callback
   github_app_setup_resume
