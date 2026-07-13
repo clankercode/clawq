@@ -67,6 +67,7 @@
   test_github_route_transfer
   test_github_route_migrate
   test_github_route_admin
+  test_github_route_apply
   test_github_auth_selection
   test_github_pr_subscriptions
   test_github_pr_dispatch
