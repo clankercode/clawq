@@ -734,9 +734,9 @@ let verify_envelopes_openable ~(keys : V.key_provider) ~(backup : backup) =
           let sql =
             {|INSERT INTO github_user_token_vault
               (id, principal_id, github_user_id, app_id, host, record_version,
-               key_id, key_version, key_fingerprint, generation, scopes_json,
-               expires_at, ciphertext, created_at, updated_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)|}
+               key_id, key_version, key_fingerprint, generation, active,
+               scopes_json, expires_at, ciphertext, created_at, updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)|}
           in
           let stmt = Sqlite3.prepare mem sql in
           let insert_ok =
@@ -754,11 +754,12 @@ let verify_envelopes_openable ~(keys : V.key_provider) ~(backup : backup) =
                 bind 8 (Sqlite3.Data.INT (Int64.of_int e.key_version));
                 bind 9 (Sqlite3.Data.TEXT e.key_fingerprint);
                 bind 10 (Sqlite3.Data.INT (Int64.of_int e.generation));
-                bind 11 (Sqlite3.Data.TEXT (scopes_to_json e.scopes));
-                bind 12 (Sqlite3.Data.TEXT e.expires_at);
-                bind 13 (Sqlite3.Data.TEXT e.ciphertext);
-                bind 14 (Sqlite3.Data.TEXT e.created_at);
-                bind 15 (Sqlite3.Data.TEXT e.updated_at);
+                bind 11 (Sqlite3.Data.INT 1L);
+                bind 12 (Sqlite3.Data.TEXT (scopes_to_json e.scopes));
+                bind 13 (Sqlite3.Data.TEXT e.expires_at);
+                bind 14 (Sqlite3.Data.TEXT e.ciphertext);
+                bind 15 (Sqlite3.Data.TEXT e.created_at);
+                bind 16 (Sqlite3.Data.TEXT e.updated_at);
                 match Sqlite3.step stmt with
                 | Sqlite3.Rc.DONE -> true
                 | _ -> false)
@@ -789,9 +790,9 @@ let insert_envelope ~db (e : sealed_envelope) =
   let sql =
     {|INSERT INTO github_user_token_vault
       (id, principal_id, github_user_id, app_id, host, record_version,
-       key_id, key_version, key_fingerprint, generation, scopes_json,
+       key_id, key_version, key_fingerprint, generation, active, scopes_json,
        expires_at, ciphertext, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)|}
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)|}
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -808,11 +809,14 @@ let insert_envelope ~db (e : sealed_envelope) =
       bind 8 (Sqlite3.Data.INT (Int64.of_int e.key_version));
       bind 9 (Sqlite3.Data.TEXT e.key_fingerprint);
       bind 10 (Sqlite3.Data.INT (Int64.of_int e.generation));
-      bind 11 (Sqlite3.Data.TEXT (scopes_to_json e.scopes));
-      bind 12 (Sqlite3.Data.TEXT e.expires_at);
-      bind 13 (Sqlite3.Data.TEXT e.ciphertext);
-      bind 14 (Sqlite3.Data.TEXT e.created_at);
-      bind 15 (Sqlite3.Data.TEXT e.updated_at);
+      (* Restore starts with authorization disabled; vault rows stay sealed but
+         inactive until operator re-enable / relink (T004 active flag). *)
+      bind 11 (Sqlite3.Data.INT 0L);
+      bind 12 (Sqlite3.Data.TEXT (scopes_to_json e.scopes));
+      bind 13 (Sqlite3.Data.TEXT e.expires_at);
+      bind 14 (Sqlite3.Data.TEXT e.ciphertext);
+      bind 15 (Sqlite3.Data.TEXT e.created_at);
+      bind 16 (Sqlite3.Data.TEXT e.updated_at);
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> Ok ()
       | rc -> Error (storage_err "insert envelope" rc db))

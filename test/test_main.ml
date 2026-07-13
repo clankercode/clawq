@@ -189,6 +189,7 @@ let () =
        ("github_user_token_master_key", Test_github_user_token_master_key.suite);
        ("github_user_token_vault", Test_github_user_token_vault.suite);
        ("github_user_token_lease", Test_github_user_token_lease.suite);
+       ("github_user_token_cas", Test_github_user_token_cas.suite);
        ("github_user_token_rewrap", Test_github_user_token_rewrap.suite);
        ( "github_user_token_vault_recovery",
          Test_github_user_token_vault_recovery.suite );

@@ -25,10 +25,11 @@
     jobs, and tool arguments. It is not capability security against malicious
     OCaml that bypasses the type system.
 
-    Full generation CAS transitions that invalidate live leases on
-    replace/revoke/unlink land in P21.M2.E4.T004; this module already refuses
-    wrong-generation use and exposes {!invalidate_generation} /
-    {!discard_for_vault} hooks for that path and for vault recovery.
+    Generation CAS transitions that invalidate live leases on
+    replace/disable/revoke/unlink are coordinated by {!Github_user_token_cas}
+    (T004). This module refuses wrong-generation and inactive-vault use and
+    exposes {!invalidate_generation} / {!discard_for_vault} hooks for that path
+    and for vault recovery.
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
@@ -101,6 +102,8 @@ type denial =
   | Generation_mismatch of { expected : int; actual : int }
       (** Vault generation advanced past the lease pin (refresh/replace/revoke).
       *)
+  | Vault_not_active
+      (** Vault row is inactive (disabled / revoked / unlinked). *)
   | Token_expired  (** Access token [expires_at] is at or before [now]. *)
   | Account_mismatch of {
       expected : Github_user_token_vault.account_key;

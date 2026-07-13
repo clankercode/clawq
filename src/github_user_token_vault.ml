@@ -1,4 +1,4 @@
-(** Fail-closed mutable GitHub user-token vault CRUD (P21.M2.E4.T002).
+(** Fail-closed mutable GitHub user-token vault CRUD (P21.M2.E4.T002/T004).
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
@@ -30,6 +30,7 @@ type vault_record = {
   key_id : MK.key_id;
   key_version : MK.key_version;
   generation : int;
+  active : bool;
   scopes : string list;
   expires_at : string;
   created_at : string;
@@ -49,6 +50,8 @@ type denial =
   | Not_found
   | Already_exists
   | Generation_conflict of { expected : int; actual : int }
+  | Active_conflict of { expected : bool; actual : bool }
+  | Not_active
   | Crypto_failure
   | Invalid_input of string
   | Storage of string
@@ -89,6 +92,9 @@ let string_of_denial = function
   | Already_exists -> "already_exists"
   | Generation_conflict { expected; actual } ->
       Printf.sprintf "generation_conflict:expected=%d actual=%d" expected actual
+  | Active_conflict { expected; actual } ->
+      Printf.sprintf "active_conflict:expected=%b actual=%b" expected actual
+  | Not_active -> "not_active"
   | Crypto_failure -> "crypto_failure"
   | Invalid_input msg -> Printf.sprintf "invalid_input:%s" msg
   | Storage msg -> Printf.sprintf "storage:%s" msg
@@ -370,6 +376,22 @@ let exec_schema db sql =
         (Printf.sprintf "github_user_token_vault schema error: %s (sql: %s)"
            (Sqlite3.Rc.to_string rc) sql)
 
+let table_has_column db ~table ~column =
+  let sql = Printf.sprintf "PRAGMA table_info(%s)" table in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let rec go () =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match Sqlite3.column stmt 1 with
+            | Sqlite3.Data.TEXT name when String.equal name column -> true
+            | _ -> go ())
+        | _ -> false
+      in
+      go ())
+
 let ensure_schema db =
   let table =
     {|CREATE TABLE IF NOT EXISTS github_user_token_vault (
@@ -383,6 +405,7 @@ let ensure_schema db =
       key_version INTEGER NOT NULL,
       key_fingerprint TEXT NOT NULL,
       generation INTEGER NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
       scopes_json TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       ciphertext TEXT NOT NULL,
@@ -398,7 +421,13 @@ let ensure_schema db =
     {|CREATE INDEX IF NOT EXISTS idx_gh_user_token_vault_key_id
       ON github_user_token_vault(key_id)|}
   in
-  List.iter (exec_schema db) [ table; uniq_account; idx_key ]
+  List.iter (exec_schema db) [ table; uniq_account; idx_key ];
+  (* Pre-T004 tables: add durable active flag without rewriting rows. *)
+  if not (table_has_column db ~table:"github_user_token_vault" ~column:"active")
+  then
+    exec_schema db
+      {|ALTER TABLE github_user_token_vault
+        ADD COLUMN active INTEGER NOT NULL DEFAULT 1|}
 
 let scopes_to_json scopes =
   Yojson.Safe.to_string (`List (List.map (fun s -> `String s) scopes))
@@ -439,6 +468,15 @@ let int64_col stmt i =
   | Sqlite3.Data.TEXT s -> ( try Int64.of_string s with _ -> 0L)
   | _ -> 0L
 
+let bool_col stmt i =
+  match Sqlite3.column stmt i with
+  | Sqlite3.Data.INT n -> n <> 0L
+  | Sqlite3.Data.TEXT s -> (
+      match String.lowercase_ascii (String.trim s) with
+      | "1" | "true" | "t" | "yes" -> true
+      | _ -> false)
+  | _ -> false
+
 type row = {
   meta : vault_record;
   ciphertext : string;
@@ -456,11 +494,12 @@ let row_of_stmt stmt : (row, denial) result =
   let key_version = int_col stmt 7 in
   let key_fingerprint = text_col stmt 8 in
   let generation = int_col stmt 9 in
-  let scopes_json = text_col stmt 10 in
-  let expires_at = text_col stmt 11 in
-  let ciphertext = text_col stmt 12 in
-  let created_at = text_col stmt 13 in
-  let updated_at = text_col stmt 14 in
+  let active = bool_col stmt 10 in
+  let scopes_json = text_col stmt 11 in
+  let expires_at = text_col stmt 12 in
+  let ciphertext = text_col stmt 13 in
+  let created_at = text_col stmt 14 in
+  let updated_at = text_col stmt 15 in
   match scopes_of_json scopes_json with
   | Error e -> Error e
   | Ok scopes ->
@@ -474,6 +513,7 @@ let row_of_stmt stmt : (row, denial) result =
               key_id;
               key_version;
               generation;
+              active;
               scopes;
               expires_at;
               created_at;
@@ -485,7 +525,7 @@ let row_of_stmt stmt : (row, denial) result =
 
 let select_sql =
   {|SELECT id, principal_id, github_user_id, app_id, host, record_version,
-           key_id, key_version, key_fingerprint, generation, scopes_json,
+           key_id, key_version, key_fingerprint, generation, active, scopes_json,
            expires_at, ciphertext, created_at, updated_at
     FROM github_user_token_vault |}
 
@@ -579,6 +619,7 @@ let create ~db ~keys ?id ?(now = Unix.gettimeofday ()) ~account ~tokens ~scopes
               | _ -> generate_id ~now ()
             in
             let generation = 1 in
+            let active = true in
             let record_version = schema_version in
             let fp = key_fingerprint material.aes_key in
             match
@@ -592,9 +633,9 @@ let create ~db ~keys ?id ?(now = Unix.gettimeofday ()) ~account ~tokens ~scopes
                 let sql =
                   {|INSERT INTO github_user_token_vault
                     (id, principal_id, github_user_id, app_id, host, record_version,
-                     key_id, key_version, key_fingerprint, generation, scopes_json,
-                     expires_at, ciphertext, created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)|}
+                     key_id, key_version, key_fingerprint, generation, active,
+                     scopes_json, expires_at, ciphertext, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)|}
                 in
                 let stmt = Sqlite3.prepare db sql in
                 Fun.protect
@@ -612,11 +653,12 @@ let create ~db ~keys ?id ?(now = Unix.gettimeofday ()) ~account ~tokens ~scopes
                       (Sqlite3.Data.INT (Int64.of_int material.key_version));
                     bind 9 (Sqlite3.Data.TEXT fp);
                     bind 10 (Sqlite3.Data.INT (Int64.of_int generation));
-                    bind 11 (Sqlite3.Data.TEXT (scopes_to_json scopes));
-                    bind 12 (Sqlite3.Data.TEXT expires_at);
-                    bind 13 (Sqlite3.Data.TEXT ciphertext);
-                    bind 14 (Sqlite3.Data.TEXT created_at);
-                    bind 15 (Sqlite3.Data.TEXT updated_at);
+                    bind 11 (Sqlite3.Data.INT (if active then 1L else 0L));
+                    bind 12 (Sqlite3.Data.TEXT (scopes_to_json scopes));
+                    bind 13 (Sqlite3.Data.TEXT expires_at);
+                    bind 14 (Sqlite3.Data.TEXT ciphertext);
+                    bind 15 (Sqlite3.Data.TEXT created_at);
+                    bind 16 (Sqlite3.Data.TEXT updated_at);
                     match Sqlite3.step stmt with
                     | Sqlite3.Rc.DONE ->
                         Ok
@@ -627,6 +669,7 @@ let create ~db ~keys ?id ?(now = Unix.gettimeofday ()) ~account ~tokens ~scopes
                             key_id = material.key_id;
                             key_version = material.key_version;
                             generation;
+                            active;
                             scopes;
                             expires_at;
                             created_at;
@@ -674,8 +717,109 @@ let get_meta_by_account ~db ~account =
   | Ok None -> Ok None
   | Ok (Some row) -> Ok (Some row.meta)
 
+let cas_conflict_from_meta ~expected_generation ~expected_active
+    ~(meta : vault_record) =
+  if meta.generation <> expected_generation then
+    Error
+      (Generation_conflict
+         { expected = expected_generation; actual = meta.generation })
+  else if meta.active <> expected_active then
+    if expected_active && not meta.active then Error Not_active
+    else
+      Error
+        (Active_conflict { expected = expected_active; actual = meta.active })
+  else Ok ()
+
+let check_expected_account ~expected ~(meta : vault_record) =
+  match expected with
+  | Some exp when not (account_equal exp meta.account) ->
+      Error (Account_mismatch { expected = exp; found = meta.account })
+  | _ -> Ok ()
+
+(** Shared CAS UPDATE: compare binding + generation + active in the WHERE clause
+    so concurrent stale writers cannot land after a successful race. *)
+let cas_update_sealed ~db ~id ~(meta : vault_record) ~expected_generation
+    ~expected_active ~new_generation ~new_active ~record_version ~material ~fp
+    ~scopes ~expires_at ~ciphertext ~updated_at =
+  let sql =
+    {|UPDATE github_user_token_vault
+      SET record_version = ?, key_id = ?, key_version = ?,
+          key_fingerprint = ?, generation = ?, active = ?, scopes_json = ?,
+          expires_at = ?, ciphertext = ?, updated_at = ?
+      WHERE id = ? AND generation = ? AND active = ?
+        AND principal_id = ? AND github_user_id = ? AND app_id = ? AND host = ?|}
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let bind i d = ignore (Sqlite3.bind stmt i d) in
+      bind 1 (Sqlite3.Data.INT (Int64.of_int record_version));
+      bind 2 (Sqlite3.Data.TEXT material.key_id);
+      bind 3 (Sqlite3.Data.INT (Int64.of_int material.key_version));
+      bind 4 (Sqlite3.Data.TEXT fp);
+      bind 5 (Sqlite3.Data.INT (Int64.of_int new_generation));
+      bind 6 (Sqlite3.Data.INT (if new_active then 1L else 0L));
+      bind 7 (Sqlite3.Data.TEXT (scopes_to_json scopes));
+      bind 8 (Sqlite3.Data.TEXT expires_at);
+      bind 9 (Sqlite3.Data.TEXT ciphertext);
+      bind 10 (Sqlite3.Data.TEXT updated_at);
+      bind 11 (Sqlite3.Data.TEXT id);
+      bind 12 (Sqlite3.Data.INT (Int64.of_int expected_generation));
+      bind 13 (Sqlite3.Data.INT (if expected_active then 1L else 0L));
+      bind 14 (Sqlite3.Data.TEXT meta.account.principal_id);
+      bind 15 (Sqlite3.Data.INT meta.account.github_user_id);
+      bind 16 (Sqlite3.Data.INT (Int64.of_int meta.account.app_id));
+      bind 17 (Sqlite3.Data.TEXT meta.account.host);
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE ->
+          if Sqlite3.changes db <> 1 then
+            (* Reload for precise denial when concurrent writer won. *)
+            match load_by_id db id with
+            | Ok (Some row) -> (
+                match
+                  cas_conflict_from_meta ~expected_generation ~expected_active
+                    ~meta:row.meta
+                with
+                | Error e -> Error e
+                | Ok () ->
+                    (* WHERE failed for another reason (e.g. binding race). *)
+                    Error
+                      (Generation_conflict
+                         {
+                           expected = expected_generation;
+                           actual = row.meta.generation;
+                         }))
+            | _ ->
+                Error
+                  (Generation_conflict
+                     {
+                       expected = expected_generation;
+                       actual = meta.generation;
+                     })
+          else
+            Ok
+              {
+                id;
+                account = meta.account;
+                record_version;
+                key_id = material.key_id;
+                key_version = material.key_version;
+                generation = new_generation;
+                active = new_active;
+                scopes;
+                expires_at;
+                created_at = meta.created_at;
+                updated_at;
+              }
+      | rc ->
+          Error
+            (Storage
+               (Printf.sprintf "UPDATE CAS failed: %s (%s)"
+                  (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
+
 let replace ~db ~keys ?(now = Unix.gettimeofday ()) ~id ~expected_generation
-    ~tokens ~scopes ~expires_at () =
+    ?(expected_active = true) ?expected ~tokens ~scopes ~expires_at () =
   let expires_at = String.trim expires_at in
   if expires_at = "" then Error (Invalid_input "expires_at must be non-empty")
   else if expected_generation < 1 then
@@ -692,83 +836,86 @@ let replace ~db ~keys ?(now = Unix.gettimeofday ()) ~id ~expected_generation
             | Ok None -> Error Not_found
             | Ok (Some row) -> (
                 let meta = row.meta in
-                if meta.generation <> expected_generation then
-                  Error
-                    (Generation_conflict
-                       {
-                         expected = expected_generation;
-                         actual = meta.generation;
-                       })
-                else
-                  let new_generation = expected_generation + 1 in
-                  let record_version = schema_version in
-                  let fp = key_fingerprint material.aes_key in
-                  match
-                    seal_envelope ~aes_key:material.aes_key
-                      ~account:meta.account ~record_version
-                      ~generation:new_generation ~key_id:material.key_id ~tokens
-                      ~scopes ~expires_at
-                  with
-                  | Error e -> Error e
-                  | Ok ciphertext ->
-                      let updated_at = Time_util.iso8601_utc ~t:now () in
-                      let sql =
-                        {|UPDATE github_user_token_vault
-                          SET record_version = ?, key_id = ?, key_version = ?,
-                              key_fingerprint = ?, generation = ?, scopes_json = ?,
-                              expires_at = ?, ciphertext = ?, updated_at = ?
-                          WHERE id = ? AND generation = ?|}
-                      in
-                      let stmt = Sqlite3.prepare db sql in
-                      Fun.protect
-                        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-                        (fun () ->
-                          let bind i d = ignore (Sqlite3.bind stmt i d) in
-                          bind 1
-                            (Sqlite3.Data.INT (Int64.of_int record_version));
-                          bind 2 (Sqlite3.Data.TEXT material.key_id);
-                          bind 3
-                            (Sqlite3.Data.INT
-                               (Int64.of_int material.key_version));
-                          bind 4 (Sqlite3.Data.TEXT fp);
-                          bind 5
-                            (Sqlite3.Data.INT (Int64.of_int new_generation));
-                          bind 6 (Sqlite3.Data.TEXT (scopes_to_json scopes));
-                          bind 7 (Sqlite3.Data.TEXT expires_at);
-                          bind 8 (Sqlite3.Data.TEXT ciphertext);
-                          bind 9 (Sqlite3.Data.TEXT updated_at);
-                          bind 10 (Sqlite3.Data.TEXT id);
-                          bind 11
-                            (Sqlite3.Data.INT (Int64.of_int expected_generation));
-                          match Sqlite3.step stmt with
-                          | Sqlite3.Rc.DONE ->
-                              if Sqlite3.changes db <> 1 then
-                                Error
-                                  (Generation_conflict
-                                     {
-                                       expected = expected_generation;
-                                       actual = meta.generation;
-                                     })
-                              else
-                                Ok
-                                  {
-                                    id;
-                                    account = meta.account;
-                                    record_version;
-                                    key_id = material.key_id;
-                                    key_version = material.key_version;
-                                    generation = new_generation;
-                                    scopes;
-                                    expires_at;
-                                    created_at = meta.created_at;
-                                    updated_at;
-                                  }
-                          | rc ->
-                              Error
-                                (Storage
-                                   (Printf.sprintf "UPDATE failed: %s (%s)"
-                                      (Sqlite3.Rc.to_string rc)
-                                      (Sqlite3.errmsg db)))))))
+                match check_expected_account ~expected ~meta with
+                | Error e -> Error e
+                | Ok () -> (
+                    match
+                      cas_conflict_from_meta ~expected_generation
+                        ~expected_active ~meta
+                    with
+                    | Error e -> Error e
+                    | Ok () -> (
+                        let new_generation = expected_generation + 1 in
+                        let record_version = schema_version in
+                        let fp = key_fingerprint material.aes_key in
+                        match
+                          seal_envelope ~aes_key:material.aes_key
+                            ~account:meta.account ~record_version
+                            ~generation:new_generation ~key_id:material.key_id
+                            ~tokens ~scopes ~expires_at
+                        with
+                        | Error e -> Error e
+                        | Ok ciphertext ->
+                            let updated_at = Time_util.iso8601_utc ~t:now () in
+                            cas_update_sealed ~db ~id ~meta ~expected_generation
+                              ~expected_active ~new_generation
+                              ~new_active:meta.active ~record_version ~material
+                              ~fp ~scopes ~expires_at ~ciphertext ~updated_at)))
+            ))
+
+let cas_set_active ~db ~keys ?(now = Unix.gettimeofday ()) ~id
+    ~expected_generation ~expected_active ?expected ~active () =
+  if expected_generation < 1 then
+    Error (Invalid_input "expected_generation must be positive")
+  else
+    match keys.active () with
+    | Error e -> Error e
+    | Ok material -> (
+        match validate_aes_key material.aes_key with
+        | Error _ -> Error Crypto_failure
+        | Ok () -> (
+            match load_by_id db id with
+            | Error e -> Error e
+            | Ok None -> Error Not_found
+            | Ok (Some row) -> (
+                let meta = row.meta in
+                match check_expected_account ~expected ~meta with
+                | Error e -> Error e
+                | Ok () -> (
+                    match
+                      cas_conflict_from_meta ~expected_generation
+                        ~expected_active ~meta
+                    with
+                    | Error e -> Error e
+                    | Ok () -> (
+                        (* Idempotent when already at the desired active state:
+                           still advance generation so leases pin the new
+                           lineage and concurrent stale writers fail closed. *)
+                        match open_row ~keys row with
+                        | Error e -> Error e
+                        | Ok opened -> (
+                            let new_generation = expected_generation + 1 in
+                            let record_version = schema_version in
+                            let fp = key_fingerprint material.aes_key in
+                            let scopes = opened.record.scopes in
+                            let expires_at = opened.record.expires_at in
+                            match
+                              seal_envelope ~aes_key:material.aes_key
+                                ~account:meta.account ~record_version
+                                ~generation:new_generation
+                                ~key_id:material.key_id ~tokens:opened.tokens
+                                ~scopes ~expires_at
+                            with
+                            | Error e -> Error e
+                            | Ok ciphertext ->
+                                let updated_at =
+                                  Time_util.iso8601_utc ~t:now ()
+                                in
+                                cas_update_sealed ~db ~id ~meta
+                                  ~expected_generation ~expected_active
+                                  ~new_generation ~new_active:active
+                                  ~record_version ~material ~fp ~scopes
+                                  ~expires_at ~ciphertext ~updated_at))))))
 
 let destroy ~db ~id =
   let sql = "DELETE FROM github_user_token_vault WHERE id = ?" in
@@ -925,6 +1072,7 @@ let commit_rewrap ~db ~now ~id ~(meta : vault_record) ~target_material
                 key_id = target_material.key_id;
                 key_version = target_material.key_version;
                 generation = meta.generation;
+                active = meta.active;
                 scopes;
                 expires_at;
                 created_at = meta.created_at;
@@ -1010,6 +1158,7 @@ let record_to_json (r : vault_record) : Yojson.Safe.t =
       ("key_id", `String r.key_id);
       ("key_version", `Int r.key_version);
       ("generation", `Int r.generation);
+      ("active", `Bool r.active);
       ("scopes", `List (List.map (fun s -> `String s) r.scopes));
       ("expires_at", `String r.expires_at);
       ("created_at", `String r.created_at);
