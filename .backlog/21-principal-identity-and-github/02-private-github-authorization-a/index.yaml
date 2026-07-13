@@ -9,7 +9,7 @@ epics:
       locked: false
       name: App Readiness and Authorization Transactions
       path: 01-app-readiness-and-authorizatio
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Implement one-time web authorization, identity verification, and explicit confirmable binding activation.
