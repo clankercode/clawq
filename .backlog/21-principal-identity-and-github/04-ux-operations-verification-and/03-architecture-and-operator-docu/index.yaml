@@ -19,7 +19,7 @@ tasks:
       file: T001-finalize-principal-token-vault.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Finalize Principal token-vault security boundary ADRs and glossary
     - complexity: medium
