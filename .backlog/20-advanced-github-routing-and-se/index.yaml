@@ -14,7 +14,7 @@ milestones:
       locked: false
       name: Advanced Structured Org and Repo Forwarding
       path: 01-advanced-structured-org-and-re
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M1

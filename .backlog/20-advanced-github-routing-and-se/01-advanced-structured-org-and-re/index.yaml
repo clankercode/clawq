@@ -20,7 +20,7 @@ epics:
       locked: false
       name: Explainability and Org-Scale Evaluation
       path: 02-explainability-and-org-scale-e
-      status: pending
+      status: done
 estimate_hours: 31
 id: P20.M1
 locked: false
@@ -31,4 +31,4 @@ stats:
     in_progress: 0
     pending: 7
     total_tasks: 7
-status: pending
+status: done

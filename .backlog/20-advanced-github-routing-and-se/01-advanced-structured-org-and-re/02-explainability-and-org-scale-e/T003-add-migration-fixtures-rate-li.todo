@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T02:37:17Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T03:01:22Z"
 complexity: high
 created_at: "2026-07-12T12:34:11Z"
 depends_on:
     - P20.M1.E2.T002
+duration_minutes: 24.090618701733334
 estimate_hours: 4
 id: P20.M1.E2.T003
 priority: high
 started_at: "2026-07-13T02:37:17Z"
-status: in_progress
+status: done
 tags: []
 title: Add migration fixtures rate-limit behavior and Org-scale benchmarks
-updated_at: "2026-07-13T02:37:17Z"
+updated_at: "2026-07-13T03:01:22Z"
 ---
 Acceptance: Fixtures prove baseline-to-advanced migration parity and all advanced predicate combinations. Deterministic rate-limit tests fail closed with explainable results, and documented Org-scale benchmarks enforce agreed candidate/match/enrichment budgets without changing semantics. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

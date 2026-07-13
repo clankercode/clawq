@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -41,6 +41,6 @@ tasks:
       file: T003-add-migration-fixtures-rate-li.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add migration fixtures rate-limit behavior and Org-scale benchmarks
