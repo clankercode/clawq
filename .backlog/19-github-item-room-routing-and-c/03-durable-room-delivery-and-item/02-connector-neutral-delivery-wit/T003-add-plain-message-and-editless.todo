@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T00:29:52Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-12T12:33:59Z"
 depends_on:
@@ -6,11 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P19.M3.E2.T003
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-13T00:29:52Z"
+status: in_progress
+tags: []
 title: Add plain-message and editless fallbacks for other Channels and Sessions
-updated_at: "2026-07-12T12:33:59Z"
+updated_at: "2026-07-13T00:29:52Z"
 ---
 Acceptance: Connectors lacking cards, edits, or threads receive a compact deterministic text/update fallback with explicit degraded behavior. Direct Sessions use the same intents and report weaker continuity rather than silently succeeding after Session loss. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
