@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T01:24:32Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:07Z"
@@ -13,10 +15,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M4.E2.T004
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-13T01:24:32Z"
+status: in_progress
 tags: []
 title: Reconcile action receipts backlinks and resulting webhooks without loops
-updated_at: "2026-07-12T12:34:07Z"
+updated_at: "2026-07-13T01:24:32Z"
 ---
 Acceptance: Every mutation, background action, workflow, code job, and merge records Room, item, action, actor mode/evidence, policy, confirmation where required, GitHub result, and correlation identifiers. Resulting verified webhooks update the projection and close the correct receipt exactly once without retriggering work or duplicate visible output; unrelated human events remain distinct. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
