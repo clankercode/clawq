@@ -8,7 +8,7 @@
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
 
-type status = Pending | In_flight | Succeeded | Dead_letter
+type status = Pending | In_flight | Succeeded | Dead_letter | Superseded
 
 type entry = {
   id : string;
@@ -65,3 +65,16 @@ val mark_failure :
 
 val list_dead_letters :
   db:Sqlite3.db -> ?limit:int -> unit -> (entry list, string) result
+
+val count_open_for_item :
+  db:Sqlite3.db -> room_id:string -> item_key:string -> (int, string) result
+(** Count Pending + In_flight rows for [room_id]/[item_key]. Used by catch-up
+    reconciliation to measure collapsed backlog. *)
+
+val supersede_pending_for_item :
+  db:Sqlite3.db -> room_id:string -> item_key:string -> (int, string) result
+(** Mark all Pending/In_flight rows for the item as [Superseded]. Returns the
+    number of rows updated. Succeeded and dead-letter rows are left alone. *)
+
+val mark_superseded : db:Sqlite3.db -> id:string -> (unit, string) result
+(** Mark a single Pending/In_flight row as [Superseded]. *)

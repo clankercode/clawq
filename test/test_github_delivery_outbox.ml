@@ -53,6 +53,7 @@ let status_name = function
   | O.In_flight -> "in_flight"
   | O.Succeeded -> "succeeded"
   | O.Dead_letter -> "dead_letter"
+  | O.Superseded -> "superseded"
 
 (* 1. enqueue creates pending *)
 let test_enqueue_creates_pending () =
