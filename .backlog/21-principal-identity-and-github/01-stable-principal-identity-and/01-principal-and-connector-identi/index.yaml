@@ -94,7 +94,7 @@ tasks:
       file: T008-validate-telegram-ingress-and.todo
       id: T008
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Validate Telegram ingress and derive canonical user identity
     - complexity: high
