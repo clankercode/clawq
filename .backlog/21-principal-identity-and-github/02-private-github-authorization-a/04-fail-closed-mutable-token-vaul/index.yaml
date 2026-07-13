@@ -18,7 +18,7 @@ tasks:
       file: T001-define-versioned-encrypted-git.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Define versioned encrypted GitHub user-token records
     - complexity: high
