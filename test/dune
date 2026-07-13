@@ -220,6 +220,7 @@
   test_github_account_ownership_policy
   test_github_account_preference
   test_principal_unlink_split
+  test_actor_snapshot
   test_teams_principal_ingress
   test_slack_principal_ingress
   test_discord_principal_ingress
