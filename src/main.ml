@@ -612,6 +612,22 @@ let debate_cmd =
       `I ("--show ID", "Show a specific past debate round.");
     ]
 
+let github_cmd =
+  with_args "github"
+    "Manage Principal-owned GitHub account lifecycle and routes."
+    [
+      `S "SUBCOMMANDS";
+      `I ("account list|status [BINDING]|use BINDING|link|relink BINDING|unlink \
+          BINDING [--digest D]",
+          "Principal-owned GitHub account lifecycle (redacted).");
+      `I ("route inspect ROUTE_ID | route list ROOM | diagnostics route ROUTE_ID",
+          "Inspect or diagnose existing GitHub routes.");
+      `I ("route plan/change/disable/remove/apply (CLAWQ_ADMIN=1)",
+          "Plan and apply GitHub route/App changes.");
+      `I ("app deliveries | app apply PLAN_ID DIGEST",
+          "Inspect or apply pending GitHub App setup deliveries.");
+    ]
+
 let pipeline_cmd =
   with_args "pipeline"
     "Define and run structured output pipelines with validated JSON Schema \
@@ -727,6 +743,7 @@ let () =
       manifest_cmd;
       held_items_cmd;
       subscriptions_cmd;
+      github_cmd;
       debate_cmd;
       pipeline_cmd;
     ]

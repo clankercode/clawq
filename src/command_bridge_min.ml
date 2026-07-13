@@ -650,6 +650,7 @@ let handle args =
   | "agent" :: _ -> unsupported "agent"
   | "transcribe" :: _ -> unsupported "transcribe"
   | "mcp" :: _ -> unsupported "mcp"
+  | "github" :: "account" :: rest -> Github_account_cli_min.cmd rest
   | "github" :: _ -> unsupported "github route/App setup"
   | "runner" :: _ -> unsupported "runner"
   | "runtime" :: _ -> unsupported "runtime"

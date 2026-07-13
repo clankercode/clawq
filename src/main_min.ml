@@ -269,6 +269,19 @@ let manifest_cmd =
       `I ("--output FILE", "Write output to file instead of stdout.");
     ]
 
+let github_cmd =
+  with_args "github"
+    "Manage Principal-owned GitHub account lifecycle and routes (disabled in \
+     minimal build)."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "account list|status [BINDING]|use BINDING|link|relink BINDING|unlink \
+           BINDING [--digest D]",
+          "Principal-owned GitHub account lifecycle (disabled in minimal \
+           build)." );
+    ]
+
 let version_cmd =
   let info = Cmd.info "version" ~doc:"Print version and build info." in
   Cmd.v info
@@ -338,6 +351,7 @@ let () =
       benchmark_cmd;
       completions_cmd;
       manifest_cmd;
+      github_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

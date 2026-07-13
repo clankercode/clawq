@@ -190,6 +190,8 @@
   github_account_preference
   github_eligible_account_resolve
   github_account_admin_surface
+  github_account_cli_min
+  github_account_tool
   principal_unlink_split
   actor_snapshot
   github_durable_job_actor_attribution
@@ -457,6 +459,7 @@
   command_bridge_session_fmt
   command_bridge_helpers
   github_route_cli
+  github_account_cli
   command_bridge_cron
   github_pr_subscriptions_cli
   command_bridge_bgargs
