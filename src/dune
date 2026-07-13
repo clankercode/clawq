@@ -206,6 +206,7 @@
   github_code_change_action
   github_merge_action
   github_issue_actions
+  github_workflow_dispatch
   github_action_workflow
   github_room_tools
   github_auth_selection

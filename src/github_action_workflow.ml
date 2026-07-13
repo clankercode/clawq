@@ -11,6 +11,7 @@ type action_kind =
     }
 ||||||| fdd10de5
   | Issue of Github_issue_actions.action
+  | Workflow_dispatch of Github_workflow_dispatch.request
 
 let action_kind_label = function
   | Collab _ -> "collab"
@@ -19,6 +20,7 @@ let action_kind_label = function
   | Merge _ -> "merge"
 ||||||| fdd10de5
   | Issue _ -> "issue"
+  | Workflow_dispatch _ -> "workflow_dispatch"
 
 let is_github_action_kind = function
   | Setup_plan.Generic
@@ -27,6 +29,9 @@ let is_github_action_kind = function
       true
   | Setup_plan.Generic kind when Github_issue_actions.is_issue_action_kind kind
     ->
+||||||| fdd10de5
+      | "github_submit_review" ) ->
+      | "github_submit_review" | "github_workflow_dispatch" ) ->
       true
   | _ -> false
 
@@ -45,6 +50,7 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
 ||||||| fdd10de5
           github_submit_review"
           github_submit_review | github_issue_*"
+          github_submit_review | github_workflow_dispatch"
          plan.id receipt_id)
   else Ok ()
 
@@ -55,6 +61,7 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(merge_pilot = Github_merge_action.default_pilot_gate)
 ||||||| fdd10de5
     ?(issue_pilot = Github_issue_actions.default_pilot_gate)
+    ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
     ?(user_auth_available = false) ?(now = Unix.gettimeofday ()) () =
   match action with
   | Collab collab ->
@@ -74,6 +81,10 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
       Github_issue_actions.plan_action ~db ~principal ~room_id
         ~pilot:issue_pilot ~user_auth_available ~action:issue_action
         ~base_revision ?route ~now ()
+  | Workflow_dispatch req ->
+      Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
+        ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision ?route
+        ~now ()
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?(now = Unix.gettimeofday ()) () =

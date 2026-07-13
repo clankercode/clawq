@@ -23,6 +23,8 @@
     authorizes and stores a pending plan that shows target and effects; apply
     rechecks digest, principal, expiry, and [base_revision], then records a
     receipt only (no live GitHub mutation in this task).
+    submit_review), and typed workflow_dispatch into one preview/confirm/apply
+    GitHub mutation in this task).
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md and
     docs/adr/0003-require-plan-confirm-apply-for-agent-setup.md. *)
@@ -37,6 +39,7 @@ type action_kind =
     }
 ||||||| fdd10de5
   | Issue of Github_issue_actions.action
+  | Workflow_dispatch of Github_workflow_dispatch.request
 
 val preview :
   db:Sqlite3.db ->
@@ -49,6 +52,7 @@ val preview :
   ?merge_pilot:Github_merge_action.pilot_gate ->
 ||||||| fdd10de5
   ?issue_pilot:Github_issue_actions.pilot_gate ->
+  ?workflow_pilot:Github_workflow_dispatch.pilot_gate ->
   ?user_auth_available:bool ->
   ?now:float ->
   unit ->
@@ -67,6 +71,12 @@ val preview :
 
     [pilot] applies to PR review submission; [issue_pilot] applies to Issue
     create/lifecycle. Both default off. *)
+    Preview shows the target ([item_key] / head SHA / workflow ref where
+    relevant) and planned effects in [Setup_plan] diff / planned_state. Confirm
+    is required before [apply_confirmed].
+
+    [pilot] gates PR submit_review; [workflow_pilot] gates workflow_dispatch
+    (both default off). *)
 
 val apply_confirmed :
   db:Sqlite3.db ->
@@ -93,6 +103,7 @@ val is_github_action_plan : Setup_plan.t -> bool
 ||||||| fdd10de5
     submit_review generic kind. *)
     submit_review / github_issue_* generic kind. *)
+    submit_review / workflow_dispatch generic kind. *)
 
 val action_kind_label : action_kind -> string
 (** Short stable label for diagnostics: ["collab"], ["request_reviewers"],
@@ -101,3 +112,4 @@ val action_kind_label : action_kind -> string
 (** Short stable label for diagnostics: ["collab"], ["request_reviewers"], or
     ["submit_review"]. *)
     ["submit_review"], or ["issue"]. *)
+    ["submit_review"], or ["workflow_dispatch"]. *)
