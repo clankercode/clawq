@@ -236,6 +236,7 @@
   github_user_auth_delivery
   github_user_auth_pkce
   github_user_auth_device
+  github_user_auth_device_poll
   github_user_token_store
   github_user_token_master_key
   github_user_token_vault

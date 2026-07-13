@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T03:59:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T04:08:00Z"
 complexity: high
 created_at: "2026-07-12T14:51:44Z"
 depends_on:
     - P21.M2.E3.T001
+duration_minutes: 8.6
 estimate_hours: 5
 id: P21.M2.E3.T002
 priority: critical
 started_at: "2026-07-13T03:59:24Z"
-status: in_progress
+status: done
 tags: []
 title: Implement durable leased device polling
-updated_at: "2026-07-13T03:59:24Z"
+updated_at: "2026-07-13T04:08:00Z"
 ---
 Acceptance: At most one worker polls, never before next_poll_at, and restart does not reset expiry; authorization_pending retains interval, slow_down uses returned timing or adds five seconds, and cancellation/expiry stops future polls. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
