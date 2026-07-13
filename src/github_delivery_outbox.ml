@@ -1,7 +1,7 @@
 (** 24-hour retrying delivery outbox with per-event dead letters
     (P19.M3.E3.T001). Independent of webhook ACK. *)
 
-type status = Pending | In_flight | Succeeded | Dead_letter
+type status = Pending | In_flight | Succeeded | Dead_letter | Superseded
 
 type entry = {
   id : string;
@@ -23,12 +23,14 @@ let string_of_status = function
   | In_flight -> "in_flight"
   | Succeeded -> "succeeded"
   | Dead_letter -> "dead_letter"
+  | Superseded -> "superseded"
 
 let status_of_string = function
   | "pending" -> Ok Pending
   | "in_flight" -> Ok In_flight
   | "succeeded" -> Ok Succeeded
   | "dead_letter" -> Ok Dead_letter
+  | "superseded" -> Ok Superseded
   | s -> Error (Printf.sprintf "unknown outbox status: %s" s)
 
 (** Backoff seconds after [attempts] failures: min(3600, 30 * 2^attempts). *)
@@ -353,7 +355,7 @@ let mark_failure ~db ~id ~error ?(now = Unix.gettimeofday ())
   | Ok None -> Error (Printf.sprintf "mark_failure: unknown outbox id %s" id)
   | Ok (Some entry) -> (
       match entry.status with
-      | Succeeded | Dead_letter ->
+      | Succeeded | Dead_letter | Superseded ->
           Error
             (Printf.sprintf "mark_failure: entry %s is already %s" id
                (string_of_status entry.status))
@@ -462,3 +464,73 @@ let list_dead_letters ~db ?(limit = 100) () =
   let result = collect [] in
   ignore (Sqlite3.finalize stmt);
   result
+
+let count_open_for_item ~db ~room_id ~item_key =
+  ensure_schema db;
+  if String.trim room_id = "" then Error "room_id must be non-empty"
+  else if String.trim item_key = "" then Error "item_key must be non-empty"
+  else
+    let sql =
+      {|SELECT COUNT(*) FROM github_delivery_outbox
+        WHERE room_id = ? AND item_key = ?
+          AND status IN ('pending', 'in_flight')|}
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+    ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT item_key));
+    let result =
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> Ok (int_col stmt 0)
+      | rc ->
+          Error
+            (Printf.sprintf "count_open_for_item failed: %s (%s)"
+               (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+    in
+    ignore (Sqlite3.finalize stmt);
+    result
+
+let mark_superseded ~db ~id =
+  ensure_schema db;
+  let sql =
+    {|UPDATE github_delivery_outbox
+        SET status = 'superseded', last_error = NULL
+      WHERE id = ? AND status IN ('pending', 'in_flight')|}
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
+  let rc = Sqlite3.step stmt in
+  ignore (Sqlite3.finalize stmt);
+  match rc with
+  | Sqlite3.Rc.DONE ->
+      if Sqlite3.changes db > 0 then Ok ()
+      else
+        Error
+          (Printf.sprintf
+             "mark_superseded: no pending/in_flight outbox row for id %s" id)
+  | rc ->
+      Error
+        (Printf.sprintf "mark_superseded failed: %s (%s)"
+           (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+
+let supersede_pending_for_item ~db ~room_id ~item_key =
+  ensure_schema db;
+  if String.trim room_id = "" then Error "room_id must be non-empty"
+  else if String.trim item_key = "" then Error "item_key must be non-empty"
+  else
+    let sql =
+      {|UPDATE github_delivery_outbox
+          SET status = 'superseded', last_error = NULL
+        WHERE room_id = ? AND item_key = ?
+          AND status IN ('pending', 'in_flight')|}
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT room_id));
+    ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT item_key));
+    let rc = Sqlite3.step stmt in
+    ignore (Sqlite3.finalize stmt);
+    match rc with
+    | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+    | rc ->
+        Error
+          (Printf.sprintf "supersede_pending_for_item failed: %s (%s)"
+             (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
