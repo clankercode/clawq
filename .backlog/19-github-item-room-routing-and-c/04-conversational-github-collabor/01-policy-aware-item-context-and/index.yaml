@@ -22,7 +22,7 @@ tasks:
       file: T001-ground-thread-and-main-room-qu.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Ground thread and main-Room questions in journal plus live GitHub state
     - complexity: high
