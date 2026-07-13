@@ -92,7 +92,8 @@ tasks:
       file: T006-integrate-user-required-lifecy.todo
       id: T006
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Integrate user-required lifecycle and creation actions
     - complexity: high
       depends_on:
