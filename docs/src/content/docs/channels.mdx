@@ -414,9 +414,10 @@ defined lifecycle to provide clear feedback:
    replies include a `<!-- clawq-reply -->` marker.
 
 Bare `/clawq <request>` runs this inline session flow. Commands with leading
-`runner=<auto|codex|claude>` and/or `host=<direct|herdr|tmux>` tokens instead route
-through a durable work-item envelope: the request is deduplicated on
-repo#issue:comment (a redelivered webhook cannot launch a second agent),
+`runner=<auto|codex|claude|kimi|gemini|opencode|cursor|local>` and/or
+`host=<direct|herdr|tmux>` tokens instead route through a durable work-item
+envelope: the request is deduplicated on repo#issue:comment (a redelivered
+webhook cannot launch a second agent),
 acknowledged as `Queued as work item N...`, executed as a background task on
 the selected runner and session host, and the ack comment is later edited into
 the final answer. Work items track queued/running/blocked/succeeded/failed/
@@ -444,7 +445,8 @@ any processing occurs.
   as ambiguous.
 - **Stable sessions** --- repeated `/clawq` interactions on the same issue or
   PR resume the same session context (see Session Keys above).
-- **Durable work items** --- `/clawq runner=<auto|codex|claude>
+- **Durable work items** --- `/clawq
+  runner=<auto|codex|claude|kimi|gemini|opencode|cursor|local>
   host=<direct|herdr|tmux> <request>` executes through a persistent, deduplicated
   work-item envelope with restart recovery (see Comment/Reply Lifecycle).
 - **Mention and assignment triggers** --- set `channels.github.trigger_login`
