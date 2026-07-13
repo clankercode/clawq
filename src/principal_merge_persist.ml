@@ -117,6 +117,9 @@ let generate_account_id ?(now = Unix.gettimeofday ()) () =
 
 let ensure_schema db =
   S.ensure_schema db;
+  (* Full Principal-owned GitHub bindings (P21.M1.E2.T001); lightweight
+     principal_external_accounts remain for generic merge stubs. *)
+  Github_account_binding.ensure_schema db;
   let receipts =
     {|CREATE TABLE IF NOT EXISTS principal_merge_receipts (
       id TEXT PRIMARY KEY NOT NULL,

@@ -117,6 +117,7 @@ let () =
        ("principal_link_protocol", Test_principal_link_protocol.suite);
        ("principal_link_exec", Test_principal_link_exec.suite);
        ("principal_merge", Test_principal_merge.suite);
+       ("github_account_binding", Test_github_account_binding.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);
        ("discord_principal", Test_discord_principal_ingress.suite);

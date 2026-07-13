@@ -35,6 +35,10 @@
     revisions (and optional expected values), and refuses partial adoption.
     Replaying the same [link_tx_id] returns the stored receipt idempotently.
 
+    Principal-owned {!Github_account_binding} rows are adopted with immutable
+    pre-merge snapshots (prior Principal evidence retained); exclusive host/App
+    slot collisions fail closed like other external accounts.
+
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
     docs/adr/0005-separate-human-principals-from-room-sessions.md. *)
