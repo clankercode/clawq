@@ -215,6 +215,7 @@ Shared setup boundary (room-agent + GitHub adapters on one stack):
 - `src/github_route_admin.ml` — plan/inspect/ops
 - `src/github_route_apply.ml` — confirm apply + managed access
 - `src/github_route_ops.ml` — readiness, explain, redact, audit
+- `src/github_route_diagnostics.ml` — route/filter setup diagnostics and redacted export
 - `src/github_app_setup_tx.ml` / `github_app_setup_callback.ml` /
   `github_app_setup_resume.ml` — App onboarding
 - `src/github_app_webhook_ingress.ml` — verified shared ingress

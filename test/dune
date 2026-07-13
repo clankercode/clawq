@@ -73,6 +73,7 @@
   test_github_route_admin
   test_github_route_apply
   test_github_route_ops
+  test_github_route_diagnostics
   test_github_route_docs
   test_github_p19_docs
   test_github_room_event_journal
