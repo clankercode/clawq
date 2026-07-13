@@ -7,6 +7,8 @@ module Store = Github_route_store
 module Filter = Github_route_filter
 module Envelope = Github_event_envelope
 module Preview = Github_route_filter_preview
+module Diagnostics = Github_route_diagnostics
+module Upgrade_validate = Github_route_upgrade_validate
 
 let admin_env_var = "CLAWQ_ADMIN"
 
@@ -52,6 +54,20 @@ let bool_option_after flag args =
   | None -> Ok None
 
 let expected_revision args = value_after "--revision" args
+let has_flag flag args = List.exists (String.equal flag) args
+
+let route_destination args =
+  let rec find = function
+    | [] -> Ok None
+    | "--room" :: [] -> Error "--room requires a non-empty Room id"
+    | "--room" :: room_id :: _
+      when String.trim room_id = "" || String.starts_with ~prefix:"--" room_id
+      ->
+        Error "--room requires a non-empty Room id"
+    | "--room" :: room_id :: _ -> Ok (Some (Store.Room room_id))
+    | _ :: rest -> find rest
+  in
+  find args
 
 let json_option_after ~flag ~what ~parse args =
   match value_after flag args with
@@ -80,6 +96,25 @@ let envelope_after args =
         "--envelope-json is required and must be a safe normalized GitHub \
          envelope"
   | Error error -> Error error
+
+let optional_envelope_after args =
+  match
+    json_option_after ~flag:"--envelope-json" ~what:"normalized envelope"
+      ~parse:Envelope.of_safe_json args
+  with
+  | Ok None when has_flag "--envelope-json" args ->
+      Error "--envelope-json requires a safe normalized GitHub envelope JSON"
+  | result -> result
+
+let report_destination_and_envelope args =
+  match route_destination args with
+  | Error error -> Error error
+  | Ok destination -> (
+      match optional_envelope_after args with
+      | Error error -> Error error
+      | Ok (Some _) when Option.is_none destination ->
+          Error "--envelope-json requires --room ROOM"
+      | Ok envelope -> Ok (destination, envelope))
 
 let parse_selector selector =
   let selector = String.trim selector in
@@ -149,6 +184,141 @@ let auth_snapshot (config : Runtime_config.t) =
     (Option.map
        (fun (github : Runtime_config.github_config) -> github.auth)
        config.channels.github)
+
+let current_catalog_state ~(config : Runtime_config.t) ?destination () =
+  let unavailable reason =
+    ( {
+        Upgrade_validate.tools_ok = None;
+        mcp_ok = None;
+        catalog_revision = None;
+        access_revision = None;
+        scope = Upgrade_validate.Catalog_state_unavailable reason;
+      },
+      None,
+      None )
+  in
+  if not config.security.tools_enabled then
+    ( {
+        Upgrade_validate.tools_ok = Some false;
+        mcp_ok = None;
+        catalog_revision = None;
+        access_revision = None;
+        scope =
+          Upgrade_validate.Catalog_state_unavailable
+            "tools are disabled in the current runtime configuration";
+      },
+      None,
+      None )
+  else
+    let reason =
+      match destination with
+      | Some (Store.Room room_id) ->
+          Printf.sprintf
+            "standalone CLI cannot read Room %s's frozen effective \
+             catalog/access snapshot"
+            room_id
+      | Some (Store.Session _) ->
+          "standalone CLI cannot read a Session's Room-effective frozen \
+           catalog/access snapshot"
+      | None ->
+          "unscoped CLI validation has no Room-effective frozen catalog/access \
+           snapshot"
+    in
+    unavailable reason
+
+let current_session_refresh_state ~(db : Sqlite3.db) ?destination () =
+  let pending_rooms =
+    Github_route_ops.list_catalog_refresh_requests ~db ()
+    |> List.filter_map
+         (fun (request : Github_route_ops.catalog_refresh_request) ->
+           match destination with
+           | Some (Store.Room room_id) when request.room_id <> room_id -> None
+           | Some (Store.Session _) -> None
+           | Some (Store.Room _) | None -> Some request.room_id)
+    |> List.sort_uniq String.compare
+  in
+  {
+    Upgrade_validate.active_room_ids = None;
+    refresh_pending_room_ids = Some pending_rooms;
+    refresh_without_restart = None;
+  }
+
+let route_plan ~(db : Sqlite3.db) ?destination () =
+  let routes =
+    match destination with
+    | Some destination -> Store.list_for_destination ~db ~destination
+    | None -> Store.list_all ~db
+  in
+  match routes with
+  | Error _ -> None
+  | Ok routes ->
+      List.find_map
+        (fun (route : Store.t) ->
+          Option.bind route.provenance.setup_plan_id (fun plan_id ->
+              Setup_plan_apply.get_plan ~db ~plan_id))
+        routes
+
+let rec find_operator_contract_from dir =
+  let candidate =
+    Filename.concat dir "docs/github-route-operator-contract.md"
+  in
+  if Sys.file_exists candidate then Some candidate
+  else
+    let parent = Filename.dirname dir in
+    if parent = dir then None else find_operator_contract_from parent
+
+let operator_documentation_state () =
+  match Sys.getenv_opt "CLAWQ_GITHUB_ROUTE_CONTRACT" with
+  | Some path when String.trim path <> "" ->
+      Upgrade_validate.load_documented_contract path
+  | _ -> (
+      match find_operator_contract_from (Sys.getcwd ()) with
+      | Some path -> Upgrade_validate.load_documented_contract path
+      | None ->
+          Upgrade_validate.Documentation_unavailable
+            "docs/github-route-operator-contract.md not found; set \
+             CLAWQ_GITHUB_ROUTE_CONTRACT")
+
+let format_json json = Yojson.Safe.to_string json
+
+let diagnostics_report ~(db : Sqlite3.db) ~(config : Runtime_config.t)
+    ?destination ?envelope ~json () =
+  let catalog_state, catalog_revision, catalog_access_revision =
+    current_catalog_state ~config ?destination ()
+  in
+  let auth = auth_snapshot config in
+  let installation = active_installation ~db ~auth in
+  match
+    Diagnostics.collect ~db ?destination ?installation ~auth
+      ?plan:(route_plan ~db ?destination ())
+      ?catalog_revision ?catalog_access_revision ?envelope
+      ~tools_granted:(Option.value catalog_state.tools_ok ~default:false)
+      ~mcp_ok:(Option.value catalog_state.mcp_ok ~default:false)
+      ~credentials_ok:(auth.pat_token_present || auth.app <> None)
+      ~connector_ok:(config.channels.github <> None)
+      ()
+  with
+  | Error error -> "Error: unable to collect GitHub route diagnostics: " ^ error
+  | Ok report ->
+      if json then format_json (Diagnostics.to_json report)
+      else String.concat "\n" (Diagnostics.format_diagnostics report)
+
+let upgrade_validation_report ~(db : Sqlite3.db) ~(config : Runtime_config.t)
+    ?destination ~json () =
+  let catalog_state, _, _ = current_catalog_state ~config ?destination () in
+  let auth = auth_snapshot config in
+  let installation = active_installation ~db ~auth in
+  let session_refresh = current_session_refresh_state ~db ?destination () in
+  let documentation = operator_documentation_state () in
+  match
+    Upgrade_validate.validate ~db ?destination ?installation ~auth
+      ~catalog_state ~session_refresh ~documentation ()
+  with
+  | Error error ->
+      "Error: unable to validate GitHub route upgrade state: " ^ error
+  | Ok report ->
+      if json then format_json (Upgrade_validate.to_json report)
+      else String.concat "\n" (Upgrade_validate.format_report report)
 
 let apply_plan ~db ~(config : Runtime_config.t) ~principal ~plan_id ~digest
     ~destination_room ~destination_session =
@@ -230,6 +400,33 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
           Admin.preview_filter ~db ~destination:(Store.Room room_id) ~envelope
             ()
           |> Preview.format_lines |> String.concat "\n")
+  | "route" :: "diagnostics" :: rest -> (
+      match require_admin () with
+      | Some error -> error
+      | None -> (
+          match report_destination_and_envelope rest with
+          | Error error -> "Error: " ^ error
+          | Ok (destination, envelope) ->
+              diagnostics_report ~db ~config ?destination ?envelope
+                ~json:(has_flag "--json" rest) ()))
+  | "route" :: "export" :: rest -> (
+      match require_admin () with
+      | Some error -> error
+      | None -> (
+          match report_destination_and_envelope rest with
+          | Error error -> "Error: " ^ error
+          | Ok (destination, envelope) ->
+              diagnostics_report ~db ~config ?destination ?envelope ~json:true
+                ()))
+  | "route" :: "validate" :: rest -> (
+      match require_admin () with
+      | Some error -> error
+      | None -> (
+          match route_destination rest with
+          | Error error -> "Error: " ^ error
+          | Ok destination ->
+              upgrade_validation_report ~db ~config ?destination
+                ~json:(has_flag "--json" rest) ()))
   | "diagnostics" :: "route" :: id :: _ -> (
       match route_of_id ~db id with
       | Error error -> "Error: " ^ error
@@ -354,6 +551,9 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
        Safe inspection: github route inspect ROUTE_ID | route list ROOM | \
        route preview ROOM --envelope-json JSON | diagnostics route ROUTE_ID | \
        diagnostics audit [--plan ID] [--route ID]\n\
+       Admin read-only diagnostics (CLAWQ_ADMIN=1): github route diagnostics \
+       [--room ROOM] [--json] | route export [--room ROOM] | route validate \
+       [--room ROOM] [--json]\n\
        Admin planning (CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID): github route plan \
        ROOM SELECTOR [--id ID] [--filter-json JSON] | route change ROUTE_ID \
        [--filter-json JSON] [--enabled true|false] [--comment-mode \

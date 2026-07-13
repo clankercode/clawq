@@ -188,6 +188,10 @@ let room_id_of_destination = function
 let opt_string_field k = function None -> [] | Some v -> [ (k, `String v) ]
 let opt_int_field k = function None -> [] | Some v -> [ (k, `Int v) ]
 
+let opaque_reference value =
+  let digest = Digestif.SHA256.(digest_string value |> to_hex) in
+  "opaque:" ^ String.sub digest 0 16
+
 let predicate_counts_to_json (c : predicate_counts) =
   `Assoc
     (sort_assoc
@@ -451,6 +455,10 @@ let collect ~db ?destination ?installation ?auth ?plan ?catalog_revision
         | _ -> (None, None, None, [], [])
       in
       let dest_key = Option.map S.destination_key destination in
+      let catalog_revision = Option.map opaque_reference catalog_revision in
+      let catalog_access_revision =
+        Option.map opaque_reference catalog_access_revision
+      in
       let base : export =
         {
           exported_at = Time_util.iso8601_utc ~t:now ();

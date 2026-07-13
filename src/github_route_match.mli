@@ -66,6 +66,9 @@ val selector_applies :
 
 val specificity_of_selector : Github_route_store.selector -> specificity
 
+val specificity_order : specificity list
+(** Authoritative selector precedence, consumed by [resolve]. *)
+
 val ensure_schema : Sqlite3.db -> unit
 (** Idempotent ledger schema for accepted routed events. *)
 

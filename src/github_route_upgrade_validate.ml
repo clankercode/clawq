@@ -30,16 +30,23 @@ type check = {
 }
 
 type catalog_state = {
-  tools_ok : bool;
-  mcp_ok : bool;
+  tools_ok : bool option;
+  mcp_ok : bool option;
   catalog_revision : string option;
   access_revision : string option;
+  scope : catalog_scope;
 }
 
+and catalog_scope =
+  | Room_effective_catalog of string
+      (** A frozen catalog built from the named Room's effective access. *)
+  | Catalog_state_unavailable of string
+      (** Why this process cannot observe a Room-effective frozen catalog. *)
+
 type session_refresh_state = {
-  active_room_ids : string list;
-  refresh_pending_room_ids : string list;
-  refresh_without_restart : bool;
+  active_room_ids : string list option;
+  refresh_pending_room_ids : string list option;
+  refresh_without_restart : bool option;
 }
 
 type report = {
@@ -55,13 +62,35 @@ type report = {
   rollback_guidance : string list;
 }
 
-(* ── Documented product defaults (drift sources of truth) ───────── *)
+type documented_contract = {
+  filter_schema_version : int;
+  envelope_version : int;
+  default_comment_mode : string;
+  comment_modes : string list;
+  specificity_order : string;
+}
 
-let documented_filter_schema_version = 1
-let documented_envelope_version = 1
-let documented_default_comment_mode = "summary"
-let documented_comment_modes = [ "off"; "summary"; "threaded" ]
-let documented_specificity_order = "Item > Repo > Org"
+type documentation_state =
+  | Documentation_available of documented_contract
+  | Documentation_unavailable of string
+
+let runtime_comment_mode =
+  match S.default_comment_mode with
+  | S.Off -> "off"
+  | S.Summary -> "summary"
+  | S.Threaded -> "threaded"
+
+let runtime_comment_modes = [ "off"; "summary"; "threaded" ]
+
+let specificity_to_string : Github_route_match.specificity -> string = function
+  | `Item -> "Item"
+  | `Repo -> "Repo"
+  | `Org -> "Org"
+
+let runtime_specificity_order =
+  Github_route_match.specificity_order
+  |> List.map specificity_to_string
+  |> String.concat " > "
 
 let severity_to_string = function
   | Pass -> "pass"
@@ -77,21 +106,6 @@ let category_to_string = function
   | Session -> "session"
   | Drift -> "drift"
   | Alias -> "alias"
-
-let default_catalog_state : catalog_state =
-  {
-    tools_ok = true;
-    mcp_ok = true;
-    catalog_revision = None;
-    access_revision = None;
-  }
-
-let default_session_refresh : session_refresh_state =
-  {
-    active_room_ids = [];
-    refresh_pending_room_ids = [];
-    refresh_without_restart = true;
-  }
 
 let make_check ~name ~category ~severity ~message ?repair () =
   { name; category; severity; message; repair }
@@ -414,7 +428,8 @@ let check_installation ?installation ?auth ~(routes : S.t list) () : check list
 
 (* ── Catalog + Session refresh ──────────────────────────────────── *)
 
-let check_catalog (cs : catalog_state) ~(routes : S.t list) : check list =
+let check_catalog (cs : catalog_state) ~(destination : S.destination option)
+    ~(routes : S.t list) : check list =
   let has_managed =
     List.exists
       (fun (r : S.t) ->
@@ -423,33 +438,119 @@ let check_catalog (cs : catalog_state) ~(routes : S.t list) : check list =
         | _ -> false)
       routes
   in
+  let scope_observed, scope_reason =
+    match (cs.scope, destination) with
+    | Room_effective_catalog observed, Some (S.Room requested)
+      when String.equal observed requested ->
+        (true, None)
+    | Room_effective_catalog observed, Some (S.Room requested) ->
+        ( false,
+          Some
+            (Printf.sprintf
+               "frozen catalog is for Room %s, not requested Room %s" observed
+               requested) )
+    | Room_effective_catalog _, Some (S.Session _) ->
+        ( false,
+          Some "a Room-effective catalog cannot establish a Session destination"
+        )
+    | Room_effective_catalog _, None ->
+        ( false,
+          Some
+            "an unscoped validation cannot establish a Room-effective catalog"
+        )
+    | Catalog_state_unavailable reason, _ -> (false, Some reason)
+  in
+  let unavailable_check =
+    match scope_reason with
+    | None -> []
+    | Some reason ->
+        [
+          make_check ~name:"catalog_state_unavailable" ~category:Catalog
+            ~severity:Warn
+            ~message:
+              (Printf.sprintf
+                 "Room-effective frozen Tool_catalog/access snapshot \
+                  unavailable (%s); no healthy catalog pass assumed"
+                 reason)
+            ~repair:
+              "Run validation from the daemon-admin surface with the active \
+               Room Session, or supply its frozen effective catalog/access \
+               snapshot; do not substitute the unscoped base registry"
+            ();
+        ]
+  in
   let tools =
-    if cs.tools_ok then
-      make_check ~name:"tools_catalog" ~category:Catalog ~severity:Pass
-        ~message:"tools catalog state ok" ()
-    else
-      make_check ~name:"tools_catalog" ~category:Catalog ~severity:Fail
-        ~message:"tools catalog state not ok"
-        ~repair:
-          "Restore Room tool grants / base registry access; re-attach \
-           setup-owned managed bundle if detached incorrectly"
-        ()
+    match cs.tools_ok with
+    | Some true when scope_observed ->
+        make_check ~name:"tools_catalog" ~category:Catalog ~severity:Pass
+          ~message:"Room-effective tools catalog state ok" ()
+    | Some true ->
+        make_check ~name:"tools_catalog" ~category:Catalog ~severity:Warn
+          ~message:
+            "tools probe is not backed by the requested Room-effective frozen \
+             catalog; no healthy state assumed"
+          ~repair:
+            "Inspect the active Room's frozen Tool_catalog/access snapshot; a \
+             base registry result is not sufficient"
+          ()
+    | Some false ->
+        make_check ~name:"tools_catalog" ~category:Catalog ~severity:Fail
+          ~message:"tools catalog state not ok"
+          ~repair:
+            "Restore Room tool grants / base registry access; re-attach \
+             setup-owned managed bundle if detached incorrectly"
+          ()
+    | None ->
+        make_check ~name:"tools_catalog" ~category:Catalog ~severity:Warn
+          ~message:"tools catalog probe unavailable; no healthy state assumed"
+          ~repair:
+            "Run validation through the daemon-admin surface that can inspect \
+             the live Room catalog, then re-run this command"
+          ()
   in
   let mcp =
-    if cs.mcp_ok then
-      make_check ~name:"mcp_catalog" ~category:Catalog ~severity:Pass
-        ~message:"MCP catalog state ok" ()
-    else
-      make_check ~name:"mcp_catalog" ~category:Catalog ~severity:Fail
-        ~message:"MCP catalog state not ok (quarantine or allowlist failure)"
-        ~repair:
-          "Repair MCP server allowlist / relist after list_changed; clear \
-           quarantine only after successful discovery"
-        ()
+    match cs.mcp_ok with
+    | Some true when scope_observed ->
+        make_check ~name:"mcp_catalog" ~category:Catalog ~severity:Pass
+          ~message:"Room-effective MCP catalog state ok" ()
+    | Some true ->
+        make_check ~name:"mcp_catalog" ~category:Catalog ~severity:Warn
+          ~message:
+            "MCP probe is not backed by the requested Room-effective frozen \
+             catalog; no healthy state assumed"
+          ~repair:
+            "Inspect the active Room's frozen Tool_catalog/access snapshot and \
+             MCP quarantine state"
+          ()
+    | Some false ->
+        make_check ~name:"mcp_catalog" ~category:Catalog ~severity:Fail
+          ~message:"MCP catalog state not ok (quarantine or allowlist failure)"
+          ~repair:
+            "Repair MCP server allowlist / relist after list_changed; clear \
+             quarantine only after successful discovery"
+          ()
+    | None ->
+        make_check ~name:"mcp_catalog" ~category:Catalog ~severity:Warn
+          ~message:"MCP catalog probe unavailable; no healthy state assumed"
+          ~repair:
+            "Inspect the live MCP registry/quarantine state, then re-run \
+             validation"
+          ()
   in
   let rev =
-    match (has_managed, cs.catalog_revision, cs.access_revision) with
-    | true, None, _ | true, _, None ->
+    match
+      (scope_observed, has_managed, cs.catalog_revision, cs.access_revision)
+    with
+    | false, _, _, _ ->
+        make_check ~name:"catalog_revisions" ~category:Catalog ~severity:Warn
+          ~message:
+            "Room-effective frozen catalog/access snapshot unavailable; \
+             revision metadata cannot establish catalog health"
+          ~repair:
+            "Validate against the active Room Session's frozen catalog after \
+             the next-turn refresh"
+          ()
+    | true, true, None, _ | true, true, _, None ->
         make_check ~name:"catalog_revisions" ~category:Catalog ~severity:Warn
           ~message:
             "managed routes present but catalog_revision and/or \
@@ -458,16 +559,14 @@ let check_catalog (cs : catalog_state) ~(routes : S.t list) : check list =
             "After apply, confirm on_catalog_refresh marks affected Rooms and \
              the next turn freezes a catalog with revision metadata"
           ()
-    | true, Some cr, Some ar ->
+    | true, true, Some _, Some _ ->
         make_check ~name:"catalog_revisions" ~category:Catalog ~severity:Pass
-          ~message:
-            (Printf.sprintf "catalog_revision=%s access_revision=%s" cr ar)
-          ()
-    | false, _, _ ->
+          ~message:"catalog and access revision metadata observed (redacted)" ()
+    | true, false, _, _ ->
         make_check ~name:"catalog_revisions" ~category:Catalog ~severity:Pass
           ~message:"no managed routes; catalog revision metadata optional" ()
   in
-  [ tools; mcp; rev ]
+  unavailable_check @ [ tools; mcp; rev ]
 
 let check_session_refresh (sr : session_refresh_state) ~(routes : S.t list) :
     check list =
@@ -479,184 +578,298 @@ let check_session_refresh (sr : session_refresh_state) ~(routes : S.t list) :
     |> List.sort_uniq String.compare
   in
   let restart =
-    if sr.refresh_without_restart then
-      make_check ~name:"session_refresh_no_restart" ~category:Session
-        ~severity:Pass
-        ~message:
-          "active Session catalog refresh does not require daemon restart"
-        ()
-    else
-      make_check ~name:"session_refresh_no_restart" ~category:Session
-        ~severity:Fail
-        ~message:
-          "runtime reports active Session refresh requires restart (contract \
-           violation)"
-        ~repair:
-          "Fix catalog refresh hook so Rooms pick up grants on next turn \
-           without restart; see Github_route_apply.on_catalog_refresh"
-        ()
-  in
-  let pending =
-    let n = List.length sr.refresh_pending_room_ids in
-    if n = 0 then
-      make_check ~name:"session_refresh_pending" ~category:Session
-        ~severity:Pass ~message:"no rooms pending next-turn catalog refresh" ()
-    else
-      make_check ~name:"session_refresh_pending" ~category:Session
-        ~severity:Warn
-        ~message:
-          (Printf.sprintf "%d room(s) pending next-turn catalog refresh: %s" n
-             (String.concat ","
-                (List.sort String.compare sr.refresh_pending_room_ids)))
-        ~repair:
-          "Allow the next agent turn in each Room to rebuild the frozen Tool \
-           catalog; do not restart the daemon for this alone"
-        ()
-  in
-  let active_coverage =
-    let active = List.sort_uniq String.compare sr.active_room_ids in
-    let uncovered =
-      List.filter
-        (fun rid ->
-          List.mem rid room_dests && not (List.mem rid active)
-          (* active empty means "not instrumented" → only warn when some actives exist *))
-        room_dests
-    in
-    match (active, room_dests) with
-    | [], _ ->
-        make_check ~name:"session_refresh_active_rooms" ~category:Session
+    match sr.refresh_without_restart with
+    | Some true ->
+        make_check ~name:"session_refresh_no_restart" ~category:Session
           ~severity:Pass
           ~message:
-            "no active Session inventory supplied (optional); \
-             refresh-on-next-turn still required after managed apply"
+            "active Session catalog refresh does not require daemon restart"
           ()
-    | _, [] ->
-        make_check ~name:"session_refresh_active_rooms" ~category:Session
-          ~severity:Pass ~message:"no Room destinations among checked routes" ()
-    | _, _ when uncovered <> [] ->
+    | Some false ->
+        make_check ~name:"session_refresh_no_restart" ~category:Session
+          ~severity:Fail
+          ~message:
+            "runtime reports active Session refresh requires restart (contract \
+             violation)"
+          ~repair:
+            "Fix catalog refresh hook so Rooms pick up grants on next turn \
+             without restart; see Github_route_apply.on_catalog_refresh"
+          ()
+    | None ->
+        make_check ~name:"session_refresh_no_restart" ~category:Session
+          ~severity:Warn
+          ~message:
+            "live Session refresh capability unavailable; no no-restart pass \
+             assumed"
+          ~repair:
+            "Inspect a live daemon turn after a catalog refresh request; do \
+             not infer this from configuration alone"
+          ()
+  in
+  let pending =
+    match sr.refresh_pending_room_ids with
+    | None ->
+        make_check ~name:"session_refresh_pending" ~category:Session
+          ~severity:Warn ~message:"pending catalog-refresh queue unavailable"
+          ~repair:
+            "Inspect github_route_catalog_refresh in the active daemon \
+             database, then re-run validation"
+          ()
+    | Some pending_rooms ->
+        let n = List.length pending_rooms in
+        if n = 0 then
+          make_check ~name:"session_refresh_pending" ~category:Session
+            ~severity:Pass ~message:"no rooms pending next-turn catalog refresh"
+            ()
+        else
+          make_check ~name:"session_refresh_pending" ~category:Session
+            ~severity:Warn
+            ~message:
+              (Printf.sprintf "%d room(s) pending next-turn catalog refresh: %s"
+                 n
+                 (String.concat "," (List.sort String.compare pending_rooms)))
+            ~repair:
+              "Allow the next agent turn in each Room to rebuild the frozen \
+               Tool catalog; do not restart the daemon for this alone"
+            ()
+  in
+  let active_coverage =
+    match sr.active_room_ids with
+    | None ->
         make_check ~name:"session_refresh_active_rooms" ~category:Session
           ~severity:Warn
           ~message:
-            (Printf.sprintf
-               "Room destination(s) without an active Session inventory entry: \
-                %s"
-               (String.concat "," uncovered))
+            "live Room Session inventory unavailable; route coverage not \
+             assumed"
           ~repair:
-            "Ensure Room Sessions are bound for destinations that should \
-             receive catalog refresh; inactive Rooms still refresh on next \
-             open"
+            "Inspect active daemon Room Sessions after the next turn, then \
+             re-run validation"
           ()
-    | _ ->
-        make_check ~name:"session_refresh_active_rooms" ~category:Session
-          ~severity:Pass
-          ~message:
-            (Printf.sprintf "%d active Room Session(s) cover route destinations"
-               (List.length active))
-          ()
+    | Some active_rooms -> (
+        let active = List.sort_uniq String.compare active_rooms in
+        let uncovered =
+          List.filter
+            (fun rid -> List.mem rid room_dests && not (List.mem rid active))
+            room_dests
+        in
+        match (active, room_dests) with
+        | _, [] ->
+            make_check ~name:"session_refresh_active_rooms" ~category:Session
+              ~severity:Pass
+              ~message:"no Room destinations among checked routes" ()
+        | _, _ when uncovered <> [] ->
+            make_check ~name:"session_refresh_active_rooms" ~category:Session
+              ~severity:Warn
+              ~message:
+                (Printf.sprintf
+                   "Room destination(s) without an active Session inventory \
+                    entry: %s"
+                   (String.concat "," uncovered))
+              ~repair:
+                "Ensure Room Sessions are bound for destinations that should \
+                 receive catalog refresh; inactive Rooms still refresh on next \
+                 open"
+              ()
+        | _ ->
+            make_check ~name:"session_refresh_active_rooms" ~category:Session
+              ~severity:Pass
+              ~message:
+                (Printf.sprintf
+                   "%d active Room Session(s) cover route destinations"
+                   (List.length active))
+              ())
   in
   [ restart; pending; active_coverage ]
 
 (* ── Drift checks ───────────────────────────────────────────────── *)
 
+let contract_start = "<!-- github-route-runtime-contract"
+
+let read_all path =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () -> Ok (really_input_string ic (in_channel_length ic)))
+  with Sys_error error -> Error error
+
+let contract_value fields name =
+  match List.assoc_opt name fields with
+  | Some value when String.trim value <> "" -> Ok (String.trim value)
+  | _ -> Error (Printf.sprintf "missing %s" name)
+
+let documented_contract_of_string text =
+  let rec collect in_contract fields = function
+    | [] ->
+        if in_contract then Error "unterminated runtime contract" else Ok fields
+    | line :: rest when String.trim line = contract_start ->
+        if in_contract then Error "duplicate runtime contract"
+        else collect true fields rest
+    | line :: rest when in_contract && String.trim line = "-->" -> Ok fields
+    | line :: rest when in_contract -> (
+        match String.split_on_char '=' (String.trim line) with
+        | key :: values when String.trim key <> "" ->
+            collect true
+              ((String.trim key, String.concat "=" values |> String.trim)
+              :: fields)
+              rest
+        | _ -> collect true fields rest)
+    | _ :: rest -> collect false fields rest
+  in
+  let ( let* ) = Result.bind in
+  let* fields = collect false [] (String.split_on_char '\n' text) in
+  let* schema = contract_value fields "filter_schema_version" in
+  let* envelope = contract_value fields "envelope_version" in
+  let* default_comment_mode = contract_value fields "default_comment_mode" in
+  let* modes = contract_value fields "comment_modes" in
+  let* specificity_order = contract_value fields "specificity_order" in
+  match (int_of_string_opt schema, int_of_string_opt envelope) with
+  | Some filter_schema_version, Some envelope_version ->
+      Ok
+        {
+          filter_schema_version;
+          envelope_version;
+          default_comment_mode;
+          comment_modes =
+            String.split_on_char ',' modes
+            |> List.map String.trim
+            |> List.filter (fun mode -> mode <> "");
+          specificity_order;
+        }
+  | _ -> Error "filter_schema_version and envelope_version must be integers"
+
+let load_documented_contract path =
+  match read_all path with
+  | Error error -> Documentation_unavailable error
+  | Ok text -> (
+      match documented_contract_of_string text with
+      | Ok contract -> Documentation_available contract
+      | Error error -> Documentation_unavailable error)
+
 let drift_checks
-    ?(documented_filter_schema_version = documented_filter_schema_version)
-    ?(documented_envelope_version = documented_envelope_version)
-    ?(documented_default_comment_mode = documented_default_comment_mode) () :
+    ?(documentation =
+      Documentation_unavailable
+        "operator contract not supplied; cannot compare runtime to docs") () :
     check list =
-  let schema =
-    if F.current_schema_version = documented_filter_schema_version then
-      make_check ~name:"drift_filter_schema_version" ~category:Drift
-        ~severity:Pass
-        ~message:
-          (Printf.sprintf "runtime filter schema_version=%d matches docs"
-             F.current_schema_version)
-        ()
-    else
-      make_check ~name:"drift_filter_schema_version" ~category:Drift
-        ~severity:Fail
-        ~message:
-          (Printf.sprintf "runtime filter schema_version=%d != documented %d"
-             F.current_schema_version documented_filter_schema_version)
-        ~repair:
-          "Update docs/github-route-operator-contract.md and \
-           Github_route_upgrade_validate.documented_filter_schema_version (or \
-           runtime constant) so they match"
-        ()
-  in
-  let envelope =
-    if Env.envelope_version = documented_envelope_version then
-      make_check ~name:"drift_envelope_version" ~category:Drift ~severity:Pass
-        ~message:
-          (Printf.sprintf "runtime envelope_version=%d matches docs"
-             Env.envelope_version)
-        ()
-    else
-      make_check ~name:"drift_envelope_version" ~category:Drift ~severity:Fail
-        ~message:
-          (Printf.sprintf "runtime envelope_version=%d != documented %d"
-             Env.envelope_version documented_envelope_version)
-        ~repair:
-          "Align Github_event_envelope.envelope_version with documented \
-           product contract"
-        ()
-  in
-  let comment =
-    let runtime =
-      match S.default_comment_mode with
-      | S.Off -> "off"
-      | S.Summary -> "summary"
-      | S.Threaded -> "threaded"
-    in
-    if runtime = documented_default_comment_mode then
-      make_check ~name:"drift_default_comment_mode" ~category:Drift
-        ~severity:Pass
-        ~message:(Printf.sprintf "default comment_mode=%s matches docs" runtime)
-        ()
-    else
-      make_check ~name:"drift_default_comment_mode" ~category:Drift
-        ~severity:Fail
-        ~message:
-          (Printf.sprintf "default comment_mode=%s != documented %s" runtime
-             documented_default_comment_mode)
-        ~repair:
-          "Default comment mode is Summary (summary); update runtime or docs"
-        ()
-  in
-  let modes =
-    let runtime_modes = [ "off"; "summary"; "threaded" ] in
-    if runtime_modes = documented_comment_modes then
-      make_check ~name:"drift_comment_modes" ~category:Drift ~severity:Pass
-        ~message:"comment modes off|summary|threaded match docs" ()
-    else
-      make_check ~name:"drift_comment_modes" ~category:Drift ~severity:Fail
-        ~message:"comment mode set drifted from documented modes"
-        ~repair:"Keep supported modes as off, summary, threaded" ()
-  in
-  let specificity =
-    (* Runtime match order is encoded in Github_route_match; product string is fixed. *)
-    make_check ~name:"drift_specificity_order" ~category:Drift ~severity:Pass
-      ~message:
-        (Printf.sprintf "documented specificity order: %s"
-           documented_specificity_order)
-      ()
-  in
-  let default_filter_ver =
-    if S.default_filter.schema_version = F.current_schema_version then
-      make_check ~name:"drift_default_filter_schema" ~category:Drift
-        ~severity:Pass
-        ~message:
-          (Printf.sprintf "default_filter.schema_version=%d"
-             S.default_filter.schema_version)
-        ()
-    else
-      make_check ~name:"drift_default_filter_schema" ~category:Drift
-        ~severity:Fail
-        ~message:
-          "Github_route_store.default_filter schema_version != \
-           Github_route_filter.current_schema_version"
-        ~repair:"Keep default_filter at current_schema_version" ()
-  in
-  [ schema; envelope; comment; modes; specificity; default_filter_ver ]
+  match documentation with
+  | Documentation_unavailable reason ->
+      [
+        make_check ~name:"drift_documentation_contract" ~category:Drift
+          ~severity:Warn
+          ~message:
+            (Printf.sprintf
+               "operator documentation contract unavailable (%s); no drift \
+                pass assumed"
+               reason)
+          ~repair:
+            "Provide docs/github-route-operator-contract.md (or set \
+             CLAWQ_GITHUB_ROUTE_CONTRACT) and re-run validation"
+          ();
+      ]
+  | Documentation_available documentation ->
+      let schema =
+        if F.current_schema_version = documentation.filter_schema_version then
+          make_check ~name:"drift_filter_schema_version" ~category:Drift
+            ~severity:Pass
+            ~message:
+              (Printf.sprintf "runtime filter schema_version=%d matches docs"
+                 F.current_schema_version)
+            ()
+        else
+          make_check ~name:"drift_filter_schema_version" ~category:Drift
+            ~severity:Fail
+            ~message:
+              (Printf.sprintf
+                 "runtime filter schema_version=%d != documented %d"
+                 F.current_schema_version documentation.filter_schema_version)
+            ~repair:
+              "Update the github-route-runtime-contract block in \
+               docs/github-route-operator-contract.md or the runtime schema"
+            ()
+      in
+      let envelope =
+        if Env.envelope_version = documentation.envelope_version then
+          make_check ~name:"drift_envelope_version" ~category:Drift
+            ~severity:Pass
+            ~message:
+              (Printf.sprintf "runtime envelope_version=%d matches docs"
+                 Env.envelope_version)
+            ()
+        else
+          make_check ~name:"drift_envelope_version" ~category:Drift
+            ~severity:Fail
+            ~message:
+              (Printf.sprintf "runtime envelope_version=%d != documented %d"
+                 Env.envelope_version documentation.envelope_version)
+            ~repair:
+              "Align Github_event_envelope.envelope_version with documented \
+               product contract"
+            ()
+      in
+      let comment =
+        if runtime_comment_mode = documentation.default_comment_mode then
+          make_check ~name:"drift_default_comment_mode" ~category:Drift
+            ~severity:Pass
+            ~message:
+              (Printf.sprintf "default comment_mode=%s matches docs"
+                 runtime_comment_mode)
+            ()
+        else
+          make_check ~name:"drift_default_comment_mode" ~category:Drift
+            ~severity:Fail
+            ~message:
+              (Printf.sprintf "default comment_mode=%s != documented %s"
+                 runtime_comment_mode documentation.default_comment_mode)
+            ~repair:
+              "Default comment mode is Summary (summary); update runtime or \
+               docs"
+            ()
+      in
+      let modes =
+        if runtime_comment_modes = documentation.comment_modes then
+          make_check ~name:"drift_comment_modes" ~category:Drift ~severity:Pass
+            ~message:"comment modes off|summary|threaded match docs" ()
+        else
+          make_check ~name:"drift_comment_modes" ~category:Drift ~severity:Fail
+            ~message:"comment mode set drifted from documented modes"
+            ~repair:"Keep supported modes as off, summary, threaded" ()
+      in
+      let specificity =
+        if runtime_specificity_order = documentation.specificity_order then
+          make_check ~name:"drift_specificity_order" ~category:Drift
+            ~severity:Pass
+            ~message:
+              (Printf.sprintf "specificity order %s matches docs"
+                 runtime_specificity_order)
+            ()
+        else
+          make_check ~name:"drift_specificity_order" ~category:Drift
+            ~severity:Fail
+            ~message:
+              (Printf.sprintf "runtime specificity order %s != documented %s"
+                 runtime_specificity_order documentation.specificity_order)
+            ~repair:
+              "Update the github-route-runtime-contract block or runtime route \
+               matching order"
+            ()
+      in
+      let default_filter_ver =
+        if S.default_filter.schema_version = F.current_schema_version then
+          make_check ~name:"drift_default_filter_schema" ~category:Drift
+            ~severity:Pass
+            ~message:
+              (Printf.sprintf "default_filter.schema_version=%d"
+                 S.default_filter.schema_version)
+            ()
+        else
+          make_check ~name:"drift_default_filter_schema" ~category:Drift
+            ~severity:Fail
+            ~message:
+              "Github_route_store.default_filter schema_version != \
+               Github_route_filter.current_schema_version"
+            ~repair:"Keep default_filter at current_schema_version" ()
+      in
+      [ schema; envelope; comment; modes; specificity; default_filter_ver ]
 
 let deprecated_alias_checks () : check list * (string * string) list =
   let aliases = M.compatibility_cli_aliases () in
@@ -751,10 +964,37 @@ let rollback_guidance_lines () =
 
 (* ── Full validate ──────────────────────────────────────────────── *)
 
-let validate ~db ?destination ?installation ?auth
-    ?(catalog_state = default_catalog_state)
-    ?(session_refresh = default_session_refresh) ?(now = Unix.gettimeofday ())
-    () =
+let unavailable_catalog_checks () =
+  [
+    make_check ~name:"catalog_state_unavailable" ~category:Catalog
+      ~severity:Warn
+      ~message:
+        "live tool/MCP catalog state was not probed; no healthy catalog pass \
+         assumed"
+      ~repair:
+        "Run `clawq github route validate` against the active Clawq data \
+         directory or provide a live catalog probe"
+      ();
+  ]
+
+let unavailable_session_checks () =
+  [
+    make_check ~name:"session_refresh_state_unavailable" ~category:Session
+      ~severity:Warn
+      ~message:
+        "live Session refresh state was not probed; no no-restart pass assumed"
+      ~repair:
+        "Run `clawq github route validate` against the active daemon database \
+         and inspect a live Room turn after refresh"
+      ();
+  ]
+
+let validate ~db ?destination ?installation ?auth ?catalog_state
+    ?session_refresh
+    ?(documentation =
+      Documentation_unavailable
+        "operator contract not supplied; cannot compare runtime to docs")
+    ?(now = Unix.gettimeofday ()) () =
   S.ensure_schema db;
   match
     match destination with
@@ -771,9 +1011,17 @@ let validate ~db ?destination ?installation ?auth
           let managed_cs = check_managed_routes routes in
           let migration_cs = check_migration ~legacy_count ~routes in
           let install_cs = check_installation ?installation ?auth ~routes () in
-          let catalog_cs = check_catalog catalog_state ~routes in
-          let session_cs = check_session_refresh session_refresh ~routes in
-          let drift_cs = drift_checks () in
+          let catalog_cs =
+            match catalog_state with
+            | Some state -> check_catalog state ~destination ~routes
+            | None -> unavailable_catalog_checks ()
+          in
+          let session_cs =
+            match session_refresh with
+            | Some state -> check_session_refresh state ~routes
+            | None -> unavailable_session_checks ()
+          in
+          let drift_cs = drift_checks ~documentation () in
           let alias_cs, deprecated_aliases = deprecated_alias_checks () in
           let checks =
             schema_cs @ managed_cs @ migration_cs @ install_cs @ catalog_cs
@@ -838,7 +1086,12 @@ let to_json (r : report) : Yojson.Safe.t =
 
 let format_report (r : report) : string list =
   let lines = ref [] in
-  let push s = lines := s :: !lines in
+  let redacted_text text =
+    match Ops.redact_json (`String text) with
+    | `String value -> value
+    | _ -> "***REDACTED***"
+  in
+  let push s = lines := redacted_text s :: !lines in
   push
     (Printf.sprintf
        "upgrade_validate overall=%s routes=%d legacy_subs=%d \

@@ -834,13 +834,26 @@ Clawq supports GitHub Apps for authentication, repository access, PR subscriptio
 
 GitHub Item, Repo, and Org routes resolve `Item > Repo > Org`; a disabled or
 filter-rejected narrower route is a fail-closed mute and never falls through.
-The full build supports `clawq github route inspect|list|preview|plan|change|disable|remove|apply`.
+The full build supports `clawq github route inspect|list|preview|diagnostics|export|validate|plan|change|disable|remove|apply`.
 `route plan` and `route change` accept typed `--filter-json` data with
 `schema_version: 1`; PR/Issue predicates are direct `pr`/`issue` fields or the
 exclusive `advanced` wrapper. Raw predicates are rejected. `route preview ROOM
 --envelope-json JSON` is read-only, explains predicate/enrichment outcomes, and
 fails closed when demanded path/team data is unavailable. The minimal binary
 keeps this integration surface disabled.
+
+`github route diagnostics|export|validate` require `CLAWQ_ADMIN=1` but are
+read-only and do not require a principal id. Diagnostics/export accept
+`--room ROOM --envelope-json JSON` for a safe normalized, non-mutating explain
+with winning selector, predicate, final-reason, and enrichment evidence; an
+envelope without a Room is rejected. They use the current local route,
+App-scope, delivery, and durable refresh data. A separate CLI process cannot
+prove daemon-process MCP/session state or GitHub network reachability, so those
+unavailable probes are warnings rather than healthy passes. Only an actual
+Room-effective frozen `Tool_catalog`/access snapshot can pass catalog health;
+denied, detached, or unavailable observations emit `catalog_state_unavailable`
+Warn rather than an unscoped base-registry pass. Catalog/access references in
+reports are opaque redacted values.
 
 ### Authentication
 

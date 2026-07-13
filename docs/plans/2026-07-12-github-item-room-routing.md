@@ -223,6 +223,20 @@ Normalized PR `head.ref` and PR/Issue `user.login` are persisted for branch,
 author, and team-cache evaluation; webhook `sender` remains separate actor
 attribution.
 
+Operational evidence is exposed through the full-build admin read-only surface:
+`CLAWQ_ADMIN=1 clawq github route diagnostics [--room ROOM] [--json]`,
+`export [--room ROOM]`, and `validate [--room ROOM] [--json]`. The first two
+collect redacted local route/App/delivery/catalog evidence; their explain form
+requires `--room ROOM --envelope-json JSON [--json]` and adds only safe,
+non-mutating preview-equivalent selector/predicate/final-reason/enrichment
+evidence. `export` is JSON. `validate` compares runtime behavior with the
+checked-out operator-contract block and reads the Room-scoped durable next-turn
+refresh queue. Only an actual Room-effective frozen `Tool_catalog`/access
+snapshot can pass catalog health; denied, detached, or unavailable observations
+emit `catalog_state_unavailable` Warn rather than an unscoped base-registry
+Pass. These commands never treat unobservable daemon-process MCP/session state
+or GitHub network reachability as healthy; they report it as Warn.
+
 ## Verification
 
 The implementation must cover manifest replay/forgery/expiry/restart, installation

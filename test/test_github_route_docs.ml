@@ -74,6 +74,15 @@ let test_operator_contract () =
       "explain_match";
       "Upgrade validation and drift checks";
       "Github_route_upgrade_validate";
+      "github route diagnostics";
+      "github route export";
+      "github route validate";
+      "CLAWQ_ADMIN=1";
+      "github-route-runtime-contract";
+      "unavailable";
+      "--envelope-json";
+      "Room-effective";
+      "Github_route_match.specificity_rank";
       "Deprecated aliases";
     ]
 

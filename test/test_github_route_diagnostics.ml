@@ -166,9 +166,11 @@ let test_export_shape () =
   Alcotest.(check (option string))
     "plan base rev" (Some base_revision) exp.plan_base_revision;
   Alcotest.(check (option string))
-    "catalog rev" (Some "cat-rev-abc") exp.catalog_revision;
+    "catalog rev is opaque" (Some "opaque:5ee0cda176ff6b2e")
+    exp.catalog_revision;
   Alcotest.(check (option string))
-    "catalog access" (Some "access-1") exp.catalog_access_revision;
+    "catalog access" (Some "opaque:f4c2844f463b5a93")
+    exp.catalog_access_revision;
   Alcotest.(check string) "app status" "active" exp.app_scope.status;
   Alcotest.(check (option int))
     "installation" (Some 1001) exp.app_scope.installation_id;
@@ -345,8 +347,8 @@ let test_diagnostics_lines () =
     "has plan rev" true
     (contains blob "plan_base_revision=");
   Alcotest.(check bool)
-    "has catalog" true
-    (contains blob "catalog_revision=cat-9");
+    "has opaque catalog reference" true
+    (contains blob "catalog_revision=opaque:");
   Alcotest.(check bool) "has app_scope" true (contains blob "app_scope status=");
   Alcotest.(check bool) "has delivery" true (contains blob "delivery overall=");
   Alcotest.(check bool) "has route line" true (contains blob "route id=rt_diag");

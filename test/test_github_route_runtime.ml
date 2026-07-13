@@ -29,6 +29,25 @@ let with_admin f =
       Unix.putenv "CLAWQ_PRINCIPAL_ID" (Option.value old_principal ~default:""))
     f
 
+let without_admin f =
+  let old = Sys.getenv_opt "CLAWQ_ADMIN" in
+  Unix.putenv "CLAWQ_ADMIN" "0";
+  Fun.protect
+    ~finally:(fun () ->
+      Unix.putenv "CLAWQ_ADMIN" (Option.value old ~default:""))
+    f
+
+let with_admin_without_principal f =
+  let old_admin = Sys.getenv_opt "CLAWQ_ADMIN" in
+  let old_principal = Sys.getenv_opt "CLAWQ_PRINCIPAL_ID" in
+  Unix.putenv "CLAWQ_ADMIN" "1";
+  Unix.putenv "CLAWQ_PRINCIPAL_ID" "";
+  Fun.protect
+    ~finally:(fun () ->
+      Unix.putenv "CLAWQ_ADMIN" (Option.value old_admin ~default:"");
+      Unix.putenv "CLAWQ_PRINCIPAL_ID" (Option.value old_principal ~default:""))
+    f
+
 let with_principal id f =
   let old = Sys.getenv_opt "CLAWQ_PRINCIPAL_ID" in
   Unix.putenv "CLAWQ_PRINCIPAL_ID" id;
@@ -237,6 +256,150 @@ let test_cli_rechecks_independent_principal () =
     "mismatched principal made no route" 0
     (count_sql db "SELECT COUNT(*) FROM github_routes")
 
+let test_cli_route_diagnostics_export_and_validate () =
+  with_db @@ fun db ->
+  let config = Runtime_config.default in
+  ignore
+    (assert_ok
+       (Store.create ~db ~id:"rt-live-report"
+          ~destination:(Store.Room "room-live-report")
+          ~selector:(Store.Repo "acme/widget") ~now:fixed_now ()));
+  let denied =
+    without_admin @@ fun () ->
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "diagnostics"; "--room"; "room-live-report"; "--json" ]
+  in
+  Alcotest.(check bool)
+    "diagnostics needs admin" true
+    (Test_helpers.string_contains denied "requires admin privileges");
+  with_admin_without_principal @@ fun () ->
+  let diagnostics =
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "diagnostics"; "--room"; "room-live-report"; "--json" ]
+  in
+  Alcotest.(check bool)
+    "admin diagnostics emits JSON without principal" true
+    (Test_helpers.string_contains diagnostics "\"routes\"");
+  Alcotest.(check bool)
+    "diagnostics does not leak private configuration" false
+    (Test_helpers.string_contains
+       (String.lowercase_ascii diagnostics)
+       "private_key");
+  let export =
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "export"; "--room"; "room-live-report" ]
+  in
+  Alcotest.(check bool)
+    "export is JSON" true
+    (Test_helpers.string_contains export "\"current_filter_schema_version\"");
+  let envelope_json =
+    Yojson.Safe.to_string
+      (`Assoc
+         [
+           ("version", `Int Envelope.envelope_version);
+           ("event", `String "pull_request");
+           ("repo_full_name", `String "acme/widget");
+           ("item_kind", `String "pull_request");
+           ("item_number", `Int 17);
+           ("head_sha", `String "diagnostics-must-not-echo-this-sha");
+         ])
+  in
+  let text_explain =
+    Github_route_cli.cmd_with_db ~db ~config
+      [
+        "route";
+        "diagnostics";
+        "--room";
+        "room-live-report";
+        "--envelope-json";
+        envelope_json;
+      ]
+  in
+  Alcotest.(check bool)
+    "diagnostics text includes matching winner and decision" true
+    (Test_helpers.string_contains text_explain
+       "winning_selector=repo:acme/widget"
+    && Test_helpers.string_contains text_explain "decision=Matched"
+    && Test_helpers.string_contains text_explain "final_reason="
+    && Test_helpers.string_contains text_explain "predicate:"
+    && Test_helpers.string_contains text_explain "enrichment:");
+  Alcotest.(check bool)
+    "diagnostics text never echoes envelope-only SHA" false
+    (Test_helpers.string_contains text_explain
+       "diagnostics-must-not-echo-this-sha");
+  let json_explain =
+    Github_route_cli.cmd_with_db ~db ~config
+      [
+        "route";
+        "export";
+        "--room";
+        "room-live-report";
+        "--envelope-json";
+        envelope_json;
+      ]
+  in
+  Alcotest.(check bool)
+    "export JSON includes safe explain fields" true
+    (Test_helpers.string_contains json_explain "\"winning_selector\""
+    && Test_helpers.string_contains json_explain "\"decision\""
+    && Test_helpers.string_contains json_explain "\"final_reason\""
+    && Test_helpers.string_contains json_explain "\"predicate_reasons\""
+    && Test_helpers.string_contains json_explain "\"enrichment_status\""
+    && Test_helpers.string_contains json_explain "paths:not_demanded");
+  Alcotest.(check bool)
+    "export JSON never echoes envelope-only SHA" false
+    (Test_helpers.string_contains json_explain
+       "diagnostics-must-not-echo-this-sha");
+  let missing_room =
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "diagnostics"; "--envelope-json"; envelope_json ]
+  in
+  Alcotest.(check bool)
+    "diagnostics explain requires Room" true
+    (Test_helpers.string_contains missing_room "requires --room ROOM");
+  let malformed_room =
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "export"; "--room"; "--envelope-json"; envelope_json ]
+  in
+  Alcotest.(check bool)
+    "diagnostics explain rejects missing Room value" true
+    (Test_helpers.string_contains malformed_room "--room requires");
+  let malformed_envelope =
+    Github_route_cli.cmd_with_db ~db ~config
+      [
+        "route";
+        "export";
+        "--room";
+        "room-live-report";
+        "--envelope-json";
+        "{not-json";
+      ]
+  in
+  Alcotest.(check bool)
+    "diagnostics explain rejects malformed safe envelope" true
+    (Test_helpers.string_contains malformed_envelope
+       "invalid --envelope-json JSON");
+  ignore
+    (assert_ok
+       (Github_route_ops.request_catalog_refresh ~db ~setup_plan_id:"plan-live"
+          ~room_id:"room-live-report" ()));
+  let validation =
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "validate"; "--room"; "room-live-report" ]
+  in
+  Alcotest.(check bool)
+    "validation reads pending refresh queue" true
+    (Test_helpers.string_contains validation "room-live-report");
+  Alcotest.(check bool)
+    "validation reports unavailable Room catalog, MCP, and session probes as \
+     warnings"
+    true
+    (Test_helpers.string_contains validation "catalog_state_unavailable"
+    && Test_helpers.string_contains validation "tools_catalog"
+    && Test_helpers.string_contains validation "mcp_catalog"
+    && Test_helpers.string_contains validation "session_refresh_no_restart"
+    && Test_helpers.string_contains validation "warn")
+
 let principal =
   Github_app_setup_tx.
     { id = "principal:runtime"; kind = "principal"; label = Some "Runtime" }
@@ -360,6 +523,9 @@ let suite =
     ( "CLI rechecks an independently supplied principal",
       `Quick,
       test_cli_rechecks_independent_principal );
+    ( "CLI route diagnostics export and validation are admin protected",
+      `Quick,
+      test_cli_route_diagnostics_export_and_validate );
     ( "verified callback resumes a confirmable App plan only",
       `Quick,
       test_verified_callback_resumes_and_never_implicit_applies );

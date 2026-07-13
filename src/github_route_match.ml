@@ -24,7 +24,17 @@ let specificity_of_selector = function
   | Repo _ -> `Repo
   | Org _ -> `Org
 
-let specificity_rank = function `Item -> 3 | `Repo -> 2 | `Org -> 1
+(* This ordered value is the single source of selector precedence.  Both the
+   resolver and upgrade-documentation drift check consume it. *)
+let specificity_order : specificity list = [ `Item; `Repo; `Org ]
+
+let specificity_rank specificity =
+  let rec find rank = function
+    | [] -> 0
+    | candidate :: rest ->
+        if candidate = specificity then rank else find (rank - 1) rest
+  in
+  find (List.length specificity_order) specificity_order
 
 let envelope_org (env : Github_event_envelope.t) =
   match env.org with

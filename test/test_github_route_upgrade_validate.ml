@@ -139,12 +139,13 @@ let test_managed_complete_ok () =
       (U.validate ~db ~now:fixed_now
          ~catalog_state:
            {
-             tools_ok = true;
-             mcp_ok = true;
+             tools_ok = Some true;
+             mcp_ok = Some true;
              catalog_revision = Some "cat-1";
              access_revision = Some "acc-1";
+             scope = U.Room_effective_catalog "room-teams-1";
            }
-         ())
+         ~destination:room ())
   in
   Alcotest.(check bool)
     "no managed fail" false
@@ -187,10 +188,11 @@ let test_catalog_injectable_fail () =
       (U.validate ~db ~now:fixed_now
          ~catalog_state:
            {
-             tools_ok = false;
-             mcp_ok = false;
+             tools_ok = Some false;
+             mcp_ok = Some false;
              catalog_revision = None;
              access_revision = None;
+             scope = U.Catalog_state_unavailable "Room access denied";
            }
          ())
   in
@@ -201,6 +203,45 @@ let test_catalog_injectable_fail () =
     "mcp fail" true
     (severity_of "mcp_catalog" report = U.Fail)
 
+(* 8b. A base, denied, or detached catalog observation cannot pass for Room. *)
+let test_catalog_requires_effective_room_snapshot () =
+  with_db @@ fun db ->
+  ignore (create_route ~db ~id:"rt1" ());
+  let report_for scope =
+    assert_ok
+      (U.validate ~db ~destination:room ~now:fixed_now
+         ~catalog_state:
+           {
+             tools_ok = Some true;
+             mcp_ok = Some true;
+             catalog_revision = Some "cat-1";
+             access_revision = Some "acc-1";
+             scope;
+           }
+         ())
+  in
+  let denied =
+    report_for
+      (U.Catalog_state_unavailable
+         "Room ACL denied access to the frozen catalog snapshot")
+  in
+  Alcotest.(check bool)
+    "denied snapshot cannot pass tools" true
+    (severity_of "tools_catalog" denied = U.Warn);
+  Alcotest.(check bool)
+    "denied snapshot is explicit" true
+    (severity_of "catalog_state_unavailable" denied = U.Warn);
+  let detached = report_for (U.Room_effective_catalog "other-room") in
+  Alcotest.(check bool)
+    "detached snapshot cannot pass tools" true
+    (severity_of "tools_catalog" detached = U.Warn);
+  Alcotest.(check bool)
+    "detached snapshot cannot pass MCP" true
+    (severity_of "mcp_catalog" detached = U.Warn);
+  Alcotest.(check bool)
+    "detached snapshot cannot pass revisions" true
+    (severity_of "catalog_revisions" detached = U.Warn)
+
 (* 9. Session refresh must not require restart *)
 let test_session_refresh_restart_fail () =
   with_db @@ fun db ->
@@ -210,9 +251,9 @@ let test_session_refresh_restart_fail () =
       (U.validate ~db ~now:fixed_now
          ~session_refresh:
            {
-             active_room_ids = [ "room-teams-1" ];
-             refresh_pending_room_ids = [ "room-teams-1" ];
-             refresh_without_restart = false;
+             active_room_ids = Some [ "room-teams-1" ];
+             refresh_pending_room_ids = Some [ "room-teams-1" ];
+             refresh_without_restart = Some false;
            }
          ())
   in
@@ -225,10 +266,17 @@ let test_session_refresh_restart_fail () =
 
 (* 10. Drift: force documented mismatch *)
 let test_drift_mismatch () =
-  let cs =
-    U.drift_checks ~documented_filter_schema_version:99
-      ~documented_default_comment_mode:"threaded" ()
+  let documentation =
+    U.Documentation_available
+      {
+        filter_schema_version = 99;
+        envelope_version = 1;
+        default_comment_mode = "threaded";
+        comment_modes = [ "off"; "summary"; "threaded" ];
+        specificity_order = "Item > Repo > Org";
+      }
   in
+  let cs = U.drift_checks ~documentation () in
   Alcotest.(check bool)
     "schema drift fail" true
     (List.exists
@@ -242,15 +290,65 @@ let test_drift_mismatch () =
          c.name = "drift_default_comment_mode" && c.severity = U.Fail)
        cs)
 
+let test_drift_specificity_contract_mismatch () =
+  let documentation =
+    U.Documentation_available
+      {
+        filter_schema_version = 1;
+        envelope_version = 1;
+        default_comment_mode = "summary";
+        comment_modes = [ "off"; "summary"; "threaded" ];
+        specificity_order = "Org > Repo > Item";
+      }
+  in
+  let cs = U.drift_checks ~documentation () in
+  Alcotest.(check bool)
+    "matcher-derived specificity drift fails" true
+    (List.exists
+       (fun (c : U.check) ->
+         c.name = "drift_specificity_order" && c.severity = U.Fail)
+       cs)
+
 (* 11. Drift defaults match runtime (happy path) *)
 let test_drift_aligned () =
-  let cs = U.drift_checks () in
+  let documentation =
+    U.Documentation_available
+      {
+        filter_schema_version = 1;
+        envelope_version = 1;
+        default_comment_mode = "summary";
+        comment_modes = [ "off"; "summary"; "threaded" ];
+        specificity_order = "Item > Repo > Org";
+      }
+  in
+  let cs = U.drift_checks ~documentation () in
   Alcotest.(check bool)
     "all drift pass or specificity" true
     (List.for_all (fun (c : U.check) -> c.severity = U.Pass) cs);
-  Alcotest.(check int) "documented schema" 1 U.documented_filter_schema_version;
-  Alcotest.(check string)
-    "documented comment" "summary" U.documented_default_comment_mode
+  Alcotest.(check bool)
+    "documentation parser reads contract" true
+    (match
+       U.documented_contract_of_string
+         "<!-- github-route-runtime-contract\n\
+          filter_schema_version=1\n\
+          envelope_version=1\n\
+          default_comment_mode=summary\n\
+          comment_modes=off,summary,threaded\n\
+          specificity_order=Item > Repo > Org\n\
+          -->"
+     with
+    | Ok contract -> contract.filter_schema_version = 1
+    | Error _ -> false)
+
+let test_missing_live_probes_warn () =
+  with_db @@ fun db ->
+  let report = assert_ok (U.validate ~db ~now:fixed_now ()) in
+  Alcotest.(check bool)
+    "catalog state unavailable warns" true
+    (severity_of "catalog_state_unavailable" report = U.Warn);
+  Alcotest.(check bool)
+    "session state unavailable warns" true
+    (severity_of "session_refresh_state_unavailable" report = U.Warn)
 
 (* 12. Deprecated aliases map to github route *)
 let test_deprecated_aliases () =
@@ -382,9 +480,16 @@ let suite =
     ("org requires installation", `Quick, test_org_requires_installation);
     ("org with active install passes", `Quick, test_org_with_active_install);
     ("catalog injectable fail", `Quick, test_catalog_injectable_fail);
+    ( "catalog requires Room-effective frozen snapshot",
+      `Quick,
+      test_catalog_requires_effective_room_snapshot );
     ("session refresh restart fails", `Quick, test_session_refresh_restart_fail);
     ("drift mismatch fails", `Quick, test_drift_mismatch);
+    ( "drift specificity contract mismatch fails",
+      `Quick,
+      test_drift_specificity_contract_mismatch );
     ("drift aligned passes", `Quick, test_drift_aligned);
+    ("missing live probes warn", `Quick, test_missing_live_probes_warn);
     ("deprecated aliases map to route", `Quick, test_deprecated_aliases);
     ("legacy unmigrated fails", `Quick, test_legacy_unmigrated_fails);
     ( "legacy after migrate warns or pass",

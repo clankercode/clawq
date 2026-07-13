@@ -3,9 +3,9 @@
 
     Validates filter schema versions, route/subscription migration readiness,
     managed linkage consistency, installation scope for Org routes, tool/MCP
-    catalog state (injectable), and active Session refresh readiness. Drift
-    checks compare runtime constants to documented defaults and surface
-    deprecated compatibility aliases.
+    catalog state (or an explicit unavailable result), and active Session
+    refresh readiness. Drift checks compare runtime behavior to the parsed
+    operator contract and surface deprecated compatibility aliases.
 
     Secrets never appear in reports; export always goes through
     [Github_route_ops.redact_json].
@@ -33,23 +33,34 @@ type check = {
   repair : string option;
 }
 
+type catalog_scope =
+  | Room_effective_catalog of string
+      (** Frozen catalog from the named Room's effective access. *)
+  | Catalog_state_unavailable of string
+      (** Why a Room-effective catalog could not be observed. *)
+
 type catalog_state = {
-  tools_ok : bool;
-  mcp_ok : bool;
+  tools_ok : bool option;
+  mcp_ok : bool option;
   catalog_revision : string option;
   access_revision : string option;
+  scope : catalog_scope;
 }
-(** Injectable tool/MCP catalog snapshot for a Room or global scope. *)
+(** Observed tool/MCP catalog state. [None] records an unavailable probe rather
+    than a healthy default. A healthy result must carry a Room-effective frozen
+    catalog scope matching the validation destination; an unscoped base registry
+    must never produce a catalog Pass. *)
 
 type session_refresh_state = {
-  active_room_ids : string list;
+  active_room_ids : string list option;
       (** Rooms with an active Session that should pick up catalog changes. *)
-  refresh_pending_room_ids : string list;
+  refresh_pending_room_ids : string list option;
       (** Rooms marked for next-turn catalog refresh (no daemon restart). *)
-  refresh_without_restart : bool;
+  refresh_without_restart : bool option;
       (** True when the runtime can refresh active Sessions without restart. *)
 }
-(** Injectable active-Session / next-turn catalog refresh readiness. *)
+(** Observed active-Session / next-turn catalog refresh readiness. [None] fields
+    record unavailable daemon-process observations. *)
 
 type report = {
   generated_at : string;
@@ -65,28 +76,20 @@ type report = {
   rollback_guidance : string list;
 }
 
-val documented_filter_schema_version : int
-(** Documented product defaults used by drift checks (must match runtime). *)
+type documented_contract = {
+  filter_schema_version : int;
+  envelope_version : int;
+  default_comment_mode : string;
+  comment_modes : string list;
+  specificity_order : string;
+}
 
-val documented_envelope_version : int
-
-val documented_default_comment_mode : string
-(** Always ["summary"]. *)
-
-val documented_comment_modes : string list
-(** ["off"; "summary"; "threaded"]. *)
-
-val documented_specificity_order : string
-(** ["Item > Repo > Org"]. *)
+type documentation_state =
+  | Documentation_available of documented_contract
+  | Documentation_unavailable of string
 
 val severity_to_string : severity -> string
 val category_to_string : category -> string
-
-val default_catalog_state : catalog_state
-(** All-ok catalog with no revision metadata. *)
-
-val default_session_refresh : session_refresh_state
-(** Empty active set; [refresh_without_restart=true] (contract default). *)
 
 val check_filter_schema : Github_route_filter.t -> check list
 (** Pure schema-version checks for one filter. *)
@@ -94,14 +97,14 @@ val check_filter_schema : Github_route_filter.t -> check list
 val check_managed_linkage : Github_route_store.t -> check list
 (** Pure managed bundle/feature consistency for one route. *)
 
-val drift_checks :
-  ?documented_filter_schema_version:int ->
-  ?documented_envelope_version:int ->
-  ?documented_default_comment_mode:string ->
-  unit ->
-  check list
-(** Compare runtime constants to documented defaults. Injectable documented
-    values are for tests that force drift. *)
+val drift_checks : ?documentation:documentation_state -> unit -> check list
+(** Compare runtime behavior to the parsed operator documentation contract.
+    Unavailable documentation is a warning, never a synthetic pass. *)
+
+val documented_contract_of_string :
+  string -> (documented_contract, string) result
+
+val load_documented_contract : string -> documentation_state
 
 val deprecated_alias_checks : unit -> check list * (string * string) list
 (** Surface compatibility CLI aliases and require they map to route store APIs
@@ -120,6 +123,7 @@ val validate :
   ?auth:Github_auth_selection.auth_snapshot ->
   ?catalog_state:catalog_state ->
   ?session_refresh:session_refresh_state ->
+  ?documentation:documentation_state ->
   ?now:float ->
   unit ->
   (report, string) result

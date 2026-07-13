@@ -116,7 +116,9 @@ val collect :
       (dry-run only; never includes raw webhook bodies or comment content). *)
 
 val to_json : export -> Yojson.Safe.t
-(** Stable key order; always passed through [Github_route_ops.redact_json]. *)
+(** Stable key order; always passed through [Github_route_ops.redact_json].
+    Catalog/access revisions are deterministic opaque references, never raw
+    values. *)
 
 val format_diagnostics : export -> string list
 (** Admin diagnostic lines (same as [export.diagnostics]). *)

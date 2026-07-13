@@ -18,6 +18,29 @@ regression verification
 
 **PASS — no unresolved required behavior; no unowned failure modes.**
 
+## Step-2 repair addendum (2026-07-13)
+
+The historical run below predates the repair for `P20.M2.E2.T001/T002`; it did
+not establish that diagnostics, export, and upgrade validation were exposed by
+the production `github route` CLI, nor that unavailable probes avoided a
+synthetic Pass. The repaired checkout was verified with:
+
+```bash
+make test-run ARGS='test "github_route_(runtime|diagnostics|upgrade_validate|docs)"'
+```
+
+**Outcome:** `Test Successful in 0.079s. 37 tests run.`
+
+This focused gate covers admin-only production CLI routing (without requiring a
+principal for read-only reports), actual persisted route/session queue data,
+safe normalized-envelope diagnostics/export explains (winner, predicate,
+final-reason, enrichment) with malformed/missing-Room rejection and no raw
+envelope SHA echo, opaque catalog/access revision export, and unavailable live
+catalog/session warnings. It also proves denied and detached catalog snapshots
+cannot pass `tools_catalog`, and that a specificity-contract mismatch fails
+against the matcher-derived runtime order. It does not claim live GitHub network
+reachability.
+
 All required regression surfaces for P20 M1 (advanced structured Org/Repo
 forwarding) and P20 M2 (setup-framework reuse and operational polish) passed
 under `make test-run`. No product code fixes were required in this branch.

@@ -27,6 +27,10 @@ do not expect partial Org/App behavior there.
 
 1. **Selector specificity:** for a destination and envelope, `Item > Repo > Org`
    among *configured* selectors, chosen **before** enabled/filter evaluation.
+   `Github_route_match.specificity_order` is the runtime authority: both
+   `Github_route_match.specificity_rank` and `Github_route_match.resolve`
+   consume it. Upgrade validation derives its drift value from that matcher
+   value rather than maintaining a validator-local precedence literal.
 2. **Fail-closed mute (no-fallthrough):** if the most-specific route is disabled
    or filter-rejected, the event is **Muted** — it does **not** fall through to
    a broader Org or Repo route.
@@ -87,7 +91,10 @@ Full-build CLI commands are live. Planning and explicit confirmation require
 `CLAWQ_ADMIN=1` plus the independently authenticated
 `CLAWQ_PRINCIPAL_ID=<principal-id>`; the latter is compared with the stored
 plan principal rather than copied from the plan. Read-only inspection and
-diagnostics do not require the admin flag.
+preview do not require the admin flag. Operational diagnostics/export/upgrade
+validation are read-only but deliberately require `CLAWQ_ADMIN=1` because they
+expose cross-Room operational state; they do **not** require
+`CLAWQ_PRINCIPAL_ID`.
 
 ```sh
 CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
@@ -99,6 +106,11 @@ CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
 clawq github app deliveries --room ROOM
 clawq github diagnostics audit --plan PLAN_ID
 clawq github route preview ROOM --envelope-json '{"version":1,"event":"pull_request",...}'
+CLAWQ_ADMIN=1 clawq github route diagnostics --room ROOM --json
+CLAWQ_ADMIN=1 clawq github route diagnostics --room ROOM --envelope-json JSON [--json]
+CLAWQ_ADMIN=1 clawq github route export --room ROOM
+CLAWQ_ADMIN=1 clawq github route export --room ROOM --envelope-json JSON
+CLAWQ_ADMIN=1 clawq github route validate --room ROOM --json
 ```
 
 Session-bound App setup uses `github app apply … --session SESSION_KEY` and
@@ -118,6 +130,8 @@ Implemented domain modules behind those commands:
 | Readiness | `Github_route_ops.assess_readiness` | Fail/Warn/Pass + repair strings |
 | Match explain | `Github_route_ops.explain_match` | Matched / Muted / No_route |
 | Audit | `Github_route_ops.record_audit` / `list_audit` | Durable; always `redact_json` on details |
+| Diagnostics/export | `Github_route_diagnostics.collect` via `github route diagnostics\|export` | Current local route/App/delivery/catalog evidence; catalog refs are opaque. With `--room ROOM --envelope-json JSON`, the safe normalized envelope adds non-mutating preview-equivalent winning-selector, predicate, final-reason, and enrichment evidence. |
+| Upgrade validation | `Github_route_upgrade_validate.validate` via `github route validate` | Durable refresh queue scoped to the requested Room + actual documentation contract; unavailable probes Warn |
 
 Ops payload shapes (secret-free): `create` | `update` | `disable` | `remove`.
 
@@ -159,7 +173,7 @@ to **Muted**. PR `head_branch` predicates read persisted `pull_request.head.ref`
 - Disable/remove of the last managed feature detaches **only** setup-owned
   linkage; independent/manual grants are preserved.
 - Apply atomically records a Room catalog-refresh request. The next Room turn
-  consumes it before freezing its Tool catalog — **no restart** and no
+  consumes it before freezing its Tool catalog **without daemon restart** — no
   audit-only placeholder.
 
 ## Match outcomes operators will see
@@ -253,8 +267,12 @@ After a change:
 ## Upgrade validation and drift checks
 
 After binary upgrades, schema migrations, or subscription cutover, run
-`Github_route_upgrade_validate.validate` (and re-export diagnostics). The report
-is redacted and covers:
+`CLAWQ_ADMIN=1 clawq github route validate [--room ROOM] [--json]` (and
+`github route diagnostics` or `github route export`). To include a safe,
+non-mutating explain in either diagnostics/export report, the grammar is
+`--room ROOM --envelope-json JSON [--json]`; an envelope is rejected without a
+Room. The report is redacted and covers local operational evidence; it does not
+claim GitHub network reachability.
 
 | Category | What it checks | Fail / Warn meaning |
 |----------|----------------|---------------------|
@@ -262,14 +280,25 @@ is redacted and covers:
 | **Migration** | Legacy `github_pr_subscriptions` vs Item routes; migrate provenance | Fail if legacy rows exist with zero routes; Warn if legacy still present after partial cutover |
 | **Managed** | `managed_bundle_id` and `managed_feature_id` both set or both absent | Fail on partial linkage |
 | **Installation** | Org routes require live **Active** App installation + `can_claim_org_scope` | Fail when PAT-only or suspended/deleted; PAT cannot claim Org |
-| **Catalog** | Injectable tools/MCP ok flags + revision metadata when managed routes exist | Fail on tools/MCP unhealthy; Warn if managed routes lack catalog revisions |
-| **Session** | Active Session catalog refresh **without daemon restart** | Fail if refresh requires restart; Warn on pending next-turn refresh rooms |
-| **Drift** | Runtime constants vs documented defaults (filter schema, envelope version, default `comment_mode=summary`, modes `off`/`summary`/`threaded`, specificity `Item > Repo > Org`) | Fail when runtime and docs diverge |
+| **Catalog** | Actual Room-effective frozen `Tool_catalog`/access snapshot and opaque revision metadata when daemon-observable | Fail on observed tool/MCP unhealthy. A detached, denied, or unavailable snapshot emits `catalog_state_unavailable` Warn; an unscoped base registry must never create `tools_catalog=Pass` |
+| **Session** | Durable next-turn refresh queue scoped to the requested Room; live active-session/no-restart state when observable | Warn on that Room's pending refresh or unavailable daemon-process state; never synthesize a no-restart Pass |
+| **Drift** | Runtime behavior vs the operator-contract block below (filter schema, envelope version, default `comment_mode=summary`, modes `off`/`summary`/`threaded`, matcher-authoritative specificity `Item > Repo > Org`) | Fail when runtime and contract diverge; Warn if the contract cannot be read |
 | **Alias** | Deprecated compatibility CLI aliases (`Github_route_migrate.compatibility_cli_aliases`) | Warn while aliases remain; Fail if an alias does not map to `github route *` (dual-write forbidden) |
 
-Documented constants live in the module
-(`documented_filter_schema_version`, `documented_default_comment_mode`, …) and
-must stay aligned with this contract.
+The validator reads this actual checked-out contract block (or the path named
+by `CLAWQ_GITHUB_ROUTE_CONTRACT`) and compares specificity with
+`Github_route_match.specificity_order`, which the matcher consumes through
+`specificity_rank`/`resolve`; it does not compare two copied validator
+literals. Operators running an installed binary without the contract file see a
+Drift Warn, not a synthetic Pass.
+
+<!-- github-route-runtime-contract
+filter_schema_version=1
+envelope_version=1
+default_comment_mode=summary
+comment_modes=off,summary,threaded
+specificity_order=Item > Repo > Org
+-->
 
 ### Repair (upgrade validation)
 
@@ -288,9 +317,13 @@ actions:
 5. **Org installation:** install/unsuspend App; reconcile Active installation
    scope; migrate off PAT for Org.
 6. **Tools/MCP catalog:** restore grants/allowlist; after `list_changed`, only
-   clear quarantine on successful relist.
+   clear quarantine on successful relist. `catalog_state_unavailable` means
+   this CLI did not obtain the requested Room's effective frozen
+   `Tool_catalog`/access snapshot; inspect the active Room Session instead of
+   treating an unscoped base registry or MCP result as healthy.
 7. **Session refresh pending:** allow the next Room turn to rebuild the frozen
-   Tool catalog — **do not restart** the daemon for catalog pickup alone.
+   Tool catalog — **do not restart** the daemon for catalog pickup alone. A
+   separate CLI process reports unobservable live-session state as Warn.
 8. **Deprecated aliases:** point automation at `github route item|repo|org *`;
    aliases remain compatibility read-through only.
 
@@ -309,8 +342,8 @@ actions:
 6. Confirm the next Room turn drops tools that depended on detached setup-owned
    access (no restart).
 7. **Do not** delete webhook delivery-ledger accepts (ACK independence / dedupe).
-8. Re-run `validate` + `Github_route_diagnostics.collect` before re-enabling
-   automation.
+8. Re-run `CLAWQ_ADMIN=1 clawq github route validate` plus `github route
+   export` before re-enabling automation.
 
 See also pilot cleanup order in
 [pilots/p19-rollout-backout-guide.md](pilots/p19-rollout-backout-guide.md).

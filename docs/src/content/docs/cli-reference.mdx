@@ -71,6 +71,9 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq github route inspect ROUTE_ID` | Inspect a persisted GitHub Item/Repo/Org route (full build) |
 | `clawq github route list ROOM` | List GitHub routes for a Room (full build) |
 | `clawq github route preview ROOM --envelope-json JSON` | Read-only filter explain for a safe normalized GitHub envelope |
+| `CLAWQ_ADMIN=1 clawq github route diagnostics [--room ROOM] [--json]` | Collect redacted local route/App/delivery/catalog diagnostics; `--room ROOM --envelope-json JSON [--json]` adds safe non-mutating explain fields |
+| `CLAWQ_ADMIN=1 clawq github route export [--room ROOM]` | Emit the redacted JSON diagnostics export; `--room ROOM --envelope-json JSON` adds safe explain fields |
+| `CLAWQ_ADMIN=1 clawq github route validate [--room ROOM] [--json]` | Validate local upgrade state and documentation drift; only a Room-effective frozen catalog can pass, otherwise `catalog_state_unavailable` warns |
 | `clawq github route plan ROOM SELECTOR [--filter-json JSON]` | Create a confirmable typed route plan; requires admin and principal identity |
 | `clawq github route change ROUTE_ID [--filter-json JSON]` | Plan a typed filter/mode/enabled update; requires admin and principal identity |
 | `clawq github route disable\|remove\|apply` | Plan disable/remove or explicitly apply a confirmed route plan |
