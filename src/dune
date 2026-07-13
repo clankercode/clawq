@@ -488,6 +488,7 @@
   github
   github_webhook
   github_app_webhook_ingress
+  github_user_auth_revocation_webhook
   github_pr_dispatch
   github_api
   github_app_token

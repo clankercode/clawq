@@ -58,6 +58,7 @@ let default_events =
     "workflow_run";
     "installation";
     "installation_repositories";
+    "github_app_authorization";
   ]
 
 let ensure_rng_initialized = lazy (Mirage_crypto_rng_unix.use_default ())
@@ -463,8 +464,7 @@ let begin_replace ~db =
         (Printf.sprintf "github_app_setup_tx begin replace failed: %s"
            (Sqlite3.Rc.to_string rc))
 
-let rollback_replace ~db =
-  ignore (Sqlite3.exec db "ROLLBACK")
+let rollback_replace ~db = ignore (Sqlite3.exec db "ROLLBACK")
 
 let commit_replace ~db =
   match Sqlite3.exec db "COMMIT" with
@@ -521,7 +521,9 @@ let create ~db ~(principal : principal) ~(bind : bind_target) ~base_revision
       | _ -> scope
     in
     let tx_id = match id with Some i -> i | None -> generate_id ~now () in
-    let state_token = match state with Some s -> s | None -> generate_state () in
+    let state_token =
+      match state with Some s -> s | None -> generate_state ()
+    in
     if String.trim state_token = "" then Error "state must be non-empty"
     else
       let manifest_json =

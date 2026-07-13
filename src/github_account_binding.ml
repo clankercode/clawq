@@ -731,6 +731,56 @@ let list_for_principal ~db ~principal_id =
   in
   loop []
 
+let list_for_app_user ~db ~app_id ~github_user_id ?host () =
+  if app_id <= 0 then Error "app_id must be positive"
+  else if github_user_id <= 0L then Error "github_user_id must be positive"
+  else
+    let sql, bind_host =
+      match host with
+      | None ->
+          ( select_binding_cols
+            ^ " WHERE app_id = ? AND github_user_id = ? ORDER BY created_at \
+               ASC, id ASC",
+            None )
+      | Some h ->
+          let h = String.trim h in
+          if h = "" then
+            ( select_binding_cols
+              ^ " WHERE app_id = ? AND github_user_id = ? ORDER BY created_at \
+                 ASC, id ASC",
+              None )
+          else
+            ( select_binding_cols
+              ^ " WHERE app_id = ? AND github_user_id = ? AND host = ? ORDER \
+                 BY created_at ASC, id ASC",
+              Some h )
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int app_id)));
+    ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT github_user_id));
+    (match bind_host with
+    | None -> ()
+    | Some h -> ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT h)));
+    let rec loop acc =
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match binding_of_stmt stmt with
+          | Ok b -> loop (b :: acc)
+          | Error e ->
+              ignore (Sqlite3.finalize stmt);
+              Error e)
+      | Sqlite3.Rc.DONE ->
+          ignore (Sqlite3.finalize stmt);
+          Ok (List.rev acc)
+      | rc ->
+          let err = Sqlite3.errmsg db in
+          ignore (Sqlite3.finalize stmt);
+          Error
+            (Printf.sprintf "list_for_app_user failed: %s (%s)"
+               (Sqlite3.Rc.to_string rc) err)
+    in
+    loop []
+
 let delete ~db ~id =
   let sql = "DELETE FROM github_account_bindings WHERE id = ?" in
   let stmt = Sqlite3.prepare db sql in

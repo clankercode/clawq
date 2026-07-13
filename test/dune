@@ -112,6 +112,7 @@
   test_github_user_auth_pkce_callback
   test_github_user_auth_device
   test_github_user_auth_device_poll
+  test_github_user_auth_revocation_webhook
   test_github_user_token_store
   test_github_user_token_master_key
   test_github_user_token_vault

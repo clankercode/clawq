@@ -158,6 +158,18 @@ val get_by_identity :
 val list_for_principal :
   db:Sqlite3.db -> principal_id:P.principal_id -> (binding list, string) result
 
+val list_for_app_user :
+  db:Sqlite3.db ->
+  app_id:int ->
+  github_user_id:int64 ->
+  ?host:string ->
+  unit ->
+  (binding list, string) result
+(** Every binding matching App + numeric GitHub user. Optional [host] narrows
+    further; without it, all hosts for that App/user are returned (revocation
+    webhooks are App-scoped and host-agnostic). Ordered by [created_at], [id].
+*)
+
 val delete : db:Sqlite3.db -> id:string -> (unit, string) result
 (** Hard-delete the live binding row. Snapshots are retained. Missing id is an
     error. Does not touch vault rows. *)
