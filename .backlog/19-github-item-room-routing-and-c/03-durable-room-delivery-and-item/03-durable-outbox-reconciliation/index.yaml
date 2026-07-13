@@ -44,5 +44,6 @@ tasks:
       file: T003-add-delivery-diagnostics-metri.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add delivery diagnostics metrics repair and restart-reordering tests
