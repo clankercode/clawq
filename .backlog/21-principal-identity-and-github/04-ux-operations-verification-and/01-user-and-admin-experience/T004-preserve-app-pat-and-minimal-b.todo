@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T08:32:37Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:51Z"
 depends_on:
@@ -6,12 +9,10 @@ depends_on:
 estimate_hours: 3
 id: P21.M4.E1.T004
 priority: high
-status: pending
-tags:
-    - github
-    - compatibility
-    - minimal
+started_at: "2026-07-13T08:32:37Z"
+status: in_progress
+tags: []
 title: Preserve App PAT and minimal-build compatibility
-updated_at: "2026-07-12T14:52:51Z"
+updated_at: "2026-07-13T08:32:37Z"
 ---
 Acceptance: Existing App/PAT reads and policy-permitted actions retain explicit deterministic behavior when user auth is disabled/unconfigured; PAT stays exact-Repo only; migrations are additive and minimal runtime exposes no integration dependency. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
