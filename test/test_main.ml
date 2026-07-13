@@ -135,6 +135,7 @@ let () =
        ("github_item_context", Test_github_item_context_resolve.suite);
        ("github_collab_grounding", Test_github_collab_grounding.suite);
        ("github_collab_actions", Test_github_collab_actions.suite);
+       ("github_pr_review_actions", Test_github_pr_review_actions.suite);
        ("github_room_tools", Test_github_room_tools.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
