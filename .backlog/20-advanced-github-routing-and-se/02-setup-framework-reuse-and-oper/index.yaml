@@ -12,7 +12,7 @@ epics:
       locked: false
       name: Port the Existing Room-Agent Pilot
       path: 01-port-the-existing-room-agent-p
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P20.M1
