@@ -138,6 +138,8 @@ let () =
        ("github_route_apply", Test_github_route_apply.suite);
        ("github_route_ops", Test_github_route_ops.suite);
        ("github_route_diagnostics", Test_github_route_diagnostics.suite);
+       ( "github_route_upgrade_validate",
+         Test_github_route_upgrade_validate.suite );
        ("github_route_docs", Test_github_route_docs.suite);
        ("github_p19_docs", Test_github_p19_docs.suite);
        ("github_room_event_journal", Test_github_room_event_journal.suite);

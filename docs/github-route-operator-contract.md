@@ -205,6 +205,86 @@ After a change:
 | 2xx webhook, no card | Connector/outbox after independent ACK | Delivery diagnostics, not re-ACK |
 | Secrets in Channel | Bug — violate redaction contract | Rotate credentials; fix export path |
 
+## Upgrade validation and drift checks
+
+After binary upgrades, schema migrations, or subscription cutover, run
+`Github_route_upgrade_validate.validate` (and re-export diagnostics). The report
+is redacted and covers:
+
+| Category | What it checks | Fail / Warn meaning |
+|----------|----------------|---------------------|
+| **Schema** | Each route `filter.schema_version` vs `Github_route_filter.current_schema_version` (currently **1**) | Fail if unsupported/too new; Warn if older than current (migrates on next read/write) |
+| **Migration** | Legacy `github_pr_subscriptions` vs Item routes; migrate provenance | Fail if legacy rows exist with zero routes; Warn if legacy still present after partial cutover |
+| **Managed** | `managed_bundle_id` and `managed_feature_id` both set or both absent | Fail on partial linkage |
+| **Installation** | Org routes require live **Active** App installation + `can_claim_org_scope` | Fail when PAT-only or suspended/deleted; PAT cannot claim Org |
+| **Catalog** | Injectable tools/MCP ok flags + revision metadata when managed routes exist | Fail on tools/MCP unhealthy; Warn if managed routes lack catalog revisions |
+| **Session** | Active Session catalog refresh **without daemon restart** | Fail if refresh requires restart; Warn on pending next-turn refresh rooms |
+| **Drift** | Runtime constants vs documented defaults (filter schema, envelope version, default `comment_mode=summary`, modes `off`/`summary`/`threaded`, specificity `Item > Repo > Org`) | Fail when runtime and docs diverge |
+| **Alias** | Deprecated compatibility CLI aliases (`Github_route_migrate.compatibility_cli_aliases`) | Warn while aliases remain; Fail if an alias does not map to `github route *` (dual-write forbidden) |
+
+Documented constants live in the module
+(`documented_filter_schema_version`, `documented_default_comment_mode`, …) and
+must stay aligned with this contract.
+
+### Repair (upgrade validation)
+
+Use `report.repair_guidance` lines first (derived from Fail/Warn checks). Common
+actions:
+
+1. **Schema too old:** re-save/update the route so the filter rewrites at the
+   current schema version.
+2. **Schema too new:** upgrade the Clawq binary, or re-plan with a supported
+   filter.
+3. **Unmigrated subscriptions:** run `Github_route_migrate.migrate_database`
+   (default `Prefer_existing_route`); then `list_all` / diagnostics. Do **not**
+   dual-write legacy rows after cutover.
+4. **Partial managed linkage:** re-apply setup so bundle + feature ids are set
+   together, or clear both for manual grants only.
+5. **Org installation:** install/unsuspend App; reconcile Active installation
+   scope; migrate off PAT for Org.
+6. **Tools/MCP catalog:** restore grants/allowlist; after `list_changed`, only
+   clear quarantine on successful relist.
+7. **Session refresh pending:** allow the next Room turn to rebuild the frozen
+   Tool catalog — **do not restart** the daemon for catalog pickup alone.
+8. **Deprecated aliases:** point automation at `github route item|repo|org *`;
+   aliases remain compatibility read-through only.
+
+### Rollback (failed upgrade / cutover)
+
+`report.rollback_guidance` encodes the standard order:
+
+1. Stop new route applies until validation is acceptable.
+2. **Disable** newly applied routes (`plan_disable` → confirm/apply) → intentional
+   **Muted** (fail-closed, no-fallthrough).
+3. **Soft-remove** routes that should free active selector slots (`plan_remove`).
+4. Detach **only** setup-owned managed linkage when removing the last managed
+   feature; preserve independent/manual grants.
+5. Supersede mistaken migrate winners via store disable/update; re-run migrate
+   with `Prefer_legacy` only when that is the explicit policy.
+6. Confirm the next Room turn drops tools that depended on detached setup-owned
+   access (no restart).
+7. **Do not** delete webhook delivery-ledger accepts (ACK independence / dedupe).
+8. Re-run `validate` + `Github_route_diagnostics.collect` before re-enabling
+   automation.
+
+See also pilot cleanup order in
+[pilots/p19-rollout-backout-guide.md](pilots/p19-rollout-backout-guide.md).
+
+### Deprecated aliases
+
+Legacy per-PR subscription CLI names remain **compatibility aliases** over Item
+routes (no dual-write to `github_pr_subscriptions`):
+
+| Deprecated alias | Canonical |
+|------------------|-----------|
+| `subscriptions add` / `pr-subscribe` | `github route item add` |
+| `subscriptions list` / `show` | `github route item list` / `show` |
+| `subscriptions remove` / `pr-unsubscribe` | `github route item remove` |
+| `subscriptions enable` / `disable` | `github route item enable` / `disable` |
+
+Prefer the canonical `github route *` surfaces in new automation. Alias presence
+is a **Warn** in upgrade validation until operators retire legacy scripts.
+
 ## Related implementation modules
 
 Shared setup boundary (room-agent + GitHub adapters on one stack):
@@ -216,6 +296,8 @@ Shared setup boundary (room-agent + GitHub adapters on one stack):
 - `src/github_route_apply.ml` — confirm apply + managed access
 - `src/github_route_ops.ml` — readiness, explain, redact, audit
 - `src/github_route_diagnostics.ml` — route/filter setup diagnostics and redacted export
+- `src/github_route_upgrade_validate.ml` — upgrade validation, drift checks, repair/rollback guidance
+- `src/github_route_migrate.ml` — legacy subscription → Item route cutover + compatibility aliases
 - `src/github_app_setup_tx.ml` / `github_app_setup_callback.ml` /
   `github_app_setup_resume.ml` — App onboarding
 - `src/github_app_webhook_ingress.ml` — verified shared ingress

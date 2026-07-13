@@ -71,6 +71,9 @@ let test_operator_contract () =
       "Secrets redaction";
       "assess_readiness";
       "explain_match";
+      "Upgrade validation and drift checks";
+      "Github_route_upgrade_validate";
+      "Deprecated aliases";
     ]
 
 let test_glossary_github_routes () =
