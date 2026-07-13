@@ -30,7 +30,7 @@ tasks:
       file: T002-render-and-edit-rich-teams-ada.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Render and edit rich Teams Adaptive Cards
     - complexity: medium
