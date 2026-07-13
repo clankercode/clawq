@@ -1,20 +1,21 @@
 ---
 claimed_at: "2026-07-13T06:19:30Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T06:29:49Z"
 complexity: high
 created_at: "2026-07-12T17:01:21Z"
 depends_on:
     - P21.M3.E2.T001
     - P21.M3.E2.T004
     - P19.M4.E2.T004
+duration_minutes: 10.3200271616
 estimate_hours: 5
 id: P21.M3.E2.T006
 priority: critical
 started_at: "2026-07-13T06:19:30Z"
-status: in_progress
+status: done
 tags: []
 title: Define P19 to P21 attribution migration and staged rollout
-updated_at: "2026-07-13T06:19:30Z"
+updated_at: "2026-07-13T06:29:49Z"
 ---
 Acceptance: A versioned state matrix maps every P19 read/mutation/background action from legacy App/PAT behavior to App, User_preferred, or User_required, including preview actor, fallback, delayed work, receipts, and webhook semantics. Upgrades keep new user-required actions disabled by safe default until Principal, vault, policy, and repair readiness pass; an explicit audited feature gate supports pilot and rollback without silently changing actor or weakening confirmation. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

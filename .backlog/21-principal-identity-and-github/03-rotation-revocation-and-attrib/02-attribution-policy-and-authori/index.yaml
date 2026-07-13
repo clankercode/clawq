@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 7
     total: 7
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -79,7 +79,7 @@ tasks:
       file: T006-define-p19-to-p21-attribution.todo
       id: T006
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Define P19 to P21 attribution migration and staged rollout
     - complexity: high

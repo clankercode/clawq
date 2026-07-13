@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Attribution Policy and Authorization Resolution
       path: 02-attribution-policy-and-authori
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Apply native attribution to low/high-risk actions and delayed work without exposing personal credentials to automation or Git transport.
