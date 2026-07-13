@@ -238,11 +238,11 @@ phases:
       description: 'Promotes I059: stable cross-Connector Principals, Principal-owned GitHub App user authorization through web and device flows, a fail-closed mutable token vault, per-action native user/App attribution, shared-Room isolation, and live Teams verification. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.'
       estimate_hours: 328
       id: P21
-      locked: false
+      locked: true
       name: Principal Identity and GitHub User Attribution
       path: 21-principal-identity-and-github
       priority: high
-      status: pending
+      status: done
       weeks: 10
     - depends_on:
         - P19

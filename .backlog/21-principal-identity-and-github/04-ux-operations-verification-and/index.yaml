@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Architecture and Operator Documentation
       path: 03-architecture-and-operator-docu
-      status: pending
+      status: done
 estimate_hours: 48
 id: P21.M4
 locked: false
@@ -38,4 +38,4 @@ stats:
     in_progress: 0
     pending: 10
     total_tasks: 10
-status: pending
+status: done
