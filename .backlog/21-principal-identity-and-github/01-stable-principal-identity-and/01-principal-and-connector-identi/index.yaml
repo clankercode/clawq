@@ -64,7 +64,7 @@ tasks:
       file: T005-validate-teams-ingress-and-der.todo
       id: T005
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Validate Teams ingress and derive canonical user identity
     - complexity: high
