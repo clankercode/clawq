@@ -129,3 +129,18 @@ val create_first_seen :
 (** Atomic first-seen path: create Principal + Connector actor + Active identity
     link under one IMMEDIATE transaction. Concurrent inserts for the same actor
     key reject with a collision error (one active owner). *)
+
+(** {1 Listing helpers (merge / admin)} *)
+
+val list_connector_actors_for_principal :
+  db:Sqlite3.db ->
+  principal_id:Principal_identity.principal_id ->
+  (Principal_identity.connector_actor list, string) result
+(** All Connector actors currently pointing at [principal_id] (any lifecycle).
+*)
+
+val list_active_identity_links_for_principal :
+  db:Sqlite3.db ->
+  principal_id:Principal_identity.principal_id ->
+  (Principal_identity.identity_link list, string) result
+(** Active identity links owned by [principal_id]. *)
