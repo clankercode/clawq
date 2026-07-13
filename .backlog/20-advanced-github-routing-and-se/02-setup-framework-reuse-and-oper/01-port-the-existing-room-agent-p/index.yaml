@@ -31,7 +31,8 @@ tasks:
       file: T002-adapt-room-agent-confirmation.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Adapt room-agent confirmation apply and repair to the shared framework
     - complexity: medium
       depends_on:

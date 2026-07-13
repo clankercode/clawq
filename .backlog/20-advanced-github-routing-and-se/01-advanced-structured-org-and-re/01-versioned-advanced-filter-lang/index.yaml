@@ -29,7 +29,8 @@ tasks:
       file: T002-add-demand-driven-changed-path.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add demand-driven changed-path and team-membership enrichment
     - complexity: high
       depends_on:
