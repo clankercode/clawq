@@ -131,6 +131,6 @@ tasks:
       file: T009-integrate-user-required-merge.todo
       id: T009
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Integrate user-required merge attribution

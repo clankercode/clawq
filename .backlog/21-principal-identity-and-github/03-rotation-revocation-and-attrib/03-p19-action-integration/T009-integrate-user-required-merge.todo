@@ -1,7 +1,7 @@
 ---
 claimed_at: "2026-07-13T07:44:10Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T07:56:28Z"
 complexity: high
 created_at: "2026-07-12T17:01:29Z"
 depends_on:
@@ -9,13 +9,14 @@ depends_on:
     - P21.M3.E2.T005
     - P21.M3.E2.T006
     - P21.M3.E2.T007
+duration_minutes: 12.307271239783333
 estimate_hours: 4
 id: P21.M3.E3.T009
 priority: critical
 started_at: "2026-07-13T07:44:10Z"
-status: in_progress
+status: done
 tags: []
 title: Integrate user-required merge attribution
-updated_at: "2026-07-13T07:44:10Z"
+updated_at: "2026-07-13T07:56:28Z"
 ---
 Acceptance: Merge remains independently enabled and requires a fresh current user lease plus live head, draft, mergeability, checks, reviews, branch policy, method, and confirmation validation immediately before dispatch. No App/PAT fallback; changed prerequisites, actor loss, replay, retry, native receipt, and merged-webhook reconciliation are tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
