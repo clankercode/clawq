@@ -760,11 +760,24 @@ let make_edge_from_tx (tx : L.link_transaction) ~now =
 
 let derive_initiator_principal ~initiator ~endpoint_a ~endpoint_b
     ?initiator_principal_id () =
-  match initiator_principal_id with
-  | Some id -> Ok (Some id)
+  let endpoint = match initiator with `A -> endpoint_a | `B -> endpoint_b in
+  match endpoint.L.principal_id with
   | None ->
-      let ep = match initiator with `A -> endpoint_a | `B -> endpoint_b in
-      Ok ep.L.principal_id
+      Error
+        "link initiator must be bound to an adapter-verified Principal before \
+         private proof delivery"
+  | Some bound -> (
+      match initiator_principal_id with
+      | None -> Ok (Some bound)
+      | Some presented when P.principal_id_equal presented bound ->
+          Ok (Some bound)
+      | Some presented ->
+          Error
+            (Printf.sprintf
+               "initiator Principal %s does not match the adapter-verified \
+                initiator endpoint Principal %s"
+               (P.principal_id_to_string presented)
+               (P.principal_id_to_string bound)))
 
 let create_open_link ~db ~endpoint_a ~endpoint_b ?(initiator = `A)
     ?initiator_principal_id ?id ?replay_protection_id ?proof_challenge_id
@@ -876,9 +889,13 @@ let check_presented_identity (tx : L.link_transaction) ~side
     ?presented_actor_key ?presented_actor_revision ?presented_principal_id
     ?presented_principal_revision () =
   let ep = endpoint_of_side tx side in
-  (* Actor key must match the side when provided. *)
+  (* These bindings come from the adapter that presents the private proof.
+     Delivery secrets alone are not proof of the Connector actor. *)
   (match presented_actor_key with
-    | None -> Ok ()
+    | None ->
+        Error
+          "adapter-verified actor key is required to present a private link \
+           proof"
     | Some key ->
         if P.connector_actor_key_equal key ep.actor_key then Ok ()
         else if
@@ -895,9 +912,12 @@ let check_presented_identity (tx : L.link_transaction) ~side
   |> function
   | Error e -> Error e
   | Ok () -> (
-      (* Actor revision binding — change fails closed. *)
+      (* Actor revision binding — omission or change fails closed. *)
         (match presented_actor_revision with
-        | None -> Ok ()
+        | None ->
+            Error
+              "adapter-verified actor revision is required to present a \
+               private link proof"
         | Some rev when rev = ep.actor_revision -> Ok ()
         | Some rev ->
             Error
@@ -907,36 +927,47 @@ let check_presented_identity (tx : L.link_transaction) ~side
       |> function
       | Error e -> Error e
       | Ok () -> (
-          (* Principal binding when both sides declare one. *)
-            (match (presented_principal_id, ep.principal_id) with
-            | None, _ -> Ok ()
-            | Some pid, Some bound when P.principal_id_equal pid bound -> Ok ()
-            | Some _, None ->
+          (* Principal binding is required when the endpoint carries one. *)
+            (match (ep.principal_id, presented_principal_id) with
+            | None, None -> Ok ()
+            | None, Some _ ->
                 Error
                   "presented principal_id but endpoint has no bound principal \
                    (ambiguity)"
-            | Some pid, Some bound ->
+            | Some _, None ->
+                Error
+                  "adapter-verified Principal is required to present this \
+                   private link proof"
+            | Some bound, Some presented
+              when P.principal_id_equal presented bound ->
+                Ok ()
+            | Some bound, Some presented ->
                 Error
                   (Printf.sprintf
                      "principal binding changed: bound %s, presented %s (actor \
                       change / fail closed)"
                      (P.principal_id_to_string bound)
-                     (P.principal_id_to_string pid)))
+                     (P.principal_id_to_string presented)))
           |> function
           | Error e -> Error e
           | Ok () -> (
-              match (presented_principal_revision, ep.principal_revision) with
-              | None, _ -> Ok ()
+              match (ep.principal_revision, presented_principal_revision) with
+              | None, None -> Ok ()
+              | None, Some _ ->
+                  Error
+                    "presented principal_revision but endpoint has no bound \
+                     principal revision"
               | Some _, None ->
                   Error
-                    "presented principal_revision but endpoint has none bound"
-              | Some rev, Some bound when rev = bound -> Ok ()
-              | Some rev, Some bound ->
+                    "adapter-verified Principal revision is required to \
+                     present this private link proof"
+              | Some bound, Some presented when presented = bound -> Ok ()
+              | Some bound, Some presented ->
                   Error
                     (Printf.sprintf
                        "principal revision changed: bound %d, presented %d \
                         (fail closed)"
-                       bound rev))))
+                       bound presented))))
 
 let constant_time_equal a b =
   let a = String.trim a and b = String.trim b in

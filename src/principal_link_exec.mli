@@ -73,10 +73,11 @@ val create_open_link :
 (** Create and persist an [Open] two-sided private proof transaction.
 
     Requires two distinct verified endpoints. Binds the initiating Principal
-    (explicit or derived from the initiator endpoint). Concurrent open/awaiting
-    transactions for the same actor pair fail closed without writing ownership
-    changes. Emits [Link_tx_created] (or a rejection audit on concurrent fail).
-*)
+    (explicit only when it equals the initiator endpoint, otherwise derived from
+    that endpoint). The initiator endpoint must therefore have a bound
+    Principal. Concurrent open/awaiting transactions for the same actor pair
+    fail closed without writing ownership changes. Emits [Link_tx_created] (or a
+    rejection audit on concurrent fail). *)
 
 (** {1 Proof presentation} *)
 
@@ -115,9 +116,11 @@ val present_proof :
 
     Validates open status, expiry, replay id, challenge id, side identity, bound
     actor/principal revisions (actor change / ambiguity fail closed), and CAS
-    [expected_tx_revision] when provided. Concurrent stale CAS fails without
-    mutating the row. On both sides proved, inserts a [link_edge] and sets
-    status [Completed]. Always emits exactly one redacted audit event. *)
+    [expected_tx_revision] when provided. Fresh proofs require the
+    adapter-verified actor key and revision; a bound endpoint Principal and
+    revision must also be presented. Concurrent stale CAS fails without mutating
+    the row. On both sides proved, inserts a [link_edge] and sets status
+    [Completed]. Always emits exactly one redacted audit event. *)
 
 (** {1 Cancel / expire} *)
 

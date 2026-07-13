@@ -53,6 +53,32 @@ let status_string = function
   | E.Idempotent_replay -> "idempotent_replay"
   | E.Rejected r -> "rejected:" ^ r
 
+let present_bound ~db ~id ~side ~presented_replay_id ~presented_challenge_id
+    ?expected_tx_revision ?(now = fixed_now) () =
+  let stored =
+    match E.get ~db ~id with
+    | Ok (Some stored) -> stored
+    | Ok None -> Alcotest.fail ("missing link transaction: " ^ id)
+    | Error e -> Alcotest.fail e
+  in
+  let endpoint =
+    match side with `A -> stored.tx.endpoint_a | `B -> stored.tx.endpoint_b
+  in
+  match (endpoint.principal_id, endpoint.principal_revision) with
+  | Some principal_id, Some principal_revision ->
+      E.present_proof ~db ~id ~side ~presented_replay_id ~presented_challenge_id
+        ~presented_actor_key:endpoint.actor_key
+        ~presented_actor_revision:endpoint.actor_revision
+        ~presented_principal_id:principal_id
+        ~presented_principal_revision:principal_revision ?expected_tx_revision
+        ~now ()
+  | None, None ->
+      E.present_proof ~db ~id ~side ~presented_replay_id ~presented_challenge_id
+        ~presented_actor_key:endpoint.actor_key
+        ~presented_actor_revision:endpoint.actor_revision ?expected_tx_revision
+        ~now ()
+  | _ -> Alcotest.fail "endpoint must keep Principal and revision together"
+
 (* -------------------------------------------------------------------------- *)
 (* Happy path                                                                 *)
 (* -------------------------------------------------------------------------- *)
@@ -146,8 +172,8 @@ let test_replay_idempotent_and_reject () =
   in
   ignore stored;
   let prove side =
-    E.present_proof ~db ~id:"ltx_replay" ~side ~presented_replay_id:"replay_r"
-      ~presented_challenge_id:"chal_r" ~now:fixed_now ()
+    present_bound ~db ~id:"ltx_replay" ~side ~presented_replay_id:"replay_r"
+      ~presented_challenge_id:"chal_r" ()
   in
   Alcotest.(check string)
     "a" "endpoint_proved"
@@ -166,8 +192,8 @@ let test_replay_idempotent_and_reject () =
     (L.string_of_audit_kind again.audit.kind);
   (* Bad replay id rejected. *)
   let bad =
-    E.present_proof ~db ~id:"ltx_replay" ~side:`B ~presented_replay_id:"wrong"
-      ~presented_challenge_id:"chal_r" ~now:fixed_now ()
+    present_bound ~db ~id:"ltx_replay" ~side:`B ~presented_replay_id:"wrong"
+      ~presented_challenge_id:"chal_r" ()
   in
   (match bad.status with
   | E.Rejected msg ->
@@ -192,7 +218,7 @@ let test_expiry () =
   in
   let later = fixed_now +. 61. in
   let r =
-    E.present_proof ~db ~id:"ltx_exp" ~side:`A ~presented_replay_id:"replay_e"
+    present_bound ~db ~id:"ltx_exp" ~side:`A ~presented_replay_id:"replay_e"
       ~presented_challenge_id:"chal_e" ~now:later ()
   in
   (match r.status with
@@ -258,9 +284,8 @@ let test_cancel () =
     "audit" "link_tx_cancelled"
     (L.string_of_audit_kind audit.kind);
   let r =
-    E.present_proof ~db ~id:"ltx_cancel" ~side:`A
-      ~presented_replay_id:"replay_c" ~presented_challenge_id:"chal_c"
-      ~now:fixed_now ()
+    present_bound ~db ~id:"ltx_cancel" ~side:`A ~presented_replay_id:"replay_c"
+      ~presented_challenge_id:"chal_c" ()
   in
   (match r.status with
   | E.Rejected msg ->
@@ -336,6 +361,50 @@ let test_actor_change_and_ambiguity () =
         (L.string_of_link_tx_status s.tx.status)
   | _ -> Alcotest.fail "tx missing"
 
+let test_adapter_binding_required () =
+  with_db @@ fun db ->
+  let endpoint_a, endpoint_b =
+    make_pair ~user_a:"required_a" ~user_b:"required_b" ()
+  in
+  ignore
+    (assert_ok
+       (E.create_open_link ~db ~endpoint_a ~endpoint_b ~id:"ltx_required"
+          ~replay_protection_id:"replay_required"
+          ~proof_challenge_id:"challenge_required" ~now:fixed_now ()));
+  let r =
+    E.present_proof ~db ~id:"ltx_required" ~side:`A
+      ~presented_replay_id:"replay_required"
+      ~presented_challenge_id:"challenge_required" ~now:fixed_now ()
+  in
+  (match r.status with
+  | E.Rejected msg ->
+      Alcotest.(check bool)
+        "missing adapter actor binding rejected" true
+        (Test_helpers.string_contains msg "adapter-verified actor key")
+  | _ -> Alcotest.fail "proof without adapter binding must reject");
+  match E.get ~db ~id:"ltx_required" with
+  | Ok (Some stored) ->
+      Alcotest.(check string)
+        "transaction remains open" "open"
+        (L.string_of_link_tx_status stored.tx.status)
+  | _ -> Alcotest.fail "required transaction missing"
+
+let test_initiator_principal_must_match_endpoint () =
+  with_db @@ fun db ->
+  let endpoint_a, endpoint_b =
+    make_pair ~user_a:"initiator_a" ~user_b:"initiator_b" ()
+  in
+  match
+    E.create_open_link ~db ~endpoint_a ~endpoint_b ~initiator:`A
+      ~initiator_principal_id:(pid "prin_b") ~id:"ltx_initiator_mismatch"
+      ~now:fixed_now ()
+  with
+  | Ok _ -> Alcotest.fail "mismatched initiator Principal must reject"
+  | Error msg ->
+      Alcotest.(check bool)
+        "mismatched initiator rejected" true
+        (Test_helpers.string_contains msg "does not match")
+
 (* -------------------------------------------------------------------------- *)
 (* Concurrent CAS                                                             *)
 (* -------------------------------------------------------------------------- *)
@@ -363,9 +432,8 @@ let test_concurrent_cas_and_open () =
         (Test_helpers.string_contains msg "concurrent"));
   (* First present succeeds with matching CAS revision. *)
   let r1 =
-    E.present_proof ~db ~id:"ltx_cas" ~side:`A ~presented_replay_id:"replay_cas"
-      ~presented_challenge_id:"chal_cas" ~expected_tx_revision:1 ~now:fixed_now
-      ()
+    present_bound ~db ~id:"ltx_cas" ~side:`A ~presented_replay_id:"replay_cas"
+      ~presented_challenge_id:"chal_cas" ~expected_tx_revision:1 ()
   in
   Alcotest.(check string) "proved" "endpoint_proved" (status_string r1.status);
   (match r1.stored with
@@ -373,9 +441,8 @@ let test_concurrent_cas_and_open () =
   | None -> Alcotest.fail "missing stored");
   (* Stale CAS revision fails closed. *)
   let stale =
-    E.present_proof ~db ~id:"ltx_cas" ~side:`B ~presented_replay_id:"replay_cas"
-      ~presented_challenge_id:"chal_cas" ~expected_tx_revision:1 ~now:fixed_now
-      ()
+    present_bound ~db ~id:"ltx_cas" ~side:`B ~presented_replay_id:"replay_cas"
+      ~presented_challenge_id:"chal_cas" ~expected_tx_revision:1 ()
   in
   (match stale.status with
   | E.Rejected msg ->
@@ -395,9 +462,8 @@ let test_concurrent_cas_and_open () =
   | _ -> Alcotest.fail "missing");
   (* Fresh CAS completes. *)
   let r2 =
-    E.present_proof ~db ~id:"ltx_cas" ~side:`B ~presented_replay_id:"replay_cas"
-      ~presented_challenge_id:"chal_cas" ~expected_tx_revision:2 ~now:fixed_now
-      ()
+    present_bound ~db ~id:"ltx_cas" ~side:`B ~presented_replay_id:"replay_cas"
+      ~presented_challenge_id:"chal_cas" ~expected_tx_revision:2 ()
   in
   Alcotest.(check string) "done" "link_completed" (status_string r2.status);
   (* Cancel CAS fail. *)
@@ -427,8 +493,8 @@ let test_challenge_mismatch () =
           ~replay_protection_id:"replay_ch" ~proof_challenge_id:"chal_real"
           ~now:fixed_now ()));
   let r =
-    E.present_proof ~db ~id:"ltx_chal" ~side:`A ~presented_replay_id:"replay_ch"
-      ~presented_challenge_id:"chal_fake" ~now:fixed_now ()
+    present_bound ~db ~id:"ltx_chal" ~side:`A ~presented_replay_id:"replay_ch"
+      ~presented_challenge_id:"chal_fake" ()
   in
   match r.status with
   | E.Rejected msg ->
@@ -444,6 +510,10 @@ let suite =
     ("expiry", `Quick, test_expiry);
     ("cancel", `Quick, test_cancel);
     ("actor change and ambiguity", `Quick, test_actor_change_and_ambiguity);
+    ("adapter binding required", `Quick, test_adapter_binding_required);
+    ( "initiator Principal matches endpoint",
+      `Quick,
+      test_initiator_principal_must_match_endpoint );
     ("concurrent CAS and open", `Quick, test_concurrent_cas_and_open);
     ("challenge mismatch", `Quick, test_challenge_mismatch);
   ]
