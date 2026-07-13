@@ -234,6 +234,7 @@
   github_pr_review_actions
   github_pr_review_attribution
   github_code_change_action
+  github_code_change_attribution
   github_room_background_work
   github_merge_action
   github_merge_attribution

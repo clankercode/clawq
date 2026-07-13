@@ -1,10 +1,11 @@
-(** Confirmed code-changing work and constrained PR creation (P19.M4.E2.T007).
+(** Confirmed code-changing work and constrained PR creation (P19.M4.E2.T007 /
+    P21.M3.E3.T008).
 
-    High-risk App-attributed actions available only inside a named, time-bounded
-    P19 pilot gate that is off by default. Outside that pilot they are denied
-    and must not be presented as production-ready. Production availability waits
-    for P21 [User_required] attribution; if P21 user auth is
-    disabled/unavailable there is no App/PAT fallback.
+    High-risk actions. P19 App attribution is available only inside a named,
+    time-bounded pilot gate that is off by default. When P21 user auth is
+    available, the production path plans as [User_required] and execution goes
+    through [Github_code_change_attribution] (opaque user lease; no App/PAT
+    fallback). If both pilot and user auth are unavailable the action is denied.
 
     Capability: route [capability_policy.extra] key ["code_change"] (bool),
     independent of write/review/merge and defaults off when absent.
@@ -127,10 +128,10 @@ val authorize_code_work :
   (unit, string) result
 (** Authorize code-changing work:
 
-    1. Pilot enabled and unexpired (else deny; no App/PAT production fallback).
-    2. Route grants extra capability [code_change]. 3. Non-empty
-    [repo_full_name] (owner/repo), [base_branch], [scope], [runner],
-    [output_authority]. 4. Optional [head_branch] must pass
+    1. Pilot enabled and unexpired, or P21 [user_auth_available] (else deny; no
+    App/PAT production fallback). 2. Route grants extra capability
+    [code_change]. 3. Non-empty [repo_full_name] (owner/repo), [base_branch],
+    [scope], [runner], [output_authority]. 4. Optional [head_branch] must pass
     [validate_branch_name ~prefix]. *)
 
 val authorize_pr_create :
@@ -143,11 +144,11 @@ val authorize_pr_create :
   (unit, string) result
 (** Authorize constrained PR creation:
 
-    1. Pilot + capability (same as code work). 2. Non-empty repo, base, and
-    required [title]. 3. Head source is either [Explicit_branch] under prefix,
-    or [Confirmed_code_work] that [Succeeded], is not cancelled, and whose head
-    branch matches constraints and equals the planned head. 4. Head branch ≠
-    base branch. *)
+    1. Pilot or P21 user path + capability (same as code work). 2. Non-empty
+    repo, base, and required [title]. 3. Head source is either [Explicit_branch]
+    under prefix, or [Confirmed_code_work] that [Succeeded], is not cancelled,
+    and whose head branch matches constraints and equals the planned head. 4.
+    Head branch ≠ base branch. *)
 
 val revalidate_pr_refs :
   planned_head:string ->
