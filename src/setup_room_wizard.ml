@@ -600,12 +600,49 @@ let run_rerun ~(profile_id : string) ~(model : string) ~(system_prompt : string)
       "Error: readiness checks failed. Fix issues before applying."
     end
     else begin
-      (* Apply the changes *)
+      (* Shared plan-confirm-apply repair path (P20.M2.E1.T002). *)
       let db = Command_bridge_helpers.get_db () in
-      match apply_plan ~db ~cfg ~state with
-      | Error e -> Printf.sprintf "Error applying changes: %s" e
-      | Ok msg ->
-          Printf.sprintf "Applied %d changes successfully.\n%s" changed msg
+      let principal = Room_agent_setup_plan.default_cli_principal in
+      let base_revision = Setup_plan.base_revision_of_config cfg in
+      match
+        Room_agent_setup_apply.plan_and_store ~db ~cfg ~state ~principal
+          ~base_revision ()
+      with
+      | Error e -> Printf.sprintf "Error: failed to store setup plan: %s" e
+      | Ok plan -> (
+          let actor : Setup_plan_consent.actor =
+            {
+              principal_id = principal.id;
+              role = Global_admin;
+              source_room_id = plan.destination.room_id;
+            }
+          in
+          let config_apply ~plan:_ ~receipt_id:_ =
+            match apply_plan ~db ~cfg ~state with
+            | Ok _ -> Ok ()
+            | Error e -> Error e
+          in
+          let req : Room_agent_setup_apply.apply_request =
+            {
+              plan_id = plan.id;
+              digest = plan.digest;
+              principal;
+              current_base_revision = base_revision;
+              destination_room = plan.destination.room_id;
+              now = Unix.gettimeofday ();
+              actor;
+            }
+          in
+          match
+            Room_agent_setup_apply.apply_confirmed ~db ~config_apply req
+          with
+          | Room_agent_setup_apply.Rejected { reason; message } ->
+              Printf.sprintf "Error: setup apply rejected (%s): %s" reason
+                message
+          | Room_agent_setup_apply.Applied { receipt_id; _ } ->
+              Printf.sprintf
+                "Applied %d changes successfully (plan %s, receipt %s)." changed
+                plan.id receipt_id)
     end
   end
 
@@ -778,9 +815,54 @@ let run args =
                   "Error: readiness checks failed. Fix issues before applying."
                 end
                 else
-                  match apply_plan ~db ~cfg ~state with
-                  | Error e -> Printf.sprintf "Error: %s" e
-                  | Ok msg -> msg)
+                  (* Shared plan-confirm-apply (P20.M2.E1.T002): store a typed
+                     plan, then apply with CLI principal + config mutation via
+                     existing apply_plan. *)
+                  let principal = Room_agent_setup_plan.default_cli_principal in
+                  let base_revision = Setup_plan.base_revision_of_config cfg in
+                  match
+                    Room_agent_setup_apply.plan_and_store ~db ~cfg ~state
+                      ~principal ~base_revision ()
+                  with
+                  | Error e ->
+                      Printf.sprintf "Error: failed to store setup plan: %s" e
+                  | Ok plan -> (
+                      let actor : Setup_plan_consent.actor =
+                        {
+                          principal_id = principal.id;
+                          role = Global_admin;
+                          source_room_id = plan.destination.room_id;
+                        }
+                      in
+                      let config_apply ~plan:_ ~receipt_id:_ =
+                        match apply_plan ~db ~cfg ~state with
+                        | Ok _ -> Ok ()
+                        | Error e -> Error e
+                      in
+                      let req : Room_agent_setup_apply.apply_request =
+                        {
+                          plan_id = plan.id;
+                          digest = plan.digest;
+                          principal;
+                          current_base_revision = base_revision;
+                          destination_room = plan.destination.room_id;
+                          now = Unix.gettimeofday ();
+                          actor;
+                        }
+                      in
+                      match
+                        Room_agent_setup_apply.apply_confirmed ~db ~config_apply
+                          req
+                      with
+                      | Room_agent_setup_apply.Rejected { reason; message } ->
+                          Printf.sprintf "Error: setup apply rejected (%s): %s"
+                            reason message
+                      | Room_agent_setup_apply.Applied
+                          { receipt_id; first_time; config_mutated; _ } ->
+                          Printf.sprintf
+                            "Applied setup plan %s (receipt %s, first=%b, \
+                             config_mutated=%b)."
+                            plan.id receipt_id first_time config_mutated))
             | Some _ ->
                 Printf.sprintf
                   "Error: --max-iters must be between 1 and 1000, got '%s'."

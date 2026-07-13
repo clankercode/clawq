@@ -545,6 +545,7 @@
   setup_room_wizard
   setup_room_wizard_validate
   room_agent_setup_plan
+  room_agent_setup_apply
   room_readiness_report
   setup_connector_history
   setup_prompt
