@@ -257,6 +257,12 @@ let pending_credential_of_pkce
    [make_pending_credential] so this module stays free of flow-specific module
    cycles; those modules route Granted into [prepare]. *)
 
+
+(* Web/device projection helpers that accepted flow-specific token types were
+   removed: they created a dependency cycle with
+   Github_user_auth_pkce_callback / device_poll. Callers project through
+   [make_pending_credential] instead. *)
+
 (* -------------------------------------------------------------------------- *)
 (* Crypto / ids                                                               *)
 (* -------------------------------------------------------------------------- *)
