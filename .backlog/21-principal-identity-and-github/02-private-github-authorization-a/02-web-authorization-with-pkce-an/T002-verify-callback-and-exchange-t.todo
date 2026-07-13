@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T03:59:24Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:44Z"
 depends_on:
@@ -7,12 +10,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M2.E2.T002
 priority: critical
-status: pending
-tags:
-    - github
-    - oauth
-    - security
+started_at: "2026-07-13T03:59:24Z"
+status: in_progress
+tags: []
 title: Verify callback and exchange the code exactly once
-updated_at: "2026-07-12T14:51:44Z"
+updated_at: "2026-07-13T03:59:24Z"
 ---
 Acceptance: Verify constant-time state, Principal transaction, expiry, redirect binding, unused status, and verifier before one exchange; mismatch, replay, duplicate callback, denial, timeout, malformed response, or partial exchange creates no active binding. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
