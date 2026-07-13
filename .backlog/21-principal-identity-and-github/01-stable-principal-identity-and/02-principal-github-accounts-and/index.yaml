@@ -43,7 +43,7 @@ tasks:
       file: T003-implement-repository-and-room.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement repository- and Room-aware account preferences
     - complexity: medium
