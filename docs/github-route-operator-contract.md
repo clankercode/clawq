@@ -207,6 +207,9 @@ After a change:
 
 ## Related implementation modules
 
+Shared setup boundary (room-agent + GitHub adapters on one stack):
+[setup-framework-boundary.md](setup-framework-boundary.md).
+
 - `src/github_route_store.ml` — durable routes
 - `src/github_route_match.ml` — specificity / mute / accept ledger
 - `src/github_route_admin.ml` — plan/inspect/ops

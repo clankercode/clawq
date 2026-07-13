@@ -9,7 +9,10 @@
    - Readiness checks
 
    Plan mode: shows what would happen without side effects.
-   Apply mode: makes the actual changes. *)
+   Apply mode: store typed Setup_plan then confirm/apply via
+   Room_agent_setup_apply (shared framework). Domain config mutation remains
+   [apply_plan] as the config_apply hook only — not a parallel confirm path.
+   Boundary: docs/setup-framework-boundary.md (P20.M2.E1.T003). *)
 
 open Runtime_config_types
 include Setup_room_wizard_types
@@ -458,9 +461,18 @@ let run_wizard () =
             state := { !state with connector_active = active }
           end;
 
-          (* Generate and display plan *)
-          let plan = generate_plan ~cfg ~state:!state in
-          display_plan plan;
+          (* Canonical Setup_plan (shared framework) + legacy display summary. *)
+          let principal = Room_agent_setup_plan.default_cli_principal in
+          let base_revision = Setup_plan.base_revision_of_config cfg in
+          let typed =
+            Room_agent_setup_plan.plan ~cfg ~state:!state ~principal
+              ~base_revision ()
+          in
+          Printf.printf "\n%s\n"
+            (Setup_common.bold "=== Setup_plan (shared) ===");
+          Printf.printf "%s\n" (Setup_plan.format_summary typed);
+          let legacy_items = generate_plan ~cfg ~state:!state in
+          display_plan legacy_items;
 
           (* Run readiness checks *)
           let checks = run_readiness_checks ~cfg ~db:(Some db) ~state:!state in
@@ -474,23 +486,66 @@ let run_wizard () =
             "Wizard completed with warnings. No changes applied."
           end
           else begin
-            (* Ask for confirmation *)
+            (* Confirm then apply via shared plan-confirm-apply (P20.M2.E1.T003).
+               No direct config mutation without a stored plan + digest. *)
             Printf.printf "\n";
             let apply =
               Setup_common.prompt_yn ~prompt:"Apply this plan?" ~default:true ()
             in
             if not apply then "Plan cancelled. No changes applied."
             else
-              match apply_plan ~db ~cfg ~state:!state with
-              | Error e -> Printf.sprintf "Error: %s" e
-              | Ok msg ->
-                  Printf.printf "\n%s\n" (Setup_common.green msg);
-                  Printf.printf "\nNext steps:\n";
-                  Printf.printf "  1. Restart daemon: clawq daemon restart\n";
-                  Printf.printf "  2. Verify: clawq rooms show %s\n"
-                    !state.connector_room;
-                  Printf.printf "  3. Test: send a message to the room\n";
-                  msg
+              match
+                Room_agent_setup_apply.plan_and_store ~db ~cfg ~state:!state
+                  ~principal ~base_revision ()
+              with
+              | Error e ->
+                  Printf.sprintf "Error: failed to store setup plan: %s" e
+              | Ok plan -> (
+                  let actor : Setup_plan_consent.actor =
+                    {
+                      principal_id = principal.id;
+                      role = Global_admin;
+                      source_room_id = plan.destination.room_id;
+                    }
+                  in
+                  let config_apply ~plan:_ ~receipt_id:_ =
+                    match apply_plan ~db ~cfg ~state:!state with
+                    | Ok _ -> Ok ()
+                    | Error e -> Error e
+                  in
+                  let req : Room_agent_setup_apply.apply_request =
+                    {
+                      plan_id = plan.id;
+                      digest = plan.digest;
+                      principal;
+                      current_base_revision = base_revision;
+                      destination_room = plan.destination.room_id;
+                      now = Unix.gettimeofday ();
+                      actor;
+                    }
+                  in
+                  match
+                    Room_agent_setup_apply.apply_confirmed ~db ~config_apply req
+                  with
+                  | Room_agent_setup_apply.Rejected { reason; message } ->
+                      Printf.sprintf "Error: setup apply rejected (%s): %s"
+                        reason message
+                  | Room_agent_setup_apply.Applied
+                      { receipt_id; first_time; config_mutated; _ } ->
+                      let msg =
+                        Printf.sprintf
+                          "Applied setup plan %s (receipt %s, first=%b, \
+                           config_mutated=%b)."
+                          plan.id receipt_id first_time config_mutated
+                      in
+                      Printf.printf "\n%s\n" (Setup_common.green msg);
+                      Printf.printf "\nNext steps:\n";
+                      Printf.printf
+                        "  1. Restart daemon: clawq daemon restart\n";
+                      Printf.printf "  2. Verify: clawq rooms show %s\n"
+                        !state.connector_room;
+                      Printf.printf "  3. Test: send a message to the room\n";
+                      msg)
           end)
 
 (* ── Non-interactive plan mode ──────────────────────────────────── *)
@@ -522,15 +577,15 @@ let run_plan ~(profile_id : string) ~(model : string) ~(system_prompt : string)
       connector_active;
     }
   in
-  let plan = generate_plan ~cfg ~state in
-  display_plan plan;
-  (* Shared typed Setup_plan (P20.M2.E1.T001): agent and CLI use one adapter. *)
+  (* Canonical shared Setup_plan first; legacy item list is display-only. *)
   let typed =
     Room_agent_setup_plan.plan ~cfg ~state
       ~principal:Room_agent_setup_plan.default_cli_principal ()
   in
-  Printf.printf "\n%s\n" (Setup_common.bold "=== Setup_plan (shared) ===");
+  Printf.printf "%s\n" (Setup_common.bold "=== Setup_plan (shared) ===");
   Printf.printf "%s\n" (Setup_plan.format_summary typed);
+  let legacy_items = generate_plan ~cfg ~state in
+  display_plan legacy_items;
   if connector_type = "teams" then begin
     let has_slack = connector_is_configured cfg "slack" in
     if has_slack then display_capability_comparison ()

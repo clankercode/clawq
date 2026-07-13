@@ -2,6 +2,12 @@
 
 The pilot setup wizard (`clawq rooms wizard`) configures room-agent profiles with a plan/apply flow. It is designed for Teams-first pilots but supports Slack, Discord, and Telegram connectors.
 
+**Setup framework:** planning and apply go through the shared typed
+plan-confirm-apply stack (`Setup_plan` / `Room_agent_setup_plan` /
+`Room_agent_setup_apply`). CLI subcommands (`plan`, `apply`, `rerun`) are
+compatibility aliases over that stack — see
+[setup-framework-boundary.md](setup-framework-boundary.md).
+
 ## Quick Start
 
 ```bash
@@ -63,7 +69,9 @@ CLAWQ_ADMIN=1 clawq rooms wizard
 
 ### Plan Mode
 
-Shows what would happen without making changes. Safe to run without admin privileges.
+Shows what would happen without making changes (read-only). Surfaces the shared
+`Setup_plan` summary plus a legacy category/action display list. Safe to run
+without admin privileges.
 
 ```bash
 clawq rooms -- wizard plan --profile-id my-agent [options]
@@ -71,7 +79,9 @@ clawq rooms -- wizard plan --profile-id my-agent [options]
 
 ### Apply Mode
 
-Applies the configuration changes. Requires `CLAWQ_ADMIN=1`.
+Stores a revision-bound `Setup_plan`, then confirm/applies via
+`Room_agent_setup_apply` (digest, base revision, authority, idempotent receipt).
+Requires `CLAWQ_ADMIN=1`.
 
 ```bash
 CLAWQ_ADMIN=1 clawq rooms -- wizard apply --profile-id my-agent [options]
