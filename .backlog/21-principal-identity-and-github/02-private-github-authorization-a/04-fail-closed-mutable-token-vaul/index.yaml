@@ -51,7 +51,8 @@ tasks:
       file: T004-add-generation-based-cas-trans.todo
       id: T004
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Add generation-based CAS transitions and lease invalidation
     - complexity: high
       depends_on:
