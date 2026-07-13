@@ -29,7 +29,7 @@ tasks:
       file: T002-implement-fail-closed-mutable.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Implement fail-closed mutable vault CRUD
     - complexity: high
