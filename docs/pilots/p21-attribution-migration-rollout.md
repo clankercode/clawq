@@ -7,7 +7,9 @@ Canonical plan:
 [docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md](../plans/2026-07-13-github-user-attribution-and-feature-discovery.md).
 
 P19 pilot mechanics (App interim only):
-[p19-rollout-backout-guide.md](p19-rollout-backout-guide.md).
+[p19-rollout-backout-guide.md](p19-rollout-backout-guide.md).  
+P21 production enable / rollback / cleanup / limitations:
+[p21-rollout-backout-guide.md](p21-rollout-backout-guide.md).
 
 Runtime module: `Github_attribution_rollout` (`src/github_attribution_rollout.ml`).
 Policy defaults: `Github_attribution_policy`. Visible fallback rules:
@@ -169,7 +171,7 @@ Predicate: `Github_attribution_rollout.no_residual_authority`.
 | `policy_ready` | Attribution policy matrix loaded; tool catalog freeze; confirm/apply paths |
 | `private_delivery_ready` | Connector can deliver auth URLs/device codes privately |
 | `repair_ready` | Admin diagnostics distinguish policy/identity/auth/delivery failures without secrets |
-| `backout_ready` | Rollback + cleanup runbook exercised (this doc + P19 backout guide) |
+| `backout_ready` | Rollback + cleanup runbook exercised (this doc + [p21-rollout-backout-guide.md](p21-rollout-backout-guide.md); P19 guide for App interim only) |
 
 `readiness_complete` is true only when every flag is true.
 

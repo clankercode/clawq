@@ -15,7 +15,11 @@ to the safe default.
 **Companion checklist:**
 [p21-teams-dual-attribution-pilot-checklist.md](p21-teams-dual-attribution-pilot-checklist.md)  
 **Receipt template:**
-[p21-redacted-pilot-receipt-template.md](p21-redacted-pilot-receipt-template.md)
+[p21-redacted-pilot-receipt-template.md](p21-redacted-pilot-receipt-template.md)  
+**Rollout / backout / cleanup / limitations (T004):**
+[p21-rollout-backout-guide.md](p21-rollout-backout-guide.md)  
+**Filled dry-run receipt example:**
+[receipts/p21-dual-attr-20260713-dryrun.md](receipts/p21-dual-attr-20260713-dryrun.md)
 
 This pilot proves **P21 production user attribution** under the staged
 rollout gate — not the P19 App-attributed high-risk pilot path. High-risk
@@ -426,7 +430,9 @@ Live pilot resume: re-enter at §0 with credentials, complete §§2–13, then T
 |-----|------|
 | [p21-attribution-migration-rollout.md](p21-attribution-migration-rollout.md) | Matrix, stages, gates |
 | [p21-teams-dual-attribution-pilot-checklist.md](p21-teams-dual-attribution-pilot-checklist.md) | Gate checklist |
-| [p21-redacted-pilot-receipt-template.md](p21-redacted-pilot-receipt-template.md) | Redacted receipt |
+| [p21-redacted-pilot-receipt-template.md](p21-redacted-pilot-receipt-template.md) | Redacted receipt template |
+| [p21-rollout-backout-guide.md](p21-rollout-backout-guide.md) | P21 enable/rollback/cleanup + limitations |
+| [receipts/p21-dual-attr-20260713-dryrun.md](receipts/p21-dual-attr-20260713-dryrun.md) | Filled dry-run receipt (no secrets) |
 | [p19-github-app-teams-pilot-runbook.md](p19-github-app-teams-pilot-runbook.md) | App interim pilot |
 | [p19-rollout-backout-guide.md](p19-rollout-backout-guide.md) | P19 gate backout |
 | Plan | [2026-07-13-github-user-attribution-and-feature-discovery.md](../plans/2026-07-13-github-user-attribution-and-feature-discovery.md) |

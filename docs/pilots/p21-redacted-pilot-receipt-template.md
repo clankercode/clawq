@@ -10,7 +10,11 @@ Companion runbook:
 Companion checklist:
 [p21-teams-dual-attribution-pilot-checklist.md](p21-teams-dual-attribution-pilot-checklist.md).  
 Migration contract:
-[p21-attribution-migration-rollout.md](p21-attribution-migration-rollout.md).
+[p21-attribution-migration-rollout.md](p21-attribution-migration-rollout.md).  
+Rollout / backout / cleanup / limitations:
+[p21-rollout-backout-guide.md](p21-rollout-backout-guide.md).  
+Filled dry-run example (no secrets; live blocked):
+[receipts/p21-dual-attr-20260713-dryrun.md](receipts/p21-dual-attr-20260713-dryrun.md).
 
 Canonical plan:
 [docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md](../plans/2026-07-13-github-user-attribution-and-feature-discovery.md).
@@ -207,7 +211,15 @@ Record (edit only if policy changes; do not weaken):
    both name App.
 4. Rollback does **not** reopen pilot App or substitute actor modes.
 5. Cleanup must prove `no_residual_authority` before declaring complete.
-6. Limitations observed in this pilot (list):  
+6. **Whole-store vault rollback:** a whole-store rollback under the same
+   available key is **not detectable** without an external monotonic anchor.
+   Record AEAD and token-generation CAS do not detect replacement of the entire
+   store with an internally consistent older snapshot. Constant:
+   `Github_user_token_vault_recovery.whole_store_rollback_detectable_without_external_anchor = false`.
+   V1 makes **no whole-store anti-rollback claim**. See
+   [p21-rollout-backout-guide.md](p21-rollout-backout-guide.md#1-whole-store-vault-rollback-under-the-same-key)
+   and [github-vault-recovery.md](../github-vault-recovery.md#whole-store-rollback-limitation-v1).
+7. Limitations observed in this pilot (list):  
 
 ---
 

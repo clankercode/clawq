@@ -3,6 +3,8 @@
 **Task:** `P21.M4.E2.T003`  
 **Runbook:** [p21-teams-dual-attribution-pilot-runbook.md](p21-teams-dual-attribution-pilot-runbook.md)  
 **Receipt template:** [p21-redacted-pilot-receipt-template.md](p21-redacted-pilot-receipt-template.md)  
+**Rollout / backout / cleanup / limitations:** [p21-rollout-backout-guide.md](p21-rollout-backout-guide.md)  
+**Filled dry-run receipt:** [receipts/p21-dual-attr-20260713-dryrun.md](receipts/p21-dual-attr-20260713-dryrun.md)  
 **Canonical acceptance body:** Under staged attribution rollout
 (`safe_default` → readiness → `p21_production`), two Teams Principals in one
 Channel link separate GitHub accounts via **web** and **device** flows; GitHub
