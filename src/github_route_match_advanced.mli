@@ -79,11 +79,15 @@ val obtain_enrichment :
   ?fetch_paths:Github_filter_enrichment.paths_fetch ->
   ?fetch_teams:Github_filter_enrichment.teams_fetch ->
   ?cache:Github_filter_enrichment.cache ->
+  ?rate_limited:(unit -> bool) ->
+  ?access_allowed:(unit -> bool) ->
   ?now:float ->
   unit ->
   Github_filter_enrichment.enrichment
 (** Use caller-supplied [enrichment], or demand-driven [enrich] when paths/teams
-    are required. When nothing is demanded, returns [empty_enrichment]. *)
+    are required. When nothing is demanded, returns [empty_enrichment].
+    [rate_limited] / [access_allowed] gates are forwarded to
+    [Github_filter_enrichment.enrich] (fail closed; never allow-on-missing). *)
 
 val advanced_allows :
   filter:Github_route_filter.t ->
@@ -94,7 +98,8 @@ val advanced_allows :
 (** Evaluate typed advanced PR/Issue predicates only (baseline already handled
     by route match). [Ok ()] when advanced section is empty or all predicates
     pass. [Error reason] on reject, including fail-closed missing enrichment
-    when demanded. *)
+    when demanded. Reasons are explainable (stable codes such as [rate_limited],
+    [access_denied], or field names like [pr.labels]). *)
 
 (** {1 Resolve / accept} *)
 
@@ -106,6 +111,8 @@ val resolve :
   ?fetch_paths:Github_filter_enrichment.paths_fetch ->
   ?fetch_teams:Github_filter_enrichment.teams_fetch ->
   ?cache:Github_filter_enrichment.cache ->
+  ?rate_limited:(unit -> bool) ->
+  ?access_allowed:(unit -> bool) ->
   ?index:route_index ->
   ?index_cache:index_cache ->
   ?now:float ->
@@ -120,8 +127,9 @@ val resolve :
       (no fallthrough).
 
     Advanced evaluation uses typed filters only. Demanded enrichment that is
-    missing or incomplete yields [Muted] (fail closed), never a broader route.
-*)
+    missing, rate-limited, or incomplete yields [Muted] (fail closed), never a
+    broader route or allow-on-missing. Mute reasons are explainable stable
+    strings for operators and preview surfaces. *)
 
 val try_accept :
   db:Sqlite3.db ->
@@ -131,6 +139,8 @@ val try_accept :
   ?fetch_paths:Github_filter_enrichment.paths_fetch ->
   ?fetch_teams:Github_filter_enrichment.teams_fetch ->
   ?cache:Github_filter_enrichment.cache ->
+  ?rate_limited:(unit -> bool) ->
+  ?access_allowed:(unit -> bool) ->
   ?index:route_index ->
   ?index_cache:index_cache ->
   ?now:float ->

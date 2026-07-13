@@ -132,6 +132,7 @@ let () =
        ("github_route_store", Test_github_route_store.suite);
        ("github_route_match", Test_github_route_match.suite);
        ("github_route_match_advanced", Test_github_route_match_advanced.suite);
+       ("github_route_match_fixtures", Test_github_route_match_fixtures.suite);
        ("github_route_transfer", Test_github_route_transfer.suite);
        ("github_route_migrate", Test_github_route_migrate.suite);
        ("github_route_admin", Test_github_route_admin.suite);
