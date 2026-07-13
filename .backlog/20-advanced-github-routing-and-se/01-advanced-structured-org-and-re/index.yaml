@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Versioned Advanced Filter Language
       path: 01-versioned-advanced-filter-lang
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P20.M1.E1

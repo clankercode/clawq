@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -51,6 +51,6 @@ tasks:
       file: T004-implement-issue-label-author-t.todo
       id: T004
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement Issue label author team assignee and milestone predicates
