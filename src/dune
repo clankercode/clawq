@@ -201,6 +201,7 @@
   github_plain_delivery_render
   github_item_context_resolve
   github_collab_grounding
+  github_collab_actions
   github_room_tools
   github_auth_selection
   credential_lease
