@@ -91,5 +91,6 @@ tasks:
       file: T008-define-vault-backup-restore-an.todo
       id: T008
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Define vault backup restore and key-compromise recovery
