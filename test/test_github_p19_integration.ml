@@ -666,6 +666,10 @@ let test_reconcile_webhook_closes_once_no_outbox () =
       delivery_id = None;
       github_ref = Some "abc123";
       actor_mode = "pilot";
+      requested_mode = Some "user";
+      resolved_mode = Some "pilot";
+      actor_snapshot = None;
+      expected_github_login = None;
     }
   in
   assert_ok

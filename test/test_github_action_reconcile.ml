@@ -1,5 +1,5 @@
 (** Tests for GitHub action receipt ↔ webhook reconciliation without loops
-    (P19.M4.E2.T004). *)
+    (P19.M4.E2.T004) and Actor snapshot propagation (P21.M1.E3.T006). *)
 
 module E = Github_event_envelope
 module J = Github_room_event_journal
@@ -7,6 +7,8 @@ module P = Github_item_projection
 module O = Github_delivery_outbox
 module A = Github_action_reconcile
 module R = Github_route_match
+module PI = Principal_identity
+module Snap = Actor_snapshot
 
 let with_db f =
   let db = Sqlite3.db_open ":memory:" in
@@ -79,7 +81,9 @@ let make_envelope ?(event = "pull_request") ?(action = Some "closed")
 
 let base_correlation ?(action = "merge") ?(delivery_id = None)
     ?(receipt_id = Some "receipt-1") ?(plan_id = Some "plan-1")
-    ?(github_ref = Some "abc123") ?(actor_mode = "pilot") () : A.correlation =
+    ?(github_ref = Some "abc123") ?(actor_mode = "pilot")
+    ?(requested_mode = None) ?(resolved_mode = None) ?(actor_snapshot = None)
+    ?(expected_github_login = None) () : A.correlation =
   {
     room_id;
     item_key = Some item_key;
@@ -89,6 +93,11 @@ let base_correlation ?(action = "merge") ?(delivery_id = None)
     delivery_id;
     github_ref;
     actor_mode;
+    requested_mode;
+    resolved_mode =
+      (match resolved_mode with Some _ as r -> r | None -> Some actor_mode);
+    actor_snapshot;
+    expected_github_login;
   }
 
 let result_tag = function
@@ -289,6 +298,10 @@ let test_secret_free_storage () =
       delivery_id = Some "deliv-x";
       github_ref = Some "Bearer ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
       actor_mode = "pilot";
+      requested_mode = Some "user";
+      resolved_mode = Some "pilot";
+      actor_snapshot = None;
+      expected_github_login = None;
     }
   in
   assert_ok (A.record_correlation ~db ~correlation:dirty ~now:fixed_now ());
@@ -357,6 +370,295 @@ let test_delivery_id_match () =
   in
   Alcotest.(check string) "closed via delivery id" "closed_first" (result_tag r)
 
+(* ---- P21.M1.E3.T006: Actor snapshot on receipts + identity isolation ---- *)
+
+let sample_actor_key ?(user = "user-ada") () =
+  assert_ok
+    (PI.make_connector_actor_key ~connector:PI.Teams
+       ~tenant_or_workspace:"tenant-acme" ~immutable_user_id:user)
+
+let make_snapshot ?(principal = "prin_ada") ?(user = "user-ada")
+    ?(display_name = "Ada") ?(principal_revision = 3) ?(actor_revision = 2)
+    ?(identity_link_revision = 7) ?(snapshot_id = "actorsnap_receipt_ada") () =
+  let principal_id = assert_ok (PI.principal_id_of_string principal) in
+  let actor_key = sample_actor_key ~user () in
+  let binding =
+    assert_ok
+      (Snap.make_account_binding_evidence ~binding_id:"ghbind_ada"
+         ~lineage_id:"lineage_ada"
+         ~identity:
+           (assert_ok
+              (Github_account_binding.make_account_identity ~app_id:42
+                 ~github_user_id:9001L ()))
+         ())
+  in
+  assert_ok
+    (Snap.create ~id:snapshot_id ~now:fixed_now ~reason:"receipt_correlation"
+       ~principal_id ~principal_revision ~actor_key ~actor_revision
+       ~identity_link_id:"idlink_ada" ~identity_link_revision
+       ~display:
+         {
+           display_name = Some display_name;
+           avatar_url = None;
+           email = None;
+           extra = [];
+         }
+       ~account_binding:binding
+       ~work_refs:
+         {
+           intent_id = Some "plan-1";
+           confirmation_id = Some "confirm-1";
+           delayed_job_id = None;
+         }
+       ())
+
+let test_snapshot_retained_through_close () =
+  with_db @@ fun db ->
+  let snap = make_snapshot () in
+  Alcotest.(check bool) "snapshot not authority" false (Snap.is_authority snap);
+  let corr =
+    base_correlation ~actor_mode:"user" ~requested_mode:(Some "user_required")
+      ~resolved_mode:(Some "user") ~actor_snapshot:(Some snap)
+      ~expected_github_login:(Some "ada") ()
+  in
+  Alcotest.(check bool)
+    "correlation snapshot not authority" false
+    (A.snapshot_is_authority corr);
+  assert_ok (A.record_correlation ~db ~correlation:corr ~now:fixed_now ());
+  (* Bot self-event closes the open receipt. *)
+  let env =
+    make_envelope ~action:(Some "closed") ~merged:(Some true)
+      ~actor_type:(Some "Bot") ~actor_login:(Some "clawq-bot") ()
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:env ~now:(fixed_now +. 1.) ()
+  in
+  Alcotest.(check string) "closed first" "closed_first" (result_tag r);
+  (match r with
+  | A.Closed { correlation = c; first_time = true } ->
+      Alcotest.(check string)
+        "resolved attribution" "user" (A.resolved_attribution c);
+      Alcotest.(check (option string))
+        "requested attribution" (Some "user_required")
+        (A.requested_attribution c);
+      Alcotest.(check (option string)) "receipt" (Some "receipt-1") c.receipt_id;
+      Alcotest.(check (option string)) "plan" (Some "plan-1") c.plan_id;
+      (match c.actor_snapshot with
+      | None -> Alcotest.fail "expected actor_snapshot on closed correlation"
+      | Some s ->
+          Alcotest.(check string) "snapshot id" snap.id s.id;
+          Alcotest.(check string)
+            "principal frozen" "prin_ada"
+            (PI.principal_id_to_string s.lineage.principal_id);
+          Alcotest.(check int)
+            "principal_revision frozen" 3 s.lineage.principal_revision;
+          Alcotest.(check int)
+            "actor_revision frozen" 2 s.lineage.actor_revision;
+          Alcotest.(check int)
+            "identity_link_revision frozen" 7 s.lineage.identity_link_revision;
+          Alcotest.(check (option string))
+            "account lineage" (Some "lineage_ada") s.lineage.account_lineage_id;
+          Alcotest.(check (option string))
+            "display frozen" (Some "Ada") s.display.display_name;
+          Alcotest.(check bool)
+            "still not authority" false (Snap.is_authority s));
+      Alcotest.(check bool)
+        "closed corr not authority" false
+        (A.snapshot_is_authority c)
+  | _ -> Alcotest.fail "expected Closed first_time");
+  (* Durable load by receipt retains the same evidence. *)
+  match A.get_by_receipt_id ~db ~receipt_id:"receipt-1" with
+  | None -> Alcotest.fail "expected stored correlation by receipt"
+  | Some loaded -> (
+      Alcotest.(check string)
+        "loaded resolved" "user"
+        (A.resolved_attribution loaded);
+      match loaded.actor_snapshot with
+      | None -> Alcotest.fail "loaded snapshot missing"
+      | Some s ->
+          Alcotest.(check string) "loaded snap id" snap.id s.id;
+          Alcotest.(check int)
+            "loaded link rev" 7 s.lineage.identity_link_revision)
+
+let test_preserve_identity_across_rename () =
+  with_db @@ fun db ->
+  let snap = make_snapshot ~display_name:"Ada Lovelace" () in
+  let corr =
+    base_correlation ~actor_mode:"user" ~actor_snapshot:(Some snap)
+      ~requested_mode:(Some "user") ~resolved_mode:(Some "user") ()
+  in
+  assert_ok (A.record_correlation ~db ~correlation:corr ~now:fixed_now ());
+  (* Later display rename does not rewrite the durable receipt snapshot. *)
+  let env =
+    make_envelope ~action:(Some "closed") ~merged:(Some true)
+      ~actor_type:(Some "Bot") ()
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:env ~now:(fixed_now +. 2.) ()
+  in
+  match r with
+  | A.Closed { correlation = c; _ } -> (
+      match c.actor_snapshot with
+      | None -> Alcotest.fail "missing snapshot"
+      | Some s ->
+          Alcotest.(check (option string))
+            "historical display retained" (Some "Ada Lovelace")
+            s.display.display_name;
+          Alcotest.(check string)
+            "historical principal retained" "prin_ada"
+            (PI.principal_id_to_string s.lineage.principal_id))
+  | _ -> Alcotest.fail "expected close"
+
+let test_unrelated_human_cannot_close_receipt () =
+  with_db @@ fun db ->
+  let snap = make_snapshot () in
+  let corr =
+    base_correlation ~action:"comment" ~actor_mode:"app"
+      ~actor_snapshot:(Some snap) ~expected_github_login:(Some "ada") ()
+  in
+  assert_ok (A.record_correlation ~db ~correlation:corr ~now:fixed_now ());
+  (* Unrelated human comments on the same item — must not close our receipt. *)
+  let human =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-human-unrelated")
+      ~actor_login:(Some "bob") ~actor_type:(Some "User") ()
+  in
+  let r = A.reconcile_webhook ~db ~room_id ~envelope:human ~now:fixed_now () in
+  Alcotest.(check string)
+    "unrelated human ignored" "ignored_human_event" (result_tag r);
+  Alcotest.(check int)
+    "receipt still open" 1
+    (count_correlations ~db ~status:"open" ());
+  (* Second Principal's GitHub login must not close Ada's receipt. *)
+  let other =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-human-carol")
+      ~actor_login:(Some "carol") ~actor_type:(Some "User") ()
+  in
+  let r2 = A.reconcile_webhook ~db ~room_id ~envelope:other ~now:fixed_now () in
+  Alcotest.(check string)
+    "other principal ignored" "ignored_human_event" (result_tag r2);
+  Alcotest.(check int)
+    "still open after other principal" 1
+    (count_correlations ~db ~status:"open" ())
+
+let test_expected_login_human_closes_once () =
+  with_db @@ fun db ->
+  let snap = make_snapshot () in
+  let corr =
+    base_correlation ~action:"comment" ~actor_mode:"user"
+      ~requested_mode:(Some "user") ~resolved_mode:(Some "user")
+      ~actor_snapshot:(Some snap) ~expected_github_login:(Some "ada") ()
+  in
+  assert_ok (A.record_correlation ~db ~correlation:corr ~now:fixed_now ());
+  let native =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-ada-comment")
+      ~actor_login:(Some "Ada") (* case-insensitive match *)
+      ~actor_type:(Some "User") ()
+  in
+  let r1 =
+    A.reconcile_webhook ~db ~room_id ~envelope:native ~now:(fixed_now +. 1.) ()
+  in
+  Alcotest.(check string) "native user closes" "closed_first" (result_tag r1);
+  (match r1 with
+  | A.Closed { correlation = c; _ } -> (
+      match c.actor_snapshot with
+      | None -> Alcotest.fail "snapshot missing after native close"
+      | Some s ->
+          Alcotest.(check string)
+            "principal still ada" "prin_ada"
+            (PI.principal_id_to_string s.lineage.principal_id))
+  | _ -> Alcotest.fail "expected close");
+  let r2 =
+    A.reconcile_webhook ~db ~room_id ~envelope:native ~now:(fixed_now +. 2.) ()
+  in
+  Alcotest.(check string) "closes once" "already_closed" (result_tag r2);
+  Alcotest.(check int)
+    "one closed row" 1
+    (count_correlations ~db ~status:"closed" ())
+
+let test_human_without_expected_login_cannot_claim_open () =
+  with_db @@ fun db ->
+  (* App/pilot correlation with no expected login: human fingerprint match
+     must not close (would associate unrelated human action). *)
+  let corr = base_correlation ~action:"comment" ~actor_mode:"pilot" () in
+  assert_ok (A.record_correlation ~db ~correlation:corr ~now:fixed_now ());
+  let human =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-human-no-pin")
+      ~actor_login:(Some "stranger") ~actor_type:(Some "User") ()
+  in
+  let r = A.reconcile_webhook ~db ~room_id ~envelope:human ~now:fixed_now () in
+  Alcotest.(check string) "ignored" "ignored_human_event" (result_tag r);
+  Alcotest.(check int) "still open" 1 (count_correlations ~db ~status:"open" ());
+  (* Bot self-event still closes. *)
+  let bot =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-bot-comment")
+      ~actor_type:(Some "Bot") ()
+  in
+  let r2 =
+    A.reconcile_webhook ~db ~room_id ~envelope:bot ~now:(fixed_now +. 1.) ()
+  in
+  Alcotest.(check string) "bot closes" "closed_first" (result_tag r2)
+
+let test_two_principals_isolated_receipts () =
+  with_db @@ fun db ->
+  let snap_ada = make_snapshot ~principal:"prin_ada" ~user:"user-ada" () in
+  let snap_bob =
+    make_snapshot ~principal:"prin_bob" ~user:"user-bob"
+      ~snapshot_id:"actorsnap_receipt_bob" ~display_name:"Bob" ()
+  in
+  let corr_ada =
+    base_correlation ~action:"comment" ~receipt_id:(Some "rcpt_ada")
+      ~plan_id:(Some "plan_ada") ~actor_mode:"user"
+      ~actor_snapshot:(Some snap_ada) ~expected_github_login:(Some "ada") ()
+  in
+  let corr_bob =
+    base_correlation ~action:"comment" ~receipt_id:(Some "rcpt_bob")
+      ~plan_id:(Some "plan_bob") ~actor_mode:"user"
+      ~actor_snapshot:(Some snap_bob) ~expected_github_login:(Some "bob") ()
+  in
+  assert_ok (A.record_correlation ~db ~correlation:corr_ada ~now:fixed_now ());
+  assert_ok
+    (A.record_correlation ~db ~correlation:corr_bob ~now:(fixed_now +. 0.1) ());
+  Alcotest.(check int) "two open" 2 (count_correlations ~db ~status:"open" ());
+  let bob_event =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-bob-1")
+      ~actor_login:(Some "bob") ~actor_type:(Some "User") ()
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:bob_event ~now:(fixed_now +. 1.)
+      ()
+  in
+  (match r with
+  | A.Closed { correlation = c; _ } -> (
+      Alcotest.(check (option string))
+        "bob receipt" (Some "rcpt_bob") c.receipt_id;
+      match c.actor_snapshot with
+      | None -> Alcotest.fail "bob snapshot missing"
+      | Some s ->
+          Alcotest.(check string)
+            "bob principal" "prin_bob"
+            (PI.principal_id_to_string s.lineage.principal_id);
+          Alcotest.(check bool)
+            "did not take ada's receipt" true (s.id <> snap_ada.id))
+  | _ -> Alcotest.fail "expected bob's receipt closed");
+  Alcotest.(check int)
+    "ada still open" 1
+    (count_correlations ~db ~status:"open" ());
+  match A.get_by_receipt_id ~db ~receipt_id:"rcpt_ada" with
+  | None -> Alcotest.fail "ada receipt missing"
+  | Some ada_open -> (
+      match ada_open.actor_snapshot with
+      | None -> Alcotest.fail "ada snapshot missing"
+      | Some s ->
+          Alcotest.(check string)
+            "ada principal intact" "prin_ada"
+            (PI.principal_id_to_string s.lineage.principal_id))
+
 let suite =
   [
     ( "record + reconcile closes once",
@@ -369,4 +671,22 @@ let suite =
     ("no outbox re-trigger", `Quick, test_no_outbox_retrigger);
     ("secret-free storage", `Quick, test_secret_free_storage);
     ("delivery_id direct match", `Quick, test_delivery_id_match);
+    ( "snapshot retained through close",
+      `Quick,
+      test_snapshot_retained_through_close );
+    ( "preserve identity across rename",
+      `Quick,
+      test_preserve_identity_across_rename );
+    ( "unrelated human cannot close receipt",
+      `Quick,
+      test_unrelated_human_cannot_close_receipt );
+    ( "expected login human closes once",
+      `Quick,
+      test_expected_login_human_closes_once );
+    ( "human without expected login cannot claim open",
+      `Quick,
+      test_human_without_expected_login_cannot_claim_open );
+    ( "two principals isolated receipts",
+      `Quick,
+      test_two_principals_isolated_receipts );
   ]
