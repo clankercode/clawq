@@ -32,7 +32,7 @@ tasks:
       file: T002-add-upgrade-validation-drift-c.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add upgrade validation drift checks and admin guidance
     - complexity: high
