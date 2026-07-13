@@ -234,6 +234,7 @@
   github_code_change_action
   github_room_background_work
   github_merge_action
+  github_merge_attribution
   github_issue_actions
   github_issue_attribution
   github_workflow_dispatch

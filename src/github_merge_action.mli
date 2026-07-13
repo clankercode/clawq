@@ -1,8 +1,8 @@
 (** Independently gated, fresh-confirmed PR merge with live policy checks
-    (P19.M4.E2.T003).
+    (P19.M4.E2.T003 / P21.M3.E3.T009).
 
-    Merge is a high-risk App-attributed action, independently enabled per route
-    via [capability_policy.allow_merge] (defaults false) and a separate named
+    Merge is a high-risk action, independently enabled per route via
+    [capability_policy.allow_merge] (defaults false) and a separate named
     time-bounded pilot gate (off by default). It is never implied by write
     ([allow_reply]/[allow_label]/[allow_assign]) or review ([allow_review]).
 
@@ -10,11 +10,17 @@
     draft, mergeability, required checks/reviews, branch policy, allowed method,
     actor mode, and authority. Changed prerequisites cause no attempt
     (fail-closed). Planning produces confirmable [Setup_plan] values only — no
-    live GitHub mutation. Production enablement remains gated by the P21
-    [User_required] attribution rollout; if user auth is unavailable outside the
-    pilot there is no App/PAT fallback.
+    live GitHub mutation.
 
-    Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
+    P19 path: App-attributed under the named pilot (not production-ready). P21
+    production path: when [user_auth_available] is true, capability + live
+    policy authorize the plan; live execution requires [User_required]
+    attribution authorize + a fresh current Principal user lease via
+    [Github_merge_attribution]. App/PAT is never a silent fallback when user
+    auth is unavailable.
+
+    Canonical contracts: docs/plans/2026-07-12-github-item-room-routing.md and
+    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 type merge_method = Merge | Squash | Rebase
 
@@ -72,13 +78,14 @@ val authorize_merge :
   (unit, string) result
 (** Authorize a merge attempt:
 
-    1. Independent pilot gate must be enabled and unexpired (or, when pilot is
-    off/expired, P21 user auth must be available — never App/PAT fallback). 2.
-    Route must grant [capability_policy.allow_merge] (separate from write /
-    review). 3. Non-empty [req.head_sha] must equal [policy.head_sha]. 4. Live
-    policy: not draft; mergeable; required checks/reviews ok; branch policy ok;
-    requested method in [allowed_methods]; authority ok; actor mode consistent
-    with pilot vs user path.
+    1. P19 pilot path: when the named pilot is enabled and unexpired, require
+    [allow_merge] + live policy (App actor allowed under pilot). 2. P21
+    production path: when [user_auth_available] is true (even if pilot is off),
+    require [allow_merge] + live policy with [User] actor mode; execution still
+    requires User_required attribution + user lease. 3. Otherwise deny (not
+    available outside pilot; no App/PAT fallback). 4. Non-empty [req.head_sha]
+    must equal [policy.head_sha]; not draft; mergeable; required
+    checks/reviews/branch/method/authority ok.
 
     Fail-closed on any failure. Does not mutate GitHub state. *)
 

@@ -1,6 +1,6 @@
 (** Shared revision-bound plan → confirm → apply for GitHub mutating actions
     (P19.M4.E2.T001 / T003 / T005 / T006; actor attribution P21.M1.E3.T002; P21
-    collab/PR/issue/workflow attribution P21.M3.E3.T001 / T002 / T006 / T007).
+    collab/PR/issue/merge attribution P21.M3.E3.T001 / T002 / T006 / T009).
 
     Unifies collab (comment / label / assign), PR review (request_reviewers /
     submit_review), independently gated merge, Issue create/open/close/reopen,
@@ -27,12 +27,13 @@
     - PR review → [Github_pr_review_attribution] (request User_preferred; submit
       User_required)
     - issue create/lifecycle → [Github_issue_attribution] (User_required)
-    - workflow_dispatch → [Github_workflow_dispatch_attribution] (User_required)
+    - merge → [Github_merge_attribution] (User_required critical; live merge
+      policy revalidation)
 
     Apply then requires matching [attribution_live] (plus [review_live] /
-    [issue_live] / [workflow_live] where applicable) to revalidate, issue an
-    opaque lease, and record a native attribution receipt before the Setup_plan
-    apply receipt.
+    [issue_live] / [merge_live] or [current_merge_policy] where applicable) to
+    revalidate, issue an opaque lease, and record a native attribution receipt
+    before the Setup_plan apply receipt.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md, and
@@ -68,7 +69,7 @@ val preview :
   ?attribution_evidence:Github_attribution_authorize.request ->
   ?review_live:Github_pr_review_attribution.live_revalidation ->
   ?issue_live:Github_issue_attribution.live_revalidation ->
-  ?workflow_live:Github_workflow_dispatch_attribution.live_revalidation ->
+  ?merge_live:Github_merge_attribution.live_revalidation ->
   ?github_user_id:int64 ->
   ?now:float ->
   unit ->
@@ -84,9 +85,8 @@ val preview :
     context only.
 
     Optional [attribution_evidence] stages family-specific P21 attribution
-    (collab / PR review / issue / workflow_dispatch). [review_live],
-    [issue_live], and [workflow_live] supply live revalidation inputs for those
-    families.
+    (collab / PR review / issue / merge). [review_live], [issue_live], and
+    [merge_live] supply live revalidation inputs for those families.
 
     [pilot] gates PR submit_review; [merge_pilot] gates merge; [issue_pilot]
     gates Issue create/lifecycle; [workflow_pilot] gates workflow_dispatch. All
@@ -103,7 +103,7 @@ val apply_confirmed :
   ?attribution_live:Github_attribution_authorize.request ->
   ?review_live:Github_pr_review_attribution.live_revalidation ->
   ?issue_live:Github_issue_attribution.live_revalidation ->
-  ?workflow_live:Github_workflow_dispatch_attribution.live_revalidation ->
+  ?merge_live:Github_merge_attribution.live_revalidation ->
   ?vault_id:string ->
   ?expected_account:Github_user_token_vault.account_key ->
   ?github_user_id:int64 ->
@@ -122,9 +122,10 @@ val apply_confirmed :
     Plans with staged [attribution_allow] require [attribution_live] (and
     [vault_id] for User mode) plus family live revalidation to issue an opaque
     lease and record a native attribution receipt before the Setup_plan apply
-    receipt. Returns [Error] only for structural issues (e.g. missing
-    destination room on the stored plan); domain rejects are [Ok (Rejected _)].
-*)
+    receipt. Merge attribution uses [merge_live] when provided, else
+    [current_merge_policy]. Returns [Error] only for structural issues (e.g.
+    missing destination room on the stored plan); domain rejects are
+    [Ok (Rejected _)]. *)
 
 val is_github_action_plan : Setup_plan.t -> bool
 (** True when [apply_payload.kind] is a GitHub collab / request_reviewers /
