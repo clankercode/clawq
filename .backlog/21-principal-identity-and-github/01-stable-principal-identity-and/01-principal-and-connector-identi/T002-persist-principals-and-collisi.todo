@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T01:47:39Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T01:54:29Z"
 complexity: high
 created_at: "2026-07-12T14:51:07Z"
 depends_on:
     - P21.M1.E1.T001
+duration_minutes: 6.837114906483333
 estimate_hours: 4
 id: P21.M1.E1.T002
 priority: critical
 started_at: "2026-07-13T01:47:39Z"
-status: in_progress
+status: done
 tags: []
 title: Persist Principals and collision-safe Connector identity links
-updated_at: "2026-07-13T01:47:39Z"
+updated_at: "2026-07-13T01:54:29Z"
 ---
 Acceptance: Additive schema enforces one active owner per canonical Connector actor, supports optimistic revisions and tombstones, indexes both resolution directions, contains no credentials, and concurrent first-seen creation produces one Principal. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
