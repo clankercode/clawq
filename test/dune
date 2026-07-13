@@ -84,6 +84,7 @@
   test_github_collab_grounding
   test_github_collab_actions
   test_github_pr_review_actions
+  test_github_workflow_dispatch
   test_github_action_workflow
   test_github_room_tools
   test_github_auth_selection

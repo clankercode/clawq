@@ -1,12 +1,12 @@
 (** Shared revision-bound plan → confirm → apply for GitHub mutating actions
     (P19.M4.E2.T001).
 
-    Unifies collab (comment / label / assign) and PR review (request_reviewers /
-    submit_review) into one preview/confirm/apply path over [Setup_plan] +
-    [Setup_plan_apply]. Preview authorizes and stores a pending plan that shows
-    target and effects; apply rechecks digest, principal, expiry, and
-    [base_revision], then records a receipt only (no live GitHub mutation in
-    this task).
+    Unifies collab (comment / label / assign), PR review (request_reviewers /
+    submit_review), and typed workflow_dispatch into one preview/confirm/apply
+    path over [Setup_plan] + [Setup_plan_apply]. Preview authorizes and stores a
+    pending plan that shows target and effects; apply rechecks digest,
+    principal, expiry, and [base_revision], then records a receipt only (no live
+    GitHub mutation in this task).
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md and
     docs/adr/0003-require-plan-confirm-apply-for-agent-setup.md. *)
@@ -15,6 +15,7 @@ type action_kind =
   | Collab of Github_collab_actions.action
   | Request_reviewers of Github_pr_review_actions.request_reviewers
   | Submit_review of Github_pr_review_actions.submit_review
+  | Workflow_dispatch of Github_workflow_dispatch.request
 
 val preview :
   db:Sqlite3.db ->
@@ -24,15 +25,19 @@ val preview :
   base_revision:string ->
   ?route:Github_route_store.t ->
   ?pilot:Github_pr_review_actions.pilot_gate ->
+  ?workflow_pilot:Github_workflow_dispatch.pilot_gate ->
   ?user_auth_available:bool ->
   ?now:float ->
   unit ->
   (Setup_plan.t, string) result
 (** Authorize + build plan; store as pending; do not apply.
 
-    Preview shows the target ([item_key] / head SHA where relevant) and planned
-    effects in [Setup_plan] diff / planned_state. Confirm is required before
-    [apply_confirmed]. *)
+    Preview shows the target ([item_key] / head SHA / workflow ref where
+    relevant) and planned effects in [Setup_plan] diff / planned_state. Confirm
+    is required before [apply_confirmed].
+
+    [pilot] gates PR submit_review; [workflow_pilot] gates workflow_dispatch
+    (both default off). *)
 
 val apply_confirmed :
   db:Sqlite3.db ->
@@ -54,8 +59,8 @@ val apply_confirmed :
 
 val is_github_action_plan : Setup_plan.t -> bool
 (** True when [apply_payload.kind] is a GitHub collab / request_reviewers /
-    submit_review generic kind. *)
+    submit_review / workflow_dispatch generic kind. *)
 
 val action_kind_label : action_kind -> string
-(** Short stable label for diagnostics: ["collab"], ["request_reviewers"], or
-    ["submit_review"]. *)
+(** Short stable label for diagnostics: ["collab"], ["request_reviewers"],
+    ["submit_review"], or ["workflow_dispatch"]. *)

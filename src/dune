@@ -203,6 +203,7 @@
   github_collab_grounding
   github_collab_actions
   github_pr_review_actions
+  github_workflow_dispatch
   github_action_workflow
   github_room_tools
   github_auth_selection

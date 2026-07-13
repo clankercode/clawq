@@ -5,16 +5,18 @@ type action_kind =
   | Collab of Github_collab_actions.action
   | Request_reviewers of Github_pr_review_actions.request_reviewers
   | Submit_review of Github_pr_review_actions.submit_review
+  | Workflow_dispatch of Github_workflow_dispatch.request
 
 let action_kind_label = function
   | Collab _ -> "collab"
   | Request_reviewers _ -> "request_reviewers"
   | Submit_review _ -> "submit_review"
+  | Workflow_dispatch _ -> "workflow_dispatch"
 
 let is_github_action_kind = function
   | Setup_plan.Generic
       ( "github_collab_action" | "github_request_reviewers"
-      | "github_submit_review" ) ->
+      | "github_submit_review" | "github_workflow_dispatch" ) ->
       true
   | _ -> false
 
@@ -29,7 +31,7 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
       (Printf.sprintf
          "github_action_workflow: unsupported apply kind for plan %s (receipt \
           %s); expected github_collab_action | github_request_reviewers | \
-          github_submit_review"
+          github_submit_review | github_workflow_dispatch"
          plan.id receipt_id)
   else Ok ()
 
@@ -37,6 +39,7 @@ let authority_allow ~principal:_ ~destination:_ = Ok ()
 
 let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(pilot = Github_pr_review_actions.default_pilot_gate)
+    ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
     ?(user_auth_available = false) ?(now = Unix.gettimeofday ()) () =
   match action with
   | Collab collab ->
@@ -48,6 +51,10 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
   | Submit_review req ->
       Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id ~pilot
         ~user_auth_available ~req ~base_revision ?route ~now ()
+  | Workflow_dispatch req ->
+      Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
+        ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision ?route
+        ~now ()
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?(now = Unix.gettimeofday ()) () =
