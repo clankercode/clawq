@@ -31,7 +31,7 @@ tasks:
       file: T002-add-indexed-and-cached-matchin.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add indexed and cached matching without raw JSON predicates
     - complexity: high
