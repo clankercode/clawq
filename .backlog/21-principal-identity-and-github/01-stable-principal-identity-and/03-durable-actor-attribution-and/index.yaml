@@ -46,7 +46,7 @@ tasks:
       file: T003-migrate-legacy-requester-ident.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Migrate legacy requester identities without unsafe coalescing
     - complexity: high
