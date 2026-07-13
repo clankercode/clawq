@@ -124,6 +124,7 @@ let () =
        ("github_route_docs", Test_github_route_docs.suite);
        ("github_room_event_journal", Test_github_room_event_journal.suite);
        ("github_item_projection", Test_github_item_projection.suite);
+       ("github_comment_mode", Test_github_comment_mode.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);

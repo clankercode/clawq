@@ -191,6 +191,7 @@
   github_route_ops
   github_room_event_journal
   github_item_projection
+  github_comment_mode
   github_auth_selection
   credential_lease
   skills
