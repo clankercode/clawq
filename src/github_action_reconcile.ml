@@ -1,7 +1,9 @@
 (* Reconcile GitHub action receipts with resulting webhooks without loops.
    See github_action_reconcile.mli,
    docs/plans/2026-07-12-github-item-room-routing.md, and
-   docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
+   docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
+   P21.M3.E3.T005: native attribution receipt correlation across action
+   families, delayed completion, and webhook reordering. *)
 
 module A = Actor_snapshot
 module Attr = Github_action_actor_attribution
@@ -24,6 +26,10 @@ type correlation = {
   resolved_mode : string option;
   actor_snapshot : A.t option;
   expected_github_login : string option;
+  job_id : string option;
+  attribution_receipt_id : string option;
+  github_user_id : int64 option;
+  native_actor_kind : string option;
 }
 
 type reconcile_result =
@@ -85,7 +91,11 @@ let ensure_schema db =
       identity_link_revision INTEGER,
       account_lineage_id TEXT,
       expected_github_login TEXT,
-      actor_snapshot_authority INTEGER NOT NULL DEFAULT 0
+      actor_snapshot_authority INTEGER NOT NULL DEFAULT 0,
+      job_id TEXT,
+      attribution_receipt_id TEXT,
+      github_user_id INTEGER,
+      native_actor_kind TEXT
     )|}
   in
   let idx_room_status =
@@ -116,6 +126,16 @@ let ensure_schema db =
       ON github_action_correlations(actor_snapshot_id)
       WHERE actor_snapshot_id IS NOT NULL|}
   in
+  let idx_attr_receipt =
+    {|CREATE INDEX IF NOT EXISTS idx_github_action_correlations_attr_receipt
+      ON github_action_correlations(attribution_receipt_id)
+      WHERE attribution_receipt_id IS NOT NULL|}
+  in
+  let idx_job =
+    {|CREATE INDEX IF NOT EXISTS idx_github_action_correlations_job
+      ON github_action_correlations(job_id)
+      WHERE job_id IS NOT NULL|}
+  in
   List.iter (exec_schema db)
     [
       table_sql;
@@ -125,8 +145,10 @@ let ensure_schema db =
       idx_receipt;
       idx_principal;
       idx_snapshot;
+      idx_attr_receipt;
+      idx_job;
     ];
-  (* Additive migration for DBs created before P21.M1.E3.T006. *)
+  (* Additive migration for DBs created before P21.M1.E3.T006 / P21.M3.E3.T005. *)
   try_alter db
     "ALTER TABLE github_action_correlations ADD COLUMN requested_mode TEXT";
   try_alter db
@@ -154,7 +176,15 @@ let ensure_schema db =
      TEXT";
   try_alter db
     "ALTER TABLE github_action_correlations ADD COLUMN \
-     actor_snapshot_authority INTEGER NOT NULL DEFAULT 0"
+     actor_snapshot_authority INTEGER NOT NULL DEFAULT 0";
+  try_alter db "ALTER TABLE github_action_correlations ADD COLUMN job_id TEXT";
+  try_alter db
+    "ALTER TABLE github_action_correlations ADD COLUMN attribution_receipt_id \
+     TEXT";
+  try_alter db
+    "ALTER TABLE github_action_correlations ADD COLUMN github_user_id INTEGER";
+  try_alter db
+    "ALTER TABLE github_action_correlations ADD COLUMN native_actor_kind TEXT"
 
 (** Projection-safe text: never embed credentials in durable correlation rows.
 *)
@@ -194,6 +224,21 @@ let redact_secret_free s =
 let redact_opt = function None -> None | Some s -> Some (redact_secret_free s)
 let normalize_action s = String.lowercase_ascii (String.trim s)
 
+(** Stable action-family fingerprint (aliases collapse). *)
+let canonicalize_action s =
+  match normalize_action s with
+  | "collab_comment" -> "comment"
+  | "collab_label" -> "label"
+  | "collab_assign" | "assignee" | "assignees" -> "assign"
+  | "review_request" -> "request_reviewers"
+  | "review_submit" | "review" -> "submit_review"
+  | "code_change" | "background_work" -> "code_work"
+  | "workflow" -> "workflow_dispatch"
+  | "close" -> "issue_close"
+  | "reopen" -> "issue_reopen"
+  | "open" -> "issue_open"
+  | other -> other
+
 let normalize_login_opt = function
   | None -> None
   | Some s -> (
@@ -204,6 +249,16 @@ let normalize_login_opt = function
 let trim_nonempty = function
   | None -> None
   | Some s -> ( match String.trim s with "" -> None | t -> Some t)
+
+let normalize_native_actor_kind = function
+  | None -> None
+  | Some s -> (
+      match normalize_action s with
+      | ("user" | "app" | "unspecified") as k -> Some k
+      | "bot" | "installation" | "app_installation" -> Some "app"
+      | "numeric_user" | "user_required" | "user_preferred" -> Some "user"
+      | "" -> None
+      | other -> Some (redact_secret_free other))
 
 let resolved_attribution (c : correlation) =
   match c.resolved_mode with
@@ -228,7 +283,8 @@ let empty_attribution_fields ~actor_mode ?requested_mode ?resolved_mode
 
 let make_correlation ~room_id ~action ~actor_mode ?item_key ?plan_id ?receipt_id
     ?delivery_id ?github_ref ?requested_mode ?resolved_mode ?actor_snapshot
-    ?expected_github_login () =
+    ?expected_github_login ?job_id ?attribution_receipt_id ?github_user_id
+    ?native_actor_kind () =
   (match actor_snapshot with
   | Some snap when A.is_authority snap ->
       (* Defense in depth — is_authority is always false by construction. *)
@@ -241,10 +297,19 @@ let make_correlation ~room_id ~action ~actor_mode ?item_key ?plan_id ?receipt_id
     | Some m when String.trim m <> "" -> Some (String.trim m)
     | _ -> None
   in
+  let native_actor_kind =
+    match normalize_native_actor_kind native_actor_kind with
+    | Some _ as k -> k
+    | None -> (
+        match normalize_action actor_mode with
+        | "user" | "user_required" | "user_preferred" -> Some "user"
+        | "app" | "pilot" | "pat" | "pat_compat" -> Some "app"
+        | _ -> None)
+  in
   {
     room_id;
     item_key;
-    action;
+    action = canonicalize_action action;
     plan_id;
     receipt_id;
     delivery_id;
@@ -254,6 +319,10 @@ let make_correlation ~room_id ~action ~actor_mode ?item_key ?plan_id ?receipt_id
     resolved_mode;
     actor_snapshot;
     expected_github_login = trim_nonempty expected_github_login;
+    job_id = trim_nonempty job_id;
+    attribution_receipt_id = trim_nonempty attribution_receipt_id;
+    github_user_id;
+    native_actor_kind;
   }
 
 let member_opt key = function
@@ -273,6 +342,23 @@ let string_from_plan_fields (plan : Setup_plan.t) key =
       match get_string key plan.Setup_plan.planned_state with
       | Some s -> Some s
       | None -> get_string key plan.Setup_plan.current_state)
+
+let int64_from_json = function
+  | `Int n -> Some (Int64.of_int n)
+  | `Intlit s -> ( try Some (Int64.of_string s) with _ -> None)
+  | `String s -> ( try Some (Int64.of_string (String.trim s)) with _ -> None)
+  | _ -> None
+
+let int64_from_plan_fields (plan : Setup_plan.t) key =
+  let from_json json =
+    match member_opt key json with Some v -> int64_from_json v | None -> None
+  in
+  match from_json plan.Setup_plan.apply_payload.data with
+  | Some _ as n -> n
+  | None -> (
+      match from_json plan.Setup_plan.planned_state with
+      | Some _ as n -> n
+      | None -> from_json plan.Setup_plan.current_state)
 
 let action_from_ops (plan : Setup_plan.t) =
   match plan.Setup_plan.apply_payload.ops with
@@ -337,12 +423,13 @@ let attribution_from_plan (plan : Setup_plan.t) =
 
 let correlation_of_applied_plan ~(plan : Setup_plan.t) ~receipt_id
     ?requested_mode ?resolved_mode ?actor_mode ?delivery_id ?github_ref
-    ?expected_github_login () =
+    ?expected_github_login ?job_id ?attribution_receipt_id ?github_user_id
+    ?native_actor_kind () =
   match plan.Setup_plan.destination.Setup_plan.room_id with
   | None | Some "" -> Error "applied plan has no destination room"
   | Some room_id ->
       let item_key = string_from_plan_fields plan "item_key" in
-      let action = action_fingerprint_of_plan plan in
+      let action = canonicalize_action (action_fingerprint_of_plan plan) in
       let plan_attr = attribution_from_plan plan in
       let resolved =
         match resolved_mode with
@@ -356,7 +443,10 @@ let correlation_of_applied_plan ~(plan : Setup_plan.t) ~receipt_id
         match requested_mode with
         | Some m when String.trim m <> "" ->
             Some (normalize_attribution_label m)
-        | _ -> plan_attr
+        | _ -> (
+            match string_from_plan_fields plan "requested_mode" with
+            | Some m -> Some (normalize_attribution_label m)
+            | None -> plan_attr)
       in
       let github_ref =
         match github_ref with
@@ -372,23 +462,50 @@ let correlation_of_applied_plan ~(plan : Setup_plan.t) ~receipt_id
       let expected_github_login =
         match expected_github_login with
         | Some e when String.trim e <> "" -> Some (String.trim e)
-        | _ -> string_from_plan_fields plan "expected_github_login"
+        | _ -> (
+            match string_from_plan_fields plan "expected_github_login" with
+            | Some _ as e -> e
+            | None -> string_from_plan_fields plan "github_login")
+      in
+      let job_id =
+        match job_id with
+        | Some j when String.trim j <> "" -> Some (String.trim j)
+        | _ -> string_from_plan_fields plan "job_id"
+      in
+      let attribution_receipt_id =
+        match attribution_receipt_id with
+        | Some a when String.trim a <> "" -> Some (String.trim a)
+        | _ -> (
+            match string_from_plan_fields plan "attribution_receipt_id" with
+            | Some _ as a -> a
+            | None -> string_from_plan_fields plan "native_receipt_id")
+      in
+      let github_user_id =
+        match github_user_id with
+        | Some _ as u -> u
+        | None -> (
+            match int64_from_plan_fields plan "github_user_id" with
+            | Some _ as u -> u
+            | None -> int64_from_plan_fields plan "expected_github_user_id")
+      in
+      let native_actor_kind =
+        match native_actor_kind with
+        | Some _ as k -> normalize_native_actor_kind k
+        | None -> (
+            match string_from_plan_fields plan "native_actor_kind" with
+            | Some k -> normalize_native_actor_kind (Some k)
+            | None -> (
+                match resolved with
+                | "user" -> Some "user"
+                | "app" | "pilot" | "pat" -> Some "app"
+                | _ -> None))
       in
       Ok
-        {
-          room_id;
-          item_key;
-          action;
-          plan_id = Some plan.Setup_plan.id;
-          receipt_id = Some receipt_id;
-          delivery_id;
-          github_ref;
-          actor_mode = resolved;
-          requested_mode = requested;
-          resolved_mode = Some resolved;
-          actor_snapshot = snapshot;
-          expected_github_login;
-        }
+        (make_correlation ~room_id ~action ~actor_mode:resolved ?item_key
+           ~plan_id:plan.Setup_plan.id ~receipt_id ?delivery_id ?github_ref
+           ?requested_mode:requested ~resolved_mode:resolved
+           ?actor_snapshot:snapshot ?expected_github_login ?job_id
+           ?attribution_receipt_id ?github_user_id ?native_actor_kind ())
 
 let sanitize_correlation (c : correlation) : correlation =
   let actor_snapshot =
@@ -404,7 +521,7 @@ let sanitize_correlation (c : correlation) : correlation =
   {
     room_id = String.trim c.room_id;
     item_key = redact_opt c.item_key;
-    action = redact_secret_free c.action;
+    action = canonicalize_action (redact_secret_free c.action);
     plan_id = redact_opt c.plan_id;
     receipt_id = redact_opt c.receipt_id;
     delivery_id = redact_opt c.delivery_id;
@@ -423,6 +540,10 @@ let sanitize_correlation (c : correlation) : correlation =
       (match c.expected_github_login with
       | None -> None
       | Some l -> Some (redact_secret_free l));
+    job_id = redact_opt c.job_id;
+    attribution_receipt_id = redact_opt c.attribution_receipt_id;
+    github_user_id = c.github_user_id;
+    native_actor_kind = normalize_native_actor_kind c.native_actor_kind;
   }
 
 let text_col stmt i =
@@ -443,10 +564,22 @@ let data_opt_int = function
   | None -> Sqlite3.Data.NULL
   | Some n -> Sqlite3.Data.INT (Int64.of_int n)
 
+let data_opt_int64 = function
+  | None -> Sqlite3.Data.NULL
+  | Some n -> Sqlite3.Data.INT n
+
+let opt_int64_col stmt i =
+  match Sqlite3.column stmt i with
+  | Sqlite3.Data.INT n -> Some n
+  | Sqlite3.Data.TEXT s -> (
+      try Some (Int64.of_string (String.trim s)) with _ -> None)
+  | _ -> None
+
 let select_columns =
   {|id, room_id, item_key, action, plan_id, receipt_id, delivery_id,
     github_ref, actor_mode, status, closed_at, closed_by_delivery_id, created_at,
-    requested_mode, resolved_mode, actor_snapshot_json, expected_github_login|}
+    requested_mode, resolved_mode, actor_snapshot_json, expected_github_login,
+    job_id, attribution_receipt_id, github_user_id, native_actor_kind|}
 
 let snapshot_of_json_col = function
   | None | Some "" -> None
@@ -475,6 +608,10 @@ let stored_of_stmt stmt : stored =
   let resolved_mode = opt_text_col stmt 14 in
   let actor_snapshot = snapshot_of_json_col (opt_text_col stmt 15) in
   let expected_github_login = opt_text_col stmt 16 in
+  let job_id = opt_text_col stmt 17 in
+  let attribution_receipt_id = opt_text_col stmt 18 in
+  let github_user_id = opt_int64_col stmt 19 in
+  let native_actor_kind = opt_text_col stmt 20 in
   {
     id;
     correlation =
@@ -491,6 +628,10 @@ let stored_of_stmt stmt : stored =
         resolved_mode;
         actor_snapshot;
         expected_github_login;
+        job_id;
+        attribution_receipt_id;
+        github_user_id;
+        native_actor_kind;
       };
     status;
     closed_at;
@@ -590,9 +731,10 @@ let record_correlation ~db ~(correlation : correlation)
          created_at, requested_mode, resolved_mode, actor_snapshot_json,
          actor_snapshot_id, principal_id, actor_identity_key,
          principal_revision, actor_revision, identity_link_revision,
-         account_lineage_id, expected_github_login, actor_snapshot_authority)
+         account_lineage_id, expected_github_login, actor_snapshot_authority,
+         job_id, attribution_receipt_id, github_user_id, native_actor_kind)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', NULL, NULL, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?)|}
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)|}
     in
     try
       Sql_util.exec_with_params ~label:"github_action_reconcile record" db sql
@@ -619,6 +761,10 @@ let record_correlation ~db ~(correlation : correlation)
           data_opt_text account_lineage_id;
           data_opt_text c.expected_github_login;
           Sqlite3.Data.INT (Int64.of_int authority_flag);
+          data_opt_text c.job_id;
+          data_opt_text c.attribution_receipt_id;
+          data_opt_int64 c.github_user_id;
+          data_opt_text c.native_actor_kind;
         ];
       Ok ()
     with
@@ -627,16 +773,32 @@ let record_correlation ~db ~(correlation : correlation)
 
 let record_from_applied_plan ~db ~plan ~receipt_id ?requested_mode
     ?resolved_mode ?actor_mode ?delivery_id ?github_ref ?expected_github_login
+    ?job_id ?attribution_receipt_id ?github_user_id ?native_actor_kind
     ?(now = Unix.gettimeofday ()) () =
   match
     correlation_of_applied_plan ~plan ~receipt_id ?requested_mode ?resolved_mode
-      ?actor_mode ?delivery_id ?github_ref ?expected_github_login ()
+      ?actor_mode ?delivery_id ?github_ref ?expected_github_login ?job_id
+      ?attribution_receipt_id ?github_user_id ?native_actor_kind ()
   with
   | Error e -> Error e
   | Ok corr -> (
       match record_correlation ~db ~correlation:corr ~now () with
       | Error e -> Error e
       | Ok () -> Ok corr)
+
+let record_from_native_receipt ~db ~room_id ~action ~actor_mode ?item_key
+    ?plan_id ?receipt_id ?delivery_id ?github_ref ?requested_mode ?resolved_mode
+    ?actor_snapshot ?expected_github_login ?job_id ?attribution_receipt_id
+    ?github_user_id ?native_actor_kind ?(now = Unix.gettimeofday ()) () =
+  let corr =
+    make_correlation ~room_id ~action ~actor_mode ?item_key ?plan_id ?receipt_id
+      ?delivery_id ?github_ref ?requested_mode ?resolved_mode ?actor_snapshot
+      ?expected_github_login ?job_id ?attribution_receipt_id ?github_user_id
+      ?native_actor_kind ()
+  in
+  match record_correlation ~db ~correlation:corr ~now () with
+  | Error e -> Error e
+  | Ok () -> Ok corr
 
 let get_by_receipt_id ~db ~receipt_id =
   if String.trim receipt_id = "" then None
@@ -668,40 +830,95 @@ let get_by_plan_id ~db ~plan_id =
     | None -> None
     | Some s -> Some s.correlation)
 
+let get_by_attribution_receipt_id ~db ~attribution_receipt_id =
+  if String.trim attribution_receipt_id = "" then None
+  else (
+    ensure_schema db;
+    let sql =
+      Printf.sprintf
+        {|SELECT %s FROM github_action_correlations
+          WHERE attribution_receipt_id = ?
+          ORDER BY created_at DESC, id DESC LIMIT 1|}
+        select_columns
+    in
+    match
+      query_one db sql
+        [ Sqlite3.Data.TEXT (String.trim attribution_receipt_id) ]
+    with
+    | None -> None
+    | Some s -> Some s.correlation)
+
+let get_by_job_id ~db ~job_id =
+  if String.trim job_id = "" then None
+  else (
+    ensure_schema db;
+    let sql =
+      Printf.sprintf
+        {|SELECT %s FROM github_action_correlations
+          WHERE job_id = ?
+          ORDER BY created_at DESC, id DESC LIMIT 1|}
+        select_columns
+    in
+    match query_one db sql [ Sqlite3.Data.TEXT (String.trim job_id) ] with
+    | None -> None
+    | Some s -> Some s.correlation)
+
 let envelope_action_token (env : E.t) =
   match env.action with
   | Some a when String.trim a <> "" -> normalize_action a
   | _ -> normalize_action env.event
 
+(** True when the recorded fingerprint is an exact canonical form of the webhook
+    action/event (not merely a family-compat alias). *)
+let actions_exact_match recorded env =
+  let recorded = canonicalize_action recorded in
+  let env_action = canonicalize_action (envelope_action_token env) in
+  let env_event = canonicalize_action env.event in
+  recorded = env_action || recorded = env_event
+
 (** Compatibility between recorded action fingerprints and webhook action/event
-    names (merge ↔ closed/merged, collab label ↔ labeled, etc.). *)
+    names across every independently integrated action family. *)
 let actions_match recorded env =
-  let recorded = normalize_action recorded in
+  let recorded = canonicalize_action recorded in
   let env_action = envelope_action_token env in
   let env_event = normalize_action env.event in
-  if recorded = env_action || recorded = env_event then true
+  if actions_exact_match recorded env then true
   else
     match (recorded, env_action, env.family) with
+    (* Merge (user-required) *)
     | "merge", ("closed" | "merged"), _ -> true
     | "merge", "synchronize", _ -> false
-    | ("close" | "issue_close"), "closed", _ -> true
-    | ("reopen" | "issue_reopen"), "reopened", _ -> true
-    | ("open" | "issue_open" | "issue_create" | "pr_create"), "opened", _ ->
+    (* Issue lifecycle / create *)
+    | "issue_close", "closed", _ -> true
+    | "issue_reopen", "reopened", _ -> true
+    | ("issue_open" | "issue_create"), "opened", _ -> true
+    (* Constrained PR create *)
+    | "pr_create", "opened", _ -> true
+    (* Collab ordinary metadata (user-preferred) *)
+    | "comment", ("created" | "edited"), E.Comment -> true
+    | "comment", ("created" | "edited"), _ when env_event = "issue_comment" ->
         true
-    | ("comment" | "collab_comment"), ("created" | "edited"), E.Comment -> true
-    | ("label" | "collab_label"), ("labeled" | "unlabeled"), _ -> true
-    | ("assign" | "collab_assign"), ("assigned" | "unassigned"), _ -> true
-    | ( ("request_reviewers" | "submit_review" | "review"),
-        ("submitted" | "edited" | "dismissed"),
-        E.Review ) ->
+    | "label", ("labeled" | "unlabeled"), _ -> true
+    | "assign", ("assigned" | "unassigned"), _ -> true
+    (* Reviewer request (ordinary metadata) vs review submit (user-required) *)
+    | "request_reviewers", ("review_requested" | "review_request_removed"), _ ->
         true
-    | ( ("workflow_dispatch" | "workflow"),
+    | "submit_review", ("submitted" | "edited" | "dismissed"), E.Review -> true
+    | "submit_review", ("submitted" | "edited" | "dismissed"), _
+      when env_event = "pull_request_review" ->
+        true
+    (* Typed workflow dispatch *)
+    | ( "workflow_dispatch",
         ("requested" | "completed" | "in_progress" | "requested_action"),
         _ ) ->
         true
-    | ("code_work" | "background_work" | "room_background_work"), _, _ ->
-        (* Background / code work may surface as PR open or comments. *)
-        env_action = "opened" || env.family = E.Comment
+    | "workflow_dispatch", _, _
+      when env_event = "workflow_run" || env_event = "workflow_dispatch" ->
+        true
+    (* Code work / room background may surface as PR open or comments. *)
+    | ("code_work" | "room_background_work"), "opened", _ -> true
+    | ("code_work" | "room_background_work"), _, E.Comment -> true
+    | ("code_work" | "room_background_work"), ("created" | "edited"), _ -> true
     | _ -> false
 
 let refs_match (corr : correlation) (env : E.t) =
@@ -747,22 +964,46 @@ let is_human_actor (actor : E.actor) =
          our receipt. *)
       true
 
-(** Human actors may close only with exact delivery_id or matching expected
-    GitHub login (native user-attribution). Bot/app self-events always may. *)
+let github_user_ids_match (corr : correlation) (env : E.t) =
+  match (corr.github_user_id, env.actor.id) with
+  | Some uid, Some id -> Int64.equal uid (Int64.of_int id)
+  | _ -> false
+
+let expected_logins_match (corr : correlation) (env : E.t) =
+  match
+    ( normalize_login_opt corr.expected_github_login,
+      normalize_login_opt env.actor.login )
+  with
+  | Some expected, Some login -> String.equal expected login
+  | _ -> false
+
+let refs_strictly_match (corr : correlation) (env : E.t) =
+  match corr.github_ref with
+  | None | Some "" -> false
+  | Some _ -> refs_match corr env
+
+(** Human actors may close only with exact delivery_id, matching native
+    github_user_id, or matching expected GitHub login. Bot/app self-events
+    always may (App identity). Never associate another Principal's login. *)
 let actor_may_close (corr : correlation) (env : E.t) =
   if delivery_ids_match corr env then true
+  else if github_user_ids_match corr env then true
   else if not (is_human_actor env.actor) then true
+  else if expected_logins_match corr env then true
+  else if
+    match corr.github_user_id with
+    | Some _ -> true (* pin present but webhook id missing/mismatch *)
+    | None -> false
+  then false
+  else if
+    match normalize_login_opt corr.expected_github_login with
+    | Some _ -> true
+    | None -> false
+  then false
   else
-    match
-      ( normalize_login_opt corr.expected_github_login,
-        normalize_login_opt env.actor.login )
-    with
-    | Some expected, Some login when String.equal expected login -> true
-    | Some _, _ -> false
-    | None, _ ->
-        (* No expected login pin: refuse human close without delivery_id so
-           unrelated human actions cannot associate with this receipt. *)
-        false
+    (* No native identity pin: refuse human close without delivery_id so
+       unrelated human actions cannot associate with this receipt. *)
+    false
 
 let matches_envelope (s : stored) ~room_id ~item_key (env : E.t) =
   let c = s.correlation in
@@ -772,6 +1013,25 @@ let matches_envelope (s : stored) ~room_id ~item_key (env : E.t) =
   else
     item_keys_compatible c item_key
     && actions_match c.action env && refs_match c env
+
+(** Score open correlations for out-of-order webhook selection. Higher wins.
+    Never rewrites Principal; identity pins only boost matching rows. *)
+let match_score (s : stored) (env : E.t) =
+  let c = s.correlation in
+  let score = ref 0 in
+  if delivery_ids_match c env then score := !score + 10_000;
+  if github_user_ids_match c env then score := !score + 1_000;
+  if expected_logins_match c env then score := !score + 500;
+  if actions_exact_match c.action env then score := !score + 200
+  else if actions_match c.action env then score := !score + 100;
+  if refs_strictly_match c env then score := !score + 150;
+  (match c.attribution_receipt_id with
+  | Some _ -> score := !score + 10
+  | None -> ());
+  (match c.job_id with Some _ -> score := !score + 5 | None -> ());
+  (* Prefer earlier open receipts (FIFO) on ties via negative created_at rank
+     applied by stable list order; score itself leaves ties for FIFO. *)
+  !score
 
 let find_matching ~db ~room_id ~item_key ~env ~status =
   let sql =
@@ -784,30 +1044,27 @@ let find_matching ~db ~room_id ~item_key ~env ~status =
   let rows =
     query_all db sql [ Sqlite3.Data.TEXT room_id; Sqlite3.Data.TEXT status ]
   in
-  (* Prefer delivery_id exact match, then expected-login match, then first
-     fingerprint match. Never cross-associate by rewriting principal. *)
+  (* Score candidates: delivery_id > native user id > expected login > exact
+     action family > github_ref. FIFO (created_at ASC) breaks ties. Never
+     cross-associate by rewriting principal. *)
   let candidates =
     List.filter (fun s -> matches_envelope s ~room_id ~item_key env) rows
   in
-  match
-    List.find_opt (fun s -> delivery_ids_match s.correlation env) candidates
-  with
-  | Some s -> Some s
-  | None -> (
-      match
-        ( normalize_login_opt env.actor.login,
-          List.filter
-            (fun s ->
-              match
-                ( normalize_login_opt s.correlation.expected_github_login,
-                  normalize_login_opt env.actor.login )
-              with
-              | Some e, Some l -> String.equal e l
-              | _ -> false)
-            candidates )
-      with
-      | Some _, s :: _ -> Some s
-      | _ -> ( match candidates with s :: _ -> Some s | [] -> None))
+  match candidates with
+  | [] -> None
+  | _ -> (
+      let best =
+        List.fold_left
+          (fun acc s ->
+            match acc with
+            | None -> Some (s, match_score s env)
+            | Some (best_s, best_sc) ->
+                let sc = match_score s env in
+                (* Strict > keeps earlier FIFO row on equal score. *)
+                if sc > best_sc then Some (s, sc) else Some (best_s, best_sc))
+          None candidates
+      in
+      match best with Some (s, _) -> Some s | None -> None)
 
 let close_correlation ~db ~(stored : stored) ~delivery_id ~now =
   let closed_at = Time_util.iso8601_utc ~t:now () in

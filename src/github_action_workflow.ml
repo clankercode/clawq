@@ -241,17 +241,27 @@ let reject_actor_attribution msg : Setup_plan_apply.outcome =
 
 (** After a successful apply, attach the initiating Actor snapshot (when pinned)
     and attribution modes to a durable open correlation so webhook reconcile
-    retains historical identity. Best-effort: apply receipt is already durable;
-    correlation record failure must not rewrite the applied plan. *)
-let maybe_record_receipt_correlation ~db ~plan ~receipt_id ~now =
-  match Reconcile.record_from_applied_plan ~db ~plan ~receipt_id ~now () with
+    retains historical identity and can match native attribution receipts.
+    Best-effort: apply receipt is already durable; correlation record failure
+    must not rewrite the applied plan. *)
+let maybe_record_receipt_correlation ~db ~plan ~receipt_id ?github_user_id
+    ?attribution_receipt_id ?job_id ?expected_github_login ?native_actor_kind
+    ~now () =
+  match
+    Reconcile.record_from_applied_plan ~db ~plan ~receipt_id ?github_user_id
+      ?attribution_receipt_id ?job_id ?expected_github_login ?native_actor_kind
+      ~now ()
+  with
   | Ok _ | Error _ -> ()
 
-let apply_outcome_with_correlation ~db ~plan ~now
+let apply_outcome_with_correlation ~db ~plan ~now ?github_user_id
+    ?attribution_receipt_id ?job_id ?expected_github_login ?native_actor_kind
     (outcome : Setup_plan_apply.outcome) =
   (match outcome with
   | Setup_plan_apply.Applied { receipt_id; first_time = true } ->
-      maybe_record_receipt_correlation ~db ~plan ~receipt_id ~now
+      maybe_record_receipt_correlation ~db ~plan ~receipt_id ?github_user_id
+        ?attribution_receipt_id ?job_id ?expected_github_login
+        ?native_actor_kind ~now ()
   | Setup_plan_apply.Applied { first_time = false; _ }
   | Setup_plan_apply.Rejected _ ->
       ());
@@ -423,37 +433,61 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
           ?expected_account ?github_user_id ~now ()
       with
       | Error msg -> Ok (reject_actor_attribution msg)
-      | Ok _ -> (
+      | Ok collab_d -> (
+          let attr_receipt_id =
+            Option.map (fun d -> d.Collab_attr.receipt.id) collab_d
+          in
           match
             maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
               ?review_live ?vault_id ?expected_account ?github_user_id ~now ()
           with
           | Error msg -> Ok (reject_actor_attribution msg)
-          | Ok _ -> (
+          | Ok review_d -> (
+              let attr_receipt_id =
+                match review_d with
+                | Some d -> Some d.Review_attr.receipt.id
+                | None -> attr_receipt_id
+              in
               match
                 maybe_issue_attribution_dispatch ~db ~plan ?attribution_live
                   ?issue_live ?vault_id ?expected_account ?github_user_id ~now
                   ()
               with
               | Error msg -> Ok (reject_actor_attribution msg)
-              | Ok _ -> (
+              | Ok issue_d -> (
+                  let attr_receipt_id =
+                    match issue_d with
+                    | Some d -> Some d.Issue_attr.receipt.id
+                    | None -> attr_receipt_id
+                  in
                   match
                     maybe_workflow_dispatch_attribution_dispatch ~db ~plan
                       ?attribution_live ?workflow_live ?vault_id
                       ?expected_account ?github_user_id ~now ()
                   with
                   | Error msg -> Ok (reject_actor_attribution msg)
-                  | Ok _ -> (
+                  | Ok wd_d -> (
+                      let attr_receipt_id =
+                        match wd_d with
+                        | Some d -> Some d.Wd_attr.receipt.id
+                        | None -> attr_receipt_id
+                      in
                       match
                         maybe_code_change_attribution_dispatch ~db ~plan
                           ?attribution_live ?code_change_live ?vault_id
                           ?expected_account ?github_user_id ~now ()
                       with
                       | Error msg -> Ok (reject_actor_attribution msg)
-                      | Ok _dispatched_opt ->
+                      | Ok code_d ->
+                          let attribution_receipt_id =
+                            match code_d with
+                            | Some d -> Some d.Code_attr.receipt.id
+                            | None -> attr_receipt_id
+                          in
                           (* Snapshot (when present) re-resolved; staged
                              attribution dispatch revalidated. Proceed with
-                             receipt-only apply. *)
+                             receipt-only apply, then open webhook correlation
+                             linked to the native attribution receipt. *)
                           let outcome =
                             Setup_plan_apply.apply ~db ~plan_id ~digest
                               ~principal ~current_base_revision
@@ -462,7 +496,8 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
                           in
                           Ok
                             (apply_outcome_with_correlation ~db ~plan ~now
-                               outcome))))))
+                               ?github_user_id ?attribution_receipt_id outcome))
+                  ))))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?attribution_live ?review_live
@@ -497,7 +532,10 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
                 ?github_user_id ~now ()
             with
             | Error msg -> Ok (reject_actor_attribution msg)
-            | Ok _ -> (
+            | Ok merge_d -> (
+                let attribution_receipt_id =
+                  Option.map (fun d -> d.Merge_attr.receipt.id) merge_d
+                in
                 match
                   Github_merge_action.apply_confirmed ~db ~plan_id ~digest
                     ~principal ~current_base_revision
@@ -505,7 +543,9 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
                 with
                 | Error e -> Error e
                 | Ok outcome ->
-                    Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)))
+                    Ok
+                      (apply_outcome_with_correlation ~db ~plan ~now
+                         ?github_user_id ?attribution_receipt_id outcome)))
       else
         match plan.destination.room_id with
         | None ->
