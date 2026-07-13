@@ -112,6 +112,7 @@
   test_github_action_reconcile
   test_github_p19_integration
   test_github_p21_integration
+  test_github_p21_security
   test_github_room_tools
   test_github_auth_selection
   test_github_attribution_policy
