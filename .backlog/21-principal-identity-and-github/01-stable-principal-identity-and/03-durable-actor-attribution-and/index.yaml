@@ -84,6 +84,6 @@ tasks:
       file: T006-propagate-actor-snapshots-thro.todo
       id: T006
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Propagate Actor snapshots through receipts and webhook reconciliation
