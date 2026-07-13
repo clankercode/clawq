@@ -46,7 +46,7 @@ let test_direct_session_alone_fails () =
         (contains ~sub:"session" r || contains ~sub:"direct" r)
   | B.Principal _ -> Alcotest.fail "unreachable"
 
-let test_valid_web_oidc () =
+let test_unverified_web_oidc_rejected () =
   let d =
     B.resolve
       ~provenance:
@@ -58,7 +58,13 @@ let test_valid_web_oidc () =
            })
       ~now ()
   in
-  is_principal "sub_alice_01" d
+  match d with
+  | B.Principal _ -> Alcotest.fail "raw web claims must not resolve"
+  | B.Anonymous { reason } ->
+      let r = String.lowercase_ascii reason in
+      Alcotest.(check bool)
+        "reason identifies missing verification" true
+        (contains ~sub:"jwt" r && contains ~sub:"jwks" r)
 
 let test_expired_web_oidc () =
   let d =
@@ -179,7 +185,7 @@ let test_cli_expired () =
 let suite =
   [
     ("direct session alone fails", `Quick, test_direct_session_alone_fails);
-    ("valid web oidc", `Quick, test_valid_web_oidc);
+    ("unverified web oidc rejected", `Quick, test_unverified_web_oidc_rejected);
     ("expired web oidc", `Quick, test_expired_web_oidc);
     ("forged empty subject/issuer", `Quick, test_forged_empty_subject);
     ("cli enrolled", `Quick, test_cli_enrolled);

@@ -26,22 +26,15 @@ let not_expired ~now ~exp ~what =
   else
     Error (Printf.sprintf "%s expired or not yet valid (stale provenance)" what)
 
-let resolve_web_oidc ~now ~issuer ~subject ~exp =
-  match non_empty "web oidc issuer" issuer with
-  | Error reason -> anonymous reason
-  | Ok _issuer -> (
-      match non_empty "web oidc subject" subject with
-      | Error reason -> anonymous reason
-      | Ok subject -> (
-          match not_expired ~now ~exp ~what:"web oidc token" with
-          | Error reason -> anonymous reason
-          | Ok () -> (
-              (* Issuer presence is required so subject alone (forged/shared
-                 request field) cannot mint a Principal. The immutable subject
-                 is the Principal id for this bootstrap path. *)
-              match Principal_identity.principal_id_of_string subject with
-              | Ok pid -> Principal pid
-              | Error reason -> anonymous reason)))
+let resolve_web_oidc ~now:_ ~issuer:_ ~subject:_ ~exp:_ =
+  (* A record of decoded claims is not authenticated evidence.  There is no
+     configured issuer trust anchor, JWT signature verification, or JWKS
+     retrieval on this path, so accepting it would let any request mint and
+     persist a Web Principal.  Keep the path disabled until a verifier produces
+     a cryptographically validated assertion. *)
+  anonymous
+    "web OIDC bootstrap requires a configured trusted issuer and verified JWT \
+     signature/JWKS; raw issuer, subject, and expiry claims are not authority"
 
 let resolve_cli_enrolled ~now ~device_id ~principal_id ~exp ~enrolled =
   match non_empty "cli device_id" device_id with

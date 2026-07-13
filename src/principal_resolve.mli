@@ -49,10 +49,11 @@ val resolve_bootstrap :
   decision
 (** Fail-closed bootstrap → Principal resolution with optional store binding.
 
-    - [Direct_session] / [Absent] / expired / forged / revoked → [Rejected]
-    - [Web_oidc]: after {!Principal_bootstrap} accepts issuer+subject, builds a
-      [Web] connector actor key (tenant=issuer, user=subject) and
-      [resolve_or_create]s so first-seen is durable and second-seen is stable
+    - [Direct_session] / [Absent] / raw web claims / expired / forged / revoked
+      → [Rejected]
+    - [Web_oidc] is rejected before any actor key or store row can be created:
+      [Principal_bootstrap] has no configured issuer/JWT/JWKS verifier for raw
+      decoded claims.
     - [Cli_enrolled]: returns the enrolled Principal after bootstrap accepts;
       does not invent a Connector actor from device claims alone *)
 

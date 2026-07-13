@@ -151,7 +151,7 @@ let test_bootstrap_direct_session_rejected () =
         (Test_helpers.string_contains r "session"
         || Test_helpers.string_contains r "direct")
 
-let test_bootstrap_web_first_and_second_seen () =
+let test_bootstrap_unverified_web_rejected_without_persistence () =
   with_db @@ fun db ->
   let provenance =
     B.Web_oidc
@@ -161,24 +161,17 @@ let test_bootstrap_web_first_and_second_seen () =
         exp = fixed_now +. 3600.;
       }
   in
-  let d1 =
+  match
     R.resolve_bootstrap ~db ~provenance ~display:sample_display ~now:fixed_now
       ()
-  in
-  let d2 =
-    R.resolve_bootstrap ~db ~provenance
-      ~display:{ sample_display with display_name = Some "Alice R." }
-      ~now:(fixed_now +. 5.) ()
-  in
-  match (d1, d2) with
-  | R.Principal a, R.Principal b -> (
-      Alcotest.(check string)
-        "stable web principal"
-        (P.principal_id_to_string a)
-        (P.principal_id_to_string b);
-      Alcotest.(check string)
-        "subject preferred as principal id" "sub_alice_01"
-        (P.principal_id_to_string a);
+  with
+  | R.Principal _ -> Alcotest.fail "raw web claims must not resolve"
+  | R.Rejected { reason } ->
+      let r = String.lowercase_ascii reason in
+      Alcotest.(check bool)
+        "reason identifies missing verification" true
+        (Test_helpers.string_contains r "jwt"
+        && Test_helpers.string_contains r "jwks");
       let key =
         assert_ok
           (P.make_connector_actor_key ~connector:P.Web
@@ -186,11 +179,9 @@ let test_bootstrap_web_first_and_second_seen () =
              ~immutable_user_id:"sub_alice_01")
       in
       match S.get_connector_actor ~db ~key with
-      | Ok (Some _) -> ()
-      | Ok None -> Alcotest.fail "web actor not persisted"
-      | Error e -> Alcotest.fail e)
-  | R.Rejected { reason }, _ | _, R.Rejected { reason } ->
-      Alcotest.failf "unexpected reject: %s" reason
+      | Ok None -> ()
+      | Ok (Some _) -> Alcotest.fail "raw web claims created an actor"
+      | Error e -> Alcotest.fail e
 
 let test_bootstrap_expired_web_rejected () =
   with_db @@ fun db ->
@@ -272,9 +263,9 @@ let suite =
     ( "bootstrap direct session rejected",
       `Quick,
       test_bootstrap_direct_session_rejected );
-    ( "bootstrap web first and second seen",
+    ( "bootstrap unverified web rejected without persistence",
       `Quick,
-      test_bootstrap_web_first_and_second_seen );
+      test_bootstrap_unverified_web_rejected_without_persistence );
     ( "bootstrap expired web rejected",
       `Quick,
       test_bootstrap_expired_web_rejected );
