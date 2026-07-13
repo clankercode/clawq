@@ -148,14 +148,16 @@ let get_or_build_index ~(cache : index_cache) ~db ~destination ?now () =
 (* ---- Advanced evaluation ---- *)
 
 let obtain_enrichment ~(filter : F.t) ~(envelope : E.t) ?enrichment ?fetch_paths
-    ?fetch_teams ?cache ?now () : En.enrichment =
+    ?fetch_teams ?cache ?rate_limited ?access_allowed ?now () : En.enrichment =
   match enrichment with
   | Some e -> e
   | None ->
       let demand = En.demand_of_filter filter in
       if (not demand.need_paths) && not demand.need_teams then
         En.empty_enrichment
-      else En.enrich ~filter ~envelope ?fetch_paths ?fetch_teams ?cache ?now ()
+      else
+        En.enrich ~filter ~envelope ?fetch_paths ?fetch_teams ?cache
+          ?rate_limited ?access_allowed ?now ()
 
 let enrichment_fail_reason (e : En.enrichment) =
   match e.reasons with
@@ -279,13 +281,14 @@ let advanced_allows ~(filter : F.t) ~(envelope : E.t)
       else Error (advanced_reject_detail ~filter ~envelope ~enrichment)
 
 let apply_advanced_to_matched ~(route : S.t) ~specificity ~(envelope : E.t)
-    ?enrichment ?fetch_paths ?fetch_teams ?cache ?now () : decision =
+    ?enrichment ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed
+    ?now () : decision =
   let filter = route.filter in
   if not (F.has_advanced filter) then M.Matched { route; specificity }
   else
     let enrichment =
       obtain_enrichment ~filter ~envelope ?enrichment ?fetch_paths ?fetch_teams
-        ?cache ?now ()
+        ?cache ?rate_limited ?access_allowed ?now ()
     in
     match advanced_allows ~filter ~envelope ~enrichment () with
     | Ok () -> M.Matched { route; specificity }
@@ -356,7 +359,8 @@ let baseline_reject_reason ~(filter : F.t) ~(envelope : E.t) =
   else "filter rejected"
 
 let resolve_from_candidates ~candidates ~(envelope : E.t) ?enrichment
-    ?fetch_paths ?fetch_teams ?cache ?now () : decision =
+    ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed ?now () :
+    decision =
   match candidates with
   | [] -> M.No_route
   | _ -> (
@@ -387,22 +391,24 @@ let resolve_from_candidates ~candidates ~(envelope : E.t) ?enrichment
               }
           else
             apply_advanced_to_matched ~route ~specificity ~envelope ?enrichment
-              ?fetch_paths ?fetch_teams ?cache ?now ())
+              ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed
+              ?now ())
 
 let resolve_with_index ~(index : route_index) ~(envelope : E.t) ?enrichment
-    ?fetch_paths ?fetch_teams ?cache ?now () =
+    ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed ?now () =
   let candidates = index_candidates index ~envelope in
   resolve_from_candidates ~candidates ~envelope ?enrichment ?fetch_paths
-    ?fetch_teams ?cache ?now ()
+    ?fetch_teams ?cache ?rate_limited ?access_allowed ?now ()
 
 (* ---- Public resolve / try_accept ---- *)
 
 let resolve ~db ~destination ~envelope ?enrichment ?fetch_paths ?fetch_teams
-    ?cache ?index ?index_cache ?now () : decision =
+    ?cache ?rate_limited ?access_allowed ?index ?index_cache ?now () : decision
+    =
   match (index, index_cache) with
   | Some idx, _ ->
       resolve_with_index ~index:idx ~envelope ?enrichment ?fetch_paths
-        ?fetch_teams ?cache ?now ()
+        ?fetch_teams ?cache ?rate_limited ?access_allowed ?now ()
   | None, Some icache -> (
       match get_or_build_index ~cache:icache ~db ~destination ?now () with
       | Error _ ->
@@ -411,20 +417,22 @@ let resolve ~db ~destination ~envelope ?enrichment ?fetch_paths ?fetch_teams
           M.No_route
       | Ok idx ->
           resolve_with_index ~index:idx ~envelope ?enrichment ?fetch_paths
-            ?fetch_teams ?cache ?now ())
+            ?fetch_teams ?cache ?rate_limited ?access_allowed ?now ())
   | None, None -> (
       (* Thin wrap of Github_route_match: advanced layer only on Matched. *)
       match M.resolve ~db ~destination ~envelope () with
       | (M.No_route | M.Muted _) as d -> d
       | M.Matched { route; specificity } ->
           apply_advanced_to_matched ~route ~specificity ~envelope ?enrichment
-            ?fetch_paths ?fetch_teams ?cache ?now ())
+            ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed ?now
+            ())
 
 let try_accept ~db ~destination ~envelope ?enrichment ?fetch_paths ?fetch_teams
-    ?cache ?index ?index_cache ?now ?item_key () : accept_result =
+    ?cache ?rate_limited ?access_allowed ?index ?index_cache ?now ?item_key () :
+    accept_result =
   let decision =
     resolve ~db ~destination ~envelope ?enrichment ?fetch_paths ?fetch_teams
-      ?cache ?index ?index_cache ?now ()
+      ?cache ?rate_limited ?access_allowed ?index ?index_cache ?now ()
   in
   match decision with
   | M.Muted _ | M.No_route -> M.Not_accepted decision

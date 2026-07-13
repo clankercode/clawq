@@ -194,6 +194,7 @@
   github_route_store
   github_route_match
   github_route_match_advanced
+  github_route_match_bench
   github_route_transfer
   github_route_migrate
   github_route_admin
