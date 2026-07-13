@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T03:59:25Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T04:12:31Z"
 complexity: high
 created_at: "2026-07-12T14:51:45Z"
 depends_on:
     - P21.M2.E4.T002
     - P21.M1.E2.T001
+duration_minutes: 13.109709215816666
 estimate_hours: 4
 id: P21.M2.E4.T003
 priority: critical
 started_at: "2026-07-13T03:59:25Z"
-status: in_progress
+status: done
 tags: []
 title: Expose callback-scoped opaque leases at the GitHub HTTP boundary
-updated_at: "2026-07-13T03:59:25Z"
+updated_at: "2026-07-13T04:12:31Z"
 ---
 Acceptance: Access snapshots, jobs, receipts, and tools carry opaque handle plus binding/generation; raw token exists only inside a GitHub HTTP callback and cannot be returned, serialized, logged, or injected into runner, shell, or Git transport. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
