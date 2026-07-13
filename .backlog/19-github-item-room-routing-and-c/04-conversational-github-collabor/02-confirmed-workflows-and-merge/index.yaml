@@ -69,7 +69,7 @@ tasks:
       file: T005-implement-confirmed-issue-crea.todo
       id: T005
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Implement confirmed Issue creation and lifecycle actions
     - complexity: high

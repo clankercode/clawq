@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T01:10:07Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T01:19:07Z"
 complexity: high
 created_at: "2026-07-12T16:59:46Z"
 depends_on:
     - P19.M4.E2.T001
+duration_minutes: 9.015509773833333
 estimate_hours: 5
 id: P19.M4.E2.T005
 priority: critical
 started_at: "2026-07-13T01:10:07Z"
-status: in_progress
+status: done
 tags: []
 title: Implement confirmed Issue creation and lifecycle actions
-updated_at: "2026-07-13T01:10:07Z"
+updated_at: "2026-07-13T01:19:07Z"
 ---
 Acceptance: Implement Issue creation and Issue/PR close/reopen through the shared preview-confirm-apply framework. Resolved targets, revisions, authority, success, denial, replay, stale state, provider failure, idempotent retry, receipts, and no-duplicate webhook reconciliation are independently tested. Keep the action family disabled unless the explicit P19 pilot gate or the completed P21 attribution rollout permits it. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
