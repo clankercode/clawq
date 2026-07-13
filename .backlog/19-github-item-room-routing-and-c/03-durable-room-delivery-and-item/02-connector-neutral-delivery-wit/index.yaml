@@ -52,5 +52,6 @@ tasks:
       file: T004-resolve-card-actions-thread-re.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Resolve card actions thread replies and Room mentions back to item context
