@@ -1,14 +1,20 @@
 (* Resolve attribution authorization after all current policy checks
-   (P21.M3.E2.T003). See github_attribution_authorize.mli and
+   (P21.M3.E2.T003) with visible App fallback rules (P21.M3.E2.T004).
+   See github_attribution_authorize.mli and
    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 module Policy = Github_attribution_policy
+module Fallback = Github_attribution_fallback
 
 let schema_version = 1
 
 type resolved_mode = App | User
 
 let resolved_mode_to_string = function App -> "app" | User -> "user"
+
+let resolved_mode_of_fallback = function
+  | Fallback.App -> App
+  | Fallback.User -> User
 
 type checked_revisions = {
   policy_action : string;
@@ -88,6 +94,7 @@ let repair_to_json (r : repair) =
 
 type allow = {
   mode : resolved_mode;
+  used_app_fallback : bool;
   requirement : Policy.requirement;
   revisions : checked_revisions;
   binding_id : string option;
@@ -113,6 +120,7 @@ let decision_to_json = function
           ("schema_version", `Int schema_version);
           ("decision", `String "allow");
           ("mode", `String (resolved_mode_to_string a.mode));
+          ("used_app_fallback", `Bool a.used_app_fallback);
           ("action", `String a.requirement.action);
           ( "attribution",
             `String (Policy.attribution_to_string a.requirement.attribution) );
@@ -154,9 +162,9 @@ let decision_to_json = function
 
 let string_of_decision = function
   | Allow a ->
-      Printf.sprintf "allow mode=%s action=%s attribution=%s"
+      Printf.sprintf "allow mode=%s fallback=%b action=%s attribution=%s"
         (resolved_mode_to_string a.mode)
-        a.requirement.action
+        a.used_app_fallback a.requirement.action
         (Policy.attribution_to_string a.requirement.attribution)
   | Deny d ->
       Printf.sprintf "deny check=%s code=%s" d.failed_check d.repair.code
@@ -253,6 +261,31 @@ let empty_revision_pin =
     live_state_revision = None;
   }
 
+type fallback_context = {
+  attribution_gate_enabled : bool;
+  preview_actor : Fallback.preview_actor;
+  phase : Fallback.phase;
+  post_confirm_authority_lost : bool;
+}
+
+let default_fallback_context =
+  {
+    attribution_gate_enabled = true;
+    preview_actor = Fallback.Names_user;
+    phase = Fallback.First_attempt;
+    post_confirm_authority_lost = false;
+  }
+
+let fallback_context ?(attribution_gate_enabled = true)
+    ?(preview_actor = Fallback.Names_user) ?(phase = Fallback.First_attempt)
+    ?(post_confirm_authority_lost = false) () =
+  {
+    attribution_gate_enabled;
+    preview_actor;
+    phase;
+    post_confirm_authority_lost;
+  }
+
 type request = {
   action : string;
   tool_catalog : tool_catalog_evidence;
@@ -264,6 +297,7 @@ type request = {
   live_action : live_action_evidence;
   pin : revision_pin;
   actor_snapshot_id : string option;
+  fallback : fallback_context;
 }
 
 let make_selected_binding ~binding_id ~lineage_id ?(authorized = true)
@@ -289,18 +323,38 @@ let make_selected_binding ~binding_id ~lineage_id ?(authorized = true)
 (* Authorize                                                                   *)
 (* -------------------------------------------------------------------------- *)
 
-let needs_user_binding (attr : Policy.attribution) =
-  match attr with
-  | Policy.User_required -> true
-  | Policy.App_installation | Policy.Pat_compat -> false
-
-let resolved_mode_of_attribution (attr : Policy.attribution) =
-  match attr with
-  | Policy.User_required -> User
-  | Policy.App_installation | Policy.Pat_compat -> App
-
 let deny ~failed_check ~code ~message ?requirement revisions =
   Deny { failed_check; repair = { code; message }; requirement; revisions }
+
+let user_path_available_of_binding (resolution : binding_resolution) =
+  match resolution with
+  | Selected b -> b.authorized && b.vault_active && b.lineage_matches_pin
+  | Not_required | None_eligible | Ambiguous -> false
+
+let app_path_available_of_installation (inst : installation_evidence) =
+  inst.active && inst.repo_authorized && inst.permissions_ok
+
+let run_fallback ~(r : request) ~(req : Policy.requirement) revisions :
+    (resolved_mode * bool, decision) result =
+  let fb_req : Fallback.request =
+    {
+      action = req.action;
+      requirement = Some req;
+      attribution_gate_enabled = r.fallback.attribution_gate_enabled;
+      preview_actor = r.fallback.preview_actor;
+      phase = r.fallback.phase;
+      user_path_available = user_path_available_of_binding r.binding.resolution;
+      app_path_available = app_path_available_of_installation r.installation;
+      post_confirm_authority_lost = r.fallback.post_confirm_authority_lost;
+    }
+  in
+  match Fallback.resolve fb_req with
+  | Fallback.Allow a ->
+      Ok (resolved_mode_of_fallback a.mode, a.used_app_fallback)
+  | Fallback.Deny d ->
+      Error
+        (deny ~failed_check:"fallback" ~code:d.code ~message:d.message
+           ~requirement:req revisions)
 
 let pin_mismatch_string ~label ~expected ~actual =
   Printf.sprintf
@@ -391,11 +445,13 @@ let base_revisions ~(req : Policy.requirement) ~(r : request) :
 
 let ( let* ) = Result.bind
 
-let allow_result ~mode ~requirement ~revisions ~selected_opt ~principal_id =
+let allow_result ~mode ~used_app_fallback ~requirement ~revisions ~selected_opt
+    ~principal_id =
   Ok
     (Allow
        {
          mode;
+         used_app_fallback;
          requirement;
          revisions;
          binding_id =
@@ -699,27 +755,31 @@ let authorize (r : request) : decision =
          (e.g. merge, comment, review_submit)."
       revisions
   else
-    let requirement = Policy.lookup ~action in
-    let revisions = base_revisions ~req:requirement ~r in
-    let user_binding_required = needs_user_binding requirement.attribution in
-    let mode = resolved_mode_of_attribution requirement.attribution in
+    let req = Policy.lookup ~action in
+    let revisions = base_revisions ~req ~r in
     match
-      let* () = check_tool_catalog ~r ~requirement revisions in
-      let* () = check_repo_grant ~r ~requirement revisions in
-      let* () = check_principal ~r ~requirement revisions in
-      let* () = check_confirmation ~r ~requirement revisions in
+      let* mode, used_app_fallback = run_fallback ~r ~req revisions in
+      let user_binding_required =
+        match mode with User -> true | App -> false
+      in
+      let* () = check_tool_catalog ~r ~requirement:req revisions in
+      let* () = check_repo_grant ~r ~requirement:req revisions in
+      let* () = check_principal ~r ~requirement:req revisions in
+      let* () = check_confirmation ~r ~requirement:req revisions in
       let* selected_opt =
-        check_binding ~r ~user_binding_required ~requirement revisions
+        check_binding ~r ~user_binding_required ~requirement:req revisions
       in
-      let* () = check_binding_pins ~r ~selected_opt ~requirement revisions in
-      let* () = check_installation ~r ~requirement revisions in
       let* () =
-        check_user_org_sso ~r ~user_binding_required ~requirement revisions
+        check_binding_pins ~r ~selected_opt ~requirement:req revisions
       in
-      let* () = check_live_action ~r ~requirement revisions in
-      let* () = check_actor_snapshot_pin ~r ~requirement revisions in
-      allow_result ~mode ~requirement ~revisions ~selected_opt
-        ~principal_id:r.principal.principal_id
+      let* () = check_installation ~r ~requirement:req revisions in
+      let* () =
+        check_user_org_sso ~r ~user_binding_required ~requirement:req revisions
+      in
+      let* () = check_live_action ~r ~requirement:req revisions in
+      let* () = check_actor_snapshot_pin ~r ~requirement:req revisions in
+      allow_result ~mode ~used_app_fallback ~requirement:req ~revisions
+        ~selected_opt ~principal_id:r.principal.principal_id
     with
     | Ok decision -> decision
     | Error decision -> decision

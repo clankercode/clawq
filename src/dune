@@ -239,6 +239,7 @@
   github_room_tools
   github_auth_selection
   github_attribution_policy
+  github_attribution_fallback
   github_attribution_authorize
   github_user_auth_readiness
   github_user_auth_tx

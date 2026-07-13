@@ -1,5 +1,5 @@
 (** Tests for GitHub attribution requirements and risk-tier defaults
-    (P21.M3.E2.T001). *)
+    (P21.M3.E2.T001 / T004). *)
 
 module P = Github_attribution_policy
 
@@ -48,9 +48,8 @@ let test_defaults_tiers_and_attribution () =
     | None -> Alcotest.fail ("missing " ^ name)
     | Some r -> expect ~action:name ~tier ~attribution ~pilot_allowed r
   in
-  check "comment" ~tier:P.Low ~attribution:P.App_installation
-    ~pilot_allowed:false;
-  check "label" ~tier:P.Medium ~attribution:P.App_installation
+  check "comment" ~tier:P.Low ~attribution:P.User_preferred ~pilot_allowed:false;
+  check "label" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false;
   check "review_submit" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true;
@@ -73,12 +72,12 @@ let test_lookup_user_required_high_critical () =
       ("workflow_dispatch", P.Critical);
     ]
 
-let test_lookup_app_installation_low_medium () =
+let test_lookup_user_preferred_low_medium () =
   let c = P.lookup ~action:"comment" in
-  expect ~action:"comment" ~tier:P.Low ~attribution:P.App_installation
+  expect ~action:"comment" ~tier:P.Low ~attribution:P.User_preferred
     ~pilot_allowed:false c;
   let l = P.lookup ~action:"label" in
-  expect ~action:"label" ~tier:P.Medium ~attribution:P.App_installation
+  expect ~action:"label" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false l
 
 let test_lookup_normalizes_case_and_aliases () =
@@ -92,7 +91,7 @@ let test_lookup_normalizes_case_and_aliases () =
   expect ~action:"code_change" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true code;
   let comment = P.lookup ~action:"collab_comment" in
-  expect ~action:"comment" ~tier:P.Low ~attribution:P.App_installation
+  expect ~action:"comment" ~tier:P.Low ~attribution:P.User_preferred
     ~pilot_allowed:false comment
 
 let test_lookup_unknown_fails_closed () =
@@ -117,8 +116,22 @@ let test_string_helpers () =
     "user" "user_required"
     (P.attribution_to_string P.User_required);
   Alcotest.(check string)
+    "preferred" "user_preferred"
+    (P.attribution_to_string P.User_preferred);
+  Alcotest.(check string)
     "pat" "pat_compat"
     (P.attribution_to_string P.Pat_compat)
+
+let test_permits_app_fallback () =
+  Alcotest.(check bool)
+    "preferred permits" true
+    (P.permits_app_fallback P.User_preferred);
+  Alcotest.(check bool)
+    "required forbids" false
+    (P.permits_app_fallback P.User_required);
+  Alcotest.(check bool)
+    "app forbids as fallback" false
+    (P.permits_app_fallback P.App_installation)
 
 let suite =
   [
@@ -128,11 +141,12 @@ let suite =
       test_defaults_tiers_and_attribution;
     Alcotest.test_case "lookup User_required High/Critical actions" `Quick
       test_lookup_user_required_high_critical;
-    Alcotest.test_case "lookup App_installation Low/Medium actions" `Quick
-      test_lookup_app_installation_low_medium;
+    Alcotest.test_case "lookup User_preferred Low/Medium actions" `Quick
+      test_lookup_user_preferred_low_medium;
     Alcotest.test_case "lookup normalizes case and aliases" `Quick
       test_lookup_normalizes_case_and_aliases;
     Alcotest.test_case "lookup unknown fails closed User_required Critical"
       `Quick test_lookup_unknown_fails_closed;
     Alcotest.test_case "string helpers" `Quick test_string_helpers;
+    Alcotest.test_case "permits_app_fallback" `Quick test_permits_app_fallback;
   ]

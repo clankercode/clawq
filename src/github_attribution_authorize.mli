@@ -1,10 +1,15 @@
 (** Resolve attribution authorization after all current policy checks
-    (P21.M3.E2.T003).
+    (P21.M3.E2.T003) with visible App fallback rules (P21.M3.E2.T004).
 
     Pure / injectable decision: intersect the frozen current-turn Room/session
     Tool catalog, repo grant, Principal/confirmation, logical binding lineage
     and state, App installation/permissions/repo selection, user/Org/SSO
     authority, and live action state into a typed [Allow] / [Deny].
+
+    Mode selection uses {!Github_attribution_fallback}: [User_preferred] falls
+    back to App only when policy permits and the current preview names App;
+    [User_required], attribution-gate disabled, and post-confirm authority loss
+    never fall back to App/PAT. Actor mode cannot change during retry.
 
     Records checked revisions and an actionable redacted repair reason. Issues
     {b no} token and {b no} lease — lease issuance is P21.M3.E2.T007 after a
@@ -23,6 +28,7 @@
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 module Policy = Github_attribution_policy
+module Fallback = Github_attribution_fallback
 
 val schema_version : int
 (** Authorize decision schema / export version; starts at 1. *)
@@ -90,6 +96,9 @@ val repair_to_json : repair -> Yojson.Safe.t
 
 type allow = {
   mode : resolved_mode;
+  used_app_fallback : bool;
+      (** [true] when [User_preferred] resolved via visible, policy-permitted
+          App fallback (see {!Github_attribution_fallback}). *)
   requirement : Policy.requirement;
   revisions : checked_revisions;
   binding_id : string option;
@@ -237,6 +246,31 @@ type revision_pin = {
 
 val empty_revision_pin : revision_pin
 
+(** {1 Fallback / mode context (P21.M3.E2.T004)} *)
+
+type fallback_context = {
+  attribution_gate_enabled : bool;
+      (** When [false], user-attributed work cannot fall back to App/PAT. *)
+  preview_actor : Fallback.preview_actor;
+      (** Actor named by the current preview envelope. *)
+  phase : Fallback.phase;
+      (** [First_attempt] or locked [Retry]/[Post_confirm] mode. *)
+  post_confirm_authority_lost : bool;
+      (** Authority lost after confirmation; never App/PAT fallback. *)
+}
+(** Mode-selection inputs for {!Github_attribution_fallback}. *)
+
+val default_fallback_context : fallback_context
+(** Gate enabled, preview names user, first attempt, no post-confirm loss. *)
+
+val fallback_context :
+  ?attribution_gate_enabled:bool ->
+  ?preview_actor:Fallback.preview_actor ->
+  ?phase:Fallback.phase ->
+  ?post_confirm_authority_lost:bool ->
+  unit ->
+  fallback_context
+
 type request = {
   action : string;
       (** Canonical mutation id (see {!Github_attribution_policy.lookup}). *)
@@ -250,6 +284,8 @@ type request = {
   pin : revision_pin;
   actor_snapshot_id : string option;
       (** Immutable Actor snapshot id when pinned for this work. *)
+  fallback : fallback_context;
+      (** Visible App fallback / fail-closed mode selection (T004). *)
 }
 (** Complete injectable authorization request. Pure; no I/O. *)
 
@@ -260,16 +296,19 @@ val authorize : request -> decision
 
     Order (first failure wins, fail closed):
     + policy requirement for [action]
+    + {!Github_attribution_fallback} mode selection (visible App fallback /
+      fail-closed User_required / mode lock)
     + frozen Tool catalog authorization + revision pin
     + repo grant (grant required; blocked deny-wins) + access revision pin
     + Principal current active lineage + revision pin
     + action confirmation when required
-    + binding lineage / eligibility (required for [User_required]; ambiguous and
-      none-eligible always deny when a user binding is required)
+    + binding lineage / eligibility (required when resolved mode is User;
+      ambiguous and none-eligible always deny when a user binding is required)
     + vault active + generation pin + lineage pin
     + App installation active + repo selection + permissions + revision pin
-    + user / Org / SSO authority (required for [User_required]; App path still
-      checks org_policy_ok and sso_ok when those apply to installation scope)
+    + user / Org / SSO authority (required when resolved mode is User; App path
+      still checks org_policy_ok and sso_ok when those apply to installation
+      scope)
     + live action state + revision pin
     + confirmation id pin and actor snapshot id pin
 
