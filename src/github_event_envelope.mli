@@ -93,3 +93,7 @@ val string_of_item_kind : item_kind -> string
 val string_of_family : family -> string
 val empty_safe_state : safe_state
 val empty_actor : actor
+
+val to_safe_json : t -> Yojson.Safe.t
+(** Serialize an envelope to JSON suitable for the room event journal. Contains
+    only safe metadata already present on [t] (no bodies/secrets). *)

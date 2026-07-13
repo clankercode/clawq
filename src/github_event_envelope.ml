@@ -87,6 +87,71 @@ let string_of_family = function
   | State_update -> "state_update"
   | Other s -> "other:" ^ s
 
+let opt_string_field key = function
+  | None -> []
+  | Some s -> [ (key, `String s) ]
+
+let opt_int_field key = function None -> [] | Some n -> [ (key, `Int n) ]
+let opt_bool_field key = function None -> [] | Some b -> [ (key, `Bool b) ]
+
+let safe_state_to_json (s : safe_state) =
+  `Assoc
+    (opt_string_field "title" s.title
+    @ opt_string_field "state" s.state
+    @ opt_bool_field "draft" s.draft
+    @ opt_bool_field "merged" s.merged
+    @ [ ("labels", `List (List.map (fun l -> `String l) s.labels)) ]
+    @ [ ("assignees", `List (List.map (fun a -> `String a) s.assignees)) ]
+    @ opt_string_field "milestone" s.milestone
+    @ opt_string_field "head_sha" s.head_sha
+    @ opt_string_field "base_ref" s.base_ref)
+
+let opt_safe_state_field key = function
+  | None -> []
+  | Some s -> [ (key, safe_state_to_json s) ]
+
+let actor_to_json (a : actor) =
+  `Assoc
+    (opt_string_field "login" a.login
+    @ opt_int_field "id" a.id
+    @ opt_string_field "type" a.type_)
+
+let transfer_to_json (t : transfer_info) =
+  `Assoc
+    (opt_string_field "from_repo" t.from_repo
+    @ opt_string_field "to_repo" t.to_repo)
+
+let to_safe_json (env : t) =
+  `Assoc
+    ([
+       ("version", `Int env.version);
+       ("event", `String env.event);
+       ("repo_full_name", `String env.repo_full_name);
+       ("family", `String (string_of_family env.family));
+       ("actor", actor_to_json env.actor);
+       ("unsupported", `Bool env.unsupported);
+     ]
+    @ opt_string_field "delivery_id" env.delivery_id
+    @ opt_int_field "installation_id" env.installation_id
+    @ opt_string_field "action" env.action
+    @ opt_string_field "org" env.org
+    @ (match env.item_kind with
+      | None -> []
+      | Some k -> [ ("item_kind", `String (string_of_item_kind k)) ])
+    @ opt_int_field "item_number" env.item_number
+    @ opt_string_field "item_node_id" env.item_node_id
+    @ opt_string_field "item_url" env.item_url
+    @ opt_string_field "html_url" env.html_url
+    @ opt_safe_state_field "before" env.before
+    @ opt_safe_state_field "after" env.after
+    @ (match env.transfer with
+      | None -> []
+      | Some t -> [ ("transfer", transfer_to_json t) ])
+    @ opt_string_field "received_at" env.received_at
+    @ opt_string_field "event_at" env.event_at
+    @ opt_string_field "head_sha" env.head_sha
+    @ opt_string_field "skip_reason" env.skip_reason)
+
 (* --- JSON helpers (never raise) --- *)
 
 let json_int = function

@@ -189,6 +189,7 @@
   github_route_admin
   github_route_apply
   github_route_ops
+  github_room_event_journal
   github_auth_selection
   credential_lease
   skills
