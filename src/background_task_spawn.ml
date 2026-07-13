@@ -237,6 +237,30 @@ let prepare_worktree ?(run_simple_command = run_simple_command) task =
              (Printf.sprintf "git worktree add failed (exit %d): %s%s" exit_code
                 stdout stderr))
 
+let legacy_background_task_invalidation_guard ~db (task : task) =
+  (* An upgrade-invalidated legacy task must never reach a spawn, even on
+     installations that have no optional GitHub work-item row.  A missing
+     migration record remains the normal App/PAT/unattributed path. *)
+  try
+    let ( let* ) = Result.bind in
+    let* invalidated =
+      Principal_legacy_migrate.is_job_invalidated ~db
+        ~source_kind:Principal_legacy_migrate.Background_task
+        ~source_id:(string_of_int task.id)
+    in
+    if invalidated then
+      Error
+        (Printf.sprintf
+           "legacy background task %d was invalidated during principal \
+            migration; inspect principal_legacy_invalidated_jobs and re-plan \
+            with verified identity"
+           task.id)
+    else Ok ()
+  with exn ->
+    Error
+      ("could not inspect legacy background task invalidation before dispatch: "
+     ^ Printexc.to_string exn)
+
 let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
     ?(on_task_finished = fun _ -> Lwt.return_unit)
     ?(run_simple_command = run_simple_command) ?command_override
@@ -245,24 +269,10 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
       Runner_isolation.{ mode = Off; backend = Sandbox.None; extra_paths = [] })
     ~db (task : task) =
   let human_dispatch_guard () =
-    (* An upgrade-invalidated legacy task must never reach a spawn, even on
-       installations that have no optional GitHub work-item row.  A missing
-       migration record remains the normal App/PAT/unattributed path. *)
     try
       let ( let* ) = Result.bind in
-      let* invalidated =
-        Principal_legacy_migrate.is_job_invalidated ~db
-          ~source_kind:Principal_legacy_migrate.Background_task
-          ~source_id:(string_of_int task.id)
-      in
-      if invalidated then
-        Error
-          (Printf.sprintf
-             "legacy background task %d was invalidated during principal \
-              migration; inspect principal_legacy_invalidated_jobs and re-plan \
-              with verified identity"
-             task.id)
-      else if not (Github_work_item.schema_exists db) then Ok ()
+      let* () = legacy_background_task_invalidation_guard ~db task in
+      if not (Github_work_item.schema_exists db) then Ok ()
       else
         match Github_work_item.find_by_task ~db ~background_task_id:task.id with
         | None -> Ok ()
@@ -704,8 +714,13 @@ let start_queued_with_local_runner ~run_turn ?timeout_seconds ?max_running_tasks
     ~on_task_started ~db () =
   let spawn ~on_task_started ~on_task_finished ~db (task : task) =
     if task.runner = Local then
-      spawn_local_task ?timeout_seconds ~run_turn ~on_task_started
-        ~on_task_finished ~db task
+      match legacy_background_task_invalidation_guard ~db task with
+      | Error err ->
+          finish ~db ~id:task.id ~status:Failed
+            ~result_preview:("Human-attributed durable dispatch refused: " ^ err)
+      | Ok () ->
+          spawn_local_task ?timeout_seconds ~run_turn ~on_task_started
+            ~on_task_finished ~db task
     else
       default_spawn_task ?augment_env ?isolation_policy ~on_task_started
         ~on_task_finished ~db task

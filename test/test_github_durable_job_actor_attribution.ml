@@ -571,6 +571,42 @@ let test_worker_spawn_rejects_invalidated_task_without_work_item () =
         | Some msg -> contains msg "invalidated"
         | None -> false)
 
+let test_local_runner_rejects_invalidated_task_without_work_item () =
+  with_db @@ fun db ->
+  let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy local" in
+  invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id;
+  let run_turn_calls = ref 0 in
+  Background_task.start_queued_with_local_runner ~db
+    ~run_turn:(fun
+        ~key:_
+        ~message:_
+        ?model:_
+        ?agent_name:_
+        ?cwd:_
+        ?context_snapshot:_
+        ~interrupt_check:_
+        ~on_history_update:_
+        ()
+      ->
+      incr run_turn_calls;
+      Lwt.return "unexpected local turn")
+    ~on_task_started:(fun _ -> Lwt.return_unit)
+    ~on_task_finished:(fun _ -> Lwt.return_unit)
+    ();
+  Lwt_main.run (Lwt.pause ());
+  Alcotest.(check int) "run_turn not called" 0 !run_turn_calls;
+  match Background_task.get_task ~db ~id:task_id with
+  | None -> Alcotest.fail "missing failed background task"
+  | Some failed ->
+      Alcotest.(check string)
+        "status failed" "failed"
+        (Background_task.string_of_status failed.status);
+      Alcotest.(check bool)
+        "invalidation reported" true
+        (match failed.result_preview with
+        | Some msg -> contains msg "invalidated"
+        | None -> false)
+
 let test_worker_retry_rejects_invalidated_task_without_work_item () =
   with_db @@ fun db ->
   let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy retry" in
@@ -664,6 +700,9 @@ let suite =
     ( "worker spawn rejects invalidated task without work item",
       `Quick,
       test_worker_spawn_rejects_invalidated_task_without_work_item );
+    ( "local runner rejects invalidated task without work item",
+      `Quick,
+      test_local_runner_rejects_invalidated_task_without_work_item );
     ( "worker retry rejects invalidated task without work item",
       `Quick,
       test_worker_retry_rejects_invalidated_task_without_work_item );
