@@ -214,6 +214,47 @@ let detect_account_conflicts ~(survivor_accounts : external_account list)
                 :: conflicts))
     [] loser_accounts
 
+module GHB = Github_account_binding
+
+let detect_github_binding_conflicts ~(survivor_bindings : GHB.binding list)
+    ~(loser_bindings : GHB.binding list) =
+  let survivor_by_identity =
+    List.fold_left
+      (fun acc (b : GHB.binding) ->
+        (GHB.account_identity_key b.identity, b) :: acc)
+      [] survivor_bindings
+  in
+  let survivor_slots =
+    List.fold_left
+      (fun acc (b : GHB.binding) ->
+        (GHB.uniqueness_domain b.identity, b) :: acc)
+      [] survivor_bindings
+  in
+  List.fold_left
+    (fun conflicts (lb : GHB.binding) ->
+      let idk = GHB.account_identity_key lb.identity in
+      match List.assoc_opt idk survivor_by_identity with
+      | Some _ -> conflicts (* identical host/app/user: coalesce *)
+      | None -> (
+          match
+            List.assoc_opt (GHB.uniqueness_domain lb.identity) survivor_slots
+          with
+          | None -> conflicts
+          | Some sb ->
+              External_account_collision
+                {
+                  uniqueness_domain = GHB.uniqueness_domain lb.identity;
+                  summary =
+                    Printf.sprintf
+                      "exclusive GitHub slot %s: survivor holds user %Ld, \
+                       loser holds distinct user %Ld (refuse silent credential \
+                       overwrite)"
+                      (GHB.uniqueness_domain lb.identity)
+                      sb.identity.github_user_id lb.identity.github_user_id;
+                }
+              :: conflicts))
+    [] loser_bindings
+
 let build_preference_resolutions ~(survivor_prefs : preference list)
     ~(loser_prefs : preference list) =
   let survivor_map =
@@ -273,27 +314,35 @@ let build_preview ~db ~(survivor : P.principal) ~(loser : P.principal) =
                 ~principal_id:loser.id,
               list_external_accounts ~db ~principal_id:survivor.id,
               list_external_accounts ~db ~principal_id:loser.id,
+              GHB.list_for_principal ~db ~principal_id:survivor.id,
+              GHB.list_for_principal ~db ~principal_id:loser.id,
               list_preferences ~db ~principal_id:survivor.id,
               list_preferences ~db ~principal_id:loser.id,
               get_pending_authorization_count ~db ~principal_id:loser.id )
           with
-          | Error e, _, _, _, _, _, _
-          | _, Error e, _, _, _, _, _
-          | _, _, Error e, _, _, _, _
-          | _, _, _, Error e, _, _, _
-          | _, _, _, _, Error e, _, _
-          | _, _, _, _, _, Error e, _
-          | _, _, _, _, _, _, Error e ->
+          | Error e, _, _, _, _, _, _, _, _
+          | _, Error e, _, _, _, _, _, _, _
+          | _, _, Error e, _, _, _, _, _, _
+          | _, _, _, Error e, _, _, _, _, _
+          | _, _, _, _, Error e, _, _, _, _
+          | _, _, _, _, _, Error e, _, _, _
+          | _, _, _, _, _, _, Error e, _, _
+          | _, _, _, _, _, _, _, Error e, _
+          | _, _, _, _, _, _, _, _, Error e ->
               Error (Preview_msg e)
           | ( Ok actors,
               Ok links,
               Ok survivor_accounts,
               Ok loser_accounts,
+              Ok survivor_gh,
+              Ok loser_gh,
               Ok survivor_prefs,
               Ok loser_prefs,
               Ok pending ) ->
               let hard_conflicts =
                 detect_account_conflicts ~survivor_accounts ~loser_accounts
+                @ detect_github_binding_conflicts ~survivor_bindings:survivor_gh
+                    ~loser_bindings:loser_gh
               in
               let preference_resolutions =
                 build_preference_resolutions ~survivor_prefs ~loser_prefs
@@ -315,6 +364,8 @@ let build_preview ~db ~(survivor : P.principal) ~(loser : P.principal) =
                   Printf.sprintf "loser=%s created_at=%s"
                     (P.principal_id_to_string loser.id)
                     loser.created_at;
+                  Printf.sprintf "github_bindings_on_loser=%d"
+                    (List.length loser_gh);
                 ]
               in
               Ok
@@ -481,101 +532,134 @@ let apply_merge_in_tx ~db ~(survivor : P.principal) ~(loser : P.principal)
                             match adopt_accounts loser_accounts with
                             | Error e -> Error (Tx_msg e)
                             | Ok () -> (
-                                (* Preferences: adopt non-conflicting; keep survivor on conflict. *)
-                                let rec adopt_prefs = function
-                                  | [] -> Ok ()
-                                  | (r : preference_resolution) :: rest -> (
-                                      match r.outcome with
-                                      | `Adopted_from_loser -> (
-                                          match r.loser_value with
-                                          | None -> adopt_prefs rest
-                                          | Some v -> (
-                                              match
-                                                put_preference ~db ~now
-                                                  ~principal_id:survivor.id
-                                                  ~key:r.key ~value:v ()
-                                              with
-                                              | Error e -> Error e
-                                              | Ok _ ->
-                                                  (* Clear loser key. *)
-                                                  (match
-                                                     delete_preference ~db
-                                                       ~principal_id:loser.id
-                                                       ~key:r.key
-                                                   with
-                                                  | Ok () | Error _ -> ());
-                                                  adopt_prefs rest))
-                                      | `Kept_survivor | `Identical -> (
-                                          match
-                                            delete_preference ~db
-                                              ~principal_id:loser.id ~key:r.key
-                                          with
-                                          | Ok () | Error _ -> adopt_prefs rest)
-                                      )
-                                in
+                                (* Principal-owned GitHub account bindings
+                                   (P21.M1.E2.T001): snapshot prior evidence and
+                                   reassign/coalesce under one transaction. *)
                                 match
-                                  adopt_prefs preview.preference_resolutions
+                                  GHB.adopt_all_for_principal ~db ~now
+                                    ~reason:"pre_merge" ~related_id:merge_id
+                                    ~from_principal:loser.id
+                                    ~to_principal:survivor.id ()
                                 with
-                                | Error e -> Error (Tx_msg e)
-                                | Ok () -> (
-                                    (* Invalidate pending auth on loser. *)
-                                    let pending =
-                                      preview.pending_auth_invalidated
+                                | Error (`Conflict c) ->
+                                    Error
+                                      (Tx_refused
+                                         {
+                                           reason = c;
+                                           conflicts =
+                                             [
+                                               External_account_collision
+                                                 {
+                                                   uniqueness_domain =
+                                                     "github_account_binding";
+                                                   summary = c;
+                                                 };
+                                             ];
+                                           preview = Some preview;
+                                         })
+                                | Error (`Msg e) -> Error (Tx_msg e)
+                                | Ok _ -> (
+                                    (* Preferences: adopt non-conflicting; keep survivor on conflict. *)
+                                    let rec adopt_prefs = function
+                                      | [] -> Ok ()
+                                      | (r : preference_resolution) :: rest -> (
+                                          match r.outcome with
+                                          | `Adopted_from_loser -> (
+                                              match r.loser_value with
+                                              | None -> adopt_prefs rest
+                                              | Some v -> (
+                                                  match
+                                                    put_preference ~db ~now
+                                                      ~principal_id:survivor.id
+                                                      ~key:r.key ~value:v ()
+                                                  with
+                                                  | Error e -> Error e
+                                                  | Ok _ ->
+                                                      (* Clear loser key. *)
+                                                      (match
+                                                         delete_preference ~db
+                                                           ~principal_id:
+                                                             loser.id ~key:r.key
+                                                       with
+                                                      | Ok () | Error _ -> ());
+                                                      adopt_prefs rest))
+                                          | `Kept_survivor | `Identical -> (
+                                              match
+                                                delete_preference ~db
+                                                  ~principal_id:loser.id
+                                                  ~key:r.key
+                                              with
+                                              | Ok () | Error _ ->
+                                                  adopt_prefs rest))
                                     in
-                                    if pending > 0 then
-                                      ignore
-                                        (set_pending_authorization_count ~db
-                                           ~principal_id:loser.id ~count:0);
-                                    (* Tombstone loser. *)
                                     match
-                                      S.update_principal ~db ~id:loser.id
-                                        ~expected_revision:loser.revision
-                                        ~lifecycle:(P.Merged_into survivor.id)
-                                        ~now ()
+                                      adopt_prefs preview.preference_resolutions
                                     with
-                                    | Error e when is_revision_conflict e ->
-                                        Error (Tx_stale e)
                                     | Error e -> Error (Tx_msg e)
-                                    | Ok loser_after -> (
-                                        (* Bump survivor revision (authority lineage touch). *)
+                                    | Ok () -> (
+                                        (* Invalidate pending auth on loser. *)
+                                        let pending =
+                                          preview.pending_auth_invalidated
+                                        in
+                                        if pending > 0 then
+                                          ignore
+                                            (set_pending_authorization_count ~db
+                                               ~principal_id:loser.id ~count:0);
+                                        (* Tombstone loser. *)
                                         match
-                                          S.update_principal ~db ~id:survivor.id
-                                            ~expected_revision:survivor.revision
-                                            ~now ()
+                                          S.update_principal ~db ~id:loser.id
+                                            ~expected_revision:loser.revision
+                                            ~lifecycle:
+                                              (P.Merged_into survivor.id) ~now
+                                            ()
                                         with
                                         | Error e when is_revision_conflict e ->
                                             Error (Tx_stale e)
                                         | Error e -> Error (Tx_msg e)
-                                        | Ok survivor_after -> (
-                                            let receipt =
-                                              {
-                                                id = merge_id;
-                                                link_tx_id;
-                                                survivor_id = survivor.id;
-                                                loser_id = loser.id;
-                                                adopted_actor_keys =
-                                                  preview.adopted_actor_keys;
-                                                adopted_link_ids =
-                                                  preview.adopted_link_ids;
-                                                preference_resolutions =
-                                                  preview.preference_resolutions;
-                                                pending_auth_invalidated =
-                                                  pending;
-                                                actor_snapshot_ids =
-                                                  List.rev !snap_ids;
-                                                survivor_revision_after =
-                                                  survivor_after.revision;
-                                                loser_revision_after =
-                                                  loser_after.revision;
-                                                applied_at = now_s;
-                                                notes = preview.notes;
-                                              }
-                                            in
+                                        | Ok loser_after -> (
+                                            (* Bump survivor revision (authority lineage touch). *)
                                             match
-                                              insert_merge_receipt ~db receipt
+                                              S.update_principal ~db
+                                                ~id:survivor.id
+                                                ~expected_revision:
+                                                  survivor.revision ~now ()
                                             with
+                                            | Error e
+                                              when is_revision_conflict e ->
+                                                Error (Tx_stale e)
                                             | Error e -> Error (Tx_msg e)
-                                            | Ok r -> Ok r))))))))))
+                                            | Ok survivor_after -> (
+                                                let receipt =
+                                                  {
+                                                    id = merge_id;
+                                                    link_tx_id;
+                                                    survivor_id = survivor.id;
+                                                    loser_id = loser.id;
+                                                    adopted_actor_keys =
+                                                      preview.adopted_actor_keys;
+                                                    adopted_link_ids =
+                                                      preview.adopted_link_ids;
+                                                    preference_resolutions =
+                                                      preview
+                                                        .preference_resolutions;
+                                                    pending_auth_invalidated =
+                                                      pending;
+                                                    actor_snapshot_ids =
+                                                      List.rev !snap_ids;
+                                                    survivor_revision_after =
+                                                      survivor_after.revision;
+                                                    loser_revision_after =
+                                                      loser_after.revision;
+                                                    applied_at = now_s;
+                                                    notes = preview.notes;
+                                                  }
+                                                in
+                                                match
+                                                  insert_merge_receipt ~db
+                                                    receipt
+                                                with
+                                                | Error e -> Error (Tx_msg e)
+                                                | Ok r -> Ok r)))))))))))
 
 let check_expected_revision ~label ~expected ~actual =
   match expected with
