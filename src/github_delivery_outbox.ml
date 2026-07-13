@@ -15,6 +15,7 @@ type entry = {
   last_error : string option;
   dead_lettered_at : string option;
   actor_snapshot_json : Yojson.Safe.t option;
+  attribution_allow_json : Yojson.Safe.t option;
 }
 
 let default_max_age_seconds = 86_400.0
@@ -95,7 +96,8 @@ let ensure_schema db =
       created_at TEXT NOT NULL,
       last_error TEXT,
       dead_lettered_at TEXT,
-      actor_snapshot_json TEXT
+      actor_snapshot_json TEXT,
+      attribution_allow_json TEXT
     )|}
   in
   let idx_due =
@@ -112,9 +114,11 @@ let ensure_schema db =
       WHERE status = 'dead_letter'|}
   in
   List.iter (exec_schema db) [ table_sql; idx_due; idx_room; idx_dead ];
-  (* Migrate pre-P21 rows that predate the attribution column. *)
+  (* Migrate pre-P21 rows that predate attribution columns. *)
   try_alter db
-    "ALTER TABLE github_delivery_outbox ADD COLUMN actor_snapshot_json TEXT"
+    "ALTER TABLE github_delivery_outbox ADD COLUMN actor_snapshot_json TEXT";
+  try_alter db
+    "ALTER TABLE github_delivery_outbox ADD COLUMN attribution_allow_json TEXT"
 
 let text_col stmt i =
   match Sqlite3.column stmt i with
@@ -135,9 +139,9 @@ let int_col stmt i =
 let select_columns =
   {|id, room_id, item_key, intent_json, status, attempts,
     next_attempt_at, created_at, last_error, dead_lettered_at,
-    actor_snapshot_json|}
+    actor_snapshot_json, attribution_allow_json|}
 
-let parse_actor_snapshot_json ~id = function
+let parse_token_free_json ~id ~field = function
   | None -> Ok None
   | Some s when String.trim s = "" -> Ok None
   | Some s -> (
@@ -145,12 +149,11 @@ let parse_actor_snapshot_json ~id = function
         let j = Yojson.Safe.from_string s in
         if Actor_snapshot.contains_token_material j then
           Error
-            (Printf.sprintf
-               "outbox id %s actor_snapshot_json contains token material" id)
+            (Printf.sprintf "outbox id %s %s contains token material" id field)
         else Ok (Some j)
       with exn ->
         Error
-          (Printf.sprintf "invalid actor_snapshot_json for outbox id %s: %s" id
+          (Printf.sprintf "invalid %s for outbox id %s: %s" field id
              (Printexc.to_string exn)))
 
 let entry_of_stmt stmt : (entry, string) result =
@@ -165,28 +168,39 @@ let entry_of_stmt stmt : (entry, string) result =
   let last_error = opt_text_col stmt 8 in
   let dead_lettered_at = opt_text_col stmt 9 in
   let actor_snapshot_raw = opt_text_col stmt 10 in
+  let attribution_allow_raw = opt_text_col stmt 11 in
   match status_of_string status_s with
   | Error e -> Error e
   | Ok status -> (
       try
         let intent_json = Yojson.Safe.from_string intent_json_s in
-        match parse_actor_snapshot_json ~id actor_snapshot_raw with
+        match
+          parse_token_free_json ~id ~field:"actor_snapshot_json"
+            actor_snapshot_raw
+        with
         | Error e -> Error e
-        | Ok actor_snapshot_json ->
-            Ok
-              {
-                id;
-                room_id;
-                item_key;
-                intent_json;
-                status;
-                attempts;
-                next_attempt_at;
-                created_at;
-                last_error;
-                dead_lettered_at;
-                actor_snapshot_json;
-              }
+        | Ok actor_snapshot_json -> (
+            match
+              parse_token_free_json ~id ~field:"attribution_allow_json"
+                attribution_allow_raw
+            with
+            | Error e -> Error e
+            | Ok attribution_allow_json ->
+                Ok
+                  {
+                    id;
+                    room_id;
+                    item_key;
+                    intent_json;
+                    status;
+                    attempts;
+                    next_attempt_at;
+                    created_at;
+                    last_error;
+                    dead_lettered_at;
+                    actor_snapshot_json;
+                    attribution_allow_json;
+                  })
       with exn ->
         Error
           (Printf.sprintf "invalid intent_json for outbox id %s: %s" id
@@ -202,6 +216,11 @@ let snapshot_of_entry (e : entry) : (Actor_snapshot.t option, string) result =
           Error
             (Printf.sprintf "malformed actor_snapshot on outbox id %s: %s" e.id
                err))
+
+let delayed_pin_of_entry (e : entry) :
+    (Github_delayed_attribution.pin option, string) result =
+  Github_delayed_attribution.pin_of_parts ~job_id:e.id
+    ~snapshot_json:e.actor_snapshot_json ~allow_json:e.attribution_allow_json ()
 
 let get_by_id ~db ~id : (entry option, string) result =
   let sql =
@@ -233,19 +252,65 @@ let encode_actor_snapshot_opt = function
       | Error e -> Error e
       | Ok j -> Ok (Some j, Some (Yojson.Safe.to_string j)))
 
-let check_existing_snapshot_compat ~(existing : entry) ~offered_json =
-  match (existing.actor_snapshot_json, offered_json) with
-  | _, None -> Ok existing
-  | None, Some _ ->
-      (* Existing legacy row without snapshot: first-wins keeps None. Do not
-         silently attach a new initiator to an already-queued delivery. *)
-      Ok existing
-  | Some existing_j, Some offered_j -> (
+let encode_attribution_allow_opt = function
+  | None -> Ok (None, None)
+  | Some allow ->
+      let j = Github_delayed_attribution.allow_to_json allow in
+      Ok (Some j, Some (Yojson.Safe.to_string j))
+
+let check_existing_pin_compat ~(existing : entry) ~offered_snap_json
+    ~offered_allow_json =
+  match
+    ( existing.actor_snapshot_json,
+      existing.attribution_allow_json,
+      offered_snap_json,
+      offered_allow_json )
+  with
+  | _, _, None, None -> Ok existing
+  | None, None, Some _, _ | None, None, None, Some _ -> (
+      (* Existing legacy row without pin: first-wins keeps None. *)
+      match (offered_snap_json, offered_allow_json) with
+      | None, Some _ ->
+          Error "attribution_allow requires actor_snapshot (fail closed)"
+      | _ -> Ok existing)
+  | ( Some existing_snap,
+      Some existing_allow,
+      Some offered_snap,
+      Some offered_allow ) -> (
       match
         ( Github_durable_job_actor_attribution.snapshot_of_storage_json
-            existing_j,
+            existing_snap,
           Github_durable_job_actor_attribution.snapshot_of_storage_json
-            offered_j )
+            offered_snap,
+          Github_delayed_attribution.allow_of_json existing_allow,
+          Github_delayed_attribution.allow_of_json offered_allow )
+      with
+      | Error e, _, _, _
+      | _, Error e, _, _
+      | _, _, Error e, _
+      | _, _, _, Error e ->
+          Error e
+      | Ok existing_s, Ok offered_s, Ok existing_a, Ok offered_a -> (
+          match
+            ( Github_delayed_attribution.make_pin ~job_id:existing.id
+                ~snapshot:existing_s ~allow:existing_a (),
+              Github_delayed_attribution.make_pin ~job_id:existing.id
+                ~snapshot:offered_s ~allow:offered_a () )
+          with
+          | Error e, _ | _, Error e -> Error e
+          | Ok existing_pin, Ok offered_pin -> (
+              match
+                Github_delayed_attribution.reject_conflicting_pin
+                  ~existing:existing_pin ~offered:offered_pin
+              with
+              | Ok () -> Ok existing
+              | Error e -> Error e)))
+  | Some existing_snap, _, Some offered_snap, _ -> (
+      match
+        ( Github_durable_job_actor_attribution.snapshot_of_storage_json
+            existing_snap,
+          Github_durable_job_actor_attribution.snapshot_of_storage_json
+            offered_snap )
       with
       | Error e, _ | _, Error e -> Error e
       | Ok existing_s, Ok offered_s -> (
@@ -255,8 +320,14 @@ let check_existing_snapshot_compat ~(existing : entry) ~offered_json =
           with
           | Ok () -> Ok existing
           | Error e -> Error e))
+  | None, Some _, _, _ ->
+      Error
+        "existing outbox row has broken delayed attribution pin (allow without \
+         snapshot)"
+  | Some _, _, None, Some _ ->
+      Error "cannot attach attribution_allow alone; provide matching snapshot"
 
-let enqueue ~db ~room_id ~item_key ~intent ?actor_snapshot
+let enqueue ~db ~room_id ~item_key ~intent ?actor_snapshot ?attribution_allow
     ?(now = Unix.gettimeofday ()) () =
   ensure_schema db;
   let id = intent.Github_delivery_intent.id in
@@ -264,69 +335,81 @@ let enqueue ~db ~room_id ~item_key ~intent ?actor_snapshot
   let next_attempt_at = created_at in
   let intent_json = Github_delivery_intent.to_json intent in
   let intent_json_s = Yojson.Safe.to_string intent_json in
-  match encode_actor_snapshot_opt actor_snapshot with
-  | Error e -> Error e
-  | Ok (actor_snapshot_json, actor_snapshot_s) -> (
-      (* Idempotent on intent id: return existing row if already enqueued. *)
-      match get_by_id ~db ~id with
-      | Error e -> Error e
-      | Ok (Some existing) ->
-          check_existing_snapshot_compat ~existing
-            ~offered_json:actor_snapshot_json
-      | Ok None -> (
-          let sql =
-            {|INSERT INTO github_delivery_outbox
+  match
+    ( encode_actor_snapshot_opt actor_snapshot,
+      encode_attribution_allow_opt attribution_allow )
+  with
+  | Error e, _ | _, Error e -> Error e
+  | Ok (actor_snapshot_json, actor_snapshot_s), Ok (allow_json, allow_s) -> (
+      match (actor_snapshot_json, allow_json) with
+      | None, Some _ ->
+          Error "outbox attribution_allow requires actor_snapshot (fail closed)"
+      | _ -> (
+          match get_by_id ~db ~id with
+          | Error e -> Error e
+          | Ok (Some existing) ->
+              check_existing_pin_compat ~existing
+                ~offered_snap_json:actor_snapshot_json
+                ~offered_allow_json:allow_json
+          | Ok None -> (
+              let sql =
+                {|INSERT INTO github_delivery_outbox
                 (id, room_id, item_key, intent_json, status, attempts,
                  next_attempt_at, created_at, last_error, dead_lettered_at,
-                 actor_snapshot_json)
-              VALUES (?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, ?)|}
-          in
-          let stmt = Sqlite3.prepare db sql in
-          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
-          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT room_id));
-          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT item_key));
-          ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT intent_json_s));
-          ignore
-            (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT (string_of_status Pending)));
-          ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT next_attempt_at));
-          ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT created_at));
-          (match actor_snapshot_s with
-          | None -> ignore (Sqlite3.bind stmt 8 Sqlite3.Data.NULL)
-          | Some s -> ignore (Sqlite3.bind stmt 8 (Sqlite3.Data.TEXT s)));
-          let rc = Sqlite3.step stmt in
-          ignore (Sqlite3.finalize stmt);
-          match rc with
-          | Sqlite3.Rc.DONE ->
-              Ok
-                {
-                  id;
-                  room_id;
-                  item_key;
-                  intent_json;
-                  status = Pending;
-                  attempts = 0;
-                  next_attempt_at;
-                  created_at;
-                  last_error = None;
-                  dead_lettered_at = None;
-                  actor_snapshot_json;
-                }
-          | rc ->
-              (* Race: another writer may have inserted the same id. *)
-              if Sqlite3.errcode db = Sqlite3.Rc.CONSTRAINT then
-                match get_by_id ~db ~id with
-                | Ok (Some e) ->
-                    check_existing_snapshot_compat ~existing:e
-                      ~offered_json:actor_snapshot_json
-                | Ok None ->
+                 actor_snapshot_json, attribution_allow_json)
+              VALUES (?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, ?, ?)|}
+              in
+              let stmt = Sqlite3.prepare db sql in
+              ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
+              ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT room_id));
+              ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT item_key));
+              ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT intent_json_s));
+              ignore
+                (Sqlite3.bind stmt 5
+                   (Sqlite3.Data.TEXT (string_of_status Pending)));
+              ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT next_attempt_at));
+              ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT created_at));
+              (match actor_snapshot_s with
+              | None -> ignore (Sqlite3.bind stmt 8 Sqlite3.Data.NULL)
+              | Some s -> ignore (Sqlite3.bind stmt 8 (Sqlite3.Data.TEXT s)));
+              (match allow_s with
+              | None -> ignore (Sqlite3.bind stmt 9 Sqlite3.Data.NULL)
+              | Some s -> ignore (Sqlite3.bind stmt 9 (Sqlite3.Data.TEXT s)));
+              let rc = Sqlite3.step stmt in
+              ignore (Sqlite3.finalize stmt);
+              match rc with
+              | Sqlite3.Rc.DONE ->
+                  Ok
+                    {
+                      id;
+                      room_id;
+                      item_key;
+                      intent_json;
+                      status = Pending;
+                      attempts = 0;
+                      next_attempt_at;
+                      created_at;
+                      last_error = None;
+                      dead_lettered_at = None;
+                      actor_snapshot_json;
+                      attribution_allow_json = allow_json;
+                    }
+              | rc ->
+                  if Sqlite3.errcode db = Sqlite3.Rc.CONSTRAINT then
+                    match get_by_id ~db ~id with
+                    | Ok (Some e) ->
+                        check_existing_pin_compat ~existing:e
+                          ~offered_snap_json:actor_snapshot_json
+                          ~offered_allow_json:allow_json
+                    | Ok None ->
+                        Error
+                          (Printf.sprintf "enqueue constraint without row: %s"
+                             (Sqlite3.errmsg db))
+                    | Error e -> Error e
+                  else
                     Error
-                      (Printf.sprintf "enqueue constraint without row: %s"
-                         (Sqlite3.errmsg db))
-                | Error e -> Error e
-              else
-                Error
-                  (Printf.sprintf "enqueue failed: %s (%s)"
-                     (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))))
+                      (Printf.sprintf "enqueue failed: %s (%s)"
+                         (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))))
 
 let claim_due ~db ?(now = Unix.gettimeofday ()) ?(limit = 32) () =
   ensure_schema db;

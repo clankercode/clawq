@@ -175,8 +175,7 @@ let () =
        ("github_collab_actions", Test_github_collab_actions.suite);
        ("github_collab_attribution", Test_github_collab_attribution.suite);
        ("github_pr_review_actions", Test_github_pr_review_actions.suite);
-       ( "github_pr_review_attribution",
-         Test_github_pr_review_attribution.suite );
+       ("github_pr_review_attribution", Test_github_pr_review_attribution.suite);
        ("github_code_change", Test_github_code_change_action.suite);
        ("github_room_background", Test_github_room_background_work.suite);
        ("github_merge_action", Test_github_merge_action.suite);
@@ -187,6 +186,7 @@ let () =
          Test_github_action_actor_attribution.suite );
        ( "github_durable_job_actor_attribution",
          Test_github_durable_job_actor_attribution.suite );
+       ("github_delayed_attribution", Test_github_delayed_attribution.suite);
        ("github_action_reconcile", Test_github_action_reconcile.suite);
        ("github_p19_integration", Test_github_p19_integration.suite);
        ("github_room_tools", Test_github_room_tools.suite);

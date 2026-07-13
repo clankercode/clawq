@@ -260,6 +260,7 @@
   github_attribution_audit
   github_attribution_rollout
   github_collab_attribution
+  github_delayed_attribution
   github_action_workflow
   github_user_auth_invalidate
   github_user_token_refresh

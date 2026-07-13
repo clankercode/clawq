@@ -218,7 +218,6 @@ let normalize_action action =
   | "collab_comment" -> "comment"
   | "collab_label" -> "label"
   | "collab_assign" | "assignee" | "assignees" -> "assign"
-  | "request_review" | "reviewer_request" -> "review_request"
   | "request_reviewers" | "request_review" | "reviewer_request" ->
       "review_request"
   | "issue_open" | "create_issue" -> "issue_create"

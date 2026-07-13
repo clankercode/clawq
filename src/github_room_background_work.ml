@@ -179,27 +179,48 @@ let request_to_json ~(pilot : pilot_gate) ~(req : request) =
        | Some t when String.trim t = "" -> []
        | Some t -> [ ("thread_ref", `String (String.trim t)) ]))
 
-let maybe_attach_actor_snapshot ~db ~plan ~room_id ?session_id ?actor_key
-    ?actor_snapshot ?account_binding_id ?now () =
-  match (actor_snapshot, actor_key) with
-  | None, None -> Ok plan
-  | Some snap, _ ->
-      Github_action_actor_attribution.attach_and_restamp ~db ~plan
-        ~snapshot:snap ()
-  | None, Some key -> (
-      match
-        Github_durable_job_actor_attribution.capture_for_delayed_job ~db
-          ~actor_key:key ~delayed_job_id:plan.id ?account_binding_id ~room_id
-          ?session_id ?now ~intent_id:plan.id ()
-      with
-      | Error e -> Error e
-      | Ok snap ->
+let maybe_attach_attribution ~db ~plan ~room_id ?session_id ?actor_key
+    ?actor_snapshot ?attribution_allow ?expected_github_actor ?confirmation_id
+    ?account_binding_id ?now () =
+  let capture_snapshot () =
+    match (actor_snapshot, actor_key) with
+    | Some snap, _ -> Ok (Some snap)
+    | None, Some key -> (
+        match
+          Github_durable_job_actor_attribution.capture_for_delayed_job ~db
+            ~actor_key:key ~delayed_job_id:plan.Setup_plan.id
+            ?account_binding_id ~room_id ?session_id ?now ~intent_id:plan.id ()
+        with
+        | Error e -> Error e
+        | Ok snap -> Ok (Some snap))
+    | None, None -> Ok None
+  in
+  match capture_snapshot () with
+  | Error e -> Error e
+  | Ok None -> (
+      match attribution_allow with
+      | Some _ ->
+          Error
+            "attribution_allow requires actor_snapshot or actor_key for \
+             delayed pin"
+      | None -> Ok plan)
+  | Ok (Some snap) -> (
+      match attribution_allow with
+      | None ->
           Github_action_actor_attribution.attach_and_restamp ~db ~plan
-            ~snapshot:snap ())
+            ~snapshot:snap ()
+      | Some allow ->
+          let ( let* ) = Result.bind in
+          let* pin =
+            Github_delayed_attribution.make_pin ~job_id:plan.id ~snapshot:snap
+              ~allow ?expected_github_actor ?confirmation_id ()
+          in
+          Github_delayed_attribution.attach_and_restamp ~db ~plan ~pin ())
 
 let plan_background ~db ~principal ~(req : request) ~base_revision ?route
-    ?(pilot = default_pilot_gate) ?actor_key ?actor_snapshot ?account_binding_id
-    ?session_id ?(now = Unix.gettimeofday ()) () =
+    ?(pilot = default_pilot_gate) ?actor_key ?actor_snapshot ?attribution_allow
+    ?expected_github_actor ?confirmation_id ?account_binding_id ?session_id
+    ?(now = Unix.gettimeofday ()) () =
   match validate_request req with
   | Error e -> Error e
   | Ok () -> (
@@ -401,8 +422,9 @@ let plan_background ~db ~principal ~(req : request) ~base_revision ?route
           match store_pending ~db plan with
           | Error e -> Error e
           | Ok plan ->
-              maybe_attach_actor_snapshot ~db ~plan ~room_id ?session_id
-                ?actor_key ?actor_snapshot ?account_binding_id ~now ()))
+              maybe_attach_attribution ~db ~plan ~room_id ?session_id ?actor_key
+                ?actor_snapshot ?attribution_allow ?expected_github_actor
+                ?confirmation_id ?account_binding_id ~now ()))
 
 let build_preamble ~(req : request) =
   let parts =
@@ -426,7 +448,8 @@ let build_preamble ~(req : request) =
   in
   String.concat "\n" parts
 
-let enqueue_work_item ~db ~(req : request) ?actor_snapshot ?now:_ () =
+let enqueue_work_item ~db ~(req : request) ?actor_snapshot ?attribution_allow
+    ?now:_ () =
   match validate_request req with
   | Error e -> Error e
   | Ok () -> (
@@ -470,7 +493,7 @@ let enqueue_work_item ~db ~(req : request) ?actor_snapshot ?now:_ () =
         Github_work_item.create_if_new ~db ~dedup_key:dedup ~repo_full_name
           ~is_pr ~issue_number ~requester ~trigger:"room_background"
           ?runner_pref ?host_pref ~prompt ~preamble ?policy_ref ?actor_snapshot
-          ()
+          ?attribution_allow ()
       with
       | Ok (Github_work_item.Created item) -> Ok item
       | Ok (Github_work_item.Duplicate item) -> Ok item

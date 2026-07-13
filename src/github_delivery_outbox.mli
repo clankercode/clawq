@@ -25,6 +25,10 @@ type entry = {
       (** Immutable initiating Actor_snapshot JSON (token-free). Preserved
           across retries, cancellation, restart, and supersede. [None] for
           legacy unattributed delivery rows. *)
+  attribution_allow_json : Yojson.Safe.t option;
+      (** Frozen prior attribution Allow JSON (token-free). Paired with
+          [actor_snapshot_json] for delayed revalidation (P21.M3.E3.T003).
+          [None] for legacy rows. *)
 }
 
 val default_max_age_seconds : float
@@ -38,19 +42,25 @@ val enqueue :
   item_key:string ->
   intent:Github_delivery_intent.intent ->
   ?actor_snapshot:Actor_snapshot.t ->
+  ?attribution_allow:Github_attribution_authorize.allow ->
   ?now:float ->
   unit ->
   (entry, string) result
 (** Insert a Pending outbox row due immediately. Uses [intent.id] as the row
     primary key so re-enqueue of the same intent is unique/idempotent.
 
-    Optional [actor_snapshot] is stored as token-free JSON and never rewritten
-    on retries. Re-enqueue of an existing id returns the existing row; when both
-    existing and offered snapshots are present, conflicting lineage is rejected
-    (never borrow another participant). *)
+    Optional [actor_snapshot] and [attribution_allow] form a paired delayed
+    attribution pin (both required together, or neither for legacy). Stored
+    token-free and never rewritten on retries. Re-enqueue of an existing id
+    returns the existing row; conflicting lineage is rejected (never borrow
+    another participant). *)
 
 val snapshot_of_entry : entry -> (Actor_snapshot.t option, string) result
 (** Parse [actor_snapshot_json] when present. [Ok None] when absent. *)
+
+val delayed_pin_of_entry :
+  entry -> (Github_delayed_attribution.pin option, string) result
+(** Reassemble the delayed attribution pin from storage columns. *)
 
 val claim_due :
   db:Sqlite3.db ->

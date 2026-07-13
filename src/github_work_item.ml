@@ -95,6 +95,10 @@ type t = {
       (** Immutable initiating Actor_snapshot JSON (token-free). Preserved
           across retry / cancel / restart. [None] for legacy unattributed work
           items. *)
+  attribution_allow_json : Yojson.Safe.t option;
+      (** Frozen prior attribution Allow JSON (token-free). Paired with
+          [actor_snapshot_json] for delayed/background revalidation
+          (P21.M3.E3.T003). [None] for legacy rows. *)
 }
 
 (** {1 Schema} *)
@@ -136,7 +140,8 @@ let init_schema db =
     \  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \  started_at TEXT,\n\
     \  finished_at TEXT,\n\
-    \  actor_snapshot_json TEXT\n\
+    \  actor_snapshot_json TEXT,\n\
+    \  attribution_allow_json TEXT\n\
      )";
   exec
     "CREATE INDEX IF NOT EXISTS idx_github_work_items_status ON \
@@ -144,10 +149,16 @@ let init_schema db =
   exec
     "CREATE INDEX IF NOT EXISTS idx_github_work_items_task ON \
      github_work_items (background_task_id)";
-  (* Migrate pre-P21 work items that predate attribution. *)
+  (* Migrate pre-P21 work items that predate attribution columns. *)
+  (match
+     Sqlite3.exec db
+       "ALTER TABLE github_work_items ADD COLUMN actor_snapshot_json TEXT"
+   with
+  | Sqlite3.Rc.OK -> ()
+  | _ -> ());
   match
     Sqlite3.exec db
-      "ALTER TABLE github_work_items ADD COLUMN actor_snapshot_json TEXT"
+      "ALTER TABLE github_work_items ADD COLUMN attribution_allow_json TEXT"
   with
   | Sqlite3.Rc.OK -> ()
   | _ -> ()
@@ -157,7 +168,7 @@ let init_schema db =
 let sql_text = Sql_util.sql_text
 let sql_int = Sql_util.sql_int
 
-let parse_actor_snapshot_col = function
+let parse_token_free_json_col = function
   | None -> None
   | Some s when String.trim s = "" -> None
   | Some s -> (
@@ -197,7 +208,8 @@ let of_stmt stmt : t =
     ack_comment_id = int_opt 23;
     publication_branch = text 24;
     published_pr_number = int_opt 25;
-    actor_snapshot_json = parse_actor_snapshot_col (text 26);
+    actor_snapshot_json = parse_token_free_json_col (text 26);
+    attribution_allow_json = parse_token_free_json_col (text 27);
   }
 
 let select_columns =
@@ -206,7 +218,7 @@ let select_columns =
    background_task_id, result_kind, result_summary, published_comment_id, \
    publication_status, attempt_count, created_at, started_at, finished_at, \
    ack_comment_id, publication_branch, published_pr_number, \
-   actor_snapshot_json"
+   actor_snapshot_json, attribution_allow_json"
 
 (** {1 Creation (idempotent)} *)
 
@@ -228,10 +240,16 @@ type create_outcome = Created of t | Duplicate of t
 
 (** Insert a new work item, or return the existing one when the dedup key is
     already present (at-least-once webhook delivery). *)
+let encode_attribution_allow_opt = function
+  | None -> Ok None
+  | Some allow ->
+      let j = Github_delayed_attribution.allow_to_json allow in
+      Ok (Some (j, Yojson.Safe.to_string j))
+
 let create_if_new ~db ~dedup_key ?delivery_id ~repo_full_name ?(is_pr = false)
     ~issue_number ~requester ?(trigger = "slash_command") ?runner_pref
-    ?host_pref ~prompt ?(preamble = "") ?policy_ref ?actor_snapshot () :
-    (create_outcome, string) result =
+    ?host_pref ~prompt ?(preamble = "") ?policy_ref ?actor_snapshot
+    ?attribution_allow () : (create_outcome, string) result =
   if String.trim requester = "" then
     Error
       "Work item requires a requester (GitHub login). Refusing an anonymous \
@@ -253,95 +271,159 @@ let create_if_new ~db ~dedup_key ?delivery_id ~repo_full_name ?(is_pr = false)
           | Error e -> Error e
           | Ok j -> Ok (Some (j, Yojson.Safe.to_string j)))
     in
-    match actor_snap_encoded with
-    | Error e -> Error e
-    | Ok actor_snap_pair -> begin
-        let sql =
-          "INSERT OR IGNORE INTO github_work_items (dedup_key, delivery_id, \
-           repo_full_name, is_pr, issue_number, requester, trigger, \
-           runner_pref, host_pref, prompt, preamble, policy_ref, \
-           actor_snapshot_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        in
-        let stmt = Sqlite3.prepare db sql in
-        let inserted =
-          Fun.protect
-            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-            (fun () ->
-              let bind_text i v =
-                ignore (Sqlite3.bind stmt i (Sqlite3.Data.TEXT v))
-              in
-              let bind_opt i = function
-                | Some v when String.trim v <> "" -> bind_text i v
-                | _ -> ignore (Sqlite3.bind stmt i Sqlite3.Data.NULL)
-              in
-              bind_text 1 dedup_key;
-              bind_opt 2 delivery_id;
-              bind_text 3 repo_full_name;
-              ignore
-                (Sqlite3.bind stmt 4
-                   (Sqlite3.Data.INT (if is_pr then 1L else 0L)));
-              ignore
-                (Sqlite3.bind stmt 5
-                   (Sqlite3.Data.INT (Int64.of_int issue_number)));
-              bind_text 6 requester;
-              bind_text 7 trigger;
-              bind_opt 8 runner_pref;
-              bind_opt 9 host_pref;
-              bind_text 10 prompt;
-              bind_text 11 preamble;
-              bind_opt 12 policy_ref;
-              (match actor_snap_pair with
-              | None -> ignore (Sqlite3.bind stmt 13 Sqlite3.Data.NULL)
-              | Some (_j, s) -> bind_text 13 s);
-              ignore (Sqlite3.step stmt);
-              Sqlite3.changes db > 0)
-        in
-        let fetch () =
-          let sql =
-            Printf.sprintf
-              "SELECT %s FROM github_work_items WHERE dedup_key = ?"
-              select_columns
-          in
-          let stmt = Sqlite3.prepare db sql in
-          Fun.protect
-            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-            (fun () ->
-              ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT dedup_key));
-              match Sqlite3.step stmt with
-              | Sqlite3.Rc.ROW -> Some (of_stmt stmt)
-              | _ -> None)
-        in
-        match fetch () with
-        | Some item when inserted -> Ok (Created item)
-        | Some item -> (
-            (* Duplicate: preserve initiating snapshot; reject borrow. *)
-            match (item.actor_snapshot_json, actor_snap_pair) with
-            | _, None -> Ok (Duplicate item)
-            | None, Some _ ->
-                (* First-wins for already-queued unattributed items. *)
-                Ok (Duplicate item)
-            | Some existing_j, Some (offered_j, _) -> (
-                match
-                  ( Github_durable_job_actor_attribution.snapshot_of_storage_json
-                      existing_j,
-                    Github_durable_job_actor_attribution
-                    .snapshot_of_storage_json offered_j )
-                with
-                | Error e, _ | _, Error e -> Error e
-                | Ok existing_s, Ok offered_s -> (
-                    match
-                      Github_durable_job_actor_attribution
-                      .reject_conflicting_snapshot ~existing:existing_s
-                        ~offered:offered_s
-                    with
-                    | Ok () -> Ok (Duplicate item)
-                    | Error e -> Error e)))
-        | None ->
+    match
+      (actor_snap_encoded, encode_attribution_allow_opt attribution_allow)
+    with
+    | Error e, _ | _, Error e -> Error e
+    | Ok actor_snap_pair, Ok allow_pair -> begin
+        (* Allow without snapshot is broken. Snapshot-only remains valid for
+           legacy T005 rows; full delayed pin is both columns. *)
+        match (actor_snap_pair, allow_pair) with
+        | None, Some _ ->
             Error
-              (Printf.sprintf
-                 "Failed to record work item %s: row not found after insert. \
-                  Check the database is writable and retry."
-                 dedup_key)
+              "work item attribution_allow requires actor_snapshot (fail \
+               closed)"
+        | _ -> (
+            let sql =
+              "INSERT OR IGNORE INTO github_work_items (dedup_key, \
+               delivery_id, repo_full_name, is_pr, issue_number, requester, \
+               trigger, runner_pref, host_pref, prompt, preamble, policy_ref, \
+               actor_snapshot_json, attribution_allow_json) VALUES (?, ?, ?, \
+               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            in
+            let stmt = Sqlite3.prepare db sql in
+            let inserted =
+              Fun.protect
+                ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+                (fun () ->
+                  let bind_text i v =
+                    ignore (Sqlite3.bind stmt i (Sqlite3.Data.TEXT v))
+                  in
+                  let bind_opt i = function
+                    | Some v when String.trim v <> "" -> bind_text i v
+                    | _ -> ignore (Sqlite3.bind stmt i Sqlite3.Data.NULL)
+                  in
+                  bind_text 1 dedup_key;
+                  bind_opt 2 delivery_id;
+                  bind_text 3 repo_full_name;
+                  ignore
+                    (Sqlite3.bind stmt 4
+                       (Sqlite3.Data.INT (if is_pr then 1L else 0L)));
+                  ignore
+                    (Sqlite3.bind stmt 5
+                       (Sqlite3.Data.INT (Int64.of_int issue_number)));
+                  bind_text 6 requester;
+                  bind_text 7 trigger;
+                  bind_opt 8 runner_pref;
+                  bind_opt 9 host_pref;
+                  bind_text 10 prompt;
+                  bind_text 11 preamble;
+                  bind_opt 12 policy_ref;
+                  (match actor_snap_pair with
+                  | None -> ignore (Sqlite3.bind stmt 13 Sqlite3.Data.NULL)
+                  | Some (_j, s) -> bind_text 13 s);
+                  (match allow_pair with
+                  | None -> ignore (Sqlite3.bind stmt 14 Sqlite3.Data.NULL)
+                  | Some (_j, s) -> bind_text 14 s);
+                  ignore (Sqlite3.step stmt);
+                  Sqlite3.changes db > 0)
+            in
+            let fetch () =
+              let sql =
+                Printf.sprintf
+                  "SELECT %s FROM github_work_items WHERE dedup_key = ?"
+                  select_columns
+              in
+              let stmt = Sqlite3.prepare db sql in
+              Fun.protect
+                ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+                (fun () ->
+                  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT dedup_key));
+                  match Sqlite3.step stmt with
+                  | Sqlite3.Rc.ROW -> Some (of_stmt stmt)
+                  | _ -> None)
+            in
+            match fetch () with
+            | Some item when inserted -> Ok (Created item)
+            | Some item -> (
+                (* Duplicate: preserve initiating pin; reject borrow. *)
+                match
+                  ( item.actor_snapshot_json,
+                    item.attribution_allow_json,
+                    actor_snap_pair,
+                    allow_pair )
+                with
+                | _, _, None, None -> Ok (Duplicate item)
+                | None, None, Some _, _ ->
+                    (* First-wins for already-queued unattributed items. *)
+                    Ok (Duplicate item)
+                | ( Some existing_snap_j,
+                    Some existing_allow_j,
+                    Some (off_snap_j, _),
+                    Some (off_allow_j, _) ) -> (
+                    match
+                      ( Github_durable_job_actor_attribution
+                        .snapshot_of_storage_json existing_snap_j,
+                        Github_durable_job_actor_attribution
+                        .snapshot_of_storage_json off_snap_j,
+                        Github_delayed_attribution.allow_of_json
+                          existing_allow_j,
+                        Github_delayed_attribution.allow_of_json off_allow_j )
+                    with
+                    | Error e, _, _, _
+                    | _, Error e, _, _
+                    | _, _, Error e, _
+                    | _, _, _, Error e ->
+                        Error e
+                    | Ok existing_s, Ok offered_s, Ok existing_a, Ok offered_a
+                      -> (
+                        let job_id = string_of_int item.id in
+                        match
+                          ( Github_delayed_attribution.make_pin ~job_id
+                              ~snapshot:existing_s ~allow:existing_a (),
+                            Github_delayed_attribution.make_pin ~job_id
+                              ~snapshot:offered_s ~allow:offered_a () )
+                        with
+                        | Error e, _ | _, Error e -> Error e
+                        | Ok existing_pin, Ok offered_pin -> (
+                            match
+                              Github_delayed_attribution.reject_conflicting_pin
+                                ~existing:existing_pin ~offered:offered_pin
+                            with
+                            | Ok () -> Ok (Duplicate item)
+                            | Error e -> Error e)))
+                | Some existing_snap_j, _, Some (off_snap_j, _), _ -> (
+                    (* Snapshot-only or mixed: compare initiating snapshot lineage. *)
+                    match
+                      ( Github_durable_job_actor_attribution
+                        .snapshot_of_storage_json existing_snap_j,
+                        Github_durable_job_actor_attribution
+                        .snapshot_of_storage_json off_snap_j )
+                    with
+                    | Error e, _ | _, Error e -> Error e
+                    | Ok existing_s, Ok offered_s -> (
+                        match
+                          Github_durable_job_actor_attribution
+                          .reject_conflicting_snapshot ~existing:existing_s
+                            ~offered:offered_s
+                        with
+                        | Ok () -> Ok (Duplicate item)
+                        | Error e -> Error e))
+                | Some _, None, None, Some _ ->
+                    Error
+                      "cannot attach attribution_allow alone to existing work \
+                       item; provide matching actor_snapshot"
+                | None, Some _, _, _ ->
+                    Error
+                      "existing work item has broken delayed attribution pin \
+                       (allow without snapshot)"
+                | _ -> Ok (Duplicate item))
+            | None ->
+                Error
+                  (Printf.sprintf
+                     "Failed to record work item %s: row not found after \
+                      insert. Check the database is writable and retry."
+                     dedup_key))
       end
 
 let snapshot_of_item (item : t) : (Actor_snapshot.t option, string) result =
@@ -354,6 +436,24 @@ let snapshot_of_item (item : t) : (Actor_snapshot.t option, string) result =
           Error
             (Printf.sprintf "malformed actor_snapshot on work item %d: %s"
                item.id e))
+
+let attribution_allow_of_item (item : t) :
+    (Github_attribution_authorize.allow option, string) result =
+  match item.attribution_allow_json with
+  | None -> Ok None
+  | Some j -> (
+      match Github_delayed_attribution.allow_of_json j with
+      | Ok a -> Ok (Some a)
+      | Error e ->
+          Error
+            (Printf.sprintf "malformed attribution_allow on work item %d: %s"
+               item.id e))
+
+let delayed_pin_of_item (item : t) :
+    (Github_delayed_attribution.pin option, string) result =
+  Github_delayed_attribution.pin_of_parts ~job_id:(string_of_int item.id)
+    ~snapshot_json:item.actor_snapshot_json
+    ~allow_json:item.attribution_allow_json ()
 
 (** {1 Lookup} *)
 
@@ -373,7 +473,8 @@ let get ~db ~id : t option =
 
 (** Write-once pin of initiating Actor_snapshot. Succeeds when the column is
     empty or already holds the same initiating lineage. Never overwrites a
-    different initiator. *)
+    different initiator. Does not touch [attribution_allow_json] — use
+    [pin_delayed_attribution] for the paired pin. *)
 let pin_actor_snapshot ~db ~id ~(snapshot : Actor_snapshot.t) :
     (t, string) result =
   init_schema db;
@@ -425,6 +526,58 @@ let pin_actor_snapshot ~db ~id ~(snapshot : Actor_snapshot.t) :
               | rc ->
                   Error
                     (Printf.sprintf "pin_actor_snapshot failed: %s (%s)"
+                       (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))))
+
+(** Write-once paired delayed attribution pin (snapshot + Allow). Succeeds when
+    columns are empty or already hold a non-conflicting pin. *)
+let pin_delayed_attribution ~db ~id ~(pin : Github_delayed_attribution.pin) :
+    (t, string) result =
+  init_schema db;
+  match get ~db ~id with
+  | None -> Error (Printf.sprintf "work item %d not found" id)
+  | Some item -> (
+      match
+        ( Github_durable_job_actor_attribution.snapshot_to_storage_json
+            pin.snapshot,
+          Github_delayed_attribution.allow_storage_json_of_pin pin )
+      with
+      | Error e, _ | _, Error e -> Error e
+      | Ok snap_j, Ok allow_j -> (
+          match delayed_pin_of_item item with
+          | Error e -> Error e
+          | Ok (Some existing_pin) ->
+              Github_delayed_attribution.reject_conflicting_pin
+                ~existing:existing_pin ~offered:pin
+              |> Result.map (fun () -> item)
+          | Ok None -> (
+              let sql =
+                "UPDATE github_work_items SET actor_snapshot_json = ?, \
+                 attribution_allow_json = ? WHERE id = ? AND \
+                 actor_snapshot_json IS NULL AND attribution_allow_json IS \
+                 NULL"
+              in
+              let stmt = Sqlite3.prepare db sql in
+              ignore
+                (Sqlite3.bind stmt 1
+                   (Sqlite3.Data.TEXT (Yojson.Safe.to_string snap_j)));
+              ignore
+                (Sqlite3.bind stmt 2
+                   (Sqlite3.Data.TEXT (Yojson.Safe.to_string allow_j)));
+              ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
+              let rc = Sqlite3.step stmt in
+              ignore (Sqlite3.finalize stmt);
+              match rc with
+              | Sqlite3.Rc.DONE -> (
+                  match get ~db ~id with
+                  | Some item -> Ok item
+                  | None ->
+                      Error
+                        (Printf.sprintf
+                           "work item %d missing after delayed attribution pin"
+                           id))
+              | rc ->
+                  Error
+                    (Printf.sprintf "pin_delayed_attribution failed: %s (%s)"
                        (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))))
 
 let find_by_task ~db ~background_task_id : t option =

@@ -91,11 +91,9 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(issue_pilot = Github_issue_actions.default_pilot_gate)
     ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
     ?(user_auth_available = false) ?actor_key ?actor_snapshot
-    ?account_binding_id ?session_id ?attribution_evidence ?github_user_id
-    ?(now = Unix.gettimeofday ()) () =
-    ?account_binding_id ?session_id ?(now = Unix.gettimeofday ()) () =
     ?account_binding_id ?session_id ?attribution_evidence
     ?(review_live = Review_attr.default_live_revalidation) ?github_user_id
+    ?(now = Unix.gettimeofday ()) () =
   let plan_res =
     match action with
     | Collab collab -> (
@@ -111,25 +109,33 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
         | None ->
             Github_collab_actions.plan_action ~db ~principal ~room_id
               ~action:collab ~base_revision ?route ~now ())
-    | Request_reviewers req ->
-        Github_pr_review_actions.plan_request_reviewers ~db ~principal ~room_id
-          ~req ~base_revision ?route ~now ()
-    | Submit_review req ->
-        Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id
-          ~pilot ~user_auth_available ~req ~base_revision ?route ~now ()
-    | Collab collab ->
-        Github_collab_actions.plan_action ~db ~principal ~room_id ~action:collab
-          ~base_revision ?route ~now ()
     | Request_reviewers req -> (
+        match attribution_evidence with
         | Some auth -> (
+            match
               Review_attr.plan_with_attribution ~db ~principal ~room_id
                 ~family:(Review_attr.Request_reviewers req) ~base_revision ~auth
                 ~live:review_live ~route ~pilot ~user_auth_available
                 ?actor_snapshot ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
             Github_pr_review_actions.plan_request_reviewers ~db ~principal
               ~room_id ~req ~base_revision ?route ~now ())
     | Submit_review req -> (
+        match attribution_evidence with
+        | Some auth -> (
+            match
+              Review_attr.plan_with_attribution ~db ~principal ~room_id
                 ~family:(Review_attr.Submit_review req) ~base_revision ~auth
+                ~live:review_live ~route ~pilot ~user_auth_available
+                ?actor_snapshot ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
+            Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id
               ~pilot ~user_auth_available ~req ~base_revision ?route ~now ())
     | Merge { req; policy } ->
         Github_merge_action.plan_merge ~db ~principal ~room_id
@@ -172,12 +178,24 @@ let apply_outcome_with_correlation ~db ~plan ~now
       ());
   outcome
 
+let is_collab_plan (plan : Setup_plan.t) =
+  match plan.apply_payload.kind with
+  | Setup_plan.Generic "github_collab_action" -> true
+  | _ -> false
+
+let is_pr_review_plan (plan : Setup_plan.t) =
+  match plan.apply_payload.kind with
+  | Setup_plan.Generic ("github_request_reviewers" | "github_submit_review") ->
+      true
+  | _ -> false
+
 (** When a collab plan carries staged attribution, revalidate live evidence and
     issue an opaque lease before receipt-only apply. Receipt-only path revokes
     the lease after native attribution receipt (no live HTTP in this layer). *)
 let maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
     ?expected_account ?github_user_id ~now () =
-  if not (Collab_attr.has_attribution_allow plan) then Ok None
+  if not (is_collab_plan plan && Collab_attr.has_attribution_allow plan) then
+    Ok None
   else
     match attribution_live with
     | None ->
@@ -199,21 +217,30 @@ let maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
     and issue an opaque lease before receipt-only apply. *)
 let maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
     ?(review_live = Review_attr.default_live_revalidation) ?vault_id
-  if not (Review_attr.has_attribution_allow plan) then Ok None
+    ?expected_account ?github_user_id ~now () =
+  if not (is_pr_review_plan plan && Review_attr.has_attribution_allow plan) then
+    Ok None
+  else
+    match attribution_live with
+    | None ->
+        Error
           "PR review plan has staged attribution_allow; apply requires \
+           attribution_live evidence for revalidation and dispatch lease"
     | Some live_auth -> (
+        match
           Review_attr.prepare_dispatch_from_plan ~db ~plan ~live_auth
             ~live:review_live ?vault_id ?expected:expected_account
             ?github_user_id ~now ()
+        with
+        | Error e -> Error e
+        | Ok dispatched ->
             Review_attr.revoke_issued_lease dispatched.issued;
+            Ok (Some dispatched))
 
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
-    ?vault_id ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) ()
-    =
-    ~current_base_revision ~destination_room ?current_target
-    ?(now = Unix.gettimeofday ()) () =
     ?review_live ?vault_id ?expected_account ?github_user_id
+    ?(now = Unix.gettimeofday ()) () =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
@@ -225,27 +252,22 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
           ?expected_account ?github_user_id ~now ()
       with
       | Error msg -> Ok (reject_actor_attribution msg)
-      | Ok _dispatched_opt ->
-          (* Snapshot (when present) re-resolved usable; collab attribution
-             dispatch (when staged) revalidated. Proceed with receipt-only
-             apply. *)
-          let outcome =
-            Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-              ~current_base_revision ~destination_room ~now
-              ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ()
-          in
-          Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))
-  | Ok _envelope_opt ->
-      (* Snapshot (when present) re-resolved usable; proceed with receipt-only
-         apply. Envelope is available for later live dispatch wiring. *)
-      Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)
-        maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
-          ?review_live ?vault_id ?expected_account ?github_user_id ~now ()
+      | Ok _collab_opt -> (
+          match
+            maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
+              ?review_live ?vault_id ?expected_account ?github_user_id ~now ()
+          with
+          | Error msg -> Ok (reject_actor_attribution msg)
+          | Ok _review_opt ->
+              let outcome =
+                Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+                  ~current_base_revision ~destination_room ~now
+                  ~authority:authority_allow ~apply_ops:receipt_only_apply_ops
+                  ()
+              in
+              Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
-    ?current_merge_policy ?current_target ?attribution_live ?vault_id
-    ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
-    ?current_merge_policy ?current_target ?(now = Unix.gettimeofday ()) () =
     ?current_merge_policy ?current_target ?attribution_live ?review_live
     ?vault_id ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) ()
     =
@@ -289,8 +311,5 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
         | Some destination_room ->
             apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
               ~current_base_revision ~destination_room ?current_target
-              ?attribution_live ?vault_id ?expected_account ?github_user_id ~now
-              ())
-              ~current_base_revision ~destination_room ?current_target ~now ())
               ?attribution_live ?review_live ?vault_id ?expected_account
               ?github_user_id ~now ())
