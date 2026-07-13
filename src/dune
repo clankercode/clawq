@@ -477,6 +477,7 @@
   line_channel
   onebot
   teams_auth
+  teams_principal_ingress
   teams_file_consent
   teams_activity_parser
   teams_file_upload
