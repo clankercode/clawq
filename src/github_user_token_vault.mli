@@ -16,9 +16,9 @@
       account mismatch, or crypto failure returns a typed [denial] and never a
       partial token.
 
-    Out of scope: opaque HTTP leases (T003), full generation CAS transitions /
-    lease invalidation (T004). Staged rewrap primitives are provided here; job
-    orchestration is {!Github_user_token_rewrap} (T007).
+    Opaque HTTP leases: {!Github_user_token_lease} (T003). Full generation CAS
+    transitions / lease invalidation: T004. Staged rewrap primitives are
+    provided here; job orchestration is {!Github_user_token_rewrap} (T007).
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and

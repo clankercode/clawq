@@ -94,7 +94,7 @@ type destroy_hooks = {
 let default_destroy_hooks : destroy_hooks =
   {
     destroy_bindings = (fun () -> Ok 0);
-    destroy_leases = (fun () -> Ok 0);
+    destroy_leases = (fun () -> Ok (Github_user_token_lease.discard_all ()));
     destroy_pending_extra = (fun () -> Ok 0);
   }
 
