@@ -21,6 +21,10 @@ type entry = {
   created_at : string;
   last_error : string option;
   dead_lettered_at : string option;
+  actor_snapshot_json : Yojson.Safe.t option;
+      (** Immutable initiating Actor_snapshot JSON (token-free). Preserved
+          across retries, cancellation, restart, and supersede. [None] for
+          legacy unattributed delivery rows. *)
 }
 
 val default_max_age_seconds : float
@@ -33,11 +37,20 @@ val enqueue :
   room_id:string ->
   item_key:string ->
   intent:Github_delivery_intent.intent ->
+  ?actor_snapshot:Actor_snapshot.t ->
   ?now:float ->
   unit ->
   (entry, string) result
 (** Insert a Pending outbox row due immediately. Uses [intent.id] as the row
-    primary key so re-enqueue of the same intent is unique/idempotent. *)
+    primary key so re-enqueue of the same intent is unique/idempotent.
+
+    Optional [actor_snapshot] is stored as token-free JSON and never rewritten
+    on retries. Re-enqueue of an existing id returns the existing row; when both
+    existing and offered snapshots are present, conflicting lineage is rejected
+    (never borrow another participant). *)
+
+val snapshot_of_entry : entry -> (Actor_snapshot.t option, string) result
+(** Parse [actor_snapshot_json] when present. [Ok None] when absent. *)
 
 val claim_due :
   db:Sqlite3.db ->

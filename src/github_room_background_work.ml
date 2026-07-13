@@ -179,14 +179,33 @@ let request_to_json ~(pilot : pilot_gate) ~(req : request) =
        | Some t when String.trim t = "" -> []
        | Some t -> [ ("thread_ref", `String (String.trim t)) ]))
 
+let maybe_attach_actor_snapshot ~db ~plan ~room_id ?session_id ?actor_key
+    ?actor_snapshot ?account_binding_id ?now () =
+  match (actor_snapshot, actor_key) with
+  | None, None -> Ok plan
+  | Some snap, _ ->
+      Github_action_actor_attribution.attach_and_restamp ~db ~plan
+        ~snapshot:snap ()
+  | None, Some key -> (
+      match
+        Github_durable_job_actor_attribution.capture_for_delayed_job ~db
+          ~actor_key:key ~delayed_job_id:plan.id ?account_binding_id ~room_id
+          ?session_id ?now ~intent_id:plan.id ()
+      with
+      | Error e -> Error e
+      | Ok snap ->
+          Github_action_actor_attribution.attach_and_restamp ~db ~plan
+            ~snapshot:snap ())
+
 let plan_background ~db ~principal ~(req : request) ~base_revision ?route
-    ?(pilot = default_pilot_gate) ?(now = Unix.gettimeofday ()) () =
+    ?(pilot = default_pilot_gate) ?actor_key ?actor_snapshot ?account_binding_id
+    ?session_id ?(now = Unix.gettimeofday ()) () =
   match validate_request req with
   | Error e -> Error e
   | Ok () -> (
       match authorize ~route ~pilot ~now () with
       | Error e -> Error e
-      | Ok () ->
+      | Ok () -> (
           let room_id = String.trim req.room_id in
           let prompt = String.trim req.prompt in
           let dedup = String.trim req.dedup_key in
@@ -272,7 +291,10 @@ let plan_background ~db ~principal ~(req : request) ~base_revision ?route
                        before enqueue/apply. Not production-ready (P21 \
                        User_required pending). No live runner dispatch at plan \
                        time. Receipts and webhooks reconcile without loops via \
-                       dedup publication."
+                       dedup publication. Initiating Actor_snapshot (when \
+                       pinned) is preserved through \
+                       enqueue/retry/cancel/restart and re-resolved at \
+                       execution."
                       room_id pilot.pilot_name dedup runner_note thread_note;
                 };
             ]
@@ -376,7 +398,11 @@ let plan_background ~db ~principal ~(req : request) ~base_revision ?route
                 }
               ~now ()
           in
-          store_pending ~db plan)
+          match store_pending ~db plan with
+          | Error e -> Error e
+          | Ok plan ->
+              maybe_attach_actor_snapshot ~db ~plan ~room_id ?session_id
+                ?actor_key ?actor_snapshot ?account_binding_id ~now ()))
 
 let build_preamble ~(req : request) =
   let parts =
@@ -400,7 +426,7 @@ let build_preamble ~(req : request) =
   in
   String.concat "\n" parts
 
-let enqueue_work_item ~db ~(req : request) ?now:_ () =
+let enqueue_work_item ~db ~(req : request) ?actor_snapshot ?now:_ () =
   match validate_request req with
   | Error e -> Error e
   | Ok () -> (
@@ -443,7 +469,8 @@ let enqueue_work_item ~db ~(req : request) ?now:_ () =
       match
         Github_work_item.create_if_new ~db ~dedup_key:dedup ~repo_full_name
           ~is_pr ~issue_number ~requester ~trigger:"room_background"
-          ?runner_pref ?host_pref ~prompt ~preamble ?policy_ref ()
+          ?runner_pref ?host_pref ~prompt ~preamble ?policy_ref ?actor_snapshot
+          ()
       with
       | Ok (Github_work_item.Created item) -> Ok item
       | Ok (Github_work_item.Duplicate item) -> Ok item

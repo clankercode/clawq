@@ -91,6 +91,10 @@ type t = {
   created_at : string;
   started_at : string option;
   finished_at : string option;
+  actor_snapshot_json : Yojson.Safe.t option;
+      (** Immutable initiating Actor_snapshot JSON (token-free). Preserved
+          across retry / cancel / restart. [None] for legacy unattributed work
+          items. *)
 }
 
 (** {1 Schema} *)
@@ -131,19 +135,36 @@ let init_schema db =
     \  attempt_count INTEGER NOT NULL DEFAULT 0,\n\
     \  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \  started_at TEXT,\n\
-    \  finished_at TEXT\n\
+    \  finished_at TEXT,\n\
+    \  actor_snapshot_json TEXT\n\
      )";
   exec
     "CREATE INDEX IF NOT EXISTS idx_github_work_items_status ON \
      github_work_items (status)";
   exec
     "CREATE INDEX IF NOT EXISTS idx_github_work_items_task ON \
-     github_work_items (background_task_id)"
+     github_work_items (background_task_id)";
+  (* Migrate pre-P21 work items that predate attribution. *)
+  match
+    Sqlite3.exec db
+      "ALTER TABLE github_work_items ADD COLUMN actor_snapshot_json TEXT"
+  with
+  | Sqlite3.Rc.OK -> ()
+  | _ -> ()
 
 (** {1 Row mapping} *)
 
 let sql_text = Sql_util.sql_text
 let sql_int = Sql_util.sql_int
+
+let parse_actor_snapshot_col = function
+  | None -> None
+  | Some s when String.trim s = "" -> None
+  | Some s -> (
+      try
+        let j = Yojson.Safe.from_string s in
+        if Actor_snapshot.contains_token_material j then None else Some j
+      with _ -> None)
 
 let of_stmt stmt : t =
   let text i = Sqlite3.column stmt i |> sql_text in
@@ -176,6 +197,7 @@ let of_stmt stmt : t =
     ack_comment_id = int_opt 23;
     publication_branch = text 24;
     published_pr_number = int_opt 25;
+    actor_snapshot_json = parse_actor_snapshot_col (text 26);
   }
 
 let select_columns =
@@ -183,7 +205,8 @@ let select_columns =
    trigger, runner_pref, host_pref, prompt, preamble, policy_ref, status, \
    background_task_id, result_kind, result_summary, published_comment_id, \
    publication_status, attempt_count, created_at, started_at, finished_at, \
-   ack_comment_id, publication_branch, published_pr_number"
+   ack_comment_id, publication_branch, published_pr_number, \
+   actor_snapshot_json"
 
 (** {1 Creation (idempotent)} *)
 
@@ -207,7 +230,7 @@ type create_outcome = Created of t | Duplicate of t
     already present (at-least-once webhook delivery). *)
 let create_if_new ~db ~dedup_key ?delivery_id ~repo_full_name ?(is_pr = false)
     ~issue_number ~requester ?(trigger = "slash_command") ?runner_pref
-    ?host_pref ~prompt ?(preamble = "") ?policy_ref () :
+    ?host_pref ~prompt ?(preamble = "") ?policy_ref ?actor_snapshot () :
     (create_outcome, string) result =
   if String.trim requester = "" then
     Error
@@ -219,65 +242,118 @@ let create_if_new ~db ~dedup_key ?delivery_id ~repo_full_name ?(is_pr = false)
          "Work item requires a repository and positive issue number (got %S \
           #%d)."
          repo_full_name issue_number)
-  else begin
-    let sql =
-      "INSERT OR IGNORE INTO github_work_items (dedup_key, delivery_id, \
-       repo_full_name, is_pr, issue_number, requester, trigger, runner_pref, \
-       host_pref, prompt, preamble, policy_ref) VALUES (?, ?, ?, ?, ?, ?, ?, \
-       ?, ?, ?, ?, ?)"
+  else
+    let actor_snap_encoded =
+      match actor_snapshot with
+      | None -> Ok None
+      | Some snap -> (
+          match
+            Github_durable_job_actor_attribution.snapshot_to_storage_json snap
+          with
+          | Error e -> Error e
+          | Ok j -> Ok (Some (j, Yojson.Safe.to_string j)))
     in
-    let stmt = Sqlite3.prepare db sql in
-    let inserted =
-      Fun.protect
-        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-        (fun () ->
-          let bind_text i v =
-            ignore (Sqlite3.bind stmt i (Sqlite3.Data.TEXT v))
+    match actor_snap_encoded with
+    | Error e -> Error e
+    | Ok actor_snap_pair -> begin
+        let sql =
+          "INSERT OR IGNORE INTO github_work_items (dedup_key, delivery_id, \
+           repo_full_name, is_pr, issue_number, requester, trigger, \
+           runner_pref, host_pref, prompt, preamble, policy_ref, \
+           actor_snapshot_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        in
+        let stmt = Sqlite3.prepare db sql in
+        let inserted =
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              let bind_text i v =
+                ignore (Sqlite3.bind stmt i (Sqlite3.Data.TEXT v))
+              in
+              let bind_opt i = function
+                | Some v when String.trim v <> "" -> bind_text i v
+                | _ -> ignore (Sqlite3.bind stmt i Sqlite3.Data.NULL)
+              in
+              bind_text 1 dedup_key;
+              bind_opt 2 delivery_id;
+              bind_text 3 repo_full_name;
+              ignore
+                (Sqlite3.bind stmt 4
+                   (Sqlite3.Data.INT (if is_pr then 1L else 0L)));
+              ignore
+                (Sqlite3.bind stmt 5
+                   (Sqlite3.Data.INT (Int64.of_int issue_number)));
+              bind_text 6 requester;
+              bind_text 7 trigger;
+              bind_opt 8 runner_pref;
+              bind_opt 9 host_pref;
+              bind_text 10 prompt;
+              bind_text 11 preamble;
+              bind_opt 12 policy_ref;
+              (match actor_snap_pair with
+              | None -> ignore (Sqlite3.bind stmt 13 Sqlite3.Data.NULL)
+              | Some (_j, s) -> bind_text 13 s);
+              ignore (Sqlite3.step stmt);
+              Sqlite3.changes db > 0)
+        in
+        let fetch () =
+          let sql =
+            Printf.sprintf
+              "SELECT %s FROM github_work_items WHERE dedup_key = ?"
+              select_columns
           in
-          let bind_opt i = function
-            | Some v when String.trim v <> "" -> bind_text i v
-            | _ -> ignore (Sqlite3.bind stmt i Sqlite3.Data.NULL)
-          in
-          bind_text 1 dedup_key;
-          bind_opt 2 delivery_id;
-          bind_text 3 repo_full_name;
-          ignore
-            (Sqlite3.bind stmt 4 (Sqlite3.Data.INT (if is_pr then 1L else 0L)));
-          ignore
-            (Sqlite3.bind stmt 5 (Sqlite3.Data.INT (Int64.of_int issue_number)));
-          bind_text 6 requester;
-          bind_text 7 trigger;
-          bind_opt 8 runner_pref;
-          bind_opt 9 host_pref;
-          bind_text 10 prompt;
-          bind_text 11 preamble;
-          bind_opt 12 policy_ref;
-          ignore (Sqlite3.step stmt);
-          Sqlite3.changes db > 0)
-    in
-    let fetch () =
-      let sql =
-        Printf.sprintf "SELECT %s FROM github_work_items WHERE dedup_key = ?"
-          select_columns
-      in
-      let stmt = Sqlite3.prepare db sql in
-      Fun.protect
-        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-        (fun () ->
-          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT dedup_key));
-          match Sqlite3.step stmt with
-          | Sqlite3.Rc.ROW -> Some (of_stmt stmt)
-          | _ -> None)
-    in
-    match fetch () with
-    | Some item -> Ok (if inserted then Created item else Duplicate item)
-    | None ->
-        Error
-          (Printf.sprintf
-             "Failed to record work item %s: row not found after insert. Check \
-              the database is writable and retry."
-             dedup_key)
-  end
+          let stmt = Sqlite3.prepare db sql in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT dedup_key));
+              match Sqlite3.step stmt with
+              | Sqlite3.Rc.ROW -> Some (of_stmt stmt)
+              | _ -> None)
+        in
+        match fetch () with
+        | Some item when inserted -> Ok (Created item)
+        | Some item -> (
+            (* Duplicate: preserve initiating snapshot; reject borrow. *)
+            match (item.actor_snapshot_json, actor_snap_pair) with
+            | _, None -> Ok (Duplicate item)
+            | None, Some _ ->
+                (* First-wins for already-queued unattributed items. *)
+                Ok (Duplicate item)
+            | Some existing_j, Some (offered_j, _) -> (
+                match
+                  ( Github_durable_job_actor_attribution.snapshot_of_storage_json
+                      existing_j,
+                    Github_durable_job_actor_attribution
+                    .snapshot_of_storage_json offered_j )
+                with
+                | Error e, _ | _, Error e -> Error e
+                | Ok existing_s, Ok offered_s -> (
+                    match
+                      Github_durable_job_actor_attribution
+                      .reject_conflicting_snapshot ~existing:existing_s
+                        ~offered:offered_s
+                    with
+                    | Ok () -> Ok (Duplicate item)
+                    | Error e -> Error e)))
+        | None ->
+            Error
+              (Printf.sprintf
+                 "Failed to record work item %s: row not found after insert. \
+                  Check the database is writable and retry."
+                 dedup_key)
+      end
+
+let snapshot_of_item (item : t) : (Actor_snapshot.t option, string) result =
+  match item.actor_snapshot_json with
+  | None -> Ok None
+  | Some j -> (
+      match Github_durable_job_actor_attribution.snapshot_of_storage_json j with
+      | Ok s -> Ok (Some s)
+      | Error e ->
+          Error
+            (Printf.sprintf "malformed actor_snapshot on work item %d: %s"
+               item.id e))
 
 (** {1 Lookup} *)
 
@@ -294,6 +370,62 @@ let get ~db ~id : t option =
       match Sqlite3.step stmt with
       | Sqlite3.Rc.ROW -> Some (of_stmt stmt)
       | _ -> None)
+
+(** Write-once pin of initiating Actor_snapshot. Succeeds when the column is
+    empty or already holds the same initiating lineage. Never overwrites a
+    different initiator. *)
+let pin_actor_snapshot ~db ~id ~(snapshot : Actor_snapshot.t) :
+    (t, string) result =
+  init_schema db;
+  match get ~db ~id with
+  | None -> Error (Printf.sprintf "work item %d not found" id)
+  | Some item -> (
+      match
+        Github_durable_job_actor_attribution.snapshot_to_storage_json snapshot
+      with
+      | Error e -> Error e
+      | Ok offered_j -> (
+          match item.actor_snapshot_json with
+          | Some existing_j -> (
+              match
+                ( Github_durable_job_actor_attribution.snapshot_of_storage_json
+                    existing_j,
+                  Github_durable_job_actor_attribution.snapshot_of_storage_json
+                    offered_j )
+              with
+              | Error e, _ | _, Error e -> Error e
+              | Ok existing_s, Ok offered_s -> (
+                  match
+                    Github_durable_job_actor_attribution
+                    .reject_conflicting_snapshot ~existing:existing_s
+                      ~offered:offered_s
+                  with
+                  | Ok () -> Ok item
+                  | Error e -> Error e))
+          | None -> (
+              let sql =
+                "UPDATE github_work_items SET actor_snapshot_json = ? WHERE id \
+                 = ? AND actor_snapshot_json IS NULL"
+              in
+              let stmt = Sqlite3.prepare db sql in
+              ignore
+                (Sqlite3.bind stmt 1
+                   (Sqlite3.Data.TEXT (Yojson.Safe.to_string offered_j)));
+              ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+              let rc = Sqlite3.step stmt in
+              ignore (Sqlite3.finalize stmt);
+              match rc with
+              | Sqlite3.Rc.DONE -> (
+                  match get ~db ~id with
+                  | Some item -> Ok item
+                  | None ->
+                      Error
+                        (Printf.sprintf
+                           "work item %d missing after actor_snapshot pin" id))
+              | rc ->
+                  Error
+                    (Printf.sprintf "pin_actor_snapshot failed: %s (%s)"
+                       (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))))
 
 let find_by_task ~db ~background_task_id : t option =
   let sql =

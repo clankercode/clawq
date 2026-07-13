@@ -67,6 +67,10 @@ val plan_background :
   base_revision:string ->
   ?route:Github_route_store.t ->
   ?pilot:pilot_gate ->
+  ?actor_key:Principal_identity.connector_actor_key ->
+  ?actor_snapshot:Actor_snapshot.t ->
+  ?account_binding_id:string ->
+  ?session_id:string ->
   ?now:float ->
   unit ->
   (Setup_plan.t, string) result
@@ -74,18 +78,27 @@ val plan_background :
     [Generic "github_room_background_work"]. Payload names room, dedup_key,
     optional item_key / thread_ref / runner_pref, pilot, and webhook
     correlation. Secret-free. No live mutation. Defaults [pilot] to
-    [default_pilot_gate] (deny). *)
+    [default_pilot_gate] (deny).
+
+    Optional [actor_key] / [actor_snapshot] pins initiating attribution via
+    [Github_action_actor_attribution] (immutable evidence; re-resolve at
+    apply/exec). *)
 
 val enqueue_work_item :
   db:Sqlite3.db ->
   req:request ->
+  ?actor_snapshot:Actor_snapshot.t ->
   ?now:float ->
   unit ->
   (Github_work_item.t, string) result
 (** Idempotent on [dedup_key] via [Github_work_item.create_if_new]. Returns the
     existing item on duplicate (no second work item). Parses [item_key] when
     present ([issue:repo:n] / [pr:repo:n] / [item:repo:issue:n] forms);
-    room-scoped synthetic identity when absent. *)
+    room-scoped synthetic identity when absent.
+
+    Optional [actor_snapshot] is stored token-free on the work item and
+    preserved across retry / cancel / restart. Conflicting lineage on duplicate
+    is rejected. *)
 
 val cancel_work_item :
   db:Sqlite3.db -> id:int -> unit -> (Github_work_item.t, string) result
