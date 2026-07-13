@@ -54,7 +54,8 @@ tasks:
       file: T004-add-route-and-app-readiness-ex.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add route and App readiness explain audit repair and redaction tests
     - complexity: medium
       depends_on:
