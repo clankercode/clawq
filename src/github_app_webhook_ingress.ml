@@ -175,6 +175,9 @@ let extract_fields (payload : Yojson.Safe.t) =
 let is_installation_event event =
   event = "installation" || event = "installation_repositories"
 
+let is_authorization_revocation_event event =
+  String.equal event "github_app_authorization"
+
 let is_ping event = String.equal event "ping"
 
 let event_allowed ~allowed_events ~event =
@@ -235,8 +238,11 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                   rejected Invalid_payload
                     (Printf.sprintf "invalid JSON payload: %s" msg)
               | Ok payload -> (
-                  let installation_id, app_id, app_ids_match, repo_full_name,
-                      action =
+                  let ( installation_id,
+                        app_id,
+                        app_ids_match,
+                        repo_full_name,
+                        action ) =
                     extract_fields payload
                   in
                   let app_result =
@@ -246,12 +252,31 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                          App id, still reject a conflicting identity. *)
                       match app_id with
                       | Some app_id
-                        when not app_ids_match || app_id <> expected_app_id ->
+                        when (not app_ids_match) || app_id <> expected_app_id ->
                           Error
                             ( App_id_mismatch,
                               "ping payload App identity does not match the \
                                configured App" )
-                      | _ -> Ok ()
+                      | _ -> Ok None
+                    else if is_authorization_revocation_event event then
+                      (* github_app_authorization is App-global: the webhook is
+                         delivered only to the authorizing App. Payload often
+                         omits app_id; configured expected_app_id is the App
+                         identity. installation / repository are not present. *)
+                      match app_id with
+                      | Some app_id when not app_ids_match ->
+                          Error
+                            ( App_id_mismatch,
+                              "root and installation App identities disagree" )
+                      | Some app_id when app_id <> expected_app_id ->
+                          Error
+                            ( App_id_mismatch,
+                              Printf.sprintf
+                                "payload app_id %d does not match configured \
+                                 App %d"
+                                app_id expected_app_id )
+                      | Some app_id -> Ok (Some app_id)
+                      | None -> Ok (Some expected_app_id)
                     else
                       match app_id with
                       | None ->
@@ -270,13 +295,17 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                                 "payload app_id %d does not match configured \
                                  App %d"
                                 app_id expected_app_id )
-                      | Some _ -> Ok ()
+                      | Some app_id -> Ok (Some app_id)
                   in
                   let scope_result =
                     match app_result with
                     | Error _ as e -> e
-                    | Ok () when is_ping event -> Ok ()
-                    | Ok () -> (
+                    | Ok resolved_app_id when is_ping event ->
+                        Ok resolved_app_id
+                    | Ok resolved_app_id
+                      when is_authorization_revocation_event event ->
+                        Ok resolved_app_id
+                    | Ok resolved_app_id -> (
                         match installation_id with
                         | None ->
                             Error
@@ -296,7 +325,7 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                             | Ok None when is_installation_event event ->
                                 (* A signed installation create/delete event is
                                    allowed to establish or retain a scope. *)
-                                Ok ()
+                                Ok resolved_app_id
                             | Ok None ->
                                 Error
                                   ( Unknown_or_suspended_installation,
@@ -320,7 +349,7 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                                            identity"
                                           iid )
                                 | Some _ when is_installation_event event ->
-                                    Ok ()
+                                    Ok resolved_app_id
                                 | Some _ -> (
                                     match scope.status with
                                     | Github_app_installation_scope.Suspended _
@@ -330,21 +359,22 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                                             Printf.sprintf
                                               "installation %d is %s" iid
                                               (Github_app_installation_scope
-                                               .status_to_string scope.status) )
+                                               .status_to_string scope.status)
+                                          )
                                     | Github_app_installation_scope.Active -> (
                                         match repo_full_name with
                                         | None ->
                                             Error
                                               ( Repo_not_in_scope,
-                                                "missing repository identity for \
-                                                 a non-installation GitHub \
+                                                "missing repository identity \
+                                                 for a non-installation GitHub \
                                                  webhook" )
                                         | Some repo ->
                                             if
                                               Github_app_installation_scope
                                               .is_repo_authorized scope
                                                 ~repo_full_name:repo
-                                            then Ok ()
+                                            then Ok resolved_app_id
                                             else
                                               Error
                                                 ( Repo_not_in_scope,
@@ -352,26 +382,29 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                                                     "repository %S not in \
                                                      installation %d scope"
                                                     repo iid ))))))
-                    in
-                    match scope_result with
-                    | Error (reason, message) -> rejected reason message
-                    | Ok () -> (
-                        let received_at = Time_util.iso8601_utc ~t:now () in
-                        match
-                          insert_delivery ~db ~delivery_id ~event ~received_at
-                        with
-                        | Error `Duplicate -> Duplicate { delivery_id }
-                        | Error (`Db msg) ->
-                            rejected Invalid_payload
-                              (Printf.sprintf "ledger write failed: %s" msg)
-                        | Ok () ->
-                            Accepted
-                              {
-                                delivery_id;
-                                event;
-                                installation_id;
-                                app_id;
-                                repo_full_name;
-                                action;
-                                payload;
-                              })))
+                  in
+                  match scope_result with
+                  | Error (reason, message) -> rejected reason message
+                  | Ok resolved_app_id -> (
+                      let received_at = Time_util.iso8601_utc ~t:now () in
+                      match
+                        insert_delivery ~db ~delivery_id ~event ~received_at
+                      with
+                      | Error `Duplicate -> Duplicate { delivery_id }
+                      | Error (`Db msg) ->
+                          rejected Invalid_payload
+                            (Printf.sprintf "ledger write failed: %s" msg)
+                      | Ok () ->
+                          Accepted
+                            {
+                              delivery_id;
+                              event;
+                              installation_id;
+                              app_id =
+                                (match resolved_app_id with
+                                | Some _ as id -> id
+                                | None -> app_id);
+                              repo_full_name;
+                              action;
+                              payload;
+                            })))
