@@ -43,7 +43,7 @@ tasks:
       file: T003-add-independently-enabled-fres.todo
       id: T003
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Add independently enabled fresh-confirmed merge with live policy checks
     - complexity: high
