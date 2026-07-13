@@ -767,6 +767,131 @@ let test_legacy_snapshot_only_not_full_pin () =
   | None -> ()
   | Some _ -> Alcotest.fail "snapshot-only should not form full delayed pin"
 
+(* -------------------------------------------------------------------------- *)
+(* Token isolation (P21.M3.E3.T004)                                             *)
+(* -------------------------------------------------------------------------- *)
+
+let test_delayed_dispatch_isolates_personal_token () =
+  with_db @@ fun db ->
+  let _pid, key, _link, binding = seed_ada ~db in
+  let snap = capture_snap ~db ~key ~binding ~job_id:"job_iso" in
+  let prior =
+    authorize_allow ~vault_generation:1 ~actor_snapshot_id:(Some snap.id) ()
+  in
+  let pin =
+    assert_ok
+      (Delayed.make_pin ~job_id:"job_iso" ~snapshot:snap ~allow:prior ())
+  in
+  let keys =
+    assert_ok
+      (V.make_single_key_provider ~key_id:"mk-delayed-iso" ~key_version:1
+         ~aes_key ())
+  in
+  let account =
+    assert_ok
+      (V.make_account_key ~principal_id:"prin_ada" ~github_user_id:9001L
+         ~app_id:42 ())
+  in
+  let vault =
+    match
+      V.create ~db ~keys ~id:"ghvault_delayed_iso" ~now:fixed_now ~account
+        ~tokens:sample_tokens ~scopes:[ "repo" ]
+        ~expires_at:"2026-12-01T00:00:00Z" ()
+    with
+    | Ok r -> r
+    | Error d -> Alcotest.fail (V.string_of_denial d)
+  in
+  let live =
+    base_request
+      ~binding:(Auth.Selected (selected ~vault_generation:1 ()))
+      ~actor_snapshot_id:(Some snap.id) ()
+  in
+  match
+    Delayed.issue_for_delayed_dispatch ~db ~job_id:"job_iso" ~pin ~live
+      ~vault_id:vault.id ~now:fixed_now ()
+  with
+  | Error e -> Alcotest.fail e
+  | Ok { envelope = _; issued } ->
+      (match issued.lease with
+      | None -> Alcotest.fail "expected user lease"
+      | Some lease -> (
+          match Token_lease.assert_non_http_refused lease with
+          | Ok () -> ()
+          | Error e -> Alcotest.fail e));
+      let materials = Delayed.isolation_materials_of_pin ~pin ~issued () in
+      (match Token_lease.assert_materials_token_free ~materials with
+      | Ok () -> ()
+      | Error d -> Alcotest.fail (Token_lease.string_of_denial d));
+      secrets_absent (Github_attribution_dispatch_lease.string_of_issued issued);
+      secrets_absent
+        (Yojson.Safe.to_string
+           (Github_attribution_dispatch_lease.issued_to_json issued));
+      (match
+         Delayed.enforce_token_isolation ~db ~lease:(Option.get issued.lease)
+           ~materials:
+             [
+               ( Token_lease.Runner_env,
+                 "GITHUB_TOKEN=" ^ sample_tokens.access_token );
+             ]
+           ~job_id:"job_iso" ~now:fixed_now ()
+       with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "runner env with token shape must be denied");
+      (* Isolation audit present. *)
+      let audits =
+        Audit.list_by_action ~db ~action:"delayed_work" ~limit:20 ()
+      in
+      Alcotest.(check bool)
+        "isolation audit" true
+        (List.exists
+           (fun (r : Audit.t) -> contains ~needle:"token_isolation" r.reason)
+           audits);
+      Delayed.revoke_issued_lease issued
+
+let test_pin_storage_token_free_and_ambient_refuse () =
+  with_db @@ fun db ->
+  let _pid, key, _link, binding = seed_ada ~db in
+  let snap = capture_snap ~db ~key ~binding ~job_id:"job_ambient" in
+  let allow = authorize_allow ~actor_snapshot_id:(Some snap.id) () in
+  let pin =
+    assert_ok (Delayed.make_pin ~job_id:"job_ambient" ~snapshot:snap ~allow ())
+  in
+  let materials = Delayed.isolation_materials_of_pin ~pin () in
+  (match Token_lease.assert_materials_token_free ~materials with
+  | Ok () -> ()
+  | Error d -> Alcotest.fail (Token_lease.string_of_denial d));
+  (match Delayed.pin_to_storage_json pin with
+  | Error e -> Alcotest.fail e
+  | Ok j -> secrets_absent (Yojson.Safe.to_string j));
+  (* Scheduled ambient surface refuses any user lease (App identity only). *)
+  let keys =
+    assert_ok
+      (V.make_single_key_provider ~key_id:"mk-ambient" ~key_version:1 ~aes_key
+         ())
+  in
+  let account =
+    assert_ok
+      (V.make_account_key ~principal_id:"prin_ada" ~github_user_id:9001L
+         ~app_id:42 ())
+  in
+  let vault =
+    match
+      V.create ~db ~keys ~id:"ghvault_ambient" ~now:fixed_now ~account
+        ~tokens:sample_tokens ~scopes:[] ~expires_at:"2026-12-01T00:00:00Z" ()
+    with
+    | Ok r -> r
+    | Error d -> Alcotest.fail (V.string_of_denial d)
+  in
+  match Token_lease.issue ~db ~now:fixed_now ~vault_id:vault.id () with
+  | Error d -> Alcotest.fail (Token_lease.string_of_denial d)
+  | Ok lease -> (
+      match Token_lease.refuse_scheduled_ambient lease with
+      | Error (Token_lease.Forbidden_surface s) ->
+          Alcotest.(check bool)
+            "ambient msg" true
+            (contains ~needle:"ambient" s || contains ~needle:"scheduled" s)
+      | _ -> Alcotest.fail "scheduled ambient must refuse user lease")
+
 let suite =
   [
     ("make pin token-free roundtrip", `Quick, test_make_pin_token_free);
@@ -804,4 +929,10 @@ let suite =
     ( "legacy snapshot-only is not full delayed pin",
       `Quick,
       test_legacy_snapshot_only_not_full_pin );
+    ( "delayed dispatch isolates personal token",
+      `Quick,
+      test_delayed_dispatch_isolates_personal_token );
+    ( "pin storage token-free and ambient refuses user lease",
+      `Quick,
+      test_pin_storage_token_free_and_ambient_refuse );
   ]

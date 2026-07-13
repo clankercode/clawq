@@ -10,7 +10,10 @@
     / {!with_authorization_header} callbacks for GitHub HTTP dispatch. It is
     never returned from this module's public values, never embedded in lease
     JSON / string / log helpers, and there is intentionally no API that injects
-    user tokens into runner env, shell, or Git transport.
+    user tokens into runner env, process env, shell, Git transport, worktrees,
+    prompts, tool data, job payloads, crash output, or scheduled ambient work.
+    Attempted non-HTTP use is refused ({!refuse} / {!assert_non_http_refused})
+    and free-form materials can be shape-scanned ({!text_contains_token_shape}).
 
     Fail-closed at use time:
     - lease expired (TTL)
@@ -225,11 +228,73 @@ val json_contains_plaintext : json:Yojson.Safe.t -> plaintext:string -> bool
 val identity_contains_plaintext : identity:identity -> plaintext:string -> bool
 (** Test helper: true if [plaintext] appears in any identity string field. *)
 
-(** {1 Explicit refuse surfaces}
+(** {1 Explicit refuse surfaces (non-HTTP)}
 
-    User tokens must never enter runner env, shell, or Git transport. These
-    always fail closed so call sites can document the contract in types. *)
+    User tokens must never enter external runners, process environments, shell
+    tools, Git remotes/transport, worktrees, prompts, tool data, job payloads,
+    crash output, or scheduled ambient automation. These always fail closed so
+    call sites can document the contract in types. HTTP use goes only through
+    {!with_token} / {!with_authorization_header}. *)
+
+type non_http_surface =
+  | Runner_env  (** Hosted / automation runner process environment. *)
+  | Process_env  (** Any subprocess [env] array (broader than runner). *)
+  | Shell  (** Shell tools / shell command injection. *)
+  | Git_transport  (** Git remotes, credential helpers, HTTPS push auth. *)
+  | Worktree  (** Agent worktree files or git config inside a worktree. *)
+  | Prompt  (** Model prompts / Session history text. *)
+  | Tool_data  (** Tool arguments / tool results. *)
+  | Job_payload  (** Durable job / outbox / work-item payloads. *)
+  | Crash_output  (** Crash logs, stderr dumps, operator error strings. *)
+  | Scheduled_ambient
+      (** Scheduled / ambient automation (must stay App-attributed). *)
+
+val string_of_non_http_surface : non_http_surface -> string
+
+val all_non_http_surfaces : non_http_surface list
+(** Canonical ordered list of every non-HTTP surface. *)
+
+val refuse : lease -> non_http_surface -> (unit, denial) result
+(** Always [Error (Forbidden_surface _)]. Documents that [lease] cannot be used
+    on that surface. *)
 
 val refuse_runner_env : lease -> (unit, denial) result
+val refuse_process_env : lease -> (unit, denial) result
 val refuse_shell_injection : lease -> (unit, denial) result
 val refuse_git_transport : lease -> (unit, denial) result
+val refuse_worktree : lease -> (unit, denial) result
+val refuse_prompt : lease -> (unit, denial) result
+val refuse_tool_data : lease -> (unit, denial) result
+val refuse_job_payload : lease -> (unit, denial) result
+val refuse_crash_output : lease -> (unit, denial) result
+val refuse_scheduled_ambient : lease -> (unit, denial) result
+
+val assert_non_http_refused : lease -> (unit, string) result
+(** Proves each {!all_non_http_surfaces} entry refuses [lease]. Returns [Ok ()]
+    only when every surface yields [Forbidden_surface]; [Error] if any surface
+    incorrectly permits use. *)
+
+(** {1 Shape-based scanning}
+
+    Materials must stay token-free. Detect GitHub user / PAT token shapes in
+    free-form text without opening a lease. Used to deny transport injection
+    attempts and to scan plans, jobs, receipts, crash output, env entries, and
+    argv. *)
+
+val text_contains_token_shape : string -> bool
+(** True when [text] contains a GitHub user/app/PAT token shape ([ghu_], [ghr_],
+    [ghp_], [gho_], [ghs_], [github_pat_]) or a [Bearer] credential blob. *)
+
+val materials_contain_token_shape : string list -> bool
+val env_entries_contain_token_shape : string list -> bool
+val argv_contains_token_shape : string array -> bool
+
+val refuse_scanned_material :
+  surface:non_http_surface -> material:string -> (unit, denial) result
+(** [Ok ()] when [material] is free of token shapes;
+    [Error (Forbidden_surface _)] when a shape is present (attempted injection /
+    leak). *)
+
+val assert_materials_token_free :
+  materials:(non_http_surface * string) list -> (unit, denial) result
+(** Fail closed on the first material that contains a token shape. *)

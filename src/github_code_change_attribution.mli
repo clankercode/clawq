@@ -240,3 +240,35 @@ val prepare_dispatch_from_plan :
 
 val revoke_issued_lease : Dispatch.issued -> unit
 (** Best-effort revoke of a just-issued user lease (receipt-only apply). *)
+
+(** {1 Token isolation (P21.M3.E3.T004)}
+
+    Confirmed user-attributed code work receives only opaque action context and
+    HTTP-boundary leases. Runner, process env, shell, Git transport, worktree,
+    prompt, tool, job, crash, and scheduled ambient surfaces are refused;
+    free-form materials are shape-scanned. Results are audited. *)
+
+val enforce_token_isolation :
+  db:Sqlite3.db ->
+  ?lease:Github_user_token_lease.lease ->
+  ?materials:(Github_user_token_lease.non_http_surface * string) list ->
+  ?item_key:string ->
+  ?room_id:string ->
+  ?plan_id:string ->
+  ?receipt_id:string ->
+  ?actor_snapshot:Actor_snapshot.t ->
+  ?now:float ->
+  unit ->
+  (Audit.t, string) result
+(** When [lease] is present, assert every non-HTTP surface refuses it. Scan
+    optional [materials] for token shapes (deny + repair audit on hit). On
+    success record a secret-free [Audit] isolation receipt. *)
+
+val isolation_materials_of_issued :
+  issued:Dispatch.issued ->
+  ?plan:Setup_plan.t ->
+  ?extra:(Github_user_token_lease.non_http_surface * string) list ->
+  unit ->
+  (Github_user_token_lease.non_http_surface * string) list
+(** Build scan materials from issued redacted JSON, receipt-safe strings, and
+    optional plan persist payload (never opens the lease). *)

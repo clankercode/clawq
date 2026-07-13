@@ -366,6 +366,72 @@ let test_refuse_runner_shell_git_surfaces () =
       Alcotest.(check bool) "git msg" true (String_util.contains s "Git")
   | _ -> Alcotest.fail "git must refuse"
 
+let test_assert_all_non_http_surfaces_refused () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let rec_ = create_vault ~db ~keys () in
+  let lease = issue_ok ~db ~vault_id:rec_.id () in
+  Alcotest.(check bool)
+    "all surfaces listed" true
+    (List.length L.all_non_http_surfaces >= 10);
+  List.iter
+    (fun surface ->
+      match L.refuse lease surface with
+      | Error (L.Forbidden_surface _) -> ()
+      | Error d ->
+          Alcotest.fail
+            ("expected Forbidden_surface for "
+            ^ L.string_of_non_http_surface surface
+            ^ " got " ^ L.string_of_denial d)
+      | Ok () ->
+          Alcotest.fail
+            ("surface incorrectly permitted: "
+            ^ L.string_of_non_http_surface surface))
+    L.all_non_http_surfaces;
+  match L.assert_non_http_refused lease with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail e
+
+let test_token_shape_scan_and_refuse_material () =
+  let clean = "dispatch ok mode=user lease=ghlease_1 gen=1" in
+  let dirty_ghu = "Authorization: Bearer ghu_access_SCAN_PLAINTEXT_never" in
+  let dirty_env = "GITHUB_TOKEN=ghu_abc123_token_value" in
+  let dirty_pat = "export TOKEN=github_pat_11AAAA_secret" in
+  Alcotest.(check bool) "clean free" false (L.text_contains_token_shape clean);
+  Alcotest.(check bool) "ghu hit" true (L.text_contains_token_shape dirty_ghu);
+  Alcotest.(check bool) "env hit" true (L.text_contains_token_shape dirty_env);
+  Alcotest.(check bool) "pat hit" true (L.text_contains_token_shape dirty_pat);
+  Alcotest.(check bool)
+    "argv hit" true
+    (L.argv_contains_token_shape
+       [| "git"; "push"; "https://x-access-token:ghu_xyz@github.com/o/r.git" |]);
+  Alcotest.(check bool)
+    "env list hit" true
+    (L.env_entries_contain_token_shape
+       [ "PATH=/usr/bin"; "GH_TOKEN=gho_server_token_value" ]);
+  (match L.refuse_scanned_material ~surface:L.Runner_env ~material:clean with
+  | Ok () -> ()
+  | Error d -> Alcotest.fail (L.string_of_denial d));
+  (match
+     L.refuse_scanned_material ~surface:L.Git_transport ~material:dirty_ghu
+   with
+  | Error (L.Forbidden_surface s) ->
+      Alcotest.(check bool)
+        "scan msg" true
+        (String_util.contains s "token shape"
+        || String_util.contains s "git_transport")
+  | _ -> Alcotest.fail "dirty git transport material must refuse");
+  match
+    L.assert_materials_token_free
+      ~materials:
+        [
+          (L.Job_payload, clean); (L.Shell, dirty_env); (L.Crash_output, clean);
+        ]
+  with
+  | Error (L.Forbidden_surface _) -> ()
+  | Ok () -> Alcotest.fail "mixed materials must fail on dirty entry"
+  | Error d -> Alcotest.fail (L.string_of_denial d)
+
 let test_issue_from_record_no_decrypt () =
   with_db @@ fun db ->
   let keys = make_keys () in
@@ -406,6 +472,10 @@ let suite =
       test_discard_for_vault;
     Alcotest.test_case "refuse runner/shell/git surfaces" `Quick
       test_refuse_runner_shell_git_surfaces;
+    Alcotest.test_case "assert all non-HTTP surfaces refuse lease" `Quick
+      test_assert_all_non_http_surfaces_refused;
+    Alcotest.test_case "token shape scan refuses dirty materials" `Quick
+      test_token_shape_scan_and_refuse_material;
     Alcotest.test_case "issue_from_record needs no decrypt" `Quick
       test_issue_from_record_no_decrypt;
   ]

@@ -211,6 +211,35 @@ val issue_for_delayed_dispatch :
 val revoke_issued_lease : Lease.issued -> unit
 (** Best-effort revoke of a just-issued user lease. *)
 
+(** {1 Token isolation (P21.M3.E3.T004)}
+
+    Delayed / background pins and issued leases stay token-free. Non-HTTP
+    surfaces (including scheduled ambient automation) refuse user leases;
+    durable materials are shape-scanned and audited. Ambient work remains
+    App-attributed. *)
+
+val enforce_token_isolation :
+  db:Sqlite3.db ->
+  ?lease:Github_user_token_lease.lease ->
+  ?materials:(Github_user_token_lease.non_http_surface * string) list ->
+  ?job_id:string ->
+  ?item_key:string ->
+  ?room_id:string ->
+  ?plan_id:string ->
+  ?actor_snapshot:Actor_snapshot.t ->
+  ?now:float ->
+  unit ->
+  (Audit.t, string) result
+(** Assert non-HTTP refuse for [lease] (when present), scan materials, audit. *)
+
+val isolation_materials_of_pin :
+  pin:pin ->
+  ?issued:Lease.issued ->
+  ?extra:(Github_user_token_lease.non_http_surface * string) list ->
+  unit ->
+  (Github_user_token_lease.non_http_surface * string) list
+(** Token-free pin / issued JSON materials for scanning. *)
+
 (** {1 Conflicting pin rejection (write-once / first-wins)} *)
 
 val reject_conflicting_pin :
