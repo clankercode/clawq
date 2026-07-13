@@ -81,7 +81,8 @@ tasks:
       file: T007-implement-staged-master-key-ro.todo
       id: T007
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement staged master-key rotation and resumable rewrap
     - complexity: high
       depends_on:
