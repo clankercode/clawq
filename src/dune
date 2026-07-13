@@ -219,6 +219,7 @@
   github_action_reconcile
   github_room_tools
   github_auth_selection
+  github_attribution_policy
   github_user_auth_readiness
   credential_lease
   skills
