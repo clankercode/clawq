@@ -33,7 +33,7 @@ tasks:
       file: T002-carry-actor-snapshots-through.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Carry Actor snapshots through P19 action intents and confirmations
     - complexity: high
