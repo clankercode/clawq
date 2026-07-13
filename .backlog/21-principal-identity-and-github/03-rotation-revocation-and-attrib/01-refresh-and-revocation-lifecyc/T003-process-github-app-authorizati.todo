@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T04:27:15Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T04:49:42Z"
 complexity: high
 created_at: "2026-07-12T14:52:45Z"
 depends_on:
     - P19.M2.E1.T004
     - P21.M2.E4.T004
+duration_minutes: 22.454605904866668
 estimate_hours: 4
 id: P21.M3.E1.T003
 priority: critical
 started_at: "2026-07-13T04:27:15Z"
-status: in_progress
+status: done
 tags: []
 title: Process GitHub App authorization revocation webhooks
-updated_at: "2026-07-13T04:27:15Z"
+updated_at: "2026-07-13T04:49:42Z"
 ---
 Acceptance: Verified App identity plus sender numeric ID idempotently disables every matching binding, increments generations, blocks refresh/API/jobs, destroys local secrets, and records one redacted receipt. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
