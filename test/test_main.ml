@@ -192,6 +192,7 @@ let () =
        ("github_attribution_authorize", Test_github_attribution_authorize.suite);
        ( "github_attribution_dispatch_lease",
          Test_github_attribution_dispatch_lease.suite );
+       ("github_attribution_rollout", Test_github_attribution_rollout.suite);
        ("github_user_auth_readiness", Test_github_user_auth_readiness.suite);
        ("github_user_auth_tx", Test_github_user_auth_tx.suite);
        ("github_user_auth_delivery", Test_github_user_auth_delivery.suite);

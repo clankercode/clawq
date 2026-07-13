@@ -131,6 +131,7 @@ let base_request ?(action = "merge") ?(tool_authorized = true)
       { ok = live_ok; revision = live_revision; detail = live_detail };
     pin;
     actor_snapshot_id;
+    fallback = A.default_fallback_context;
   }
 
 let prior_allow ?(request = base_request ()) () : A.allow =
