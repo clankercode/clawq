@@ -314,71 +314,57 @@ let test_workflow_apply_receipt_path () =
   (match plan.apply_payload.kind with
   | Setup_plan.Generic "github_issue_create" -> ()
   | _ -> Alcotest.fail "expected github_issue_create via workflow");
+  (* Ordinary issue actions fail closed: no live REST dispatcher in pilot. *)
+  (match
+     assert_ok
+       (W.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest ~principal
+          ~current_base_revision:base_revision ~now:fixed_now ())
+   with
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "apply_error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (Test_helpers.string_contains message "dispatcher")
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "apply must fail closed until a live dispatcher exists");
+  (* Wrong digest still rejects before domain apply. *)
+  let plan2 =
+    assert_ok
+      (W.preview ~db ~principal ~room_id ~action:(W.Issue close_action)
+         ~base_revision ~route ~issue_pilot:pilot_on
+         ~user_auth_available:false ~now:(fixed_now +. 2.) ())
+  in
+  (match
+     assert_ok
+       (W.apply_confirmed ~db ~plan_id:plan2.id
+          ~digest:"deadbeef_wrong_digest" ~principal
+          ~current_base_revision:base_revision ~now:(fixed_now +. 2.) ())
+   with
+  | Setup_plan_apply.Rejected { reason; _ } ->
+      Alcotest.(check string)
+        "digest" "digest_mismatch"
+        (Setup_plan_apply.string_of_reject_reason reason)
+  | Setup_plan_apply.Applied _ -> Alcotest.fail "expected digest mismatch");
+  (* Stale revision. *)
+  let plan3 =
+    assert_ok
+      (W.preview ~db ~principal ~room_id
+         ~action:(W.Issue (A.Reopen { item_key; comment = None }))
+         ~base_revision ~route ~issue_pilot:pilot_on
+         ~user_auth_available:false ~now:(fixed_now +. 3.) ())
+  in
   match
     assert_ok
-      (W.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest ~principal
-         ~current_base_revision:base_revision ~now:fixed_now ())
+      (W.apply_confirmed ~db ~plan_id:plan3.id ~digest:plan3.digest
+         ~principal ~current_base_revision:"rev-stale"
+         ~now:(fixed_now +. 3.) ())
   with
-  | Setup_plan_apply.Rejected { reason; message } ->
-      Alcotest.fail
-        (Printf.sprintf "unexpected reject %s: %s"
-           (Setup_plan_apply.string_of_reject_reason reason)
-           message)
-  | Setup_plan_apply.Applied { receipt_id; first_time } -> (
-      Alcotest.(check bool) "first apply" true first_time;
-      Alcotest.(check bool)
-        "receipt non-empty" true
-        (String.length receipt_id > 0);
-      (* Idempotent retry / replay. *)
-      (match
-         assert_ok
-           (W.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest
-              ~principal ~current_base_revision:base_revision
-              ~now:(fixed_now +. 1.) ())
-       with
-      | Setup_plan_apply.Applied { receipt_id = r2; first_time = false } ->
-          Alcotest.(check string) "same receipt" receipt_id r2
-      | Setup_plan_apply.Applied { first_time = true; _ } ->
-          Alcotest.fail "retry should be idempotent"
-      | Setup_plan_apply.Rejected { message; _ } ->
-          Alcotest.fail ("retry rejected: " ^ message));
-      (* Wrong digest rejects. *)
-      let plan2 =
-        assert_ok
-          (W.preview ~db ~principal ~room_id ~action:(W.Issue close_action)
-             ~base_revision ~route ~issue_pilot:pilot_on
-             ~user_auth_available:false ~now:(fixed_now +. 2.) ())
-      in
-      (match
-         assert_ok
-           (W.apply_confirmed ~db ~plan_id:plan2.id
-              ~digest:"deadbeef_wrong_digest" ~principal
-              ~current_base_revision:base_revision ~now:(fixed_now +. 2.) ())
-       with
-      | Setup_plan_apply.Rejected { reason; _ } ->
-          Alcotest.(check string)
-            "digest" "digest_mismatch"
-            (Setup_plan_apply.string_of_reject_reason reason)
-      | Setup_plan_apply.Applied _ -> Alcotest.fail "expected digest mismatch");
-      (* Stale revision. *)
-      let plan3 =
-        assert_ok
-          (W.preview ~db ~principal ~room_id
-             ~action:(W.Issue (A.Reopen { item_key; comment = None }))
-             ~base_revision ~route ~issue_pilot:pilot_on
-             ~user_auth_available:false ~now:(fixed_now +. 3.) ())
-      in
-      match
-        assert_ok
-          (W.apply_confirmed ~db ~plan_id:plan3.id ~digest:plan3.digest
-             ~principal ~current_base_revision:"rev-stale"
-             ~now:(fixed_now +. 3.) ())
-      with
-      | Setup_plan_apply.Rejected { reason; _ } ->
-          Alcotest.(check string)
-            "stale" "stale_revision"
-            (Setup_plan_apply.string_of_reject_reason reason)
-      | Setup_plan_apply.Applied _ -> Alcotest.fail "expected stale revision")
+  | Setup_plan_apply.Rejected { reason; _ } ->
+      Alcotest.(check string)
+        "stale" "stale_revision"
+        (Setup_plan_apply.string_of_reject_reason reason)
+  | Setup_plan_apply.Applied _ -> Alcotest.fail "expected stale revision"
 
 (* 9. invalid inputs / state_reason *)
 let test_validation_denies_bad_inputs () =
