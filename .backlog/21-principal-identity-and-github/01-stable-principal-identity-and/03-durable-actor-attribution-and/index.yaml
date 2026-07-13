@@ -60,7 +60,7 @@ tasks:
       file: T004-prove-cross-principal-isolatio.todo
       id: T004
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Prove cross-Principal isolation and delayed-work attribution
     - complexity: high

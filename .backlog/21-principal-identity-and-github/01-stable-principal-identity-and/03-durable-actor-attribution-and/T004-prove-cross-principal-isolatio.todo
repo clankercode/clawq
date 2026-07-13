@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T05:34:28Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:12Z"
@@ -11,10 +13,10 @@ depends_on:
 estimate_hours: 6
 id: P21.M1.E3.T004
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T05:34:28Z"
+status: in_progress
 tags: []
 title: Prove cross-Principal isolation and delayed-work attribution
-updated_at: "2026-07-12T14:51:12Z"
+updated_at: "2026-07-13T05:34:28Z"
 ---
 Acceptance: Tests cover every trust adapter, two users in one Room, same IDs across tenants, rename, verified link, deterministic adoption, duplicate-account conflict, ambiguity, unlink/split/revoke, restart/retry, stale snapshots, receipts/webhooks, and legacy rows. No selection uses Room history or another credential; historical evidence remains stable while current authority follows only valid lineage. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
