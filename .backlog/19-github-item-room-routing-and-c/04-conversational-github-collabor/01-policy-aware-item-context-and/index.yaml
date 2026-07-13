@@ -54,6 +54,6 @@ tasks:
       file: T004-add-reviewer-requests-and-pr-r.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Add reviewer requests and PR review submission
