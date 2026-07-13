@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T03:27:51Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T03:44:20Z"
 complexity: high
 created_at: "2026-07-12T17:01:19Z"
 depends_on:
     - P21.M2.E4.T002
     - P21.M2.E4.T006
+duration_minutes: 16.48954771205
 estimate_hours: 6
 id: P21.M2.E4.T007
 priority: critical
 started_at: "2026-07-13T03:27:51Z"
-status: in_progress
+status: done
 tags: []
 title: Implement staged master-key rotation and resumable rewrap
-updated_at: "2026-07-13T03:27:51Z"
+updated_at: "2026-07-13T03:44:20Z"
 ---
 Acceptance: Staged rotation introduces a new key version, rewraps records with CAS and unique nonces, resumes after crashes, rejects mixed/unknown versions safely, verifies completion before retiring the old key, and supports rollback only while both authorized keys remain. Concurrent CRUD/refresh/revoke cannot lose or reactivate authority. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
