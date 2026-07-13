@@ -57,6 +57,12 @@ val init_schema : Sqlite3.db -> unit
 val store_plan : db:Sqlite3.db -> Setup_plan.t -> (unit, string) result
 (** Persist a redacted plan as [pending]. Fails if plan id already exists. *)
 
+val replace_pending_plan :
+  db:Sqlite3.db -> Setup_plan.t -> (unit, string) result
+(** Replace [plan_json] + [digest] for an existing [pending] plan (same id).
+    Used to restamp actor snapshots onto a just-created intent without changing
+    identity of the plan row. Fails if missing or not pending. *)
+
 val get_plan : db:Sqlite3.db -> plan_id:string -> Setup_plan.t option
 
 val apply :

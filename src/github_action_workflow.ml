@@ -1,6 +1,8 @@
 (* Shared revision-bound plan → confirm → apply for GitHub mutating actions.
    See github_action_workflow.mli. *)
 
+module Attr = Github_action_actor_attribution
+
 type action_kind =
   | Collab of Github_collab_actions.action
   | Request_reviewers of Github_pr_review_actions.request_reviewers
@@ -49,36 +51,96 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
 
 let authority_allow ~principal:_ ~destination:_ = Ok ()
 
+(** Optionally pin an initiating Actor snapshot onto a just-created pending
+    plan. Room/session are source context only — identity comes from [actor_key]
+    / [actor_snapshot], never Room history. *)
+let maybe_attach_actor_snapshot ~db ~plan ~room_id ?session_id ?actor_key
+    ?actor_snapshot ?account_binding_id ?now () =
+  match (actor_snapshot, actor_key) with
+  | None, None -> Ok plan
+  | Some (snap : Actor_snapshot.t), Some key -> (
+      let initiating =
+        let open Actor_snapshot in
+        snap.lineage.actor_key
+      in
+      match Attr.assert_not_borrowed_identity ~initiating ~claimed:key with
+      | Error e -> Error e
+      | Ok () ->
+          let target = Attr.target_fingerprint_of_plan plan in
+          Attr.attach_and_restamp ~db ~plan ~snapshot:snap ~target ())
+  | Some (snap : Actor_snapshot.t), None ->
+      let target = Attr.target_fingerprint_of_plan plan in
+      Attr.attach_and_restamp ~db ~plan ~snapshot:snap ~target ()
+  | None, Some key -> (
+      let now = match now with Some t -> t | None -> Unix.gettimeofday () in
+      match
+        Attr.capture_for_intent ~db ~actor_key:key ?account_binding_id ~room_id
+          ?session_id ~intent_id:plan.id ~now ()
+      with
+      | Error e -> Error e
+      | Ok snap ->
+          let target = Attr.target_fingerprint_of_plan plan in
+          Attr.attach_and_restamp ~db ~plan ~snapshot:snap ~target ())
+
 let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(pilot = Github_pr_review_actions.default_pilot_gate)
     ?(merge_pilot = Github_merge_action.default_pilot_gate)
     ?(issue_pilot = Github_issue_actions.default_pilot_gate)
     ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
-    ?(user_auth_available = false) ?(now = Unix.gettimeofday ()) () =
-  match action with
-  | Collab collab ->
-      Github_collab_actions.plan_action ~db ~principal ~room_id ~action:collab
-        ~base_revision ?route ~now ()
-  | Request_reviewers req ->
-      Github_pr_review_actions.plan_request_reviewers ~db ~principal ~room_id
-        ~req ~base_revision ?route ~now ()
-  | Submit_review req ->
-      Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id ~pilot
-        ~user_auth_available ~req ~base_revision ?route ~now ()
-  | Merge { req; policy } ->
-      Github_merge_action.plan_merge ~db ~principal ~room_id ~pilot:merge_pilot
-        ~user_auth_available ~req ~policy ~base_revision ?route ~now ()
-  | Issue issue_action ->
-      Github_issue_actions.plan_action ~db ~principal ~room_id
-        ~pilot:issue_pilot ~user_auth_available ~action:issue_action
-        ~base_revision ?route ~now ()
-  | Workflow_dispatch req ->
-      Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
-        ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision ?route
-        ~now ()
+    ?(user_auth_available = false) ?actor_key ?actor_snapshot
+    ?account_binding_id ?session_id ?(now = Unix.gettimeofday ()) () =
+  let plan_res =
+    match action with
+    | Collab collab ->
+        Github_collab_actions.plan_action ~db ~principal ~room_id ~action:collab
+          ~base_revision ?route ~now ()
+    | Request_reviewers req ->
+        Github_pr_review_actions.plan_request_reviewers ~db ~principal ~room_id
+          ~req ~base_revision ?route ~now ()
+    | Submit_review req ->
+        Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id
+          ~pilot ~user_auth_available ~req ~base_revision ?route ~now ()
+    | Merge { req; policy } ->
+        Github_merge_action.plan_merge ~db ~principal ~room_id
+          ~pilot:merge_pilot ~user_auth_available ~req ~policy ~base_revision
+          ?route ~now ()
+    | Issue issue_action ->
+        Github_issue_actions.plan_action ~db ~principal ~room_id
+          ~pilot:issue_pilot ~user_auth_available ~action:issue_action
+          ~base_revision ?route ~now ()
+    | Workflow_dispatch req ->
+        Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
+          ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision ?route
+          ~now ()
+  in
+  match plan_res with
+  | Error e -> Error e
+  | Ok plan ->
+      maybe_attach_actor_snapshot ~db ~plan ~room_id ?session_id ?actor_key
+        ?actor_snapshot ?account_binding_id ~now ()
+
+let reject_actor_attribution msg : Setup_plan_apply.outcome =
+  Setup_plan_apply.Rejected
+    { reason = Setup_plan_apply.Apply_error; message = msg }
+
+let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
+    ~current_base_revision ~destination_room ?current_target
+    ?(now = Unix.gettimeofday ()) () =
+  match
+    Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
+      ()
+  with
+  | Error msg -> Ok (reject_actor_attribution msg)
+  | Ok _envelope_opt ->
+      (* Snapshot (when present) re-resolved usable; proceed with receipt-only
+         apply. Envelope is available for later live dispatch wiring. *)
+      Ok
+        (Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+           ~current_base_revision ~destination_room ~now
+           ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ())
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
-    ?current_merge_policy ?(now = Unix.gettimeofday ()) () =
+    ?current_merge_policy ?current_target ?(now = Unix.gettimeofday ()) () =
   Setup_plan_apply.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id with
   | None ->
@@ -94,9 +156,16 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
              "plan %s is not a GitHub action plan (apply_payload.kind mismatch)"
              plan_id)
       else if Github_merge_action.is_merge_plan plan then
-        (* Route merge through merge revalidation path. *)
-        Github_merge_action.apply_confirmed ~db ~plan_id ~digest ~principal
-          ~current_base_revision ?current_policy:current_merge_policy ~now ()
+        (* Actor revalidation first, then merge-specific live policy checks. *)
+        match
+          Attr.revalidate_for_apply ~db ~plan ?current_target
+            ~require_snapshot:false ()
+        with
+        | Error msg -> Ok (reject_actor_attribution msg)
+        | Ok _ ->
+            Github_merge_action.apply_confirmed ~db ~plan_id ~digest ~principal
+              ~current_base_revision ?current_policy:current_merge_policy ~now
+              ()
       else
         match plan.destination.room_id with
         | None ->
@@ -105,8 +174,5 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
                  "plan %s has no destination room; cannot apply GitHub action"
                  plan_id)
         | Some destination_room ->
-            Ok
-              (Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-                 ~current_base_revision ~destination_room ~now
-                 ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ())
-      )
+            apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
+              ~current_base_revision ~destination_room ?current_target ~now ())

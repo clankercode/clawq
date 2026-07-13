@@ -1,5 +1,5 @@
 (** Shared revision-bound plan → confirm → apply for GitHub mutating actions
-    (P19.M4.E2.T001 / T003 / T005 / T006).
+    (P19.M4.E2.T001 / T003 / T005 / T006; actor attribution P21.M1.E3.T002).
 
     Unifies collab (comment / label / assign), PR review (request_reviewers /
     submit_review), independently gated merge, Issue create/open/close/reopen,
@@ -10,7 +10,14 @@
     mutation in this task). Merge may also revalidate a fresh [live_policy] when
     supplied.
 
-    Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md and
+    When [actor_key] or [actor_snapshot] is supplied at preview, an immutable
+    [Actor_snapshot] is pinned onto the plan (intent / confirmation envelope).
+    Confirm/apply re-resolves live Principal, identity link, and account
+    lineage; actor, link, account, target, or policy changes invalidate
+    confirmation. Room history cannot supply identity.
+
+    Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
+    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md, and
     docs/adr/0003-require-plan-confirm-apply-for-agent-setup.md. *)
 
 type action_kind =
@@ -36,6 +43,10 @@ val preview :
   ?issue_pilot:Github_issue_actions.pilot_gate ->
   ?workflow_pilot:Github_workflow_dispatch.pilot_gate ->
   ?user_auth_available:bool ->
+  ?actor_key:Principal_identity.connector_actor_key ->
+  ?actor_snapshot:Actor_snapshot.t ->
+  ?account_binding_id:string ->
+  ?session_id:string ->
   ?now:float ->
   unit ->
   (Setup_plan.t, string) result
@@ -44,6 +55,10 @@ val preview :
     Preview shows the target ([item_key] / repo / head SHA / workflow ref where
     relevant) and planned effects in [Setup_plan] diff / planned_state. Confirm
     is required before [apply_confirmed].
+
+    Optional [actor_key] / [actor_snapshot] pins initiating attribution via
+    [Github_action_actor_attribution]. [room_id] / [session_id] are source
+    context only.
 
     [pilot] gates PR submit_review; [merge_pilot] gates merge; [issue_pilot]
     gates Issue create/lifecycle; [workflow_pilot] gates workflow_dispatch. All
@@ -56,6 +71,7 @@ val apply_confirmed :
   principal:Setup_plan.principal ->
   current_base_revision:string ->
   ?current_merge_policy:Github_merge_action.live_policy ->
+  ?current_target:Github_action_actor_attribution.target_fingerprint ->
   ?now:float ->
   unit ->
   (Setup_plan_apply.outcome, string) result
@@ -64,9 +80,11 @@ val apply_confirmed :
     Uses [Setup_plan_apply.apply] with an adapter that records the apply receipt
     only (no live GitHub API). Rechecks plan id + digest, principal, expiry,
     destination room, and [current_base_revision] against the plan's
-    [base_revision]. Merge plans optionally revalidate [current_merge_policy].
-    Returns [Error] only for structural issues (e.g. missing destination room on
-    the stored plan); domain rejects are [Ok (Rejected _)]. *)
+    [base_revision]. When an [Actor_snapshot] is pinned on the plan, re-resolves
+    live authority and optionally compares [current_target] before apply. Merge
+    plans optionally revalidate [current_merge_policy]. Returns [Error] only for
+    structural issues (e.g. missing destination room on the stored plan); domain
+    rejects are [Ok (Rejected _)]. *)
 
 val is_github_action_plan : Setup_plan.t -> bool
 (** True when [apply_payload.kind] is a GitHub collab / request_reviewers /
