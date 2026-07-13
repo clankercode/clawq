@@ -32,7 +32,8 @@ tasks:
       file: T002-implement-durable-leased-devic.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement durable leased device polling
     - complexity: high
       depends_on:
