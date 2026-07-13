@@ -50,7 +50,7 @@ tasks:
       file: T003-preserve-pinned-attribution-th.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Preserve pinned attribution through delayed and background work
     - complexity: high
