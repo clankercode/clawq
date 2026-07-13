@@ -100,6 +100,7 @@
   test_github_room_tools
   test_github_auth_selection
   test_github_user_auth_readiness
+  test_github_user_token_store
   test_github_pr_subscriptions
   test_github_pr_dispatch
   test_github_pr_policy

@@ -220,6 +220,7 @@
   github_room_tools
   github_auth_selection
   github_user_auth_readiness
+  github_user_token_store
   credential_lease
   skills
   skills_cmd_inject
