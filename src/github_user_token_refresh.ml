@@ -1012,203 +1012,233 @@ let leader_remote_refresh ~db ~keys ~http_post ~resolve_client ~client_id_handle
       in
       Error Refresh_token_expired
   | Ok _ -> (
-      match V.read ~db ~keys ~expected:meta.account ~id:meta.id () with
+      match L.require_user_authorization_enabled ~db with
       | Error e ->
-          let _ = mark_flight_failed ~db ~flight ~reason:"vault_read" ~now () in
-          Error (Vault e)
-      | Ok opened -> (
-          if not opened.record.active then
-            let _ =
-              mark_flight_failed ~db ~flight ~reason:"vault_not_active" ~now ()
-            in
-            Error Vault_not_active
-          else if opened.record.generation <> flight.expected_generation then
-            (* Generation moved under us before remote; do not remote-refresh. *)
-            let _ =
-              mark_flight_failed ~db ~flight ~reason:"generation_drift" ~now ()
-            in
-            Error
-              (Cas
-                 (C.Vault
-                    (V.Generation_conflict
-                       {
-                         expected = flight.expected_generation;
-                         actual = opened.record.generation;
-                       })))
-          else
-            match opened.tokens.refresh_token with
-            | None | Some "" ->
+          let _ =
+            mark_flight_failed ~db ~flight ~reason:"authorization_disabled" ~now
+              ()
+          in
+          Error (Lease e)
+      | Ok () -> (
+          match V.read ~db ~keys ~expected:meta.account ~id:meta.id () with
+          | Error e ->
+              let _ =
+                mark_flight_failed ~db ~flight ~reason:"vault_read" ~now ()
+              in
+              Error (Vault e)
+          | Ok opened -> (
+              if not opened.record.active then
                 let _ =
-                  mark_flight_failed ~db ~flight ~reason:"refresh_token_missing"
-                    ~now ()
+                  mark_flight_failed ~db ~flight ~reason:"vault_not_active" ~now
+                    ()
                 in
-                Error Refresh_token_missing
-            | Some refresh_token_plain -> (
-                match resolve_client ~client_id_handle with
-                | Error e ->
+                Error Vault_not_active
+              else if opened.record.generation <> flight.expected_generation
+              then
+                (* Generation moved under us before remote; do not remote-refresh. *)
+                let _ =
+                  mark_flight_failed ~db ~flight ~reason:"generation_drift" ~now
+                    ()
+                in
+                Error
+                  (Cas
+                     (C.Vault
+                        (V.Generation_conflict
+                           {
+                             expected = flight.expected_generation;
+                             actual = opened.record.generation;
+                           })))
+              else
+                match opened.tokens.refresh_token with
+                | None | Some "" ->
                     let _ =
-                      mark_flight_failed ~db ~flight ~reason:"client_resolve"
-                        ~now ()
+                      mark_flight_failed ~db ~flight
+                        ~reason:"refresh_token_missing" ~now ()
                     in
-                    Error (Client_resolve e)
-                | Ok (client_id, client_secret) -> (
-                    let client_id = String.trim client_id in
-                    let client_secret = String.trim client_secret in
-                    if client_id = "" then
-                      let _ =
-                        mark_flight_failed ~db ~flight ~reason:"empty_client_id"
-                          ~now ()
-                      in
-                      Error (Client_resolve "resolved client_id is empty")
-                    else if client_secret = "" then
-                      let _ =
-                        mark_flight_failed ~db ~flight
-                          ~reason:"empty_client_secret" ~now ()
-                      in
-                      Error (Client_resolve "resolved client_secret is empty")
-                    else
-                      let url = token_endpoint ~host:meta.account.host () in
-                      let body =
-                        build_refresh_body ~client_id ~client_secret
-                          ~refresh_token:refresh_token_plain
-                      in
-                      match http_post ~url ~headers:token_headers ~body with
-                      | Error transport ->
+                    Error Refresh_token_missing
+                | Some refresh_token_plain -> (
+                    match resolve_client ~client_id_handle with
+                    | Error e ->
+                        let _ =
+                          mark_flight_failed ~db ~flight
+                            ~reason:"client_resolve" ~now ()
+                        in
+                        Error (Client_resolve e)
+                    | Ok (client_id, client_secret) -> (
+                        let client_id = String.trim client_id in
+                        let client_secret = String.trim client_secret in
+                        if client_id = "" then
                           let _ =
-                            mark_flight_failed ~db ~flight ~reason:"transport"
-                              ~now ()
+                            mark_flight_failed ~db ~flight
+                              ~reason:"empty_client_id" ~now ()
                           in
-                          Error (Transport transport)
-                      | Ok (status, resp_body) -> (
-                          if status < 200 || status >= 300 then
-                            let lower = String.lowercase_ascii resp_body in
-                            let denial =
-                              if
-                                String_util.contains lower "bad_refresh_token"
-                                || String_util.contains lower
-                                     "incorrect_client_credentials"
-                                || String_util.contains lower "expired"
-                              then Refresh_token_expired
-                              else Http_denial status
-                            in
-                            let _ =
-                              mark_flight_failed ~db ~flight
-                                ~reason:(string_of_denial denial) ~now ()
-                            in
-                            Error denial
-                          else
-                            match parse_refresh_response ~body:resp_body with
-                            | Error e ->
-                                let denial = map_parse_error e in
+                          Error (Client_resolve "resolved client_id is empty")
+                        else if client_secret = "" then
+                          let _ =
+                            mark_flight_failed ~db ~flight
+                              ~reason:"empty_client_secret" ~now ()
+                          in
+                          Error
+                            (Client_resolve "resolved client_secret is empty")
+                        else
+                          let url = token_endpoint ~host:meta.account.host () in
+                          let body =
+                            build_refresh_body ~client_id ~client_secret
+                              ~refresh_token:refresh_token_plain
+                          in
+                          match http_post ~url ~headers:token_headers ~body with
+                          | Error transport ->
+                              let _ =
+                                mark_flight_failed ~db ~flight
+                                  ~reason:"transport" ~now ()
+                              in
+                              Error (Transport transport)
+                          | Ok (status, resp_body) -> (
+                              if status < 200 || status >= 300 then
+                                let lower = String.lowercase_ascii resp_body in
+                                let denial =
+                                  if
+                                    String_util.contains lower
+                                      "bad_refresh_token"
+                                    || String_util.contains lower
+                                         "incorrect_client_credentials"
+                                    || String_util.contains lower "expired"
+                                  then Refresh_token_expired
+                                  else Http_denial status
+                                in
                                 let _ =
                                   mark_flight_failed ~db ~flight
                                     ~reason:(string_of_denial denial) ~now ()
                                 in
                                 Error denial
-                            | Ok resp -> (
-                                (* Durable fence: remote has rotated the refresh
+                              else
+                                match
+                                  parse_refresh_response ~body:resp_body
+                                with
+                                | Error e ->
+                                    let denial = map_parse_error e in
+                                    let _ =
+                                      mark_flight_failed ~db ~flight
+                                        ~reason:(string_of_denial denial) ~now
+                                        ()
+                                    in
+                                    Error denial
+                                | Ok resp -> (
+                                    (* Durable fence: remote has rotated the refresh
                                    token. Crash past this point fails closed to
                                    relink — never restore pre-rotation authority. *)
-                                match
-                                  mark_flight_remote_rotated ~db ~flight ~now ()
-                                with
-                                | Error e -> Error e
-                                | Ok () -> (
-                                    let access_expires_at =
-                                      expires_at_iso ~now
-                                        ~expires_in:resp.expires_in
-                                    in
-                                    let refresh_expires_at =
-                                      expires_at_iso ~now
-                                        ~expires_in:
-                                          resp.refresh_token_expires_in
-                                    in
-                                    let lifetimes =
-                                      { access_expires_at; refresh_expires_at }
-                                    in
-                                    let tokens : S.plaintext_tokens =
-                                      {
-                                        access_token = resp.access_token;
-                                        refresh_token = Some resp.refresh_token;
-                                      }
-                                    in
-                                    let scopes = opened.record.scopes in
-                                    let expected_generation =
-                                      flight.expected_generation
-                                    in
                                     match
-                                      C.replace ~db ~keys ~now ~id:meta.id
-                                        ~expected_generation
-                                        ~expected:meta.account ?binding_id
-                                        ~tokens ~scopes
-                                        ~expires_at:access_expires_at ()
+                                      mark_flight_remote_rotated ~db ~flight
+                                        ~now ()
                                     with
-                                    | Error cas_err ->
-                                        (* Late response / old-token replay
+                                    | Error e -> Error e
+                                    | Ok () -> (
+                                        let access_expires_at =
+                                          expires_at_iso ~now
+                                            ~expires_in:resp.expires_in
+                                        in
+                                        let refresh_expires_at =
+                                          expires_at_iso ~now
+                                            ~expires_in:
+                                              resp.refresh_token_expires_in
+                                        in
+                                        let lifetimes =
+                                          {
+                                            access_expires_at;
+                                            refresh_expires_at;
+                                          }
+                                        in
+                                        let tokens : S.plaintext_tokens =
+                                          {
+                                            access_token = resp.access_token;
+                                            refresh_token =
+                                              Some resp.refresh_token;
+                                          }
+                                        in
+                                        let scopes = opened.record.scopes in
+                                        let expected_generation =
+                                          flight.expected_generation
+                                        in
+                                        match
+                                          C.replace ~db ~keys ~now ~id:meta.id
+                                            ~expected_generation
+                                            ~expected:meta.account ?binding_id
+                                            ~tokens ~scopes
+                                            ~expires_at:access_expires_at ()
+                                        with
+                                        | Error cas_err ->
+                                            (* Late response / old-token replay
                                            blocked by CAS. After remote rotation
                                            we must not retry with old material. *)
-                                        let _ =
-                                          fail_closed_relink_after_remote ~db
-                                            ~keys ~meta ~flight ?binding_id ~now
-                                            ()
-                                        in
-                                        (* Prefer CAS detail when it is a pure
+                                            let _ =
+                                              fail_closed_relink_after_remote
+                                                ~db ~keys ~meta ~flight
+                                                ?binding_id ~now ()
+                                            in
+                                            (* Prefer CAS detail when it is a pure
                                            generation conflict without disable
                                            side effects being the story. *)
-                                        Error
-                                          (Relink_required
-                                             {
-                                               reason =
-                                                 "cas_blocked_after_remote:"
-                                                 ^ C.string_of_denial cas_err;
-                                               job_id = Some flight.job_id;
-                                             })
-                                    | Ok transition -> (
-                                        match
-                                          record_lifetimes ~db ~vault_id:meta.id
-                                            ~generation:
-                                              transition.record.generation
-                                            ~lifetimes ~now
-                                        with
-                                        | Error e ->
-                                            (* Vault already holds new authority;
+                                            Error
+                                              (Relink_required
+                                                 {
+                                                   reason =
+                                                     "cas_blocked_after_remote:"
+                                                     ^ C.string_of_denial
+                                                         cas_err;
+                                                   job_id = Some flight.job_id;
+                                                 })
+                                        | Ok transition -> (
+                                            match
+                                              record_lifetimes ~db
+                                                ~vault_id:meta.id
+                                                ~generation:
+                                                  transition.record.generation
+                                                ~lifetimes ~now
+                                            with
+                                            | Error e ->
+                                                (* Vault already holds new authority;
                                                still mark committed so waiters
                                                join the new generation. *)
-                                            let _ =
-                                              mark_flight_committed ~db ~flight
-                                                ~committed_generation:
-                                                  transition.record.generation
-                                                ~now ()
-                                            in
-                                            Error e
-                                        | Ok () -> (
-                                            match
-                                              mark_flight_committed ~db ~flight
-                                                ~committed_generation:
-                                                  transition.record.generation
-                                                ~now ()
-                                            with
-                                            | Error e -> Error e
-                                            | Ok () ->
-                                                let lineage_id =
-                                                  match binding_opt with
-                                                  | Some b -> Some b.lineage_id
-                                                  | None -> expected_lineage_id
+                                                let _ =
+                                                  mark_flight_committed ~db
+                                                    ~flight
+                                                    ~committed_generation:
+                                                      transition.record
+                                                        .generation ~now ()
                                                 in
-                                                Ok
-                                                  {
-                                                    record = transition.record;
-                                                    leases_invalidated =
-                                                      transition
-                                                        .leases_invalidated;
-                                                    lifetimes;
-                                                    lineage_id;
-                                                    binding = binding_opt;
-                                                    refreshed = true;
-                                                    flight_job_id =
-                                                      Some flight.job_id;
-                                                    joined_flight = false;
-                                                  })))))))))
+                                                Error e
+                                            | Ok () -> (
+                                                match
+                                                  mark_flight_committed ~db
+                                                    ~flight
+                                                    ~committed_generation:
+                                                      transition.record
+                                                        .generation ~now ()
+                                                with
+                                                | Error e -> Error e
+                                                | Ok () ->
+                                                    let lineage_id =
+                                                      match binding_opt with
+                                                      | Some b ->
+                                                          Some b.lineage_id
+                                                      | None ->
+                                                          expected_lineage_id
+                                                    in
+                                                    Ok
+                                                      {
+                                                        record =
+                                                          transition.record;
+                                                        leases_invalidated =
+                                                          transition
+                                                            .leases_invalidated;
+                                                        lifetimes;
+                                                        lineage_id;
+                                                        binding = binding_opt;
+                                                        refreshed = true;
+                                                        flight_job_id =
+                                                          Some flight.job_id;
+                                                        joined_flight = false;
+                                                      }))))))))))
 
 type busy_info = {
   job_id : string;
@@ -1459,9 +1489,9 @@ let refresh ~db ~keys ~http_post ~resolve_client ~client_id_handle
 (* Lease acquisition                                                          *)
 (* -------------------------------------------------------------------------- *)
 
-let issue_lease_for ~now ?ttl_seconds ?binding_id ?expected
+let issue_lease_for ~db ~now ?ttl_seconds ?binding_id ?expected
     ~(record : V.vault_record) () =
-  match L.issue_from_record ~now ?ttl_seconds ?binding_id ~record () with
+  match L.issue_from_record ~db ~now ?ttl_seconds ?binding_id ~record () with
   | Error e -> Error (Lease e)
   | Ok l -> (
       match expected with
@@ -1516,8 +1546,8 @@ let acquire_lease ~db ~keys ?http_post ?resolve_client ?client_id_handle
                   in
                   if not in_skew then
                     match
-                      issue_lease_for ~now ?ttl_seconds ?binding_id ?expected
-                        ~record:meta ()
+                      issue_lease_for ~db ~now ?ttl_seconds ?binding_id
+                        ?expected ~record:meta ()
                     with
                     | Error e -> Error e
                     | Ok lease ->
@@ -1567,7 +1597,7 @@ let acquire_lease ~db ~keys ?http_post ?resolve_client ?client_id_handle
                         | Error e -> Error e
                         | Ok outcome -> (
                             match
-                              issue_lease_for ~now ?ttl_seconds ?binding_id
+                              issue_lease_for ~db ~now ?ttl_seconds ?binding_id
                                 ?expected ~record:outcome.record ()
                             with
                             | Error e -> Error e

@@ -21,6 +21,7 @@
     - vault generation advanced past the pinned generation
     - vault account no longer matches the pinned binding
     - access token [expires_at] reached
+    - durable recovery state disabled Principal-owned user authorization
     - vault open denials (missing key, tamper, etc.)
 
     This is a trusted in-process API boundary (same model as
@@ -115,6 +116,11 @@ type denial =
   | Vault of Github_user_token_vault.denial
       (** Propagated vault open / storage denial (already redacted). *)
   | Invalid_input of string
+  | User_authorization_disabled
+      (** Restore or compromise recovery disabled act-as-user authority. *)
+  | Authorization_gate_unavailable of string
+      (** Recovery gate could not be read; deny rather than issuing or opening.
+      *)
   | Forbidden_surface of string
       (** Explicit refuse for runner / shell / Git transport injection. *)
 
@@ -123,6 +129,10 @@ val string_of_denial : denial -> string
 
 val denial_exposes_token : denial:denial -> plaintext:string -> bool
 (** Test helper: true if [plaintext] appears in the denial rendering. *)
+
+val require_user_authorization_enabled : db:Sqlite3.db -> (unit, denial) result
+(** Check the durable recovery gate before an act-as-user operation. Storage or
+    schema failures deny rather than proceeding. *)
 
 (** {1 Issue (no raw token returned)} *)
 
@@ -141,13 +151,15 @@ val issue :
     returns access/refresh plaintext. *)
 
 val issue_from_record :
+  db:Sqlite3.db ->
   ?now:float ->
   ?ttl_seconds:float ->
   ?binding_id:string ->
   record:Github_user_token_vault.vault_record ->
   unit ->
   (lease, denial) result
-(** Issue from an already-loaded metadata record (still no token material). *)
+(** Issue from an already-loaded metadata record (still no token material),
+    after checking the durable recovery gate. *)
 
 (** {1 Open raw token only inside the GitHub HTTP callback} *)
 

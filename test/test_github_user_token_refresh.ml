@@ -18,6 +18,7 @@ module S = Github_user_token_store
 module L = Github_user_token_lease
 module C = Github_user_token_cas
 module R = Github_user_token_refresh
+module Recovery = Github_user_token_vault_recovery
 module B = Github_account_binding
 module P = Principal_identity
 module PS = Principal_identity_store
@@ -528,6 +529,29 @@ let test_acquire_lease_inside_skew_requires_client_boundary () =
   | Error d -> Alcotest.fail (R.string_of_denial d)
   | Ok _ -> Alcotest.fail "must require client boundary inside skew"
 
+let test_refresh_recovery_gate_blocks_remote () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let rec_ = create_vault ~db ~keys ~expires_at:near_expires_iso () in
+  Recovery.ensure_schema db;
+  ignore
+    (Sqlite3.exec db
+       "UPDATE github_user_token_vault_recovery_state SET \
+        user_authorization_enabled = 0 WHERE id = 1");
+  let calls = ref 0 in
+  let http ~url:_ ~headers:_ ~body:_ =
+    incr calls;
+    Ok (200, json_refresh_body ())
+  in
+  match
+    R.refresh ~db ~keys ~http_post:http ~resolve_client:resolve_ok
+      ~client_id_handle ~now:fixed_now ~force:true ~vault_id:rec_.id ()
+  with
+  | Error (R.Lease L.User_authorization_disabled) ->
+      Alcotest.(check int) "remote refresh blocked" 0 !calls
+  | Error d -> Alcotest.fail (R.string_of_denial d)
+  | Ok _ -> Alcotest.fail "recovery gate must block refresh"
+
 let test_reject_non_bearer_and_scope_over_http () =
   with_db @@ fun db ->
   let keys = make_keys () in
@@ -1004,6 +1028,9 @@ let suite =
     ( "acquire_lease inside skew requires client boundary",
       `Quick,
       test_acquire_lease_inside_skew_requires_client_boundary );
+    ( "refresh recovery gate blocks remote",
+      `Quick,
+      test_refresh_recovery_gate_blocks_remote );
     ( "reject non-bearer and nonempty scope over http",
       `Quick,
       test_reject_non_bearer_and_scope_over_http );

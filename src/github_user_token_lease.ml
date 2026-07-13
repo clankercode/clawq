@@ -5,6 +5,7 @@
     docs/adr/0006-use-principal-owned-github-user-tokens.md. *)
 
 module V = Github_user_token_vault
+module Gate = Github_user_authorization_gate
 
 let default_ttl_seconds = 300.0
 
@@ -54,6 +55,8 @@ type denial =
   | Account_mismatch of { expected : V.account_key; found : V.account_key }
   | Vault of V.denial
   | Invalid_input of string
+  | User_authorization_disabled
+  | Authorization_gate_unavailable of string
   | Forbidden_surface of string
 
 (* -------------------------------------------------------------------------- *)
@@ -100,6 +103,9 @@ let string_of_denial = function
         found.host
   | Vault d -> "vault:" ^ V.string_of_denial d
   | Invalid_input msg -> Printf.sprintf "invalid_input:%s" msg
+  | User_authorization_disabled -> "user_authorization_disabled"
+  | Authorization_gate_unavailable msg ->
+      Printf.sprintf "authorization_gate_unavailable:%s" msg
   | Forbidden_surface surface -> Printf.sprintf "forbidden_surface:%s" surface
 
 let denial_exposes_token ~denial ~plaintext =
@@ -196,58 +202,68 @@ let is_expired ?(now = Unix.gettimeofday ()) (l : lease) =
 (* Issue                                                                      *)
 (* -------------------------------------------------------------------------- *)
 
-let issue_from_record ?(now = Unix.gettimeofday ())
+let require_user_authorization_enabled ~db =
+  match Gate.is_enabled ~db with
+  | Ok true -> Ok ()
+  | Ok false -> Error User_authorization_disabled
+  | Error e -> Error (Authorization_gate_unavailable e)
+
+let issue_from_record ~db ?(now = Unix.gettimeofday ())
     ?(ttl_seconds = default_ttl_seconds) ?binding_id ~(record : V.vault_record)
     () =
-  if ttl_seconds <= 0. then Error (Invalid_input "ttl_seconds must be positive")
-  else if record.generation < 1 then
-    Error (Invalid_input "record generation must be positive")
-  else if not record.active then Error Vault_not_active
-  else
-    let token_expires_at = String.trim record.expires_at in
-    if token_expires_at = "" then
-      Error (Invalid_input "token expires_at must be non-empty")
-    else
-      let lease_cap =
-        match parse_iso8601_utc_opt token_expires_at with
-        | None ->
-            (* Malformed token expiry — still issue a short lease; use-time
-               open will fail closed on token expiry parse. *)
-            now +. ttl_seconds
-        | Some tok_exp -> Float.min (now +. ttl_seconds) tok_exp
-      in
-      if lease_cap <= now then Error Token_expired
+  match require_user_authorization_enabled ~db with
+  | Error e -> Error e
+  | Ok () ->
+      if ttl_seconds <= 0. then
+        Error (Invalid_input "ttl_seconds must be positive")
+      else if record.generation < 1 then
+        Error (Invalid_input "record generation must be positive")
+      else if not record.active then Error Vault_not_active
       else
-        let handle = generate_handle ~now () in
-        let binding_id =
-          match binding_id with
-          | Some s when String.trim s <> "" -> Some (String.trim s)
-          | _ -> None
-        in
-        let binding =
-          {
-            principal_id = record.account.principal_id;
-            github_user_id = record.account.github_user_id;
-            app_id = record.account.app_id;
-            host = record.account.host;
-            vault_id = record.id;
-            generation = record.generation;
-            binding_id;
-          }
-        in
-        let lease =
-          {
-            handle;
-            binding;
-            scopes = record.scopes;
-            token_expires_at;
-            issued_at = now;
-            lease_expires_at = lease_cap;
-            revoked = false;
-          }
-        in
-        register lease;
-        Ok lease
+        let token_expires_at = String.trim record.expires_at in
+        if token_expires_at = "" then
+          Error (Invalid_input "token expires_at must be non-empty")
+        else
+          let lease_cap =
+            match parse_iso8601_utc_opt token_expires_at with
+            | None ->
+                (* Malformed token expiry — still issue a short lease; use-time
+                   open will fail closed on token expiry parse. *)
+                now +. ttl_seconds
+            | Some tok_exp -> Float.min (now +. ttl_seconds) tok_exp
+          in
+          if lease_cap <= now then Error Token_expired
+          else
+            let handle = generate_handle ~now () in
+            let binding_id =
+              match binding_id with
+              | Some s when String.trim s <> "" -> Some (String.trim s)
+              | _ -> None
+            in
+            let binding =
+              {
+                principal_id = record.account.principal_id;
+                github_user_id = record.account.github_user_id;
+                app_id = record.account.app_id;
+                host = record.account.host;
+                vault_id = record.id;
+                generation = record.generation;
+                binding_id;
+              }
+            in
+            let lease =
+              {
+                handle;
+                binding;
+                scopes = record.scopes;
+                token_expires_at;
+                issued_at = now;
+                lease_expires_at = lease_cap;
+                revoked = false;
+              }
+            in
+            register lease;
+            Ok lease
 
 let issue ~db ?(now = Unix.gettimeofday ()) ?ttl_seconds ?binding_id ?expected
     ~vault_id () =
@@ -261,7 +277,7 @@ let issue ~db ?(now = Unix.gettimeofday ()) ?ttl_seconds ?binding_id ?expected
         match expected with
         | Some exp when not (account_equal exp record.account) ->
             Error (Account_mismatch { expected = exp; found = record.account })
-        | _ -> issue_from_record ~now ?ttl_seconds ?binding_id ~record ())
+        | _ -> issue_from_record ~db ~now ?ttl_seconds ?binding_id ~record ())
 
 (* -------------------------------------------------------------------------- *)
 (* Use: open raw token only inside callback                                   *)
@@ -279,47 +295,52 @@ let check_token_not_expired ~now ~expires_at =
   | Some _ -> Ok ()
 
 let with_token ~db ~keys ?(now = Unix.gettimeofday ()) ~lease:l ~f () =
-  match check_lease_live ~now l with
+  match require_user_authorization_enabled ~db with
   | Error e -> Error e
   | Ok () -> (
-      let expected_account : V.account_key =
-        {
-          principal_id = l.binding.principal_id;
-          github_user_id = l.binding.github_user_id;
-          app_id = l.binding.app_id;
-          host = l.binding.host;
-        }
-      in
-      match
-        V.read ~db ~keys ~expected:expected_account ~id:l.binding.vault_id ()
-      with
-      | Error V.Not_found -> Error Lease_not_found
-      | Error (V.Account_mismatch { expected; found }) ->
-          Error (Account_mismatch { expected; found })
-      | Error e -> Error (Vault e)
-      | Ok opened -> (
-          if not opened.record.active then Error Vault_not_active
-          else
-            let actual_gen = opened.record.generation in
-            if actual_gen <> l.binding.generation then
-              Error
-                (Generation_mismatch
-                   { expected = l.binding.generation; actual = actual_gen })
-            else
-              match
-                check_token_not_expired ~now
-                  ~expires_at:opened.record.expires_at
-              with
-              | Error e -> Error e
-              | Ok () ->
-                  let access = String.trim opened.tokens.access_token in
-                  if access = "" then
-                    Error
-                      (Vault (V.Invalid_input "access_token empty after open"))
-                  else
-                    (* Token exists only for the duration of f. Refresh is never
+      match check_lease_live ~now l with
+      | Error e -> Error e
+      | Ok () -> (
+          let expected_account : V.account_key =
+            {
+              principal_id = l.binding.principal_id;
+              github_user_id = l.binding.github_user_id;
+              app_id = l.binding.app_id;
+              host = l.binding.host;
+            }
+          in
+          match
+            V.read ~db ~keys ~expected:expected_account ~id:l.binding.vault_id
+              ()
+          with
+          | Error V.Not_found -> Error Lease_not_found
+          | Error (V.Account_mismatch { expected; found }) ->
+              Error (Account_mismatch { expected; found })
+          | Error e -> Error (Vault e)
+          | Ok opened -> (
+              if not opened.record.active then Error Vault_not_active
+              else
+                let actual_gen = opened.record.generation in
+                if actual_gen <> l.binding.generation then
+                  Error
+                    (Generation_mismatch
+                       { expected = l.binding.generation; actual = actual_gen })
+                else
+                  match
+                    check_token_not_expired ~now
+                      ~expires_at:opened.record.expires_at
+                  with
+                  | Error e -> Error e
+                  | Ok () ->
+                      let access = String.trim opened.tokens.access_token in
+                      if access = "" then
+                        Error
+                          (Vault
+                             (V.Invalid_input "access_token empty after open"))
+                      else
+                        (* Token exists only for the duration of f. Refresh is never
                        passed out. *)
-                    Ok (f ~access_token:access)))
+                        Ok (f ~access_token:access))))
 
 let with_authorization_header ~db ~keys ?(now = Unix.gettimeofday ())
     ?(header_name = "Authorization") ~lease ~f () =

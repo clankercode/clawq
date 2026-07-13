@@ -437,7 +437,7 @@ let test_issue_from_record_no_decrypt () =
   let keys = make_keys () in
   let rec_ = create_vault ~db ~keys () in
   (* issue_from_record only needs metadata — no keys provider. *)
-  match L.issue_from_record ~now:fixed_now ~record:rec_ () with
+  match L.issue_from_record ~db ~now:fixed_now ~record:rec_ () with
   | Error d -> Alcotest.fail (L.string_of_denial d)
   | Ok lease ->
       Alcotest.(check string) "vault" rec_.id (L.vault_id lease);

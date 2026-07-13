@@ -7,6 +7,7 @@
 
 module V = Github_user_token_vault
 module MK = Github_user_token_master_key
+module Gate = Github_user_authorization_gate
 
 (* -------------------------------------------------------------------------- *)
 (* Contract constants                                                         *)
@@ -211,19 +212,6 @@ let exec_schema db sql =
 
 let ensure_schema db =
   V.ensure_schema db;
-  let state =
-    {|CREATE TABLE IF NOT EXISTS github_user_token_vault_recovery_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      user_authorization_enabled INTEGER NOT NULL DEFAULT 1,
-      last_event TEXT NOT NULL DEFAULT 'none',
-      last_reason TEXT,
-      last_operator_id TEXT,
-      last_event_at TEXT,
-      compromised_key_ids_json TEXT NOT NULL DEFAULT '[]',
-      requires_relink INTEGER NOT NULL DEFAULT 0,
-      requires_key_rotation INTEGER NOT NULL DEFAULT 0
-    )|}
-  in
   let events =
     {|CREATE TABLE IF NOT EXISTS github_user_token_vault_recovery_events (
       id TEXT PRIMARY KEY NOT NULL,
@@ -234,13 +222,12 @@ let ensure_schema db =
       created_at TEXT NOT NULL
     )|}
   in
-  let seed =
-    {|INSERT OR IGNORE INTO github_user_token_vault_recovery_state
-      (id, user_authorization_enabled, last_event, compromised_key_ids_json,
-       requires_relink, requires_key_rotation)
-      VALUES (1, 1, 'none', '[]', 0, 0)|}
-  in
-  List.iter (exec_schema db) [ state; events; seed ]
+  match Gate.ensure_schema db with
+  | Error e ->
+      failwith
+        (Printf.sprintf "github_user_token_vault_recovery gate schema error: %s"
+           e)
+  | Ok () -> exec_schema db events
 
 let text_col stmt i =
   match Sqlite3.column stmt i with
@@ -898,85 +885,92 @@ let restore ~db ~(keys : V.key_provider) ~(proof : operator_proof)
           match verify_envelopes_openable ~keys ~backup with
           | Error issues -> Error (Compatibility issues)
           | Ok () -> (
-              match wipe_vault ~db with
+              let state : recovery_state =
+                {
+                  user_authorization_enabled = false;
+                  last_event = "restore";
+                  last_reason =
+                    Some
+                      "backup restore; authorization disabled pending \
+                       reconciliation";
+                  last_operator_id = Some proof.operator_id;
+                  last_event_at = Some (Time_util.iso8601_utc ~t:now ());
+                  compromised_key_ids = [];
+                  requires_relink = false;
+                  requires_key_rotation = false;
+                }
+              in
+              match write_state ~db ~state with
               | Error e -> Error e
-              | Ok _ -> (
-                  let rec insert_all = function
-                    | [] -> Ok ()
-                    | e :: rest -> (
-                        match insert_envelope ~db e with
-                        | Error e -> Error e
-                        | Ok () -> insert_all rest)
-                  in
-                  match insert_all backup.envelopes with
+              | Ok () -> (
+                  match wipe_vault ~db with
                   | Error e -> Error e
-                  | Ok () -> (
-                      match run_hook "destroy_leases" hooks.destroy_leases with
+                  | Ok _ -> (
+                      let rec insert_all = function
+                        | [] -> Ok ()
+                        | e :: rest -> (
+                            match insert_envelope ~db e with
+                            | Error e -> Error e
+                            | Ok () -> insert_all rest)
+                      in
+                      match insert_all backup.envelopes with
                       | Error e -> Error e
-                      | Ok leases_discarded -> (
+                      | Ok () -> (
                           match
-                            run_hook "destroy_bindings" hooks.destroy_bindings
+                            run_hook "destroy_leases" hooks.destroy_leases
                           with
                           | Error e -> Error e
-                          | Ok bindings_destroyed -> (
-                              match destroy_rewrap_jobs ~db with
+                          | Ok leases_discarded -> (
+                              match
+                                run_hook "destroy_bindings"
+                                  hooks.destroy_bindings
+                              with
                               | Error e -> Error e
-                              | Ok _ -> (
-                                  let state : recovery_state =
-                                    {
-                                      user_authorization_enabled = false;
-                                      last_event = "restore";
-                                      last_reason =
-                                        Some
-                                          "backup restore; authorization \
-                                           disabled pending reconciliation";
-                                      last_operator_id = Some proof.operator_id;
-                                      last_event_at =
-                                        Some (Time_util.iso8601_utc ~t:now ());
-                                      compromised_key_ids = [];
-                                      requires_relink = false;
-                                      requires_key_rotation = false;
-                                    }
-                                  in
-                                  let details =
-                                    `Assoc
-                                      [
-                                        ( "imported",
-                                          `Int (List.length backup.envelopes) );
-                                        ( "required_key_ids",
-                                          `List
-                                            (List.map
-                                               (fun k -> `String k)
-                                               backup.required_key_ids) );
-                                        ( "leases_discarded",
-                                          `Int leases_discarded );
-                                        ( "bindings_destroyed",
-                                          `Int bindings_destroyed );
-                                        ( "whole_store_rollback_detectable",
-                                          `Bool
-                                            whole_store_rollback_detectable_without_external_anchor
-                                        );
-                                      ]
-                                  in
-                                  match
-                                    commit_event ~db ~state
-                                      ~event_kind:"restore"
-                                      ~operator_id:proof.operator_id ~details
-                                      ~now
-                                  with
+                              | Ok bindings_destroyed -> (
+                                  match destroy_rewrap_jobs ~db with
                                   | Error e -> Error e
-                                  | Ok () ->
-                                      Ok
-                                        {
-                                          imported =
-                                            List.length backup.envelopes;
-                                          required_key_ids =
-                                            backup.required_key_ids;
-                                          authorization_disabled = true;
-                                          leases_discarded;
-                                          bindings_destroyed;
-                                          approved_by = proof.operator_id;
-                                        }))))))))
+                                  | Ok _ -> (
+                                      let details =
+                                        `Assoc
+                                          [
+                                            ( "imported",
+                                              `Int
+                                                (List.length backup.envelopes)
+                                            );
+                                            ( "required_key_ids",
+                                              `List
+                                                (List.map
+                                                   (fun k -> `String k)
+                                                   backup.required_key_ids) );
+                                            ( "leases_discarded",
+                                              `Int leases_discarded );
+                                            ( "bindings_destroyed",
+                                              `Int bindings_destroyed );
+                                            ( "whole_store_rollback_detectable",
+                                              `Bool
+                                                whole_store_rollback_detectable_without_external_anchor
+                                            );
+                                          ]
+                                      in
+                                      match
+                                        commit_event ~db ~state
+                                          ~event_kind:"restore"
+                                          ~operator_id:proof.operator_id
+                                          ~details ~now
+                                      with
+                                      | Error e -> Error e
+                                      | Ok () ->
+                                          Ok
+                                            {
+                                              imported =
+                                                List.length backup.envelopes;
+                                              required_key_ids =
+                                                backup.required_key_ids;
+                                              authorization_disabled = true;
+                                              leases_discarded;
+                                              bindings_destroyed;
+                                              approved_by = proof.operator_id;
+                                            })))))))))
 
 (* -------------------------------------------------------------------------- *)
 (* Compromise disable                                                         *)
@@ -1007,95 +1001,121 @@ let compromise_disable ~db ~(proof : operator_proof) ~reason ?affected_key_ids
         let key_filter =
           match affected_key_ids with None -> None | Some _ -> Some affected
         in
-        match destroy_vault_for_keys ~db ~key_ids:key_filter with
+        let disabled_state =
+          match load_state ~db with
+          | Error e -> Error (Storage e)
+          | Ok prev ->
+              let state : recovery_state =
+                {
+                  user_authorization_enabled = false;
+                  last_event = "compromise_disable";
+                  last_reason = Some reason;
+                  last_operator_id = Some proof.operator_id;
+                  last_event_at = Some (Time_util.iso8601_utc ~t:now ());
+                  compromised_key_ids =
+                    List.sort_uniq String.compare
+                      (prev.compromised_key_ids @ affected);
+                  requires_relink = true;
+                  requires_key_rotation = true;
+                }
+              in
+              write_state ~db ~state
+        in
+        match disabled_state with
         | Error e -> Error e
-        | Ok vault_records_destroyed -> (
-            match destroy_pending_auth_tx ~db with
+        | Ok () -> (
+            match destroy_vault_for_keys ~db ~key_ids:key_filter with
             | Error e -> Error e
-            | Ok pending_auth_tx_destroyed -> (
-                match destroy_rewrap_jobs ~db with
+            | Ok vault_records_destroyed -> (
+                match destroy_pending_auth_tx ~db with
                 | Error e -> Error e
-                | Ok rewrap_jobs_destroyed -> (
-                    match
-                      run_hook "destroy_bindings" hooks.destroy_bindings
-                    with
+                | Ok pending_auth_tx_destroyed -> (
+                    match destroy_rewrap_jobs ~db with
                     | Error e -> Error e
-                    | Ok bindings_destroyed -> (
+                    | Ok rewrap_jobs_destroyed -> (
                         match
-                          run_hook "destroy_leases" hooks.destroy_leases
+                          run_hook "destroy_bindings" hooks.destroy_bindings
                         with
                         | Error e -> Error e
-                        | Ok leases_discarded -> (
+                        | Ok bindings_destroyed -> (
                             match
-                              run_hook "destroy_pending_extra"
-                                hooks.destroy_pending_extra
+                              run_hook "destroy_leases" hooks.destroy_leases
                             with
                             | Error e -> Error e
-                            | Ok pending_extra_destroyed -> (
-                                match load_state ~db with
-                                | Error e -> Error (Storage e)
-                                | Ok prev -> (
-                                    let compromised =
-                                      List.sort_uniq String.compare
-                                        (prev.compromised_key_ids @ affected)
-                                    in
-                                    let state : recovery_state =
-                                      {
-                                        user_authorization_enabled = false;
-                                        last_event = "compromise_disable";
-                                        last_reason = Some reason;
-                                        last_operator_id =
-                                          Some proof.operator_id;
-                                        last_event_at =
-                                          Some (Time_util.iso8601_utc ~t:now ());
-                                        compromised_key_ids = compromised;
-                                        requires_relink = true;
-                                        requires_key_rotation = true;
-                                      }
-                                    in
-                                    let details =
-                                      `Assoc
-                                        [
-                                          ( "vault_records_destroyed",
-                                            `Int vault_records_destroyed );
-                                          ( "pending_auth_tx_destroyed",
-                                            `Int pending_auth_tx_destroyed );
-                                          ( "rewrap_jobs_destroyed",
-                                            `Int rewrap_jobs_destroyed );
-                                          ( "bindings_destroyed",
-                                            `Int bindings_destroyed );
-                                          ( "leases_discarded",
-                                            `Int leases_discarded );
-                                          ( "pending_extra_destroyed",
-                                            `Int pending_extra_destroyed );
-                                          ( "affected_key_ids",
-                                            `List
-                                              (List.map
-                                                 (fun k -> `String k)
-                                                 affected) );
-                                          ("requires_key_rotation", `Bool true);
-                                          ("requires_relink", `Bool true);
-                                        ]
-                                    in
-                                    match
-                                      commit_event ~db ~state
-                                        ~event_kind:"compromise_disable"
-                                        ~operator_id:proof.operator_id ~details
-                                        ~now
-                                    with
-                                    | Error e -> Error e
-                                    | Ok () ->
-                                        Ok
+                            | Ok leases_discarded -> (
+                                match
+                                  run_hook "destroy_pending_extra"
+                                    hooks.destroy_pending_extra
+                                with
+                                | Error e -> Error e
+                                | Ok pending_extra_destroyed -> (
+                                    match load_state ~db with
+                                    | Error e -> Error (Storage e)
+                                    | Ok prev -> (
+                                        let compromised =
+                                          List.sort_uniq String.compare
+                                            (prev.compromised_key_ids @ affected)
+                                        in
+                                        let state : recovery_state =
                                           {
-                                            authorization_disabled = true;
-                                            vault_records_destroyed;
-                                            pending_auth_tx_destroyed;
-                                            rewrap_jobs_destroyed;
-                                            bindings_destroyed;
-                                            leases_discarded;
-                                            pending_extra_destroyed;
-                                            affected_key_ids = affected;
-                                            requires_key_rotation = true;
+                                            user_authorization_enabled = false;
+                                            last_event = "compromise_disable";
+                                            last_reason = Some reason;
+                                            last_operator_id =
+                                              Some proof.operator_id;
+                                            last_event_at =
+                                              Some
+                                                (Time_util.iso8601_utc ~t:now ());
+                                            compromised_key_ids = compromised;
                                             requires_relink = true;
-                                            approved_by = proof.operator_id;
-                                          }))))))))
+                                            requires_key_rotation = true;
+                                          }
+                                        in
+                                        let details =
+                                          `Assoc
+                                            [
+                                              ( "vault_records_destroyed",
+                                                `Int vault_records_destroyed );
+                                              ( "pending_auth_tx_destroyed",
+                                                `Int pending_auth_tx_destroyed
+                                              );
+                                              ( "rewrap_jobs_destroyed",
+                                                `Int rewrap_jobs_destroyed );
+                                              ( "bindings_destroyed",
+                                                `Int bindings_destroyed );
+                                              ( "leases_discarded",
+                                                `Int leases_discarded );
+                                              ( "pending_extra_destroyed",
+                                                `Int pending_extra_destroyed );
+                                              ( "affected_key_ids",
+                                                `List
+                                                  (List.map
+                                                     (fun k -> `String k)
+                                                     affected) );
+                                              ( "requires_key_rotation",
+                                                `Bool true );
+                                              ("requires_relink", `Bool true);
+                                            ]
+                                        in
+                                        match
+                                          commit_event ~db ~state
+                                            ~event_kind:"compromise_disable"
+                                            ~operator_id:proof.operator_id
+                                            ~details ~now
+                                        with
+                                        | Error e -> Error e
+                                        | Ok () ->
+                                            Ok
+                                              {
+                                                authorization_disabled = true;
+                                                vault_records_destroyed;
+                                                pending_auth_tx_destroyed;
+                                                rewrap_jobs_destroyed;
+                                                bindings_destroyed;
+                                                leases_discarded;
+                                                pending_extra_destroyed;
+                                                affected_key_ids = affected;
+                                                requires_key_rotation = true;
+                                                requires_relink = true;
+                                                approved_by = proof.operator_id;
+                                              })))))))))

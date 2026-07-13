@@ -4,6 +4,7 @@
 module V = Github_user_token_vault
 module S = Github_user_token_store
 module R = Github_user_token_vault_recovery
+module L = Github_user_token_lease
 module Auth = Github_user_auth_tx
 module Rewrap = Github_user_token_rewrap
 module PI = Principal_identity
@@ -273,6 +274,10 @@ let test_restore_roundtrip_disables_auth () =
   Alcotest.(check bool)
     "gate disabled" false
     (assert_ok (R.user_authorization_enabled ~db:db_dst));
+  (match L.issue ~db:db_dst ~now:fixed_now ~vault_id:"ghvault_recov_01" () with
+  | Error L.User_authorization_disabled -> ()
+  | Error d -> Alcotest.fail (L.string_of_denial d)
+  | Ok _ -> Alcotest.fail "restore gate must block new user leases");
   (* Foreign row gone; restored rows open with original tokens. *)
   (match V.get_meta ~db:db_dst ~id:"ghvault_foreign" with
   | Ok None -> ()
@@ -389,6 +394,20 @@ let test_compromise_disable_destroys_and_requires_relink () =
     "state json no token" false
     (V.json_contains_plaintext ~json
        ~plaintext:(sample_tokens ~n:1).access_token);
+  let post_compromise =
+    match
+      V.create ~db ~keys ~id:"ghvault_recov_post_compromise" ~now:fixed_now
+        ~account:(account ~principal_id:"prin_post_compromise" ())
+        ~tokens:(sample_tokens ~n:99) ~scopes:[ "repo" ]
+        ~expires_at:"2026-12-01T00:00:00Z" ()
+    with
+    | Ok record -> record
+    | Error d -> fail_vdenial d
+  in
+  (match L.issue ~db ~now:fixed_now ~vault_id:post_compromise.id () with
+  | Error L.User_authorization_disabled -> ()
+  | Error d -> Alcotest.fail (L.string_of_denial d)
+  | Ok _ -> Alcotest.fail "compromise gate must block fresh user leases");
   match
     R.compromise_disable ~db
       ~proof:
@@ -407,6 +426,67 @@ let test_compromise_requires_reason () =
   | Ok _ -> Alcotest.fail "empty reason"
   | Error (R.Invalid_input _) -> ()
   | Error d -> fail_denial d
+
+let test_compromise_hook_failure_keeps_gate_disabled () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let original = List.hd (seed ~db ~keys ~n:1) in
+  let preexisting_lease =
+    match L.issue ~db ~now:fixed_now ~vault_id:original.id () with
+    | Ok lease -> lease
+    | Error d -> Alcotest.fail (L.string_of_denial d)
+  in
+  let hooks : R.destroy_hooks =
+    {
+      destroy_bindings = (fun () -> Error "test binding cleanup failure");
+      destroy_leases = (fun () -> Ok 0);
+      destroy_pending_extra = (fun () -> Ok 0);
+    }
+  in
+  (match
+     R.compromise_disable ~db ~proof:(compromise_proof ())
+       ~reason:"test compromised key" ~hooks ~now:fixed_now ()
+   with
+  | Error (R.Hook _) -> ()
+  | Error d -> fail_denial d
+  | Ok _ -> Alcotest.fail "test hook must fail compromise recovery");
+  let state = assert_ok (R.load_state ~db) in
+  Alcotest.(check bool)
+    "failed compromise keeps authorization disabled" false
+    state.user_authorization_enabled;
+  (match
+     L.with_token ~db ~keys ~now:fixed_now ~lease:preexisting_lease
+       ~f:(fun ~access_token:_ -> ())
+       ()
+   with
+  | Error L.User_authorization_disabled -> ()
+  | Error d -> Alcotest.fail (L.string_of_denial d)
+  | Ok () -> Alcotest.fail "gate must block preexisting user leases");
+  let record =
+    match
+      V.create ~db ~keys ~id:"ghvault_recov_after_failed_compromise"
+        ~now:fixed_now
+        ~account:(account ~principal_id:"prin_after_failure" ())
+        ~tokens:(sample_tokens ~n:98) ~scopes:[ "repo" ]
+        ~expires_at:"2026-12-01T00:00:00Z" ()
+    with
+    | Ok record -> record
+    | Error d -> fail_vdenial d
+  in
+  match L.issue ~db ~now:fixed_now ~vault_id:record.id () with
+  | Error L.User_authorization_disabled -> ()
+  | Error d -> Alcotest.fail (L.string_of_denial d)
+  | Ok _ -> Alcotest.fail "failed recovery must not re-enable user leases"
+
+let test_missing_durable_gate_fails_closed () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let record = List.hd (seed ~db ~keys ~n:1) in
+  ignore (Sqlite3.exec db "DROP TABLE github_user_token_vault_recovery_state");
+  match L.issue ~db ~now:fixed_now ~vault_id:record.id () with
+  | Error (L.Authorization_gate_unavailable _) -> ()
+  | Error d -> Alcotest.fail (L.string_of_denial d)
+  | Ok _ -> Alcotest.fail "missing durable recovery gate must deny user leases"
 
 let test_denial_never_leaks_tokens () =
   let d =
@@ -436,6 +516,10 @@ let suite =
       test_compromise_disable_destroys_and_requires_relink;
     Alcotest.test_case "compromise requires reason" `Quick
       test_compromise_requires_reason;
+    Alcotest.test_case "failed compromise keeps durable gate disabled" `Quick
+      test_compromise_hook_failure_keeps_gate_disabled;
+    Alcotest.test_case "missing durable gate fails closed" `Quick
+      test_missing_durable_gate_fails_closed;
     Alcotest.test_case "denial never leaks tokens" `Quick
       test_denial_never_leaks_tokens;
   ]

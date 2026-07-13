@@ -260,6 +260,7 @@
   github_user_token_store
   github_user_token_master_key
   github_user_token_vault
+  github_user_authorization_gate
   github_user_token_lease
   github_user_token_cas
   github_attribution_dispatch_lease
