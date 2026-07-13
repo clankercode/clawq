@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T00:52:30Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:01Z"
 depends_on:
@@ -7,11 +10,10 @@ depends_on:
 estimate_hours: 4
 id: P19.M4.E1.T001
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-13T00:52:30Z"
+status: in_progress
+tags: []
 title: Ground thread and main-Room questions in journal plus live GitHub state
-updated_at: "2026-07-12T12:34:01Z"
+updated_at: "2026-07-13T00:52:30Z"
 ---
 Acceptance: Thread questions anchor to their item; main-Room questions resolve explicit or unambiguous references and clarify ambiguity. Prompts combine authorized sanitized journal/projection history with freshly fetched GitHub state, and access revocation blocks later reads despite stale Session references. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
