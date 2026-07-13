@@ -32,7 +32,7 @@ tasks:
       file: T002-verify-callback-and-exchange-t.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Verify callback and exchange the code exactly once
     - complexity: high
