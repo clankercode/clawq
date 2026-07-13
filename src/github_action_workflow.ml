@@ -7,6 +7,7 @@ module Collab_attr = Github_collab_attribution
 module Review_attr = Github_pr_review_attribution
 module Issue_attr = Github_issue_attribution
 module Merge_attr = Github_merge_attribution
+module Wd_attr = Github_workflow_dispatch_attribution
 
 type action_kind =
   | Collab of Github_collab_actions.action
@@ -96,7 +97,8 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?account_binding_id ?session_id ?attribution_evidence
     ?(review_live = Review_attr.default_live_revalidation)
     ?(issue_live = Issue_attr.default_live_revalidation) ?merge_live
-    ?github_user_id ?(now = Unix.gettimeofday ()) () =
+    ?(workflow_live = Wd_attr.default_live_revalidation) ?github_user_id
+    ?(now = Unix.gettimeofday ()) () =
   let plan_res =
     match action with
     | Collab collab -> (
@@ -174,10 +176,21 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
             Github_issue_actions.plan_action ~db ~principal ~room_id
               ~pilot:issue_pilot ~user_auth_available ~action:issue_action
               ~base_revision ?route ~now ())
-    | Workflow_dispatch req ->
-        Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
-          ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision ?route
-          ~now ()
+    | Workflow_dispatch req -> (
+        match attribution_evidence with
+        | Some auth -> (
+            match
+              Wd_attr.plan_with_attribution ~db ~principal ~room_id ~req
+                ~base_revision ~auth ~live:workflow_live ~route
+                ~pilot:workflow_pilot ~user_auth_available ?actor_snapshot
+                ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
+            Github_workflow_dispatch.plan_dispatch ~db ~principal ~room_id
+              ~pilot:workflow_pilot ~user_auth_available ~req ~base_revision
+              ?route ~now ())
   in
   match plan_res with
   | Error e -> Error e
@@ -312,10 +325,33 @@ let maybe_merge_attribution_dispatch ~db ~plan ?attribution_live ?merge_live
                 Merge_attr.revoke_issued_lease dispatched.issued;
                 Ok (Some dispatched)))
 
+(** When a workflow_dispatch plan carries staged attribution, revalidate live
+    evidence and issue an opaque user lease before receipt-only apply. *)
+let maybe_workflow_dispatch_attribution_dispatch ~db ~plan ?attribution_live
+    ?(workflow_live = Wd_attr.default_live_revalidation) ?vault_id
+    ?expected_account ?github_user_id ~now () =
+  if not (Wd_attr.has_attribution_allow plan) then Ok None
+  else
+    match attribution_live with
+    | None ->
+        Error
+          "workflow_dispatch plan has staged attribution_allow; apply requires \
+           attribution_live evidence for revalidation and dispatch lease"
+    | Some live_auth -> (
+        match
+          Wd_attr.prepare_dispatch_from_plan ~db ~plan ~live_auth
+            ~live:workflow_live ?vault_id ?expected:expected_account
+            ?github_user_id ~now ()
+        with
+        | Error e -> Error e
+        | Ok dispatched ->
+            Wd_attr.revoke_issued_lease dispatched.issued;
+            Ok (Some dispatched))
+
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
-    ?review_live ?issue_live ?vault_id ?expected_account ?github_user_id
-    ?(now = Unix.gettimeofday ()) () =
+    ?review_live ?issue_live ?workflow_live ?vault_id ?expected_account
+    ?github_user_id ?(now = Unix.gettimeofday ()) () =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
@@ -340,21 +376,31 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
                   ()
               with
               | Error msg -> Ok (reject_actor_attribution msg)
-              | Ok _dispatched_opt ->
-                  (* Snapshot (when present) re-resolved; staged attribution
-                     dispatch revalidated. Proceed with receipt-only apply. *)
-                  let outcome =
-                    Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-                      ~current_base_revision ~destination_room ~now
-                      ~authority:authority_allow
-                      ~apply_ops:receipt_only_apply_ops ()
-                  in
-                  Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))))
+              | Ok _ -> (
+                  match
+                    maybe_workflow_dispatch_attribution_dispatch ~db ~plan
+                      ?attribution_live ?workflow_live ?vault_id
+                      ?expected_account ?github_user_id ~now ()
+                  with
+                  | Error msg -> Ok (reject_actor_attribution msg)
+                  | Ok _dispatched_opt ->
+                      (* Snapshot (when present) re-resolved; staged
+                         attribution dispatch revalidated. Proceed with
+                         receipt-only apply. *)
+                      let outcome =
+                        Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+                          ~current_base_revision ~destination_room ~now
+                          ~authority:authority_allow
+                          ~apply_ops:receipt_only_apply_ops ()
+                      in
+                      Ok
+                        (apply_outcome_with_correlation ~db ~plan ~now outcome)
+                  ))))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?attribution_live ?review_live
-    ?issue_live ?merge_live ?vault_id ?expected_account ?github_user_id
-    ?(now = Unix.gettimeofday ()) () =
+    ?issue_live ?merge_live ?workflow_live ?vault_id ?expected_account
+    ?github_user_id ?(now = Unix.gettimeofday ()) () =
   Setup_plan_apply.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id with
   | None ->
@@ -403,5 +449,5 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
         | Some destination_room ->
             apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
               ~current_base_revision ~destination_room ?current_target
-              ?attribution_live ?review_live ?issue_live ?vault_id
-              ?expected_account ?github_user_id ~now ())
+              ?attribution_live ?review_live ?issue_live ?workflow_live
+              ?vault_id ?expected_account ?github_user_id ~now ())
