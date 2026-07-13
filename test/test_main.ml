@@ -121,6 +121,7 @@ let () =
        ("github_route_admin", Test_github_route_admin.suite);
        ("github_route_apply", Test_github_route_apply.suite);
        ("github_route_ops", Test_github_route_ops.suite);
+       ("github_route_docs", Test_github_route_docs.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);

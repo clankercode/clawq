@@ -12,6 +12,14 @@ routing, projection, and interaction model remains Connector-neutral.
 
 ## Product contract
 
+Architecture ADRs, glossary, and operator procedures for this contract:
+
+- [ADR 0002 — unified live GitHub App routes](../adr/0002-use-unified-live-github-app-routes.md)
+- [ADR 0003 — plan-confirm-apply for agent setup](../adr/0003-require-plan-confirm-apply-for-agent-setup.md)
+- [ADR 0008 — route model, App setup, and operator contract](../adr/0008-github-route-model-and-setup.md)
+- [Glossary: GitHub routes and setup](../glossary-github-routes.md)
+- [GitHub route operator contract](../github-route-operator-contract.md)
+
 ### Route model
 
 A GitHub event route has a destination, selector, versioned filter, comment mode,
