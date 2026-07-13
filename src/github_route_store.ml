@@ -479,29 +479,67 @@ let list_for_destination ~db ~destination =
       loop [])
 
 let with_immediate_tx db f =
-  match Sqlite3.exec db "BEGIN IMMEDIATE" with
-  | Sqlite3.Rc.OK -> (
-      try
-        let result = f () in
-        (match result with
-        | Ok _ -> (
+  (* Prefer a top-level IMMEDIATE transaction. When the caller already holds a
+     transaction (e.g. Setup_plan_apply CAS), nest with a SAVEPOINT so domain
+     apply adapters can reuse create/update without nested BEGIN errors. *)
+  let mode =
+    match Sqlite3.exec db "BEGIN IMMEDIATE" with
+    | Sqlite3.Rc.OK -> `Outer
+    | _ -> (
+        match Sqlite3.exec db "SAVEPOINT github_route_store" with
+        | Sqlite3.Rc.OK -> `Savepoint
+        | rc ->
+            `Fail
+              (Printf.sprintf "BEGIN IMMEDIATE/SAVEPOINT failed: %s (%s)"
+                 (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+  in
+  match mode with
+  | `Fail e -> Error e
+  | (`Outer | `Savepoint) as kind -> (
+      let commit () =
+        match kind with
+        | `Outer -> (
             match Sqlite3.exec db "COMMIT" with
-            | Sqlite3.Rc.OK -> ()
+            | Sqlite3.Rc.OK -> Ok ()
             | rc ->
                 ignore (Sqlite3.exec db "ROLLBACK");
-                failwith
+                Error
                   (Printf.sprintf "COMMIT failed: %s" (Sqlite3.Rc.to_string rc))
             )
-        | Error _ -> ignore (Sqlite3.exec db "ROLLBACK"));
-        result
+        | `Savepoint -> (
+            match Sqlite3.exec db "RELEASE SAVEPOINT github_route_store" with
+            | Sqlite3.Rc.OK -> Ok ()
+            | rc ->
+                ignore
+                  (Sqlite3.exec db "ROLLBACK TO SAVEPOINT github_route_store");
+                Error
+                  (Printf.sprintf "RELEASE SAVEPOINT failed: %s"
+                     (Sqlite3.Rc.to_string rc)))
+      in
+      let rollback () =
+        match kind with
+        | `Outer -> ignore (Sqlite3.exec db "ROLLBACK")
+        | `Savepoint ->
+            ignore (Sqlite3.exec db "ROLLBACK TO SAVEPOINT github_route_store");
+            ignore (Sqlite3.exec db "RELEASE SAVEPOINT github_route_store")
+      in
+      try
+        let result = f () in
+        match result with
+        | Ok _ -> (
+            match commit () with
+            | Ok () -> result
+            | Error e ->
+                rollback ();
+                Error e)
+        | Error _ ->
+            rollback ();
+            result
       with exn ->
-        ignore (Sqlite3.exec db "ROLLBACK");
+        rollback ();
         Error
           (Printf.sprintf "github_route_store transaction aborted: %s"
              (Printexc.to_string exn)))
-  | rc ->
-      Error
-        (Printf.sprintf "BEGIN IMMEDIATE failed: %s" (Sqlite3.Rc.to_string rc))
 
 let disable_active ~db ~destination_key ~selector_key ~now_s ~except_id =
   let sql =

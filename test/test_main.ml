@@ -118,6 +118,7 @@ let () =
        ("github_route_match", Test_github_route_match.suite);
        ("github_route_transfer", Test_github_route_transfer.suite);
        ("github_route_migrate", Test_github_route_migrate.suite);
+       ("github_route_admin", Test_github_route_admin.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
