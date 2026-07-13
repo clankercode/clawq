@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T01:30:14Z"
+claimed_by: cli-user
 completed_at: null
 complexity: medium
 created_at: "2026-07-12T12:34:09Z"
@@ -7,10 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P19.M4.E3.T003
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-13T01:30:14Z"
+status: in_progress
 tags: []
 title: Publish the redacted pilot receipt rollout backout guide and cleanup result
-updated_at: "2026-07-12T12:34:09Z"
+updated_at: "2026-07-13T01:30:14Z"
 ---
 Acceptance: Publish a redacted receipt for setup, route, Tool catalog, delivery, actions, actor labels, journal/outbox, Teams activity, timestamps, checks, and cleanup without secrets/private content. Document the P19 pilot gate, safe default-off state, P21 production-attribution prerequisite, rollback and migration handoff; remove pilot routes/artifacts, drain or cancel jobs, detach only setup-owned access, disable the gate, and prove no residual delivery or action authority. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

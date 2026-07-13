@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T01:30:14Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:08Z"
@@ -7,10 +9,10 @@ depends_on:
 estimate_hours: 6
 id: P19.M4.E3.T001
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-13T01:30:14Z"
+status: in_progress
 tags: []
 title: Add cross-Connector policy migration and failure-path integration coverage
-updated_at: "2026-07-12T12:34:08Z"
+updated_at: "2026-07-13T01:30:14Z"
 ---
 Acceptance: Integration suites cover Teams plus generic fallback, route migration/collision, every action family, access revocation, stale confirmations, App/PAT compatibility, pilot gate default-off and explicit enable/backout, receipts/webhook reconciliation, delivery failure/restart, and minimal-build denial. Assert success, rejection, stale state, idempotency, and no duplicates; fixtures remain compatible with the later P21 state matrix without claiming user attribution exists in P19. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

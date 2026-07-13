@@ -20,7 +20,7 @@ tasks:
       file: T001-add-cross-connector-policy-mig.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Add cross-Connector policy migration and failure-path integration coverage
     - complexity: high
@@ -32,7 +32,7 @@ tasks:
       file: T002-run-the-live-github-app-to-cla.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Run the live GitHub App to Clawq to Teams pilot
     - complexity: medium
@@ -42,6 +42,6 @@ tasks:
       file: T003-publish-the-redacted-pilot-rec.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Publish the redacted pilot receipt rollout backout guide and cleanup result
