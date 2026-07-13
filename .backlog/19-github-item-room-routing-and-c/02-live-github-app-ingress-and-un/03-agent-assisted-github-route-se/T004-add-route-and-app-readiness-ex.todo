@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T00:06:58Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T00:10:29Z"
 complexity: high
 created_at: "2026-07-12T12:33:56Z"
 depends_on:
     - P19.M2.E3.T003
+duration_minutes: 3.5304409723166668
 estimate_hours: 4
 id: P19.M2.E3.T004
 priority: high
 started_at: "2026-07-13T00:06:58Z"
-status: in_progress
+status: done
 tags: []
 title: Add route and App readiness explain audit repair and redaction tests
-updated_at: "2026-07-13T00:06:58Z"
+updated_at: "2026-07-13T00:10:29Z"
 ---
 Acceptance: Readiness and explain identify missing App scope, grants, tools, MCP, credentials, egress, Connector capabilities, stale revisions, and delivery state with actionable repair steps. Audit correlates setup/route/install identities and all logs/results redact secrets and bounded payload content. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
