@@ -69,6 +69,9 @@ val plan_background :
   ?pilot:pilot_gate ->
   ?actor_key:Principal_identity.connector_actor_key ->
   ?actor_snapshot:Actor_snapshot.t ->
+  ?attribution_allow:Github_attribution_authorize.allow ->
+  ?expected_github_actor:Github_attribution_audit.github_actor ->
+  ?confirmation_id:string ->
   ?account_binding_id:string ->
   ?session_id:string ->
   ?now:float ->
@@ -80,14 +83,17 @@ val plan_background :
     correlation. Secret-free. No live mutation. Defaults [pilot] to
     [default_pilot_gate] (deny).
 
-    Optional [actor_key] / [actor_snapshot] pins initiating attribution via
-    [Github_action_actor_attribution] (immutable evidence; re-resolve at
-    apply/exec). *)
+    Optional [actor_key] / [actor_snapshot] pins initiating Actor evidence.
+    Optional [attribution_allow] (with snapshot) forms a full delayed
+    attribution pin via {!Github_delayed_attribution}: mode, lineage,
+    confirmation, expected GitHub actor — revalidated at exec with generation
+    advance permitted inside the same binding lineage. *)
 
 val enqueue_work_item :
   db:Sqlite3.db ->
   req:request ->
   ?actor_snapshot:Actor_snapshot.t ->
+  ?attribution_allow:Github_attribution_authorize.allow ->
   ?now:float ->
   unit ->
   (Github_work_item.t, string) result
@@ -96,9 +102,9 @@ val enqueue_work_item :
     present ([issue:repo:n] / [pr:repo:n] / [item:repo:issue:n] forms);
     room-scoped synthetic identity when absent.
 
-    Optional [actor_snapshot] is stored token-free on the work item and
-    preserved across retry / cancel / restart. Conflicting lineage on duplicate
-    is rejected. *)
+    Optional [actor_snapshot] and [attribution_allow] are stored token-free on
+    the work item and preserved across retry / cancel / restart. Conflicting
+    lineage on duplicate is rejected. *)
 
 val cancel_work_item :
   db:Sqlite3.db -> id:int -> unit -> (Github_work_item.t, string) result

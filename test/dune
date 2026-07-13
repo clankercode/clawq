@@ -104,6 +104,7 @@
   test_github_action_workflow
   test_github_action_actor_attribution
   test_github_durable_job_actor_attribution
+  test_github_delayed_attribution
   test_github_action_reconcile
   test_github_p19_integration
   test_github_room_tools

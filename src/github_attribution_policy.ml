@@ -57,6 +57,7 @@ let defaults () =
       ~pilot_allowed:false;
     (* Ordinary metadata: request reviewers (not high-risk review submission) *)
     req ~action:"review_request" ~tier:Medium ~attribution:User_preferred
+      ~pilot_allowed:false;
     (* High / Critical — User_required; pilot App interim allowed (not fallback) *)
     req ~action:"review_submit" ~tier:High ~attribution:User_required
       ~pilot_allowed:true;
