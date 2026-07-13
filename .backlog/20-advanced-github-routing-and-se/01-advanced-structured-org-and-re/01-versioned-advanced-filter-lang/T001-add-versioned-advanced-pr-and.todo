@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T01:34:32Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:09Z"
 depends_on:
@@ -6,11 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P20.M1.E1.T001
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-13T01:34:32Z"
+status: in_progress
+tags: []
 title: Add versioned advanced PR and Issue filter fields and migration
-updated_at: "2026-07-12T12:34:09Z"
+updated_at: "2026-07-13T01:34:32Z"
 ---
 Acceptance: Extend the typed filter schema for PR base/head branch, changed path, labels, author/team, draft state and Issue labels, author/team, assignee, and milestone. Persist schema version, validate operators/types, migrate existing baseline filters unchanged, and reject raw JSON predicates. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

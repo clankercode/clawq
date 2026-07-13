@@ -19,7 +19,8 @@ tasks:
       file: T001-add-versioned-advanced-pr-and.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add versioned advanced PR and Issue filter fields and migration
     - complexity: high
       depends_on:
