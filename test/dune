@@ -114,6 +114,7 @@
   test_github_user_token_master_key
   test_github_user_token_vault
   test_github_user_token_rewrap
+  test_github_user_token_vault_recovery
   test_github_pr_subscriptions
   test_github_pr_dispatch
   test_github_pr_policy
