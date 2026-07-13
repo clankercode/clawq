@@ -913,6 +913,6 @@ let redacted_summary (tx : t) =
       Printf.sprintf "  expires_at: %s" tx.expires_at;
       (match tx.terminal_reason with
       | None -> "  terminal_reason: (none)"
-      | Some r -> "  terminal_reason: " ^ r);
+      | Some _ -> "  terminal_reason: present");
       "  (one_time_state and secrets are never printed)";
     ]

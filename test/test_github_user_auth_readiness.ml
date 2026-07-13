@@ -80,7 +80,22 @@ let test_missing_callback () =
   in
   Alcotest.(check string)
     "origin-only callback fail" "fail"
-    (level_of "callback_uri" r_origin)
+    (level_of "callback_uri" r_origin);
+  Alcotest.(check bool) "origin-only refuses" false r_origin.can_act_as_user;
+  List.iter
+    (fun (label, callback_uri) ->
+      let r = R.evaluate (base ~callback_uri:(Some callback_uri) ()) in
+      Alcotest.(check string)
+        (label ^ " callback fails")
+        "fail"
+        (level_of "callback_uri" r);
+      Alcotest.(check bool) (label ^ " refuses") false r.can_act_as_user)
+    [
+      ("missing authority", "https:///github/oauth/callback");
+      ("query-only path", "https://clawq.example?path=/github/oauth/callback");
+      ("fragment-only path", "https://clawq.example#github/oauth/callback");
+      ("root-only path", "https://clawq.example/");
+    ]
 
 let test_refuse_when_incomplete () =
   (* Each required failure independently blocks act-as-user. *)

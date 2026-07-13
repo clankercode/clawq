@@ -513,6 +513,15 @@ let redacted_private_summary ~context ~channel ~content =
 
 let room_message_is_safe text = not (looks_like_secret_progress text)
 
+let progress_is_room_safe (p : progress_content) =
+  (not (looks_like_secret_progress p.phase))
+  &&
+  match p.detail with
+  | None -> room_message_is_safe (render_room_progress p)
+  | Some detail ->
+      (not (looks_like_secret_progress detail))
+      && room_message_is_safe (render_room_progress p)
+
 let contains_private_secrets (m : private_material) text =
   let check = function
     | None | Some "" -> false
@@ -567,6 +576,16 @@ let refuse_progress_no_channel () : progress_content =
          Room.";
   }
 
+let refuse_progress_unsafe_content () : progress_content =
+  {
+    phase = "refused_unsafe_room_progress";
+    detail =
+      Some
+        "Shared Rooms receive only neutral GitHub authorization progress. \
+         Private authorization material must be delivered through a private \
+         channel.";
+  }
+
 let assert_private_channel (channel : delivery_channel) :
     (delivery_channel, refuse_error) result =
   match validate_delivery_channel channel with
@@ -613,8 +632,17 @@ let route_delivery ~context ~channel ~content ?shared_room_id () =
     let room_id = resolve_room_id ~context ~shared_room_id in
     match content with
     | Progress p ->
-        let room_id = Option.value room_id ~default:"" in
-        Room_progress (make_room_body ~room_id p)
+        if not (progress_is_room_safe p) then
+          refused ~reason:(Invalid_content "unsafe_room_progress")
+            ~message:
+              "Refused unsafe shared-Room GitHub authorization progress. Use \
+               neutral progress and deliver authorization URLs, codes, and \
+               OAuth material through a private channel."
+            ~room_progress:(refuse_progress_unsafe_content ())
+            ()
+        else
+          let room_id = Option.value room_id ~default:"" in
+          Room_progress (make_room_body ~room_id p)
     | Material m -> (
         match assert_private_channel channel with
         | Error e ->

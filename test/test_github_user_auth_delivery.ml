@@ -127,6 +127,37 @@ let test_progress_rejects_secret_detail () =
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "device-shaped code in progress detail must fail"
 
+let test_route_refuses_constructed_secret_progress () =
+  let secret =
+    "https://github.com/login/oauth/authorize?client_id=Iv1.bypass&state=bypass"
+  in
+  let bypassed_constructor : D.progress_content =
+    { phase = "awaiting_authorization"; detail = Some secret }
+  in
+  match
+    D.route_delivery ~context:(ctx ()) ~channel:D.Absent
+      ~content:(D.Progress bypassed_constructor) ()
+  with
+  | D.Refused e -> (
+      Alcotest.(check string)
+        "typed reason" "invalid_content:unsafe_room_progress"
+        (D.string_of_refuse_reason e.reason);
+      Alcotest.(check bool)
+        "message omits secret" false
+        (contains e.message secret);
+      match e.room_safe_progress with
+      | Some progress ->
+          let rendered = D.render_room_progress progress in
+          Alcotest.(check bool)
+            "replacement progress is safe" true
+            (D.room_message_is_safe rendered);
+          Alcotest.(check bool)
+            "replacement omits secret" false (contains rendered secret)
+      | None -> Alcotest.fail "expected room-safe replacement progress")
+  | D.Room_progress _ ->
+      Alcotest.fail "constructible secret progress must not reach a Room"
+  | D.Private _ -> Alcotest.fail "progress is never privately routed"
+
 let test_private_url_via_connector_dm () =
   let plan =
     D.route_delivery ~context:(ctx ()) ~channel:(dm_channel ())
@@ -415,6 +446,9 @@ let suite =
     ( "progress rejects secret detail",
       `Quick,
       test_progress_rejects_secret_detail );
+    ( "routing refuses constructible secret progress",
+      `Quick,
+      test_route_refuses_constructed_secret_progress );
     ("private URL via connector DM", `Quick, test_private_url_via_connector_dm);
     ( "private device codes via browser",
       `Quick,

@@ -47,23 +47,22 @@ let normalize_host host =
 
 let is_github_com host = normalize_host host = "github.com"
 
-(** Callback URI must be a non-empty absolute https URL with a path. V1 does not
-    accept http, empty, or host-only URIs. *)
+(** Callback URI must be an absolute https URL with an authority and a
+    non-origin path. V1 does not accept http, empty, host-only, or root-only
+    URIs. *)
 let callback_uri_valid = function
   | None -> false
   | Some raw -> (
       let s = String.trim raw in
       if s = "" then false
       else
-        let lower = String.lowercase_ascii s in
-        if not (String.length lower >= 8 && String.sub lower 0 8 = "https://")
-        then false
-        else
-          (* https://host/path → ["https:"; ""; "host"; "path"; ...] *)
-          match String.split_on_char '/' s with
-          | _scheme :: _empty :: _host :: path_seg :: _ when path_seg <> "" ->
-              true
-          | _ -> false)
+        let uri = Uri.of_string s in
+        match (Uri.scheme uri, Uri.host uri, Uri.path uri) with
+        | Some scheme, Some host, path ->
+            String.equal (String.lowercase_ascii scheme) "https"
+            && String.trim host <> ""
+            && path <> "" && path <> "/"
+        | _ -> false)
 
 let mk ~name ~level ~detail ~repair = { name; level; detail; repair }
 
@@ -105,7 +104,9 @@ let check_app_identity (s : config_snapshot) : check =
 let check_callback_uri (s : config_snapshot) : check =
   if callback_uri_valid s.callback_uri then
     mk ~name:"callback_uri" ~level:Pass
-      ~detail:"OAuth callback URI is a non-empty https URL with a path"
+      ~detail:
+        "OAuth callback URI is an absolute https URL with a host and \
+         non-origin path"
       ~repair:""
   else
     let why =
@@ -117,12 +118,15 @@ let check_callback_uri (s : config_snapshot) : check =
                (let l = String.lowercase_ascii (String.trim u) in
                 String.length l >= 8 && String.sub l 0 8 = "https://") ->
           "callback URI must use https"
-      | Some _ -> "callback URI must include a path (not origin-only)"
+      | Some _ ->
+          "callback URI must be an absolute https URL with a host and \
+           non-origin path"
     in
     mk ~name:"callback_uri" ~level:Fail ~detail:why
       ~repair:
-        "Set the App callback URI to an https URL with a path matching the \
-         Clawq OAuth callback (exact match required for PKCE web flow)."
+        "Set the App callback URI to an absolute https URL with a host and \
+         non-origin path matching the Clawq OAuth callback (exact match \
+         required for PKCE web flow)."
 
 let check_client_secret (s : config_snapshot) : check =
   if handle_nonempty s.client_secret_handle then

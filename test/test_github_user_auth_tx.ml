@@ -408,6 +408,28 @@ let test_redacted_summary_has_no_secrets () =
     [ "client_secret"; "access_token"; "refresh_token"; "code_verifier" ];
   Alcotest.(check bool) "has status" true (contains lower "status:")
 
+let test_redacted_summary_omits_cancellation_reason () =
+  with_db @@ fun db ->
+  let tx = assert_ok (create_tx ~db ~id:"tx_secret_reason" ()) in
+  let secret_reason =
+    "provider error_description: access_token=gho_secret_cancellation_reason"
+  in
+  let cancelled =
+    assert_ok
+      (T.cancel ~db ~id:tx.id ~context:(context ()) ~reason:secret_reason
+         ~now:fixed_now ())
+  in
+  let summary = T.redacted_summary cancelled in
+  Alcotest.(check bool)
+    "omits complete cancellation reason" false
+    (contains summary secret_reason);
+  Alcotest.(check bool)
+    "omits embedded secret" false
+    (contains summary "gho_secret_cancellation_reason");
+  Alcotest.(check bool)
+    "reports terminal reason presence" true
+    (contains summary "terminal_reason: present")
+
 let test_find_by_one_time_state () =
   with_db @@ fun db ->
   let tx =
@@ -445,5 +467,8 @@ let suite =
     ( "redacted summary has no secrets",
       `Quick,
       test_redacted_summary_has_no_secrets );
+    ( "redacted summary omits cancellation reason",
+      `Quick,
+      test_redacted_summary_omits_cancellation_reason );
     ("find_by_one_time_state", `Quick, test_find_by_one_time_state);
   ]
