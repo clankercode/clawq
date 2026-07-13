@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T01:34:33Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T01:45:50Z"
 complexity: high
 created_at: "2026-07-12T14:51:43Z"
 depends_on:
     - P19.M2.E1.T003
+duration_minutes: 11.28928334375
 estimate_hours: 4
 id: P21.M2.E1.T001
 priority: critical
 started_at: "2026-07-13T01:34:33Z"
-status: in_progress
+status: done
 tags: []
 title: Extend GitHub App user-authorization readiness
-updated_at: "2026-07-13T01:34:33Z"
+updated_at: "2026-07-13T01:45:50Z"
 ---
 Acceptance: Readiness validates GitHub.com App/client identity, callback URI, private client-secret handle, expiring user tokens, device-flow enablement when requested, master key, permissions, and private continuation; managed setup refuses act-as-user until all required checks pass. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
