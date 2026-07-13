@@ -24,7 +24,6 @@ let empty_pr_context : pr_context =
     author = None;
     teams = None;
     draft = None;
-  }
 
 let normalize_ci s = String.lowercase_ascii (String.trim s)
 
@@ -48,23 +47,18 @@ let pr_context_of_envelope ~envelope ?enrichment () : pr_context =
     match envelope.E.actor.login with
     | Some l when String.trim l <> "" -> Some (String.trim l)
     | _ -> None
-  in
   let changed_paths, teams =
     match enrichment with
     | None -> (None, None)
     | Some e ->
         ( option_of_enrichment_result e.En.paths,
           option_of_enrichment_result e.En.teams )
-  in
-  {
     base_branch;
-    head_branch = None;
     changed_paths;
     labels;
     author;
     teams;
     draft;
-  }
 
 (* ---- Glob matching (case-sensitive; * segment fragment, ** multi-segment) ---- *)
 
@@ -86,11 +80,9 @@ let segment_glob_match ~pattern ~value =
         if vi + k > vlen then false
         else if loop (pi + 1) (vi + k) then true
         else star (k + 1)
-      in
       star 0
     else if vi < vlen && pattern.[pi] = value.[vi] then loop (pi + 1) (vi + 1)
     else false
-  in
   loop 0 0
 
 (** Segment-list match with [**] spanning zero or more full segments. *)
@@ -106,7 +98,6 @@ let rec match_segments pats vals =
         else
           let dropped = List.filteri (fun i _ -> i >= n) vrest in
           if match_segments prest dropped then true else try_consume (n + 1)
-      in
       try_consume 0
   | p :: prest, [] ->
       (* only ok if remaining patterns are all ** *)
@@ -115,14 +106,12 @@ let rec match_segments pats vals =
       if p = "**" then match_segments ("**" :: prest) (v :: vrest)
       else if segment_glob_match ~pattern:p ~value:v then
         match_segments prest vrest
-      else false
 
 let match_glob ~pattern ~value =
   let pattern = String.trim pattern in
   let value = String.trim value in
   if pattern = "" then false
   else if pattern = "*" || pattern = "**" then true
-  else
     (* Fast path: no meta → exact *)
     let has_meta = String.contains pattern '*' in
     if not has_meta then pattern = value
@@ -160,27 +149,21 @@ let value_matches_glob_op ~op ~patterns ~value =
   | `Glob -> any_glob
 
 let eval_glob_match ~subject (m : F.glob_match) =
-  match subject with
-  | None -> false
   | Some value -> value_matches_glob_op ~op:m.op ~patterns:m.values ~value
 
 let eval_paths_match ~paths (m : F.glob_match) =
   match paths with
-  | None -> false
   | Some path_list -> (
       let any_path_hits =
         List.exists
           (fun path ->
             match m.op with
             | `Glob ->
-                List.exists
                   (fun p -> match_glob ~pattern:p ~value:path)
                   m.values
             | `Eq | `In | `Neq | `Not_in ->
                 List.exists (fun p -> p = path) m.values)
           path_list
-      in
-      match m.op with
       | `Eq | `In | `Glob -> any_path_hits
       | `Neq | `Not_in -> not any_path_hits)
 
@@ -196,51 +179,33 @@ let eval_pr ~(filter : F.t) ~(ctx : pr_context) () =
   let pr = filter.pr in
   let ok_base =
     match pr.base_branch with
-    | None -> true
     | Some m -> eval_glob_match ~subject:ctx.base_branch m
-  in
   if not ok_base then false
-  else
     let ok_head =
       match pr.head_branch with
-      | None -> true
       | Some m -> eval_glob_match ~subject:ctx.head_branch m
-    in
     if not ok_head then false
-    else
       let ok_paths =
         match pr.changed_path with
-        | None -> true
         | Some m -> eval_paths_match ~paths:ctx.changed_paths m
-      in
       if not ok_paths then false
-      else
         let ok_labels =
           match pr.labels with
-          | None -> true
           | Some m -> eval_set_match ~subject:ctx.labels ~case_sensitive:false m
-        in
         if not ok_labels then false
-        else
           let ok_author =
             match pr.author with
-            | None -> true
             | Some m ->
                 eval_scalar_set_match ~subject:ctx.author ~case_sensitive:false
                   m
-          in
           if not ok_author then false
-          else
             let ok_team =
               match pr.team with
-              | None -> true
               | Some m -> (
                   match ctx.teams with
-                  | None -> false
                   | Some membership ->
                       eval_set_match ~subject:membership ~case_sensitive:false m
                   )
-            in
             if not ok_team then false
             else eval_draft ~filter_draft:pr.draft ~ctx_draft:ctx.draft
 
@@ -262,21 +227,99 @@ let eval_baseline ~(filter : F.t) ~event ?family ?repo () =
   else if
     filter.include_events <> []
     && not (events_hit filter.include_events ~event ~family)
-  then false
-  else
     match repo with
-    | None -> true
     | Some repo ->
         let repo = normalize_ci repo in
         if repo = "" then true
-        else if
           filter.exclude_repos <> [] && list_mem_ci filter.exclude_repos repo
-        then false
-        else if
           filter.include_repos <> []
           && not (list_mem_ci filter.include_repos repo)
-        then false
         else true
 
 let eval_pr_with_baseline ~(filter : F.t) ~event ?family ?repo ~ctx () =
   eval_baseline ~filter ~event ?family ?repo () && eval_pr ~filter ~ctx ()
+||||||| dba8c5b5
+(* Deterministic PR/Issue advanced filter evaluation (P20.M1.E1.T003/T004).
+
+
+
+type issue_context = {
+  assignees : string list;
+  milestone : string option;
+
+
+let empty_issue_context : issue_context =
+  { labels = []; author = None; teams = None; assignees = []; milestone = None }
+
+
+
+let actor_login (envelope : E.t) =
+
+let teams_from_enrichment enrichment =
+  | Some e -> option_of_enrichment_result e.En.teams
+
+  let author = actor_login envelope in
+
+let issue_context_of_envelope ~envelope ?enrichment () : issue_context =
+  let assignees = match after with Some s -> s.E.assignees | None -> [] in
+  let milestone =
+        match s.E.milestone with
+        | Some t when String.trim t <> "" -> Some (String.trim t)
+    author = actor_login envelope;
+    teams = teams_from_enrichment enrichment;
+    assignees;
+    milestone;
+
+
+
+
+
+
+
+
+
+
+
+
+let eval_milestone_match ~subject ~case_sensitive (m : F.set_match) =
+  (* None = cleared / no milestone → known empty identity, not fail-closed. *)
+  let subject_list =
+    | None -> []
+        let t = String.trim s in
+        if t = "" then [] else [ t ]
+  eval_set_match ~subject:subject_list ~case_sensitive m
+
+
+
+
+
+
+
+(* ---- Issue advanced evaluation ---- *)
+
+let eval_issue ~(filter : F.t) ~(ctx : issue_context) () =
+  let issue = filter.issue in
+    match issue.labels with
+      match issue.author with
+          eval_scalar_set_match ~subject:ctx.author ~case_sensitive:false m
+        match issue.team with
+            | None -> false (* fail closed: team demanded but not enriched *)
+                eval_set_match ~subject:membership ~case_sensitive:false m)
+        let ok_assignee =
+          match issue.assignee with
+              (* Empty assignees = known unassigned (not missing). *)
+              eval_set_match ~subject:ctx.assignees ~case_sensitive:false m
+        if not ok_assignee then false
+          match issue.milestone with
+              eval_milestone_match ~subject:ctx.milestone ~case_sensitive:false
+
+
+
+
+
+let eval_pr_with_baseline ~(filter : F.t) ~event ?family ?repo
+    ~(ctx : pr_context) () =
+
+let eval_issue_with_baseline ~(filter : F.t) ~event ?family ?repo
+    ~(ctx : issue_context) () =
+  eval_baseline ~filter ~event ?family ?repo () && eval_issue ~filter ~ctx ()
