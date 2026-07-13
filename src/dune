@@ -193,6 +193,7 @@
   github_item_projection
   github_comment_mode
   github_event_history_index
+  github_delivery_intent
   github_auth_selection
   credential_lease
   skills

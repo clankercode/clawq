@@ -125,8 +125,8 @@ let () =
        ("github_room_event_journal", Test_github_room_event_journal.suite);
        ("github_item_projection", Test_github_item_projection.suite);
        ("github_comment_mode", Test_github_comment_mode.suite);
-||||||| parent of 76453659 (feat(github): index Room/item history for session context)
        ("github_event_history_index", Test_github_event_history_index.suite);
+       ("github_delivery_intent", Test_github_delivery_intent.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
