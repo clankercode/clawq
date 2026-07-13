@@ -134,6 +134,6 @@ tasks:
       file: T012-implement-unlink-split-and-ide.todo
       id: T012
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Implement unlink split and identity revocation lifecycle
