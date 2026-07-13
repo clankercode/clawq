@@ -142,6 +142,7 @@ let () =
        ("github_issue_actions", Test_github_issue_actions.suite);
        ("github_workflow_dispatch", Test_github_workflow_dispatch.suite);
        ("github_action_workflow", Test_github_action_workflow.suite);
+       ("github_action_reconcile", Test_github_action_reconcile.suite);
        ("github_room_tools", Test_github_room_tools.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
