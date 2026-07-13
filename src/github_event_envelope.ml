@@ -799,3 +799,138 @@ let normalize ?delivery_id ?installation_id ?received_at ~event ~payload () =
         | other ->
             unsupported ~event ~action
               (Printf.sprintf "unsupported event %S for item envelopes" other))
+
+(* --- Safe JSON decode (inverse of to_safe_json) --- *)
+
+let item_kind_of_string = function
+  | "pull_request" -> Some Pull_request
+  | "issue" -> Some Issue
+  | _ -> None
+
+let family_of_string s =
+  match s with
+  | "lifecycle" -> Lifecycle
+  | "review" -> Review
+  | "comment" -> Comment
+  | "commit" -> Commit
+  | "ci" -> Ci
+  | "state_update" -> State_update
+  | s ->
+      let prefix = "other:" in
+      let plen = String.length prefix in
+      if String.length s >= plen && String.sub s 0 plen = prefix then
+        Other (String.sub s plen (String.length s - plen))
+      else Other s
+
+let string_list_of_json_field = function
+  | `List items ->
+      List.filter_map (function `String s -> Some s | _ -> None) items
+  | _ -> []
+
+let safe_state_of_json = function
+  | `Assoc _ as j ->
+      {
+        title = get_string "title" j;
+        state = get_string "state" j;
+        draft = get_bool "draft" j;
+        merged = get_bool "merged" j;
+        labels = string_list_of_json_field (Yojson.Safe.Util.member "labels" j);
+        assignees =
+          string_list_of_json_field (Yojson.Safe.Util.member "assignees" j);
+        milestone = get_string "milestone" j;
+        head_sha = get_string "head_sha" j;
+        base_ref = get_string "base_ref" j;
+      }
+  | _ -> empty_safe_state
+
+let actor_of_json = function
+  | `Assoc _ as j ->
+      {
+        login = get_string "login" j;
+        id = get_int "id" j;
+        type_ = get_string "type" j;
+      }
+  | _ -> empty_actor
+
+let transfer_of_json = function
+  | `Assoc _ as j ->
+      Some
+        {
+          from_repo = get_string "from_repo" j;
+          to_repo = get_string "to_repo" j;
+        }
+  | _ -> None
+
+let of_safe_json json : (t, string) result =
+  match json with
+  | `Assoc _ as j -> (
+      match (get_string "event" j, get_string "repo_full_name" j) with
+      | None, _ -> Result.Error "of_safe_json: missing event"
+      | _, None -> Result.Error "of_safe_json: missing repo_full_name"
+      | Some event, Some repo_full_name ->
+          let family =
+            match get_string "family" j with
+            | Some s -> family_of_string s
+            | None -> Other "unknown"
+          in
+          let item_kind =
+            match get_string "item_kind" j with
+            | Some s -> item_kind_of_string s
+            | None -> None
+          in
+          let version =
+            match get_int "version" j with
+            | Some n -> n
+            | None -> envelope_version
+          in
+          let actor =
+            match member_opt "actor" j with
+            | Some a -> actor_of_json a
+            | None -> empty_actor
+          in
+          let before =
+            match member_opt "before" j with
+            | Some b -> Some (safe_state_of_json b)
+            | None -> None
+          in
+          let after =
+            match member_opt "after" j with
+            | Some a -> Some (safe_state_of_json a)
+            | None -> None
+          in
+          let transfer =
+            match member_opt "transfer" j with
+            | Some t -> transfer_of_json t
+            | None -> None
+          in
+          let unsupported =
+            match get_bool "unsupported" j with Some b -> b | None -> false
+          in
+          Result.Ok
+            {
+              version;
+              delivery_id = get_string "delivery_id" j;
+              installation_id = get_int "installation_id" j;
+              event;
+              action = get_string "action" j;
+              repo_full_name;
+              org = get_string "org" j;
+              item_kind;
+              item_number = get_int "item_number" j;
+              item_node_id = get_string "item_node_id" j;
+              item_url = get_string "item_url" j;
+              html_url = get_string "html_url" j;
+              family;
+              actor;
+              before;
+              after;
+              transfer;
+              received_at = get_string "received_at" j;
+              event_at = get_string "event_at" j;
+              head_sha = get_string "head_sha" j;
+              unsupported;
+              skip_reason = get_string "skip_reason" j;
+            })
+  | _ -> Result.Error "of_safe_json: expected JSON object"
+
+let envelope_of_json = of_safe_json
