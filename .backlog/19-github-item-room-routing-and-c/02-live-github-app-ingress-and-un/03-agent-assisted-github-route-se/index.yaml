@@ -44,7 +44,8 @@ tasks:
       file: T003-apply-confirmed-routes-and-ref.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Apply confirmed routes and refresh managed Room access immediately
     - complexity: high
       depends_on:
