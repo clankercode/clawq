@@ -177,6 +177,8 @@ let () =
        ("github_action_workflow", Test_github_action_workflow.suite);
        ( "github_action_actor_attribution",
          Test_github_action_actor_attribution.suite );
+       ( "github_durable_job_actor_attribution",
+         Test_github_durable_job_actor_attribution.suite );
        ("github_action_reconcile", Test_github_action_reconcile.suite);
        ("github_p19_integration", Test_github_p19_integration.suite);
        ("github_room_tools", Test_github_room_tools.suite);
