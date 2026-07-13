@@ -186,6 +186,7 @@
   principal_merge_persist
   principal_merge
   github_account_binding
+  principal_unlink_split
   github_app_setup_tx
   github_app_setup_callback
   github_app_setup_resume
