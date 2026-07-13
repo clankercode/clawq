@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Room Event Journal and Deterministic Projections
       path: 01-room-event-journal-and-determi
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M3.E1
