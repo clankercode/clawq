@@ -345,7 +345,14 @@ let attribution_allow_json_of_plan (plan : Setup_plan.t) =
   | Some j -> Some j
   | None -> member_opt field_attribution_allow plan.planned_state
 
+let is_collab_attribution_plan (plan : Setup_plan.t) =
+  match plan.apply_payload.kind with
+  | Setup_plan.Generic "github_collab_action" -> true
+  | _ -> false
+
 let has_attribution_allow (plan : Setup_plan.t) =
+  is_collab_attribution_plan plan
+  &&
   match attribution_allow_json_of_plan plan with
   | None -> false
   | Some _ -> true

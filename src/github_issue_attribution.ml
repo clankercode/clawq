@@ -1,12 +1,12 @@
-(* Attributed reviewer requests + user-required PR reviews (P21.M3.E3.T002).
-   See github_pr_review_attribution.mli and
+(* User-required Issue creation + lifecycle attribution (P21.M3.E3.T006).
+   See github_issue_attribution.mli and
    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 module Auth = Github_attribution_authorize
 module Dispatch = Github_attribution_dispatch_lease
 module Audit = Github_attribution_audit
 module Policy = Github_attribution_policy
-module Review = Github_pr_review_actions
+module Issue = Github_issue_actions
 module V = Github_user_token_vault
 module Token_lease = Github_user_token_lease
 
@@ -16,9 +16,10 @@ let field_requested_mode = "requested_mode"
 let field_resolved_mode = "resolved_mode"
 let field_used_app_fallback = "used_app_fallback"
 let field_attribution = "attribution"
-let field_live_revalidation = "pr_review_live"
-let policy_action_request_reviewers = "review_request"
-let policy_action_submit_review = "review_submit"
+let field_live_revalidation = "issue_live"
+let policy_action_create = "issue_create"
+let policy_action_close = "issue_close"
+let policy_action_reopen = "issue_reopen"
 
 let sort_assoc fields =
   List.sort (fun (a, _) (b, _) -> String.compare a b) fields
@@ -63,129 +64,150 @@ let json_assoc_merge (base : Yojson.Safe.t)
   | `Null -> `Assoc extras
   | other -> `Assoc (sort_assoc (("_prior", other) :: extras))
 
-type family =
-  | Request_reviewers of Review.request_reviewers
-  | Submit_review of Review.submit_review
+let policy_action_of_action = function
+  | Issue.Create _ | Issue.Open _ -> policy_action_create
+  | Issue.Close _ -> policy_action_close
+  | Issue.Reopen _ -> policy_action_reopen
 
-let policy_action_of_family = function
-  | Request_reviewers _ -> policy_action_request_reviewers
-  | Submit_review _ -> policy_action_submit_review
-
-let item_key_of_family = function
-  | Request_reviewers r -> String.trim r.item_key
-  | Submit_review r -> String.trim r.item_key
+let item_key_of_action = function
+  | Issue.Create _ -> None
+  | Issue.Open { item_key; _ }
+  | Issue.Close { item_key; _ }
+  | Issue.Reopen { item_key; _ } ->
+      let t = String.trim item_key in
+      if t = "" then None else Some t
 
 type live_revalidation = {
-  head_sha_live : string option;
-  pr_author_login : string option;
-  reviewers_still_valid : bool;
-  already_applied : bool;
   item_present : bool;
+  repo_present : bool;
+  current_state : string option;
+  already_applied : bool;
+  target_revision : string option;
+  planned_target_revision : string option;
 }
 
 let default_live_revalidation : live_revalidation =
   {
-    head_sha_live = None;
-    pr_author_login = None;
-    reviewers_still_valid = true;
-    already_applied = false;
     item_present = true;
+    repo_present = true;
+    current_state = None;
+    already_applied = false;
+    target_revision = None;
+    planned_target_revision = None;
   }
 
-let normalize_login s = String.lowercase_ascii (String.trim s)
-
-let planned_head_sha = function
-  | Request_reviewers r -> (
-      match r.head_sha with
-      | None -> None
-      | Some s ->
-          let t = String.trim s in
-          if t = "" then None else Some t)
-  | Submit_review r ->
-      let t = String.trim r.head_sha in
+let normalize_state = function
+  | None -> None
+  | Some s ->
+      let t = String.lowercase_ascii (String.trim s) in
       if t = "" then None else Some t
 
-let revalidate_live ~family ~live =
+let revalidate_live ~action ~live =
   if live.already_applied then
     Error
-      "duplicate or replay: this PR review / reviewer-request action was \
-       already applied; refuse silent re-dispatch"
-  else if not live.item_present then
-    Error
-      "target PR/item is missing or no longer addressable; re-resolve the item \
-       and re-preview"
+      "duplicate or replay: this issue create/lifecycle action was already \
+       applied; refuse silent re-dispatch"
   else
-    match family with
-    | Request_reviewers req -> (
-        if not live.reviewers_still_valid then
-          Error
-            "selected reviewers are no longer valid on the target; re-select \
-             reviewers and re-preview"
-        else if req.reviewers = [] then
-          Error "request_reviewers requires at least one reviewer"
-        else
-          match (planned_head_sha family, live.head_sha_live) with
-          | Some planned, Some current
-            when not (String.equal (String.trim planned) (String.trim current))
-            ->
-              Error
-                (Printf.sprintf
-                   "stale head_sha: planned %s live %s; revalidate the \
-                    displayed head before requesting reviewers"
-                   planned current)
-          | _ -> Ok ())
-    | Submit_review req -> (
-        let planned = String.trim req.head_sha in
-        if planned = "" then
-          Error
-            "submit_review requires exact non-empty head_sha (revalidate \
-             displayed head before submission)"
-        else
-          match live.head_sha_live with
-          | None ->
-              Error
-                "submit_review requires live head_sha for revalidation \
-                 immediately before dispatch"
-          | Some current when not (String.equal planned (String.trim current))
-            ->
-              Error
-                (Printf.sprintf
-                   "stale head_sha: planned %s live %s; revalidate the \
-                    displayed head before review submission"
-                   planned current)
-          | Some _ -> (
-              match (req.kind, req.actor_login, live.pr_author_login) with
-              | Review.Approve, Some actor, Some author
-                when normalize_login actor <> ""
-                     && normalize_login actor = normalize_login author ->
-                  Error
-                    "self-review denied: Approve actor_login matches PR \
-                     author; another reviewer must approve"
-              | Review.Approve, Some actor, _ when String.trim actor = "" ->
-                  Error
-                    "submit_review Approve requires non-empty actor_login when \
-                     provided (self-review revalidation)"
-              | _ -> Ok ()))
+    let stale_rev =
+      match (live.planned_target_revision, live.target_revision) with
+      | Some planned, Some current
+        when not
+               (String.equal (String.trim planned) (String.trim current)
+               || String.trim planned = ""
+               || String.trim current = "") ->
+          true
+      | _ -> false
+    in
+    if stale_rev then
+      Error
+        (Printf.sprintf
+           "stale target: planned revision %s live %s; revalidate the target \
+            before dispatch"
+           (Option.value live.planned_target_revision ~default:"")
+           (Option.value live.target_revision ~default:""))
+    else
+      match action with
+      | Issue.Create _ ->
+          if not live.repo_present then
+            Error
+              "create target repository is missing or no longer addressable; \
+               re-resolve the repo and re-preview"
+          else Ok ()
+      | Issue.Open _ -> (
+          if not live.item_present then
+            Error
+              "target Issue/PR is missing or no longer addressable; re-resolve \
+               the item and re-preview"
+          else
+            match normalize_state live.current_state with
+            | Some "open" ->
+                Error
+                  "stale target state: item is already open; refuse open \
+                   dispatch (revalidate state)"
+            | Some "closed" | None -> Ok ()
+            | Some other ->
+                Error
+                  (Printf.sprintf
+                     "unknown live state %S for open; expected open|closed"
+                     other))
+      | Issue.Close _ -> (
+          if not live.item_present then
+            Error
+              "target Issue/PR is missing or no longer addressable; re-resolve \
+               the item and re-preview"
+          else
+            match normalize_state live.current_state with
+            | Some "closed" ->
+                Error
+                  "stale target state: item is already closed; refuse close \
+                   dispatch (revalidate state)"
+            | Some "open" | None -> Ok ()
+            | Some other ->
+                Error
+                  (Printf.sprintf
+                     "unknown live state %S for close; expected open|closed"
+                     other))
+      | Issue.Reopen _ -> (
+          if not live.item_present then
+            Error
+              "target Issue/PR is missing or no longer addressable; re-resolve \
+               the item and re-preview"
+          else
+            match normalize_state live.current_state with
+            | Some "open" ->
+                Error
+                  "stale target state: item is already open; refuse reopen \
+                   dispatch (revalidate state)"
+            | Some "closed" | None -> Ok ()
+            | Some other ->
+                Error
+                  (Printf.sprintf
+                     "unknown live state %S for reopen; expected open|closed"
+                     other))
 
-let live_action_evidence ~family ~live : Auth.live_action_evidence =
-  match revalidate_live ~family ~live with
-  | Ok () -> { ok = true; revision = planned_head_sha family; detail = None }
+let live_action_evidence ~action ~live : Auth.live_action_evidence =
+  match revalidate_live ~action ~live with
+  | Ok () ->
+      {
+        ok = true;
+        revision =
+          (match live.target_revision with
+          | Some r when String.trim r <> "" -> Some (String.trim r)
+          | _ -> live.planned_target_revision);
+        detail = None;
+      }
   | Error detail ->
-      { ok = false; revision = planned_head_sha family; detail = Some detail }
+      {
+        ok = false;
+        revision = live.planned_target_revision;
+        detail = Some detail;
+      }
 
-let authorize_capability ~family ~route ~pilot ~user_auth_available
+let authorize_capability ~action ~route ~pilot ~user_auth_available
     ?(now = Unix.gettimeofday ()) () =
-  match family with
-  | Request_reviewers req -> Review.authorize_request_reviewers ~route ~req
-  | Submit_review req ->
-      (* P21 production path: when user auth is available, allow capability
-         authorization even if the P19 App pilot is off. The attribution layer
-         still requires User mode + lease at dispatch; App/PAT is not a
-         fallback when user auth is unavailable. *)
-      (* Defer to Review.authorize_submit_review which already implements P19
-         pilot + P21 user_auth_available capability gates. *)
-      Review.authorize_submit_review ~route ~pilot ~user_auth_available ~req
-        ~now ()
+  match Issue.authorize ~route ~pilot ~user_auth_available ~action ~now () with
+  | Issue.Allowed _ -> Ok ()
+  | Issue.Denied { reason } -> Error reason
 
 type preview_ok = {
   allow : Auth.allow;
@@ -215,27 +237,25 @@ let string_of_preview_deny (d : preview_deny) =
 let force_action (auth : Auth.request) ~action : Auth.request =
   { auth with action }
 
-let merge_live_into_auth (auth : Auth.request) ~family ~live : Auth.request =
-  let live_action = live_action_evidence ~family ~live in
+let merge_live_into_auth (auth : Auth.request) ~action ~live : Auth.request =
+  let live_action = live_action_evidence ~action ~live in
   { auth with live_action }
 
 let deny_preview ~policy_action ~reason ?decision ?audit ?failed_check
     ?failure_code () : (preview_ok, preview_deny) result =
   Error { reason; decision; audit; policy_action; failed_check; failure_code }
 
-let authorize_preview ~db ~family ~route ~pilot ~user_auth_available ~auth ~live
+let authorize_preview ~db ~action ~route ~pilot ~user_auth_available ~auth ~live
     ?item_key ?room_id ?plan_id ?actor_snapshot ?github_user_id
     ?(now = Unix.gettimeofday ()) () =
-  let policy_action = policy_action_of_family family in
+  let policy_action = policy_action_of_action action in
   let item_key =
     match item_key with
-    | Some k -> Some (String.trim k)
-    | None ->
-        let k = item_key_of_family family in
-        if k = "" then None else Some k
+    | Some k when String.trim k <> "" -> Some (String.trim k)
+    | _ -> item_key_of_action action
   in
   match
-    authorize_capability ~family ~route ~pilot ~user_auth_available ~now ()
+    authorize_capability ~action ~route ~pilot ~user_auth_available ~now ()
   with
   | Error reason ->
       let audit =
@@ -250,7 +270,7 @@ let authorize_preview ~db ~family ~route ~pilot ~user_auth_available ~auth ~live
       deny_preview ~policy_action ~reason ?audit ~failed_check:"capability"
         ~failure_code:"capability_denied" ()
   | Ok () -> (
-      match revalidate_live ~family ~live with
+      match revalidate_live ~action ~live with
       | Error reason ->
           let audit =
             match
@@ -267,7 +287,7 @@ let authorize_preview ~db ~family ~route ~pilot ~user_auth_available ~auth ~live
       | Ok () -> (
           let auth =
             force_action
-              (merge_live_into_auth auth ~family ~live)
+              (merge_live_into_auth auth ~action ~live)
               ~action:policy_action
           in
           let decision = Auth.authorize auth in
@@ -286,15 +306,16 @@ let authorize_preview ~db ~family ~route ~pilot ~user_auth_available ~auth ~live
                 ?audit ~failed_check:d.failed_check ~failure_code:d.repair.code
                 ()
           | Auth.Allow allow -> (
-              (* Submit_review production path: never Accept App as resolved mode.
-                 (P19 pilot App uses Review.authorize_submit_review without this
-                 attribution path.) *)
-              match (family, allow.mode) with
-              | Submit_review _, Auth.App ->
+              (* Production User_required path: never accept App as resolved
+                 mode. P19 pilot App uses Issue.authorize without this path. *)
+              match allow.mode with
+              | Auth.App ->
                   let reason =
-                    "review_submit is User_required: App/PAT attribution is \
-                     forbidden on the production path. Use a current Principal \
-                     user lease, or the named P19 pilot App path explicitly."
+                    Printf.sprintf
+                      "%s is User_required: App/PAT attribution is forbidden \
+                       on the production path. Use a current Principal user \
+                       lease, or the named P19 pilot App path explicitly."
+                      policy_action
                   in
                   let audit =
                     match
@@ -313,7 +334,7 @@ let authorize_preview ~db ~family ~route ~pilot ~user_auth_available ~auth ~live
                   deny_preview ~policy_action ~reason ~decision ?audit
                     ~failed_check:"fallback"
                     ~failure_code:"app_fallback_forbidden" ()
-              | _ -> (
+              | Auth.User -> (
                   let audit_res =
                     Audit.record_authorize_decision ~db ~decision
                       ~kind:Audit.Preview ?item_key ?room_id ?plan_id
@@ -362,47 +383,31 @@ let deny_dispatch ~policy_action ~reason ?denial ?audit () :
     (dispatch_ok, dispatch_deny) result =
   Error { reason; denial; audit; policy_action }
 
-let enforce_dispatch_mode ~family ~(issued : Dispatch.issued) =
-  match family with
-  | Submit_review _ -> (
-      match (issued.mode, issued.lease) with
-      | Auth.User, Some _ -> Ok ()
-      | Auth.User, None ->
-          Error
-            "review_submit requires a current Principal user lease at \
-             dispatch; no lease was issued"
-      | Auth.App, _ ->
-          Error
-            "review_submit is User_required: App/PAT fallback is forbidden at \
-             dispatch")
-  | Request_reviewers _ -> (
-      match (issued.mode, issued.lease, issued.decision.used_app_fallback) with
-      | Auth.User, Some _, _ -> Ok ()
-      | Auth.User, None, _ ->
-          Error
-            "review_request resolved User mode but no opaque lease was issued"
-      | Auth.App, None, true -> Ok ()
-      | Auth.App, None, false ->
-          (* App without fallback flag is still valid when policy target is
-             User_preferred and mode selection locked to App (preview named App). *)
-          Ok ()
-      | Auth.App, Some _, _ ->
-          Error
-            "review_request App path must not carry a user lease (mode \
-             mismatch)")
+let enforce_dispatch_mode ~(issued : Dispatch.issued) ~policy_action =
+  match (issued.mode, issued.lease) with
+  | Auth.User, Some _ -> Ok ()
+  | Auth.User, None ->
+      Error
+        (Printf.sprintf
+           "%s requires a current Principal user lease at dispatch; no lease \
+            was issued"
+           policy_action)
+  | Auth.App, _ ->
+      Error
+        (Printf.sprintf
+           "%s is User_required: App/PAT fallback is forbidden at dispatch"
+           policy_action)
 
-let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
+let dispatch ~db ~action ~live_auth ~prior ~live ?vault_id ?expected ?item_key
     ?room_id ?plan_id ?receipt_id ?actor_snapshot ?github_user_id
     ?(now = Unix.gettimeofday ()) ?ttl_seconds () =
-  let policy_action = policy_action_of_family family in
+  let policy_action = policy_action_of_action action in
   let item_key =
     match item_key with
-    | Some k -> Some (String.trim k)
-    | None ->
-        let k = item_key_of_family family in
-        if k = "" then None else Some k
+    | Some k when String.trim k <> "" -> Some (String.trim k)
+    | _ -> item_key_of_action action
   in
-  match revalidate_live ~family ~live with
+  match revalidate_live ~action ~live with
   | Error reason ->
       let audit =
         match
@@ -417,7 +422,7 @@ let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
   | Ok () -> (
       let live_auth =
         force_action
-          (merge_live_into_auth live_auth ~family ~live)
+          (merge_live_into_auth live_auth ~action ~live)
           ~action:policy_action
       in
       match
@@ -467,7 +472,7 @@ let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
           in
           deny_dispatch ~policy_action ~reason ~denial ?audit ()
       | Ok issued -> (
-          match enforce_dispatch_mode ~family ~issued with
+          match enforce_dispatch_mode ~issued ~policy_action with
           | Error reason ->
               let audit =
                 match
@@ -654,11 +659,12 @@ let live_to_json (l : live_revalidation) =
   `Assoc
     (sort_assoc
        [
-         opt_string "head_sha_live" l.head_sha_live;
-         opt_string "pr_author_login" l.pr_author_login;
-         ("reviewers_still_valid", `Bool l.reviewers_still_valid);
-         ("already_applied", `Bool l.already_applied);
          ("item_present", `Bool l.item_present);
+         ("repo_present", `Bool l.repo_present);
+         opt_string "current_state" l.current_state;
+         ("already_applied", `Bool l.already_applied);
+         opt_string "target_revision" l.target_revision;
+         opt_string "planned_target_revision" l.planned_target_revision;
        ])
 
 let attach_allow_to_plan ~plan ~(allow : Auth.allow) ?live () =
@@ -704,7 +710,7 @@ let attach_allow_to_plan ~plan ~(allow : Auth.allow) ?live () =
             message =
               Printf.sprintf
                 "Staged %s attribution mode=%s used_app_fallback=%b; \
-                 revalidate head/self/reviewers and issue opaque lease at \
+                 revalidate target/state and issue opaque lease at \
                  apply/dispatch. No raw token on plan."
                 allow.requirement.action resolved allow.used_app_fallback;
           };
@@ -727,14 +733,13 @@ let attribution_allow_json_of_plan (plan : Setup_plan.t) =
   | Some j -> Some j
   | None -> member_opt field_attribution_allow plan.planned_state
 
-let is_pr_review_attribution_plan (plan : Setup_plan.t) =
+let is_issue_attribution_plan (plan : Setup_plan.t) =
   match plan.apply_payload.kind with
-  | Setup_plan.Generic ("github_request_reviewers" | "github_submit_review") ->
-      true
+  | Setup_plan.Generic kind -> Issue.is_issue_action_kind kind
   | _ -> false
 
 let has_attribution_allow (plan : Setup_plan.t) =
-  is_pr_review_attribution_plan plan
+  is_issue_attribution_plan plan
   &&
   match attribution_allow_json_of_plan plan with
   | None -> false
@@ -751,29 +756,23 @@ let allow_of_plan (plan : Setup_plan.t) : (Auth.allow option, string) result =
 
 type planned = { plan : Setup_plan.t; preview : preview_ok }
 
-let plan_with_attribution ~db ~principal ~room_id ~family ~base_revision ~auth
+let plan_with_attribution ~db ~principal ~room_id ~action ~base_revision ~auth
     ~live ~route ~pilot ~user_auth_available ?actor_snapshot ?github_user_id
     ?(now = Unix.gettimeofday ()) () =
   match
-    authorize_preview ~db ~family ~route ~pilot ~user_auth_available ~auth ~live
+    authorize_preview ~db ~action ~route ~pilot ~user_auth_available ~auth ~live
       ~room_id ?actor_snapshot ?github_user_id ~now ()
   with
   | Error d -> Error (string_of_preview_deny d)
   | Ok preview -> (
       let plan_res =
-        match (family, route) with
-        | Request_reviewers req, Some r ->
-            Review.plan_request_reviewers ~db ~principal ~room_id ~req
-              ~base_revision ~route:r ~now ()
-        | Request_reviewers req, None ->
-            Review.plan_request_reviewers ~db ~principal ~room_id ~req
-              ~base_revision ~now ()
-        | Submit_review req, Some r ->
-            Review.plan_submit_review ~db ~principal ~room_id ~pilot
-              ~user_auth_available ~req ~base_revision ~route:r ~now ()
-        | Submit_review req, None ->
-            Review.plan_submit_review ~db ~principal ~room_id ~pilot
-              ~user_auth_available ~req ~base_revision ~now ()
+        match route with
+        | Some r ->
+            Issue.plan_action ~db ~principal ~room_id ~pilot
+              ~user_auth_available ~action ~base_revision ~route:r ~now ()
+        | None ->
+            Issue.plan_action ~db ~principal ~room_id ~pilot
+              ~user_auth_available ~action ~base_revision ~now ()
       in
       match plan_res with
       | Error e -> Error e
@@ -782,66 +781,84 @@ let plan_with_attribution ~db ~principal ~room_id ~family ~base_revision ~auth
           let _ =
             Audit.record_authorize_decision ~db ~decision:preview.decision
               ~kind:Audit.Audit
-              ~item_key:(item_key_of_family family)
+              ?item_key:(item_key_of_action action)
               ~room_id ~plan_id:plan.id ?actor_snapshot ?github_user_id ~now ()
           in
           match Setup_plan_apply.replace_pending_plan ~db plan with
           | Error e -> Error e
           | Ok () -> Ok { plan; preview }))
 
-let family_of_plan (plan : Setup_plan.t) : (family, string) result =
+let action_of_plan (plan : Setup_plan.t) : (Issue.action, string) result =
   let data = plan.apply_payload.data in
   let action_fields =
     match member_opt "action" data with
     | Some (`Assoc fields) -> Some fields
     | _ -> None
   in
+  let field name =
+    match action_fields with
+    | Some fields -> (
+        match List.assoc_opt name fields with
+        | Some (`String s) -> Some s
+        | _ -> None)
+    | None -> None
+  in
+  let string_list name =
+    match action_fields with
+    | Some fields -> (
+        match List.assoc_opt name fields with
+        | Some (`List xs) ->
+            List.filter_map (function `String s -> Some s | _ -> None) xs
+        | _ -> [])
+    | None -> []
+  in
   match plan.apply_payload.kind with
-  | Setup_plan.Generic "github_request_reviewers" ->
+  | Setup_plan.Generic "github_issue_create" ->
+      let repo =
+        match field "repo_full_name" with
+        | Some s -> s
+        | None -> Option.value (get_string "target" data) ~default:""
+      in
+      let title = Option.value (field "title") ~default:"" in
+      Ok
+        (Issue.Create
+           {
+             repo_full_name = repo;
+             title;
+             body = field "body";
+             labels = string_list "labels";
+           })
+  | Setup_plan.Generic "github_issue_open" ->
       let item_key =
-        match action_fields with
-        | Some fields -> (
-            match List.assoc_opt "item_key" fields with
-            | Some (`String s) -> s
-            | _ -> Option.value (get_string "item_key" data) ~default:"")
-        | None -> Option.value (get_string "item_key" data) ~default:""
+        match field "item_key" with
+        | Some s -> s
+        | None -> Option.value (get_string "target" data) ~default:""
       in
-      let reviewers =
-        match action_fields with
-        | Some fields -> (
-            match List.assoc_opt "reviewers" fields with
-            | Some (`List xs) ->
-                List.filter_map (function `String s -> Some s | _ -> None) xs
-            | _ -> [])
-        | None -> []
+      Ok (Issue.Open { item_key; comment = field "comment" })
+  | Setup_plan.Generic "github_issue_close" ->
+      let item_key =
+        match field "item_key" with
+        | Some s -> s
+        | None -> Option.value (get_string "target" data) ~default:""
       in
-      let head_sha =
-        match action_fields with
-        | Some fields -> (
-            match List.assoc_opt "head_sha" fields with
-            | Some (`String s) -> Some s
-            | _ -> None)
-        | None -> None
+      Ok
+        (Issue.Close
+           {
+             item_key;
+             state_reason = field "state_reason";
+             comment = field "comment";
+           })
+  | Setup_plan.Generic "github_issue_reopen" ->
+      let item_key =
+        match field "item_key" with
+        | Some s -> s
+        | None -> Option.value (get_string "target" data) ~default:""
       in
-      Ok (Request_reviewers { Review.item_key; reviewers; head_sha })
-  | Setup_plan.Generic "github_submit_review" ->
-      let item_key = Option.value (get_string "item_key" data) ~default:"" in
-      let head_sha = Option.value (get_string "head_sha" data) ~default:"" in
-      let kind =
-        match get_string "review_kind" data with
-        | Some s -> (
-            match Review.review_kind_of_string s with
-            | Ok k -> k
-            | Error _ -> Review.Comment)
-        | None -> Review.Comment
-      in
-      let body = get_string "body" data in
-      let actor_login = get_string "actor_login" data in
-      Ok (Submit_review { Review.item_key; kind; head_sha; body; actor_login })
+      Ok (Issue.Reopen { item_key; comment = field "comment" })
   | Setup_plan.Generic other ->
       Error
-        (Printf.sprintf "plan kind %S is not a PR review attribution plan" other)
-  | _ -> Error "plan is not a generic PR review action"
+        (Printf.sprintf "plan kind %S is not an issue attribution plan" other)
+  | _ -> Error "plan is not a generic issue action"
 
 let prepare_dispatch_from_plan ~db ~plan ~live_auth ~live ?vault_id ?expected
     ?receipt_id ?actor_snapshot ?github_user_id ?(now = Unix.gettimeofday ()) ()
@@ -850,15 +867,15 @@ let prepare_dispatch_from_plan ~db ~plan ~live_auth ~live ?vault_id ?expected
   | Error e -> Error e
   | Ok None ->
       Error
-        "plan has no staged attribution_allow; cannot prepare PR review \
+        "plan has no staged attribution_allow; cannot prepare issue lifecycle \
          dispatch"
   | Ok (Some prior) -> (
-      match family_of_plan plan with
+      match action_of_plan plan with
       | Error e -> Error e
-      | Ok family -> (
+      | Ok action -> (
           match
-            dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected
-              ~item_key:(item_key_of_family family)
+            dispatch ~db ~action ~live_auth ~prior ~live ?vault_id ?expected
+              ?item_key:(item_key_of_action action)
               ?room_id:plan.destination.room_id ~plan_id:plan.id ?receipt_id
               ?actor_snapshot ?github_user_id ~now ()
           with

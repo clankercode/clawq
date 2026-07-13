@@ -235,6 +235,7 @@
   github_room_background_work
   github_merge_action
   github_issue_actions
+  github_issue_attribution
   github_workflow_dispatch
   github_action_actor_attribution
   github_action_reconcile

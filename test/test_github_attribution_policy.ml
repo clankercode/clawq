@@ -29,6 +29,9 @@ let test_defaults_cover_required_actions () =
       "assign";
       "review_request";
       "review_submit";
+      "issue_create";
+      "issue_close";
+      "issue_reopen";
       "code_change";
       "workflow_dispatch";
       "merge";
@@ -56,7 +59,14 @@ let test_defaults_tiers_and_attribution () =
   check "assign" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false;
   check "review_request" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false;
   check "review_submit" ~tier:P.High ~attribution:P.User_required
+    ~pilot_allowed:true;
+  check "issue_create" ~tier:P.High ~attribution:P.User_required
+    ~pilot_allowed:true;
+  check "issue_close" ~tier:P.High ~attribution:P.User_required
+    ~pilot_allowed:true;
+  check "issue_reopen" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true;
   check "code_change" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true;
@@ -73,6 +83,9 @@ let test_lookup_user_required_high_critical () =
     [
       ("merge", P.Critical);
       ("review_submit", P.High);
+      ("issue_create", P.High);
+      ("issue_close", P.High);
+      ("issue_reopen", P.High);
       ("code_change", P.High);
       ("workflow_dispatch", P.Critical);
     ]
@@ -88,8 +101,8 @@ let test_lookup_user_preferred_low_medium () =
   expect ~action:"assign" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false a;
   let a2 = P.lookup ~action:"collab_assign" in
-    ~pilot_allowed:false a2
-    ~pilot_allowed:false l
+  expect ~action:"assign" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false a2;
   let rr = P.lookup ~action:"review_request" in
   expect ~action:"review_request" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false rr
@@ -109,7 +122,13 @@ let test_lookup_normalizes_case_and_aliases () =
     ~pilot_allowed:true code;
   let comment = P.lookup ~action:"collab_comment" in
   expect ~action:"comment" ~tier:P.Low ~attribution:P.User_preferred
-    ~pilot_allowed:false comment
+    ~pilot_allowed:false comment;
+  let open_alias = P.lookup ~action:"issue_open" in
+  expect ~action:"issue_create" ~tier:P.High ~attribution:P.User_required
+    ~pilot_allowed:true open_alias;
+  let close_alias = P.lookup ~action:"close_issue" in
+  expect ~action:"issue_close" ~tier:P.High ~attribution:P.User_required
+    ~pilot_allowed:true close_alias
 
 let test_lookup_unknown_fails_closed () =
   let r = P.lookup ~action:"totally_unknown_mutation" in
