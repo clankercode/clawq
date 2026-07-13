@@ -1,18 +1,21 @@
 ---
-completed_at: null
+claimed_at: "2026-07-12T22:36:56Z"
+claimed_by: grok-bl-fix-many
+completed_at: "2026-07-12T22:39:12Z"
 complexity: high
 created_at: "2026-07-12T12:33:46Z"
 depends_on:
     - P19.M1.E3.T001
     - P19.M1.E3.T002
     - P19.M1.E1.T004
+duration_minutes: 2.2720241890333335
 estimate_hours: 4
 id: P19.M1.E3.T003
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-12T22:36:56Z"
+status: done
 tags: []
 title: Publish transactional registry and MCP reloads and refresh active Rooms
-updated_at: "2026-07-12T12:33:46Z"
+updated_at: "2026-07-12T22:39:12Z"
 ---
 Acceptance: Build and validate local configuration replacement registry/client state before atomic publish; local replacement failure retains the previously validated old state. Remote list_changed follows the fail-closed quarantine contract from T001: the server remains unavailable to new turns until a successful relist or repair, then added, changed, and removed definitions publish atomically and refresh active Rooms for their next turn. Existing turns retain frozen catalogs, but final invocation revalidates current server/tool revision and refuses quarantined, removed, or replaced revisions; retired clients disconnect only after safe handoff. Tests cover removal, malformed and timed-out relists, local replacement rollback, recovery, and concurrent invocations. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

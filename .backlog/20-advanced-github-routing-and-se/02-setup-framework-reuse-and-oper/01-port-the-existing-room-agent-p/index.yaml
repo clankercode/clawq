@@ -20,7 +20,8 @@ tasks:
       file: T001-adapt-room-agent-pilot-plannin.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Adapt room-agent pilot planning to the shared typed setup framework
     - complexity: high
       depends_on:

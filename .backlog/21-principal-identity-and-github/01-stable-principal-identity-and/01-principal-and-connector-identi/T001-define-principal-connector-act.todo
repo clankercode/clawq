@@ -1,16 +1,17 @@
 ---
+claimed_at: "2026-07-13T01:34:32Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:05Z"
 depends_on: []
 estimate_hours: 3
 id: P21.M1.E1.T001
 priority: critical
-status: pending
-tags:
-    - identity
-    - security
-    - domain
+started_at: "2026-07-13T01:34:32Z"
+status: in_progress
+tags: []
 title: Define Principal Connector actor and Identity Link domain model
-updated_at: "2026-07-12T14:51:05Z"
+updated_at: "2026-07-13T01:34:32Z"
 ---
 Acceptance: Typed versioned models define opaque Principal IDs, Connector plus tenant/workspace plus immutable user identity, lifecycle and revision state, and mutable display metadata; Room/session IDs and display names are explicitly non-identity. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
