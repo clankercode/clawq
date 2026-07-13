@@ -42,5 +42,6 @@ tasks:
       file: T003-run-final-setup-framework-and.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Run final setup-framework and advanced-routing regression verification
