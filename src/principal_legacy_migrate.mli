@@ -237,6 +237,17 @@ val user_authority_allowed :
   (bool, string) result
 (** Fail closed: missing migration record or unresolved → [false]. *)
 
+val require_migrated_user_dispatch :
+  db:Sqlite3.db ->
+  source_kind:source_kind ->
+  source_id:string ->
+  (unit, string) result
+(** Guard a dispatch which explicitly claims human authority. Sources created
+    after the upgrade have no migration record and remain outside this legacy
+    guard. A migrated source must be backfilled and must not be invalidated;
+    unresolved or invalidated sources fail closed. Explicit App/PAT paths do not
+    call this human-authority guard. *)
+
 (** {1 Rollback} *)
 
 val rollback_run : db:Sqlite3.db -> run_id:string -> (int, string) result

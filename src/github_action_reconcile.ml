@@ -1147,3 +1147,27 @@ let reconcile_webhook ~db ~room_id ~envelope ?(now = Unix.gettimeofday ()) () =
         | None ->
             if is_human_actor envelope.actor then Ignored_human_event
             else No_matching_receipt))
+
+(** Reconcile a verified ingress delivery against every room that currently owns
+    an open receipt. This is intentionally a fan-out over stored room scopes
+    rather than a new routing path: [reconcile_webhook] still enforces
+    item/action/native-actor matching and ignores unrelated human events. *)
+let reconcile_verified_ingress ~db ~envelope ?(now = Unix.gettimeofday ()) () =
+  ensure_schema db;
+  let sql =
+    "SELECT DISTINCT room_id FROM github_action_correlations WHERE status = \
+     'open' ORDER BY room_id ASC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let room_ids = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        match Sqlite3.column stmt 0 with
+        | Sqlite3.Data.TEXT room_id -> room_ids := room_id :: !room_ids
+        | _ -> ()
+      done;
+      List.rev !room_ids
+      |> List.map (fun room_id ->
+          (room_id, reconcile_webhook ~db ~room_id ~envelope ~now ())))

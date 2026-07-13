@@ -757,144 +757,158 @@ let watch_work_item ~(github_config : Runtime_config.github_config)
     ?(egress_audit = Policy_http_client.no_audit) ~api_limiter ~db
     (item : Github_work_item.t) ~task_id =
   let open Lwt.Syntax in
-  let rec follow () =
-    let* outcome =
-      Background_task.wait_until_terminal ~timeout_seconds:3600.0
-        ~poll_seconds:2.0 ~db ~id:task_id ()
-    in
-    match outcome with
-    | Background_task.Finished task -> Lwt.return (Some task)
-    | Background_task.Not_found -> Lwt.return None
-    | Background_task.Timeout _ -> follow ()
-    | Background_task.Interrupted task ->
-        if Background_task.is_terminal_status task.status then
-          Lwt.return (Some task)
-        else follow ()
-  in
-  let* task = follow () in
-  let* () =
-    match task with
-    | None ->
-        Github_work_item.record_result ~db ~id:item.id
-          ~status:Github_work_item.Failed
-          ~result_kind:Github_work_item.Result_failed
-          ~result_summary:"Background task record disappeared";
-        Lwt.return_unit
-    | Some task -> (
-        let summary =
-          let log_text =
-            match task.log_path with
-            | Some path -> Background_task.read_log_tail path (64 * 1024)
-            | None -> ""
-          in
-          let extracted = extract_final_agent_message log_text in
-          if String.trim extracted <> "" then extracted
-          else Option.value task.result_preview ~default:""
+  match Github_work_item.require_actor_snapshot_current ~db item with
+  | Error reason ->
+      ignore (Background_task.cancel ~db ~id:task_id);
+      Github_work_item.record_result ~db ~id:item.id
+        ~status:Github_work_item.Blocked
+        ~result_kind:Github_work_item.Result_blocked
+        ~result_summary:("Human-attributed work item blocked: " ^ reason);
+      publish_work_item_result ~github_config ~resolve_headers ~egress_rules
+        ~egress_audit ~api_limiter ~db item
+  | Ok () ->
+      let rec follow () =
+        let* outcome =
+          Background_task.wait_until_terminal ~timeout_seconds:3600.0
+            ~poll_seconds:2.0 ~db ~id:task_id ()
         in
-        let fresh =
-          Option.value (Github_work_item.get ~db ~id:item.id) ~default:item
-        in
-        match (task.status, fresh.publication_branch, task.worktree_path) with
-        | Background_task.Succeeded, Some branch, Some worktree
-          when task.use_worktree -> (
-            (* B772: the trusted publisher decides reply vs draft PR after
+        match outcome with
+        | Background_task.Finished task -> Lwt.return (Some task)
+        | Background_task.Not_found -> Lwt.return None
+        | Background_task.Timeout _ -> follow ()
+        | Background_task.Interrupted task ->
+            if Background_task.is_terminal_status task.status then
+              Lwt.return (Some task)
+            else follow ()
+      in
+      let* task = follow () in
+      let* () =
+        match task with
+        | None ->
+            Github_work_item.record_result ~db ~id:item.id
+              ~status:Github_work_item.Failed
+              ~result_kind:Github_work_item.Result_failed
+              ~result_summary:"Background task record disappeared";
+            Lwt.return_unit
+        | Some task -> (
+            let summary =
+              let log_text =
+                match task.log_path with
+                | Some path -> Background_task.read_log_tail path (64 * 1024)
+                | None -> ""
+              in
+              let extracted = extract_final_agent_message log_text in
+              if String.trim extracted <> "" then extracted
+              else Option.value task.result_preview ~default:""
+            in
+            let fresh =
+              Option.value (Github_work_item.get ~db ~id:item.id) ~default:item
+            in
+            match
+              (task.status, fresh.publication_branch, task.worktree_path)
+            with
+            | Background_task.Succeeded, Some branch, Some worktree
+              when task.use_worktree -> (
+                (* B772: the trusted publisher decides reply vs draft PR after
                validating the worktree state. *)
-            match split_repo_full_name fresh.repo_full_name with
-            | None ->
-                Github_work_item.record_result ~db ~id:item.id
-                  ~status:Github_work_item.Failed
-                  ~result_kind:Github_work_item.Result_failed
-                  ~result_summary:"invalid repository name on work item";
-                Lwt.return_unit
-            | Some (owner, repo) -> (
-                let policy =
-                  match
-                    Repo_execution_policy.load ~repo_path:task.repo_path
-                  with
-                  | Result.Ok policy -> policy
-                  | Result.Error _ -> Repo_execution_policy.compat_default
-                in
-                let* base_branch =
-                  resolve_base_branch ~github_config ~resolve_headers
-                    ~egress_rules ~egress_audit ~run_git:run_git_argv ~owner
-                    ~repo ~repo_path:task.repo_path policy
-                in
-                let* state =
-                  worktree_commit_state ~run_git:run_git_argv ~worktree
-                    ~base_branch
-                in
-                match state with
-                | Result.Ok `No_commits ->
-                    Github_work_item.record_result ~db ~id:item.id
-                      ~status:Github_work_item.Succeeded
-                      ~result_kind:Github_work_item.Reply
-                      ~result_summary:summary;
-                    Lwt.return_unit
-                | Result.Ok `Dirty ->
+                match split_repo_full_name fresh.repo_full_name with
+                | None ->
                     Github_work_item.record_result ~db ~id:item.id
                       ~status:Github_work_item.Failed
                       ~result_kind:Github_work_item.Result_failed
-                      ~result_summary:
-                        (Printf.sprintf
-                           "Worktree has uncommitted changes; nothing was \
-                            published. Inspect %s, then `background retry %d` \
-                            or finalize manually."
-                           worktree
-                           (Option.value fresh.background_task_id ~default:0));
+                      ~result_summary:"invalid repository name on work item";
                     Lwt.return_unit
-                | Result.Error msg ->
-                    Github_work_item.record_result ~db ~id:item.id
-                      ~status:Github_work_item.Failed
-                      ~result_kind:Github_work_item.Result_failed
-                      ~result_summary:("publisher validation failed: " ^ msg);
-                    Lwt.return_unit
-                | Result.Ok (`Commits _) -> (
-                    let* published =
-                      publish_draft_pr ~github_config ~resolve_headers
-                        ~egress_rules ~egress_audit ~db ~owner ~repo ~worktree
-                        ~base_branch ~branch fresh
+                | Some (owner, repo) -> (
+                    let policy =
+                      match
+                        Repo_execution_policy.load ~repo_path:task.repo_path
+                      with
+                      | Result.Ok policy -> policy
+                      | Result.Error _ -> Repo_execution_policy.compat_default
                     in
-                    match published with
-                    | Result.Ok (Some pr_number) ->
+                    let* base_branch =
+                      resolve_base_branch ~github_config ~resolve_headers
+                        ~egress_rules ~egress_audit ~run_git:run_git_argv ~owner
+                        ~repo ~repo_path:task.repo_path policy
+                    in
+                    let* state =
+                      worktree_commit_state ~run_git:run_git_argv ~worktree
+                        ~base_branch
+                    in
+                    match state with
+                    | Result.Ok `No_commits ->
                         Github_work_item.record_result ~db ~id:item.id
                           ~status:Github_work_item.Succeeded
-                          ~result_kind:Github_work_item.Change
-                          ~result_summary:
-                            (Printf.sprintf
-                               "Opened draft PR #%d (branch %s).\n\n%s"
-                               pr_number branch
-                               (Background_task_0_format.preview_text_n 1000
-                                  summary));
+                          ~result_kind:Github_work_item.Reply
+                          ~result_summary:summary;
                         Lwt.return_unit
-                    | Result.Ok None | Result.Error _ ->
-                        let reason =
-                          match published with
-                          | Result.Error msg -> msg
-                          | _ -> "draft PR number unavailable"
-                        in
+                    | Result.Ok `Dirty ->
                         Github_work_item.record_result ~db ~id:item.id
                           ~status:Github_work_item.Failed
                           ~result_kind:Github_work_item.Result_failed
                           ~result_summary:
-                            ("Publication failed: " ^ reason
-                           ^ ". The branch is deterministic; retrying \
-                              republishes idempotently.");
-                        Lwt.return_unit)))
-        | _ ->
-            let status, kind =
-              match task.status with
-              | Background_task.Succeeded ->
-                  (Github_work_item.Succeeded, Github_work_item.Reply)
-              | Background_task.Cancelled ->
-                  (Github_work_item.Cancelled, Github_work_item.Result_failed)
-              | _ -> (Github_work_item.Failed, Github_work_item.Result_failed)
-            in
-            Github_work_item.record_result ~db ~id:item.id ~status
-              ~result_kind:kind ~result_summary:summary;
-            Lwt.return_unit)
-  in
-  publish_work_item_result ~github_config ~resolve_headers ~egress_rules
-    ~egress_audit ~api_limiter ~db item
+                            (Printf.sprintf
+                               "Worktree has uncommitted changes; nothing was \
+                                published. Inspect %s, then `background retry \
+                                %d` or finalize manually."
+                               worktree
+                               (Option.value fresh.background_task_id ~default:0));
+                        Lwt.return_unit
+                    | Result.Error msg ->
+                        Github_work_item.record_result ~db ~id:item.id
+                          ~status:Github_work_item.Failed
+                          ~result_kind:Github_work_item.Result_failed
+                          ~result_summary:("publisher validation failed: " ^ msg);
+                        Lwt.return_unit
+                    | Result.Ok (`Commits _) -> (
+                        let* published =
+                          publish_draft_pr ~github_config ~resolve_headers
+                            ~egress_rules ~egress_audit ~db ~owner ~repo
+                            ~worktree ~base_branch ~branch fresh
+                        in
+                        match published with
+                        | Result.Ok (Some pr_number) ->
+                            Github_work_item.record_result ~db ~id:item.id
+                              ~status:Github_work_item.Succeeded
+                              ~result_kind:Github_work_item.Change
+                              ~result_summary:
+                                (Printf.sprintf
+                                   "Opened draft PR #%d (branch %s).\n\n%s"
+                                   pr_number branch
+                                   (Background_task_0_format.preview_text_n 1000
+                                      summary));
+                            Lwt.return_unit
+                        | Result.Ok None | Result.Error _ ->
+                            let reason =
+                              match published with
+                              | Result.Error msg -> msg
+                              | _ -> "draft PR number unavailable"
+                            in
+                            Github_work_item.record_result ~db ~id:item.id
+                              ~status:Github_work_item.Failed
+                              ~result_kind:Github_work_item.Result_failed
+                              ~result_summary:
+                                ("Publication failed: " ^ reason
+                               ^ ". The branch is deterministic; retrying \
+                                  republishes idempotently.");
+                            Lwt.return_unit)))
+            | _ ->
+                let status, kind =
+                  match task.status with
+                  | Background_task.Succeeded ->
+                      (Github_work_item.Succeeded, Github_work_item.Reply)
+                  | Background_task.Cancelled ->
+                      ( Github_work_item.Cancelled,
+                        Github_work_item.Result_failed )
+                  | _ ->
+                      (Github_work_item.Failed, Github_work_item.Result_failed)
+                in
+                Github_work_item.record_result ~db ~id:item.id ~status
+                  ~result_kind:kind ~result_summary:summary;
+                Lwt.return_unit)
+      in
+      publish_work_item_result ~github_config ~resolve_headers ~egress_rules
+        ~egress_audit ~api_limiter ~db item
 
 let run_clawq_work_item ~(github_config : Runtime_config.github_config)
     ?(resolve_headers = (None : Github_api.resolve_headers_fn option))
@@ -902,7 +916,8 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
     ?(egress_audit = Policy_http_client.no_audit) ~db
     ~(repo_config : Runtime_config.github_repo_config)
     ~(config : Runtime_config.t option) ~api_limiter ~delivery_id ~owner ~repo
-    ~author event ~(options : Github_work_item.command_options) ~preamble =
+    ~author ?actor_snapshot event ~(options : Github_work_item.command_options)
+    ~preamble =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let issue_number = issue_number_of_event event in
@@ -919,7 +934,8 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
   match
     Github_work_item.create_if_new ~db ~dedup_key ~delivery_id ~repo_full_name
       ~is_pr ~issue_number ~requester:author ?runner_pref:options.runner_opt
-      ?host_pref:options.host_opt ~prompt:options.request ~preamble ()
+      ?host_pref:options.host_opt ~prompt:options.request ~preamble
+      ?actor_snapshot ()
   with
   | Result.Error msg -> Lwt.return (Ok ("work item refused: " ^ msg))
   | Result.Ok (Github_work_item.Duplicate existing) ->
@@ -1066,30 +1082,37 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
                           work_item_prompt item )
                   in
                   match
-                    Background_task.enqueue ~db ~runner ?model:auto_model
-                      ~require_git:use_worktree ~automerge:false ~use_worktree
-                      ?host_kind:options.host_opt ~repo_path ~prompt ?branch
-                      ~channel:"github" ~channel_id:repo_full_name
-                      ~session_key:(Github_webhook.session_key event)
-                      ~requester:author ()
+                    Github_work_item.require_actor_snapshot_current ~db item
                   with
                   | Error msg -> block msg
-                  | Ok task_id ->
-                      (match branch with
-                      | Some branch ->
-                          ignore
-                            (Github_work_item.record_pr_publication ~db
-                               ~id:item.id ~branch ~pr_number:None
-                               ~publication_status:"pending")
-                      | None -> ());
-                      Github_work_item.attach_task ~db ~id:item.id
-                        ~background_task_id:task_id;
-                      Lwt.async (fun () ->
-                          watch_work_item ~github_config ~resolve_headers
-                            ~egress_rules ~egress_audit ~api_limiter ~db item
-                            ~task_id);
-                      Lwt.return
-                        (Ok (Printf.sprintf "work item %d queued" item.id))))))
+                  | Ok () -> (
+                      match
+                        Background_task.enqueue ~db ~runner ?model:auto_model
+                          ~require_git:use_worktree ~automerge:false
+                          ~use_worktree ?host_kind:options.host_opt ~repo_path
+                          ~prompt ?branch ~channel:"github"
+                          ~channel_id:repo_full_name
+                          ~session_key:(Github_webhook.session_key event)
+                          ~requester:author ()
+                      with
+                      | Error msg -> block msg
+                      | Ok task_id ->
+                          (match branch with
+                          | Some branch ->
+                              ignore
+                                (Github_work_item.record_pr_publication ~db
+                                   ~id:item.id ~branch ~pr_number:None
+                                   ~publication_status:"pending")
+                          | None -> ());
+                          Github_work_item.attach_task ~db ~id:item.id
+                            ~background_task_id:task_id;
+                          Lwt.async (fun () ->
+                              watch_work_item ~github_config ~resolve_headers
+                                ~egress_rules ~egress_audit ~api_limiter ~db
+                                item ~task_id);
+                          Lwt.return
+                            (Ok (Printf.sprintf "work item %d queued" item.id)))
+                  ))))
 
 (* B774: periodic publication sweep — publish terminal-but-unpublished
    items (e.g. completed by a remote worker). Publication is idempotent, so
@@ -1122,35 +1145,51 @@ let recover_work_items ~(github_config : Runtime_config.github_config)
   List.iter
     (fun (item : Github_work_item.t) ->
       let terminal = Github_work_item.is_terminal_status item.status in
-      match item.background_task_id with
-      | None -> ()
-      | Some task_id -> (
-          match Background_task.get_task ~db ~id:task_id with
+      match Github_work_item.require_actor_snapshot_current ~db item with
+      | Error reason ->
+          (match item.background_task_id with
+          | Some task_id -> ignore (Background_task.cancel ~db ~id:task_id)
+          | None -> ());
+          if not terminal then
+            Github_work_item.record_result ~db ~id:item.id
+              ~status:Github_work_item.Blocked
+              ~result_kind:Github_work_item.Result_blocked
+              ~result_summary:
+                ("Human-attributed work item blocked during recovery: " ^ reason);
+          Lwt.async (fun () ->
+              publish_work_item_result ~github_config ~resolve_headers
+                ~egress_rules ~egress_audit ~api_limiter ~db item)
+      | Ok () -> (
+          match item.background_task_id with
           | None -> ()
-          | Some task ->
-              if not terminal then
-                ignore
-                  (Github_work_item.sync_from_task ~db item
-                     ~task_status:task.status ~task_result:task.result_preview);
-              let needs_publication =
-                match Github_work_item.get ~db ~id:item.id with
-                | Some fresh ->
-                    Github_work_item.is_terminal_status fresh.status
-                    && not (Github_work_item.already_published fresh)
-                | None -> false
-              in
-              if needs_publication then
-                Lwt.async (fun () ->
-                    publish_work_item_result ~github_config ~resolve_headers
-                      ~egress_rules ~egress_audit ~api_limiter ~db item)
-              else if
-                (not terminal)
-                && not (Background_task.is_terminal_status task.status)
-              then
-                Lwt.async (fun () ->
-                    watch_work_item ~github_config ~resolve_headers
-                      ~egress_rules ~egress_audit ~api_limiter ~db item ~task_id)
-          ))
+          | Some task_id -> (
+              match Background_task.get_task ~db ~id:task_id with
+              | None -> ()
+              | Some task ->
+                  if not terminal then
+                    ignore
+                      (Github_work_item.sync_from_task ~db item
+                         ~task_status:task.status
+                         ~task_result:task.result_preview);
+                  let needs_publication =
+                    match Github_work_item.get ~db ~id:item.id with
+                    | Some fresh ->
+                        Github_work_item.is_terminal_status fresh.status
+                        && not (Github_work_item.already_published fresh)
+                    | None -> false
+                  in
+                  if needs_publication then
+                    Lwt.async (fun () ->
+                        publish_work_item_result ~github_config ~resolve_headers
+                          ~egress_rules ~egress_audit ~api_limiter ~db item)
+                  else if
+                    (not terminal)
+                    && not (Background_task.is_terminal_status task.status)
+                  then
+                    Lwt.async (fun () ->
+                        watch_work_item ~github_config ~resolve_headers
+                          ~egress_rules ~egress_audit ~api_limiter ~db item
+                          ~task_id))))
     items
 
 (** Detect and trigger review runs from label events. When a PR is labeled with
@@ -1279,6 +1318,48 @@ let launch_triggered_review_runs ~(db : Sqlite3.db) ~(config : Runtime_config.t)
             Lwt.return count
         | _ -> Lwt.return 0
 
+let reconcile_verified_ingress ~db ~event_type ~body ~delivery_id
+    ~installation_id =
+  try
+    let payload = Yojson.Safe.from_string body in
+    match
+      Github_event_envelope.normalize ~delivery_id ?installation_id
+        ~event:event_type ~payload ()
+    with
+    | Github_event_envelope.Ok_envelope envelope ->
+        let results =
+          Github_action_reconcile.reconcile_verified_ingress ~db ~envelope ()
+        in
+        let closed =
+          List.fold_left
+            (fun count (_, result) ->
+              match result with
+              | Github_action_reconcile.Closed _ -> count + 1
+              | Github_action_reconcile.No_matching_receipt
+              | Github_action_reconcile.Already_closed
+              | Github_action_reconcile.Ignored_human_event ->
+                  count)
+            0 results
+        in
+        if closed > 0 then
+          Logs.info (fun m ->
+              m "GitHub: reconciled %d receipt(s) from verified delivery %s"
+                closed delivery_id)
+    | Github_event_envelope.Unsupported _ -> ()
+    | Github_event_envelope.Error err ->
+        Logs.warn (fun m ->
+            m
+              "GitHub: verified delivery %s could not be normalized for \
+               reconciliation: %s"
+              delivery_id err)
+  with exn ->
+    (* Durable reconciliation failure never re-dispatches a verified event.
+       The correlation remains open for a later verified delivery or operator
+       inspection. *)
+    Logs.err (fun m ->
+        m "GitHub: verified delivery %s reconciliation failed: %s" delivery_id
+          (Printexc.to_string exn))
+
 let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
     ~(github_config : Runtime_config.github_config)
     ?(config : Runtime_config.t option) ~(session_manager : Session.t)
@@ -1402,221 +1483,235 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
         in
         if installation_denied then
           Lwt.return (Ok "installation not authorized")
-        else if prepared.is_user_generated then
-          let sender = prepared.sender_login in
-          if not (is_user_allowed ~repo_config ~sender) then begin
-            Logs.info (fun m ->
-                m "GitHub: ignoring event %s from unauthorized user @%s"
-                  event_type sender);
-            Lwt.return (Ok "user not allowed")
-          end
-          else
-            let event = Github_webhook.parse_event ~event_type ~body in
-            (* Bot self-loop protection: skip comments containing our reply marker *)
-            let body_text = comment_body_of_event event in
-            if Option.is_some body_text && is_bot_reply (Option.get body_text)
-            then begin
-              Logs.debug (fun m ->
-                  m "GitHub: ignoring bot self-reply (delivery=%s)" delivery_id);
-              Lwt.return (Ok "bot self-reply")
+        else
+          let () =
+            match Session.get_db session_manager with
+            | Some db ->
+                reconcile_verified_ingress ~db ~event_type ~body ~delivery_id
+                  ~installation_id:prepared.installation_id
+            | None -> ()
+          in
+          if prepared.is_user_generated then
+            let sender = prepared.sender_login in
+            if not (is_user_allowed ~repo_config ~sender) then begin
+              Logs.info (fun m ->
+                  m "GitHub: ignoring event %s from unauthorized user @%s"
+                    event_type sender);
+              Lwt.return (Ok "user not allowed")
             end
             else
-              match event with
-              | Github_webhook.Ignored ->
-                  let* hook_count =
-                    Github_hooks.run_matching_hooks ~session_manager ~prepared
-                      ~github_config:(Some github_config) ~resolve_headers
-                      ~egress_rules ~egress_audit ~api_limiter ()
-                  in
-                  if hook_count > 0 then
-                    Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
-                  else Lwt.return (Ok "ignored")
-              | _ -> (
-                  (* Dispatch to subscribed rooms/threads *)
-                  let* _dispatched =
-                    match Session.get_db session_manager with
-                    | Some db ->
-                        Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-                          ~delivery_id ~snapshot_id:egress_audit.snapshot_id
-                          ~send_message:(fun ~room_id ~text () ->
-                            (* Try to find a notifier for this room *)
-                            match
-                              Session.find_registered_notifier session_manager
-                                ~key:room_id
-                            with
-                            | Some notifier ->
-                                let* () = notifier text in
-                                Lwt.return ""
-                            | None ->
-                                Logs.debug (fun m ->
-                                    m
-                                      "GitHub PR dispatch: no notifier for \
-                                       room %s"
-                                      room_id);
-                                Lwt.return "")
-                          ()
-                    | None -> Lwt.return 0
-                  in
-                  (* Trigger review runs from label events (creates DB records) *)
-                  let* _review_runs =
-                    match Session.get_db session_manager with
-                    | Some db ->
-                        Lwt.return
-                          (trigger_review_runs_from_labels ~db ~event_type ~body)
-                    | None -> Lwt.return 0
-                  in
-                  let author =
-                    let parsed = Github_webhook.author_of_event event in
-                    if parsed <> "" then parsed else prepared.sender_login
-                  in
-                  let owner, repo =
-                    match split_repo_full_name repo_config.name with
-                    | Some parts -> parts
-                    | None -> Github_webhook.repo_of_event event
-                  in
-                  let* pr_files =
-                    fetch_pr_files ~repo_config ~github_config ~resolve_headers
-                      ~egress_rules ~egress_audit ~api_limiter ~owner ~repo
-                      event
-                  in
-                  (* Launch triggered review runs as background tasks under
+              let event = Github_webhook.parse_event ~event_type ~body in
+              (* Bot self-loop protection: skip comments containing our reply marker *)
+              let body_text = comment_body_of_event event in
+              if Option.is_some body_text && is_bot_reply (Option.get body_text)
+              then begin
+                Logs.debug (fun m ->
+                    m "GitHub: ignoring bot self-reply (delivery=%s)"
+                      delivery_id);
+                Lwt.return (Ok "bot self-reply")
+              end
+              else
+                match event with
+                | Github_webhook.Ignored ->
+                    let* hook_count =
+                      Github_hooks.run_matching_hooks ~session_manager ~prepared
+                        ~github_config:(Some github_config) ~resolve_headers
+                        ~egress_rules ~egress_audit ~api_limiter ()
+                    in
+                    if hook_count > 0 then
+                      Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
+                    else Lwt.return (Ok "ignored")
+                | _ -> (
+                    (* Dispatch to subscribed rooms/threads *)
+                    let* _dispatched =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          Github_pr_dispatch.dispatch_to_subscriptions ~db
+                            ~event ~delivery_id
+                            ~snapshot_id:egress_audit.snapshot_id
+                            ~send_message:(fun ~room_id ~text () ->
+                              (* Try to find a notifier for this room *)
+                              match
+                                Session.find_registered_notifier session_manager
+                                  ~key:room_id
+                              with
+                              | Some notifier ->
+                                  let* () = notifier text in
+                                  Lwt.return ""
+                              | None ->
+                                  Logs.debug (fun m ->
+                                      m
+                                        "GitHub PR dispatch: no notifier for \
+                                         room %s"
+                                        room_id);
+                                  Lwt.return "")
+                            ()
+                      | None -> Lwt.return 0
+                    in
+                    (* Trigger review runs from label events (creates DB records) *)
+                    let* _review_runs =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          Lwt.return
+                            (trigger_review_runs_from_labels ~db ~event_type
+                               ~body)
+                      | None -> Lwt.return 0
+                    in
+                    let author =
+                      let parsed = Github_webhook.author_of_event event in
+                      if parsed <> "" then parsed else prepared.sender_login
+                    in
+                    let owner, repo =
+                      match split_repo_full_name repo_config.name with
+                      | Some parts -> parts
+                      | None -> Github_webhook.repo_of_event event
+                    in
+                    let* pr_files =
+                      fetch_pr_files ~repo_config ~github_config
+                        ~resolve_headers ~egress_rules ~egress_audit
+                        ~api_limiter ~owner ~repo event
+                    in
+                    (* Launch triggered review runs as background tasks under
                      room profile policy. Requires PR files and config. *)
-                  let* _launched_runs =
-                    match (Session.get_db session_manager, config) with
-                    | Some db, Some cfg ->
-                        launch_triggered_review_runs ~db ~config:cfg
-                          ~session_manager ~event ~pr_files
-                          ?agent_name:repo_config.agent_name ()
-                    | _ -> Lwt.return 0
-                  in
-                  let db_opt = Session.get_db session_manager in
-                  match event with
-                  | Github_webhook.IssueAssigned assigned -> (
-                      (* B773: assignment intake — launches only when the new
+                    let* _launched_runs =
+                      match (Session.get_db session_manager, config) with
+                      | Some db, Some cfg ->
+                          launch_triggered_review_runs ~db ~config:cfg
+                            ~session_manager ~event ~pr_files
+                            ?agent_name:repo_config.agent_name ()
+                      | _ -> Lwt.return 0
+                    in
+                    let db_opt = Session.get_db session_manager in
+                    match event with
+                    | Github_webhook.IssueAssigned assigned -> (
+                        (* B773: assignment intake — launches only when the new
                          assignee matches the configured trigger identity. *)
-                      let matches =
-                        match assigned.label with
-                        | None -> (
-                            (* action=assigned: only the configured identity *)
-                            match github_config.trigger_login with
-                            | Some login ->
-                                String.lowercase_ascii assigned.assignee
-                                = String.lowercase_ascii login
-                            | None -> false)
-                        | Some label -> (
-                            (* action=labeled: configured fallback label for
+                        let matches =
+                          match assigned.label with
+                          | None -> (
+                              (* action=assigned: only the configured identity *)
+                              match github_config.trigger_login with
+                              | Some login ->
+                                  String.lowercase_ascii assigned.assignee
+                                  = String.lowercase_ascii login
+                              | None -> false)
+                          | Some label -> (
+                              (* action=labeled: configured fallback label for
                                identities that are not assignable *)
-                            match github_config.trigger_label with
-                            | Some configured ->
-                                String.lowercase_ascii label
-                                = String.lowercase_ascii configured
-                            | None -> false)
-                      in
-                      if not matches then Lwt.return (Ok "assignment ignored")
-                      else
-                        match db_opt with
-                        | None -> Lwt.return (Ok "assignment ignored (no db)")
-                        | Some db ->
-                            Github_work_item.init_schema db;
-                            let options =
-                              {
-                                Github_work_item.runner_opt = Some "auto";
-                                host_opt = None;
-                                request =
-                                  Printf.sprintf
-                                    "You were assigned issue #%d: %S. Analyze \
-                                     it and reply with an answer or an \
-                                     actionable plan."
-                                    assigned.issue_number assigned.issue_title;
-                              }
-                            in
-                            let preamble =
-                              Printf.sprintf
-                                "## GitHub Context\n\
-                                 Repository: %s/%s\n\
-                                 Issue #%d: %S\n\
-                                 Assigned to @%s by @%s\n\n\
-                                 Issue Description:\n\
-                                \  %s\n\
-                                 URL: %s\n"
-                                owner repo assigned.issue_number
-                                assigned.issue_title assigned.assignee
-                                assigned.actor
-                                (String.sub assigned.issue_body 0
-                                   (min 2000
-                                      (String.length assigned.issue_body)))
-                                assigned.html_url
-                            in
-                            run_clawq_work_item ~github_config ~resolve_headers
-                              ~egress_rules ~egress_audit ~db ~repo_config
-                              ~config ~api_limiter ~delivery_id ~owner ~repo
-                              ~author event ~options ~preamble)
-                  | _ -> (
-                      match
-                        Github_webhook.extract_trigger
-                          ?trigger_login:github_config.trigger_login ~event
-                          ~pr_files ()
-                      with
-                      | Some (user_message, preamble) -> (
-                          let options =
-                            Github_work_item.parse_command_options user_message
-                          in
+                              match github_config.trigger_label with
+                              | Some configured ->
+                                  String.lowercase_ascii label
+                                  = String.lowercase_ascii configured
+                              | None -> false)
+                        in
+                        if not matches then Lwt.return (Ok "assignment ignored")
+                        else
                           match db_opt with
-                          | Some db
-                            when Github_work_item.wants_work_item options
-                                 && options.request <> "" ->
+                          | None -> Lwt.return (Ok "assignment ignored (no db)")
+                          | Some db ->
                               Github_work_item.init_schema db;
+                              let options =
+                                {
+                                  Github_work_item.runner_opt = Some "auto";
+                                  host_opt = None;
+                                  request =
+                                    Printf.sprintf
+                                      "You were assigned issue #%d: %S. \
+                                       Analyze it and reply with an answer or \
+                                       an actionable plan."
+                                      assigned.issue_number assigned.issue_title;
+                                }
+                              in
+                              let preamble =
+                                Printf.sprintf
+                                  "## GitHub Context\n\
+                                   Repository: %s/%s\n\
+                                   Issue #%d: %S\n\
+                                   Assigned to @%s by @%s\n\n\
+                                   Issue Description:\n\
+                                  \  %s\n\
+                                   URL: %s\n"
+                                  owner repo assigned.issue_number
+                                  assigned.issue_title assigned.assignee
+                                  assigned.actor
+                                  (String.sub assigned.issue_body 0
+                                     (min 2000
+                                        (String.length assigned.issue_body)))
+                                  assigned.html_url
+                              in
                               run_clawq_work_item ~github_config
                                 ~resolve_headers ~egress_rules ~egress_audit ~db
                                 ~repo_config ~config ~api_limiter ~delivery_id
-                                ~owner ~repo ~author event ~options ~preamble
-                          | _ ->
-                              run_clawq_command ~github_config ~resolve_headers
-                                ~egress_rules ~egress_audit ?db:db_opt
-                                ~session_manager ~api_limiter ~owner ~repo
-                                ~author event ~user_message ~preamble)
+                                ~owner ~repo ~author event ~options ~preamble)
+                    | _ -> (
+                        match
+                          Github_webhook.extract_trigger
+                            ?trigger_login:github_config.trigger_login ~event
+                            ~pr_files ()
+                        with
+                        | Some (user_message, preamble) -> (
+                            let options =
+                              Github_work_item.parse_command_options
+                                user_message
+                            in
+                            match db_opt with
+                            | Some db
+                              when Github_work_item.wants_work_item options
+                                   && options.request <> "" ->
+                                Github_work_item.init_schema db;
+                                run_clawq_work_item ~github_config
+                                  ~resolve_headers ~egress_rules ~egress_audit
+                                  ~db ~repo_config ~config ~api_limiter
+                                  ~delivery_id ~owner ~repo ~author event
+                                  ~options ~preamble
+                            | _ ->
+                                run_clawq_command ~github_config
+                                  ~resolve_headers ~egress_rules ~egress_audit
+                                  ?db:db_opt ~session_manager ~api_limiter
+                                  ~owner ~repo ~author event ~user_message
+                                  ~preamble)
+                        | None ->
+                            let* hook_count =
+                              Github_hooks.run_matching_hooks ~session_manager
+                                ~prepared ~github_config:(Some github_config)
+                                ~resolve_headers ~egress_rules ~egress_audit
+                                ~api_limiter ()
+                            in
+                            if hook_count > 0 then
+                              Lwt.return
+                                (Ok (Printf.sprintf "hooked:%d" hook_count))
+                            else Lwt.return (Ok "no /clawq command")))
+          else
+            (* Non-user-generated events (check_run, workflow_run, etc.) *)
+            let event = Github_webhook.parse_event ~event_type ~body in
+            (* Dispatch to subscribed rooms/threads *)
+            let* _dispatched =
+              match Session.get_db session_manager with
+              | Some db ->
+                  Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
+                    ~delivery_id ~snapshot_id:egress_audit.snapshot_id
+                    ~send_message:(fun ~room_id ~text () ->
+                      (* Try to find a notifier for this room *)
+                      match
+                        Session.find_registered_notifier session_manager
+                          ~key:room_id
+                      with
+                      | Some notifier ->
+                          let* () = notifier text in
+                          Lwt.return ""
                       | None ->
-                          let* hook_count =
-                            Github_hooks.run_matching_hooks ~session_manager
-                              ~prepared ~github_config:(Some github_config)
-                              ~resolve_headers ~egress_rules ~egress_audit
-                              ~api_limiter ()
-                          in
-                          if hook_count > 0 then
-                            Lwt.return
-                              (Ok (Printf.sprintf "hooked:%d" hook_count))
-                          else Lwt.return (Ok "no /clawq command")))
-        else
-          (* Non-user-generated events (check_run, workflow_run, etc.) *)
-          let event = Github_webhook.parse_event ~event_type ~body in
-          (* Dispatch to subscribed rooms/threads *)
-          let* _dispatched =
-            match Session.get_db session_manager with
-            | Some db ->
-                Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
-                  ~delivery_id ~snapshot_id:egress_audit.snapshot_id
-                  ~send_message:(fun ~room_id ~text () ->
-                    (* Try to find a notifier for this room *)
-                    match
-                      Session.find_registered_notifier session_manager
-                        ~key:room_id
-                    with
-                    | Some notifier ->
-                        let* () = notifier text in
-                        Lwt.return ""
-                    | None ->
-                        Logs.debug (fun m ->
-                            m "GitHub PR dispatch: no notifier for room %s"
-                              room_id);
-                        Lwt.return "")
-                  ()
-            | None -> Lwt.return 0
-          in
-          let* hook_count =
-            Github_hooks.run_matching_hooks ~session_manager ~prepared
-              ~github_config:(Some github_config) ~resolve_headers ~egress_rules
-              ~egress_audit ~api_limiter ()
-          in
-          if hook_count > 0 then
-            Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
-          else Lwt.return (Ok "ignored")
+                          Logs.debug (fun m ->
+                              m "GitHub PR dispatch: no notifier for room %s"
+                                room_id);
+                          Lwt.return "")
+                    ()
+              | None -> Lwt.return 0
+            in
+            let* hook_count =
+              Github_hooks.run_matching_hooks ~session_manager ~prepared
+                ~github_config:(Some github_config) ~resolve_headers
+                ~egress_rules ~egress_audit ~api_limiter ()
+            in
+            if hook_count > 0 then
+              Lwt.return (Ok (Printf.sprintf "hooked:%d" hook_count))
+            else Lwt.return (Ok "ignored")

@@ -1463,6 +1463,57 @@ let handle_webhook_dedup_delivery_id () =
               Alcotest.(check string) "second call deduped" "duplicate" msg
           | Github.BadSignature -> Alcotest.fail "second call bad sig"))
 
+let handle_webhook_reconciles_verified_ingress () =
+  Test_helpers.with_temp_home (fun _home ->
+      let body =
+        {|{"action":"created","issue":{"number":42,"title":"Fix bug","state":"open","user":{"login":"alice"},"body":"PR body"},"comment":{"id":701,"user":{"login":"bob","type":"User"},"body":"ordinary comment","html_url":"https://github.com/acme/backend/issues/42#issuecomment-701"},"repository":{"name":"backend","owner":{"login":"acme"}},"sender":{"login":"bob","type":"User"}}|}
+      in
+      let secret = "reconcile-secret" in
+      let repo_config, github_config, _unused_session, api_limiter, headers =
+        make_webhook_env ~secret ~body ~allow_users:[ "bob" ]
+      in
+      let db = Memory.init ~db_path:":memory:" ~search_enabled:false () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          Github_action_reconcile.ensure_schema db;
+          Github_room_event_journal.ensure_schema db;
+          Github_item_projection.ensure_schema db;
+          (match
+             Github_action_reconcile.record_from_native_receipt ~db
+               ~room_id:"room-e3-ingress" ~action:"comment" ~actor_mode:"user"
+               ~receipt_id:"receipt-e3-ingress" ~expected_github_login:"bob" ()
+           with
+          | Ok _ -> ()
+          | Error err -> Alcotest.fail err);
+          let config = test_config_with_github github_config in
+          let session_manager = Session.create ~config ~db () in
+          (match
+             Lwt_main.run
+               (Github.handle_webhook ~repo_config ~github_config ~config
+                  ~session_manager ~api_limiter ~event_type:"issue_comment"
+                  ~body ~headers)
+           with
+          | Github.Ok _ -> ()
+          | Github.BadSignature -> Alcotest.fail "expected verified ingress");
+          let stmt =
+            Sqlite3.prepare db
+              "SELECT COUNT(*) FROM github_action_correlations WHERE \
+               receipt_id = 'receipt-e3-ingress' AND status = 'closed'"
+          in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              let closed =
+                match Sqlite3.step stmt with
+                | Sqlite3.Rc.ROW -> (
+                    match Sqlite3.column stmt 0 with
+                    | Sqlite3.Data.INT n -> Int64.to_int n
+                    | _ -> 0)
+                | _ -> 0
+              in
+              Alcotest.(check int) "verified ingress closes receipt" 1 closed)))
+
 let session_integration_suite =
   [
     Alcotest.test_case "PR comment → stable session key" `Quick
@@ -1480,6 +1531,8 @@ let lifecycle_suite =
     Alcotest.test_case "bot self-loop protection" `Quick
       handle_webhook_bot_self_loop_protection;
     Alcotest.test_case "delivery dedup" `Quick handle_webhook_dedup_delivery_id;
+    Alcotest.test_case "verified ingress reconciles receipt" `Quick
+      handle_webhook_reconciles_verified_ingress;
   ]
 
 (* ---- Credential lease integration tests ---- *)

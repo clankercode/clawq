@@ -47,6 +47,58 @@ policy-permitted App actions retain deterministic App/PAT behavior. PAT remains
 exact-Repo only (`Github_app_pat_compat`). Minimal runtime must not link
 integration-only network paths for user-auth.
 
+## Legacy requester migration (P21.M1.E3.T003)
+
+Daemon database startup runs the idempotent `Principal_legacy_migrate` upgrade
+before it makes the database available to dispatchers. The upgrade only
+backfills a legacy requester when a verified Connector namespace and immutable
+user ID already resolve to a live Principal. It never links display names,
+emails, room IDs, or sessions. A failed upgrade prevents the daemon from using
+that database; fix the database error and restart rather than bypassing the
+check.
+
+Inspect the migration report in the daemon log first (run ID, `backfilled`,
+`unresolved`, and `jobs_invalidated`). With the daemon stopped and a database
+backup retained, an operator can inspect the durable report without exposing
+tokens:
+
+```sql
+SELECT run_id, started_at, finished_at, backfilled, unresolved, jobs_invalidated,
+       rolled_back
+FROM principal_legacy_migration_runs
+ORDER BY started_at DESC;
+
+SELECT source_kind, source_id, status, unresolved_reason, principal_id,
+       created_at
+FROM principal_legacy_migration_records
+WHERE run_id = :run_id
+ORDER BY source_kind, source_id;
+
+SELECT source_kind, source_id, reason, invalidated_at
+FROM principal_legacy_invalidated_jobs
+WHERE run_id = :run_id;
+```
+
+`legacy_unresolved` means the row remains available for read/audit and for an
+explicit policy-permitted App/PAT operation, but it has no human authority.
+Do not "repair" it by guessing from a display name. A human-attributed retry
+must supply a verified Connector identity and create a new request; the worker
+rejects an unresolved or `job_invalidated` legacy source rather than silently
+authorizing it.
+
+An invalidated active legacy job is not safe to resume as its old requester.
+Keep its original evidence for audit, inspect the invalidation report, verify
+the initiator through the Connector, then re-plan/re-enqueue a new durable job.
+Cancellation preserves any immutable actor snapshot; retry/recovery re-resolve
+it and fail closed if it is revoked, split, stale, or malformed.
+
+Rollback is a controlled maintenance operation, not a way to restore user
+authority. Stop human-attributed dispatch, back up the database, invoke
+`Principal_legacy_migrate.rollback_run ~db ~run_id`, verify that the matching
+records and invalidations are removed while historical snapshots remain, then
+restart so the idempotent upgrade produces a fresh report. Do not delete
+Principal, identity-link, or actor-snapshot rows manually.
+
 ## Explicit non-guarantees
 
 - Live Teams dual-attribution pilot is not claimed without credentials/room/webhook.

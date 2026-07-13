@@ -13,6 +13,24 @@ let init_database ~(config : Runtime_config.t) =
       Memory.init ~db_path ~search_enabled:config.memory.search_enabled ()
     in
     Vector.init_schema db;
+    (match Principal_legacy_migrate.migrate_database ~db () with
+    | Ok report ->
+        Logs.info (fun m ->
+            m
+              "Legacy requester migration %s: %d backfilled, %d unresolved, %d \
+               active jobs invalidated"
+              report.run_id report.backfilled report.unresolved
+              report.jobs_invalidated)
+    | Error err ->
+        (* A partial upgrade must not leave legacy user requests dispatchable.
+           Let the outer database initializer fail so the daemon does not run
+           against an unknown migration state. *)
+        Logs.err (fun m ->
+            m
+              "Legacy requester migration failed; human-attributed legacy \
+               dispatch remains denied: %s"
+              err);
+        failwith ("legacy requester migration failed: " ^ err));
     Provider_quota.set_db db;
     if config.security.audit_enabled then begin
       Audit.init_schema db;

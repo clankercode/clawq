@@ -975,6 +975,34 @@ let user_authority_allowed ~db ~source_kind ~source_id =
   | Ok None -> Ok false
   | Ok (Some r) -> Ok r.authority.user_attributed_allowed
 
+let require_migrated_user_dispatch ~db ~source_kind ~source_id =
+  let ( let* ) = Result.bind in
+  let* invalidated = is_job_invalidated ~db ~source_kind ~source_id in
+  if invalidated then
+    Error
+      (Printf.sprintf
+         "legacy user-attributed dispatch refused for %s/%s: job_invalidated; \
+          inspect principal_legacy_invalidated_jobs and re-plan with verified \
+          identity"
+         (string_of_source_kind source_kind)
+         source_id)
+  else
+    match get_record ~db ~source_kind ~source_id with
+    | Error e -> Error e
+    | Ok None -> Ok ()
+    | Ok (Some record) ->
+        let* allowed = user_authority_allowed ~db ~source_kind ~source_id in
+        if allowed then Ok ()
+        else
+          Error
+            (Printf.sprintf
+               "legacy user-attributed dispatch refused for %s/%s: %s; verify \
+                identity and create a new request rather than auto-authorizing \
+                the legacy requester"
+               (string_of_source_kind source_kind)
+               source_id
+               (string_of_migration_status record.status))
+
 (* -------------------------------------------------------------------------- *)
 (* Migrate                                                                    *)
 (* -------------------------------------------------------------------------- *)

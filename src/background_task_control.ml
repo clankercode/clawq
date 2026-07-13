@@ -133,31 +133,61 @@ let retry ~db ~id =
            "Task %d has already been retried %d/%d times — maximum retries \
             exceeded"
            id task.retry_count max_retry_count)
-  | Some task ->
-      let new_retry_count = task.retry_count + 1 in
-      let sql =
-        "UPDATE background_tasks SET status = 'queued', pid = NULL, \
-         result_preview = NULL, started_at = NULL, finished_at = NULL, \
-         worktree_path = NULL, log_path = NULL, branch = '', merge_status = \
-         NULL, retry_count = ? WHERE id = ?"
+  | Some task -> (
+      let human_dispatch_guard () =
+        (* As in [spawn_task], a background-only database cannot have a
+           snapshot-bearing GitHub work item until the optional table exists.
+           Do not create that table during a generic retry, but enforce both
+           durable gates when it does exist. *)
+        try
+          if not (Github_work_item.schema_exists db) then Ok ()
+          else
+            match Github_work_item.find_by_task ~db ~background_task_id:id with
+            | None -> Ok ()
+            | Some item -> (
+                match item.actor_snapshot_json with
+                | None -> Ok ()
+                | Some _ ->
+                    let ( let* ) = Result.bind in
+                    let* () =
+                      Github_work_item.require_actor_snapshot_current ~db item
+                    in
+                    Principal_legacy_migrate.require_migrated_user_dispatch ~db
+                      ~source_kind:Principal_legacy_migrate.Background_task
+                      ~source_id:(string_of_int id))
+        with exn ->
+          Error
+            ("could not inspect durable human attribution before retry: "
+           ^ Printexc.to_string exn)
       in
-      let stmt = Sqlite3.prepare db sql in
-      Fun.protect
-        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-        (fun () ->
-          ignore
-            (Sqlite3.bind stmt 1
-               (Sqlite3.Data.INT (Int64.of_int new_retry_count)));
-          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
-          match Sqlite3.step stmt with
-          | Sqlite3.Rc.DONE ->
-              Ok
-                (Printf.sprintf "Re-queued task %d (retry %d/%d)" id
-                   new_retry_count max_retry_count)
-          | rc ->
-              Error
-                (Printf.sprintf "Failed to retry task %d: %s" id
-                   (Sqlite3.Rc.to_string rc)))
+      match human_dispatch_guard () with
+      | Error err ->
+          Error ("Retry refused for human-attributed durable work: " ^ err)
+      | Ok () ->
+          let new_retry_count = task.retry_count + 1 in
+          let sql =
+            "UPDATE background_tasks SET status = 'queued', pid = NULL, \
+             result_preview = NULL, started_at = NULL, finished_at = NULL, \
+             worktree_path = NULL, log_path = NULL, branch = '', merge_status \
+             = NULL, retry_count = ? WHERE id = ?"
+          in
+          let stmt = Sqlite3.prepare db sql in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              ignore
+                (Sqlite3.bind stmt 1
+                   (Sqlite3.Data.INT (Int64.of_int new_retry_count)));
+              ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+              match Sqlite3.step stmt with
+              | Sqlite3.Rc.DONE ->
+                  Ok
+                    (Printf.sprintf "Re-queued task %d (retry %d/%d)" id
+                       new_retry_count max_retry_count)
+              | rc ->
+                  Error
+                    (Printf.sprintf "Failed to retry task %d: %s" id
+                       (Sqlite3.Rc.to_string rc))))
 
 type evidence = {
   original_prompt : string;

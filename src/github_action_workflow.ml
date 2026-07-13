@@ -257,33 +257,47 @@ let reject_actor_attribution msg : Setup_plan_apply.outcome =
   Setup_plan_apply.Rejected
     { reason = Setup_plan_apply.Apply_error; message = msg }
 
-(** After a successful apply, attach the initiating Actor snapshot (when pinned)
-    and attribution modes to a durable open correlation so webhook reconcile
-    retains historical identity and can match native attribution receipts.
-    Best-effort: apply receipt is already durable; correlation record failure
-    must not rewrite the applied plan. *)
-let maybe_record_receipt_correlation ~db ~plan ~receipt_id ?github_user_id
+(** Persist reconciliation evidence inside the setup-plan apply transaction. An
+    applied GitHub plan without this row cannot be safely reconciled, so its
+    receipt must not commit. *)
+let receipt_apply_with_reconciliation ~db ~now ?github_user_id
     ?attribution_receipt_id ?job_id ?expected_github_login ?native_actor_kind
-    ~now () =
-  match
-    Reconcile.record_from_applied_plan ~db ~plan ~receipt_id ?github_user_id
-      ?attribution_receipt_id ?job_id ?expected_github_login ?native_actor_kind
-      ~now ()
-  with
-  | Ok _ | Error _ -> ()
+    ~(plan : Setup_plan.t) ~receipt_id () =
+  match receipt_only_apply_ops ~plan ~receipt_id with
+  | Error _ as error -> error
+  | Ok () -> (
+      match
+        Reconcile.record_from_applied_plan ~db ~plan ~receipt_id ?github_user_id
+          ?attribution_receipt_id ?job_id ?expected_github_login
+          ?native_actor_kind ~now ()
+      with
+      | Ok _ -> Ok ()
+      | Error err ->
+          Error
+            ("GitHub action apply refused: durable reconciliation evidence \
+              could not be recorded: " ^ err))
 
 let apply_outcome_with_correlation ~db ~plan ~now ?github_user_id
     ?attribution_receipt_id ?job_id ?expected_github_login ?native_actor_kind
     (outcome : Setup_plan_apply.outcome) =
-  (match outcome with
-  | Setup_plan_apply.Applied { receipt_id; first_time = true } ->
-      maybe_record_receipt_correlation ~db ~plan ~receipt_id ?github_user_id
-        ?attribution_receipt_id ?job_id ?expected_github_login
-        ?native_actor_kind ~now ()
-  | Setup_plan_apply.Applied { first_time = false; _ }
-  | Setup_plan_apply.Rejected _ ->
-      ());
-  outcome
+  match outcome with
+  | Setup_plan_apply.Applied { receipt_id; _ } -> (
+      match Reconcile.get_by_receipt_id ~db ~receipt_id with
+      | Some _ -> outcome
+      | None -> (
+          (* Repairs receipts written by the pre-T006 path, but never reports
+             success unless the missing durable evidence is restored. *)
+          match
+            Reconcile.record_from_applied_plan ~db ~plan ~receipt_id
+              ?github_user_id ?attribution_receipt_id ?job_id
+              ?expected_github_login ?native_actor_kind ~now ()
+          with
+          | Ok _ -> outcome
+          | Error err ->
+              reject_actor_attribution
+                ("GitHub action outcome withheld: durable reconciliation \
+                  evidence is unavailable: " ^ err)))
+  | Setup_plan_apply.Rejected _ -> outcome
 
 (** When a collab plan carries staged attribution, revalidate live evidence and
     issue an opaque lease before receipt-only apply. Receipt-only path revokes
@@ -439,8 +453,7 @@ let maybe_code_change_attribution_dispatch ~db ~plan ?attribution_live
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
     ?review_live:_ ?issue_live:_ ?workflow_live ?code_change_live ?vault_id
-    ?expected_account ?github_user_id
-    ?(now = Unix.gettimeofday ()) () =
+    ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
@@ -458,9 +471,8 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
            ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ())
   | Ok _envelope_opt -> (
       match
-        maybe_workflow_dispatch_attribution_dispatch ~db ~plan
-          ?attribution_live ?workflow_live ?vault_id ?expected_account
-          ?github_user_id ~now ()
+        maybe_workflow_dispatch_attribution_dispatch ~db ~plan ?attribution_live
+          ?workflow_live ?vault_id ?expected_account ?github_user_id ~now ()
       with
       | Error msg -> Ok (reject_actor_attribution msg)
       | Ok workflow_d -> (
@@ -468,9 +480,9 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
             Option.map (fun d -> d.Wd_attr.receipt.id) workflow_d
           in
           match
-            maybe_code_change_attribution_dispatch ~db ~plan
-              ?attribution_live ?code_change_live ?vault_id ?expected_account
-              ?github_user_id ~now ()
+            maybe_code_change_attribution_dispatch ~db ~plan ?attribution_live
+              ?code_change_live ?vault_id ?expected_account ?github_user_id ~now
+              ()
           with
           | Error msg -> Ok (reject_actor_attribution msg)
           | Ok code_d ->
@@ -480,10 +492,13 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
                 | None -> attribution_receipt_id
               in
               let outcome =
+                let apply_ops ~plan ~receipt_id =
+                  receipt_apply_with_reconciliation ~db ~now ?github_user_id
+                    ?attribution_receipt_id ~plan ~receipt_id ()
+                in
                 Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
                   ~current_base_revision ~destination_room ~now
-                  ~authority:authority_allow ~apply_ops:receipt_only_apply_ops
-                  ()
+                  ~authority:authority_allow ~apply_ops ()
               in
               Ok
                 (apply_outcome_with_correlation ~db ~plan ~now ?github_user_id

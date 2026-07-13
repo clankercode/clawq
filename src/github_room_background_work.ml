@@ -453,51 +453,71 @@ let enqueue_work_item ~db ~(req : request) ?actor_snapshot ?attribution_allow
   match validate_request req with
   | Error e -> Error e
   | Ok () -> (
-      Github_work_item.init_schema db;
-      let room_id = String.trim req.room_id in
-      let prompt = String.trim req.prompt in
-      let dedup = String.trim req.dedup_key in
-      let repo_full_name, issue_number, is_pr =
-        match req.item_key with
-        | Some k -> (
-            match parse_item_key k with
-            | Some (repo, n, is_pr) -> (repo, n, is_pr)
-            | None ->
-                (* Unparseable key: room-scoped synthetic identity so enqueue
+      let validation =
+        match actor_snapshot with
+        | None -> Ok ()
+        | Some snapshot -> (
+            match
+              Github_durable_job_actor_attribution.prepare_execution ~db
+                ~job_id:(String.trim req.dedup_key)
+                ~snapshot ()
+            with
+            | Ok _ -> Ok ()
+            | Error invalidation ->
+                Error
+                  ("room background work refused: initiating human attribution \
+                    is no longer executable: "
+                  ^ Github_durable_job_actor_attribution
+                    .string_of_exec_invalidation invalidation))
+      in
+      match validation with
+      | Error e -> Error e
+      | Ok () -> (
+          Github_work_item.init_schema db;
+          let room_id = String.trim req.room_id in
+          let prompt = String.trim req.prompt in
+          let dedup = String.trim req.dedup_key in
+          let repo_full_name, issue_number, is_pr =
+            match req.item_key with
+            | Some k -> (
+                match parse_item_key k with
+                | Some (repo, n, is_pr) -> (repo, n, is_pr)
+                | None ->
+                    (* Unparseable key: room-scoped synthetic identity so enqueue
                    still records durable work without inventing a GitHub
                    issue number from free text. *)
-                (Printf.sprintf "room/%s" room_id, 1, false))
-        | None -> (Printf.sprintf "room/%s" room_id, 1, false)
-      in
-      let requester = Printf.sprintf "room:%s" room_id in
-      let runner_pref =
-        match req.runner_pref with
-        | None -> None
-        | Some r when String.trim r = "" -> None
-        | Some r -> Some (String.trim r)
-      in
-      let host_pref =
-        match req.thread_ref with
-        | None -> None
-        | Some t when String.trim t = "" -> None
-        | Some t -> Some (Printf.sprintf "thread:%s" (String.trim t))
-      in
-      let preamble = build_preamble ~req in
-      let policy_ref =
-        match req.thread_ref with
-        | Some t when String.trim t <> "" ->
-            Some (Printf.sprintf "thread_ref:%s" (String.trim t))
-        | _ -> Some (Printf.sprintf "room:%s" room_id)
-      in
-      match
-        Github_work_item.create_if_new ~db ~dedup_key:dedup ~repo_full_name
-          ~is_pr ~issue_number ~requester ~trigger:"room_background"
-          ?runner_pref ?host_pref ~prompt ~preamble ?policy_ref ?actor_snapshot
-          ?attribution_allow ()
-      with
-      | Ok (Github_work_item.Created item) -> Ok item
-      | Ok (Github_work_item.Duplicate item) -> Ok item
-      | Error e -> Error e)
+                    (Printf.sprintf "room/%s" room_id, 1, false))
+            | None -> (Printf.sprintf "room/%s" room_id, 1, false)
+          in
+          let requester = Printf.sprintf "room:%s" room_id in
+          let runner_pref =
+            match req.runner_pref with
+            | None -> None
+            | Some r when String.trim r = "" -> None
+            | Some r -> Some (String.trim r)
+          in
+          let host_pref =
+            match req.thread_ref with
+            | None -> None
+            | Some t when String.trim t = "" -> None
+            | Some t -> Some (Printf.sprintf "thread:%s" (String.trim t))
+          in
+          let preamble = build_preamble ~req in
+          let policy_ref =
+            match req.thread_ref with
+            | Some t when String.trim t <> "" ->
+                Some (Printf.sprintf "thread_ref:%s" (String.trim t))
+            | _ -> Some (Printf.sprintf "room:%s" room_id)
+          in
+          match
+            Github_work_item.create_if_new ~db ~dedup_key:dedup ~repo_full_name
+              ~is_pr ~issue_number ~requester ~trigger:"room_background"
+              ?runner_pref ?host_pref ~prompt ~preamble ?policy_ref
+              ?actor_snapshot ?attribution_allow ()
+          with
+          | Ok (Github_work_item.Created item) -> Ok item
+          | Ok (Github_work_item.Duplicate item) -> Ok item
+          | Error e -> Error e))
 
 let get_or_err ~db ~id =
   match Github_work_item.get ~db ~id with
@@ -527,36 +547,44 @@ let request_retry ~db ~id () =
   match get_or_err ~db ~id with
   | Error e -> Error e
   | Ok item -> (
-      match item.status with
-      | Github_work_item.Running ->
-          Error
-            (Printf.sprintf
-               "cannot retry work item %d while running; cancel first or wait"
-               id)
-      | Github_work_item.Queued -> Ok item
-      | Github_work_item.Succeeded | Github_work_item.Failed
-      | Github_work_item.Cancelled | Github_work_item.Blocked ->
-          (* Re-queue; bump attempt_count when a prior background task was
+      match Github_work_item.require_actor_snapshot_current ~db item with
+      | Error e -> Error ("retry refused: " ^ e)
+      | Ok () -> (
+          match item.status with
+          | Github_work_item.Running ->
+              Error
+                (Printf.sprintf
+                   "cannot retry work item %d while running; cancel first or \
+                    wait"
+                   id)
+          | Github_work_item.Queued -> Ok item
+          | Github_work_item.Succeeded | Github_work_item.Failed
+          | Github_work_item.Cancelled | Github_work_item.Blocked ->
+              (* Re-queue; bump attempt_count when a prior background task was
              attached by re-using attach_task with the same id when present. *)
-          (match item.background_task_id with
-          | Some tid ->
-              Github_work_item.attach_task ~db ~id ~background_task_id:tid
-          | None -> ());
-          Github_work_item.set_status ~db ~id ~status:Github_work_item.Queued;
-          get_or_err ~db ~id)
+              (match item.background_task_id with
+              | Some tid ->
+                  Github_work_item.attach_task ~db ~id ~background_task_id:tid
+              | None -> ());
+              Github_work_item.set_status ~db ~id
+                ~status:Github_work_item.Queued;
+              get_or_err ~db ~id))
 
 let mark_progress ~db ~id () =
   match get_or_err ~db ~id with
   | Error e -> Error e
-  | Ok item ->
+  | Ok item -> (
       if Github_work_item.is_terminal_status item.status then
         Error
           (Printf.sprintf "cannot mark progress on terminal work item %d (%s)"
              id
              (Github_work_item.string_of_status item.status))
-      else (
-        Github_work_item.set_status ~db ~id ~status:Github_work_item.Running;
-        get_or_err ~db ~id)
+      else
+        match Github_work_item.require_actor_snapshot_current ~db item with
+        | Error e -> Error ("dispatch refused: " ^ e)
+        | Ok () ->
+            Github_work_item.set_status ~db ~id ~status:Github_work_item.Running;
+            get_or_err ~db ~id)
 
 let mark_blocked ~db ~id ~summary () =
   match get_or_err ~db ~id with
@@ -575,17 +603,21 @@ let mark_blocked ~db ~id ~summary () =
 let mark_completed ~db ~id ~summary () =
   match get_or_err ~db ~id with
   | Error e -> Error e
-  | Ok item ->
+  | Ok item -> (
       if Github_work_item.is_terminal_status item.status then
         Error
           (Printf.sprintf "cannot mark completed on terminal work item %d (%s)"
              id
              (Github_work_item.string_of_status item.status))
-      else (
-        Github_work_item.record_result ~db ~id
-          ~status:Github_work_item.Succeeded ~result_kind:Github_work_item.Reply
-          ~result_summary:(String.trim summary);
-        get_or_err ~db ~id)
+      else
+        match Github_work_item.require_actor_snapshot_current ~db item with
+        | Error e -> Error ("completion refused: " ^ e)
+        | Ok () ->
+            Github_work_item.record_result ~db ~id
+              ~status:Github_work_item.Succeeded
+              ~result_kind:Github_work_item.Reply
+              ~result_summary:(String.trim summary);
+            get_or_err ~db ~id)
 
 let is_background_plan (plan : Setup_plan.t) =
   match plan.apply_payload.kind with

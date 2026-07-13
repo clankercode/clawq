@@ -326,6 +326,56 @@ let test_load_from_background_tasks_and_workflow_runs () =
     "workflow invalidated" true
     (report.jobs_invalidated >= 1)
 
+let test_daemon_upgrade_invalidates_unresolved_legacy_dispatch () =
+  let db_path = Filename.temp_file "clawq_legacy_upgrade" ".db" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove db_path with _ -> ())
+    (fun () ->
+      let seed_db = Memory.init ~db_path ~search_enabled:false () in
+      Background_task.init_schema seed_db;
+      let task_id =
+        assert_ok
+          (Background_task.enqueue ~db:seed_db ~runner:Background_task.Local
+             ~require_git:false ~automerge:false ~use_worktree:false
+             ~repo_path:(Filename.get_temp_dir_name ())
+             ~prompt:"legacy work" ~requester:"Ada Lovelace" ())
+      in
+      ignore (Sqlite3.db_close seed_db);
+      let config =
+        {
+          Runtime_config.default with
+          memory =
+            {
+              Runtime_config.default.memory with
+              db_path;
+              search_enabled = false;
+            };
+        }
+      in
+      match Daemon_startup.init_database ~config with
+      | None -> Alcotest.fail "daemon database upgrade failed"
+      | Some db ->
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.db_close db))
+            (fun () ->
+              Alcotest.(check bool)
+                "active unresolved task invalidated" true
+                (assert_ok
+                   (L.is_job_invalidated ~db ~source_kind:L.Background_task
+                      ~source_id:(string_of_int task_id)));
+              match
+                L.require_migrated_user_dispatch ~db
+                  ~source_kind:L.Background_task
+                  ~source_id:(string_of_int task_id)
+              with
+              | Ok () ->
+                  Alcotest.fail
+                    "invalidated legacy task must not regain human authority"
+              | Error msg ->
+                  Alcotest.(check bool)
+                    "actionable invalidation" true
+                    (String_util.contains msg "job_invalidated")))
+
 let test_idempotent_skip_already_migrated () =
   with_db @@ fun db ->
   ignore
@@ -425,6 +475,9 @@ let suite =
     ( "load from background_tasks and workflow_runs",
       `Quick,
       test_load_from_background_tasks_and_workflow_runs );
+    ( "daemon upgrade invalidates unresolved legacy dispatch",
+      `Quick,
+      test_daemon_upgrade_invalidates_unresolved_legacy_dispatch );
     ( "idempotent skip already migrated",
       `Quick,
       test_idempotent_skip_already_migrated );

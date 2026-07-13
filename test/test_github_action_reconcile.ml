@@ -1183,6 +1183,37 @@ let test_canonicalize_action_aliases () =
     "workflow" "workflow_dispatch"
     (A.canonicalize_action "workflow")
 
+let test_verified_ingress_fans_out_without_human_cross_close () =
+  with_db @@ fun db ->
+  let other_room = "room-2" in
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"comment"
+          ~actor_mode:"app" ~item_key ~receipt_id:"receipt-room-1"
+          ~now:fixed_now ()));
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id:other_room ~action:"merge"
+          ~actor_mode:"user" ~item_key ~receipt_id:"receipt-room-2"
+          ~expected_github_login:"ada" ~github_user_id:9001L ~now:fixed_now ()));
+  let envelope =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "verified-delivery")
+      ~actor_login:(Some "clawq-bot") ~actor_type:(Some "Bot") ()
+  in
+  let results =
+    A.reconcile_verified_ingress ~db ~envelope ~now:(fixed_now +. 1.) ()
+  in
+  let first = List.assoc room_id results in
+  let second = List.assoc other_room results in
+  Alcotest.(check string)
+    "matching room closed" "closed_first" (result_tag first);
+  Alcotest.(check string)
+    "unrelated room remains open" "no_matching_receipt" (result_tag second);
+  Alcotest.(check int)
+    "one receipt remains open" 1
+    (count_correlations ~db ~status:"open" ())
+
 let suite =
   [
     ( "record + reconcile closes once",
@@ -1234,5 +1265,8 @@ let suite =
     ( "cross principal github_user_id isolated",
       `Quick,
       test_cross_principal_github_user_id_isolated );
+    ( "verified ingress fans out without human cross-close",
+      `Quick,
+      test_verified_ingress_fans_out_without_human_cross_close );
     ("canonicalize action aliases", `Quick, test_canonicalize_action_aliases);
   ]

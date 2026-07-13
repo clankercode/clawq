@@ -163,6 +163,16 @@ let init_schema db =
   | Sqlite3.Rc.OK -> ()
   | _ -> ()
 
+let schema_exists db =
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = \
+       'github_work_items' LIMIT 1"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () -> Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
 (** {1 Row mapping} *)
 
 let sql_text = Sql_util.sql_text
@@ -454,6 +464,30 @@ let delayed_pin_of_item (item : t) :
   Github_delayed_attribution.pin_of_parts ~job_id:(string_of_int item.id)
     ~snapshot_json:item.actor_snapshot_json
     ~allow_json:item.attribution_allow_json ()
+
+(** Re-resolve initiating human evidence immediately before dispatch or a
+    durable lifecycle transition. Snapshot-less rows remain explicitly
+    App/PAT/unattributed; this guard never grants human authority to them. *)
+let require_actor_snapshot_current ~db ?(cancelled = false) (item : t) =
+  match item.actor_snapshot_json with
+  | None -> Ok ()
+  | Some snapshot_json -> (
+      match
+        Github_durable_job_actor_attribution.prepare_execution_of_json ~db
+          ~job_id:(string_of_int item.id) ~snapshot_json:(Some snapshot_json)
+          ~require_snapshot:true ~cancelled ()
+      with
+      | Ok (Some _) -> Ok ()
+      | Ok None ->
+          Error
+            (Printf.sprintf
+               "work item %d lost required human actor snapshot during dispatch"
+               item.id)
+      | Error err ->
+          Error
+            (Printf.sprintf
+               "work item %d human attribution is no longer executable: %s"
+               item.id err))
 
 (** {1 Lookup} *)
 

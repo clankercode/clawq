@@ -240,3 +240,13 @@ val reconcile_webhook :
       cross action family incorrectly; never rewrite Principal).
     - A second matching webhook after close → [Already_closed].
     - Bot/app events without a match → [No_matching_receipt]. *)
+
+val reconcile_verified_ingress :
+  db:Sqlite3.db ->
+  envelope:Github_event_envelope.t ->
+  ?now:float ->
+  unit ->
+  (string * reconcile_result) list
+(** Reconcile one signature- and installation-verified delivery against each
+    room with an open correlation. This never dispatches work; individual room
+    matching remains fail-closed in [reconcile_webhook]. *)
