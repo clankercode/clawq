@@ -22,7 +22,7 @@ tasks:
       file: T001-define-immutable-actor-snapsho.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Define immutable Actor snapshots for intents and delayed work
     - complexity: high

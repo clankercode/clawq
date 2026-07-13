@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T04:27:14Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:11Z"
@@ -10,10 +12,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M1.E3.T001
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T04:27:14Z"
+status: in_progress
 tags: []
 title: Define immutable Actor snapshots for intents and delayed work
-updated_at: "2026-07-12T14:51:11Z"
+updated_at: "2026-07-13T04:27:14Z"
 ---
 Acceptance: Versioned immutable snapshot records Principal and logical lineage, identity-link revision, display evidence, source Room/Session/message, optional account binding, and intent/confirmation references. It contains no token and is never reusable authority; merge/rename preserve evidence while split/revocation forces current-authority re-resolution. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
