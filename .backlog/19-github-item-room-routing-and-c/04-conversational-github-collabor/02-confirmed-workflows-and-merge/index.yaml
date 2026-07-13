@@ -20,7 +20,7 @@ tasks:
       file: T001-require-preview-and-confirm-fo.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Require shared revision-bound preview confirm apply for GitHub actions
     - complexity: high
