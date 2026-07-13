@@ -43,6 +43,6 @@ tasks:
       file: T003-handle-every-terminal-response.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Handle every terminal response and prepare verified binding

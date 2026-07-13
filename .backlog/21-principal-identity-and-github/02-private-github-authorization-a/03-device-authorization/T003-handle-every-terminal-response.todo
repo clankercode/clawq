@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T04:49:51Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:45Z"
@@ -8,10 +10,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M2.E3.T003
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T04:49:51Z"
+status: in_progress
 tags: []
 title: Handle every terminal response and prepare verified binding
-updated_at: "2026-07-12T14:51:45Z"
+updated_at: "2026-07-13T04:49:51Z"
 ---
 Acceptance: Device success passes its still-pending credential and transaction context into the shared flow-neutral /user verification and activation transaction; expiry, denial, disabled flow, incorrect client/code, unsupported grant, malformed, and unknown responses terminate explicitly with no active partial binding. No web-owned task is a device-flow prerequisite. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
