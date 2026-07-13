@@ -16,6 +16,10 @@ Route setup and readiness:
 P21 production attribution handoff:
 [docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md](../plans/2026-07-13-github-user-attribution-and-feature-discovery.md).
 
+P19 → P21 migration matrix and staged gates:
+[p21-attribution-migration-rollout.md](p21-attribution-migration-rollout.md)
+(`Github_attribution_rollout`).
+
 ## Scope and non-goals
 
 | In scope | Out of scope |

@@ -133,6 +133,7 @@ let base_request ?(action = "merge") ?(tool_authorized = true)
     pin;
     actor_snapshot_id;
     fallback;
+    fallback = A.default_fallback_context;
   }
 
 let prior_allow ?(request = base_request ()) () : A.allow =
