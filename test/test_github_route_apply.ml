@@ -51,11 +51,23 @@ let sample_scope ?(installation_id = 1001) ?(login = "AcmeCorp")
       updated_at = Time_util.iso8601_utc ~t:fixed_now ();
     }
 
-let allow_admin = true
+let global_actor : Setup_plan_consent.actor =
+  {
+    principal_id = principal.id;
+    role = Global_admin;
+    source_room_id = Some "room-teams-1";
+  }
+
+let denied_actor : Setup_plan_consent.actor =
+  {
+    principal_id = principal.id;
+    role = None_;
+    source_room_id = Some "room-teams-1";
+  }
 
 let make_req ?(digest_override = None) ?(destination_room = Some "room-teams-1")
-    ?(is_global_admin = allow_admin) ?(is_room_admin = fun ~room_id:_ -> false)
-    ?auth_snapshot ?installation ~plan_id ~digest () : Apply.apply_request =
+    ?(actor = global_actor) ?auth_snapshot ?installation ~plan_id ~digest () :
+    Apply.apply_request =
   {
     plan_id;
     digest = (match digest_override with Some d -> d | None -> digest);
@@ -64,8 +76,7 @@ let make_req ?(digest_override = None) ?(destination_room = Some "room-teams-1")
     destination_room;
     destination_session = None;
     now = fixed_now;
-    is_global_admin;
-    is_room_admin;
+    actor;
     auth_snapshot;
     installation;
   }
@@ -259,9 +270,7 @@ let test_authority_fail () =
   in
   let outcome =
     Apply.apply_confirmed ~db
-      (make_req ~plan_id:plan.id ~digest:plan.digest ~is_global_admin:false
-         ~is_room_admin:(fun ~room_id:_ -> false)
-         ())
+      (make_req ~plan_id:plan.id ~digest:plan.digest ~actor:denied_actor ())
   in
   match outcome with
   | Apply.Applied _ -> Alcotest.fail "expected authority denial"

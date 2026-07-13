@@ -72,7 +72,14 @@ let run ~(config : Runtime_config.t) =
   (match db with
   | Some db ->
       Github_app_setup_runtime.install_callback_resume ~db
-        ~current_config:(fun () -> !current_config)
+        ~current_config:(fun () -> !current_config);
+      let retried =
+        Github_app_setup_runtime.retry_pending ~db ~config:!current_config ()
+      in
+      if retried > 0 then
+        Logs.info (fun m ->
+            m "Replayed %d durable GitHub App setup callback continuations"
+              retried)
   | None -> Github_app_setup_callback.clear_resume_hook ());
   Daemon_startup.reconcile_room_profiles_at_startup ~db ~config;
   let tool_registry =

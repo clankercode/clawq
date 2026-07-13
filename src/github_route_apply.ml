@@ -11,8 +11,9 @@ type apply_request = {
   destination_room : string option;
   destination_session : string option;
   now : float;
-  is_global_admin : bool;
-  is_room_admin : room_id:string -> bool;
+  actor : Setup_plan_consent.actor;
+      (** Adapter-authenticated current actor. Environment assertions never
+          populate this field. *)
   auth_snapshot : Github_auth_selection.auth_snapshot option;
   installation : Github_app_installation_scope.t option;
 }
@@ -85,27 +86,9 @@ let org_scope_allowed (req : apply_request) =
       Github_auth_selection.can_claim_org_scope ~auth
         ~installation:req.installation
 
-let authority_of_request (req : apply_request) :
+let authority_of_request ~db (req : apply_request) :
     Setup_plan_apply.authority_check =
- fun ~principal:_ ~destination ->
-  if req.is_global_admin then Ok ()
-  else
-    match (destination.room_id, destination.session_key) with
-    | Some room_id, _ when req.is_room_admin ~room_id -> Ok ()
-    | Some room_id, _ ->
-        Error
-          (Printf.sprintf
-             "principal lacks Room-admin or global-admin authority for room %s"
-             room_id)
-    | None, Some session_key ->
-        Error
-          (Printf.sprintf
-             "direct Session setup for %s requires global-admin authority"
-             session_key)
-    | None, None ->
-        Error
-          "destination is missing; global-admin or destination Room-admin \
-           authority required"
+  Setup_plan_consent.authority_check ~db ~actor:req.actor ~now:req.now ()
 
 let room_of_destination_json (j : Yojson.Safe.t) : string option =
   match j with
@@ -277,6 +260,7 @@ let domain_apply_ops ~db ~now ~plan ~receipt_id =
 
 let apply_confirmed ~db ?on_catalog_refresh (req : apply_request) =
   Setup_plan_apply.init_schema db;
+  Setup_plan_consent.init_schema db;
   Github_route_store.ensure_schema db;
   Setup_plan_bundle.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id:req.plan_id with
@@ -314,7 +298,7 @@ let apply_confirmed ~db ?on_catalog_refresh (req : apply_request) =
             let destination_room_arg =
               Option.value destination_room ~default:""
             in
-            let authority = authority_of_request req in
+            let authority = authority_of_request ~db req in
             let outcome =
               Setup_plan_apply.apply ~db ~plan_id:req.plan_id ~digest:req.digest
                 ~principal:req.principal

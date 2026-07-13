@@ -77,7 +77,8 @@ let test_operator_contract () =
       "github route diagnostics";
       "github route export";
       "github route validate";
-      "CLAWQ_ADMIN=1";
+      "authenticated current actor";
+      "raw CLI mutations fail closed";
       "github-route-runtime-contract";
       "unavailable";
       "--envelope-json";

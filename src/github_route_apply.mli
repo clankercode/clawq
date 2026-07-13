@@ -28,8 +28,9 @@ type apply_request = {
       (** Expected direct Session destination for a Session-targeted GitHub App
           setup plan. Room route plans remain Room-targeted. *)
   now : float;
-  is_global_admin : bool;
-  is_room_admin : room_id:string -> bool;
+  actor : Setup_plan_consent.actor;
+      (** Current actor supplied by a trusted authenticated adapter. CLI
+          environment variables are not authority evidence. *)
   auth_snapshot : Github_auth_selection.auth_snapshot option;
       (** Current GitHub auth dual-field snapshot for Org-scope gates. *)
   installation : Github_app_installation_scope.t option;
@@ -55,14 +56,14 @@ val apply_confirmed :
     [Github_auth_selection.can_claim_org_scope] is false (PAT or missing Active
     App installation), with a message that mentions App migration. 2. Call
     [Setup_plan_apply.apply] with [Github_route_admin.apply_route_ops] and an
-    authority check derived from [is_global_admin] / [is_room_admin] (plus
-    identity/revision/digest rechecks in the apply engine). 3. On first-time
-    success, attach setup-owned bundle links when create/update ops carry
-    [managed_bundle_id] + [managed_feature_id]; App setup carries an explicit
-    Room bundle/feature attachment. Detach on disable/remove when the route
-    holds managed linkage. 4. Persist affected Room catalog refresh requests
-    before commit, then invoke [on_catalog_refresh] after success for optional
-    observer notification.
+    authority check derived from the authenticated [actor] via
+    [Setup_plan_consent] (plus identity/revision/digest rechecks in the apply
+    engine). 3. On first-time success, attach setup-owned bundle links when
+    create/update ops carry [managed_bundle_id] + [managed_feature_id]; App
+    setup carries an explicit Room bundle/feature attachment. Detach on
+    disable/remove when the route holds managed linkage. 4. Persist affected
+    Room catalog refresh requests before commit, then invoke
+    [on_catalog_refresh] after success for optional observer notification.
 
     Atomicity relies on [Setup_plan_apply]'s [BEGIN IMMEDIATE] transaction and
     [Github_route_store] SAVEPOINT nesting for domain mutations. *)

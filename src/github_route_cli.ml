@@ -10,32 +10,21 @@ module Preview = Github_route_filter_preview
 module Diagnostics = Github_route_diagnostics
 module Upgrade_validate = Github_route_upgrade_validate
 
-let admin_env_var = "CLAWQ_ADMIN"
+let principal_of_actor (actor : Setup_plan_consent.actor) =
+  Setup_plan.
+    {
+      id = actor.principal_id;
+      kind = Principal;
+      label = Some "authenticated GitHub route actor";
+    }
 
-let is_admin () =
-  match Sys.getenv_opt admin_env_var with
-  | Some ("1" | "true") -> true
-  | Some _ | None -> false
-
-let require_admin () =
-  if is_admin () then None
-  else
-    Some
-      "Error: this command requires admin privileges. Set CLAWQ_ADMIN=1 in \
-       your environment."
-
-let principal_env_var = "CLAWQ_PRINCIPAL_ID"
-
-let cli_principal () =
-  match Sys.getenv_opt principal_env_var with
-  | Some id when String.trim id <> "" ->
-      Ok Setup_plan.{ id; kind = Cli; label = Some "GitHub route CLI" }
-  | _ ->
+let require_authenticated_actor = function
+  | Some actor -> Ok (actor, principal_of_actor actor)
+  | None ->
       Error
-        (Printf.sprintf
-           "Error: %s is required so GitHub setup apply can recheck the \
-            original principal."
-           principal_env_var)
+        "GitHub route/App mutations require an authenticated current actor \
+         from a Room, connector, or enrolled CLI bootstrap. CLAWQ_ADMIN and \
+         CLAWQ_PRINCIPAL_ID are not authority evidence."
 
 let value_after flag args =
   let rec loop = function
@@ -155,10 +144,10 @@ let format_plan (plan : Setup_plan.t) =
     "%s\n\n\
      Plan id: %s\n\
      Digest: %s\n\n\
-     Review this plan, then run `CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=%s clawq \
-     github route apply %s %s`."
+     Review this plan, then explicitly confirm it through the authenticated \
+     Room/agent setup surface with its id and digest."
     (Setup_plan.format_summary plan)
-    plan.id plan.digest plan.principal.id plan.id plan.digest
+    plan.id plan.digest
 
 let route_of_id ~db id =
   match Store.get ~db ~id with
@@ -320,40 +309,94 @@ let upgrade_validation_report ~(db : Sqlite3.db) ~(config : Runtime_config.t)
       if json then format_json (Upgrade_validate.to_json report)
       else String.concat "\n" (Upgrade_validate.format_report report)
 
-let apply_plan ~db ~(config : Runtime_config.t) ~principal ~plan_id ~digest
-    ~destination_room ~destination_session =
+let apply_plan ~db ~(config : Runtime_config.t) ~actor ~principal ~plan_id
+    ~digest ~destination_room ~destination_session =
   match Setup_plan_apply.get_plan ~db ~plan_id with
   | None -> "Error: plan not found: " ^ plan_id
   | Some plan -> (
-      let auth = auth_snapshot config in
-      let installation = active_installation ~db ~auth in
-      let request : Apply.apply_request =
-        {
-          plan_id;
-          digest;
-          principal;
-          current_base_revision = Setup_plan.base_revision_of_config config;
-          destination_room;
-          destination_session;
-          now = Unix.gettimeofday ();
-          is_global_admin = true;
-          is_room_admin = (fun ~room_id:_ -> false);
-          auth_snapshot = Some auth;
-          installation;
-        }
-      in
-      match Apply.apply_confirmed ~db request with
-      | Apply.Rejected { reason; message } ->
-          Printf.sprintf "Error: apply rejected (%s): %s" reason message
-      | Apply.Applied { receipt_id; route_ids; catalog_refresh_rooms } ->
-          Printf.sprintf
-            "Applied plan %s (receipt %s). Routes: %s. Catalog refresh is \
-             scheduled for next turn in: %s."
-            plan_id receipt_id
-            (match route_ids with
-            | [] -> "none (App setup activation)"
-            | ids -> String.concat ", " ids)
-            (String.concat ", " catalog_refresh_rooms))
+      let now = Unix.gettimeofday () in
+      let current_base_revision = Setup_plan.base_revision_of_config config in
+      match plan.apply_payload.kind with
+      | Setup_plan.Github_app_setup -> (
+          match
+            Github_app_setup_resume.regenerate_if_stale ~db ~plan
+              ~current_base_revision ~now ()
+          with
+          | Error error ->
+              "Error: failed to regenerate stale App plan: " ^ error
+          | Ok (`Regenerated replacement) -> (
+              match
+                Github_app_setup_runtime.persist_replacement_delivery ~db
+                  ~config ~plan:replacement
+              with
+              | Error error ->
+                  "Error: replacement App plan was stored but its delivery \
+                   could not be persisted: " ^ error
+              | Ok delivery ->
+                  Printf.sprintf
+                    "Plan %s was stale and was replaced by %s (digest %s). A \
+                     confirmation delivery was stored for %s; it was not \
+                     applied automatically."
+                    plan.id replacement.id replacement.digest delivery.target)
+          | Ok (`Current _) -> (
+              let auth = auth_snapshot config in
+              let installation = active_installation ~db ~auth in
+              let request : Apply.apply_request =
+                {
+                  plan_id;
+                  digest;
+                  principal;
+                  current_base_revision;
+                  destination_room;
+                  destination_session;
+                  now;
+                  actor;
+                  auth_snapshot = Some auth;
+                  installation;
+                }
+              in
+              match Apply.apply_confirmed ~db request with
+              | Apply.Rejected { reason; message } ->
+                  Printf.sprintf "Error: apply rejected (%s): %s" reason message
+              | Apply.Applied { receipt_id; route_ids; catalog_refresh_rooms }
+                ->
+                  Printf.sprintf
+                    "Applied plan %s (receipt %s). Routes: %s. Catalog refresh \
+                     is scheduled for next turn in: %s."
+                    plan_id receipt_id
+                    (match route_ids with
+                    | [] -> "none (App setup activation)"
+                    | ids -> String.concat ", " ids)
+                    (String.concat ", " catalog_refresh_rooms)))
+      | _ -> (
+          let auth = auth_snapshot config in
+          let installation = active_installation ~db ~auth in
+          let request : Apply.apply_request =
+            {
+              plan_id;
+              digest;
+              principal;
+              current_base_revision;
+              destination_room;
+              destination_session;
+              now;
+              actor;
+              auth_snapshot = Some auth;
+              installation;
+            }
+          in
+          match Apply.apply_confirmed ~db request with
+          | Apply.Rejected { reason; message } ->
+              Printf.sprintf "Error: apply rejected (%s): %s" reason message
+          | Apply.Applied { receipt_id; route_ids; catalog_refresh_rooms } ->
+              Printf.sprintf
+                "Applied plan %s (receipt %s). Routes: %s. Catalog refresh is \
+                 scheduled for next turn in: %s."
+                plan_id receipt_id
+                (match route_ids with
+                | [] -> "none (App setup activation)"
+                | ids -> String.concat ", " ids)
+                (String.concat ", " catalog_refresh_rooms)))
 
 let format_readiness (report : Github_route_ops.readiness_report) =
   let lines =
@@ -373,7 +416,7 @@ let format_readiness (report : Github_route_ops.readiness_report) =
     (Github_route_ops.check_status_to_string report.overall)
     (String.concat "\n" lines)
 
-let cmd_with_db ~db ~(config : Runtime_config.t) args =
+let cmd_with_db ?actor ~db ~(config : Runtime_config.t) args =
   let base_revision = Setup_plan.base_revision_of_config config in
   match args with
   | [ "route"; "inspect"; id ] -> (
@@ -401,32 +444,22 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
             ()
           |> Preview.format_lines |> String.concat "\n")
   | "route" :: "diagnostics" :: rest -> (
-      match require_admin () with
-      | Some error -> error
-      | None -> (
-          match report_destination_and_envelope rest with
-          | Error error -> "Error: " ^ error
-          | Ok (destination, envelope) ->
-              diagnostics_report ~db ~config ?destination ?envelope
-                ~json:(has_flag "--json" rest) ()))
+      match report_destination_and_envelope rest with
+      | Error error -> "Error: " ^ error
+      | Ok (destination, envelope) ->
+          diagnostics_report ~db ~config ?destination ?envelope
+            ~json:(has_flag "--json" rest) ())
   | "route" :: "export" :: rest -> (
-      match require_admin () with
-      | Some error -> error
-      | None -> (
-          match report_destination_and_envelope rest with
-          | Error error -> "Error: " ^ error
-          | Ok (destination, envelope) ->
-              diagnostics_report ~db ~config ?destination ?envelope ~json:true
-                ()))
+      match report_destination_and_envelope rest with
+      | Error error -> "Error: " ^ error
+      | Ok (destination, envelope) ->
+          diagnostics_report ~db ~config ?destination ?envelope ~json:true ())
   | "route" :: "validate" :: rest -> (
-      match require_admin () with
-      | Some error -> error
-      | None -> (
-          match route_destination rest with
-          | Error error -> "Error: " ^ error
-          | Ok destination ->
-              upgrade_validation_report ~db ~config ?destination
-                ~json:(has_flag "--json" rest) ()))
+      match route_destination rest with
+      | Error error -> "Error: " ^ error
+      | Ok destination ->
+          upgrade_validation_report ~db ~config ?destination
+            ~json:(has_flag "--json" rest) ())
   | "diagnostics" :: "route" :: id :: _ -> (
       match route_of_id ~db id with
       | Error error -> "Error: " ^ error
@@ -481,10 +514,9 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
         |> String.concat "\n"
   | "route" :: ("plan" | "change" | "disable" | "remove" | "apply") :: _
   | "app" :: "apply" :: _ -> (
-      match (require_admin (), cli_principal ()) with
-      | Some error, _ -> error
-      | None, Error error -> error
-      | None, Ok principal -> (
+      match require_authenticated_actor actor with
+      | Error error -> "Error: " ^ error
+      | Ok (actor, principal) -> (
           match args with
           | "route" :: "plan" :: room_id :: selector :: rest -> (
               match parse_selector selector with
@@ -542,7 +574,7 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
               | Ok plan -> format_plan plan)
           | "route" :: "apply" :: plan_id :: digest :: rest
           | "app" :: "apply" :: plan_id :: digest :: rest ->
-              apply_plan ~db ~config ~principal ~plan_id ~digest
+              apply_plan ~db ~config ~actor ~principal ~plan_id ~digest
                 ~destination_room:(value_after "--room" rest)
                 ~destination_session:(value_after "--session" rest)
           | _ -> "Error: invalid GitHub route command"))
@@ -551,16 +583,16 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
        Safe inspection: github route inspect ROUTE_ID | route list ROOM | \
        route preview ROOM --envelope-json JSON | diagnostics route ROUTE_ID | \
        diagnostics audit [--plan ID] [--route ID]\n\
-       Admin read-only diagnostics (CLAWQ_ADMIN=1): github route diagnostics \
-       [--room ROOM] [--json] | route export [--room ROOM] | route validate \
-       [--room ROOM] [--json]\n\
-       Admin planning (CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID): github route plan \
-       ROOM SELECTOR [--id ID] [--filter-json JSON] | route change ROUTE_ID \
-       [--filter-json JSON] [--enabled true|false] [--comment-mode \
-       off|summary|threaded] [--revision REV] | route disable ROUTE_ID \
-       [--revision REV] | route remove ROUTE_ID [--revision REV]\n\
-       Explicit confirmation: github route apply PLAN_ID DIGEST [--room ROOM] \
-       | github app apply PLAN_ID DIGEST [--room ROOM|--session SESSION].\n\
+       Read-only diagnostics: github route diagnostics [--room ROOM] [--json] \
+       | route export [--room ROOM] | route validate [--room ROOM] [--json]\n\
+       Authenticated planning: github route plan ROOM SELECTOR [--id ID] \
+       [--filter-json JSON] | route change ROUTE_ID [--filter-json JSON] \
+       [--enabled true|false] [--comment-mode off|summary|threaded] \
+       [--revision REV] | route disable ROUTE_ID [--revision REV] | route \
+       remove ROUTE_ID [--revision REV]\n\
+       Explicit confirmation requires the authenticated Room/agent setup \
+       surface: github route apply PLAN_ID DIGEST [--room ROOM] | github app \
+       apply PLAN_ID DIGEST [--room ROOM|--session SESSION].\n\
        SELECTOR is repo:owner/repo, org:organization, or item:owner/repo:pr:N. \
        --filter-json accepts the versioned typed Github_route_filter JSON \
        shape; raw predicate JSON is rejected."

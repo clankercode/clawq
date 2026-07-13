@@ -170,7 +170,9 @@ App identity + **credential handles** (not plaintext secrets into the Room), and
 
 Apply only with matching **plan id + digest** after authority and readiness
 recheck (`Setup_plan_apply` / domain adapter). Stale base revision or expiry →
-regenerate (`regenerate_if_stale`), do not apply.
+regenerate (`regenerate_if_stale`), store and redeliver the replacement plan,
+and do not apply. A committed callback whose resume/delivery step fails stays
+in the durable retry queue and is replayed on daemon startup.
 
 Post-apply: reconcile live installation scope
 (`Github_app_installation_scope`).

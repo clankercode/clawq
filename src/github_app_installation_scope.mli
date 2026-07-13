@@ -73,6 +73,12 @@ type event =
       (** Match by full_name (case-insensitive) or id when present. *)
   | Snapshot of t  (** Full replace from live API startup reconcile. *)
 
+val account_of_json : Yojson.Safe.t -> (account, string) result
+val repos_of_json : Yojson.Safe.t -> (repo_ref list, string) result
+
+val permissions_of_json : Yojson.Safe.t -> (permissions, string) result
+(** Strict parsers reused by authenticated GitHub API ingress. *)
+
 val ensure_schema : Sqlite3.db -> unit
 (** Idempotent SQLite schema for installation scope. *)
 

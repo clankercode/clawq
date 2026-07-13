@@ -160,6 +160,20 @@ let gh_principal =
       label = Some "Contract Alice";
     }
 
+let gh_global_actor : Setup_plan_consent.actor =
+  {
+    principal_id = gh_principal.id;
+    role = Global_admin;
+    source_room_id = Some gh_room_id;
+  }
+
+let gh_denied_actor : Setup_plan_consent.actor =
+  {
+    principal_id = gh_principal.id;
+    role = None_;
+    source_room_id = Some gh_room_id;
+  }
+
 let with_gh_db f =
   let db = Sqlite3.db_open ":memory:" in
   Gh_store.ensure_schema db;
@@ -190,8 +204,7 @@ let gh_plan_create ~db ~route_id =
   | Error e -> Alcotest.fail ("github plan_create: " ^ e)
 
 let gh_apply ~db ~(plan : Setup_plan.t) ?(digest = plan.digest)
-    ?(revision = gh_base_revision) ?(is_global_admin = true)
-    ?(is_room_admin = fun ~room_id:_ -> false) () =
+    ?(revision = gh_base_revision) ?(actor = gh_global_actor) () =
   let req : Gh_apply.apply_request =
     {
       plan_id = plan.id;
@@ -201,8 +214,7 @@ let gh_apply ~db ~(plan : Setup_plan.t) ?(digest = plan.digest)
       destination_room = Some gh_room_id;
       destination_session = None;
       now = gh_fixed_now;
-      is_global_admin;
-      is_room_admin;
+      actor;
       auth_snapshot = None;
       installation = None;
     }
@@ -260,11 +272,7 @@ let test_authority_denied_room_agent () =
 let test_authority_denied_github () =
   with_gh_db @@ fun db ->
   let plan = gh_plan_create ~db ~route_id:"rt_contract_auth" in
-  let outcome =
-    gh_apply ~db ~plan ~is_global_admin:false
-      ~is_room_admin:(fun ~room_id:_ -> false)
-      ()
-  in
+  let outcome = gh_apply ~db ~plan ~actor:gh_denied_actor () in
   assert_rejected ~adapter:"github_route" ~case:"authority_denied" outcome
     "authority_denied";
   match Gh_store.get ~db ~id:"rt_contract_auth" with
@@ -308,9 +316,7 @@ let test_idempotent_reapply_github () =
   in
   let second =
     gh_apply ~db ~plan ~revision:"rev-advanced-after-apply"
-      ~is_global_admin:false
-      ~is_room_admin:(fun ~room_id:_ -> false)
-      ()
+      ~actor:gh_denied_actor ()
   in
   let r2 =
     assert_applied ~adapter:"github_route" ~case:"idempotent_second"
@@ -354,11 +360,7 @@ let test_paired_reject_reasons () =
   (match gh_apply ~db ~plan ~revision:"rev-stale" () with
   | Rejected { reason; _ } -> gh_reasons := reason :: !gh_reasons
   | Applied _ -> Alcotest.fail "github pair: expected stale reject");
-  (match
-     gh_apply ~db ~plan ~is_global_admin:false
-       ~is_room_admin:(fun ~room_id:_ -> false)
-       ()
-   with
+  (match gh_apply ~db ~plan ~actor:gh_denied_actor () with
   | Rejected { reason; _ } -> gh_reasons := reason :: !gh_reasons
   | Applied _ -> Alcotest.fail "github pair: expected auth reject");
   let sort = List.sort String.compare in

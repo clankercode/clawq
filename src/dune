@@ -430,6 +430,7 @@
  (name clawq_runtime_integrations)
  (modules
   http_server_0_util
+  github_app_setup_ingress
   http_server_webhooks
   http_server_workers
   worker_client

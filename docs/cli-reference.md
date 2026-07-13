@@ -613,16 +613,17 @@ this integration surface disabled.
 clawq github route inspect ROUTE_ID
 clawq github route list ROOM
 clawq github route preview ROOM --envelope-json JSON
-CLAWQ_ADMIN=1 clawq github route diagnostics [--room ROOM] [--json]
-CLAWQ_ADMIN=1 clawq github route diagnostics --room ROOM --envelope-json JSON [--json]
-CLAWQ_ADMIN=1 clawq github route export [--room ROOM]
-CLAWQ_ADMIN=1 clawq github route export --room ROOM --envelope-json JSON
-CLAWQ_ADMIN=1 clawq github route validate [--room ROOM] [--json]
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route plan ROOM SELECTOR [--id ID] [--filter-json JSON]
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route change ROUTE_ID [--filter-json JSON] [--enabled true|false] [--comment-mode off|summary|threaded] [--revision REV]
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route disable ROUTE_ID [--revision REV]
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route remove ROUTE_ID [--revision REV]
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route apply PLAN_ID DIGEST [--room ROOM]
+clawq github route diagnostics [--room ROOM] [--json]
+clawq github route export [--room ROOM]
+clawq github route validate [--room ROOM] [--json]
+# Route/App mutation requires an authenticated current actor. The current
+# command bridge has no such adapter, so these raw CLI mutations fail closed.
+# Do not use CLAWQ_ADMIN or CLAWQ_PRINCIPAL_ID as a substitute.
+clawq github route plan ROOM SELECTOR [--id ID] [--filter-json JSON]
+clawq github route change ROUTE_ID [--filter-json JSON] [--enabled true|false] [--comment-mode off|summary|threaded] [--revision REV]
+clawq github route disable ROUTE_ID [--revision REV]
+clawq github route remove ROUTE_ID [--revision REV]
+clawq github route apply PLAN_ID DIGEST [--room ROOM]
 ```
 
 `--filter-json` accepts only the typed `Github_route_filter` schema. Advanced
@@ -636,8 +637,8 @@ delivery, and catalog evidence; `export` is always redacted JSON. Their
 non-mutating winning-selector, predicate, final-reason, and enrichment explain
 fields; an envelope without a Room is rejected. `route validate` checks the
 same local state plus the Room-scoped durable next-turn refresh queue and the
-operator-contract file. These read-only reports require
-`CLAWQ_ADMIN=1` but not `CLAWQ_PRINCIPAL_ID`. They do not prove GitHub network
+operator-contract file. These read-only reports require no environment
+authority. They do not prove GitHub network
 reachability or daemon-process MCP/session health. In particular, only an
 actual Room-effective frozen `Tool_catalog`/access snapshot can pass catalog
 health; unavailable, denied, or detached snapshots report

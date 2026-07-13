@@ -81,13 +81,35 @@ let contains hay needle = Test_helpers.string_contains hay needle
 let exchange_for ~db ?(bind = room_bind) ?id ?state ?installation_id () =
   let tx = assert_ok (create_tx ~db ~bind ?id ?state ()) in
   let store_secret, _ = make_store () in
+  let installation_id = Option.value installation_id ~default:99 in
+  let verify_installation ~app_id ~private_key_pem:_ ~installation_id =
+    Ok
+      (Github_app_installation_scope.with_revision
+         {
+           installation_id;
+           app_id = Some app_id;
+           account = { login = "alice"; id = 1; account_type = "User" };
+           selection = Github_app_installation_scope.All_repos;
+           repositories = [];
+           revoked_repositories = [];
+           permissions =
+             [
+               ("issues", "write");
+               ("pull_requests", "write");
+               ("metadata", "read");
+             ];
+           status = Github_app_installation_scope.Active;
+           revision = "";
+           updated_at = Time_util.iso8601_utc ~t:fixed_now ();
+         })
+  in
   assert_ok
     (Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
-       ~store_secret ~now:fixed_now
+       ~verify_installation ~store_secret ~now:fixed_now
        (make_req ~code:"tmp_code" ~state:tx.state
           ~callback_path:Github_app_setup_tx.default_callback_path
           ~expected_bind:bind ~expected_principal_id:principal.id
-          ?installation_id ()))
+          ~installation_id ()))
 
 let sample_installation ?(status = Github_app_installation_scope.Active) () :
     Github_app_installation_scope.t =

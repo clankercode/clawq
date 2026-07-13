@@ -87,30 +87,25 @@ plan/manifest tx  →  browser install/callback  →  verify exchange (one-time)
 
 ## Route admin surfaces
 
-Full-build CLI commands are live. Planning and explicit confirmation require
-`CLAWQ_ADMIN=1` plus the independently authenticated
-`CLAWQ_PRINCIPAL_ID=<principal-id>`; the latter is compared with the stored
-plan principal rather than copied from the plan. Read-only inspection and
-preview do not require the admin flag. Operational diagnostics/export/upgrade
-validation are read-only but deliberately require `CLAWQ_ADMIN=1` because they
-expose cross-Room operational state; they do **not** require
-`CLAWQ_PRINCIPAL_ID`.
+Full-build CLI command handlers are live. Mutating route/App commands require
+an authenticated current actor supplied by a trusted adapter and are rechecked
+through `Setup_plan_consent`. `CLAWQ_ADMIN` and `CLAWQ_PRINCIPAL_ID` are not
+authority evidence for this surface. **The current production command bridge
+does not yet supply that actor, so raw CLI mutations fail closed.** A Room,
+connector, or enrolled-CLI adapter must be wired before mutation commands are
+an operator-supported production path. Read-only inspection, preview,
+diagnostics, export, and upgrade validation are redacted and do not require an
+actor.
 
 ```sh
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
-  clawq github route plan ROOM repo:owner/repo
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
-  clawq github route apply PLAN_ID DIGEST --room ROOM
-CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
-  clawq github app apply PLAN_ID DIGEST --room ROOM
+# Invoke mutating route/App handlers through an authenticated Room/agent
+# surface; raw environment claims are intentionally rejected.
 clawq github app deliveries --room ROOM
 clawq github diagnostics audit --plan PLAN_ID
 clawq github route preview ROOM --envelope-json '{"version":1,"event":"pull_request",...}'
-CLAWQ_ADMIN=1 clawq github route diagnostics --room ROOM --json
-CLAWQ_ADMIN=1 clawq github route diagnostics --room ROOM --envelope-json JSON [--json]
-CLAWQ_ADMIN=1 clawq github route export --room ROOM
-CLAWQ_ADMIN=1 clawq github route export --room ROOM --envelope-json JSON
-CLAWQ_ADMIN=1 clawq github route validate --room ROOM --json
+clawq github route diagnostics --room ROOM --json
+clawq github route export --room ROOM
+clawq github route validate --room ROOM --json
 ```
 
 Session-bound App setup uses `github app apply … --session SESSION_KEY` and
@@ -267,7 +262,7 @@ After a change:
 ## Upgrade validation and drift checks
 
 After binary upgrades, schema migrations, or subscription cutover, run
-`CLAWQ_ADMIN=1 clawq github route validate [--room ROOM] [--json]` (and
+`clawq github route validate [--room ROOM] [--json]` (and
 `github route diagnostics` or `github route export`). To include a safe,
 non-mutating explain in either diagnostics/export report, the grammar is
 `--room ROOM --envelope-json JSON [--json]`; an envelope is rejected without a
@@ -342,7 +337,7 @@ actions:
 6. Confirm the next Room turn drops tools that depended on detached setup-owned
    access (no restart).
 7. **Do not** delete webhook delivery-ledger accepts (ACK independence / dedupe).
-8. Re-run `CLAWQ_ADMIN=1 clawq github route validate` plus `github route
+8. Re-run `clawq github route validate` plus `github route
    export` before re-enabling automation.
 
 See also pilot cleanup order in

@@ -5,12 +5,58 @@ let handler ~session_manager ~require_pairing ~auth_token
     ?github_api_limiter ?ip_limiter ?session_limiter ?slack_event_limiter
     ?teams_event_limiter ?slack_run_update_command ?web_channel ?whatsapp_config
     ?line_config ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn
-    ?ui_server _conn req body =
+    ?ui_server ?github_app_setup_client _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
   let meth = Cohttp.Request.meth req in
   match (meth, path) with
+  | `GET, callback_path
+    when callback_path = Github_app_setup_tx.default_callback_path -> (
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let required name =
+        match Uri.get_query_param uri name with
+        | Some value when String.trim value <> "" -> Ok value
+        | _ -> Error (name ^ " is required")
+      in
+      match (required "code", required "state", required "installation_id") with
+      | Error error, _, _ | _, Error error, _ | _, _, Error error ->
+          bad_request error
+      | Ok code, Ok state, Ok installation_id -> (
+          match int_of_string_opt installation_id with
+          | None -> bad_request "installation_id must be a positive integer"
+          | Some value when value <= 0 ->
+              bad_request "installation_id must be a positive integer"
+          | Some installation_id -> (
+              match Session.get_db session_manager with
+              | None ->
+                  Cohttp_lwt_unix.Server.respond_string
+                    ~status:`Service_unavailable ~headers:json_headers
+                    ~body:{|{"error":"control-plane database unavailable"}|} ()
+              | Some db -> (
+                  let* result =
+                    Github_app_setup_ingress.exchange ~db
+                      ?client:github_app_setup_client ~code ~state
+                      ~installation_id
+                      ?setup_action:(Uri.get_query_param uri "setup_action")
+                      ()
+                  in
+                  match result with
+                  | Ok _ ->
+                      Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                        ~headers:json_headers
+                        ~body:
+                          {|{"status":"verified","message":"GitHub App setup is ready for explicit confirmation."}|}
+                        ()
+                  | Error error ->
+                      Logs.warn (fun m ->
+                          m "GitHub App setup callback rejected: %s" error);
+                      Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
+                        ~headers:json_headers
+                        ~body:
+                          (Yojson.Safe.to_string
+                             (`Assoc [ ("error", `String error) ]))
+                        ()))))
   | ( `GET,
       ( "/" | "/ui" | "/index.html" | "/ui/index.html" | "/chat.js"
       | "/ui/chat.js" | "/chat.css" | "/ui/chat.css" ) ) ->
