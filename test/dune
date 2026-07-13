@@ -64,6 +64,7 @@
   test_github_event_envelope
   test_github_route_filter
   test_github_filter_enrichment
+  test_github_route_filter_eval
   test_github_route_store
   test_github_route_match
   test_github_route_transfer
