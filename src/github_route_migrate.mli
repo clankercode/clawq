@@ -70,6 +70,15 @@ val load_legacy_from_db :
 (** Read from [github_pr_subscriptions] if the table is present; else empty.
     Notification preference booleans are mapped to event name tokens. *)
 
+val migrate_database :
+  db:Sqlite3.db ->
+  ?policy:collision_policy ->
+  ?now:float ->
+  unit ->
+  (migrate_report, string) result
+(** Read every legacy subscription from the database and migrate it. This is
+    the cutover entry point used by compatibility command adapters. *)
+
 val legacy_of_subscription :
   Github_pr_subscriptions.subscription -> legacy_subscription
 (** Convert a live PR subscription row into the migration input shape. *)

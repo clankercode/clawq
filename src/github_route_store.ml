@@ -438,6 +438,30 @@ let list_for_destination ~db ~destination =
       in
       loop [])
 
+let list_all ~db =
+  let sql =
+    Printf.sprintf
+      "SELECT %s FROM github_routes ORDER BY created_at ASC, id ASC"
+      select_columns
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let rec loop acc =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match row_of_stmt stmt with
+            | Ok r -> loop (r :: acc)
+            | Error e -> Error e)
+        | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+        | rc ->
+            Error
+              (Printf.sprintf "github_route_store list_all failed: %s"
+                 (Sqlite3.Rc.to_string rc))
+      in
+      loop [])
+
 let with_immediate_tx db f =
   (* Prefer a top-level IMMEDIATE transaction. When the caller already holds a
      transaction (e.g. Setup_plan_apply CAS), nest with a SAVEPOINT so domain

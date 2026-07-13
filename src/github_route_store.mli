@@ -119,6 +119,9 @@ val get : db:Sqlite3.db -> id:string -> (t option, string) result
 val list_for_destination :
   db:Sqlite3.db -> destination:destination -> (t list, string) result
 
+val list_all : db:Sqlite3.db -> (t list, string) result
+(** List every route in deterministic creation order. *)
+
 val find_active :
   db:Sqlite3.db ->
   destination:destination ->

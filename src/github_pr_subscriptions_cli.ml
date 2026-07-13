@@ -18,41 +18,53 @@ let require_admin () =
       "Error: this command requires admin privileges. Set CLAWQ_ADMIN=1 in \
        your environment."
 
-let format_subscription_detail (sub : Github_pr_subscriptions.subscription) =
+module Route = Github_route_store
+module Migrate = Github_route_migrate
+
+let pr_item_of_route (route : Route.t) =
+  match route.selector with
+  | Route.Item { repo_full_name; kind = `Pull_request; number } ->
+      Some (repo_full_name, number)
+  | Route.Item { kind = `Issue; _ } | Route.Repo _ | Route.Org _ -> None
+
+let route_room_id (route : Route.t) =
+  match route.destination with Route.Room room_id -> Some room_id | Route.Session _ -> None
+
+let subscription_routes routes =
+  List.filter_map
+    (fun route ->
+      match (route_room_id route, pr_item_of_route route) with
+      | Some room_id, Some (repo, pr_number) -> Some (route, room_id, repo, pr_number)
+      | None, _ | _, None -> None)
+    routes
+
+let format_subscription_detail (route : Route.t) ~room_id ~repo ~pr_number =
   Printf.sprintf
-    "Subscription #%d\n\
+    "Subscription route %s\n\
      Room:       %s\n\
      Repository: %s\n\
      PR:         #%d\n\
-     Profile ID: %d\n\
+     Profile ID: %s\n\
      Enabled:    %s\n\
      Created:    %s\n\
      Updated:    %s\n\n\
-     Notification Preferences:\n\
-    \  on_open:   %s\n\
-    \  on_close:  %s\n\
-    \  on_comment: %s\n\
-    \  on_review: %s\n\
-    \  on_status: %s\n\
-    \  on_merge:  %s"
-    sub.id sub.room_id sub.repo sub.pr_number sub.profile_id
-    (if sub.enabled then "yes" else "no")
-    sub.created_at sub.updated_at
-    (if sub.notification_preferences.on_open then "yes" else "no")
-    (if sub.notification_preferences.on_close then "yes" else "no")
-    (if sub.notification_preferences.on_comment then "yes" else "no")
-    (if sub.notification_preferences.on_review then "yes" else "no")
-    (if sub.notification_preferences.on_status then "yes" else "no")
-    (if sub.notification_preferences.on_merge then "yes" else "no")
+     Forwarded event families: %s"
+    route.id room_id repo pr_number
+    (Option.value route.provenance.created_by ~default:"none")
+    (if route.enabled then "yes" else "no")
+    route.created_at route.updated_at
+    (match route.filter.include_events with
+    | [] -> "default baseline"
+    | events -> String.concat ", " events)
 
-let format_subscription_row (sub : Github_pr_subscriptions.subscription) =
+let format_subscription_row ((route : Route.t), room_id, repo, (pr_number : int)) =
   [
-    string_of_int sub.id;
-    sub.room_id;
-    sub.repo;
-    Printf.sprintf "#%d" sub.pr_number;
-    (if sub.enabled then "yes" else "no");
-    sub.created_at;
+    route.id;
+    room_id;
+    repo;
+    Printf.sprintf "#%d" pr_number;
+    (if route.enabled then "yes" else "no");
+    route.created_at;
   ]
 
 let subscription_columns =
@@ -86,138 +98,196 @@ let parse_notification_prefs args =
   in
   loop prefs args
 
-let cmd_subscriptions args =
-  match require_admin () with
-  | Some err -> err
+let migration_error = function
+  | Ok _ -> None
+  | Error error ->
+      Some
+        (Printf.sprintf
+           "Error: could not migrate legacy PR subscriptions into GitHub routes: %s"
+           error)
+
+let route_id_of_legacy_id id = "ghroute_migrate_" ^ id
+
+let find_route_by_command_id ~db id =
+  match Route.get ~db ~id with
+  | Error _ as error -> error
+  | Ok (Some _ as route) -> Ok route
+  | Ok None ->
+      match int_of_string_opt id with
+      | None -> Ok None
+      | Some _ -> Route.get ~db ~id:(route_id_of_legacy_id id)
+
+let list_subscription_routes ~db =
+  Route.list_all ~db |> Result.map subscription_routes
+
+let filter_routes ?room_id ?repo routes =
+  List.filter
+    (fun (_route, route_room_id, route_repo, _pr_number) ->
+      Option.fold ~none:true ~some:(String.equal route_room_id) room_id
+      && Option.fold ~none:true ~some:(String.equal route_repo) repo)
+    routes
+
+let route_filter_of_prefs prefs =
+  {
+    Route.default_filter with
+    include_events = Migrate.events_of_notification_preferences prefs;
+  }
+
+let profile_id_for_name ~db profile_name =
+  match Memory_core.get_room_profile_by_name ~db ~name:profile_name with
+  | Some profile -> profile.id
+  | None -> Memory_core.insert_room_profile ~db ~name:profile_name
+
+let cli_provenance profile_id =
+  {
+    Route.created_by = Some (string_of_int profile_id);
+    created_via = Some "cli";
+    setup_plan_id = None;
+    notes = Some "legacy-subscriptions-cli-alias";
+  }
+
+let create_compat_route ~db ~room_id ~repo ~pr_number ~profile_id ~prefs =
+  let destination = Route.Room room_id in
+  let selector =
+    Route.Item { repo_full_name = repo; kind = `Pull_request; number = pr_number }
+  in
+  Route.create ~db ~destination ~selector ~filter:(route_filter_of_prefs prefs)
+    ~enabled:true ~provenance:(cli_provenance profile_id) ~on_collision:`Replace
+    ()
+
+let disable_route ~db (route : Route.t) =
+  Route.update ~db ~id:route.id ~expected_revision:route.revision ~enabled:false ()
+
+let find_active_item_route ~db ~room_id ~repo ~pr_number =
+  let destination = Route.Room room_id in
+  let selector =
+    Route.Item { repo_full_name = repo; kind = `Pull_request; number = pr_number }
+  in
+  Route.find_active ~db ~destination ~selector
+
+let cmd_subscriptions_with_db ~db args =
+  match migration_error (Migrate.migrate_database ~db ()) with
+  | Some error -> error
   | None -> (
-      let db = get_db () in
-      Github_pr_subscriptions.init_schema db;
       match args with
-      | [ "list"; "--room"; room_id ] ->
-          let subs = Github_pr_subscriptions.find_by_room ~db ~room_id in
-          if subs = [] then
-            Printf.sprintf "No PR subscriptions found for room '%s'." room_id
-          else
-            let rows = List.map format_subscription_row subs in
-            Printf.sprintf "PR Subscriptions for room '%s':\n" room_id
-            ^ Table_format.render subscription_columns rows
-      | [ "list"; "--repo"; repo ] ->
-          let subs = Github_pr_subscriptions.find_by_repo ~db ~repo in
-          if subs = [] then
-            Printf.sprintf "No PR subscriptions found for repo '%s'." repo
-          else
-            let rows = List.map format_subscription_row subs in
-            Printf.sprintf "PR Subscriptions for repo '%s':\n" repo
-            ^ Table_format.render subscription_columns rows
-      | [ "list" ] | "list" :: _ ->
-          let subs = Github_pr_subscriptions.find_all ~db () in
-          if subs = [] then
-            "No PR subscriptions configured. Use 'clawq subscriptions add' to \
-             create one."
-          else
-            let rows = List.map format_subscription_row subs in
-            "PR Subscriptions:\n"
-            ^ Table_format.render subscription_columns rows
-      | [ "show"; id_str ] -> (
-          match int_of_string_opt id_str with
-          | None ->
-              Printf.sprintf
-                "Error: '%s' is not a valid ID. Provide a numeric subscription \
-                 ID."
-                id_str
-          | Some id -> (
-              match Github_pr_subscriptions.find_by_id ~db ~id with
-              | None -> Printf.sprintf "No subscription found with ID %d." id
-              | Some sub -> format_subscription_detail sub))
+      | [ "list"; "--room"; room_id ] -> (
+          match list_subscription_routes ~db with
+          | Error error -> "Error: " ^ error
+          | Ok routes ->
+              let routes = filter_routes ~room_id routes in
+              if routes = [] then
+                Printf.sprintf "No PR subscriptions found for room '%s'." room_id
+              else
+                Printf.sprintf "PR Subscriptions for room '%s':\n" room_id
+                ^ Table_format.render subscription_columns
+                    (List.map format_subscription_row routes))
+      | [ "list"; "--repo"; repo ] -> (
+          match list_subscription_routes ~db with
+          | Error error -> "Error: " ^ error
+          | Ok routes ->
+              let routes = filter_routes ~repo routes in
+              if routes = [] then
+                Printf.sprintf "No PR subscriptions found for repo '%s'." repo
+              else
+                Printf.sprintf "PR Subscriptions for repo '%s':\n" repo
+                ^ Table_format.render subscription_columns
+                    (List.map format_subscription_row routes))
+      | [ "list" ] | "list" :: _ -> (
+          match list_subscription_routes ~db with
+          | Error error -> "Error: " ^ error
+          | Ok [] ->
+              "No PR subscriptions configured. Use 'clawq subscriptions add' to \
+               create one."
+          | Ok routes ->
+              "PR Subscriptions:\n"
+              ^ Table_format.render subscription_columns
+                  (List.map format_subscription_row routes))
+      | [ "show"; id ] -> (
+          match find_route_by_command_id ~db id with
+          | Error error -> "Error: " ^ error
+          | Ok None -> Printf.sprintf "No subscription route found with ID %s." id
+          | Ok (Some route) -> (
+              match (route_room_id route, pr_item_of_route route) with
+              | Some room_id, Some (repo, pr_number) ->
+                  format_subscription_detail route ~room_id ~repo ~pr_number
+              | None, _ | _, None ->
+                  Printf.sprintf "Route %s is not a PR subscription route." id))
       | "add" :: room_id :: repo :: pr_number_str :: rest -> (
           match int_of_string_opt pr_number_str with
-          | None -> "Error: PR number must be a positive integer."
-          | Some pr_number when pr_number <= 0 ->
+          | None | Some 0 -> "Error: PR number must be a positive integer."
+          | Some pr_number when pr_number < 0 ->
               "Error: PR number must be a positive integer."
           | Some pr_number ->
-              let profile_id_str =
-                match rest with "--profile" :: id :: _ -> id | _ -> "default"
+              let profile_name =
+                match rest with "--profile" :: name :: _ -> name | _ -> "default"
               in
-              let db_profile_id =
-                match
-                  Memory_core.get_room_profile_by_name ~db ~name:profile_id_str
-                with
-                | Some rp -> rp.id
-                | None ->
-                    Memory_core.insert_room_profile ~db ~name:profile_id_str
-              in
-              let notification_prefs = parse_notification_prefs rest in
-              let sub =
-                Github_pr_subscriptions.add ~db ~room_id ~repo ~pr_number
-                  ~profile_id:db_profile_id
-                  ~notification_preferences:notification_prefs ()
-              in
-              Printf.sprintf
-                "Created subscription #%d for %s PR #%d in room '%s' \
-                 (profile=%s)."
-                sub.id repo pr_number room_id profile_id_str)
-      | [ "disable"; id_str ] -> (
-          match int_of_string_opt id_str with
-          | None ->
-              Printf.sprintf
-                "Error: '%s' is not a valid ID. Provide a numeric subscription \
-                 ID."
-                id_str
-          | Some id ->
-              if Github_pr_subscriptions.set_enabled ~db ~id ~enabled:false then
-                Printf.sprintf "Disabled subscription #%d." id
-              else Printf.sprintf "No subscription found with ID %d." id)
-      | [ "enable"; id_str ] -> (
-          match int_of_string_opt id_str with
-          | None ->
-              Printf.sprintf
-                "Error: '%s' is not a valid ID. Provide a numeric subscription \
-                 ID."
-                id_str
-          | Some id ->
-              if Github_pr_subscriptions.set_enabled ~db ~id ~enabled:true then
-                Printf.sprintf "Enabled subscription #%d." id
-              else Printf.sprintf "No subscription found with ID %d." id)
-      | [ "remove"; id_str ] -> (
-          match int_of_string_opt id_str with
-          | None ->
-              Printf.sprintf
-                "Error: '%s' is not a valid ID. Provide a numeric subscription \
-                 ID."
-                id_str
-          | Some id -> (
-              match Github_pr_subscriptions.find_by_id ~db ~id with
-              | None -> Printf.sprintf "No subscription found with ID %d." id
-              | Some sub ->
-                  if
-                    Github_pr_subscriptions.remove ~db ~room_id:sub.room_id
-                      ~repo:sub.repo ~pr_number:sub.pr_number
-                  then Printf.sprintf "Removed subscription #%d." id
-                  else Printf.sprintf "Failed to remove subscription #%d." id))
+              let profile_id = profile_id_for_name ~db profile_name in
+              let prefs = parse_notification_prefs rest in
+              (match
+                 create_compat_route ~db ~room_id ~repo ~pr_number ~profile_id
+                   ~prefs
+               with
+              | Error error -> "Error: " ^ error
+              | Ok route ->
+                  Printf.sprintf
+                    "Created subscription route %s for %s PR #%d in room '%s' \
+                     (profile=%s)."
+                    route.id repo pr_number room_id profile_name))
+      | ([ "disable"; id ] | [ "enable"; id ]) as command -> (
+          match find_route_by_command_id ~db id with
+          | Error error -> "Error: " ^ error
+          | Ok None -> Printf.sprintf "No subscription route found with ID %s." id
+          | Ok (Some route) ->
+              let enabled = match command with [ "enable"; _ ] -> true | _ -> false in
+              (match
+                 Route.update ~db ~id:route.id
+                   ~expected_revision:route.revision ~enabled ()
+               with
+              | Error error -> "Error: " ^ error
+              | Ok _ ->
+                  Printf.sprintf "%s subscription route %s."
+                    (if enabled then "Enabled" else "Disabled") route.id))
+      | [ "remove"; id ] -> (
+          match find_route_by_command_id ~db id with
+          | Error error -> "Error: " ^ error
+          | Ok None -> Printf.sprintf "No subscription route found with ID %s." id
+          | Ok (Some route) -> (
+              match disable_route ~db route with
+              | Error error -> "Error: " ^ error
+              | Ok _ -> Printf.sprintf "Removed subscription route %s." route.id))
       | [ "remove"; room_id; repo; pr_number_str ] -> (
           match int_of_string_opt pr_number_str with
-          | None -> "Error: PR number must be a positive integer."
-          | Some pr_number when pr_number <= 0 ->
+          | None | Some 0 -> "Error: PR number must be a positive integer."
+          | Some pr_number when pr_number < 0 ->
               "Error: PR number must be a positive integer."
-          | Some pr_number ->
-              if Github_pr_subscriptions.remove ~db ~room_id ~repo ~pr_number
-              then
-                Printf.sprintf
-                  "Removed subscription for %s PR #%d in room '%s'." repo
-                  pr_number room_id
-              else
-                Printf.sprintf
-                  "No subscription found for %s PR #%d in room '%s'." repo
-                  pr_number room_id)
+          | Some pr_number -> (
+              match find_active_item_route ~db ~room_id ~repo ~pr_number with
+              | Error error -> "Error: " ^ error
+              | Ok None ->
+                  Printf.sprintf
+                    "No subscription found for %s PR #%d in room '%s'." repo
+                    pr_number room_id
+              | Ok (Some route) -> (
+                  match disable_route ~db route with
+                  | Error error -> "Error: " ^ error
+                  | Ok _ ->
+                      Printf.sprintf
+                        "Removed subscription for %s PR #%d in room '%s'." repo
+                        pr_number room_id)))
       | _ ->
           "Usage: clawq subscriptions <subcommand>\n\n\
-           Subcommands:\n\
+           Compatibility aliases over GitHub Item routes (no legacy-table writes):\n\
           \  list [--room ROOM | --repo REPO]   List subscriptions\n\
-          \  show ID                             Show subscription details\n\
-          \  add ROOM REPO PR# [--profile P]     Add a subscription\n\
+          \  show ID                             Show subscription route details\n\
+          \  add ROOM REPO PR# [--profile P]     Add an Item route\n\
           \      [--on-open true|false] [--on-close true|false]\n\
           \      [--on-comment true|false] [--on-review true|false]\n\
           \      [--on-status true|false] [--on-merge true|false]\n\
-          \  disable ID                          Disable a subscription\n\
-          \  enable ID                           Enable a subscription\n\
-          \  remove ID | ROOM REPO PR#           Remove a subscription")
+          \  disable ID                          Disable a subscription route\n\
+          \  enable ID                           Enable a subscription route\n\
+          \  remove ID | ROOM REPO PR#           Remove a subscription route")
+
+let cmd_subscriptions args =
+  match require_admin () with
+  | Some err -> err
+  | None -> cmd_subscriptions_with_db ~db:(get_db ()) args

@@ -563,7 +563,10 @@ Shows:
 
 ### `clawq subscriptions`
 
-Manage GitHub PR notification subscriptions. **[admin]**
+Manage GitHub PR notification subscriptions. **[admin]** These commands are
+compatibility aliases over GitHub Item routes: existing legacy subscriptions
+are migrated idempotently before use and new commands write only the route
+store. Listed route IDs are preferred; legacy numeric IDs remain accepted.
 
 ```
 clawq subscriptions list [--room ROOM | --repo REPO]

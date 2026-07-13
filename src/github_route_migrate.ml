@@ -325,3 +325,8 @@ let migrate_subscriptions ~db ~legacy ?(policy = Prefer_existing_route)
       match count_active_routes ~db with
       | Error e -> Error e
       | Ok active_routes -> Ok { resolutions; active_routes })
+
+let migrate_database ~db ?policy ?now () =
+  match load_legacy_from_db ~db with
+  | Error _ as error -> error
+  | Ok legacy -> migrate_subscriptions ~db ~legacy ?policy ?now ()

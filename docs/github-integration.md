@@ -187,19 +187,21 @@ matches a configured installation and that the repo is within scope.
 
 ## 4. PR Subscriptions
 
-PR subscriptions link a specific GitHub pull request to a Clawq room. When
-webhook events match a subscription, notifications are delivered to the
-subscribed room.
+PR subscriptions are compatibility aliases for GitHub `Item` routes that link
+a specific pull request to a Clawq room. Existing legacy subscription rows are
+migrated idempotently before a compatibility command runs; new commands write
+only the route store.
 
 ### Subscription Model
 
-Each subscription is uniquely identified by the composite key
-`(room_id, repo, pr_number)`. Creating a subscription with an existing key
-upserts (updates the profile and preferences).
+Each active subscription route is uniquely identified by its destination and
+canonical Item selector `(room_id, repo, pr_number)`. Creating a subscription
+for an existing selector deterministically replaces the active route; disabled
+routes remain as audit history.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | integer | Auto-incremented primary key |
+| `id` | string | Durable route ID; a legacy numeric ID is accepted after migration |
 | `room_id` | string | Target room for notifications |
 | `repo` | string | Full repo name (`owner/repo`) |
 | `pr_number` | integer | Pull request number |
@@ -239,7 +241,7 @@ clawq subscriptions list --room my-room
 # List subscriptions for a specific repo
 clawq subscriptions list --repo owner/repo
 
-# Show subscription details
+# Show subscription details (route IDs are listed; legacy numeric IDs remain accepted)
 clawq subscriptions show 42
 
 # Add a subscription with default preferences
@@ -255,7 +257,7 @@ clawq subscriptions add my-room owner/repo 123 \
   --on-status true \
   --on-merge false
 
-# Disable/enable a subscription (by ID)
+# Disable/enable a subscription route (by route or legacy ID)
 clawq subscriptions disable 42
 clawq subscriptions enable 42
 

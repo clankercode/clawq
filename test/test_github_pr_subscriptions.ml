@@ -443,6 +443,74 @@ let test_migration_adds_schema () =
           in
           Alcotest.(check int) "pr_number" 1 sub.pr_number))
 
+let test_compatibility_cli_migrates_and_writes_routes_only () =
+  with_db (fun db ->
+      Github_route_store.ensure_schema db;
+      let legacy =
+        Github_pr_subscriptions.add ~db ~room_id:"room-legacy"
+          ~repo:"owner/repo" ~pr_number:42 ~profile_id:7 ()
+      in
+      let listing =
+        Github_pr_subscriptions_cli.cmd_subscriptions_with_db ~db
+          [ "list"; "--room"; "room-legacy" ]
+      in
+      Alcotest.(check bool)
+        "legacy row is represented by its migrated route" true
+        (Test_helpers.string_contains listing
+           ("ghroute_migrate_" ^ string_of_int legacy.id));
+      let legacy_selector =
+        Github_route_store.Item
+          {
+            repo_full_name = "owner/repo";
+            kind = `Pull_request;
+            number = 42;
+          }
+      in
+      (match
+         Github_route_store.find_active ~db
+           ~destination:(Github_route_store.Room "room-legacy")
+           ~selector:legacy_selector
+       with
+      | Ok (Some route) ->
+          Alcotest.(check (option string)) "profile binding preserved" (Some "7")
+            route.provenance.created_by
+      | Ok None -> Alcotest.fail "legacy subscription was not migrated"
+      | Error error -> Alcotest.fail error);
+      let add_result =
+        Github_pr_subscriptions_cli.cmd_subscriptions_with_db ~db
+          [ "add"; "room-new"; "owner/new-repo"; "9"; "--on-comment"; "false" ]
+      in
+      Alcotest.(check bool) "add creates route" true
+        (Test_helpers.string_contains add_result "Created subscription route");
+      (match
+         Github_pr_subscriptions.find ~db ~room_id:"room-new"
+           ~repo:"owner/new-repo" ~pr_number:9
+       with
+      | None -> ()
+      | Some _ -> Alcotest.fail "compatibility add must not write legacy rows");
+      let new_selector =
+        Github_route_store.Item
+          {
+            repo_full_name = "owner/new-repo";
+            kind = `Pull_request;
+            number = 9;
+          }
+      in
+      match
+        Github_route_store.find_active ~db
+          ~destination:(Github_route_store.Room "room-new")
+          ~selector:new_selector
+      with
+      | Ok (Some route) ->
+          Alcotest.(check bool) "comment preference removed" false
+            (List.mem "issue_comment" route.filter.include_events);
+          Alcotest.(check bool) "PR lifecycle still forwarded" true
+            (List.mem "pull_request" route.filter.include_events);
+          Alcotest.(check bool) "review still forwarded" true
+            (List.mem "pull_request_review" route.filter.include_events)
+      | Ok None -> Alcotest.fail "compatibility add did not create an Item route"
+      | Error error -> Alcotest.fail error)
+
 let suite =
   [
     Alcotest.test_case "add subscription" `Quick test_add_subscription;
@@ -469,4 +537,6 @@ let suite =
     Alcotest.test_case "should notify" `Quick test_should_notify;
     Alcotest.test_case "json roundtrip" `Quick test_json_roundtrip;
     Alcotest.test_case "migration adds schema" `Quick test_migration_adds_schema;
+    Alcotest.test_case "compatibility CLI uses routes only" `Quick
+      test_compatibility_cli_migrates_and_writes_routes_only;
   ]
