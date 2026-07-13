@@ -32,7 +32,7 @@ epics:
       locked: false
       name: Durable Outbox Reconciliation and Operations
       path: 03-durable-outbox-reconciliation
-      status: pending
+      status: done
 estimate_hours: 48
 id: P19.M3
 locked: false
@@ -43,4 +43,4 @@ stats:
     in_progress: 0
     pending: 11
     total_tasks: 11
-status: pending
+status: done

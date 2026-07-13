@@ -35,7 +35,7 @@ milestones:
       locked: false
       name: Durable Room Delivery and Item Projections
       path: 03-durable-room-delivery-and-item
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M1
