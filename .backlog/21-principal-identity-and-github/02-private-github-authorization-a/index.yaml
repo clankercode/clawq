@@ -36,7 +36,7 @@ epics:
       locked: false
       name: Fail-Closed Mutable Token Vault
       path: 04-fail-closed-mutable-token-vaul
-      status: pending
+      status: done
 estimate_hours: 84
 id: P21.M2
 locked: false
