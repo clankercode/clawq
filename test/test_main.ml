@@ -172,6 +172,7 @@ let () =
        ("github_item_context", Test_github_item_context_resolve.suite);
        ("github_collab_grounding", Test_github_collab_grounding.suite);
        ("github_collab_actions", Test_github_collab_actions.suite);
+       ("github_collab_attribution", Test_github_collab_attribution.suite);
        ("github_pr_review_actions", Test_github_pr_review_actions.suite);
        ("github_code_change", Test_github_code_change_action.suite);
        ("github_room_background", Test_github_room_background_work.suite);

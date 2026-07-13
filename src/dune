@@ -234,16 +234,12 @@
   github_issue_actions
   github_workflow_dispatch
   github_action_actor_attribution
-  github_action_workflow
   github_action_reconcile
   github_room_tools
   github_auth_selection
   github_attribution_policy
   github_attribution_fallback
   github_attribution_authorize
-  github_attribution_dispatch_lease
-  github_attribution_audit
-  github_attribution_rollout
   github_user_auth_readiness
   github_user_auth_tx
   github_user_auth_delivery
@@ -257,6 +253,11 @@
   github_user_token_vault
   github_user_token_lease
   github_user_token_cas
+  github_attribution_dispatch_lease
+  github_attribution_audit
+  github_attribution_rollout
+  github_collab_attribution
+  github_action_workflow
   github_user_auth_invalidate
   github_user_token_refresh
   github_user_token_rewrap

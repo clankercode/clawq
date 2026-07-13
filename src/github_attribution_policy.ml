@@ -53,6 +53,8 @@ let defaults () =
       ~pilot_allowed:false;
     req ~action:"label" ~tier:Medium ~attribution:User_preferred
       ~pilot_allowed:false;
+    req ~action:"assign" ~tier:Medium ~attribution:User_preferred
+      ~pilot_allowed:false;
     (* High / Critical — User_required; pilot App interim allowed (not fallback) *)
     req ~action:"review_submit" ~tier:High ~attribution:User_required
       ~pilot_allowed:true;
@@ -72,6 +74,7 @@ let normalize_action action =
   | "workflow" -> "workflow_dispatch"
   | "collab_comment" -> "comment"
   | "collab_label" -> "label"
+  | "collab_assign" | "assignee" | "assignees" -> "assign"
   | other -> other
 
 let by_action =

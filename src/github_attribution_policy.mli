@@ -51,7 +51,8 @@ val defaults : unit -> requirement list
 val lookup : action:string -> requirement
 (** Lookup by action id (case-insensitive, trimmed). Accepts a few aliases
     ([submit_review] → [review_submit], [code_work] → [code_change],
-    [collab_comment] → [comment], [collab_label] → [label]).
+    [collab_comment] → [comment], [collab_label] → [label],
+    [collab_assign]/[assignee] → [assign]).
 
     Unknown actions fail closed as [User_required] / [Critical] with
     [pilot_allowed = false] so undeclared mutations never silently use App. *)
