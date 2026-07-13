@@ -170,6 +170,7 @@ let () =
        ("github_attribution_policy", Test_github_attribution_policy.suite);
        ("github_user_auth_readiness", Test_github_user_auth_readiness.suite);
        ("github_user_token", Test_github_user_token_store.suite);
+       ("github_user_token_master_key", Test_github_user_token_master_key.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);

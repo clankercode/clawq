@@ -105,6 +105,7 @@
   test_github_attribution_policy
   test_github_user_auth_readiness
   test_github_user_token_store
+  test_github_user_token_master_key
   test_github_pr_subscriptions
   test_github_pr_dispatch
   test_github_pr_policy
