@@ -79,7 +79,7 @@ tasks:
       file: T006-implement-confirmed-typed-work.todo
       id: T006
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Implement confirmed typed workflow dispatch
     - complexity: high

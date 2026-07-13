@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T01:10:07Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T01:19:09Z"
 complexity: high
 created_at: "2026-07-12T16:59:48Z"
 depends_on:
     - P19.M4.E2.T001
+duration_minutes: 9.03441758835
 estimate_hours: 4
 id: P19.M4.E2.T006
 priority: critical
 started_at: "2026-07-13T01:10:07Z"
-status: in_progress
+status: done
 tags: []
 title: Implement confirmed typed workflow dispatch
-updated_at: "2026-07-13T01:10:07Z"
+updated_at: "2026-07-13T01:19:09Z"
 ---
 Acceptance: Validate workflow identity and typed inputs, preview the resolved dispatch, require fresh revision-bound confirmation, execute once, and reconcile receipt plus webhook. Unknown inputs, changed workflow/ref, stale authority, replay, retry, provider failure, and disabled rollout gate fail closed. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
