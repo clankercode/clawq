@@ -1,5 +1,5 @@
-(** Verify GitHub user OAuth callback and exchange the code exactly once
-    (P21.M2.E2.T002).
+(** Verify GitHub user OAuth callback, exchange the code exactly once, and route
+    success through shared verified activation (P21.M2.E2.T002 + T003).
 
     Before any network exchange the module verifies, fail-closed:
     - constant-time OAuth [state] equality against the Principal transaction
@@ -8,11 +8,16 @@
     - exact redirect_uri binding against protected PKCE material
     - S256 code_verifier integrity (challenge recompute)
 
-    On success the code is exchanged exactly once via injectable HTTP, tokens
-    are sealed in the Principal-owned vault, and a [Pending] account binding
-    (with opaque vault ref only) is created. Failures never leave an active
-    ([Authorized]) binding; partial vault/binding failures destroy sealed
-    material before returning.
+    On success the code is exchanged exactly once via injectable HTTP; the
+    still- pending credential and transaction context are handed to the
+    flow-neutral [Github_user_auth_activate.prepare] path (/user verification,
+    seal, revision- bound redacted plan, private confirmation token). No
+    web-only binding semantics: [Authorized] only after shared private
+    confirmation.
+
+    Failures never leave an active ([Authorized]) binding. Activation failures
+    destroy pending material and return a private repair state. Partial vault/
+    binding failures destroy sealed material before returning.
 
     One-shot: the Principal authorization transaction is claimed ([Completed])
     under a SQLite write lock before the remote exchange so replay, duplicate
@@ -20,7 +25,8 @@
     statuses never reopen.
 
     Mismatch, replay, duplicate callback, OAuth denial, timeout, malformed token
-    response, or partial exchange → no active binding.
+    response, or partial/activation failure → no active binding + private
+    repair.
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
@@ -28,9 +34,9 @@
 
 module Tx = Github_user_auth_tx
 module Pkce = Github_user_auth_pkce
+module Activate = Github_user_auth_activate
 module V = Github_user_token_vault
 module B = Github_account_binding
-module S = Github_user_token_store
 
 val token_endpoint : ?host:string -> unit -> string
 (** [POST] token URL for [host] (default [github.com]). *)
@@ -79,18 +85,13 @@ type resolve_client =
 (** Resolve opaque client-id handle → [(client_id, client_secret)]. Never log or
     Room-export the secret. *)
 
-type github_user = {
-  id : int64;  (** Numeric GitHub user id (account identity). *)
-  login : string;
-  avatar_url : string option;
-}
-(** Identity returned by the post-exchange user probe (injectable). Full shared
-    /user activation lives in later tasks; this only supplies the immutable
-    numeric id required to seal vault + binding rows. *)
+type github_user = Activate.github_user
+(** Numeric GitHub identity from the shared activation [/user] probe. *)
 
-type fetch_user = access_token:string -> (github_user, string) result
-(** Injectable user probe after a successful token exchange. Tests inject
-    offline fakes; production wires authenticated [GET /user]. *)
+type fetch_user = Activate.fetch_user
+(** Injectable user probe after a successful token exchange, forwarded into
+    [Activate.prepare]. Tests inject offline fakes; production wires
+    authenticated [GET /user]. *)
 
 (** {1 Token response (ephemeral)} *)
 
@@ -101,7 +102,8 @@ type token_response = {
   expires_in : int;  (** Seconds until access token expiry (required). *)
   token_type : string option;
 }
-(** Parsed GitHub OAuth token response. Must not be logged or Room-exported. *)
+(** Parsed GitHub OAuth token response. Must not be logged or Room-exported.
+    Projected into [Activate.pending_credential] before shared prepare. *)
 
 val parse_token_response : body:string -> (token_response, string) result
 (** Parse JSON (preferred) or form-urlencoded token body. Fail closed on missing
@@ -112,13 +114,14 @@ val parse_token_response : body:string -> (token_response, string) result
 type exchange_result = {
   tx : Tx.t;  (** Terminal [Completed] authorization transaction. *)
   material : Pkce.protected_material;
-  vault : V.vault_record;  (** Sealed Principal-owned token record. *)
-  binding : B.binding;
-      (** [Pending] binding with opaque [vault_ref]; not [Authorized]. *)
+  prepared : Activate.prepared;
+      (** Shared activation: pending vault/binding, redacted plan, and one-time
+          private confirmation token. Binding is [Pending], not [Authorized]. *)
   token_scopes : string list;
-  github_user : github_user;
 }
-(** Full success only. Tokens never appear as plaintext fields. *)
+(** Full success only. Tokens never appear as plaintext fields. Confirmation
+    plaintext is returned once on [prepared.confirmation_token] for private
+    delivery only. *)
 
 type failure_kind =
   | State_mismatch
@@ -137,8 +140,12 @@ type failure_kind =
   | Timeout  (** HTTP transport timeout / connectivity failure. *)
   | Malformed_response
   | Partial_exchange
-      (** Remote exchange or user probe succeeded but local seal/bind failed
-          (and was rolled back). *)
+      (** Remote exchange succeeded but local seal/bind/activation failed (and
+          was rolled back / pending material destroyed). *)
+  | Activation of string
+      (** Shared activation refused (collision, identity/Principal mismatch,
+          user probe, …). Pending material destroyed; prior Authorized state
+          preserved. Payload is [Activate.string_of_failure_kind]. *)
   | Http_denial of int  (** Non-2xx token endpoint status. *)
   | Invalid of string
   | Storage of string
@@ -146,8 +153,14 @@ type failure_kind =
 type exchange_error = {
   kind : failure_kind;
   message : string;  (** Actionable, secret-free operator/user message. *)
+  repair : string;
+      (** Private repair guidance (never Room-export secrets). Empty when no
+          further private action is available. *)
   tx : Tx.t option;
       (** Related transaction when known (may already be terminal). *)
+  activation : Activate.activation option;
+      (** Related activation when prepare partially created one (usually
+          terminal Destroyed/Rejected). *)
 }
 (** Fail-closed error. Never embeds code_verifier, access_token, or client
     secret. *)
@@ -159,7 +172,12 @@ val has_active_binding : binding:B.binding -> bool
     created on success are not active for user-attributed work. *)
 
 val redacted_summary : exchange_result -> string
-(** Operator summary without tokens, verifier, or client secret. *)
+(** Operator summary without tokens, verifier, client secret, or confirmation
+    plaintext. *)
+
+val private_repair_summary : exchange_error -> string
+(** Secret-free private repair state for the Principal channel (not Room-
+    exportable as progress). *)
 
 (** {1 Exchange} *)
 
@@ -171,13 +189,17 @@ val exchange :
   ?resolve_client:resolve_client ->
   ?fetch_user:fetch_user ->
   ?now:float ->
+  ?ttl_seconds:float ->
+  ?activation_id:string ->
   ?binding_id:string ->
   ?vault_id:string ->
+  ?plan_id:string ->
   callback:callback_request ->
   unit ->
   (exchange_result, exchange_error) result
-(** Validate callback → claim one-shot transaction → exchange code → seal vault
-    \+ Pending binding.
+(** Validate callback → claim one-shot transaction → exchange code → project
+    pending credential → [Activate.prepare] (shared /user, seal, plan,
+    confirmation).
 
     Requires [http_post], [resolve_client], and [fetch_user] (inject fakes in
     tests). Default implementations refuse closed when omitted.
@@ -187,9 +209,11 @@ val exchange :
     against protected material 4. Resolve and verify S256 code_verifier against
     stored challenge 5. Under [BEGIN IMMEDIATE], CAS-claim the open tx as
     [Completed] 6. POST token exchange with code + verifier + exact redirect +
-    client 7. Parse token response; probe numeric user; seal vault; insert
-    Pending binding with vault_ref 8. On any post-claim failure: destroy any
-    partial vault row; leave tx terminal; return error with no active binding
+    client 7. Parse token response into still-pending credential 8. Call shared
+    [Activate.prepare] with auth_tx + credential (probe /user, seal vault,
+    Pending binding, redacted plan, confirmation token) 9. On any post-claim
+    failure: destroy any partial vault/activation material; leave tx terminal;
+    return error with no active binding and a private repair state
 
     OAuth denial ([error] set) cancels the open transaction and returns [Denial]
     without contacting GitHub. *)

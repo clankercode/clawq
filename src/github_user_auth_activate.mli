@@ -48,12 +48,9 @@ val make_pending_credential :
   ?token_type:string ->
   unit ->
   (pending_credential, string) result
-(** Validate shape: non-empty access token, positive [expires_in]. *)
-
-val pending_credential_of_pkce :
-  Github_user_auth_pkce_callback.token_response ->
-  (pending_credential, string) result
-(** Project a web token response into a pending credential. *)
+(** Validate shape: non-empty access token, positive [expires_in]. Web PKCE
+    callbacks project their token response through this constructor before
+    [prepare] (no module cycle with the callback). *)
 
 val pending_credential_of_device :
   Github_user_auth_device_poll.token_success ->

@@ -224,12 +224,6 @@ let make_pending_credential ~access_token ?refresh_token ?(scopes = [])
     in
     Ok { access_token; refresh_token; scopes; expires_in; token_type }
 
-let pending_credential_of_pkce
-    (t : Github_user_auth_pkce_callback.token_response) =
-  make_pending_credential ~access_token:t.access_token
-    ?refresh_token:t.refresh_token ~scopes:t.scopes ~expires_in:t.expires_in
-    ?token_type:t.token_type ()
-
 let pending_credential_of_device
     (t : Github_user_auth_device_poll.token_success) =
   match t.expires_in with

@@ -1,13 +1,13 @@
-(* Verify GitHub user OAuth callback and exchange the code exactly once
-   (P21.M2.E2.T002). See github_user_auth_pkce_callback.mli and
+(* Verify GitHub user OAuth callback, exchange once, and route through shared
+   verified activation (P21.M2.E2.T002 + T003). See
+   github_user_auth_pkce_callback.mli and
    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 module Tx = Github_user_auth_tx
 module Pkce = Github_user_auth_pkce
+module Activate = Github_user_auth_activate
 module V = Github_user_token_vault
 module B = Github_account_binding
-module S = Github_user_token_store
-module P = Principal_identity
 
 (* -------------------------------------------------------------------------- *)
 (* Types                                                                      *)
@@ -30,8 +30,8 @@ type http_post =
 type resolve_client =
   client_id_handle:string -> (string * string, string) result
 
-type github_user = { id : int64; login : string; avatar_url : string option }
-type fetch_user = access_token:string -> (github_user, string) result
+type github_user = Activate.github_user
+type fetch_user = Activate.fetch_user
 
 type token_response = {
   access_token : string;
@@ -44,10 +44,8 @@ type token_response = {
 type exchange_result = {
   tx : Tx.t;
   material : Pkce.protected_material;
-  vault : V.vault_record;
-  binding : B.binding;
+  prepared : Activate.prepared;
   token_scopes : string list;
-  github_user : github_user;
 }
 
 type failure_kind =
@@ -62,6 +60,7 @@ type failure_kind =
   | Timeout
   | Malformed_response
   | Partial_exchange
+  | Activation of string
   | Http_denial of int
   | Invalid of string
   | Storage of string
@@ -69,7 +68,9 @@ type failure_kind =
 type exchange_error = {
   kind : failure_kind;
   message : string;
+  repair : string;
   tx : Tx.t option;
+  activation : Activate.activation option;
 }
 
 (* -------------------------------------------------------------------------- *)
@@ -88,11 +89,57 @@ let string_of_failure_kind = function
   | Timeout -> "timeout"
   | Malformed_response -> "malformed_response"
   | Partial_exchange -> "partial_exchange"
+  | Activation s -> "activation:" ^ s
   | Http_denial code -> Printf.sprintf "http_denial_%d" code
   | Invalid _ -> "invalid"
   | Storage _ -> "storage"
 
-let err ?(tx = None) kind message = Error { kind; message; tx }
+let default_repair_for kind =
+  match kind with
+  | State_mismatch ->
+      "Restart authorization from a private channel; do not reuse the callback \
+       URL."
+  | Replay | Duplicate_callback ->
+      "This authorization transaction is already terminal; start a new web \
+       PKCE flow privately."
+  | Expired ->
+      "Authorization expired; start a new web PKCE flow from a private channel."
+  | Redirect_mismatch ->
+      "Use the exact registered redirect_uri for this App and restart the \
+       private authorization flow."
+  | Unused_status ->
+      "Authorization transaction is not open; start a new web PKCE flow \
+       privately."
+  | Verifier_invalid ->
+      "PKCE verifier integrity failed; start a new web PKCE flow privately."
+  | Denial ->
+      "User or provider denied authorization; restart privately when ready."
+  | Timeout ->
+      "Token exchange timed out after one-shot claim; start a new web PKCE \
+       flow privately."
+  | Malformed_response ->
+      "Token endpoint returned a malformed body; start a new web PKCE flow \
+       privately."
+  | Partial_exchange ->
+      "Exchange claimed but seal/activation failed fail-closed; start a new \
+       web PKCE flow privately."
+  | Activation _ ->
+      "Shared activation refused and pending material was destroyed; resolve \
+       the collision/mismatch privately and start a new web PKCE flow."
+  | Http_denial _ ->
+      "Token endpoint denied the exchange; verify App OAuth client settings \
+       and restart privately."
+  | Invalid _ ->
+      "Invalid callback payload; restart authorization from a private channel."
+  | Storage _ ->
+      "Local storage error during callback; retry from a private channel after \
+       operators check the vault/database."
+
+let err ?(tx = None) ?(activation = None) ?(repair = "") kind message =
+  let repair =
+    if String.trim repair = "" then default_repair_for kind else repair
+  in
+  Error { kind; message; repair; tx; activation }
 
 let has_active_binding ~(binding : B.binding) =
   match binding.B.authorization_status with B.Authorized -> true | _ -> false
@@ -438,7 +485,7 @@ let validate_open_tx ~db ~(callback : callback_request) ~now =
                 | Ok _ -> Ok (tx, material)))
 
 (* -------------------------------------------------------------------------- *)
-(* Remote exchange + seal                                                     *)
+(* Remote exchange + shared activation                                        *)
 (* -------------------------------------------------------------------------- *)
 
 let token_headers =
@@ -459,74 +506,55 @@ let build_token_body ~client_id ~client_secret ~code ~redirect_uri
       ("code_verifier", [ code_verifier ]);
     ]
 
-let expires_at_iso ~now ~expires_in =
-  Time_util.iso8601_utc ~t:(now +. float_of_int expires_in) ()
+let activation_repair (f : Activate.failure) =
+  match f.Activate.kind with
+  | Activate.Collision _ ->
+      "GitHub account collision: resolve or unlink the existing binding \
+       privately, then start a new web PKCE flow."
+  | Activate.Identity_mismatch _ ->
+      "Authorize the intended GitHub account from a private channel; restart \
+       web PKCE."
+  | Activate.Principal_changed _ ->
+      "Principal lineage changed; restart authorization from a private channel."
+  | Activate.User_probe _ ->
+      "GitHub /user probe failed after exchange; start a new web PKCE flow \
+       privately when GitHub is healthy."
+  | Activate.Replay ->
+      "Activation already exists for this authorization; complete or destroy \
+       the pending confirmation privately, or start a new flow."
+  | Activate.Expired ->
+      "Authorization or activation expired; start a new web PKCE flow \
+       privately."
+  | Activate.Cancelled ->
+      "Authorization was cancelled; restart from a private channel when ready."
+  | Activate.Invalid_credential _ ->
+      "Token response shape invalid for activation; restart web PKCE privately."
+  | Activate.Incomplete_exchange ->
+      "Authorization is not activation-eligible; restart the full web PKCE \
+       flow privately."
+  | Activate.Partial _ | Activate.Storage _ | Activate.Invalid _
+  | Activate.Confirmation_mismatch | Activate.Plan_mismatch | Activate.Not_found
+  | Activate.Already_activated | Activate.Destroyed_status ->
+      "Activation failed fail-closed and pending material was destroyed; start \
+       a new web PKCE flow privately."
 
-let destroy_vault_best_effort ~db ~id =
-  match V.destroy ~db ~id with Ok () | Error V.Not_found -> () | Error _ -> ()
-
-let seal_and_bind ~db ~keys ~(tx : Tx.t) ~tokens ~scopes ~expires_at
-    ~github_user ~now ?binding_id ?vault_id () =
-  let app = tx.app in
-  match P.principal_id_of_string tx.principal_id with
-  | Error e -> Error (Printf.sprintf "principal_id invalid: %s" e)
-  | Ok principal_id -> (
-      match
-        V.make_account_key ~principal_id:tx.principal_id
-          ~github_user_id:github_user.id ~app_id:app.app_id ~host:app.host ()
-      with
-      | Error e -> Error e
-      | Ok account -> (
-          match
-            V.create ~db ~keys ?id:vault_id ~now ~account ~tokens ~scopes
-              ~expires_at ()
-          with
-          | Error d ->
-              Error
-                (Printf.sprintf "vault seal failed: %s" (V.string_of_denial d))
-          | Ok vault -> (
-              match B.make_vault_ref vault.V.id with
-              | Error e ->
-                  destroy_vault_best_effort ~db ~id:vault.V.id;
-                  Error e
-              | Ok vault_ref -> (
-                  match
-                    B.make_account_identity ~host:app.host ~app_id:app.app_id
-                      ~github_user_id:github_user.id ()
-                  with
-                  | Error e ->
-                      destroy_vault_best_effort ~db ~id:vault.V.id;
-                      Error e
-                  | Ok identity -> (
-                      let binding_id =
-                        match binding_id with
-                        | Some id when String.trim id <> "" -> String.trim id
-                        | _ ->
-                            Printf.sprintf "ghbind_%s_%Ld" (String.trim tx.id)
-                              github_user.id
-                      in
-                      let binding =
-                        B.make_binding ~id:binding_id ~principal_id ~identity
-                          ~display:
-                            {
-                              B.login = Some github_user.login;
-                              avatar_url = github_user.avatar_url;
-                            }
-                          ~authorization_status:B.Pending ~vault_ref ()
-                      in
-                      match B.insert ~db ~now binding with
-                      | Ok binding -> Ok (vault, binding)
-                      | Error e ->
-                          destroy_vault_best_effort ~db ~id:vault.V.id;
-                          Error
-                            (Printf.sprintf
-                               "binding insert failed after vault seal (vault \
-                                destroyed, no active binding): %s"
-                               e))))))
-
-(* -------------------------------------------------------------------------- *)
-(* Exchange entrypoint                                                        *)
-(* -------------------------------------------------------------------------- *)
+let map_activation_failure ~tx (f : Activate.failure) =
+  let act_kind = Activate.string_of_failure_kind f.Activate.kind in
+  let kind =
+    match f.Activate.kind with
+    | Activate.Replay -> Replay
+    | Activate.Expired -> Expired
+    | Activate.Cancelled -> Unused_status
+    | Activate.User_probe _ | Activate.Collision _
+    | Activate.Identity_mismatch _ | Activate.Principal_changed _
+    | Activate.Partial _ | Activate.Invalid_credential _
+    | Activate.Incomplete_exchange | Activate.Confirmation_mismatch
+    | Activate.Plan_mismatch | Activate.Not_found | Activate.Already_activated
+    | Activate.Destroyed_status | Activate.Storage _ | Activate.Invalid _ ->
+        Activation act_kind
+  in
+  err ~tx:(Some tx) ~activation:f.Activate.activation
+    ~repair:(activation_repair f) kind f.Activate.message
 
 let handle_oauth_denial ~db ~(callback : callback_request) ~oauth_error ~now =
   let presented = String.trim callback.state in
@@ -596,7 +624,8 @@ let claim_open_tx ~db ~store ~callback ~now =
           | Ok claimed -> Ok (claimed, material, code_verifier)))
 
 let perform_remote_exchange ~db ~keys ~claimed ~material ~code ~code_verifier
-    ~http ~resolve ~fetch ~now ?binding_id ?vault_id () =
+    ~http ~resolve ~fetch ~now ?ttl_seconds ?activation_id ?binding_id ?vault_id
+    ?plan_id () =
   match resolve ~client_id_handle:claimed.Tx.app.Tx.client_id_handle with
   | Error e ->
       err ~tx:(Some claimed) Partial_exchange
@@ -644,67 +673,64 @@ let perform_remote_exchange ~db ~keys ~claimed ~material ~code ~code_verifier
                         active binding): %s"
                        e)
               | Ok token -> (
-                  match fetch ~access_token:token.access_token with
+                  (* Still-pending credential only — no web-local seal/Authorized. *)
+                  match
+                    Activate.make_pending_credential
+                      ~access_token:token.access_token
+                      ?refresh_token:token.refresh_token ~scopes:token.scopes
+                      ~expires_in:token.expires_in ?token_type:token.token_type
+                      ()
+                  with
                   | Error e ->
                       err ~tx:(Some claimed) Partial_exchange
                         (Printf.sprintf
-                           "GitHub user probe failed after token exchange \
+                           "pending credential shape invalid after exchange \
                             (transaction terminal, no active binding): %s"
                            e)
-                  | Ok github_user -> (
-                      if github_user.id <= 0L then
-                        err ~tx:(Some claimed) Partial_exchange
-                          "GitHub user id must be positive (transaction \
-                           terminal, no active binding)"
-                      else if String.trim github_user.login = "" then
-                        err ~tx:(Some claimed) Partial_exchange
-                          "GitHub login must be non-empty (transaction \
-                           terminal, no active binding)"
-                      else
-                        let tokens : S.plaintext_tokens =
-                          {
-                            access_token = token.access_token;
-                            refresh_token = token.refresh_token;
-                          }
-                        in
-                        let expires_at =
-                          expires_at_iso ~now ~expires_in:token.expires_in
-                        in
-                        match
-                          seal_and_bind ~db ~keys ~tx:claimed ~tokens
-                            ~scopes:token.scopes ~expires_at ~github_user ~now
-                            ?binding_id ?vault_id ()
-                        with
-                        | Error e ->
-                            err ~tx:(Some claimed) Partial_exchange
-                              (Printf.sprintf
-                                 "%s (transaction terminal, no active binding)"
-                                 e)
-                        | Ok (vault, binding) ->
-                            if has_active_binding ~binding then (
-                              ignore (B.delete ~db ~id:binding.B.id);
-                              destroy_vault_best_effort ~db ~id:vault.V.id;
-                              err ~tx:(Some claimed) Partial_exchange
-                                "refusing active Authorized binding from raw \
-                                 code exchange; activation is a later step")
-                            else
-                              Ok
-                                {
-                                  tx = claimed;
-                                  material;
-                                  vault;
-                                  binding;
-                                  token_scopes = token.scopes;
-                                  github_user;
-                                }))))
+                  | Ok credential -> (
+                      match
+                        Activate.prepare ~db ~keys ~fetch_user:fetch
+                          ~auth_tx_id:claimed.Tx.id ~credential ~now
+                          ?ttl_seconds ?activation_id ?vault_id ?binding_id
+                          ?plan_id ()
+                      with
+                      | Error f -> map_activation_failure ~tx:claimed f
+                      | Ok prepared ->
+                          if
+                            has_active_binding
+                              ~binding:prepared.Activate.binding
+                          then
+                            (* Shared prepare must never authorize without private
+                               confirmation; destroy and refuse closed. *)
+                            let _ =
+                              Activate.destroy ~db ~keys
+                                ~activation_id:
+                                  prepared.Activate.activation.Activate.id
+                                ~reason:
+                                  "refusing Authorized binding from raw web \
+                                   code exchange"
+                                ~now ()
+                            in
+                            err ~tx:(Some claimed)
+                              (Activation "authorized_without_confirm")
+                              "refusing active Authorized binding from raw \
+                               code exchange; activation requires private \
+                               confirmation"
+                          else
+                            Ok
+                              {
+                                tx = claimed;
+                                material;
+                                prepared;
+                                token_scopes = credential.Activate.scopes;
+                              }))))
 
 let exchange ~db ~(store : Pkce.secret_backend) ~keys ?http_post ?resolve_client
-    ?fetch_user ?(now = Unix.gettimeofday ()) ?binding_id ?vault_id
-    ~(callback : callback_request) () =
+    ?fetch_user ?(now = Unix.gettimeofday ()) ?ttl_seconds ?activation_id
+    ?binding_id ?vault_id ?plan_id ~(callback : callback_request) () =
   Tx.ensure_schema db;
   Pkce.ensure_schema db;
-  V.ensure_schema db;
-  B.ensure_schema db;
+  Activate.ensure_schema db;
   match callback.error with
   | Some oauth_error -> handle_oauth_denial ~db ~callback ~oauth_error ~now
   | None -> (
@@ -767,28 +793,67 @@ let exchange ~db ~(store : Pkce.secret_backend) ~keys ?http_post ?resolve_client
                                  sealing"
                       in
                       perform_remote_exchange ~db ~keys ~claimed ~material ~code
-                        ~code_verifier ~http ~resolve ~fetch ~now ?binding_id
-                        ?vault_id ()))))
+                        ~code_verifier ~http ~resolve ~fetch ~now ?ttl_seconds
+                        ?activation_id ?binding_id ?vault_id ?plan_id ()))))
 
 let redacted_summary (r : exchange_result) =
   let tx = r.tx in
-  let b = r.binding in
+  let prep = r.prepared in
+  let b = prep.Activate.binding in
+  let act = prep.Activate.activation in
   String.concat "\n"
     [
-      "GitHub user auth PKCE callback exchange (redacted)";
+      "GitHub user auth PKCE callback → shared activation (redacted)";
       Printf.sprintf "  tx_id: %s" tx.Tx.id;
       Printf.sprintf "  status: %s" (Tx.string_of_status tx.Tx.status);
       Printf.sprintf "  principal: %s" tx.Tx.principal_id;
-      Printf.sprintf "  vault_id: %s" r.vault.V.id;
-      Printf.sprintf "  vault_generation: %d" r.vault.V.generation;
+      Printf.sprintf "  activation_id: %s" act.Activate.id;
+      Printf.sprintf "  activation_status: %s"
+        (Activate.string_of_activation_status act.Activate.status);
+      Printf.sprintf "  plan_id: %s" act.Activate.plan_id;
+      Printf.sprintf "  plan_digest: %s" act.Activate.plan_digest;
+      Printf.sprintf "  vault_id: %s" prep.Activate.vault.V.id;
+      Printf.sprintf "  vault_generation: %d" prep.Activate.vault.V.generation;
       Printf.sprintf "  binding_id: %s" b.B.id;
       Printf.sprintf "  binding_status: %s"
         (B.string_of_authorization_status b.B.authorization_status);
-      Printf.sprintf "  github_user_id: %Ld" r.github_user.id;
-      Printf.sprintf "  login: %s" r.github_user.login;
+      Printf.sprintf "  github_user_id: %Ld" prep.Activate.github_user.id;
+      Printf.sprintf "  login: %s" prep.Activate.github_user.login;
       Printf.sprintf "  scopes: %s"
         (if r.token_scopes = [] then "(none)"
          else String.concat " " r.token_scopes);
-      "  (access_token, refresh_token, code_verifier, and client_secret are \
-       never included)";
+      "  (access_token, refresh_token, code_verifier, client_secret, and \
+       confirmation_token are never included)";
     ]
+
+let private_repair_summary (e : exchange_error) =
+  let lines =
+    [
+      "GitHub user auth private repair state (redacted)";
+      Printf.sprintf "  kind: %s" (string_of_failure_kind e.kind);
+      Printf.sprintf "  message: %s" e.message;
+      Printf.sprintf "  repair: %s" e.repair;
+    ]
+  in
+  let lines =
+    match e.tx with
+    | None -> lines
+    | Some tx ->
+        lines
+        @ [
+            Printf.sprintf "  tx_id: %s" tx.Tx.id;
+            Printf.sprintf "  tx_status: %s" (Tx.string_of_status tx.Tx.status);
+          ]
+  in
+  let lines =
+    match e.activation with
+    | None -> lines
+    | Some act ->
+        lines
+        @ [
+            Printf.sprintf "  activation_id: %s" act.Activate.id;
+            Printf.sprintf "  activation_status: %s"
+              (Activate.string_of_activation_status act.Activate.status);
+          ]
+  in
+  String.concat "\n" lines
