@@ -128,6 +128,8 @@ let () =
        ("github_event_history_index", Test_github_event_history_index.suite);
        ("github_delivery_intent", Test_github_delivery_intent.suite);
        ("github_teams_card_render", Test_github_teams_card_render.suite);
+||||||| parent of ce0315b2 (feat(github): plain and editless delivery fallbacks)
+       ("github_plain_delivery", Test_github_plain_delivery_render.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);

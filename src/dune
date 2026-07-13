@@ -195,6 +195,7 @@
   github_event_history_index
   github_delivery_intent
   github_teams_card_render
+  github_plain_delivery_render
   github_auth_selection
   credential_lease
   skills
