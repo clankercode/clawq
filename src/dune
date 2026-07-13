@@ -207,6 +207,7 @@
   github_delivery_reconcile
   github_delivery_ops
   github_route_diagnostics
+  github_route_upgrade_validate
   github_teams_card_render
   github_plain_delivery_render
   github_item_context_resolve
