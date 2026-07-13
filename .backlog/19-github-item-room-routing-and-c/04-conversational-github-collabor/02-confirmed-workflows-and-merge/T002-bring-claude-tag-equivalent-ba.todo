@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T01:19:25Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:05Z"
@@ -9,10 +11,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M4.E2.T002
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-13T01:19:25Z"
+status: in_progress
 tags: []
 title: Bring Claude-tag-equivalent background work into Room threads
-updated_at: "2026-07-12T12:34:05Z"
+updated_at: "2026-07-13T01:19:25Z"
 ---
 Acceptance: Room requests reuse existing GitHub-originated runner/work-item semantics for isolation, runner selection, acknowledgement, cancellation, retry, progress, blocked, and completion. Code-changing and constrained PR creation reuse T007; background permission is separate, duplicate keys do not duplicate work, progress/results land in the anchored thread, and receipts plus webhooks reconcile without loops. The P19 pilot-only App-attributed action gate is explicit and off by default outside the named pilot pending P21 migration. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
