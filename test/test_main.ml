@@ -120,6 +120,7 @@ let () =
        ("github_account_binding", Test_github_account_binding.suite);
        ( "github_account_ownership_policy",
          Test_github_account_ownership_policy.suite );
+       ("github_account_preference", Test_github_account_preference.suite);
        ("principal_unlink_split", Test_principal_unlink_split.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);

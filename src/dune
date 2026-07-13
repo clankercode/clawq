@@ -187,6 +187,7 @@
   principal_merge
   github_account_binding
   github_account_ownership_policy
+  github_account_preference
   principal_unlink_split
   github_app_setup_tx
   github_app_setup_callback
