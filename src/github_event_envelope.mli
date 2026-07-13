@@ -97,3 +97,9 @@ val empty_actor : actor
 val to_safe_json : t -> Yojson.Safe.t
 (** Serialize an envelope to JSON suitable for the room event journal. Contains
     only safe metadata already present on [t] (no bodies/secrets). *)
+
+val of_safe_json : Yojson.Safe.t -> (t, string) result
+(** Inverse of [to_safe_json]. Used by journal projection reduce. *)
+
+val envelope_of_json : Yojson.Safe.t -> (t, string) result
+(** Alias of [of_safe_json]. *)
