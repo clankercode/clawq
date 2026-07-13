@@ -123,6 +123,7 @@ let () =
        ("github_account_preference", Test_github_account_preference.suite);
        ("github_account_admin_surface", Test_github_account_admin_surface.suite);
        ("principal_unlink_split", Test_principal_unlink_split.suite);
+       ("actor_snapshot", Test_actor_snapshot.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);
        ("discord_principal", Test_discord_principal_ingress.suite);
