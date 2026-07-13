@@ -67,6 +67,6 @@ tasks:
       file: T004-publish-redacted-receipt-backo.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Publish redacted receipt backout cleanup and limitations
