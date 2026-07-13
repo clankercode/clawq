@@ -251,10 +251,13 @@ val apply_account_action :
   unit ->
   account_apply_status
 (** Confirm + apply. Requires matching [presented_digest], no hard conflicts,
-    and CAS on binding revision. When [keys] is provided and the binding has a
-    vault attachment, deactivates the vault and invalidates leases immediately
-    via {!Github_user_token_cas}. Always writes an immutable binding snapshot
-    before status change. Never returns or logs token material. *)
+    and CAS on binding revision.
+
+    For [Revoke] / [Unlink_account] with [keys], runs the canonical
+    {!Github_user_auth_invalidate} lifecycle: local disable + lineage break
+    first, optional remote revoke, always destroy secrets for destructive kinds.
+    [Disable] keeps the lighter CAS-deactivate path (secrets retained). Never
+    returns or logs token material. *)
 
 (** {1 Connector unlink / split (canonical lifecycle)} *)
 

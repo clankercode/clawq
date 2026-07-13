@@ -314,14 +314,17 @@ let test_unlink_with_vault_cas_invalidates_immediately () =
       Alcotest.(check bool) "vault ref cleared" true receipt.vault_ref_cleared;
       let b = Option.get (assert_ok (B.get ~db ~id:"bind_u")) in
       Alcotest.(check bool) "no vault ref" true (Option.is_none b.vault_ref);
+      (* Canonical invalidate lifecycle destroys sealed secrets after local
+         disable (P21.M3.E1.T004). *)
       (match V.get_meta ~db ~id:vault_id with
+      | Ok None | Error V.Not_found -> ()
       | Ok (Some meta) ->
-          Alcotest.(check bool) "vault inactive" false meta.active;
           Alcotest.(check bool)
-            "generation advanced" true
-            (meta.generation > rec_.generation)
-      | Ok None -> Alcotest.fail "vault row missing"
+            "if vault remains it must be inactive" false meta.active
       | Error d -> Alcotest.fail (V.string_of_denial d));
+      Alcotest.(check bool)
+        "lineage broken on unlink" true
+        (not (String.equal b.lineage_id "bind_u"));
       let tokens = sample_tokens ~tag:vault_id () in
       let json = Surf.account_action_receipt_to_json receipt in
       Alcotest.(check bool)

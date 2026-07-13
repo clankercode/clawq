@@ -1606,6 +1606,15 @@ let apply_split_in_tx ~db ~(plan : split_plan) ~now ~unlink_id =
             | Ok prefs -> Ok (accs, prefs)))
   in
   let pending = plan.preview.pending_auth_to_invalidate in
+  (* Share the canonical GitHub invalidation lifecycle for Connector
+     unlink/split: zero pending auth on source (old lineage fails closed) and
+     record a redacted invalidate receipt. Credentials retained on source are
+     not destroyed here — only explicit account unlink/revocation does that. *)
+  let _inv =
+    Github_user_auth_invalidate.invalidate_for_connector_split ~db
+      ~source_principal_id:plan.source_principal_id ~actor_key:actor_ikey
+      ~related_id:plan.id ~now ()
+  in
   if pending > 0 then
     ignore
       (M.set_pending_authorization_count ~db

@@ -916,6 +916,69 @@ let set_vault_ref ~db ?expected_revision ?(now = Unix.gettimeofday ()) ~id
     ~vault_ref () =
   update ~db ?expected_revision ~vault_ref ~now ~id ()
 
+let generate_lineage_id ?(now = Unix.gettimeofday ()) () =
+  let ms = Int64.of_float (now *. 1000.) in
+  let rand = Random.int 1_000_000 in
+  Printf.sprintf "ghlineage_%Ld_%06d" ms rand
+
+let break_lineage ~db ?expected_revision ?(now = Unix.gettimeofday ())
+    ?new_lineage_id ~id () =
+  match load_for_update ~db ~id with
+  | Error e -> Error e
+  | Ok b -> (
+      match check_expected_revision b expected_revision with
+      | Error e -> Error e
+      | Ok () -> (
+          let prior = b.lineage_id in
+          let new_id =
+            match new_lineage_id with
+            | Some s when String.trim s <> "" -> String.trim s
+            | _ -> generate_lineage_id ~now ()
+          in
+          if String.equal new_id prior then
+            Error "break_lineage: new lineage_id must differ from prior"
+          else
+            let now_s = Time_util.iso8601_utc ~t:now () in
+            let next =
+              {
+                b with
+                lineage_id = new_id;
+                revision = b.revision + 1;
+                updated_at = now_s;
+              }
+            in
+            let sql =
+              {|UPDATE github_account_bindings SET
+                  lineage_id = ?,
+                  revision = ?,
+                  updated_at = ?
+                WHERE id = ? AND revision = ?|}
+            in
+            let stmt = Sqlite3.prepare db sql in
+            ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT next.lineage_id));
+            ignore
+              (Sqlite3.bind stmt 2
+                 (Sqlite3.Data.INT (Int64.of_int next.revision)));
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT next.updated_at));
+            ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT next.id));
+            ignore
+              (Sqlite3.bind stmt 5 (Sqlite3.Data.INT (Int64.of_int b.revision)));
+            match Sqlite3.step stmt with
+            | Sqlite3.Rc.DONE ->
+                let changes = Sqlite3.changes db in
+                ignore (Sqlite3.finalize stmt);
+                if changes <> 1 then
+                  Error
+                    (revision_conflict ~id:b.id ~expected:b.revision
+                       ~actual:b.revision)
+                else Ok (next, prior)
+            | rc ->
+                let err = Sqlite3.errmsg db in
+                ignore (Sqlite3.finalize stmt);
+                Error
+                  (Printf.sprintf "break_lineage failed: %s (%s)"
+                     (Sqlite3.Rc.to_string rc) err)))
+
 (* -------------------------------------------------------------------------- *)
 (* Snapshots                                                                  *)
 (* -------------------------------------------------------------------------- *)
