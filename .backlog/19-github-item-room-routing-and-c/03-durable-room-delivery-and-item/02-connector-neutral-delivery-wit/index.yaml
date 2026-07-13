@@ -40,7 +40,7 @@ tasks:
       file: T003-add-plain-message-and-editless.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add plain-message and editless fallbacks for other Channels and Sessions
     - complexity: high
