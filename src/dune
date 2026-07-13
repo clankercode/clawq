@@ -265,6 +265,7 @@
   github_attribution_dispatch_lease
   github_attribution_audit
   github_attribution_rollout
+  github_app_pat_compat
   github_collab_attribution
   github_delayed_attribution
   github_action_workflow
