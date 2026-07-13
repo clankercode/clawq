@@ -114,7 +114,7 @@ tasks:
       file: T010-execute-private-two-sided-cros.todo
       id: T010
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Execute private two-sided cross-Connector link proof transaction
     - complexity: high
