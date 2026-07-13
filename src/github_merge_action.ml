@@ -126,22 +126,14 @@ let check_live_policy ~(req_method : merge_method) ~(req_head : string)
 let authorize_merge ~route ~pilot ~user_auth_available ~(req : merge_request)
     ~(policy : live_policy) ?(now = Unix.gettimeofday ()) () =
   let pilot_ok = pilot.enabled && not (pilot_expired ~now pilot) in
-  (* Outside pilot: only a real User_required path may proceed later (P21). In
-     P19, pilot-off always denies when user auth is unavailable; when user auth
-     is flagged available we still require allow_merge + live policy, but mark
-     production readiness as P21-owned. *)
+  (* P21 production path (User_required): when user auth is available, route +
+     live policy authorize the plan; attribution authorize + user lease at
+     dispatch are required for execution (no App/PAT fallback). P19 App pilot
+     remains the only non-user path and is never a silent substitute. *)
   if (not pilot_ok) && not user_auth_available then
     Error (pilot_unavailable_reason ~pilot ~user_auth_available ~now)
-  else if (not pilot_ok) && user_auth_available then
-    (* P21 path is not production-enabled in P19; refuse silently falling back
-       to App/PAT and refuse pretending User_required is ready. *)
-    Error
-      (Printf.sprintf
-         "Merge production path requires P21 User_required attribution rollout \
-          (pilot %S off/expired; user auth present but P19 does not enable \
-          production merge). No App/PAT fallback."
-         pilot.pilot_name)
   else
+    let p21_user = (not pilot_ok) && user_auth_available in
     let item_key = String.trim req.item_key in
     let head_sha = String.trim req.head_sha in
     if item_key = "" then Error "merge item_key must be non-empty"
@@ -169,12 +161,15 @@ let authorize_merge ~route ~pilot ~user_auth_available ~(req : merge_request)
             with
             | Error e -> Error e
             | Ok () -> (
-                (* Actor mode: pilot allows App; User mode still ok under pilot
-                   when authority_ok. Reject User mode only when pilot path is
-                   App-only and caller asserted User without auth — already
-                   covered above. *)
-                match policy.actor_mode with
-                | App | User -> Ok ()))
+                (* Actor mode: pilot allows App or User; P21 production path
+                   requires User (App/PAT never a silent substitute). *)
+                match (policy.actor_mode, p21_user) with
+                | App, true ->
+                    Error
+                      "merge is User_required on the production path: live \
+                       actor_mode=App is forbidden; use a current Principal \
+                       user lease (no App/PAT fallback)"
+                | App, false | User, _ -> Ok ()))
 
 let revalidate_for_apply ~planned_head_sha ~planned_method
     ~(current : live_policy) =
@@ -197,7 +192,10 @@ let store_pending ~db (plan : Setup_plan.t) =
   | Error e -> Error e
 
 let merge_request_to_json ~(pilot : pilot_gate) ~(req : merge_request)
-    ~(policy : live_policy) =
+    ~(policy : live_policy) ~p21_user =
+  let attribution_s =
+    if p21_user then "User_required" else actor_mode_to_string policy.actor_mode
+  in
   `Assoc
     (sort_assoc
        ([
@@ -206,9 +204,9 @@ let merge_request_to_json ~(pilot : pilot_gate) ~(req : merge_request)
           ("head_sha", `String req.head_sha);
           ("merge_method", `String (merge_method_to_string req.method_));
           ("pilot_name", `String pilot.pilot_name);
-          ("attribution", `String (actor_mode_to_string policy.actor_mode));
-          ("pilot_only", `Bool true);
-          ("production_ready", `Bool false);
+          ("attribution", `String attribution_s);
+          ("pilot_only", `Bool (not p21_user));
+          ("production_ready", `Bool p21_user);
           ("is_draft", `Bool policy.is_draft);
           ("mergeable", `Bool policy.mergeable);
           ("required_checks_ok", `Bool policy.required_checks_ok);
@@ -239,11 +237,17 @@ let plan_merge ~db ~principal ~room_id ~pilot ~user_auth_available
     with
     | Error e -> Error e
     | Ok () ->
+        let pilot_ok = pilot.enabled && not (pilot_expired ~now pilot) in
+        let p21_user = (not pilot_ok) && user_auth_available in
         let item_key = String.trim req.item_key in
         let head_sha = String.trim req.head_sha in
         let method_s = merge_method_to_string req.method_ in
-        let action_json = merge_request_to_json ~pilot ~req ~policy in
+        let action_json = merge_request_to_json ~pilot ~req ~policy ~p21_user in
         let path = Printf.sprintf "github_merge/%s/%s" method_s item_key in
+        let attribution_s =
+          if p21_user then "User_required"
+          else actor_mode_to_string policy.actor_mode
+        in
         let current_state =
           `Assoc
             (sort_assoc
@@ -269,9 +273,8 @@ let plan_merge ~db ~principal ~room_id ~pilot ~user_auth_available
                   ("pilot_name", `String pilot.pilot_name);
                   ("room_id", `String room_id);
                   ("status", `String "planned");
-                  ( "attribution",
-                    `String (actor_mode_to_string policy.actor_mode) );
-                  ("production_ready", `Bool false);
+                  ("attribution", `String attribution_s);
+                  ("production_ready", `Bool p21_user);
                 ]
                @
                match route with
@@ -282,23 +285,31 @@ let plan_merge ~db ~principal ~room_id ~pilot ~user_auth_available
                      ("route_revision", `String r.revision);
                    ]))
         in
+        let note_message =
+          if p21_user then
+            Printf.sprintf
+              "User_required merge (%s) on %s at head %s via allow_merge; \
+               revalidate head, draft, mergeability, checks, reviews, branch \
+               policy, method, actor mode, and authority immediately before \
+               dispatch via Github_merge_attribution. Confirm before apply. No \
+               live GitHub mutation at plan time. Success reconciles through \
+               the merged event."
+              method_s item_key head_sha
+          else
+            Printf.sprintf
+              "High-risk independently gated merge (%s) on %s at head %s under \
+               pilot %S; revalidate head, draft, mergeability, checks, \
+               reviews, branch policy, method, actor mode, and authority \
+               immediately before execution. Confirm before apply. Not \
+               production-ready (P21 User_required pending). No live GitHub \
+               mutation at plan time. Success reconciles through the merged \
+               event."
+              method_s item_key head_sha pilot.pilot_name
+        in
         let diff =
           [
             Setup_plan.Create { path; value = action_json };
-            Setup_plan.Note
-              {
-                path;
-                message =
-                  Printf.sprintf
-                    "High-risk independently gated merge (%s) on %s at head %s \
-                     under pilot %S; revalidate head, draft, mergeability, \
-                     checks, reviews, branch policy, method, actor mode, and \
-                     authority immediately before execution. Confirm before \
-                     apply. Not production-ready (P21 User_required pending). \
-                     No live GitHub mutation at plan time. Success reconciles \
-                     through the merged event."
-                    method_s item_key head_sha pilot.pilot_name;
-              };
+            Setup_plan.Note { path; message = note_message };
           ]
         in
         let readiness =
@@ -311,7 +322,8 @@ let plan_merge ~db ~principal ~room_id ~pilot ~user_auth_available
             {
               name = "pilot";
               status = Setup_plan.Pass;
-              message = pilot.pilot_name;
+              message =
+                (if p21_user then "p21_user_required" else pilot.pilot_name);
             };
             { name = "head_sha"; status = Setup_plan.Pass; message = head_sha };
             {
@@ -326,11 +338,15 @@ let plan_merge ~db ~principal ~room_id ~pilot ~user_auth_available
                 "head/draft/mergeable/checks/reviews/branch/method/authority ok";
             };
             {
-              name = "not_production_ready";
+              name =
+                (if p21_user then "production_ready" else "not_production_ready");
               status = Setup_plan.Pass;
               message =
-                "P19 independent merge pilot only; production waits for P21 \
-                 User_required";
+                (if p21_user then
+                   "P21 User_required path; App/PAT fallback forbidden"
+                 else
+                   "P19 independent merge pilot only; production waits for P21 \
+                    User_required");
             };
             {
               name = "no_live_mutation";
@@ -371,7 +387,8 @@ let plan_merge ~db ~principal ~room_id ~pilot ~user_auth_available
                  ("merge_method", `String method_s);
                  ("pilot_name", `String pilot.pilot_name);
                  ("capability", `String "allow_merge");
-                 ("production_ready", `Bool false);
+                 ("attribution", `String attribution_s);
+                 ("production_ready", `Bool p21_user);
                ])
         in
         let ctx = room_context ~room_id in

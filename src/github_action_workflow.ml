@@ -6,6 +6,7 @@ module Reconcile = Github_action_reconcile
 module Collab_attr = Github_collab_attribution
 module Review_attr = Github_pr_review_attribution
 module Issue_attr = Github_issue_attribution
+module Merge_attr = Github_merge_attribution
 
 type action_kind =
   | Collab of Github_collab_actions.action
@@ -93,10 +94,9 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
     ?(user_auth_available = false) ?actor_key ?actor_snapshot
     ?account_binding_id ?session_id ?attribution_evidence
-    ?(review_live = Review_attr.default_live_revalidation) ?github_user_id
-    ?(now = Unix.gettimeofday ()) () =
     ?(review_live = Review_attr.default_live_revalidation)
-    ?(issue_live = Issue_attr.default_live_revalidation) ?github_user_id
+    ?(issue_live = Issue_attr.default_live_revalidation) ?merge_live
+    ?github_user_id ?(now = Unix.gettimeofday ()) () =
   let plan_res =
     match action with
     | Collab collab -> (
@@ -140,10 +140,25 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
         | None ->
             Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id
               ~pilot ~user_auth_available ~req ~base_revision ?route ~now ())
-    | Merge { req; policy } ->
-        Github_merge_action.plan_merge ~db ~principal ~room_id
-          ~pilot:merge_pilot ~user_auth_available ~req ~policy ~base_revision
-          ?route ~now ()
+    | Merge { req; policy } -> (
+        match attribution_evidence with
+        | Some auth -> (
+            let live =
+              match merge_live with
+              | Some l -> l
+              | None -> Merge_attr.default_live_revalidation ~policy ()
+            in
+            match
+              Merge_attr.plan_with_attribution ~db ~principal ~room_id ~req
+                ~policy ~base_revision ~auth ~live ~route ~pilot:merge_pilot
+                ~user_auth_available ?actor_snapshot ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
+            Github_merge_action.plan_merge ~db ~principal ~room_id
+              ~pilot:merge_pilot ~user_auth_available ~req ~policy
+              ~base_revision ?route ~now ())
     | Issue issue_action -> (
         match attribution_evidence with
         | Some auth -> (
@@ -192,24 +207,12 @@ let apply_outcome_with_correlation ~db ~plan ~now
       ());
   outcome
 
-let is_collab_plan (plan : Setup_plan.t) =
-  match plan.apply_payload.kind with
-  | Setup_plan.Generic "github_collab_action" -> true
-  | _ -> false
-
-let is_pr_review_plan (plan : Setup_plan.t) =
-  match plan.apply_payload.kind with
-  | Setup_plan.Generic ("github_request_reviewers" | "github_submit_review") ->
-      true
-  | _ -> false
-
 (** When a collab plan carries staged attribution, revalidate live evidence and
     issue an opaque lease before receipt-only apply. Receipt-only path revokes
     the lease after native attribution receipt (no live HTTP in this layer). *)
 let maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
     ?expected_account ?github_user_id ~now () =
-  if not (is_collab_plan plan && Collab_attr.has_attribution_allow plan) then
-    Ok None
+  if not (Collab_attr.has_attribution_allow plan) then Ok None
   else
     match attribution_live with
     | None ->
@@ -232,13 +235,11 @@ let maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
 let maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
     ?(review_live = Review_attr.default_live_revalidation) ?vault_id
     ?expected_account ?github_user_id ~now () =
-  if not (is_pr_review_plan plan && Review_attr.has_attribution_allow plan) then
-    Ok None
+  if not (Review_attr.has_attribution_allow plan) then Ok None
   else
     match attribution_live with
     | None ->
         Error
-  if not (Review_attr.has_attribution_allow plan) then Ok None
           "PR review plan has staged attribution_allow; apply requires \
            attribution_live evidence for revalidation and dispatch lease"
     | Some live_auth -> (
@@ -273,15 +274,48 @@ let maybe_issue_attribution_dispatch ~db ~plan ?attribution_live
         | Error e -> Error e
         | Ok dispatched ->
             Issue_attr.revoke_issued_lease dispatched.issued;
+            Ok (Some dispatched))
+
+(** When a merge plan carries staged attribution, revalidate live merge policy
+    and issue an opaque user lease before receipt-only apply. *)
+let maybe_merge_attribution_dispatch ~db ~plan ?attribution_live ?merge_live
+    ?current_merge_policy ?vault_id ?expected_account ?github_user_id ~now () =
+  if not (Merge_attr.has_attribution_allow plan) then Ok None
+  else
+    match attribution_live with
+    | None ->
+        Error
+          "merge plan has staged attribution_allow; apply requires \
+           attribution_live evidence for revalidation and dispatch lease"
+    | Some live_auth -> (
+        match
+          match merge_live with
+          | Some l -> Ok l
+          | None -> (
+              match current_merge_policy with
+              | Some policy ->
+                  Ok (Merge_attr.default_live_revalidation ~policy ())
+              | None ->
+                  Error
+                    "merge plan has staged attribution_allow; apply requires \
+                     current_merge_policy or merge_live for live revalidation \
+                     and dispatch lease")
+        with
+        | Error e -> Error e
+        | Ok live -> (
+            match
+              Merge_attr.prepare_dispatch_from_plan ~db ~plan ~live_auth ~live
+                ?vault_id ?expected:expected_account ?github_user_id ~now ()
+            with
+            | Error e -> Error e
+            | Ok dispatched ->
+                Merge_attr.revoke_issued_lease dispatched.issued;
+                Ok (Some dispatched)))
 
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
-    ?review_live ?vault_id ?expected_account ?github_user_id
-    ?(now = Unix.gettimeofday ()) () =
-    ?vault_id ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) ()
-    =
-    ~current_base_revision ~destination_room ?current_target
     ?review_live ?issue_live ?vault_id ?expected_account ?github_user_id
+    ?(now = Unix.gettimeofday ()) () =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
@@ -293,42 +327,33 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
           ?expected_account ?github_user_id ~now ()
       with
       | Error msg -> Ok (reject_actor_attribution msg)
-      | Ok _collab_opt -> (
+      | Ok _ -> (
           match
             maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
               ?review_live ?vault_id ?expected_account ?github_user_id ~now ()
           with
           | Error msg -> Ok (reject_actor_attribution msg)
-          | Ok _review_opt ->
-              let outcome =
-                Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-                  ~current_base_revision ~destination_room ~now
-                  ~authority:authority_allow ~apply_ops:receipt_only_apply_ops
-                  ()
-              in
-              Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)))
-      | Ok _dispatched_opt ->
-          (* Snapshot (when present) re-resolved usable; collab attribution
-             dispatch (when staged) revalidated. Proceed with receipt-only
-             apply. *)
-              ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ()
-          Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))
-  | Ok _envelope_opt ->
-      (* Snapshot (when present) re-resolved usable; proceed with receipt-only
-         apply. Envelope is available for later live dispatch wiring. *)
-      Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)
-      | Ok _ -> (
+          | Ok _ -> (
+              match
                 maybe_issue_attribution_dispatch ~db ~plan ?attribution_live
                   ?issue_live ?vault_id ?expected_account ?github_user_id ~now
+                  ()
+              with
+              | Error msg -> Ok (reject_actor_attribution msg)
+              | Ok _dispatched_opt ->
                   (* Snapshot (when present) re-resolved; staged attribution
                      dispatch revalidated. Proceed with receipt-only apply. *)
+                  let outcome =
+                    Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+                      ~current_base_revision ~destination_room ~now
                       ~authority:authority_allow
                       ~apply_ops:receipt_only_apply_ops ()
+                  in
                   Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?attribution_live ?review_live
-    ?issue_live ?vault_id ?expected_account ?github_user_id
+    ?issue_live ?merge_live ?vault_id ?expected_account ?github_user_id
     ?(now = Unix.gettimeofday ()) () =
   Setup_plan_apply.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id with
@@ -345,7 +370,8 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
              "plan %s is not a GitHub action plan (apply_payload.kind mismatch)"
              plan_id)
       else if Github_merge_action.is_merge_plan plan then
-        (* Actor revalidation first, then merge-specific live policy checks. *)
+        (* Actor revalidation, optional staged attribution lease, then merge
+           live policy checks. *)
         match
           Attr.revalidate_for_apply ~db ~plan ?current_target
             ~require_snapshot:false ()
@@ -353,13 +379,20 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
         | Error msg -> Ok (reject_actor_attribution msg)
         | Ok _ -> (
             match
-              Github_merge_action.apply_confirmed ~db ~plan_id ~digest
-                ~principal ~current_base_revision
-                ?current_policy:current_merge_policy ~now ()
+              maybe_merge_attribution_dispatch ~db ~plan ?attribution_live
+                ?merge_live ?current_merge_policy ?vault_id ?expected_account
+                ?github_user_id ~now ()
             with
-            | Error e -> Error e
-            | Ok outcome ->
-                Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))
+            | Error msg -> Ok (reject_actor_attribution msg)
+            | Ok _ -> (
+                match
+                  Github_merge_action.apply_confirmed ~db ~plan_id ~digest
+                    ~principal ~current_base_revision
+                    ?current_policy:current_merge_policy ~now ()
+                with
+                | Error e -> Error e
+                | Ok outcome ->
+                    Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)))
       else
         match plan.destination.room_id with
         | None ->
@@ -370,10 +403,5 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
         | Some destination_room ->
             apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
               ~current_base_revision ~destination_room ?current_target
-              ?attribution_live ?review_live ?vault_id ?expected_account
-              ?github_user_id ~now ())
-              ?attribution_live ?vault_id ?expected_account ?github_user_id ~now
-              ())
-              ~current_base_revision ~destination_room ?current_target ~now ())
               ?attribution_live ?review_live ?issue_live ?vault_id
               ?expected_account ?github_user_id ~now ())
