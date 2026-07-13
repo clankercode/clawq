@@ -40,7 +40,8 @@ tasks:
       file: T003-implement-pr-branch-path-label.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement PR branch path label author team and draft predicates
     - complexity: high
       depends_on:
@@ -50,5 +51,6 @@ tasks:
       file: T004-implement-issue-label-author-t.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement Issue label author team assignee and milestone predicates
