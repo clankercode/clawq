@@ -43,7 +43,20 @@ val list_for_room :
   ?limit:int ->
   unit ->
   (journal_entry list, string) result
-(** Chronological order (created_at ASC, id ASC). *)
+(** Chronological order (created_at ASC, id ASC). When [limit] is set, returns
+    the oldest [limit] rows (prefix of the full history). *)
+
+val list_recent :
+  db:Sqlite3.db ->
+  room_id:string ->
+  ?item_key:string ->
+  ?before:string ->
+  ?limit:int ->
+  unit ->
+  (journal_entry list, string) result
+(** Room/item history for session context. Optional exclusive [before]
+    [created_at] cursor. When [limit] is set, selects the most recent [limit]
+    matching rows; result is always chronological ASC (created_at, id). *)
 
 val get_by_delivery :
   db:Sqlite3.db ->

@@ -57,8 +57,26 @@ let ensure_schema db =
     {|CREATE INDEX IF NOT EXISTS idx_github_room_event_journal_item
       ON github_room_event_journal(item_key)|}
   in
+  (* Composite indexes for session-context history queries (room + time, and
+     room + item + time). *)
+  let idx_room_created =
+    {|CREATE INDEX IF NOT EXISTS idx_github_room_event_journal_room_created
+      ON github_room_event_journal(room_id, created_at, id)|}
+  in
+  let idx_room_item_created =
+    {|CREATE INDEX IF NOT EXISTS idx_github_room_event_journal_room_item_created
+      ON github_room_event_journal(room_id, item_key, created_at, id)|}
+  in
   List.iter (exec_schema db)
-    [ table_sql; uniq_delivery; idx_room; idx_delivery; idx_item ]
+    [
+      table_sql;
+      uniq_delivery;
+      idx_room;
+      idx_delivery;
+      idx_item;
+      idx_room_created;
+      idx_room_item_created;
+    ]
 
 let text_col stmt i =
   match Sqlite3.column stmt i with
@@ -267,6 +285,21 @@ let append ~db ~room_id ~envelope ?route_id ?session_append
                     session_message_id;
                   }))
 
+let fold_entries ~db stmt ~err_label =
+  let rec loop acc =
+    match Sqlite3.step stmt with
+    | Sqlite3.Rc.ROW -> (
+        match entry_of_stmt stmt with
+        | Ok e -> loop (e :: acc)
+        | Error e -> Error e)
+    | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+    | rc ->
+        Error
+          (Printf.sprintf "%s failed: %s (%s)" err_label
+             (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+  in
+  loop []
+
 let list_for_room ~db ~room_id ?limit () =
   ensure_schema db;
   if String.trim room_id = "" then Error "room_id must be non-empty"
@@ -294,18 +327,75 @@ let list_for_room ~db ~room_id ?limit () =
     (match bind_limit with
     | Some n -> ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int n)))
     | None -> ());
-    let rec loop acc =
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> (
-          match entry_of_stmt stmt with
-          | Ok e -> loop (e :: acc)
-          | Error e -> Error e)
-      | Sqlite3.Rc.DONE -> Ok (List.rev acc)
-      | rc ->
-          Error
-            (Printf.sprintf "list_for_room failed: %s (%s)"
-               (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+    let result = fold_entries ~db stmt ~err_label:"list_for_room" in
+    ignore (Sqlite3.finalize stmt);
+    result
+
+let list_recent ~db ~room_id ?item_key ?before ?limit () =
+  ensure_schema db;
+  if String.trim room_id = "" then Error "room_id must be non-empty"
+  else
+    let item_key =
+      match item_key with
+      | Some k when String.trim k <> "" -> Some (String.trim k)
+      | Some _ -> None
+      | None -> None
     in
-    let result = loop [] in
+    let before =
+      match before with
+      | Some b when String.trim b <> "" -> Some (String.trim b)
+      | Some _ -> None
+      | None -> None
+    in
+    let limit = match limit with Some n when n > 0 -> Some n | _ -> None in
+    (* Build WHERE and bind positions dynamically. When [limit] is set we select
+       newest-first then re-order chronological ASC so session context gets the
+       trailing window of history (survives compaction). *)
+    let where_parts = [ "room_id = ?" ] in
+    let where_parts =
+      match item_key with
+      | Some _ -> "item_key = ?" :: where_parts
+      | None -> where_parts
+    in
+    let where_parts =
+      match before with
+      | Some _ -> "created_at < ?" :: where_parts
+      | None -> where_parts
+    in
+    let where = String.concat " AND " (List.rev where_parts) in
+    let sql =
+      match limit with
+      | Some _ ->
+          Printf.sprintf
+            {|SELECT %s FROM (
+                SELECT %s FROM github_room_event_journal
+                WHERE %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+              ) AS recent
+              ORDER BY created_at ASC, id ASC|}
+            select_columns select_columns where
+      | None ->
+          Printf.sprintf
+            {|SELECT %s FROM github_room_event_journal
+              WHERE %s
+              ORDER BY created_at ASC, id ASC|}
+            select_columns where
+    in
+    let stmt = Sqlite3.prepare db sql in
+    let bind_i = ref 1 in
+    let bind_text s =
+      ignore (Sqlite3.bind stmt !bind_i (Sqlite3.Data.TEXT s));
+      incr bind_i
+    in
+    bind_text room_id;
+    (match item_key with Some k -> bind_text k | None -> ());
+    (match before with Some b -> bind_text b | None -> ());
+    (match limit with
+    | Some n ->
+        ignore (Sqlite3.bind stmt !bind_i (Sqlite3.Data.INT (Int64.of_int n)));
+        incr bind_i
+    | None -> ());
+    let result = fold_entries ~db stmt ~err_label:"list_recent" in
     ignore (Sqlite3.finalize stmt);
     result
