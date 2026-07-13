@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T00:21:28Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T00:24:44Z"
 complexity: medium
 created_at: "2026-07-12T12:33:57Z"
 depends_on:
     - P19.M3.E1.T002
+duration_minutes: 3.2710834248333334
 estimate_hours: 3
 id: P19.M3.E1.T003
 priority: high
 started_at: "2026-07-13T00:21:28Z"
-status: in_progress
+status: done
 tags: []
 title: Implement off summary and threaded comment behavior
-updated_at: "2026-07-13T00:21:28Z"
+updated_at: "2026-07-13T00:24:44Z"
 ---
 Acceptance: Off suppresses visible comment projection, summary updates count/latest metadata without bodies, and threaded emits sanitized thread activity. Reviews update card state regardless of comment mode, and route changes apply only to subsequently accepted events. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

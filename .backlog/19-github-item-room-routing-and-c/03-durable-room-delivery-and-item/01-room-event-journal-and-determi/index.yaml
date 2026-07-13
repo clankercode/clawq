@@ -40,7 +40,7 @@ tasks:
       file: T003-implement-off-summary-and-thre.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement off summary and threaded comment behavior
     - complexity: high
