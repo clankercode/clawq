@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Refresh and Revocation Lifecycle
       path: 01-refresh-and-revocation-lifecyc
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Define App/User_required/User_preferred policy, select accounts, intersect live authority, and record redacted previews and receipts.
