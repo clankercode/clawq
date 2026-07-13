@@ -7,7 +7,7 @@
     Planning produces values only: no config write, no database mutation, no
     Connector or Session side effects. Optional [db] is used only for read-only
     readiness probes (budget state, ledger schema). Confirm/apply and durable
-    plan storage belong to P20.M2.E1.T002.
+    plan storage: [Room_agent_setup_apply] (P20.M2.E1.T002).
 
     Apply payload kind is [Setup_plan.Room_profile]. Payloads and free-form
     state JSON are secret-free (ids/handles only — never channel tokens).

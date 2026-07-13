@@ -68,6 +68,7 @@ let () =
        ("setup_room_wizard", Test_setup_room_wizard.suite);
        ("setup_room_wizard_validate", Test_setup_room_wizard_validate.suite);
        ("room_agent_setup_plan", Test_room_agent_setup_plan.suite);
+       ("room_agent_setup_apply", Test_room_agent_setup_apply.suite);
        ("url_sanitize", Test_url_sanitize.suite);
        ("room_stale_query", Test_room_stale_query.suite);
        ("room_watcher_decision", Test_room_watcher_decision.suite);
