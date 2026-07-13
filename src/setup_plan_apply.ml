@@ -198,6 +198,35 @@ let store_plan ~db (plan : Setup_plan.t) =
   | rc ->
       Error (Printf.sprintf "store_plan failed: %s" (Sqlite3.Rc.to_string rc))
 
+let replace_pending_plan ~db (plan : Setup_plan.t) =
+  let plan = Setup_plan.redact plan in
+  let json = Yojson.Safe.to_string (Setup_plan.to_persist_json plan) in
+  let now = Time_util.iso8601_utc () in
+  let sql =
+    {|UPDATE setup_plans
+      SET digest = ?, plan_json = ?, updated_at = ?
+      WHERE id = ? AND status = 'pending'|}
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let bind i v = ignore (Sqlite3.bind stmt i v) in
+  bind 1 (Sqlite3.Data.TEXT plan.digest);
+  bind 2 (Sqlite3.Data.TEXT json);
+  bind 3 (Sqlite3.Data.TEXT now);
+  bind 4 (Sqlite3.Data.TEXT plan.id);
+  let rc = Sqlite3.step stmt in
+  let changes = Sqlite3.changes db in
+  ignore (Sqlite3.finalize stmt);
+  match rc with
+  | Sqlite3.Rc.DONE when changes = 1 -> Ok ()
+  | Sqlite3.Rc.DONE ->
+      Error
+        (Printf.sprintf "replace_pending_plan: plan %s not found or not pending"
+           plan.id)
+  | rc ->
+      Error
+        (Printf.sprintf "replace_pending_plan failed: %s"
+           (Sqlite3.Rc.to_string rc))
+
 let get_plan ~db ~plan_id =
   let sql = "SELECT plan_json FROM setup_plans WHERE id = ?" in
   let stmt = Sqlite3.prepare db sql in
