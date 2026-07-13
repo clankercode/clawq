@@ -225,6 +225,7 @@
   github_attribution_policy
   github_user_auth_readiness
   github_user_token_store
+  github_user_token_master_key
   credential_lease
   skills
   skills_cmd_inject
