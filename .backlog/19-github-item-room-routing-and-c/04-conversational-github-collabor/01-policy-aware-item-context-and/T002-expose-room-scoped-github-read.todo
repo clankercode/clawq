@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T00:55:09Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T00:59:14Z"
 complexity: high
 created_at: "2026-07-12T12:34:02Z"
 depends_on:
     - P19.M4.E1.T001
     - P19.M1.E3.T004
+duration_minutes: 4.09063437605
 estimate_hours: 4
 id: P19.M4.E1.T002
 priority: high
 started_at: "2026-07-13T00:55:09Z"
-status: in_progress
+status: done
 tags: []
 title: Expose Room-scoped GitHub read search and status tools
-updated_at: "2026-07-13T00:55:09Z"
+updated_at: "2026-07-13T00:59:14Z"
 ---
 Acceptance: Authorized catalogs expose item details, discussions, reviews, checks, files/diff summaries, commits, mergeability, and Room route/status inspection. Reads enforce current Room repository, App installation, credential, and egress policy and setup/admin tools remain absent for ordinary members. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
