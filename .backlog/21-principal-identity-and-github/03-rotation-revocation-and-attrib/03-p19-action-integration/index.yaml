@@ -119,7 +119,7 @@ tasks:
       file: T008-integrate-user-required-code-w.todo
       id: T008
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Integrate user-required code work and constrained PR creation
     - complexity: high

@@ -1,7 +1,7 @@
 ---
 claimed_at: "2026-07-13T07:59:29Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T08:17:44Z"
 complexity: high
 created_at: "2026-07-12T17:01:26Z"
 depends_on:
@@ -10,13 +10,14 @@ depends_on:
     - P21.M3.E2.T005
     - P21.M3.E2.T006
     - P21.M3.E2.T007
+duration_minutes: 18.262427927166666
 estimate_hours: 5
 id: P21.M3.E3.T008
 priority: critical
 started_at: "2026-07-13T07:59:29Z"
-status: in_progress
+status: done
 tags: []
 title: Integrate user-required code work and constrained PR creation
-updated_at: "2026-07-13T07:59:29Z"
+updated_at: "2026-07-13T08:17:44Z"
 ---
 Acceptance: Confirmed code work and its constrained PR creation pin the initiating Principal/account lineage and expected GitHub actor, while runner, shell, prompt, worktree, Git transport, and scheduled ambient work never receive the personal token. Dispatch revalidates current user authority and cannot App/PAT-fallback; cancellation, retry, stale output, receipt, and webhook cases are tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
