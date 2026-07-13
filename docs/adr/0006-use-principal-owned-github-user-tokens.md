@@ -17,7 +17,9 @@ numeric user ID. Support state plus S256 PKCE web authorization and GitHub App
 device authorization through private, restart-safe transactions. Successful
 authorization verifies the GitHub identity and seals pending credentials, then
 resumes a redacted, revision-bound binding plan; it never counts as apply
-confirmation. Require expiring user tokens. Store access/refresh material in a
+confirmation. A web PKCE verifier is held only by an opaque secret handle and,
+on every terminal callback outcome, is deleted together with its protected
+metadata. Require expiring user tokens. Store access/refresh material in a
 fail-closed mutable encrypted vault with generation-based CAS rotation. A token
 generation versions one binding's mutable GitHub access/refresh lineage; it is
 not an encryption-key version. Refresh, revoke, and lease CAS compare the token

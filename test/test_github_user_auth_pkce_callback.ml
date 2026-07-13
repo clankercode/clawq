@@ -144,6 +144,19 @@ let count_authorized ~db =
 let assert_no_active_binding ~db =
   Alcotest.(check int) "no authorized binding" 0 (count_authorized ~db)
 
+let assert_terminal_pkce_destroyed ~db ~store ~table
+    ~(started : Pkce.start_result) =
+  (match Pkce.load_protected ~db ~tx_id:started.tx.id with
+  | Ok None -> ()
+  | Ok (Some _) -> Alcotest.fail "terminal callback retained protected PKCE row"
+  | Error e -> Alcotest.fail e);
+  Alcotest.(check bool)
+    "terminal callback removed verifier from in-memory secret store" false
+    (Hashtbl.mem table started.material.code_verifier_handle);
+  match Pkce.get_code_verifier ~store ~material:started.material with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "terminal callback left verifier readable"
+
 let exchange ~db ~store ~keys ?http_post ?fetch_user:fu ?(now = fixed_now)
     ?activation_id ?binding_id ?vault_id ?plan_id ~callback () =
   Cb.exchange ~db ~store ~keys ?http_post ~resolve_client
@@ -188,7 +201,7 @@ let test_parse_token_json_and_form () =
 
 let test_happy_path_routes_through_shared_activation () =
   with_db @@ fun db ->
-  let store, _ = fresh_store () in
+  let store, table = fresh_store () in
   let keys = make_keys () in
   let started = assert_ok (start_flow ~db ~store ~id:"tx_happy" ()) in
   let callback =
@@ -222,6 +235,7 @@ let test_happy_path_routes_through_shared_activation () =
       Alcotest.(check string)
         "tx completed" "completed"
         (Tx.string_of_status r.tx.status);
+      assert_terminal_pkce_destroyed ~db ~store ~table ~started;
       let prep = r.prepared in
       Alcotest.(check string)
         "activation pending confirmation" "pending_confirmation"
@@ -398,7 +412,7 @@ let test_duplicate_callback_one_exchange () =
 
 let test_oauth_denial_cancels_no_binding () =
   with_db @@ fun db ->
-  let store, _ = fresh_store () in
+  let store, table = fresh_store () in
   let keys = make_keys () in
   let started = assert_ok (start_flow ~db ~store ~id:"tx_deny" ()) in
   let http_called = ref false in
@@ -425,6 +439,7 @@ let test_oauth_denial_cancels_no_binding () =
           Alcotest.(check string)
             "cancelled" "cancelled"
             (Tx.string_of_status tx.status));
+      assert_terminal_pkce_destroyed ~db ~store ~table ~started;
       (* Second denial / callback is replay terminal. *)
       match exchange ~db ~store ~keys ~http_post:http ~callback () with
       | Ok _ -> Alcotest.fail "second denial must fail"
@@ -435,9 +450,58 @@ let test_oauth_denial_cancels_no_binding () =
             | Cb.Replay | Cb.Unused_status | Cb.Denial -> true
             | _ -> false))
 
+let test_oauth_denial_redirect_mismatch_preserves_pending_pkce () =
+  with_db @@ fun db ->
+  let store, table = fresh_store () in
+  let keys = make_keys () in
+  let started = assert_ok (start_flow ~db ~store ~id:"tx_deny_redirect" ()) in
+  let http_called = ref false in
+  let http ~url:_ ~headers:_ ~body:_ =
+    http_called := true;
+    Ok (200, token_json ())
+  in
+  let callback =
+    assert_ok
+      (Cb.make_callback_request ~state:started.tx.one_time_state
+         ~redirect_uri:"https://evil.example/oauth/github/callback"
+         ~error:"access_denied" ())
+  in
+  match exchange ~db ~store ~keys ~http_post:http ~callback () with
+  | Ok _ -> Alcotest.fail "redirect-mismatched denial must fail"
+  | Error e -> (
+      Alcotest.(check string)
+        "kind" "redirect_mismatch"
+        (Cb.string_of_failure_kind e.kind);
+      Alcotest.(check bool) "no http" false !http_called;
+      assert_no_active_binding ~db;
+      Alcotest.(check int) "no bindings" 0 (count_bindings ~db);
+      (match Tx.get ~db ~id:started.tx.id with
+      | Ok (Some tx) ->
+          Alcotest.(check string)
+            "tx remains open" "open"
+            (Tx.string_of_status tx.status)
+      | Ok None -> Alcotest.fail "authorization transaction missing"
+      | Error err -> Alcotest.fail err);
+      (match Pkce.load_protected ~db ~tx_id:started.tx.id with
+      | Ok (Some material) ->
+          Alcotest.(check string)
+            "protected verifier handle retained"
+            started.material.code_verifier_handle material.code_verifier_handle
+      | Ok None -> Alcotest.fail "redirect mismatch removed protected PKCE row"
+      | Error err -> Alcotest.fail err);
+      Alcotest.(check bool)
+        "verifier remains in secret store" true
+        (Hashtbl.mem table started.material.code_verifier_handle);
+      match Pkce.get_code_verifier ~store ~material:started.material with
+      | Ok verifier ->
+          Alcotest.(check bool)
+            "verifier remains readable for retry" true
+            (String.length verifier >= 43)
+      | Error err -> Alcotest.fail err)
+
 let test_timeout_no_binding () =
   with_db @@ fun db ->
-  let store, _ = fresh_store () in
+  let store, table = fresh_store () in
   let keys = make_keys () in
   let started = assert_ok (start_flow ~db ~store ~id:"tx_to" ()) in
   let callback =
@@ -460,6 +524,7 @@ let test_timeout_no_binding () =
             "claimed terminal" "completed"
             (Tx.string_of_status tx.status)
       | None -> Alcotest.fail "expected claimed tx");
+      assert_terminal_pkce_destroyed ~db ~store ~table ~started;
       (* Replay after timeout still refused — one-shot. *)
       match exchange ~db ~store ~keys ~http_post:(ok_http ()) ~callback () with
       | Ok _ -> Alcotest.fail "must not recover after timeout claim"
@@ -628,7 +693,7 @@ let test_redirect_mismatch_no_exchange () =
 
 let test_expired_transaction () =
   with_db @@ fun db ->
-  let store, _ = fresh_store () in
+  let store, table = fresh_store () in
   let keys = make_keys () in
   let started =
     assert_ok
@@ -653,6 +718,7 @@ let test_expired_transaction () =
         (Cb.string_of_failure_kind e.kind);
       assert_no_active_binding ~db;
       Alcotest.(check int) "no bindings" 0 (count_bindings ~db);
+      assert_terminal_pkce_destroyed ~db ~store ~table ~started;
       match e.tx with
       | Some tx ->
           Alcotest.(check string)
@@ -700,6 +766,9 @@ let suite =
       `Quick,
       test_duplicate_callback_one_exchange );
     ("oauth denial cancels", `Quick, test_oauth_denial_cancels_no_binding);
+    ( "oauth denial redirect mismatch preserves pending pkce",
+      `Quick,
+      test_oauth_denial_redirect_mismatch_preserves_pending_pkce );
     ("timeout no binding", `Quick, test_timeout_no_binding);
     ("malformed response no binding", `Quick, test_malformed_response_no_binding);
     ("http denial no binding", `Quick, test_http_denial_no_binding);

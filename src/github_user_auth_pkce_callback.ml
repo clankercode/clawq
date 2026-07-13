@@ -389,6 +389,18 @@ let constant_time_state_equal a b =
      leaking content). Pad-free compare of the exact correlation tokens. *)
   Eqaf.equal a b
 
+let cleanup_terminal_pkce ~db ~(store : Pkce.secret_backend) ~(tx : Tx.t) =
+  match Tx.get ~db ~id:tx.Tx.id with
+  | Ok (Some current) when Tx.status_is_terminal current.Tx.status ->
+      (* Secret-store destruction is outside the callback result contract: a
+         cleanup failure must not replace its typed result or error. The
+         tx-bound destroy is idempotent, so replay paths can retry it. *)
+      ignore (Pkce.destroy_protected ~db ~store ~tx_id:current.Tx.id)
+  | Ok None | Ok (Some _) | Error _ -> ()
+
+let cleanup_terminal_error ~db ~store (e : exchange_error) =
+  match e.tx with None -> () | Some tx -> cleanup_terminal_pkce ~db ~store ~tx
+
 let verify_s256_verifier ~(store : Pkce.secret_backend)
     ~(material : Pkce.protected_material) =
   match material.Pkce.code_challenge_method with
@@ -556,42 +568,32 @@ let map_activation_failure ~tx (f : Activate.failure) =
   err ~tx:(Some tx) ~activation:f.Activate.activation
     ~repair:(activation_repair f) kind f.Activate.message
 
-let handle_oauth_denial ~db ~(callback : callback_request) ~oauth_error ~now =
-  let presented = String.trim callback.state in
-  match Tx.find_by_one_time_state ~db ~one_time_state:presented with
-  | Error e -> err (Storage e) e
-  | Ok None ->
-      err Denial
-        (Printf.sprintf
-           "OAuth denial %S with unknown state; no Principal transaction to \
-            cancel"
-           oauth_error)
-  | Ok (Some tx) -> (
-      if not (constant_time_state_equal presented tx.Tx.one_time_state) then
-        err ~tx:(Some tx) State_mismatch
-          "OAuth denial state does not match Principal transaction"
-      else if Tx.status_is_terminal tx.Tx.status then
-        err ~tx:(Some tx) Replay
-          (Printf.sprintf "OAuth denial on terminal transaction (status=%s)"
-             (Tx.string_of_status tx.Tx.status))
-      else
-        let reason =
-          match callback.error_description with
-          | Some d -> Printf.sprintf "oauth_denial:%s:%s" oauth_error d
-          | None -> Printf.sprintf "oauth_denial:%s" oauth_error
-        in
-        let context = bound_context_of_tx tx in
-        match Tx.cancel ~db ~id:tx.Tx.id ~context ~reason ~now () with
-        | Ok cancelled ->
-            err ~tx:(Some cancelled) Denial
-              (Printf.sprintf
-                 "authorization denied by user/provider (%s); transaction \
-                  cancelled; no active binding"
-                 oauth_error)
-        | Error e ->
-            err ~tx:(Some tx) Denial
-              (Printf.sprintf "authorization denied (%s) but cancel failed: %s"
-                 oauth_error e))
+let handle_oauth_denial ~db ~store ~(callback : callback_request) ~oauth_error
+    ~now =
+  match validate_open_tx ~db ~callback ~now with
+  | Error e ->
+      cleanup_terminal_error ~db ~store e;
+      Error e
+  | Ok (tx, _) -> (
+      let reason =
+        match callback.error_description with
+        | Some d -> Printf.sprintf "oauth_denial:%s:%s" oauth_error d
+        | None -> Printf.sprintf "oauth_denial:%s" oauth_error
+      in
+      let context = bound_context_of_tx tx in
+      match Tx.cancel ~db ~id:tx.Tx.id ~context ~reason ~now () with
+      | Ok cancelled ->
+          cleanup_terminal_pkce ~db ~store ~tx:cancelled;
+          err ~tx:(Some cancelled) Denial
+            (Printf.sprintf
+               "authorization denied by user/provider (%s); transaction \
+                cancelled; no active binding"
+               oauth_error)
+      | Error e ->
+          cleanup_terminal_pkce ~db ~store ~tx;
+          err ~tx:(Some tx) Denial
+            (Printf.sprintf "authorization denied (%s) but cancel failed: %s"
+               oauth_error e))
 
 let claim_open_tx ~db ~store ~callback ~now =
   match validate_open_tx ~db ~callback ~now with
@@ -732,7 +734,8 @@ let exchange ~db ~(store : Pkce.secret_backend) ~keys ?http_post ?resolve_client
   Pkce.ensure_schema db;
   Activate.ensure_schema db;
   match callback.error with
-  | Some oauth_error -> handle_oauth_denial ~db ~callback ~oauth_error ~now
+  | Some oauth_error ->
+      handle_oauth_denial ~db ~store ~callback ~oauth_error ~now
   | None -> (
       match callback.code with
       | None ->
@@ -749,7 +752,9 @@ let exchange ~db ~(store : Pkce.secret_backend) ~keys ?http_post ?resolve_client
               match claim with
               | Error e -> (
                   match commit ~db with
-                  | Ok () -> Error e
+                  | Ok () ->
+                      cleanup_terminal_error ~db ~store e;
+                      Error e
                   | Error commit_error ->
                       rollback ~db;
                       err (Storage commit_error)
@@ -792,9 +797,14 @@ let exchange ~db ~(store : Pkce.secret_backend) ~keys ?http_post ?resolve_client
                                  probe to obtain numeric user id before \
                                  sealing"
                       in
-                      perform_remote_exchange ~db ~keys ~claimed ~material ~code
-                        ~code_verifier ~http ~resolve ~fetch ~now ?ttl_seconds
-                        ?activation_id ?binding_id ?vault_id ?plan_id ()))))
+                      let result =
+                        perform_remote_exchange ~db ~keys ~claimed ~material
+                          ~code ~code_verifier ~http ~resolve ~fetch ~now
+                          ?ttl_seconds ?activation_id ?binding_id ?vault_id
+                          ?plan_id ()
+                      in
+                      cleanup_terminal_pkce ~db ~store ~tx:claimed;
+                      result))))
 
 let redacted_summary (r : exchange_result) =
   let tx = r.tx in

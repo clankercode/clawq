@@ -281,6 +281,46 @@ let insert_protected ~db (m : protected_material) =
 let get_code_verifier ~(store : secret_backend) ~material =
   store.Github_user_token_store.get ~handle:material.code_verifier_handle
 
+let destroy_protected ~db ~(store : secret_backend) ~tx_id =
+  let tx_id = String.trim tx_id in
+  if tx_id = "" then
+    Error "tx_id is required to destroy protected PKCE material"
+  else
+    match load_protected ~db ~tx_id with
+    | Error _ as e -> e
+    | Ok None -> Ok ()
+    | Ok (Some material) -> (
+        match
+          store.Github_user_token_store.delete
+            ~handle:material.code_verifier_handle
+        with
+        | Error e ->
+            Error
+              (Printf.sprintf
+                 "failed to destroy protected PKCE verifier for authorization \
+                  transaction %s: %s"
+                 tx_id e)
+        | Ok () -> (
+            let sql =
+              "DELETE FROM github_user_auth_pkce WHERE tx_id = ? AND \
+               code_verifier_handle = ?"
+            in
+            let stmt = Sqlite3.prepare db sql in
+            ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT tx_id));
+            ignore
+              (Sqlite3.bind stmt 2
+                 (Sqlite3.Data.TEXT material.code_verifier_handle));
+            let rc = Sqlite3.step stmt in
+            ignore (Sqlite3.finalize stmt);
+            match rc with
+            | Sqlite3.Rc.DONE -> Ok ()
+            | rc ->
+                Error
+                  (Printf.sprintf
+                     "github_user_auth_pkce destroy failed for authorization \
+                      transaction %s: %s"
+                     tx_id (Sqlite3.Rc.to_string rc))))
+
 (* -------------------------------------------------------------------------- *)
 (* Authorize URL                                                              *)
 (* -------------------------------------------------------------------------- *)

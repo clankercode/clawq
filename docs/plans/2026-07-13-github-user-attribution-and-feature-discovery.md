@@ -184,7 +184,7 @@ work can begin before P19 completes; action tasks carry exact P19 dependencies.
 | Task | Hours | Depends on | Outcome |
 |---|---:|---|---|
 | P21.M2.E2.T001 Start state-bound S256 PKCE authorization | 4 | P21.M2.E1.T001, P21.M2.E1.T002, P21.M2.E1.T003 | Exact redirect, independent state/verifier, no Room disclosure. |
-| P21.M2.E2.T002 Verify callback and exchange the code exactly once | 5 | P21.M2.E2.T001, P21.M2.E4.T002 | Constant-time state/expiry/redirect/replay checks precede exchange. |
+| P21.M2.E2.T002 Verify callback and exchange the code exactly once | 5 | P21.M2.E2.T001, P21.M2.E4.T002 | Constant-time state/expiry/redirect/replay checks precede exchange; every terminal callback outcome deletes its protected PKCE verifier handle and metadata. |
 | P21.M2.E2.T003 Route web authorization through shared verified activation | 4 | P21.M2.E2.T002, P21.M2.E2.T004 | Send web success through the flow-neutral verification, plan, confirmation, and activation transaction. |
 | P21.M2.E2.T004 Build shared verified pending-credential activation transaction | 6 | P21.M1.E2.T002, P21.M2.E4.T004 | Verify `/user`, seal pending credentials, and atomically activate only after matching private confirmation. |
 
@@ -335,8 +335,9 @@ as `{Name} + LLMs <email>` is desirable. P21 does not solve Git transport.
 - Unit and adapter tests cover Teams OpenID/JWKS/claim/tenant/`serviceUrl`/
   endorsement/key-rotation checks; Slack, Discord, Telegram, web, CLI, and
   direct-session trust; cross-tenant collisions; deterministic merge/adoption;
-  conflict, tombstone, unlink/split/revoke; account precedence; PKCE/callback;
-  shared web/device activation; device polling; and redaction.
+  conflict, tombstone, unlink/split/revoke; account precedence; PKCE/callback
+  terminal-verifier deletion; shared web/device activation; device polling; and
+  redaction.
 - Vault tests distinguish token generation from master-key version and cover
   single-flight refresh, row swap, live stale writes, lease invalidation,
   staged crash-resumable rewrap, backup restore, key loss/compromise, destructive

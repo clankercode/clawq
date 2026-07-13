@@ -112,6 +112,13 @@ val get_code_verifier :
 (** Resolve the protected handle to plaintext verifier. For exchange (later
     task); never log or room-export the result. *)
 
+val destroy_protected :
+  db:Sqlite3.db -> store:secret_backend -> tx_id:string -> (unit, string) result
+(** Delete the verifier from [store] and the protected PKCE row bound to
+    [tx_id]. This is idempotent when the row was already removed; the DELETE
+    additionally binds the persisted handle to avoid removing replacement
+    material. *)
+
 (** {1 Start authorization} *)
 
 type start_result = {
