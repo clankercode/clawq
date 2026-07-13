@@ -181,6 +181,7 @@
   principal_identity_store
   principal_bootstrap
   principal_resolve
+  principal_link_protocol
   github_app_setup_tx
   github_app_setup_callback
   github_app_setup_resume
