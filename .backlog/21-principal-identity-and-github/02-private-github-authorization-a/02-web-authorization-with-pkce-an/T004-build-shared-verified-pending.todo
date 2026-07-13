@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T04:27:15Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T17:01:17Z"
 depends_on:
@@ -7,13 +10,10 @@ depends_on:
 estimate_hours: 6
 id: P21.M2.E2.T004
 priority: critical
-status: pending
-tags:
-    - github
-    - oauth
-    - identity
-    - setup
+started_at: "2026-07-13T04:27:15Z"
+status: in_progress
+tags: []
 title: Build shared verified pending-credential activation transaction
-updated_at: "2026-07-12T17:01:17Z"
+updated_at: "2026-07-13T04:27:15Z"
 ---
 Acceptance: One flow-neutral transaction accepts a pending credential only from a completed web or device exchange, validates response shape and GitHub /user numeric identity, seals Principal/binding/generation and a revision-bound redacted plan, and activates atomically only after matching private confirmation. Collision, mismatch, replay, expiry, cancellation, or changed Principal destroys pending material and preserves prior state. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

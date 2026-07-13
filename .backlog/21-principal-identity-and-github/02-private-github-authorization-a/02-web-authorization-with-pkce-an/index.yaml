@@ -54,5 +54,6 @@ tasks:
       file: T004-build-shared-verified-pending.todo
       id: T004
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Build shared verified pending-credential activation transaction
