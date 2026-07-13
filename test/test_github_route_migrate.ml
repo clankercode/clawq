@@ -185,7 +185,8 @@ let test_prefer_existing () =
       (S.create ~db ~id:"rt_preexisting" ~destination:dest ~selector:sel
          ~filter:
            {
-             S.include_events = [ "issues" ];
+             S.default_filter with
+             include_events = [ "issues" ];
              exclude_events = [];
              include_repos = [];
              exclude_repos = [];

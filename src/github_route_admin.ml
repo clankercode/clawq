@@ -144,46 +144,11 @@ let selector_of_json (j : Yojson.Safe.t) :
   | _ -> Error "selector must be string or object"
 
 let filter_to_json (f : Github_route_store.event_filter) : Yojson.Safe.t =
-  `Assoc
-    [
-      ("include_events", string_list_to_json f.include_events);
-      ("exclude_events", string_list_to_json f.exclude_events);
-      ("include_repos", string_list_to_json f.include_repos);
-      ("exclude_repos", string_list_to_json f.exclude_repos);
-    ]
+  Github_route_filter.to_json f
 
 let filter_of_json (j : Yojson.Safe.t) :
     (Github_route_store.event_filter, string) result =
-  let open Yojson.Safe.Util in
-  match j with
-  | `Null -> Ok Github_route_store.default_filter
-  | `Assoc _ -> (
-      let get key =
-        match string_list_of_json (member key j) with
-        | Ok xs -> Ok xs
-        | Error e -> Error (key ^ ": " ^ e)
-      in
-      match
-        ( get "include_events",
-          get "exclude_events",
-          get "include_repos",
-          get "exclude_repos" )
-      with
-      | Ok include_events, Ok exclude_events, Ok include_repos, Ok exclude_repos
-        ->
-          Ok
-            {
-              Github_route_store.include_events;
-              exclude_events;
-              include_repos;
-              exclude_repos;
-            }
-      | Error e, _, _, _
-      | _, Error e, _, _
-      | _, _, Error e, _
-      | _, _, _, Error e ->
-          Error e)
-  | _ -> Error "filter must be object or null"
+  Github_route_filter.of_json j
 
 let capability_to_json (c : Github_route_store.capability_policy) :
     Yojson.Safe.t =
@@ -338,6 +303,10 @@ let filter_summary (f : Github_route_store.event_filter) =
   if f.exclude_repos <> [] then
     parts :=
       ("exclude_repos=[" ^ String.concat "," f.exclude_repos ^ "]") :: !parts;
+  if Github_route_filter.has_advanced f then
+    parts :=
+      ("schema_version=" ^ string_of_int f.schema_version ^ " advanced")
+      :: !parts;
   match List.rev !parts with
   | [] -> "baseline (all non-excluded events)"
   | xs -> String.concat "; " xs
