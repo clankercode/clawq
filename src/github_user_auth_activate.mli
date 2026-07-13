@@ -51,12 +51,18 @@ val make_pending_credential :
 (** Validate shape: non-empty access token, positive [expires_in]. Web PKCE
     callbacks project their token response through this constructor before
     [prepare] (no module cycle with the callback). *)
+(** Validate shape: non-empty access token, positive [expires_in]. *)
 
-val pending_credential_of_device :
-  Github_user_auth_device_poll.token_success ->
+val pending_credential_of_pkce :
+  Github_user_auth_pkce_callback.token_response ->
   (pending_credential, string) result
-(** Project a device-grant success. Requires positive [expires_in] (fail closed
-    when GitHub omits lifetime). *)
+(** Project a web token response into a pending credential. *)
+(** Validate shape: non-empty access token, positive [expires_in]. Web PKCE and
+    device-poll callers project their token responses through this constructor
+    before [prepare] (avoids module cycles with flow-specific poll/callback
+    modules). Device grants must supply positive [expires_in] (fail closed when
+    GitHub omits lifetime). *)
+
 
 (** {1 GitHub /user identity (injectable)} *)
 

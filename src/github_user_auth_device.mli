@@ -16,8 +16,9 @@
     The pollable [device_code] is never Room-exported. Production HTTP and
     client-id resolution are injectable so unit tests stay offline.
 
-    Durable leased polling lives in [Github_user_auth_device_poll] (T002).
-    Terminal exchange and verified binding activation live in T003.
+    Durable leased polling and terminal routing into shared
+    [Github_user_auth_activate.prepare] live in [Github_user_auth_device_poll]
+    (T002 + T003).
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and

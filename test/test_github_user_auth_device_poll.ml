@@ -1,11 +1,15 @@
-(** Tests for durable leased GitHub device polling (P21.M2.E3.T002). *)
+(** Tests for durable leased GitHub device polling and terminal activation
+    routing (P21.M2.E3.T002 + T003). *)
 
 module Dev = Github_user_auth_device
 module Poll = Github_user_auth_device_poll
 module Tx = Github_user_auth_tx
 module D = Github_user_auth_delivery
+module A = Github_user_auth_activate
 module V = Github_user_token_vault
+module B = Github_account_binding
 module P = Principal_identity
+module PS = Principal_identity_store
 
 let () = Secret_store.test_iterations_override := Some 1
 
@@ -20,6 +24,8 @@ let device_code_secret = "0123456789abcdef0123456789abcdef01234567"
 let user_code_secret = "WDJB-MJHT"
 let verification_uri = "https://github.com/login/device"
 let access_token_secret = "ghu_test_access_token_device_poll_xyz"
+let github_user_id = 9_876_543L
+let github_login = "octocat-device"
 
 let actor =
   match
@@ -63,10 +69,77 @@ let form_device_body ?(device_code = device_code_secret)
 
 let http_ok body ~url:_ ~headers:_ ~body:_ = Ok (200, body)
 
+let seed_principal ~db ?(revision = 1) () =
+  let pid = assert_parse_ok (P.principal_id_of_string principal_id) in
+  let p =
+    P.make_principal ~id:pid ~revision ~created_at:"2026-01-01T00:00:00Z"
+      ~updated_at:"2026-01-01T00:00:00Z" ()
+  in
+  ignore (assert_parse_ok (PS.insert_principal ~db ~now:fixed_now p))
+
 let with_db f =
   let db = Sqlite3.db_open ":memory:" in
   Poll.ensure_schema db;
+  A.ensure_schema db;
+  seed_principal ~db ();
   Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> f db)
+
+let fetch_user ~access_token:tok =
+  if tok <> access_token_secret then Error "unexpected access token"
+  else
+    Ok
+      {
+        A.id = github_user_id;
+        login = github_login;
+        avatar_url = Some "https://avatars.example/d.png";
+      }
+
+let count_authorized ~db =
+  match
+    B.list_for_principal ~db
+      ~principal_id:(assert_parse_ok (P.principal_id_of_string principal_id))
+  with
+  | Error e -> Alcotest.fail e
+  | Ok xs ->
+      List.length
+        (List.filter
+           (fun b ->
+             match b.B.authorization_status with
+             | B.Authorized -> true
+             | _ -> false)
+           xs)
+
+let count_bindings ~db =
+  match
+    B.list_for_principal ~db
+      ~principal_id:(assert_parse_ok (P.principal_id_of_string principal_id))
+  with
+  | Ok xs -> List.length xs
+  | Error e -> Alcotest.fail e
+
+let assert_no_active_binding ~db =
+  Alcotest.(check int) "no authorized binding" 0 (count_authorized ~db)
+
+let grant_body ?(expires_in = 28800) ?(scope = "repo") () =
+  Yojson.Safe.to_string
+    (`Assoc
+       [
+         ("access_token", `String access_token_secret);
+         ("token_type", `String "bearer");
+         ("scope", `String scope);
+         ("expires_in", `Int expires_in);
+       ])
+
+let poll_handle ~db ~keys ~session_id ~worker_id ~now ~http_body ?activation_id
+    ?vault_id ?binding_id ?plan_id () =
+  let http_post ~url:_ ~headers:_ ~body:_ = Ok (200, http_body) in
+  match
+    Poll.poll_and_prepare ~db ~keys ~http_post ~resolve_client_id ~fetch_user
+      ~session_id ~worker_id ~now ?activation_id ?vault_id ?binding_id ?plan_id
+      ()
+  with
+  | Ok r -> r
+  | Error e -> Alcotest.fail e.message
 
 let start_session ?(interval = 5) ?(expires_in = 900) ?(id = "dev_poll_1")
     ?(tx_id = "tx_poll_1") ~db () =
@@ -557,6 +630,344 @@ let test_access_token_url () =
   Alcotest.(check int) "slow_down extra" 5 Poll.slow_down_extra_seconds
 
 (* -------------------------------------------------------------------------- *)
+(* T003: Granted → shared Activate.prepare                                    *)
+(* -------------------------------------------------------------------------- *)
+
+let test_granted_routes_through_shared_activation () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_act" ~tx_id:"tx_act" ()
+  in
+  let sess = started.session in
+  let due = fixed_now +. 5. in
+  let result =
+    poll_handle ~db ~keys ~session_id:sess.id ~worker_id:"w1" ~now:due
+      ~http_body:(grant_body ()) ~activation_id:"act_dev_1"
+      ~vault_id:"vault_dev_1" ~binding_id:"bind_dev_1" ~plan_id:"plan_dev_1" ()
+  in
+  match result with
+  | Poll.Prepared p ->
+      Alcotest.(check string) "auth tx" "tx_act" p.auth_tx_id;
+      Alcotest.(check string)
+        "activation pending" "pending_confirmation"
+        (A.string_of_activation_status p.prepared.activation.status);
+      Alcotest.(check string)
+        "binding pending" "pending"
+        (B.string_of_authorization_status
+           p.prepared.binding.authorization_status);
+      Alcotest.(check bool)
+        "not active" false
+        (A.has_active_binding ~binding:p.prepared.binding);
+      Alcotest.(check string) "vault" "vault_dev_1" p.prepared.vault.id;
+      Alcotest.(check string) "binding" "bind_dev_1" p.prepared.binding.id;
+      Alcotest.(check string) "plan" "plan_dev_1" p.prepared.plan.plan_id;
+      Alcotest.(check bool)
+        "user id" true
+        (Int64.equal p.prepared.github_user.id github_user_id);
+      Alcotest.(check int) "no authorized" 0 (count_authorized ~db);
+      Alcotest.(check int) "one pending binding" 1 (count_bindings ~db);
+      let red = Poll.redacted_handle_result result in
+      Alcotest.(check bool)
+        "redacted no access" false
+        (Test_helpers.string_contains red access_token_secret);
+      Alcotest.(check bool)
+        "redacted no confirm" false
+        (Test_helpers.string_contains red p.prepared.confirmation_token);
+      (* Auth tx remains open for activation eligibility. *)
+      (match Tx.get ~db ~id:p.auth_tx_id with
+      | Ok (Some tx) ->
+          Alcotest.(check string)
+            "tx still open" "open"
+            (Tx.string_of_status tx.status)
+      | _ -> Alcotest.fail "tx missing");
+      (* Private confirm → Authorized via shared activation. *)
+      let activated =
+        match
+          A.confirm ~db ~keys ~activation_id:p.prepared.activation.id
+            ~confirmation_token:p.prepared.confirmation_token
+            ~expected_principal_id:principal_id
+            ~expected_plan_digest:p.prepared.plan.digest ~now:(due +. 10.) ()
+        with
+        | Ok v -> v
+        | Error e ->
+            Alcotest.fail
+              (e.message ^ " [" ^ A.string_of_failure_kind e.kind ^ "]")
+      in
+      Alcotest.(check string)
+        "activated" "activated"
+        (A.string_of_activation_status activated.activation.status);
+      Alcotest.(check int)
+        "one authorized after confirm" 1 (count_authorized ~db)
+  | Poll.Continuing o ->
+      Alcotest.fail
+        ("expected Prepared, got continuing " ^ Poll.redacted_outcome o)
+  | Poll.Terminated t ->
+      Alcotest.fail
+        (Printf.sprintf "expected Prepared, got terminated %s: %s"
+           (Poll.string_of_stop_reason t.reason)
+           t.message)
+
+let test_granted_missing_expires_in_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_noexp" ~tx_id:"tx_noexp" ()
+  in
+  let sess = started.session in
+  let due = fixed_now +. 5. in
+  (* Grant without expires_in is still a poll Granted, but prepare fails closed. *)
+  let body =
+    Yojson.Safe.to_string
+      (`Assoc
+         [
+           ("access_token", `String access_token_secret);
+           ("token_type", `String "bearer");
+           ("scope", `String "repo");
+         ])
+  in
+  let result =
+    poll_handle ~db ~keys ~session_id:sess.id ~worker_id:"w1" ~now:due
+      ~http_body:body ()
+  in
+  (match result with
+  | Poll.Terminated t ->
+      Alcotest.(check string)
+        "invalid credential terminal" "terminal:invalid_credential"
+        (Poll.string_of_stop_reason t.reason);
+      Alcotest.(check bool)
+        "repair mentions expires or restart" true
+        (let lower = String.lowercase_ascii t.repair in
+         Test_helpers.string_contains lower "expires"
+         || Test_helpers.string_contains lower "restart"
+         || Test_helpers.string_contains lower "device")
+  | Poll.Prepared _ -> Alcotest.fail "missing expires_in must not prepare"
+  | Poll.Continuing o -> Alcotest.fail (Poll.redacted_outcome o));
+  assert_no_active_binding ~db;
+  Alcotest.(check int) "no bindings" 0 (count_bindings ~db);
+  match Tx.get ~db ~id:started.tx.id with
+  | Ok (Some tx) ->
+      Alcotest.(check bool) "tx terminal" true (Tx.status_is_terminal tx.status)
+  | _ -> Alcotest.fail "tx missing"
+
+(* -------------------------------------------------------------------------- *)
+(* T003: every terminal failure — no partial binding                          *)
+(* -------------------------------------------------------------------------- *)
+
+let assert_terminal_no_binding ~db ~keys ~session_id ~tx_id ~now ~http_body
+    ~expected_reason_substr =
+  let result =
+    poll_handle ~db ~keys ~session_id ~worker_id:"w1" ~now ~http_body ()
+  in
+  (match result with
+  | Poll.Terminated t ->
+      let reason = Poll.string_of_stop_reason t.reason in
+      Alcotest.(check bool)
+        ("reason contains " ^ expected_reason_substr)
+        true
+        (Test_helpers.string_contains reason expected_reason_substr
+        || Test_helpers.string_contains
+             (String.lowercase_ascii t.message)
+             expected_reason_substr);
+      Alcotest.(check bool)
+        "repair non-empty" true
+        (String.length (String.trim t.repair) > 0);
+      let red = Poll.redacted_handle_result result in
+      Alcotest.(check bool)
+        "redacted no device_code" false
+        (Test_helpers.string_contains red device_code_secret);
+      Alcotest.(check bool)
+        "redacted no access" false
+        (Test_helpers.string_contains red access_token_secret)
+  | Poll.Prepared _ -> Alcotest.fail "terminal must not prepare"
+  | Poll.Continuing o ->
+      Alcotest.fail ("expected Terminated, got " ^ Poll.redacted_outcome o));
+  assert_no_active_binding ~db;
+  Alcotest.(check int) "no bindings" 0 (count_bindings ~db);
+  (match Poll.get_poll_state ~db ~session_id with
+  | Ok (Some st) ->
+      Alcotest.(check bool) "poll stopped" true (Poll.is_stopped st)
+  | _ -> Alcotest.fail "poll state");
+  match Tx.get ~db ~id:tx_id with
+  | Ok (Some tx) ->
+      Alcotest.(check bool)
+        "auth tx terminal" true
+        (Tx.status_is_terminal tx.status)
+  | _ -> Alcotest.fail "tx missing"
+
+let test_terminal_access_denied_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_deny" ~tx_id:"tx_deny" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.)
+    ~http_body:"error=access_denied&error_description=user+denied"
+    ~expected_reason_substr:"access_denied"
+
+let test_terminal_expired_token_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_ghexp" ~tx_id:"tx_ghexp" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.) ~http_body:"error=expired_token"
+    ~expected_reason_substr:"device_code_expired"
+
+let test_terminal_unsupported_grant_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_ug" ~tx_id:"tx_ug" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.)
+    ~http_body:"error=unsupported_grant_type"
+    ~expected_reason_substr:"unsupported_grant"
+
+let test_terminal_incorrect_device_code_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_idc" ~tx_id:"tx_idc" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.)
+    ~http_body:"error=incorrect_device_code"
+    ~expected_reason_substr:"incorrect_device_code"
+
+let test_terminal_incorrect_client_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_ic" ~tx_id:"tx_ic" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.)
+    ~http_body:"error=invalid_client" ~expected_reason_substr:"incorrect_client"
+
+let test_terminal_disabled_flow_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_dis" ~tx_id:"tx_dis" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.)
+    ~http_body:"error=device_flow_disabled"
+    ~expected_reason_substr:"device_flow_disabled"
+
+let test_terminal_malformed_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_mal" ~tx_id:"tx_mal" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.) ~http_body:"{{{not-json-or-form"
+    ~expected_reason_substr:"malformed"
+
+let test_terminal_unknown_error_no_binding () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_unk" ~tx_id:"tx_unk" ()
+  in
+  assert_terminal_no_binding ~db ~keys ~session_id:started.session.id
+    ~tx_id:started.tx.id ~now:(fixed_now +. 5.)
+    ~http_body:"error=some_future_github_error"
+    ~expected_reason_substr:"some_future_github_error"
+
+let test_terminal_local_expiry_via_handle () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~expires_in:30 ~id:"dev_lexp" ~tx_id:"tx_lexp"
+      ()
+  in
+  let past = fixed_now +. 30. in
+  let result =
+    poll_handle ~db ~keys ~session_id:started.session.id ~worker_id:"w1"
+      ~now:past ~http_body:"error=authorization_pending" ()
+  in
+  (match result with
+  | Poll.Terminated t ->
+      Alcotest.(check string)
+        "expired" "expired"
+        (Poll.string_of_stop_reason t.reason)
+  | _ -> Alcotest.fail "expected local expiry terminated");
+  assert_no_active_binding ~db;
+  Alcotest.(check int) "no bindings" 0 (count_bindings ~db)
+
+let test_activation_collision_preserves_prior_authorized () =
+  with_db @@ fun db ->
+  let keys, started =
+    start_session ~db ~interval:5 ~id:"dev_col" ~tx_id:"tx_col" ()
+  in
+  let identity =
+    assert_parse_ok (B.make_account_identity ~app_id:42 ~github_user_id ())
+  in
+  let vault_ref = assert_parse_ok (B.make_vault_ref "prior_vault") in
+  let prior =
+    B.make_binding ~id:"prior_authorized"
+      ~principal_id:(assert_parse_ok (P.principal_id_of_string principal_id))
+      ~identity ~authorization_status:B.Authorized ~vault_ref ()
+  in
+  ignore (assert_parse_ok (B.insert ~db ~now:fixed_now prior));
+  let due = fixed_now +. 5. in
+  let result =
+    poll_handle ~db ~keys ~session_id:started.session.id ~worker_id:"w1"
+      ~now:due ~http_body:(grant_body ()) ~activation_id:"act_col"
+      ~vault_id:"vault_should_not_stick" ~binding_id:"bind_should_not_stick" ()
+  in
+  (match result with
+  | Poll.Terminated t ->
+      Alcotest.(check bool)
+        "activation failed terminal" true
+        (Test_helpers.string_contains
+           (Poll.string_of_stop_reason t.reason)
+           "activation_failed"
+        || Test_helpers.string_contains
+             (String.lowercase_ascii t.message)
+             "collision");
+      Alcotest.(check bool)
+        "repair mentions collision or unlink" true
+        (let lower = String.lowercase_ascii t.repair in
+         Test_helpers.string_contains lower "collision"
+         || Test_helpers.string_contains lower "unlink"
+         || Test_helpers.string_contains lower "binding")
+  | Poll.Prepared _ -> Alcotest.fail "collision must not prepare"
+  | Poll.Continuing o -> Alcotest.fail (Poll.redacted_outcome o));
+  Alcotest.(check int) "prior authorized preserved" 1 (count_authorized ~db);
+  Alcotest.(check int) "only prior binding" 1 (count_bindings ~db);
+  (match V.get_meta ~db ~id:"vault_should_not_stick" with
+  | Ok None -> ()
+  | Ok (Some _) -> Alcotest.fail "collision must not leave new vault"
+  | Error d -> Alcotest.fail (V.string_of_denial d));
+  match B.get ~db ~id:"prior_authorized" with
+  | Ok (Some b) ->
+      Alcotest.(check string)
+        "prior still authorized" "authorized"
+        (B.string_of_authorization_status b.authorization_status)
+  | _ -> Alcotest.fail "prior binding missing"
+
+let test_credential_of_token_success_requires_expires_in () =
+  let tok : Poll.token_success =
+    {
+      access_token = access_token_secret;
+      token_type = Some "bearer";
+      scope = Some "repo";
+      expires_in = None;
+      refresh_token = None;
+    }
+  in
+  (match Poll.credential_of_token_success tok with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions expires" true
+        (Test_helpers.string_contains (String.lowercase_ascii msg) "expires_in")
+  | Ok _ -> Alcotest.fail "must require expires_in");
+  match
+    Poll.credential_of_token_success
+      { tok with expires_in = Some 100; scope = Some "repo read:user" }
+  with
+  | Ok c ->
+      Alcotest.(check int) "expires" 100 c.expires_in;
+      Alcotest.(check (list string)) "scopes" [ "repo"; "read:user" ] c.scopes
+  | Error e -> Alcotest.fail e
+
+(* -------------------------------------------------------------------------- *)
 (* Suite                                                                      *)
 (* -------------------------------------------------------------------------- *)
 
@@ -593,4 +1004,42 @@ let suite =
       `Quick,
       test_device_code_not_logged_in_outcomes );
     ("access token url and constants", `Quick, test_access_token_url);
+    (* T003 *)
+    ( "granted routes through shared activation",
+      `Quick,
+      test_granted_routes_through_shared_activation );
+    ( "granted missing expires_in no binding",
+      `Quick,
+      test_granted_missing_expires_in_no_binding );
+    ( "terminal access_denied no binding",
+      `Quick,
+      test_terminal_access_denied_no_binding );
+    ( "terminal expired_token no binding",
+      `Quick,
+      test_terminal_expired_token_no_binding );
+    ( "terminal unsupported_grant no binding",
+      `Quick,
+      test_terminal_unsupported_grant_no_binding );
+    ( "terminal incorrect_device_code no binding",
+      `Quick,
+      test_terminal_incorrect_device_code_no_binding );
+    ( "terminal incorrect_client no binding",
+      `Quick,
+      test_terminal_incorrect_client_no_binding );
+    ( "terminal disabled flow no binding",
+      `Quick,
+      test_terminal_disabled_flow_no_binding );
+    ("terminal malformed no binding", `Quick, test_terminal_malformed_no_binding);
+    ( "terminal unknown error no binding",
+      `Quick,
+      test_terminal_unknown_error_no_binding );
+    ( "terminal local expiry via handle",
+      `Quick,
+      test_terminal_local_expiry_via_handle );
+    ( "activation collision preserves prior authorized",
+      `Quick,
+      test_activation_collision_preserves_prior_authorized );
+    ( "credential_of_token_success requires expires_in",
+      `Quick,
+      test_credential_of_token_success_requires_expires_in );
   ]

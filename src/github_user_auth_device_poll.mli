@@ -1,4 +1,5 @@
-(** Durable leased GitHub App device-code polling (P21.M2.E3.T002).
+(** Durable leased GitHub App device-code polling and terminal handling
+    (P21.M2.E3.T002 + T003).
 
     A single worker claims an expiring poll lease before contacting GitHub's
     token endpoint. Polls never run before the durable [next_poll_at], and the
@@ -11,9 +12,16 @@
       five seconds to the current interval, then advances [next_poll_at]
 
     Cancellation (auth tx) and local/server expiry set a durable stop reason so
-    future claims refuse without further HTTP. Success returns still-pending
-    credential material for the shared activation path (T003) and also stops
-    further polls.
+    future claims refuse without further HTTP.
+
+    Terminal handling (T003):
+    - [Granted] projects still-pending credentials into the flow-neutral
+      [Github_user_auth_activate.prepare] path (/user, seal, redacted plan,
+      private confirmation). No web-owned module is a device-flow prerequisite.
+    - Expiry, denial, disabled flow, incorrect client/code, unsupported grant,
+      malformed, and unknown responses terminate explicitly: durable stop
+      reason, bound auth tx closed, and no active partial ([Authorized])
+      binding.
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
@@ -220,4 +228,123 @@ val apply_token_response :
   unit ->
   (poll_outcome, refuse_error) result
 (** Apply a parsed token response under a held lease (test / internal path).
-    Updates durable interval / next_poll_at / stop, then releases the lease. *)
+    Updates durable interval / next_poll_at / stop, then releases the lease.
+    Terminal GitHub errors also close the bound auth transaction fail-closed. *)
+
+(** {1 Terminal handling + shared activation (T003)} *)
+
+type fetch_user = Github_user_auth_activate.fetch_user
+(** Injectable GitHub [/user] probe, forwarded into [Activate.prepare]. *)
+
+type prepared = {
+  session : Github_user_auth_device.session;
+  prepared : Github_user_auth_activate.prepared;
+      (** Shared activation: pending vault/binding, redacted plan, one-time
+          private confirmation token. Binding is [Pending], not [Authorized]. *)
+  auth_tx_id : string;
+}
+(** Device success after shared prepare. Tokens never appear as plaintext fields
+    outside sealed vault material. *)
+
+type terminated = {
+  session : Github_user_auth_device.session option;
+  reason : stop_reason;
+  message : string;
+  repair : string;  (** Private repair guidance (never Room-export secrets). *)
+  activation : Github_user_auth_activate.activation option;
+      (** Related activation when prepare partially created one (usually
+          terminal Destroyed/Rejected). *)
+}
+(** Explicit terminal failure: durable poll stop + closed auth tx + no active
+    partial binding. *)
+
+type handle_result =
+  | Continuing of poll_outcome
+      (** Intermediate: [Authorization_pending], [Slow_down], [Not_due], or
+          [Lease_busy]. *)
+  | Prepared of prepared
+      (** [Granted] routed through shared [Activate.prepare]. *)
+  | Terminated of terminated
+      (** Expiry, denial, disabled flow, incorrect client/code, unsupported
+          grant, malformed, unknown, or activation refusal. *)
+
+val credential_of_token_success :
+  token_success -> (Github_user_auth_activate.pending_credential, string) result
+(** Project device-grant success into a pending credential. Requires positive
+    [expires_in] (fail closed when GitHub omits lifetime). *)
+
+val redacted_handle_result : handle_result -> string
+(** Secret-free summary (no access tokens, confirmation plaintext, or device
+    codes). *)
+
+val prepare_granted :
+  db:Sqlite3.db ->
+  keys:Github_user_token_vault.key_provider ->
+  ?fetch_user:fetch_user ->
+  granted:granted ->
+  ?now:float ->
+  ?ttl_seconds:float ->
+  ?activation_id:string ->
+  ?vault_id:string ->
+  ?binding_id:string ->
+  ?plan_id:string ->
+  unit ->
+  (prepared, terminated) result
+(** Route a [Granted] poll result into shared [Activate.prepare] with the still-
+    pending credential and bound authorization transaction context.
+
+    On activation failure: pending material destroyed by Activate, auth tx
+    cancelled, poll remains stopped, returns [Terminated] with private repair
+    and no [Authorized] binding introduced. *)
+
+val finalize_terminal :
+  db:Sqlite3.db ->
+  outcome:poll_outcome ->
+  ?now:float ->
+  unit ->
+  (handle_result, refuse_error) result
+(** For intermediate outcomes returns [Continuing]. For [Stopped] / already-
+    terminal reasons, ensures the bound auth transaction is closed and returns
+    [Terminated] with repair text. [Granted] alone is not enough — call
+    [prepare_granted] or [handle_outcome]. *)
+
+val handle_outcome :
+  db:Sqlite3.db ->
+  keys:Github_user_token_vault.key_provider ->
+  ?fetch_user:fetch_user ->
+  outcome:poll_outcome ->
+  ?now:float ->
+  ?ttl_seconds:float ->
+  ?activation_id:string ->
+  ?vault_id:string ->
+  ?binding_id:string ->
+  ?plan_id:string ->
+  unit ->
+  (handle_result, refuse_error) result
+(** Full T003 terminal handler:
+
+    - [Granted] → [prepare_granted] (shared /user + seal + plan + confirmation)
+    - [Stopped] → auth tx closed, no partial binding, private repair
+    - intermediate → [Continuing]
+
+    Never leaves an [Authorized] binding from device terminal handling. *)
+
+val poll_and_prepare :
+  db:Sqlite3.db ->
+  keys:Github_user_token_vault.key_provider ->
+  ?http_post:http_post ->
+  ?resolve_client_id:resolve_client_id ->
+  ?fetch_user:fetch_user ->
+  session_id:string ->
+  worker_id:string ->
+  ?lease_seconds:float ->
+  ?now:float ->
+  ?ttl_seconds:float ->
+  ?activation_id:string ->
+  ?vault_id:string ->
+  ?binding_id:string ->
+  ?plan_id:string ->
+  unit ->
+  (handle_result, refuse_error) result
+(** [poll_once] then [handle_outcome]. Production device-flow entrypoint for
+    terminal routing into shared activation. *)

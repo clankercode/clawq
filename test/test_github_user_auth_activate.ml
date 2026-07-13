@@ -146,21 +146,14 @@ let test_credential_shape () =
   let c = sample_credential () in
   Alcotest.(check string) "access" access_token c.access_token;
   Alcotest.(check int) "exp" 28800 c.expires_in;
-  let device : Github_user_auth_device_poll.token_success =
-    {
-      access_token;
-      token_type = Some "bearer";
-      scope = Some "repo read:user";
-      expires_in = None;
-      refresh_token = Some refresh_token;
-    }
-  in
-  match A.pending_credential_of_device device with
+  (* Device grants must supply positive expires_in via make_pending_credential
+     (projection lives in device_poll; activate stays flow-neutral). *)
+  match A.make_pending_credential ~access_token ~expires_in:0 () with
   | Error msg ->
       Alcotest.(check bool)
-        "requires expires" true
+        "requires positive expires" true
         (contains (String.lowercase_ascii msg) "expires_in")
-  | Ok _ -> Alcotest.fail "device without expires_in must fail"
+  | Ok _ -> Alcotest.fail "expires_in 0 must fail"
 
 (* -------------------------------------------------------------------------- *)
 (* Happy path: web + device                                                   *)
