@@ -1,8 +1,10 @@
-(** Tests for one-shot PKCE callback verify + code exchange (P21.M2.E2.T002). *)
+(** Tests for one-shot PKCE callback verify + code exchange routed through
+    shared verified activation (P21.M2.E2.T002 + T003). *)
 
 module Cb = Github_user_auth_pkce_callback
 module Pkce = Github_user_auth_pkce
 module Tx = Github_user_auth_tx
+module A = Github_user_auth_activate
 module V = Github_user_token_vault
 module B = Github_account_binding
 module S = Github_user_token_store
@@ -45,7 +47,9 @@ let assert_exchange = function
   | Ok v -> v
   | Error (e : Cb.exchange_error) ->
       Alcotest.fail
-        (Printf.sprintf "%s [%s]" e.message (Cb.string_of_failure_kind e.kind))
+        (Printf.sprintf "%s [%s] repair=%s" e.message
+           (Cb.string_of_failure_kind e.kind)
+           e.repair)
 
 let contains hay needle = Test_helpers.string_contains hay needle
 
@@ -68,6 +72,7 @@ let with_db f =
   let db = Sqlite3.db_open ":memory:" in
   Tx.ensure_schema db;
   Pkce.ensure_schema db;
+  A.ensure_schema db;
   V.ensure_schema db;
   B.ensure_schema db;
   ignore (seed_principal ~db ());
@@ -87,7 +92,7 @@ let fetch_user ~access_token:tok =
   else
     Ok
       {
-        Cb.id = github_user_id;
+        A.id = github_user_id;
         login = github_login;
         avatar_url = Some "https://avatars.example/o.png";
       }
@@ -140,10 +145,10 @@ let assert_no_active_binding ~db =
   Alcotest.(check int) "no authorized binding" 0 (count_authorized ~db)
 
 let exchange ~db ~store ~keys ?http_post ?fetch_user:fu ?(now = fixed_now)
-    ?binding_id ?vault_id ~callback () =
+    ?activation_id ?binding_id ?vault_id ?plan_id ~callback () =
   Cb.exchange ~db ~store ~keys ?http_post ~resolve_client
     ~fetch_user:(Option.value fu ~default:fetch_user)
-    ~now ?binding_id ?vault_id ~callback ()
+    ~now ?activation_id ?binding_id ?vault_id ?plan_id ~callback ()
 
 (* -------------------------------------------------------------------------- *)
 (* Parse helpers                                                              *)
@@ -178,10 +183,10 @@ let test_parse_token_json_and_form () =
   | Ok _ -> Alcotest.fail "missing expires_in must fail"
 
 (* -------------------------------------------------------------------------- *)
-(* Happy path                                                                 *)
+(* Happy path: exchange → shared prepare (pending) → private confirm          *)
 (* -------------------------------------------------------------------------- *)
 
-let test_happy_path_exchange_seals_pending_binding () =
+let test_happy_path_routes_through_shared_activation () =
   with_db @@ fun db ->
   let store, _ = fresh_store () in
   let keys = make_keys () in
@@ -207,7 +212,8 @@ let test_happy_path_exchange_seals_pending_binding () =
   in
   match
     exchange ~db ~store ~keys ~http_post:http ~callback
-      ~binding_id:"ghbind_happy" ~vault_id:"ghvault_happy" ()
+      ~activation_id:"act_happy" ~binding_id:"ghbind_happy"
+      ~vault_id:"ghvault_happy" ~plan_id:"plan_happy" ()
   with
   | Error e ->
       Alcotest.fail (e.message ^ " [" ^ Cb.string_of_failure_kind e.kind ^ "]")
@@ -216,21 +222,30 @@ let test_happy_path_exchange_seals_pending_binding () =
       Alcotest.(check string)
         "tx completed" "completed"
         (Tx.string_of_status r.tx.status);
+      let prep = r.prepared in
+      Alcotest.(check string)
+        "activation pending confirmation" "pending_confirmation"
+        (A.string_of_activation_status prep.activation.status);
       Alcotest.(check string)
         "binding pending" "pending"
-        (B.string_of_authorization_status r.binding.authorization_status);
+        (B.string_of_authorization_status prep.binding.authorization_status);
       Alcotest.(check bool)
         "not active" false
-        (Cb.has_active_binding ~binding:r.binding);
-      Alcotest.(check string) "vault id" "ghvault_happy" r.vault.id;
-      Alcotest.(check string) "binding id" "ghbind_happy" r.binding.id;
+        (Cb.has_active_binding ~binding:prep.binding);
+      Alcotest.(check string) "vault id" "ghvault_happy" prep.vault.id;
+      Alcotest.(check string) "binding id" "ghbind_happy" prep.binding.id;
+      Alcotest.(check string) "activation id" "act_happy" prep.activation.id;
+      Alcotest.(check string) "plan id" "plan_happy" prep.plan.plan_id;
       Alcotest.(check (option string))
-        "vault ref" (Some "ghvault_happy") r.binding.vault_ref;
+        "vault ref" (Some "ghvault_happy") prep.binding.vault_ref;
       Alcotest.(check bool)
         "user id" true
-        (Int64.equal r.github_user.id github_user_id);
+        (Int64.equal prep.github_user.id github_user_id);
+      Alcotest.(check bool)
+        "confirmation token present" true
+        (String.length prep.confirmation_token >= 16);
       (* Tokens sealed: readable via vault, not plaintext on binding. *)
-      (match V.read ~db ~keys ~id:r.vault.id () with
+      (match V.read ~db ~keys ~id:prep.vault.id () with
       | Error d -> Alcotest.fail (V.string_of_denial d)
       | Ok opened ->
           Alcotest.(check string)
@@ -238,7 +253,7 @@ let test_happy_path_exchange_seals_pending_binding () =
           Alcotest.(check (option string))
             "refresh sealed" (Some refresh_token) opened.tokens.refresh_token);
       (match
-         V.row_contains_plaintext ~db ~id:r.vault.id ~plaintext:access_token
+         V.row_contains_plaintext ~db ~id:prep.vault.id ~plaintext:access_token
        with
       | Ok false -> ()
       | Ok true -> Alcotest.fail "access plaintext in vault row"
@@ -250,12 +265,35 @@ let test_happy_path_exchange_seals_pending_binding () =
       Alcotest.(check bool)
         "summary no secret" false
         (contains summary client_secret);
+      Alcotest.(check bool)
+        "summary no confirmation" false
+        (contains summary prep.confirmation_token);
       assert_no_active_binding ~db;
-      (* Pending exists but is not Authorized. *)
-      Alcotest.(check int) "one pending binding" 1 (count_bindings ~db)
+      Alcotest.(check int) "one pending binding" 1 (count_bindings ~db);
+      (* Private confirm → Authorized via shared activation (not web-local). *)
+      let activated =
+        match
+          A.confirm ~db ~keys ~activation_id:prep.activation.id
+            ~confirmation_token:prep.confirmation_token
+            ~expected_principal_id:principal_id
+            ~expected_plan_digest:prep.plan.digest ~now:(fixed_now +. 10.) ()
+        with
+        | Ok v -> v
+        | Error e ->
+            Alcotest.fail
+              (e.message ^ " [" ^ A.string_of_failure_kind e.kind ^ "]")
+      in
+      Alcotest.(check string)
+        "activated" "activated"
+        (A.string_of_activation_status activated.activation.status);
+      Alcotest.(check string)
+        "binding authorized" "authorized"
+        (B.string_of_authorization_status activated.binding.authorization_status);
+      Alcotest.(check int)
+        "one authorized after confirm" 1 (count_authorized ~db)
 
 (* -------------------------------------------------------------------------- *)
-(* Failure cases: no active binding                                           *)
+(* Failure cases: no active binding + private repair                          *)
 (* -------------------------------------------------------------------------- *)
 
 let test_state_mismatch () =
@@ -275,6 +313,13 @@ let test_state_mismatch () =
       Alcotest.(check string)
         "kind" "state_mismatch"
         (Cb.string_of_failure_kind e.kind);
+      Alcotest.(check bool)
+        "repair non-empty" true
+        (String.length (String.trim e.repair) > 0);
+      let repair = Cb.private_repair_summary e in
+      Alcotest.(check bool)
+        "repair summary no secret" false
+        (contains repair client_secret);
       assert_no_active_binding ~db;
       Alcotest.(check int) "no bindings" 0 (count_bindings ~db)
 
@@ -291,7 +336,7 @@ let test_replay_after_success () =
   let first =
     assert_exchange
       (exchange ~db ~store ~keys ~http_post:(ok_http ()) ~callback
-         ~binding_id:"b1" ~vault_id:"v1" ())
+         ~binding_id:"b1" ~vault_id:"v1" ~activation_id:"act1" ())
   in
   Alcotest.(check string)
     "first completed" "completed"
@@ -299,7 +344,7 @@ let test_replay_after_success () =
   (* Replay same callback. *)
   match
     exchange ~db ~store ~keys ~http_post:(ok_http ()) ~callback ~binding_id:"b2"
-      ~vault_id:"v2" ()
+      ~vault_id:"v2" ~activation_id:"act2" ()
   with
   | Ok _ -> Alcotest.fail "replay must fail"
   | Error e ->
@@ -309,7 +354,10 @@ let test_replay_after_success () =
         | Cb.Replay | Cb.Unused_status | Cb.Duplicate_callback -> true
         | _ -> false);
       Alcotest.(check int) "still one binding" 1 (count_bindings ~db);
-      assert_no_active_binding ~db
+      assert_no_active_binding ~db;
+      Alcotest.(check bool)
+        "private repair" true
+        (String.length (String.trim e.repair) > 0)
 
 let test_duplicate_callback_one_exchange () =
   with_db @@ fun db ->
@@ -329,12 +377,12 @@ let test_duplicate_callback_one_exchange () =
   let first =
     assert_exchange
       (exchange ~db ~store ~keys ~http_post:http ~callback ~binding_id:"bd1"
-         ~vault_id:"vd1" ())
+         ~vault_id:"vd1" ~activation_id:"act_d1" ())
   in
   ignore first;
   let second =
     exchange ~db ~store ~keys ~http_post:http ~callback ~binding_id:"bd2"
-      ~vault_id:"vd2" ()
+      ~vault_id:"vd2" ~activation_id:"act_d2" ()
   in
   (match second with
   | Ok _ -> Alcotest.fail "duplicate must fail"
@@ -465,51 +513,60 @@ let test_http_denial_no_binding () =
       assert_no_active_binding ~db;
       Alcotest.(check int) "no bindings" 0 (count_bindings ~db)
 
-let test_partial_exchange_vault_ok_binding_collision () =
+let test_activation_collision_preserves_prior_authorized () =
   with_db @@ fun db ->
   let store, _ = fresh_store () in
   let keys = make_keys () in
-  let started = assert_ok (start_flow ~db ~store ~id:"tx_partial" ()) in
-  (* Pre-seed a binding on the same identity so insert collides after vault
-     seal — partial path must destroy vault and leave no active binding. *)
+  let started = assert_ok (start_flow ~db ~store ~id:"tx_collision" ()) in
+  (* Pre-seed an Authorized binding on the same identity — shared activation
+     must refuse, destroy any pending material, and preserve prior state. *)
   let identity =
     assert_ok (B.make_account_identity ~app_id:42 ~github_user_id ())
   in
-  let pre =
-    B.make_binding ~id:"pre_existing"
+  let vault_ref = assert_ok (B.make_vault_ref "prior_vault") in
+  let prior =
+    B.make_binding ~id:"prior_authorized"
       ~principal_id:(assert_ok (P.principal_id_of_string principal_id))
-      ~identity ~authorization_status:B.Pending ()
+      ~identity ~authorization_status:B.Authorized ~vault_ref ()
   in
-  ignore (assert_ok (B.insert ~db ~now:fixed_now pre));
+  ignore (assert_ok (B.insert ~db ~now:fixed_now prior));
   let callback =
     assert_ok
-      (Cb.make_callback_request ~code:"code_partial"
+      (Cb.make_callback_request ~code:"code_collision"
          ~state:started.tx.one_time_state ~redirect_uri:registered ())
   in
   match
     exchange ~db ~store ~keys ~http_post:(ok_http ()) ~callback
-      ~vault_id:"vault_should_be_destroyed" ()
+      ~vault_id:"vault_should_not_stick" ~binding_id:"bind_should_not_stick"
+      ~activation_id:"act_collision" ()
   with
-  | Ok _ -> Alcotest.fail "partial must fail"
+  | Ok _ -> Alcotest.fail "collision must fail"
   | Error e -> (
-      Alcotest.(check string)
-        "kind" "partial_exchange"
-        (Cb.string_of_failure_kind e.kind);
-      assert_no_active_binding ~db;
-      (* Only the pre-existing pending binding remains (not Authorized). *)
-      Alcotest.(check int) "only pre-existing" 1 (count_bindings ~db);
-      (match V.get_meta ~db ~id:"vault_should_be_destroyed" with
+      Alcotest.(check bool)
+        "activation collision kind" true
+        (match e.kind with
+        | Cb.Activation s -> contains s "collision"
+        | Cb.Partial_exchange -> true
+        | _ -> false);
+      Alcotest.(check bool)
+        "repair mentions collision or unlink" true
+        (let lower = String.lowercase_ascii e.repair in
+         contains lower "collision" || contains lower "unlink"
+         || contains lower "binding");
+      Alcotest.(check int) "prior authorized preserved" 1 (count_authorized ~db);
+      Alcotest.(check int) "only prior binding" 1 (count_bindings ~db);
+      (match V.get_meta ~db ~id:"vault_should_not_stick" with
       | Ok None -> ()
-      | Ok (Some _) -> Alcotest.fail "partial vault must be destroyed"
+      | Ok (Some _) -> Alcotest.fail "collision must not leave new vault"
       | Error d -> Alcotest.fail (V.string_of_denial d));
-      match e.tx with
-      | Some tx ->
+      match B.get ~db ~id:"prior_authorized" with
+      | Ok (Some b) ->
           Alcotest.(check string)
-            "tx still terminal" "completed"
-            (Tx.string_of_status tx.status)
-      | None -> Alcotest.fail "expected tx")
+            "prior still authorized" "authorized"
+            (B.string_of_authorization_status b.authorization_status)
+      | _ -> Alcotest.fail "prior binding missing")
 
-let test_partial_fetch_user_fails () =
+let test_activation_fetch_user_fails () =
   with_db @@ fun db ->
   let store, _ = fresh_store () in
   let keys = make_keys () in
@@ -525,9 +582,15 @@ let test_partial_fetch_user_fails () =
   with
   | Ok _ -> Alcotest.fail "fetch_user failure must fail exchange"
   | Error e ->
-      Alcotest.(check string)
-        "kind" "partial_exchange"
-        (Cb.string_of_failure_kind e.kind);
+      Alcotest.(check bool)
+        "activation user_probe" true
+        (match e.kind with
+        | Cb.Activation s -> contains s "user_probe"
+        | Cb.Partial_exchange -> true
+        | _ -> false);
+      Alcotest.(check bool)
+        "private repair" true
+        (String.length (String.trim e.repair) > 0);
       assert_no_active_binding ~db;
       Alcotest.(check int) "no bindings" 0 (count_bindings ~db)
 
@@ -628,9 +691,9 @@ let test_verifier_integrity_failure () =
 let suite =
   [
     ("parse token json and form", `Quick, test_parse_token_json_and_form);
-    ( "happy path seals pending binding",
+    ( "happy path routes through shared activation",
       `Quick,
-      test_happy_path_exchange_seals_pending_binding );
+      test_happy_path_routes_through_shared_activation );
     ("state mismatch no binding", `Quick, test_state_mismatch);
     ("replay after success", `Quick, test_replay_after_success);
     ( "duplicate callback one exchange",
@@ -640,10 +703,10 @@ let suite =
     ("timeout no binding", `Quick, test_timeout_no_binding);
     ("malformed response no binding", `Quick, test_malformed_response_no_binding);
     ("http denial no binding", `Quick, test_http_denial_no_binding);
-    ( "partial exchange destroys vault",
+    ( "activation collision preserves prior authorized",
       `Quick,
-      test_partial_exchange_vault_ok_binding_collision );
-    ("partial fetch_user fails", `Quick, test_partial_fetch_user_fails);
+      test_activation_collision_preserves_prior_authorized );
+    ("activation fetch_user fails", `Quick, test_activation_fetch_user_fails);
     ("redirect mismatch no exchange", `Quick, test_redirect_mismatch_no_exchange);
     ("expired transaction", `Quick, test_expired_transaction);
     ("verifier integrity failure", `Quick, test_verifier_integrity_failure);
