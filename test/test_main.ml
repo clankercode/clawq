@@ -115,6 +115,7 @@ let () =
        ("principal_bootstrap", Test_principal_bootstrap.suite);
        ("principal_resolve", Test_principal_resolve.suite);
        ("principal_link_protocol", Test_principal_link_protocol.suite);
+       ("principal_link_exec", Test_principal_link_exec.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);
        ("discord_principal", Test_discord_principal_ingress.suite);
