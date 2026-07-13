@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Stable Principal Identity and Account Binding
       path: 01-stable-principal-identity-and
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Add App readiness, private restart-safe web/device authorization, and a mutable encrypted token vault that fails closed under tampering and rotation races.

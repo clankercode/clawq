@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Durable Actor Attribution and Migration
       path: 03-durable-actor-attribution-and
-      status: pending
+      status: done
 estimate_hours: 103
 id: P21.M1
 locked: false
@@ -38,4 +38,4 @@ stats:
     in_progress: 0
     pending: 22
     total_tasks: 22
-status: pending
+status: done
