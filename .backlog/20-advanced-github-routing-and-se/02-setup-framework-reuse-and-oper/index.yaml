@@ -23,7 +23,7 @@ epics:
       locked: false
       name: Upgrade and Operations
       path: 02-upgrade-and-operations
-      status: pending
+      status: done
 estimate_hours: 22
 id: P20.M2
 locked: false
@@ -34,4 +34,4 @@ stats:
     in_progress: 0
     pending: 6
     total_tasks: 6
-status: pending
+status: done

@@ -12,7 +12,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -42,6 +42,6 @@ tasks:
       file: T003-run-final-setup-framework-and.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Run final setup-framework and advanced-routing regression verification

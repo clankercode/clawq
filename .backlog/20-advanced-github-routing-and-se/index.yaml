@@ -3,7 +3,7 @@ depends_on:
     - P19
 estimate_hours: 53
 id: P20
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on:
@@ -25,7 +25,7 @@ milestones:
       locked: false
       name: Setup Framework Reuse and Operational Polish
       path: 02-setup-framework-reuse-and-oper
-      status: pending
+      status: done
 name: Advanced GitHub Routing and Setup Reuse
 stats:
     blocked: 0
@@ -33,5 +33,5 @@ stats:
     in_progress: 0
     pending: 13
     total_tasks: 13
-status: pending
+status: done
 weeks: 5
