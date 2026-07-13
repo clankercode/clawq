@@ -9,7 +9,7 @@ epics:
       locked: false
       name: User and Admin Experience
       path: 01-user-and-admin-experience
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Prove shared-Room isolation, redaction, restart/concurrency behavior, web/device flows, native attribution, revocation, and cleanup.
