@@ -9,7 +9,6 @@ type action_kind =
       req : Github_merge_action.merge_request;
       policy : Github_merge_action.live_policy;
     }
-||||||| fdd10de5
   | Issue of Github_issue_actions.action
   | Workflow_dispatch of Github_workflow_dispatch.request
 
@@ -18,20 +17,17 @@ let action_kind_label = function
   | Request_reviewers _ -> "request_reviewers"
   | Submit_review _ -> "submit_review"
   | Merge _ -> "merge"
-||||||| fdd10de5
   | Issue _ -> "issue"
   | Workflow_dispatch _ -> "workflow_dispatch"
 
 let is_github_action_kind = function
   | Setup_plan.Generic
       ( "github_collab_action" | "github_request_reviewers"
-      | "github_submit_review" | "github_merge" ) ->
+      | "github_submit_review" | "github_merge" | "github_workflow_dispatch" )
+    ->
       true
   | Setup_plan.Generic kind when Github_issue_actions.is_issue_action_kind kind
     ->
-||||||| fdd10de5
-      | "github_submit_review" ) ->
-      | "github_submit_review" | "github_workflow_dispatch" ) ->
       true
   | _ -> false
 
@@ -46,11 +42,8 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
       (Printf.sprintf
          "github_action_workflow: unsupported apply kind for plan %s (receipt \
           %s); expected github_collab_action | github_request_reviewers | \
-          github_submit_review | github_merge"
-||||||| fdd10de5
-          github_submit_review"
-          github_submit_review | github_issue_*"
-          github_submit_review | github_workflow_dispatch"
+          github_submit_review | github_merge | github_issue_* | \
+          github_workflow_dispatch"
          plan.id receipt_id)
   else Ok ()
 
@@ -59,7 +52,6 @@ let authority_allow ~principal:_ ~destination:_ = Ok ()
 let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(pilot = Github_pr_review_actions.default_pilot_gate)
     ?(merge_pilot = Github_merge_action.default_pilot_gate)
-||||||| fdd10de5
     ?(issue_pilot = Github_issue_actions.default_pilot_gate)
     ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
     ?(user_auth_available = false) ?(now = Unix.gettimeofday ()) () =
@@ -76,7 +68,6 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
   | Merge { req; policy } ->
       Github_merge_action.plan_merge ~db ~principal ~room_id ~pilot:merge_pilot
         ~user_auth_available ~req ~policy ~base_revision ?route ~now ()
-||||||| fdd10de5
   | Issue issue_action ->
       Github_issue_actions.plan_action ~db ~principal ~room_id
         ~pilot:issue_pilot ~user_auth_available ~action:issue_action
