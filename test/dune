@@ -208,6 +208,7 @@
   test_principal_resolve
   test_principal_link_protocol
   test_principal_link_exec
+  test_principal_merge
   test_teams_principal_ingress
   test_slack_principal_ingress
   test_discord_principal_ingress

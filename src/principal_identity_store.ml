@@ -872,3 +872,65 @@ let create_first_seen ~db ~key ?principal_id ?(display = P.empty_display)
                   match insert_identity_link ~db ~now link with
                   | Error e -> Error e
                   | Ok link -> Ok (principal, actor, link)))))
+
+(* -------------------------------------------------------------------------- *)
+(* Listing helpers                                                            *)
+(* -------------------------------------------------------------------------- *)
+
+let list_connector_actors_for_principal ~db ~principal_id =
+  let sql =
+    Printf.sprintf
+      "SELECT %s FROM connector_actors WHERE principal_id = ? ORDER BY \
+       actor_key ASC"
+      actor_columns
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1
+           (Sqlite3.Data.TEXT (P.principal_id_to_string principal_id)));
+      let rec loop acc =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match connector_actor_of_stmt stmt with
+            | Ok a -> loop (a :: acc)
+            | Error e -> Error e)
+        | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+        | rc ->
+            Error
+              (Printf.sprintf
+                 "list_connector_actors_for_principal failed: %s (%s)"
+                 (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+      in
+      loop [])
+
+let list_active_identity_links_for_principal ~db ~principal_id =
+  let sql =
+    Printf.sprintf
+      "SELECT %s FROM identity_links WHERE principal_id = ? AND status = \
+       'active' ORDER BY id ASC"
+      link_columns
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1
+           (Sqlite3.Data.TEXT (P.principal_id_to_string principal_id)));
+      let rec loop acc =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match identity_link_of_stmt stmt with
+            | Ok l -> loop (l :: acc)
+            | Error e -> Error e)
+        | Sqlite3.Rc.DONE -> Ok (List.rev acc)
+        | rc ->
+            Error
+              (Printf.sprintf
+                 "list_active_identity_links_for_principal failed: %s (%s)"
+                 (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
+      in
+      loop [])
