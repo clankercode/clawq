@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T03:46:17Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:08Z"
@@ -9,10 +11,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M1.E2.T001
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T03:46:17Z"
+status: in_progress
 tags: []
 title: Persist Principal-owned GitHub account bindings
-updated_at: "2026-07-12T14:51:08Z"
+updated_at: "2026-07-13T03:46:17Z"
 ---
 Acceptance: Binding stores surviving Principal, GitHub host/App/numeric user ID, mutable login/avatar, authorization status/revision, timestamps, logical lineage, and opaque vault reference only. Login changes do not create a new account; Principal adoption is transactional and historical snapshots retain prior evidence. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
