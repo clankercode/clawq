@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T02:37:19Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:14Z"
 depends_on:
@@ -6,11 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P20.M2.E2.T002
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-13T02:37:19Z"
+status: in_progress
+tags: []
 title: Add upgrade validation drift checks and admin guidance
-updated_at: "2026-07-12T12:34:14Z"
+updated_at: "2026-07-13T02:37:19Z"
 ---
 Acceptance: Upgrade validates schema versions, route/subscription migration, managed linkage, installation scope, tool/MCP catalog state, and active Session refresh. Drift checks compare docs/schema/runtime behavior and admin guidance covers repair, rollback, and deprecated aliases. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
