@@ -657,20 +657,10 @@ let test_stale_plan_apply_reject () =
 let test_reconcile_webhook_closes_once_no_outbox () =
   with_delivery_db @@ fun db ->
   let corr : Action_reconcile.correlation =
-    {
-      room_id;
-      item_key = Some item_key;
-      action = "merge";
-      plan_id = Some "plan-merge-1";
-      receipt_id = Some "receipt-merge-1";
-      delivery_id = None;
-      github_ref = Some "abc123";
-      actor_mode = "pilot";
-      requested_mode = Some "user";
-      resolved_mode = Some "pilot";
-      actor_snapshot = None;
-      expected_github_login = None;
-    }
+    Action_reconcile.make_correlation ~room_id ~action:"merge"
+      ~actor_mode:"pilot" ~item_key ~plan_id:"plan-merge-1"
+      ~receipt_id:"receipt-merge-1" ~github_ref:"abc123" ~requested_mode:"user"
+      ~resolved_mode:"pilot" ()
   in
   assert_ok
     (Action_reconcile.record_correlation ~db ~correlation:corr ~now:fixed_now ());

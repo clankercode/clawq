@@ -1,5 +1,7 @@
 (** Tests for GitHub action receipt ↔ webhook reconciliation without loops
-    (P19.M4.E2.T004) and Actor snapshot propagation (P21.M1.E3.T006). *)
+    (P19.M4.E2.T004), Actor snapshot propagation (P21.M1.E3.T006), and native
+    attribution receipt correlation across action families, delayed completion,
+    and webhook reordering (P21.M3.E3.T005). *)
 
 module E = Github_event_envelope
 module J = Github_room_event_journal
@@ -83,22 +85,15 @@ let base_correlation ?(action = "merge") ?(delivery_id = None)
     ?(receipt_id = Some "receipt-1") ?(plan_id = Some "plan-1")
     ?(github_ref = Some "abc123") ?(actor_mode = "pilot")
     ?(requested_mode = None) ?(resolved_mode = None) ?(actor_snapshot = None)
-    ?(expected_github_login = None) () : A.correlation =
-  {
-    room_id;
-    item_key = Some item_key;
-    action;
-    plan_id;
-    receipt_id;
-    delivery_id;
-    github_ref;
-    actor_mode;
-    requested_mode;
-    resolved_mode =
-      (match resolved_mode with Some _ as r -> r | None -> Some actor_mode);
-    actor_snapshot;
-    expected_github_login;
-  }
+    ?(expected_github_login = None) ?(job_id = None)
+    ?(attribution_receipt_id = None) ?(github_user_id = None)
+    ?(native_actor_kind = None) () : A.correlation =
+  A.make_correlation ~room_id ~action ~actor_mode ?item_key:(Some item_key)
+    ?plan_id ?receipt_id ?delivery_id ?github_ref ?requested_mode
+    ?resolved_mode:
+      (match resolved_mode with Some _ as r -> r | None -> Some actor_mode)
+    ?actor_snapshot ?expected_github_login ?job_id ?attribution_receipt_id
+    ?github_user_id ?native_actor_kind ()
 
 let result_tag = function
   | A.Closed { first_time; _ } ->
@@ -302,6 +297,10 @@ let test_secret_free_storage () =
       resolved_mode = Some "pilot";
       actor_snapshot = None;
       expected_github_login = None;
+      job_id = None;
+      attribution_receipt_id = None;
+      github_user_id = None;
+      native_actor_kind = None;
     }
   in
   assert_ok (A.record_correlation ~db ~correlation:dirty ~now:fixed_now ());
@@ -659,6 +658,530 @@ let test_two_principals_isolated_receipts () =
             "ada principal intact" "prin_ada"
             (PI.principal_id_to_string s.lineage.principal_id))
 
+(* ---- P21.M3.E3.T005: native receipts, all families, delayed, reorder ---- *)
+
+type family_case = {
+  action : string;
+  event : string;
+  env_action : string option;
+  family : E.family;
+  kind : E.item_kind option;
+  number : int option;
+  merged : bool option;
+  state : string option;
+}
+
+let all_family_cases =
+  [
+    {
+      action = "comment";
+      event = "issue_comment";
+      env_action = Some "created";
+      family = E.Comment;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "label";
+      event = "pull_request";
+      env_action = Some "labeled";
+      family = E.State_update;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "assign";
+      event = "pull_request";
+      env_action = Some "assigned";
+      family = E.State_update;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "request_reviewers";
+      event = "pull_request";
+      env_action = Some "review_requested";
+      family = E.Review;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "submit_review";
+      event = "pull_request_review";
+      env_action = Some "submitted";
+      family = E.Review;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "issue_create";
+      event = "issues";
+      env_action = Some "opened";
+      family = E.Lifecycle;
+      kind = Some E.Issue;
+      number = Some 7;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "issue_close";
+      event = "issues";
+      env_action = Some "closed";
+      family = E.Lifecycle;
+      kind = Some E.Issue;
+      number = Some 7;
+      merged = None;
+      state = Some "closed";
+    };
+    {
+      action = "issue_reopen";
+      event = "issues";
+      env_action = Some "reopened";
+      family = E.Lifecycle;
+      kind = Some E.Issue;
+      number = Some 7;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "workflow_dispatch";
+      event = "workflow_run";
+      env_action = Some "requested";
+      family = E.Ci;
+      kind = None;
+      number = None;
+      merged = None;
+      state = None;
+    };
+    {
+      action = "code_work";
+      event = "pull_request";
+      env_action = Some "opened";
+      family = E.Lifecycle;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "pr_create";
+      event = "pull_request";
+      env_action = Some "opened";
+      family = E.Lifecycle;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+    {
+      action = "merge";
+      event = "pull_request";
+      env_action = Some "closed";
+      family = E.Lifecycle;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = Some true;
+      state = Some "closed";
+    };
+    {
+      action = "room_background_work";
+      event = "issue_comment";
+      env_action = Some "created";
+      family = E.Comment;
+      kind = Some E.Pull_request;
+      number = Some 42;
+      merged = None;
+      state = Some "open";
+    };
+  ]
+
+let item_key_for_case (c : family_case) =
+  match (c.kind, c.number) with
+  | Some E.Issue, Some n -> Some (Printf.sprintf "issue:acme/widget:%d" n)
+  | Some E.Pull_request, Some n -> Some (Printf.sprintf "pr:acme/widget:%d" n)
+  | _ -> None
+
+let test_every_action_family_native_user_closes_once () =
+  with_db @@ fun db ->
+  List.iteri
+    (fun i (fc : family_case) ->
+      let ik = item_key_for_case fc in
+      let snap =
+        make_snapshot ~snapshot_id:(Printf.sprintf "snap_fam_%d" i) ()
+      in
+      let attr_id = Printf.sprintf "ghattr_rcpt_%s_%d" fc.action i in
+      let receipt_id = Printf.sprintf "receipt_%s_%d" fc.action i in
+      let corr =
+        assert_ok
+          (A.record_from_native_receipt ~db ~room_id ~action:fc.action
+             ~actor_mode:"user" ?item_key:ik ~plan_id:("plan_" ^ fc.action)
+             ~receipt_id ~attribution_receipt_id:attr_id ~requested_mode:"user"
+             ~resolved_mode:"user" ~actor_snapshot:snap
+             ~expected_github_login:"ada" ~github_user_id:9001L
+             ~native_actor_kind:"user"
+             ~now:(fixed_now +. float_of_int i)
+             ())
+      in
+      Alcotest.(check string)
+        ("canonical action " ^ fc.action)
+        (A.canonicalize_action fc.action)
+        corr.action;
+      Alcotest.(check (option string))
+        "attr receipt linked" (Some attr_id) corr.attribution_receipt_id;
+      let env =
+        make_envelope ~event:fc.event ~action:fc.env_action ~family:fc.family
+          ~kind:fc.kind ~number:fc.number ~merged:fc.merged ~state:fc.state
+          ~delivery_id:(Some (Printf.sprintf "deliv_%s_%d" fc.action i))
+          ~actor_login:(Some "Ada") ~actor_type:(Some "User")
+          ~head_sha:(Some "abc123") ()
+      in
+      (* Inject actor id for native github_user_id match. *)
+      let env =
+        {
+          env with
+          actor = { env.actor with id = Some 9001; login = Some "Ada" };
+        }
+      in
+      let r1 =
+        A.reconcile_webhook ~db ~room_id ~envelope:env
+          ~now:(fixed_now +. 100. +. float_of_int i)
+          ()
+      in
+      Alcotest.(check string)
+        ("family " ^ fc.action ^ " closes")
+        "closed_first" (result_tag r1);
+      (match r1 with
+      | A.Closed { correlation = c; _ } ->
+          Alcotest.(check (option string))
+            "snapshot retained" (Some snap.id)
+            (Option.map (fun s -> s.Snap.id) c.actor_snapshot);
+          Alcotest.(check (option string))
+            "native attr id immutable" (Some attr_id) c.attribution_receipt_id;
+          Alcotest.(check (option int64))
+            "github_user_id immutable" (Some 9001L) c.github_user_id;
+          Alcotest.(check string)
+            "resolved user" "user" (A.resolved_attribution c)
+      | _ -> Alcotest.fail ("expected close for " ^ fc.action));
+      let r2 =
+        A.reconcile_webhook ~db ~room_id ~envelope:env
+          ~now:(fixed_now +. 200. +. float_of_int i)
+          ()
+      in
+      Alcotest.(check string)
+        ("family " ^ fc.action ^ " once")
+        "already_closed" (result_tag r2);
+      match
+        A.get_by_attribution_receipt_id ~db ~attribution_receipt_id:attr_id
+      with
+      | None -> Alcotest.fail "lookup by attribution receipt"
+      | Some loaded ->
+          Alcotest.(check (option string))
+            "loaded receipt" (Some receipt_id) loaded.receipt_id)
+    all_family_cases
+
+let test_app_native_identity_closes_families () =
+  with_db @@ fun db ->
+  List.iteri
+    (fun i action ->
+      let corr =
+        base_correlation ~action
+          ~receipt_id:(Some (Printf.sprintf "app_rcpt_%d" i))
+          ~plan_id:(Some (Printf.sprintf "app_plan_%d" i))
+          ~actor_mode:"app" ~resolved_mode:(Some "app")
+          ~native_actor_kind:(Some "app")
+          ~attribution_receipt_id:(Some (Printf.sprintf "app_attr_%d" i))
+          ()
+      in
+      assert_ok
+        (A.record_correlation ~db ~correlation:corr
+           ~now:(fixed_now +. float_of_int i)
+           ());
+      let env =
+        match action with
+        | "label" ->
+            make_envelope ~action:(Some "labeled") ~family:E.State_update
+              ~delivery_id:(Some (Printf.sprintf "app_deliv_%d" i))
+              ~actor_type:(Some "Bot") ~actor_login:(Some "clawq[bot]") ()
+        | "merge" ->
+            make_envelope ~action:(Some "closed") ~merged:(Some true)
+              ~delivery_id:(Some (Printf.sprintf "app_deliv_%d" i))
+              ~actor_type:(Some "Bot") ()
+        | "comment" ->
+            make_envelope ~event:"issue_comment" ~action:(Some "created")
+              ~family:E.Comment
+              ~delivery_id:(Some (Printf.sprintf "app_deliv_%d" i))
+              ~actor_type:(Some "Bot") ()
+        | _ ->
+            make_envelope ~action:(Some "opened")
+              ~delivery_id:(Some (Printf.sprintf "app_deliv_%d" i))
+              ~actor_type:(Some "Bot") ()
+      in
+      let r =
+        A.reconcile_webhook ~db ~room_id ~envelope:env
+          ~now:(fixed_now +. 50. +. float_of_int i)
+          ()
+      in
+      Alcotest.(check string) ("app " ^ action) "closed_first" (result_tag r))
+    [ "comment"; "label"; "merge"; "pr_create" ]
+
+let test_delayed_completion_preserves_job_and_snapshot () =
+  with_db @@ fun db ->
+  let snap = make_snapshot ~snapshot_id:"snap_delayed_1" () in
+  let corr =
+    assert_ok
+      (A.record_from_native_receipt ~db ~room_id ~action:"code_work"
+         ~actor_mode:"user" ~item_key ~plan_id:"plan_delayed"
+         ~receipt_id:"rcpt_delayed" ~job_id:"job_bg_42"
+         ~attribution_receipt_id:"ghattr_delayed_1" ~requested_mode:"user"
+         ~resolved_mode:"user" ~actor_snapshot:snap ~expected_github_login:"ada"
+         ~github_user_id:9001L ~native_actor_kind:"user" ~github_ref:"deadbeef"
+         ~now:fixed_now ())
+  in
+  Alcotest.(check (option string)) "job pin" (Some "job_bg_42") corr.job_id;
+  (* Delayed completion surfaces later as PR open by the native user. *)
+  let env =
+    make_envelope ~action:(Some "opened") ~merged:(Some false)
+      ~state:(Some "open") ~delivery_id:(Some "deliv-delayed-pr")
+      ~actor_login:(Some "ada") ~actor_type:(Some "User")
+      ~head_sha:(Some "deadbeef") ()
+  in
+  let env =
+    { env with actor = { env.actor with id = Some 9001; login = Some "ada" } }
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:env ~now:(fixed_now +. 3600.) ()
+  in
+  Alcotest.(check string) "delayed close" "closed_first" (result_tag r);
+  (match r with
+  | A.Closed { correlation = c; _ } ->
+      Alcotest.(check (option string))
+        "job retained" (Some "job_bg_42") c.job_id;
+      Alcotest.(check (option string))
+        "attr retained" (Some "ghattr_delayed_1") c.attribution_receipt_id;
+      Alcotest.(check (option string))
+        "snap retained" (Some "snap_delayed_1")
+        (Option.map (fun s -> s.Snap.id) c.actor_snapshot)
+  | _ -> Alcotest.fail "expected delayed close");
+  match A.get_by_job_id ~db ~job_id:"job_bg_42" with
+  | None -> Alcotest.fail "get_by_job_id"
+  | Some loaded ->
+      Alcotest.(check (option string))
+        "job load receipt" (Some "rcpt_delayed") loaded.receipt_id
+
+let test_webhook_reordering_closes_correct_family () =
+  with_db @@ fun db ->
+  let snap = make_snapshot () in
+  (* Record label then merge (FIFO order). *)
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"label"
+          ~actor_mode:"user" ~item_key ~plan_id:"plan_label"
+          ~receipt_id:"rcpt_label" ~attribution_receipt_id:"attr_label"
+          ~requested_mode:"user" ~resolved_mode:"user" ~actor_snapshot:snap
+          ~expected_github_login:"ada" ~github_user_id:9001L ~now:fixed_now ()));
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"merge"
+          ~actor_mode:"user" ~item_key ~plan_id:"plan_merge"
+          ~receipt_id:"rcpt_merge" ~attribution_receipt_id:"attr_merge"
+          ~requested_mode:"user_required" ~resolved_mode:"user"
+          ~actor_snapshot:snap ~expected_github_login:"ada"
+          ~github_user_id:9001L ~github_ref:"abc123" ~now:(fixed_now +. 0.1) ()));
+  Alcotest.(check int) "two open" 2 (count_correlations ~db ~status:"open" ());
+  (* Merge webhook arrives first (out of order). Must close merge, not label. *)
+  let merge_env =
+    make_envelope ~action:(Some "closed") ~merged:(Some true)
+      ~delivery_id:(Some "deliv-merge-first") ~actor_login:(Some "ada")
+      ~actor_type:(Some "User") ~head_sha:(Some "abc123") ()
+  in
+  let merge_env =
+    {
+      merge_env with
+      actor = { merge_env.actor with id = Some 9001; login = Some "ada" };
+    }
+  in
+  let r_merge =
+    A.reconcile_webhook ~db ~room_id ~envelope:merge_env ~now:(fixed_now +. 1.)
+      ()
+  in
+  (match r_merge with
+  | A.Closed { correlation = c; _ } ->
+      Alcotest.(check string) "closed merge family" "merge" c.action;
+      Alcotest.(check (option string))
+        "merge receipt" (Some "rcpt_merge") c.receipt_id
+  | _ -> Alcotest.fail "expected merge close");
+  Alcotest.(check int)
+    "label still open" 1
+    (count_correlations ~db ~status:"open" ());
+  (* Later label webhook closes the remaining label receipt. *)
+  let label_env =
+    make_envelope ~action:(Some "labeled") ~family:E.State_update
+      ~delivery_id:(Some "deliv-label-second") ~actor_login:(Some "ada")
+      ~actor_type:(Some "User") ~merged:(Some false) ~state:(Some "open") ()
+  in
+  let label_env =
+    {
+      label_env with
+      actor = { label_env.actor with id = Some 9001; login = Some "ada" };
+    }
+  in
+  let r_label =
+    A.reconcile_webhook ~db ~room_id ~envelope:label_env ~now:(fixed_now +. 2.)
+      ()
+  in
+  (match r_label with
+  | A.Closed { correlation = c; _ } ->
+      Alcotest.(check string) "closed label family" "label" c.action;
+      Alcotest.(check (option string))
+        "label receipt" (Some "rcpt_label") c.receipt_id
+  | _ -> Alcotest.fail "expected label close");
+  Alcotest.(check int) "none open" 0 (count_correlations ~db ~status:"open" ());
+  Alcotest.(check int)
+    "two closed" 2
+    (count_correlations ~db ~status:"closed" ())
+
+let test_webhook_reordering_same_family_ref_disambiguates () =
+  with_db @@ fun db ->
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"submit_review"
+          ~actor_mode:"user" ~item_key ~plan_id:"plan_rev_a"
+          ~receipt_id:"rcpt_a" ~github_ref:"sha_aaa"
+          ~expected_github_login:"ada" ~github_user_id:9001L ~now:fixed_now ()));
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"submit_review"
+          ~actor_mode:"user" ~item_key ~plan_id:"plan_rev_b"
+          ~receipt_id:"rcpt_b" ~github_ref:"sha_bbb"
+          ~expected_github_login:"ada" ~github_user_id:9001L
+          ~now:(fixed_now +. 0.1) ()));
+  let env_b =
+    make_envelope ~event:"pull_request_review" ~action:(Some "submitted")
+      ~family:E.Review ~delivery_id:(Some "deliv-rev-b")
+      ~actor_login:(Some "ada") ~actor_type:(Some "User")
+      ~head_sha:(Some "sha_bbb") ()
+  in
+  let env_b =
+    {
+      env_b with
+      actor = { env_b.actor with id = Some 9001; login = Some "ada" };
+    }
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:env_b ~now:(fixed_now +. 1.) ()
+  in
+  match r with
+  | A.Closed { correlation = c; _ } ->
+      Alcotest.(check (option string))
+        "matched b by ref" (Some "rcpt_b") c.receipt_id;
+      Alcotest.(check (option string))
+        "ref retained" (Some "sha_bbb") c.github_ref
+  | _ -> Alcotest.fail "expected ref-disambiguated close"
+
+let test_request_reviewers_does_not_steal_submit_review () =
+  with_db @@ fun db ->
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"request_reviewers"
+          ~actor_mode:"user" ~item_key ~receipt_id:"rcpt_req"
+          ~expected_github_login:"ada" ~github_user_id:9001L ~now:fixed_now ()));
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"submit_review"
+          ~actor_mode:"user" ~item_key ~receipt_id:"rcpt_sub"
+          ~expected_github_login:"ada" ~github_user_id:9001L
+          ~now:(fixed_now +. 0.1) ()));
+  let submit_env =
+    make_envelope ~event:"pull_request_review" ~action:(Some "submitted")
+      ~family:E.Review ~delivery_id:(Some "deliv-submit")
+      ~actor_login:(Some "ada") ~actor_type:(Some "User") ()
+  in
+  let submit_env =
+    {
+      submit_env with
+      actor = { submit_env.actor with id = Some 9001; login = Some "ada" };
+    }
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:submit_env ~now:(fixed_now +. 1.)
+      ()
+  in
+  match r with
+  | A.Closed { correlation = c; _ } ->
+      Alcotest.(check string) "submit family" "submit_review" c.action;
+      Alcotest.(check (option string))
+        "submit receipt" (Some "rcpt_sub") c.receipt_id
+  | _ -> Alcotest.fail "expected submit_review close"
+
+let test_cross_principal_github_user_id_isolated () =
+  with_db @@ fun db ->
+  let snap_ada = make_snapshot ~principal:"prin_ada" () in
+  let snap_bob =
+    make_snapshot ~principal:"prin_bob" ~user:"user-bob"
+      ~snapshot_id:"snap_bob_uid" ~display_name:"Bob" ()
+  in
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"comment"
+          ~actor_mode:"user" ~item_key ~receipt_id:"rcpt_ada_uid"
+          ~attribution_receipt_id:"attr_ada_uid" ~actor_snapshot:snap_ada
+          ~github_user_id:1001L ~expected_github_login:"ada" ~now:fixed_now ()));
+  ignore
+    (assert_ok
+       (A.record_from_native_receipt ~db ~room_id ~action:"comment"
+          ~actor_mode:"user" ~item_key ~receipt_id:"rcpt_bob_uid"
+          ~attribution_receipt_id:"attr_bob_uid" ~actor_snapshot:snap_bob
+          ~github_user_id:2002L ~expected_github_login:"bob"
+          ~now:(fixed_now +. 0.1) ()));
+  let bob_env =
+    make_envelope ~event:"issue_comment" ~action:(Some "created")
+      ~family:E.Comment ~delivery_id:(Some "deliv-bob-uid")
+      ~actor_login:(Some "bob") ~actor_type:(Some "User") ()
+  in
+  let bob_env =
+    {
+      bob_env with
+      actor = { bob_env.actor with id = Some 2002; login = Some "bob" };
+    }
+  in
+  let r =
+    A.reconcile_webhook ~db ~room_id ~envelope:bob_env ~now:(fixed_now +. 1.) ()
+  in
+  (match r with
+  | A.Closed { correlation = c; _ } ->
+      Alcotest.(check (option string))
+        "bob only" (Some "rcpt_bob_uid") c.receipt_id;
+      Alcotest.(check (option int64)) "bob uid" (Some 2002L) c.github_user_id
+  | _ -> Alcotest.fail "expected bob close");
+  Alcotest.(check int) "ada open" 1 (count_correlations ~db ~status:"open" ())
+
+let test_canonicalize_action_aliases () =
+  Alcotest.(check string)
+    "collab_comment" "comment"
+    (A.canonicalize_action "collab_comment");
+  Alcotest.(check string)
+    "review_request" "request_reviewers"
+    (A.canonicalize_action "review_request");
+  Alcotest.(check string)
+    "review_submit" "submit_review"
+    (A.canonicalize_action "review_submit");
+  Alcotest.(check string)
+    "code_change" "code_work"
+    (A.canonicalize_action "code_change");
+  Alcotest.(check string)
+    "workflow" "workflow_dispatch"
+    (A.canonicalize_action "workflow")
+
 let suite =
   [
     ( "record + reconcile closes once",
@@ -689,4 +1212,26 @@ let suite =
     ( "two principals isolated receipts",
       `Quick,
       test_two_principals_isolated_receipts );
+    ( "every action family native user closes once",
+      `Quick,
+      test_every_action_family_native_user_closes_once );
+    ( "app native identity closes families",
+      `Quick,
+      test_app_native_identity_closes_families );
+    ( "delayed completion preserves job and snapshot",
+      `Quick,
+      test_delayed_completion_preserves_job_and_snapshot );
+    ( "webhook reordering closes correct family",
+      `Quick,
+      test_webhook_reordering_closes_correct_family );
+    ( "webhook reordering same family ref disambiguates",
+      `Quick,
+      test_webhook_reordering_same_family_ref_disambiguates );
+    ( "request_reviewers does not steal submit_review",
+      `Quick,
+      test_request_reviewers_does_not_steal_submit_review );
+    ( "cross principal github_user_id isolated",
+      `Quick,
+      test_cross_principal_github_user_id_isolated );
+    ("canonicalize action aliases", `Quick, test_canonicalize_action_aliases);
   ]
