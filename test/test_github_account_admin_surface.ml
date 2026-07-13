@@ -382,6 +382,53 @@ let test_stale_revision_on_apply () =
   | Surf.Applied _ -> Alcotest.fail "must be stale"
   | Surf.Refused { reason; _ } -> Alcotest.fail ("refused: " ^ reason)
 
+let test_admin_apply_requires_plan_issuer () =
+  with_db @@ fun db ->
+  seed_principal ~db ~id:"prin_subject" ();
+  seed_principal ~db ~id:"prin_admin_a" ();
+  seed_principal ~db ~id:"prin_admin_b" ();
+  let subject = pid "prin_subject" in
+  ignore
+    (insert_binding ~db ~principal_id:subject ~id:"bind_admin_guard"
+       ~github_user_id:5L ());
+  let issuing_surface =
+    assert_ok
+      (Surf.make_admin ~admin_principal_id:(pid "prin_admin_a")
+         ~subject_principal_id:subject ~reason:"support ticket 501" ())
+  in
+  let other_admin_surface =
+    assert_ok
+      (Surf.make_admin ~admin_principal_id:(pid "prin_admin_b")
+         ~subject_principal_id:subject ~reason:"support ticket 501" ())
+  in
+  let plan =
+    assert_ok
+      (Surf.plan_account_action ~db ~surface:issuing_surface ~kind:Surf.Disable
+         ~binding_id:"bind_admin_guard" ~now:fixed_now ())
+  in
+  (match
+     Surf.apply_account_action ~db ~surface:other_admin_surface ~plan
+       ~presented_digest:plan.digest ~now:(fixed_now +. 1.) ()
+   with
+  | Surf.Refused { conflicts; _ } ->
+      Alcotest.(check string)
+        "issuer mismatch refused" "admin_binding_mismatch"
+        (List.hd conflicts).code
+  | Surf.Applied _ | Surf.Stale_revision _ ->
+      Alcotest.fail "a different admin must not apply the issued plan");
+  let unchanged = Option.get (assert_ok (B.get ~db ~id:"bind_admin_guard")) in
+  Alcotest.(check string)
+    "binding remains authorized" "authorized"
+    (B.string_of_authorization_status unchanged.authorization_status);
+  match
+    Surf.apply_account_action ~db ~surface:issuing_surface ~plan
+      ~presented_digest:plan.digest ~now:(fixed_now +. 2.) ()
+  with
+  | Surf.Applied receipt ->
+      Alcotest.(check string) "issuer applies" "disabled" receipt.new_status
+  | Surf.Refused { reason; _ } -> Alcotest.fail ("issuer refused: " ^ reason)
+  | Surf.Stale_revision s -> Alcotest.fail ("issuer stale: " ^ s)
+
 (* -------------------------------------------------------------------------- *)
 (* Actor unlink / split                                                       *)
 (* -------------------------------------------------------------------------- *)
@@ -543,6 +590,8 @@ let suite =
       test_digest_mismatch_refuses;
     Alcotest.test_case "stale binding revision on apply" `Quick
       test_stale_revision_on_apply;
+    Alcotest.test_case "admin account action requires plan issuer" `Quick
+      test_admin_apply_requires_plan_issuer;
     Alcotest.test_case "actor unlink self-service retains github on source"
       `Quick test_actor_unlink_self_service;
     Alcotest.test_case "admin actor unlink plan-confirm-apply" `Quick

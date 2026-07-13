@@ -452,6 +452,11 @@ let plan_canonical_body (p : account_action_plan) =
 let compute_plan_digest (p : account_action_plan) =
   digest_hex (Yojson.Safe.to_string (plan_canonical_body p))
 
+let plan_matches_surface_admin ~surface (p : account_action_plan) =
+  let admin_principal_id, admin_reason = admin_fields surface in
+  Option.equal String.equal p.admin_principal_id admin_principal_id
+  && Option.equal String.equal p.admin_reason admin_reason
+
 let plan_account_action ~db ~surface ~kind ~binding_id
     ?(now = Unix.gettimeofday ()) () =
   let binding_id = String.trim binding_id in
@@ -574,6 +579,35 @@ let apply_account_action ~db ~surface ~plan ~presented_digest ?keys
             {
               code = "digest_mismatch";
               summary = "plan confirmation digest mismatch";
+              related_ids = [ plan.binding_id ];
+            };
+          ];
+      }
+  else if not (String.equal plan.digest (compute_plan_digest plan)) then
+    Refused
+      {
+        reason = "plan contents do not match the confirmed digest";
+        conflicts =
+          [
+            {
+              code = "plan_integrity_mismatch";
+              summary =
+                "plan contents changed after it was issued; request a new plan";
+              related_ids = [ plan.binding_id ];
+            };
+          ];
+      }
+  else if not (plan_matches_surface_admin ~surface plan) then
+    Refused
+      {
+        reason = "plan admin binding does not match the applying surface";
+        conflicts =
+          [
+            {
+              code = "admin_binding_mismatch";
+              summary =
+                "admin plans must be applied by the same admin Principal with \
+                 the same recorded reason";
               related_ids = [ plan.binding_id ];
             };
           ];

@@ -814,7 +814,7 @@ let load_for_update ~db ~id =
   | Ok None -> Error (Printf.sprintf "github_account_binding not found: %s" id)
   | Ok (Some b) -> Ok b
 
-let write_row ~db (b : binding) =
+let write_row ~db ~expected_revision (b : binding) =
   let sql =
     {|UPDATE github_account_bindings SET
         principal_id = ?,
@@ -824,7 +824,7 @@ let write_row ~db (b : binding) =
         revision = ?,
         vault_ref = ?,
         updated_at = ?
-      WHERE id = ?|}
+      WHERE id = ? AND revision = ?|}
   in
   let stmt = Sqlite3.prepare db sql in
   ignore
@@ -846,10 +846,19 @@ let write_row ~db (b : binding) =
   | Some r -> ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT r)));
   ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT b.updated_at));
   ignore (Sqlite3.bind stmt 8 (Sqlite3.Data.TEXT b.id));
+  ignore
+    (Sqlite3.bind stmt 9 (Sqlite3.Data.INT (Int64.of_int expected_revision)));
   match Sqlite3.step stmt with
   | Sqlite3.Rc.DONE ->
+      let changes = Sqlite3.changes db in
       ignore (Sqlite3.finalize stmt);
-      Ok b
+      if changes = 1 then Ok b
+      else
+        Error
+          (Printf.sprintf
+             "revision conflict for github_account_binding %s: expected %d, \
+              row changed concurrently"
+             b.id expected_revision)
   | rc ->
       let err = Sqlite3.errmsg db in
       ignore (Sqlite3.finalize stmt);
@@ -892,7 +901,7 @@ let update ~db ?expected_revision ?display ?authorization_status ?vault_ref
               updated_at = now_s;
             }
           in
-          write_row ~db next)
+          write_row ~db ~expected_revision:b.revision next)
 
 let update_display ~db ?expected_revision ?login ?avatar_url
     ?(now = Unix.gettimeofday ()) ~id () =
@@ -1126,7 +1135,7 @@ let adopt_to_principal ~db ?expected_revision ?(now = Unix.gettimeofday ())
                         updated_at = now_s;
                       }
                     in
-                    match write_row ~db next with
+                    match write_row ~db ~expected_revision:b.revision next with
                     | Error e -> Error e
                     | Ok next -> Ok (next, s)))))
 
@@ -1209,7 +1218,9 @@ let adopt_all_for_principal ~db ?(now = Unix.gettimeofday ())
                                 updated_at = now_s;
                               }
                             in
-                            match write_row ~db next with
+                            match
+                              write_row ~db ~expected_revision:lb.revision next
+                            with
                             | Error e -> Error e
                             | Ok next -> go ((next, s) :: acc) rest)))
               in

@@ -8,7 +8,7 @@
     - binding [Authorized]
     - host / optional App filter
     - vault reference attached
-    - vault row present and [active]
+    - vault row present, bound to the same account, and [active]
     - Principal is current active lineage (not tombstone / missing)
 
     Selection never guesses by login, display name, recency, or another Room
@@ -55,6 +55,7 @@ type validity_failure =
   | Missing_vault_ref
   | Vault_missing
   | Vault_inactive
+  | Vault_account_mismatch
   | Principal_not_current of string
   | Storage of string
 

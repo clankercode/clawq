@@ -24,6 +24,7 @@ type validity_failure =
   | Missing_vault_ref
   | Vault_missing
   | Vault_inactive
+  | Vault_account_mismatch
   | Principal_not_current of string
   | Storage of string
 
@@ -33,6 +34,7 @@ let string_of_validity_failure = function
   | Missing_vault_ref -> "missing_vault_ref"
   | Vault_missing -> "vault_missing"
   | Vault_inactive -> "vault_inactive"
+  | Vault_account_mismatch -> "vault_account_mismatch"
   | Principal_not_current s -> "principal_not_current:" ^ s
   | Storage s -> "storage:" ^ s
 
@@ -51,6 +53,21 @@ let host_app_match ~(host : string) ~(app_id : int option) (b : B.binding) =
   in
   host_ok && app_ok
 
+let account_key_of_binding (b : B.binding) : V.account_key =
+  {
+    principal_id = P.principal_id_to_string b.principal_id;
+    github_user_id = b.identity.github_user_id;
+    app_id = b.identity.app_id;
+    host = b.identity.host;
+  }
+
+let vault_account_matches_binding ~(account : V.account_key) (b : B.binding) =
+  let expected = account_key_of_binding b in
+  String.equal account.principal_id expected.principal_id
+  && Int64.equal account.github_user_id expected.github_user_id
+  && account.app_id = expected.app_id
+  && String.equal account.host expected.host
+
 let check_binding_validity ~db ~host ?app_id ~(binding : B.binding) () =
   match binding.B.authorization_status with
   | B.Pending | B.Disabled | B.Revoked | B.Unlinked -> Invalid Not_authorized
@@ -67,7 +84,13 @@ let check_binding_validity ~db ~host ?app_id ~(binding : B.binding) () =
             | Error _ -> Invalid Vault_missing
             | Ok None -> Invalid Vault_missing
             | Ok (Some meta) ->
-                if not meta.V.active then Invalid Vault_inactive else Valid))
+                if
+                  not
+                    (vault_account_matches_binding ~account:meta.V.account
+                       binding)
+                then Invalid Vault_account_mismatch
+                else if not meta.V.active then Invalid Vault_inactive
+                else Valid))
 
 let require_principal_current ~db ~principal_id =
   match Op.resolve_principal_lineage ~db ~principal_id () with

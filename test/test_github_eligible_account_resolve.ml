@@ -161,6 +161,32 @@ let test_revoked_excluded_even_with_vault () =
   in
   Alcotest.(check int) "revoked out" 0 (List.length listed)
 
+let test_vault_account_mismatch_excluded () =
+  with_db @@ fun db ->
+  seed_principal ~db ~id:"prin_a" ();
+  seed_principal ~db ~id:"prin_b" ();
+  let keys = make_keys () in
+  let vault_id = "vault_owned_by_b" in
+  ignore
+    (create_vault ~db ~keys ~principal_id:"prin_b" ~github_user_id:99L
+       ~app_id:42 ~id:vault_id);
+  let vref = assert_ok (B.make_vault_ref vault_id) in
+  let binding =
+    insert_binding ~db ~principal_id:(pid "prin_a") ~id:"b_wrong_vault"
+      ~github_user_id:1L ~vault_ref:vref ()
+  in
+  (match R.check_binding_validity ~db ~host:B.default_host ~binding () with
+  | R.Invalid R.Vault_account_mismatch -> ()
+  | R.Valid -> Alcotest.fail "foreign vault must not validate a binding"
+  | R.Invalid failure ->
+      Alcotest.fail
+        ("unexpected validity failure: " ^ R.string_of_validity_failure failure));
+  let listed =
+    assert_ok
+      (R.list_currently_valid_bindings ~db ~principal_id:(pid "prin_a") ())
+  in
+  Alcotest.(check int) "mismatched vault excluded" 0 (List.length listed)
+
 (* -------------------------------------------------------------------------- *)
 (* Precedence walk under current validity                                     *)
 (* -------------------------------------------------------------------------- *)
@@ -496,6 +522,9 @@ let suite =
     ( "revoked excluded even with vault",
       `Quick,
       test_revoked_excluded_even_with_vault );
+    ( "vault account mismatch excluded",
+      `Quick,
+      test_vault_account_mismatch_excluded );
     ("explicit choice wins", `Quick, test_explicit_choice_wins);
     ("room+repo beats lower", `Quick, test_room_repo_beats_lower);
     ("precedence chain", `Quick, test_precedence_chain);

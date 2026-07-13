@@ -186,7 +186,7 @@ type conflict = { code : string; summary : string; related_ids : string list }
 (** Hard conflict disclosed before confirmation. Empty list means plan is
     applyable (subject to CAS at apply time). *)
 
-type account_action_plan = {
+type account_action_plan = private {
   version : int;
   kind : account_action_kind;
   binding_id : string;
@@ -208,6 +208,8 @@ type account_action_plan = {
   admin_reason : string option;
   created_at : string;
 }
+(** Opaque issued plan. Callers may inspect its redacted fields but cannot forge
+    or alter its confirmation-bound contents. *)
 
 val plan_account_action :
   db:Sqlite3.db ->
