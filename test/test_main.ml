@@ -109,6 +109,7 @@ let () =
        ("setup_plan_consent", Test_setup_plan_consent.suite);
        ("setup_plan_bundle", Test_setup_plan_bundle.suite);
        ("principal_identity", Test_principal_identity.suite);
+       ("principal_identity_store", Test_principal_identity_store.suite);
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
        ("github_app_setup_resume", Test_github_app_setup_resume.suite);
