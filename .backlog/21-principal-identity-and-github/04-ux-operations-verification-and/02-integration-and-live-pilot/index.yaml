@@ -57,7 +57,7 @@ tasks:
       file: T003-run-a-live-teams-dual-attribut.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Run a live Teams dual-attribution pilot
     - complexity: medium
