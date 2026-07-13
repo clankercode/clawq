@@ -127,6 +127,7 @@ let () =
        ("github_comment_mode", Test_github_comment_mode.suite);
        ("github_event_history_index", Test_github_event_history_index.suite);
        ("github_delivery_intent", Test_github_delivery_intent.suite);
+       ("github_teams_card_render", Test_github_teams_card_render.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
