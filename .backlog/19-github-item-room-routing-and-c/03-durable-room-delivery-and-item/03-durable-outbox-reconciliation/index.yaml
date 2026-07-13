@@ -33,7 +33,8 @@ tasks:
       file: T002-reconcile-recovery-into-one-cu.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Reconcile recovery into one current-state catch-up per item
     - complexity: high
       depends_on:
