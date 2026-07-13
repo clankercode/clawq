@@ -174,6 +174,7 @@ let () =
        ("github_user_auth_tx", Test_github_user_auth_tx.suite);
        ("github_user_token", Test_github_user_token_store.suite);
        ("github_user_token_master_key", Test_github_user_token_master_key.suite);
+       ("github_user_token_vault", Test_github_user_token_vault.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);
