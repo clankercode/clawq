@@ -21,7 +21,8 @@ tasks:
       file: T001-add-filter-preview-and-explain.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add filter preview and explain with structured rejection reasons
     - complexity: high
       depends_on:
