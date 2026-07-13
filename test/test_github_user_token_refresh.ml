@@ -1,5 +1,5 @@
 (** Tests for GitHub user-token refresh from server-returned lifetimes
-    (P21.M3.E1.T001).
+    (P21.M3.E1.T001) and durable single-flight CAS rotation (P21.M3.E1.T002).
 
     Contract under test:
     - Lease acquisition refreshes only inside the documented skew window
@@ -8,7 +8,10 @@
     - Client secret stays at the HTTP boundary (never in denials/outcomes)
     - Successful refresh advances generation within the same binding lineage
     - New lease pins the new generation so jobs revalidate without identity
-      change *)
+      change
+    - Concurrent callers cause one remote refresh; waiters use committed gen
+    - CAS blocks late responses / old-token replay after remote rotation
+    - Crash after remote rotation fails closed to relink (no old authority) *)
 
 module V = Github_user_token_vault
 module S = Github_user_token_store
@@ -596,6 +599,380 @@ let test_recorded_refresh_expiry_fail_closed () =
   | Ok _ -> Alcotest.fail "expired refresh must fail closed"
 
 (* -------------------------------------------------------------------------- *)
+(* Single-flight + CAS + crash fail-closed (P21.M3.E1.T002)                   *)
+(* -------------------------------------------------------------------------- *)
+
+let seed_claimed_flight ~db ~vault_id ~expected_generation ~owner ~now
+    ?(lease_seconds = 60.) () =
+  let now_s = Time_util.iso8601_utc ~t:now () in
+  let lease_expires_at = Time_util.iso8601_utc ~t:(now +. lease_seconds) () in
+  let job_id = "ghrefresh_test_claimed_1" in
+  let lease_token = "rfl_test_claimed_token" in
+  let sql =
+    {|INSERT INTO github_user_token_refresh_flight
+        (vault_id, job_id, expected_generation, phase, owner, lease_token,
+         lease_expires_at, committed_generation, fail_reason, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(vault_id) DO UPDATE SET
+        job_id = excluded.job_id,
+        expected_generation = excluded.expected_generation,
+        phase = excluded.phase,
+        owner = excluded.owner,
+        lease_token = excluded.lease_token,
+        lease_expires_at = excluded.lease_expires_at,
+        committed_generation = NULL,
+        fail_reason = NULL,
+        updated_at = excluded.updated_at|}
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT vault_id));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT job_id));
+  ignore
+    (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int expected_generation)));
+  ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT "claimed"));
+  ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT owner));
+  ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT lease_token));
+  ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT lease_expires_at));
+  ignore (Sqlite3.bind stmt 8 Sqlite3.Data.NULL);
+  ignore (Sqlite3.bind stmt 9 Sqlite3.Data.NULL);
+  ignore (Sqlite3.bind stmt 10 (Sqlite3.Data.TEXT now_s));
+  ignore (Sqlite3.bind stmt 11 (Sqlite3.Data.TEXT now_s));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt);
+  (job_id, lease_token)
+
+let seed_remote_rotated_flight ~db ~vault_id ~expected_generation ~owner ~now
+    ?(job_id = "ghrefresh_test_orphan_1")
+    ?(lease_token = "rfl_test_orphan_token") () =
+  let now_s = Time_util.iso8601_utc ~t:now () in
+  let lease_expires_at = Time_util.iso8601_utc ~t:(now +. 60.) () in
+  let sql =
+    {|INSERT INTO github_user_token_refresh_flight
+        (vault_id, job_id, expected_generation, phase, owner, lease_token,
+         lease_expires_at, committed_generation, fail_reason, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(vault_id) DO UPDATE SET
+        job_id = excluded.job_id,
+        expected_generation = excluded.expected_generation,
+        phase = excluded.phase,
+        owner = excluded.owner,
+        lease_token = excluded.lease_token,
+        lease_expires_at = excluded.lease_expires_at,
+        committed_generation = NULL,
+        fail_reason = NULL,
+        updated_at = excluded.updated_at|}
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT vault_id));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT job_id));
+  ignore
+    (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int expected_generation)));
+  ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT "remote_rotated"));
+  ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT owner));
+  ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT lease_token));
+  ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT lease_expires_at));
+  ignore (Sqlite3.bind stmt 8 Sqlite3.Data.NULL);
+  ignore (Sqlite3.bind stmt 9 Sqlite3.Data.NULL);
+  ignore (Sqlite3.bind stmt 10 (Sqlite3.Data.TEXT now_s));
+  ignore (Sqlite3.bind stmt 11 (Sqlite3.Data.TEXT now_s));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt);
+  job_id
+
+let test_single_flight_second_caller_denied_no_remote () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let old = sample_tokens ~tag:"sf" () in
+  let rec_ =
+    create_vault ~db ~keys ~account:acct ~tokens:old
+      ~expires_at:near_expires_iso ()
+  in
+  let job_id, _ =
+    seed_claimed_flight ~db ~vault_id:rec_.id ~expected_generation:1
+      ~owner:"worker_a" ~now:fixed_now ()
+  in
+  let http, calls, _ =
+    make_http
+      ~expected_refresh:(Option.get old.refresh_token)
+      ~body:(json_refresh_body ()) ()
+  in
+  match
+    R.refresh ~db ~keys ~http_post:http ~resolve_client:resolve_ok
+      ~client_id_handle ~now:fixed_now ~force:true ~flight_owner:"worker_b"
+      ~on_inflight:`Deny ~vault_id:rec_.id ()
+  with
+  | Error (R.In_flight { job_id = j; owner; expected_generation; _ }) ->
+      Alcotest.(check string) "busy job" job_id j;
+      Alcotest.(check string) "owner a" "worker_a" owner;
+      Alcotest.(check int) "pinned gen" 1 expected_generation;
+      Alcotest.(check int) "no second remote" 0 !calls
+  | Error d -> Alcotest.fail (R.string_of_denial d)
+  | Ok _ -> Alcotest.fail "second caller must not win single-flight"
+
+let test_waiter_joins_committed_generation_only () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let old = sample_tokens ~tag:"join" () in
+  let rec_ =
+    create_vault ~db ~keys ~account:acct ~tokens:old
+      ~expires_at:near_expires_iso ()
+  in
+  let new_access = "ghu_access_JOIN_COMMITTED" in
+  let body =
+    json_refresh_body ~access:new_access ~refresh:"ghr_refresh_JOIN_COMMITTED"
+      ~expires_in:7200 ~refresh_token_expires_in:86400 ()
+  in
+  let http, calls, _ =
+    make_http ~expected_refresh:(Option.get old.refresh_token) ~body ()
+  in
+  (* Leader completes remote + CAS. *)
+  let leader =
+    match
+      R.refresh ~db ~keys ~http_post:http ~resolve_client:resolve_ok
+        ~client_id_handle ~now:fixed_now ~force:true ~flight_owner:"leader"
+        ~vault_id:rec_.id ()
+    with
+    | Ok o -> o
+    | Error d -> Alcotest.fail ("leader: " ^ R.string_of_denial d)
+  in
+  Alcotest.(check bool) "leader refreshed" true leader.refreshed;
+  Alcotest.(check bool) "leader not joined" false leader.joined_flight;
+  Alcotest.(check int) "gen 2" 2 leader.record.generation;
+  Alcotest.(check int) "one remote" 1 !calls;
+  (match leader.flight_job_id with
+  | Some _ -> ()
+  | None -> Alcotest.fail "leader must record flight_job_id");
+  (* Concurrent waiter after commit: vault is outside skew after refresh, so
+     acquire_lease reuses committed generation with no remote. *)
+  let http2, calls2, _ =
+    make_http ~expected_refresh:"should_not_call" ~body:(json_refresh_body ())
+      ()
+  in
+  match
+    R.acquire_lease ~db ~keys ~http_post:http2 ~resolve_client:resolve_ok
+      ~client_id_handle ~now:fixed_now ~expected:acct ~vault_id:rec_.id ()
+  with
+  | Error d -> Alcotest.fail (R.string_of_denial d)
+  | Ok (lease, outcome) -> (
+      Alcotest.(check int) "waiter lease gen" 2 (L.generation lease);
+      Alcotest.(check int) "no second remote for waiter" 0 !calls2;
+      Alcotest.(check bool) "outside skew no refresh" false outcome.refreshed;
+      (match
+         L.with_token ~db ~keys ~now:fixed_now ~lease
+           ~f:(fun ~access_token -> access_token)
+           ()
+       with
+      | Ok tok -> Alcotest.(check string) "committed token only" new_access tok
+      | Error d -> Alcotest.fail (L.string_of_denial d));
+      (* Hold a claimed flight then flip to committed while waiter Waits. *)
+      let _ =
+        seed_claimed_flight ~db ~vault_id:rec_.id ~expected_generation:2
+          ~owner:"leader_hold" ~now:fixed_now ~lease_seconds:120. ()
+      in
+      let flipped = ref false in
+      let wait_sleep _ =
+        if not !flipped then (
+          flipped := true;
+          let sql =
+            {|UPDATE github_user_token_refresh_flight
+              SET phase = 'committed', committed_generation = 2
+              WHERE vault_id = ?|}
+          in
+          let st = Sqlite3.prepare db sql in
+          ignore (Sqlite3.bind st 1 (Sqlite3.Data.TEXT rec_.id));
+          ignore (Sqlite3.step st);
+          ignore (Sqlite3.finalize st))
+      in
+      let http3 ~url:_ ~headers:_ ~body:_ =
+        Alcotest.fail "join waiter must not remote"
+      in
+      match
+        R.refresh ~db ~keys ~http_post:http3 ~resolve_client:resolve_ok
+          ~client_id_handle ~now:fixed_now ~force:true ~flight_owner:"waiter"
+          ~on_inflight:`Wait ~wait_sleep ~wait_timeout_seconds:1.0
+          ~wait_poll_seconds:0.0 ~vault_id:rec_.id ()
+      with
+      | Ok outcome ->
+          Alcotest.(check bool) "joined committed" true outcome.joined_flight;
+          Alcotest.(check int) "committed gen only" 2 outcome.record.generation;
+          Alcotest.(check bool) "flipped during wait" true !flipped
+      | Error d -> Alcotest.fail ("wait join: " ^ R.string_of_denial d))
+
+let test_cas_blocks_late_response_after_remote () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let old = sample_tokens ~tag:"late" () in
+  let rec_ =
+    create_vault ~db ~keys ~account:acct ~tokens:old
+      ~expires_at:near_expires_iso ()
+  in
+  let concurrent_tokens =
+    {
+      S.access_token = "ghu_access_CONCURRENT_WINNER";
+      refresh_token = Some "ghr_refresh_CONCURRENT_WINNER";
+    }
+  in
+  let body =
+    json_refresh_body ~access:"ghu_access_LATE_LOSER"
+      ~refresh:"ghr_refresh_LATE_LOSER" ()
+  in
+  let http ~url:_ ~headers:_ ~body:_ =
+    (* Simulate concurrent authority advance while this flight is mid-remote:
+       another CAS wins generation 1 → 2 before our late response commits. *)
+    (match
+       C.replace ~db ~keys ~now:fixed_now ~id:rec_.id ~expected_generation:1
+         ~expected:acct ~tokens:concurrent_tokens ~scopes:[ "repo" ]
+         ~expires_at:(Time_util.iso8601_utc ~t:(fixed_now +. 7200.) ())
+         ()
+     with
+    | Ok t -> Alcotest.(check int) "concurrent gen" 2 t.record.generation
+    | Error d -> Alcotest.fail ("concurrent cas: " ^ C.string_of_denial d));
+    Ok (200, body)
+  in
+  match
+    R.refresh ~db ~keys ~http_post:http ~resolve_client:resolve_ok
+      ~client_id_handle ~now:fixed_now ~force:true ~flight_owner:"late_worker"
+      ~vault_id:rec_.id ()
+  with
+  | Error (R.Relink_required { reason; _ }) -> (
+      Alcotest.(check bool)
+        "cas_blocked reason" true
+        (String_util.contains reason "cas_blocked_after_remote");
+      (* Late loser must not restore its tokens; concurrent winner remains or
+         vault is disabled fail-closed. *)
+      match V.get_meta ~db ~id:rec_.id with
+      | Error d -> Alcotest.fail (V.string_of_denial d)
+      | Ok None -> Alcotest.fail "vault missing"
+      | Ok (Some meta) ->
+          if meta.active then (
+            Alcotest.(check int) "winner gen retained" 2 meta.generation;
+            match V.read ~db ~keys ~id:rec_.id () with
+            | Ok opened ->
+                Alcotest.(check string)
+                  "late tokens not applied" concurrent_tokens.access_token
+                  opened.tokens.access_token;
+                Alcotest.(check bool)
+                  "not late access" false
+                  (String.equal opened.tokens.access_token
+                     "ghu_access_LATE_LOSER")
+            | Error d -> Alcotest.fail (V.string_of_denial d))
+          else
+            (* Fail-closed disable also acceptable after remote+CAS conflict. *)
+            Alcotest.(check bool) "disabled fail-closed" true (not meta.active))
+  | Error d -> Alcotest.fail (R.string_of_denial d)
+  | Ok _ -> Alcotest.fail "late CAS must not commit old authority"
+
+let test_crash_after_remote_rotated_fails_closed_relink () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let old = sample_tokens ~tag:"crash" () in
+  let rec_ =
+    create_vault ~db ~keys ~account:acct ~tokens:old
+      ~expires_at:near_expires_iso ()
+  in
+  (* Simulate crash after remote rotation, before CAS: durable fence only. *)
+  let job_id =
+    seed_remote_rotated_flight ~db ~vault_id:rec_.id ~expected_generation:1
+      ~owner:"crashed_worker" ~now:fixed_now ()
+  in
+  let http, calls, _ =
+    make_http
+      ~expected_refresh:(Option.get old.refresh_token)
+      ~body:(json_refresh_body ()) ()
+  in
+  (match
+     R.refresh ~db ~keys ~http_post:http ~resolve_client:resolve_ok
+       ~client_id_handle ~now:fixed_now ~force:true ~flight_owner:"recovery"
+       ~vault_id:rec_.id ()
+   with
+  | Error (R.Relink_required { reason; job_id = Some j }) ->
+      Alcotest.(check string)
+        "crash reason" "crash_after_remote_rotation" reason;
+      Alcotest.(check string) "orphan job" job_id j;
+      Alcotest.(check int) "no remote with dead refresh" 0 !calls
+  | Error d -> Alcotest.fail (R.string_of_denial d)
+  | Ok _ ->
+      Alcotest.fail "must fail closed to relink, not restore old authority");
+  (* Old sealed tokens must not remain active authority. *)
+  match V.get_meta ~db ~id:rec_.id with
+  | Ok (Some meta) ->
+      Alcotest.(check bool) "vault disabled after crash fence" false meta.active
+  | Ok None -> Alcotest.fail "vault missing"
+  | Error d -> Alcotest.fail (V.string_of_denial d)
+
+let test_wait_joins_after_leader_commits () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let old = sample_tokens ~tag:"wait" () in
+  let rec_ =
+    create_vault ~db ~keys ~account:acct ~tokens:old
+      ~expires_at:near_expires_iso ()
+  in
+  let new_access = "ghu_access_WAIT_JOIN" in
+  let body =
+    json_refresh_body ~access:new_access ~refresh:"ghr_refresh_WAIT_JOIN"
+      ~expires_in:3600 ~refresh_token_expires_in:7200 ()
+  in
+  let leader_done = ref false in
+  let http_leader, calls, _ =
+    make_http ~expected_refresh:(Option.get old.refresh_token) ~body ()
+  in
+  (* Seed a busy claim; waiter will poll; we complete leader on first sleep. *)
+  let _ =
+    seed_claimed_flight ~db ~vault_id:rec_.id ~expected_generation:1
+      ~owner:"leader_sim" ~now:fixed_now ~lease_seconds:30. ()
+  in
+  let sleep_count = ref 0 in
+  let wait_sleep _ =
+    incr sleep_count;
+    if not !leader_done then (
+      (* Steal expired... actually lease not expired; complete by running
+         leader under the seeded owner is hard. Instead: expire the claim and
+         run a real leader once, then waiter joins. *)
+      let past = Time_util.iso8601_utc ~t:(fixed_now -. 10.) () in
+      let sql =
+        {|UPDATE github_user_token_refresh_flight
+          SET lease_expires_at = ? WHERE vault_id = ?|}
+      in
+      let stmt = Sqlite3.prepare db sql in
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT past));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT rec_.id));
+      ignore (Sqlite3.step stmt);
+      ignore (Sqlite3.finalize stmt);
+      match
+        R.refresh ~db ~keys ~http_post:http_leader ~resolve_client:resolve_ok
+          ~client_id_handle ~now:fixed_now ~force:true
+          ~flight_owner:"leader_real" ~vault_id:rec_.id ()
+      with
+      | Ok o ->
+          leader_done := true;
+          Alcotest.(check int) "leader gen" 2 o.record.generation
+      | Error d -> Alcotest.fail ("leader during wait: " ^ R.string_of_denial d))
+  in
+  let http_waiter ~url:_ ~headers:_ ~body:_ =
+    Alcotest.fail "waiter must not POST remote"
+  in
+  match
+    R.refresh ~db ~keys ~http_post:http_waiter ~resolve_client:resolve_ok
+      ~client_id_handle ~now:fixed_now ~force:true ~flight_owner:"waiter"
+      ~on_inflight:`Wait ~wait_sleep ~wait_timeout_seconds:2.0
+      ~wait_poll_seconds:0.0 ~vault_id:rec_.id ()
+  with
+  | Ok outcome ->
+      Alcotest.(check bool) "leader ran" true !leader_done;
+      Alcotest.(check bool) "sleep polled" true (!sleep_count >= 1);
+      Alcotest.(check int) "one remote total" 1 !calls;
+      Alcotest.(check int)
+        "waiter sees committed gen" 2 outcome.record.generation;
+      Alcotest.(check bool) "joined or led after reclaim" true outcome.refreshed
+  | Error d -> Alcotest.fail (R.string_of_denial d)
+
+(* -------------------------------------------------------------------------- *)
 (* Suite                                                                      *)
 (* -------------------------------------------------------------------------- *)
 
@@ -633,4 +1010,19 @@ let suite =
     ( "recorded refresh expiry fail closed",
       `Quick,
       test_recorded_refresh_expiry_fail_closed );
+    ( "single-flight second caller denied no remote",
+      `Quick,
+      test_single_flight_second_caller_denied_no_remote );
+    ( "waiter joins committed generation only",
+      `Quick,
+      test_waiter_joins_committed_generation_only );
+    ( "CAS blocks late response after remote",
+      `Quick,
+      test_cas_blocks_late_response_after_remote );
+    ( "crash after remote_rotated fails closed relink",
+      `Quick,
+      test_crash_after_remote_rotated_fails_closed_relink );
+    ( "wait joins after leader commits",
+      `Quick,
+      test_wait_joins_after_leader_commits );
   ]
