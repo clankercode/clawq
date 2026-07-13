@@ -240,6 +240,7 @@
   test_github_eligible_account_resolve
   test_github_account_admin_surface
   test_github_account_cli
+  test_github_user_auth_enablement
   test_principal_unlink_split
   test_actor_snapshot
   test_principal_legacy_migrate

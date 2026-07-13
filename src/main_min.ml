@@ -276,10 +276,14 @@ let github_cmd =
     [
       `S "SUBCOMMANDS";
       `I
-        ( "account list|status [BINDING]|use BINDING|link|relink BINDING|unlink \
-           BINDING [--digest D]",
+        ( "account list|status [BINDING]|use BINDING|link|relink \
+           BINDING|unlink BINDING [--digest D]",
           "Principal-owned GitHub account lifecycle (disabled in minimal \
            build)." );
+      `I
+        ( "user-auth status|readiness|repair|enable|disable|apply",
+          "Admin user-auth enablement readiness and repair (disabled in \
+           minimal build)." );
     ]
 
 let version_cmd =

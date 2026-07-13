@@ -617,15 +617,24 @@ let github_cmd =
     "Manage Principal-owned GitHub account lifecycle and routes."
     [
       `S "SUBCOMMANDS";
-      `I ("account list|status [BINDING]|use BINDING|link|relink BINDING|unlink \
-          BINDING [--digest D]",
-          "Principal-owned GitHub account lifecycle (redacted).");
-      `I ("route inspect ROUTE_ID | route list ROOM | diagnostics route ROUTE_ID",
-          "Inspect or diagnose existing GitHub routes.");
-      `I ("route plan/change/disable/remove/apply (CLAWQ_ADMIN=1)",
-          "Plan and apply GitHub route/App changes.");
-      `I ("app deliveries | app apply PLAN_ID DIGEST",
-          "Inspect or apply pending GitHub App setup deliveries.");
+      `I
+        ( "account list|status [BINDING]|use BINDING|link|relink \
+           BINDING|unlink BINDING [--digest D]",
+          "Principal-owned GitHub account lifecycle (redacted)." );
+      `I
+        ( "user-auth status|readiness|repair|enable|disable|apply \
+           (CLAWQ_ADMIN=1)",
+          "Admin enablement readiness, repair guidance, and plan-confirm-apply \
+           production gate." );
+      `I
+        ( "route inspect ROUTE_ID | route list ROOM | diagnostics route ROUTE_ID",
+          "Inspect or diagnose existing GitHub routes." );
+      `I
+        ( "route plan/change/disable/remove/apply (CLAWQ_ADMIN=1)",
+          "Plan and apply GitHub route/App changes." );
+      `I
+        ( "app deliveries | app apply PLAN_ID DIGEST",
+          "Inspect or apply pending GitHub App setup deliveries." );
     ]
 
 let pipeline_cmd =

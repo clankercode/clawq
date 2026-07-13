@@ -651,6 +651,8 @@ let handle args =
   | "transcribe" :: _ -> unsupported "transcribe"
   | "mcp" :: _ -> unsupported "mcp"
   | "github" :: "account" :: rest -> Github_account_cli_min.cmd rest
+  | "github" :: "user-auth" :: rest ->
+      Github_user_auth_enablement_cli_min.cmd ("user-auth" :: rest)
   | "github" :: _ -> unsupported "github route/App setup"
   | "runner" :: _ -> unsupported "runner"
   | "runtime" :: _ -> unsupported "runtime"

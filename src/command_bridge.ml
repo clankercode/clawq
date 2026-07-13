@@ -667,6 +667,8 @@ let handle args =
   | "subscriptions" :: rest ->
       Github_pr_subscriptions_cli.cmd_subscriptions rest
   | "github" :: "account" :: rest -> Github_account_cli.cmd ("account" :: rest)
+  | "github" :: "user-auth" :: rest ->
+      Github_user_auth_enablement_cli.cmd ("user-auth" :: rest)
   | "github" :: rest -> Github_route_cli.cmd rest
   | "debate" :: rest -> Debate.cmd_debate ~get_config ~get_db rest
   | "pipeline" :: rest -> Command_bridge_session.cmd_pipeline rest

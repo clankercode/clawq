@@ -192,6 +192,8 @@
   github_account_admin_surface
   github_account_cli_min
   github_account_tool
+  github_user_auth_enablement
+  github_user_auth_enablement_cli_min
   principal_unlink_split
   actor_snapshot
   github_durable_job_actor_attribution
@@ -464,6 +466,7 @@
   command_bridge_helpers
   github_route_cli
   github_account_cli
+  github_user_auth_enablement_cli
   command_bridge_cron
   github_pr_subscriptions_cli
   command_bridge_bgargs
