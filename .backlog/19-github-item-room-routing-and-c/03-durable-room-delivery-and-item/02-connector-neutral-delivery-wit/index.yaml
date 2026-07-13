@@ -20,7 +20,7 @@ tasks:
       file: T001-define-connector-neutral-lifec.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Define connector-neutral lifecycle-card update and reply intents
     - complexity: high
