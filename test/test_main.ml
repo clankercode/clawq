@@ -217,6 +217,7 @@ let () =
        ( "github_user_auth_revocation_webhook",
          Test_github_user_auth_revocation_webhook.suite );
        ("github_user_auth_invalidate", Test_github_user_auth_invalidate.suite);
+       ("github_user_auth_diagnostics", Test_github_user_auth_diagnostics.suite);
        ("github_user_token", Test_github_user_token_store.suite);
        ("github_user_token_master_key", Test_github_user_token_master_key.suite);
        ("github_user_token_vault", Test_github_user_token_vault.suite);

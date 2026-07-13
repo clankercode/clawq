@@ -270,6 +270,7 @@
   github_action_workflow
   github_user_auth_invalidate
   github_user_token_refresh
+  github_user_auth_diagnostics
   github_user_token_rewrap
   github_user_token_vault_recovery
   credential_lease
