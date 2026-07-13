@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T06:10:22Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:49Z"
@@ -8,10 +10,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M3.E2.T004
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T06:10:22Z"
+status: in_progress
 tags: []
 title: Enforce visible App fallback and fail-closed user-required behavior
-updated_at: "2026-07-12T14:52:49Z"
+updated_at: "2026-07-13T06:10:22Z"
 ---
 Acceptance: User_preferred falls back only when action policy permits and the current preview explicitly names the App actor; User_required, attribution-gate disabled, and post-confirm authority loss never fall back to App/PAT and instead return repair or reconfirmation. Actor mode cannot change during retry. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
