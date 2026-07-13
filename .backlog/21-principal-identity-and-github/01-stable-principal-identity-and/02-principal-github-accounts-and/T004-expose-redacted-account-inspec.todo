@@ -1,20 +1,21 @@
 ---
 claimed_at: "2026-07-13T04:27:14Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T04:48:00Z"
 complexity: medium
 created_at: "2026-07-12T14:51:10Z"
 depends_on:
     - P21.M1.E2.T003
     - P21.M1.E1.T012
     - P19.M1.E1.T002
+duration_minutes: 20.768000135216667
 estimate_hours: 4
 id: P21.M1.E2.T004
 priority: high
 started_at: "2026-07-13T04:27:14Z"
-status: in_progress
+status: done
 tags: []
 title: Expose redacted account inspection preference and unlink operations
-updated_at: "2026-07-13T04:27:14Z"
+updated_at: "2026-07-13T04:48:00Z"
 ---
 Acceptance: Private self-service and revision-bound admin surfaces inspect redacted accounts/preferences and request unlink/split/revocation through the canonical lifecycle. They expose no token material, disclose conflicts before confirmation, invalidate affected authority immediately, and preserve immutable historical attribution. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

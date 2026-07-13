@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Principal GitHub Accounts and Preferences
       path: 02-principal-github-accounts-and
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Freeze attribution evidence for intents/jobs, re-resolve live authority at execution, and migrate only unambiguous legacy actors.
