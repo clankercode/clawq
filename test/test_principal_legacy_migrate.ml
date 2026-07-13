@@ -129,6 +129,59 @@ let test_actor_not_found_does_not_invent_principal () =
       Alcotest.(check bool) "no actor invented" true true
   | _ -> Alcotest.fail "expected actor_not_found"
 
+let test_unlinked_actor_without_active_link_invalidates_active_work () =
+  with_db @@ fun db ->
+  let principal_id = pid "prin_unlinked" in
+  ignore
+    (assert_ok
+       (S.insert_principal ~db
+          (P.make_principal ~id:principal_id
+             ~created_at:"2026-01-01T00:00:00Z"
+             ~updated_at:"2026-01-01T00:00:00Z" ())));
+  let key =
+    assert_ok
+      (P.make_connector_actor_key ~connector:P.Teams
+         ~tenant_or_workspace:"tenant-unlinked" ~immutable_user_id:"aad-99")
+  in
+  ignore
+    (assert_ok
+       (S.insert_connector_actor ~db
+          (P.make_connector_actor ~key ~principal_id ~lifecycle:P.Unlinked
+             ~verified_at:"2026-01-01T00:00:00Z"
+             ~created_at:"2026-01-01T00:00:00Z"
+             ~updated_at:"2026-01-02T00:00:00Z" ())));
+  let row =
+    assert_ok
+      (L.make_legacy_row ~source_kind:L.Background_task
+         ~source_id:"legacy-unlinked-task" ~connector:"teams"
+         ~tenant_or_workspace:"tenant-unlinked" ~immutable_user_id:"aad-99"
+         ~job_active:true ())
+  in
+  let report = assert_ok (L.migrate_rows ~db ~rows:[ row ] ~now:fixed_now ()) in
+  Alcotest.(check int) "no backfill" 0 report.backfilled;
+  Alcotest.(check int) "unresolved" 1 report.unresolved;
+  Alcotest.(check int) "active work invalidated" 1 report.jobs_invalidated;
+  (match report.records with
+  | [ { classification = L.Legacy_unresolved { reason = L.Actor_unlinked }; _ } ] ->
+      ()
+  | _ -> Alcotest.fail "unlinked actor must not backfill from stored principal");
+  Alcotest.(check bool)
+    "user authority denied" false
+    (assert_ok
+       (L.user_authority_allowed ~db ~source_kind:L.Background_task
+          ~source_id:"legacy-unlinked-task"));
+  Alcotest.(check bool)
+    "invalidated" true
+    (assert_ok
+       (L.is_job_invalidated ~db ~source_kind:L.Background_task
+          ~source_id:"legacy-unlinked-task"));
+  ignore
+    (assert_ok
+       (S.update_connector_actor ~db ~lifecycle:P.Active ~key ()));
+  match assert_ok (L.classify_row ~db row) with
+  | L.Legacy_unresolved { reason = L.Active_identity_link_missing } -> ()
+  | _ -> Alcotest.fail "active actor without active link must not backfill"
+
 let test_no_coalesce_on_shared_display_name () =
   with_db @@ fun db ->
   let p1 = pid "prin_a" in
@@ -464,6 +517,9 @@ let suite =
     ( "actor not found does not invent principal",
       `Quick,
       test_actor_not_found_does_not_invent_principal );
+    ( "unlinked actor without active link invalidates active work",
+      `Quick,
+      test_unlinked_actor_without_active_link_invalidates_active_work );
     ( "no coalesce on shared display name",
       `Quick,
       test_no_coalesce_on_shared_display_name );

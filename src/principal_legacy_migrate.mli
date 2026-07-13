@@ -6,8 +6,9 @@
 
     - Classifies each legacy row.
     - Backfills only rows with an unambiguous, adapter-verifiable Connector
-      namespace (tenant/workspace) plus immutable user ID that already resolve
-      to a live Principal (following [Merged_into] tombstones).
+      namespace (tenant/workspace) plus immutable user ID that resolve through
+      an active verified actor and active identity link to a live Principal
+      (following [Merged_into] tombstones).
     - Marks everything else [legacy_unresolved].
     - Preserves read/audit and allowed explicit App behavior for unresolved
       rows, and always denies user-attributed authority for them.
@@ -112,6 +113,14 @@ type unresolved_reason =
       (** Shape is unambiguous but no verified Connector actor exists yet;
           migration does not invent first-seen Principals from legacy. *)
   | Actor_disabled
+  | Actor_unlinked
+      (** An explicitly unlinked actor's stored principal is historical
+          metadata, not backfill authority. *)
+  | Actor_not_verified
+      (** Only adapter-verified Connector actors may backfill legacy work. *)
+  | Active_identity_link_missing
+      (** An active verified actor still needs an active identity link; its
+          stored principal alone is never enough. *)
   | Principal_not_active of string
   | Ambiguous_evidence of string
   | Coalesce_refused of string
@@ -134,8 +143,9 @@ type classification =
 
 val classify_row :
   db:Sqlite3.db -> legacy_row -> (classification, string) result
-(** Pure classification against live store state. Never creates Principals,
-    never merges, never rewrites snapshots. *)
+(** Classification against live store state. Backfill requires an active,
+    adapter-verified actor and active identity link. Never creates Principals,
+    merges, or rewrites snapshots. *)
 
 (** {1 Authority after migration} *)
 

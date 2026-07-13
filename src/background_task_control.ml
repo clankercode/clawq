@@ -135,12 +135,24 @@ let retry ~db ~id =
            id task.retry_count max_retry_count)
   | Some task -> (
       let human_dispatch_guard () =
-        (* As in [spawn_task], a background-only database cannot have a
-           snapshot-bearing GitHub work item until the optional table exists.
-           Do not create that table during a generic retry, but enforce both
-           durable gates when it does exist. *)
+        (* As in [spawn_task], reject an upgrade-invalidated legacy task before
+           consulting the optional GitHub work-item table.  Fresh/no-record
+           App/PAT/unattributed tasks remain outside user-migration authority. *)
         try
-          if not (Github_work_item.schema_exists db) then Ok ()
+          let ( let* ) = Result.bind in
+          let* invalidated =
+            Principal_legacy_migrate.is_job_invalidated ~db
+              ~source_kind:Principal_legacy_migrate.Background_task
+              ~source_id:(string_of_int id)
+          in
+          if invalidated then
+            Error
+              (Printf.sprintf
+                 "legacy background task %d was invalidated during principal \
+                  migration; inspect principal_legacy_invalidated_jobs and \
+                  re-plan with verified identity"
+                 id)
+          else if not (Github_work_item.schema_exists db) then Ok ()
           else
             match Github_work_item.find_by_task ~db ~background_task_id:id with
             | None -> Ok ()
@@ -148,7 +160,6 @@ let retry ~db ~id =
                 match item.actor_snapshot_json with
                 | None -> Ok ()
                 | Some _ ->
-                    let ( let* ) = Result.bind in
                     let* () =
                       Github_work_item.require_actor_snapshot_current ~db item
                     in

@@ -51,11 +51,11 @@ integration-only network paths for user-auth.
 
 Daemon database startup runs the idempotent `Principal_legacy_migrate` upgrade
 before it makes the database available to dispatchers. The upgrade only
-backfills a legacy requester when a verified Connector namespace and immutable
-user ID already resolve to a live Principal. It never links display names,
-emails, room IDs, or sessions. A failed upgrade prevents the daemon from using
-that database; fix the database error and restart rather than bypassing the
-check.
+backfills a legacy requester only when its active, adapter-verified Connector
+actor and active identity link resolve to a live Principal. It never treats an
+unlinked actor's stored Principal, display names, emails, room IDs, or sessions
+as authority. A failed upgrade prevents the daemon from using that database;
+fix the database error and restart rather than bypassing the check.
 
 Inspect the migration report in the daemon log first (run ID, `backfilled`,
 `unresolved`, and `jobs_invalidated`). With the daemon stopped and a database

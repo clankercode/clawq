@@ -293,6 +293,9 @@ type unresolved_reason =
   | Malformed_actor_key of string
   | Actor_not_found
   | Actor_disabled
+  | Actor_unlinked
+  | Actor_not_verified
+  | Active_identity_link_missing
   | Principal_not_active of string
   | Ambiguous_evidence of string
   | Coalesce_refused of string
@@ -306,6 +309,9 @@ let string_of_unresolved_reason = function
   | Malformed_actor_key s -> "malformed_actor_key:" ^ s
   | Actor_not_found -> "actor_not_found"
   | Actor_disabled -> "actor_disabled"
+  | Actor_unlinked -> "actor_unlinked"
+  | Actor_not_verified -> "actor_not_verified"
+  | Active_identity_link_missing -> "active_identity_link_missing"
   | Principal_not_active s -> "principal_not_active:" ^ s
   | Ambiguous_evidence s -> "ambiguous_evidence:" ^ s
   | Coalesce_refused s -> "coalesce_refused:" ^ s
@@ -325,6 +331,9 @@ let unresolved_reason_of_string s =
   | "display_name_only" -> Ok Display_name_only
   | "actor_not_found" -> Ok Actor_not_found
   | "actor_disabled" -> Ok Actor_disabled
+  | "actor_unlinked" -> Ok Actor_unlinked
+  | "actor_not_verified" -> Ok Actor_not_verified
+  | "active_identity_link_missing" -> Ok Active_identity_link_missing
   | _ -> (
       match strip "non_adapter_connector:" with
       | Some rest -> Ok (Non_adapter_connector rest)
@@ -485,50 +494,56 @@ let classify_row ~db (row : legacy_row) =
       | Ok (Some actor) -> (
           match actor.lifecycle with
           | P.Disabled -> Ok (Legacy_unresolved { reason = Actor_disabled })
-          | P.Unlinked | P.Active -> (
-              let link_id_opt =
-                match S.get_active_identity_link ~db ~key:actor_key with
-                | Ok (Some link) -> Some link.id
-                | _ -> None
-              in
-              let owner_pid =
-                match S.get_active_identity_link ~db ~key:actor_key with
-                | Ok (Some link) -> link.principal_id
-                | _ -> actor.principal_id
-              in
-              match follow_merge_alias ~db ~seen:[] owner_pid with
-              | Error e -> Error e
-              | Ok (root_pid, followed) -> (
-                  match S.get_principal ~db ~id:root_pid with
+          | P.Unlinked -> Ok (Legacy_unresolved { reason = Actor_unlinked })
+          | P.Active -> (
+              match actor.verified_at with
+              | None ->
+                  Ok (Legacy_unresolved { reason = Actor_not_verified })
+              | Some verified_at when String.trim verified_at = "" ->
+                  Ok (Legacy_unresolved { reason = Actor_not_verified })
+              | Some _ -> (
+                  match S.get_active_identity_link ~db ~key:actor_key with
                   | Error e -> Error e
                   | Ok None ->
                       Ok
                         (Legacy_unresolved
-                           {
-                             reason =
-                               Principal_not_active
-                                 (P.principal_id_to_string root_pid);
-                           })
-                  | Ok (Some p) -> (
-                      match p.lifecycle with
-                      | P.Active ->
-                          Ok
-                            (Backfill
-                               {
-                                 actor_key;
-                                 principal_id = root_pid;
-                                 followed_merge_alias = followed;
-                                 actor_revision = actor.revision;
-                                 identity_link_id = link_id_opt;
-                               })
-                      | P.Disabled | P.Merged_into _ ->
-                          Ok
-                            (Legacy_unresolved
-                               {
-                                 reason =
-                                   Principal_not_active
-                                     (P.principal_id_to_string root_pid);
-                               }))))))
+                           { reason = Active_identity_link_missing })
+                  | Ok (Some link) -> (
+                      match
+                        follow_merge_alias ~db ~seen:[] link.principal_id
+                      with
+                      | Error e -> Error e
+                      | Ok (root_pid, followed) -> (
+                          match S.get_principal ~db ~id:root_pid with
+                          | Error e -> Error e
+                          | Ok None ->
+                              Ok
+                                (Legacy_unresolved
+                                   {
+                                     reason =
+                                       Principal_not_active
+                                         (P.principal_id_to_string root_pid);
+                                   })
+                          | Ok (Some p) -> (
+                              match p.lifecycle with
+                              | P.Active ->
+                                  Ok
+                                    (Backfill
+                                       {
+                                         actor_key;
+                                         principal_id = root_pid;
+                                         followed_merge_alias = followed;
+                                         actor_revision = actor.revision;
+                                         identity_link_id = Some link.id;
+                                       })
+                              | P.Disabled | P.Merged_into _ ->
+                                  Ok
+                                    (Legacy_unresolved
+                                       {
+                                         reason =
+                                           Principal_not_active
+                                             (P.principal_id_to_string root_pid);
+                                       }))))))))
 
 type authority = {
   user_attributed_allowed : bool;

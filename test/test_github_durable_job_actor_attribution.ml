@@ -13,6 +13,7 @@ module E = Github_event_envelope
 module Bg = Github_room_background_work
 module RS = Github_route_store
 module Attr = Github_action_actor_attribution
+module L = Principal_legacy_migrate
 
 let assert_ok = function Ok v -> v | Error e -> Alcotest.fail e
 
@@ -500,7 +501,74 @@ let test_worker_retry_revalidates_work_item_snapshot () =
         "retry cites durable guard" true
         (contains msg "human-attributed" || contains msg "attribution")
 
-(* 7. legacy jobs without snapshot still allowed when not required *)
+let invalidate_legacy_background_task_without_work_item ~db ~task_id =
+  (match Github_work_item.find_by_task ~db ~background_task_id:task_id with
+  | None -> ()
+  | Some _ -> Alcotest.fail "fixture must have no GitHub work item");
+  let row =
+    assert_ok
+      (L.make_legacy_row ~source_kind:L.Background_task
+         ~source_id:(string_of_int task_id) ~connector:"teams"
+         ~tenant_or_workspace:"legacy-tenant" ~immutable_user_id:"legacy-user"
+         ~job_active:true ())
+  in
+  let report = assert_ok (L.migrate_rows ~db ~rows:[ row ] ~now:fixed_now ()) in
+  Alcotest.(check int) "legacy task invalidated" 1 report.jobs_invalidated
+
+let enqueue_legacy_background_task ~db ~prompt =
+  assert_ok
+    (Background_task.enqueue ~db ~runner:Background_task.Local
+       ~require_git:false ~automerge:false ~use_worktree:false
+       ~repo_path:(Filename.get_temp_dir_name ()) ~prompt ())
+
+let test_worker_spawn_rejects_invalidated_task_without_work_item () =
+  with_db @@ fun db ->
+  let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy spawn" in
+  invalidate_legacy_background_task_without_work_item ~db ~task_id;
+  let task =
+    match Background_task.get_task ~db ~id:task_id with
+    | Some task -> task
+    | None -> Alcotest.fail "missing background task"
+  in
+  let spawned = ref false in
+  Background_task.spawn_task ~db
+    ~run_simple_command:(fun ~cwd:_ _argv ->
+      spawned := true;
+      Lwt.return (0, "", ""))
+    task;
+  Alcotest.(check bool) "refused before worktree/spawn" false !spawned;
+  match Background_task.get_task ~db ~id:task_id with
+  | None -> Alcotest.fail "missing failed background task"
+  | Some failed ->
+      Alcotest.(check string)
+        "status failed" "failed"
+        (Background_task.string_of_status failed.status);
+      Alcotest.(check bool)
+        "invalidation reported" true
+        (match failed.result_preview with
+        | Some msg -> contains msg "invalidated"
+        | None -> false)
+
+let test_worker_retry_rejects_invalidated_task_without_work_item () =
+  with_db @@ fun db ->
+  let task_id = enqueue_legacy_background_task ~db ~prompt:"legacy retry" in
+  invalidate_legacy_background_task_without_work_item ~db ~task_id;
+  Background_task.finish ~db ~id:task_id ~status:Background_task.Failed
+    ~result_preview:"initial failure";
+  (match Background_task.retry ~db ~id:task_id with
+  | Ok _ -> Alcotest.fail "retry must not requeue an invalidated legacy task"
+  | Error msg ->
+      Alcotest.(check bool) "invalidation reported" true
+        (contains msg "invalidated"));
+  match Background_task.get_task ~db ~id:task_id with
+  | None -> Alcotest.fail "missing failed background task"
+  | Some task ->
+      Alcotest.(check string)
+        "task remains failed" "failed"
+        (Background_task.string_of_status task.status);
+      Alcotest.(check int) "retry count unchanged" 0 task.retry_count
+
+(* 9. legacy jobs without snapshot still allowed when not required *)
 let test_legacy_without_snapshot () =
   with_db @@ fun db ->
   let intent = sample_intent ~id:"ghdi_legacy" () in
@@ -571,6 +639,12 @@ let suite =
     ( "worker retry revalidates work item snapshot",
       `Quick,
       test_worker_retry_revalidates_work_item_snapshot );
+    ( "worker spawn rejects invalidated task without work item",
+      `Quick,
+      test_worker_spawn_rejects_invalidated_task_without_work_item );
+    ( "worker retry rejects invalidated task without work item",
+      `Quick,
+      test_worker_retry_rejects_invalidated_task_without_work_item );
     ("legacy without snapshot", `Quick, test_legacy_without_snapshot);
     ("guards and token reject", `Quick, test_guards_and_token_reject);
   ]

@@ -245,13 +245,24 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
       Runner_isolation.{ mode = Off; backend = Sandbox.None; extra_paths = [] })
     ~db (task : task) =
   let human_dispatch_guard () =
-    (* Background tasks are also used by installations that do not link the
-       optional GitHub work-item schema.  In that case no row can carry a
-       human snapshot, so retain the App/PAT/unattributed execution path.
-       Once the table exists, every snapshot-bearing row must pass both
-       current actor revalidation and the legacy migration gate. *)
+    (* An upgrade-invalidated legacy task must never reach a spawn, even on
+       installations that have no optional GitHub work-item row.  A missing
+       migration record remains the normal App/PAT/unattributed path. *)
     try
-      if not (Github_work_item.schema_exists db) then Ok ()
+      let ( let* ) = Result.bind in
+      let* invalidated =
+        Principal_legacy_migrate.is_job_invalidated ~db
+          ~source_kind:Principal_legacy_migrate.Background_task
+          ~source_id:(string_of_int task.id)
+      in
+      if invalidated then
+        Error
+          (Printf.sprintf
+             "legacy background task %d was invalidated during principal \
+              migration; inspect principal_legacy_invalidated_jobs and re-plan \
+              with verified identity"
+             task.id)
+      else if not (Github_work_item.schema_exists db) then Ok ()
       else
         match Github_work_item.find_by_task ~db ~background_task_id:task.id with
         | None -> Ok ()
@@ -259,7 +270,6 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
             match item.actor_snapshot_json with
             | None -> Ok ()
             | Some _ ->
-                let ( let* ) = Result.bind in
                 let* () =
                   Github_work_item.require_actor_snapshot_current ~db item
                 in
