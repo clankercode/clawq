@@ -30,7 +30,8 @@ tasks:
       file: T002-add-admin-enablement-readiness.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add admin enablement readiness and repair
     - complexity: high
       depends_on:
