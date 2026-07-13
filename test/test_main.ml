@@ -172,6 +172,7 @@ let () =
        ("github_attribution_policy", Test_github_attribution_policy.suite);
        ("github_user_auth_readiness", Test_github_user_auth_readiness.suite);
        ("github_user_auth_tx", Test_github_user_auth_tx.suite);
+       ("github_user_auth_delivery", Test_github_user_auth_delivery.suite);
        ("github_user_token", Test_github_user_token_store.suite);
        ("github_user_token_master_key", Test_github_user_token_master_key.suite);
        ("github_user_token_vault", Test_github_user_token_vault.suite);
