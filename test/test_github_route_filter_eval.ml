@@ -1,7 +1,4 @@
-(** Tests for PR advanced filter predicates (P20.M1.E1.T003).
-
-    Fixtures cover positive/negative composition, rename paths, deleted
-    branches, missing team access, and rate-limited enrichment. *)
+(** Combined PR (P20.M1.E1.T003) + Issue (P20.M1.E1.T004) filter eval tests. *)
 
 module F = Github_route_filter
 module Ev = Github_route_filter_eval
@@ -26,6 +23,7 @@ let pr_filter ?(base_branch : F.glob_match option = None)
          include_repos;
          exclude_repos;
          pr =
+           {
              base_branch;
              head_branch;
              changed_path;
@@ -46,7 +44,7 @@ let check_bool msg expected got = Alcotest.(check bool) msg expected got
 
 (** ---- Glob unit cases ---- *)
 
-let test_match_glob_basics () =
+let pr_test_match_glob_basics () =
   check_bool "exact" true (Ev.match_glob ~pattern:"main" ~value:"main");
   check_bool "exact miss" false (Ev.match_glob ~pattern:"main" ~value:"Main");
   check_bool "star any" true (Ev.match_glob ~pattern:"*" ~value:"anything/here");
@@ -65,7 +63,7 @@ let test_match_glob_basics () =
 
 (** ---- Branch predicates ---- *)
 
-let test_base_head_branch_positive_negative () =
+let pr_test_base_head_branch_positive_negative () =
   let filter =
     pr_filter
       ~base_branch:(Some { op = `Glob; values = [ "release/*"; "main" ] })
@@ -74,66 +72,87 @@ let test_base_head_branch_positive_negative () =
   in
   let good =
     ctx ~base_branch:(Some "release/1.2") ~head_branch:(Some "feature/x") ()
+  in
   check_bool "base glob + head neq" true (allows ~filter ~ctx:good);
   let base_exact =
     ctx ~base_branch:(Some "main") ~head_branch:(Some "dev") ()
+  in
   check_bool "base exact main via glob list" true
     (allows ~filter ~ctx:base_exact);
   let bad_base =
     ctx ~base_branch:(Some "develop") ~head_branch:(Some "feature/x") ()
+  in
   check_bool "base miss" false (allows ~filter ~ctx:bad_base);
   let head_main =
     ctx ~base_branch:(Some "main") ~head_branch:(Some "main") ()
+  in
   check_bool "head is main rejected" false (allows ~filter ~ctx:head_main);
   (* case-sensitive branches *)
   let case_f =
     pr_filter ~base_branch:(Some { op = `Eq; values = [ "Main" ] }) ()
+  in
   check_bool "branch case-sensitive" false
     (allows ~filter:case_f ~ctx:(ctx ~base_branch:(Some "main") ()))
 
-let test_deleted_branches_fail_closed () =
+let pr_test_deleted_branches_fail_closed () =
+  let filter =
     pr_filter ~base_branch:(Some { op = `Eq; values = [ "main" ] }) ()
+  in
   check_bool "missing base fails closed" false
     (allows ~filter ~ctx:(ctx ~base_branch:None ()));
   let filter_h =
     pr_filter ~head_branch:(Some { op = `In; values = [ "dev"; "feat" ] }) ()
+  in
   check_bool "missing head fails closed" false
     (allows ~filter:filter_h ~ctx:(ctx ~head_branch:None ()))
 
 (** ---- Paths: positive/negative, rename, missing enrichment ---- *)
 
-let test_changed_paths_glob_and_rename () =
+let pr_test_changed_paths_glob_and_rename () =
+  let filter =
+    pr_filter
       ~changed_path:(Some { op = `Glob; values = [ "src/**"; "docs/*.md" ] })
+      ()
+  in
   check_bool "src path hits" true
     (allows ~filter
        ~ctx:(ctx ~changed_paths:(Some [ "README.md"; "src/lib/a.ml" ]) ()));
   check_bool "docs md hits" true
     (allows ~filter ~ctx:(ctx ~changed_paths:(Some [ "docs/guide.md" ]) ()));
   check_bool "unrelated paths" false
+    (allows ~filter
        ~ctx:(ctx ~changed_paths:(Some [ "Makefile"; "bin/run" ]) ()));
   (* Rename: both previous and new path present — either may match *)
   check_bool "rename old path" true
+    (allows ~filter
        ~ctx:
          (ctx ~changed_paths:(Some [ "src/old_name.ml"; "lib/new_name.ml" ]) ()));
   check_bool "rename new path only under docs" true
+    (allows ~filter
        ~ctx:(ctx ~changed_paths:(Some [ "pkg/old.md"; "docs/new.md" ]) ()));
   check_bool "empty known paths no hit" false
     (allows ~filter ~ctx:(ctx ~changed_paths:(Some []) ()));
   (* not_in: reject if any path matches *)
   let excl =
+    pr_filter
       ~changed_path:(Some { op = `Not_in; values = [ "secret.env" ] })
+      ()
+  in
   check_bool "not_in clean" true
     (allows ~filter:excl ~ctx:(ctx ~changed_paths:(Some [ "src/a.ml" ]) ()));
   check_bool "not_in secret present" false
     (allows ~filter:excl
        ~ctx:(ctx ~changed_paths:(Some [ "src/a.ml"; "secret.env" ]) ()))
 
-let test_rate_limited_and_missing_path_enrichment () =
+let pr_test_rate_limited_and_missing_path_enrichment () =
+  let filter =
     pr_filter ~changed_path:(Some { op = `Glob; values = [ "src/**" ] }) ()
+  in
   check_bool "paths None rate-limited fails closed" false
     (allows ~filter ~ctx:(ctx ~changed_paths:None ()));
   (* Enrichment Error maps to None via pr_context_of_envelope *)
   let env : E.t =
+    {
       version = E.envelope_version;
       delivery_id = Some "d1";
       installation_id = Some 1;
@@ -151,10 +170,12 @@ let test_rate_limited_and_missing_path_enrichment () =
       before = None;
       after =
         Some
+          {
             E.empty_safe_state with
             draft = Some false;
             base_ref = Some "main";
             labels = [ "bug" ];
+          };
       transfer = None;
       received_at = None;
       event_at = None;
@@ -162,36 +183,53 @@ let test_rate_limited_and_missing_path_enrichment () =
       unsupported = false;
       skip_reason = None;
     }
+  in
   let enr : En.enrichment =
+    {
       paths = Some (Error "rate_limited");
       teams = None;
       reasons = [ "rate_limited" ];
       complete = false;
+    }
+  in
   let c = Ev.pr_context_of_envelope ~envelope:env ~enrichment:enr () in
   check_bool "enrichment error → None paths" true (c.changed_paths = None);
   check_bool "eval fail closed on rate limit" false (allows ~filter ~ctx:c)
 
 (** ---- Labels / author / draft ---- *)
 
-let test_labels_author_draft_case_and_composition () =
+let pr_test_labels_author_draft_case_and_composition () =
+  let filter =
+    pr_filter
       ~labels:(Some { op = `In; values = [ "needs-review"; "P20" ] })
       ~author:(Some { op = `Eq; values = [ "Alice" ] })
       ~draft:(Some false) ()
+  in
+  let good =
     ctx ~labels:[ "bug"; "Needs-Review" ] ~author:(Some "alice")
+      ~draft:(Some false) ()
+  in
   check_bool "label+author CI + non-draft" true (allows ~filter ~ctx:good);
   check_bool "label miss" false
+    (allows ~filter
+       ~ctx:
          (ctx ~labels:[ "bug" ] ~author:(Some "alice") ~draft:(Some false) ()));
   check_bool "author miss" false
+    (allows ~filter
        ~ctx:(ctx ~labels:[ "p20" ] ~author:(Some "bob") ~draft:(Some false) ()));
   check_bool "draft miss" false
+    (allows ~filter
        ~ctx:(ctx ~labels:[ "p20" ] ~author:(Some "alice") ~draft:(Some true) ()));
   check_bool "missing author fail closed" false
+    (allows ~filter
        ~ctx:(ctx ~labels:[ "p20" ] ~author:None ~draft:(Some false) ()));
   check_bool "missing draft fail closed" false
+    (allows ~filter
        ~ctx:(ctx ~labels:[ "p20" ] ~author:(Some "alice") ~draft:None ()));
   (* not_in labels *)
   let no_wontfix =
     pr_filter ~labels:(Some { op = `Not_in; values = [ "wontfix" ] }) ()
+  in
   check_bool "empty labels pass not_in" true
     (allows ~filter:no_wontfix ~ctx:(ctx ~labels:[] ()));
   check_bool "wontfix rejected" false
@@ -199,8 +237,12 @@ let test_labels_author_draft_case_and_composition () =
 
 (** ---- Team membership / missing access ---- *)
 
-let test_team_membership_and_missing_access () =
+let pr_test_team_membership_and_missing_access () =
+  let filter =
+    pr_filter
       ~team:(Some { op = `In; values = [ "acme/backend"; "acme/core" ] })
+      ()
+  in
   check_bool "member hit CI" true
     (allows ~filter ~ctx:(ctx ~teams:(Some [ "Acme/Backend" ]) ()));
   check_bool "non-member" false
@@ -210,14 +252,41 @@ let test_team_membership_and_missing_access () =
   check_bool "missing team access / not enriched" false
     (allows ~filter ~ctx:(ctx ~teams:None ()));
   (* rate_limited enrichment → None teams *)
+  let enr : En.enrichment =
+    {
       paths = None;
       teams = Some (Error "rate_limited");
+      reasons = [ "rate_limited" ];
+      complete = false;
+    }
+  in
+  let env : E.t =
+    {
+      version = E.envelope_version;
       delivery_id = None;
       installation_id = None;
+      event = "pull_request";
+      action = Some "opened";
+      repo_full_name = "acme/widget";
+      org = Some "acme";
+      item_kind = Some E.Pull_request;
       item_number = Some 2;
+      item_node_id = None;
+      item_url = None;
+      html_url = None;
+      family = E.Lifecycle;
       actor = { E.empty_actor with login = Some "carol" };
+      before = None;
       after = Some E.empty_safe_state;
+      transfer = None;
+      received_at = None;
+      event_at = None;
       head_sha = None;
+      unsupported = false;
+      skip_reason = None;
+    }
+  in
+  let c = Ev.pr_context_of_envelope ~envelope:env ~enrichment:enr () in
   check_bool "teams from rate limit None" true (c.teams = None);
   check_bool "fail closed rate-limited teams" false (allows ~filter ~ctx:c);
   (* access_denied same path *)
@@ -225,7 +294,9 @@ let test_team_membership_and_missing_access () =
   let c2 = Ev.pr_context_of_envelope ~envelope:env ~enrichment:enr2 () in
   check_bool "fail closed access_denied teams" false (allows ~filter ~ctx:c2);
   (* not_in team: known non-member allows *)
+  let excl =
     pr_filter ~team:(Some { op = `Not_in; values = [ "acme/bots" ] }) ()
+  in
   check_bool "not_in team ok" true
     (allows ~filter:excl ~ctx:(ctx ~teams:(Some [ "acme/backend" ]) ()));
   check_bool "not_in team hit" false
@@ -233,17 +304,23 @@ let test_team_membership_and_missing_access () =
 
 (** ---- Full positive / negative composition ---- *)
 
-let test_full_positive_negative_composition () =
+let pr_test_full_positive_negative_composition () =
+  let filter =
+    pr_filter
       ~base_branch:(Some { op = `In; values = [ "main"; "develop" ] })
       ~head_branch:(Some { op = `Glob; values = [ "feature/*" ] })
       ~changed_path:(Some { op = `Glob; values = [ "src/**" ] })
       ~labels:(Some { op = `In; values = [ "ready" ] })
       ~author:(Some { op = `In; values = [ "alice"; "bob" ] })
       ~team:(Some { op = `In; values = [ "acme/backend" ] })
+      ~draft:(Some false) ()
+  in
+  let good =
     ctx ~base_branch:(Some "main") ~head_branch:(Some "feature/p20")
       ~changed_paths:(Some [ "src/github_route_filter_eval.ml" ])
       ~labels:[ "ready"; "p20" ] ~author:(Some "Bob")
       ~teams:(Some [ "acme/backend" ]) ~draft:(Some false) ()
+  in
   check_bool "full positive" true (allows ~filter ~ctx:good);
   (* flip each dimension *)
   check_bool "neg base" false
@@ -266,37 +343,74 @@ let test_full_positive_negative_composition () =
 
 (** ---- Baseline composition ---- *)
 
-let test_baseline_and_pr_composition () =
+let pr_test_baseline_and_pr_composition () =
+  let filter =
     pr_filter ~include_events:[ "pull_request" ]
       ~exclude_events:[ "issue_comment" ] ~exclude_repos:[ "acme/secret" ]
       ~labels:(Some { op = `In; values = [ "go" ] })
+      ()
+  in
   let c = ctx ~labels:[ "go" ] () in
   check_bool "baseline+pr ok" true
     (Ev.eval_pr_with_baseline ~filter ~event:"pull_request" ~repo:"acme/widget"
        ~ctx:c ());
   check_bool "event excluded" false
     (Ev.eval_pr_with_baseline ~filter ~event:"issue_comment" ~repo:"acme/widget"
+       ~ctx:c ());
   check_bool "repo excluded" false
     (Ev.eval_pr_with_baseline ~filter ~event:"pull_request" ~repo:"acme/secret"
+       ~ctx:c ());
   check_bool "pr labels fail after baseline" false
+    (Ev.eval_pr_with_baseline ~filter ~event:"pull_request" ~repo:"acme/widget"
        ~ctx:(ctx ~labels:[] ()) ());
   check_bool "family token in include" true
     (Ev.eval_baseline
        ~filter:(pr_filter ~include_events:[ "lifecycle" ] ())
        ~event:"pull_request" ~family:"lifecycle" ())
 
-let test_pr_context_of_envelope_fields () =
+let pr_test_pr_context_of_envelope_fields () =
+  let env : E.t =
+    {
+      version = E.envelope_version;
+      delivery_id = None;
       installation_id = Some 9;
+      event = "pull_request";
+      action = Some "opened";
+      repo_full_name = "acme/widget";
+      org = Some "acme";
+      item_kind = Some E.Pull_request;
       item_number = Some 7;
+      item_node_id = None;
+      item_url = None;
+      html_url = None;
+      family = E.Lifecycle;
       actor = { E.empty_actor with login = Some "Dana" };
+      before = None;
+      after =
+        Some
+          {
+            E.empty_safe_state with
             labels = [ "a"; "b" ];
             draft = Some true;
             base_ref = Some "develop";
+          };
+      transfer = None;
+      received_at = None;
+      event_at = None;
       head_sha = Some "deadbeef";
+      unsupported = false;
+      skip_reason = None;
+    }
+  in
+  let enr : En.enrichment =
+    {
       paths = Some (Ok [ "src/a.ml"; "src/b.ml" ]);
       teams = Some (Ok [ "acme/backend" ]);
       reasons = [];
       complete = true;
+    }
+  in
+  let c = Ev.pr_context_of_envelope ~envelope:env ~enrichment:enr () in
   Alcotest.(check (option string)) "base" (Some "develop") c.base_branch;
   Alcotest.(check (option string)) "author" (Some "Dana") c.author;
   Alcotest.(check (list string)) "labels" [ "a"; "b" ] c.labels;
@@ -305,35 +419,10 @@ let test_pr_context_of_envelope_fields () =
     "paths"
     (Some [ "src/a.ml"; "src/b.ml" ])
     c.changed_paths;
+  Alcotest.(check (option (list string)))
     "teams" (Some [ "acme/backend" ]) c.teams
 
-let suite =
-  [
-    ("match_glob basics", `Quick, test_match_glob_basics);
-    ( "base/head branch positive negative",
-      `Quick,
-      test_base_head_branch_positive_negative );
-    ("deleted branches fail closed", `Quick, test_deleted_branches_fail_closed);
-    ("changed paths glob and rename", `Quick, test_changed_paths_glob_and_rename);
-    ( "rate-limited missing path enrichment",
-      test_rate_limited_and_missing_path_enrichment );
-    ( "labels author draft case composition",
-      test_labels_author_draft_case_and_composition );
-    ( "team membership and missing access",
-      test_team_membership_and_missing_access );
-    ( "full positive negative composition",
-      test_full_positive_negative_composition );
-    ("baseline and pr composition", `Quick, test_baseline_and_pr_composition);
-    ("pr_context_of_envelope fields", `Quick, test_pr_context_of_envelope_fields);
-  ]
-||||||| dba8c5b5
-(** Tests for Issue advanced filter predicates (P20.M1.E1.T004).
-
-    Shared eval helpers may also cover PR fields (T003). Fixtures here focus on
-    Issue labels, author/team, multi-assignee, cleared milestone, deleted
-    labels/users, transfer, missing team access, and rate-limited enrichment. *)
-
-
+let assert_ok = function Ok v -> v | Error e -> Alcotest.fail e
 
 let issue_filter ?(labels : F.set_match option = None)
     ?(author : F.set_match option = None) ?(team : F.set_match option = None)
@@ -341,49 +430,92 @@ let issue_filter ?(labels : F.set_match option = None)
     ?(milestone : F.set_match option = None) ?(include_events = [])
     ?(exclude_events = []) ?(include_repos = []) ?(exclude_repos = []) () : F.t
     =
+  assert_ok
+    (F.validate
+       {
+         F.default with
+         include_events;
+         exclude_events;
+         include_repos;
+         exclude_repos;
          issue = { labels; author; team; assignee; milestone };
+       })
 
 let ctx ?(labels = []) ?(author = None) ?(teams = None) ?(assignees = [])
     ?(milestone = None) () : Ev.issue_context =
   { labels; author; teams; assignees; milestone }
 
 let allows ~filter ~ctx = Ev.eval_issue ~filter ~ctx ()
+let check_bool msg expected got = Alcotest.(check bool) msg expected got
 
 let sample_issue_envelope ?(action = "opened") ?(login = Some "alice")
     ?(labels = [ "bug" ]) ?(assignees = [ "bob" ]) ?(milestone = Some "v1.0")
     ?(transfer = None) ?(repo = "acme/widget") () : E.t =
+  {
+    version = E.envelope_version;
     delivery_id = Some "d-issue-1";
     installation_id = Some 42;
     event = "issues";
     action = Some action;
     repo_full_name = repo;
+    org = Some "acme";
     item_kind = Some E.Issue;
     item_number = Some 99;
+    item_node_id = None;
+    item_url = None;
+    html_url = None;
     family = (if action = "transferred" then E.Lifecycle else E.Lifecycle);
     actor = { E.empty_actor with login };
+    before = None;
+    after =
+      Some
+        {
+          E.empty_safe_state with
           state = Some "open";
+          labels;
           assignees;
           milestone;
+        };
     transfer;
+    received_at = None;
+    event_at = None;
+    head_sha = None;
+    unsupported = false;
+    skip_reason = None;
+  }
 
 (** ---- Labels / author case and composition ---- *)
 
 let test_labels_author_case_and_composition () =
+  let filter =
     issue_filter
       ~labels:(Some { op = `In; values = [ "needs-triage"; "P20" ] })
+      ~author:(Some { op = `Eq; values = [ "Alice" ] })
+      ()
+  in
   let good = ctx ~labels:[ "bug"; "Needs-Triage" ] ~author:(Some "alice") () in
   check_bool "label+author CI" true (allows ~filter ~ctx:good);
+  check_bool "label miss" false
     (allows ~filter ~ctx:(ctx ~labels:[ "bug" ] ~author:(Some "alice") ()));
+  check_bool "author miss" false
     (allows ~filter ~ctx:(ctx ~labels:[ "p20" ] ~author:(Some "bob") ()));
+  check_bool "missing author fail closed" false
     (allows ~filter ~ctx:(ctx ~labels:[ "p20" ] ~author:None ()));
   (* not_in labels; empty known labels pass *)
+  let no_wontfix =
     issue_filter ~labels:(Some { op = `Not_in; values = [ "wontfix" ] }) ()
+  in
+  check_bool "empty labels pass not_in" true
+    (allows ~filter:no_wontfix ~ctx:(ctx ~labels:[] ()));
   check_bool "wontfix rejected CI" false
+    (allows ~filter:no_wontfix ~ctx:(ctx ~labels:[ "WontFix" ] ()))
 
 (** ---- Multi-assignee ---- *)
 
 let test_multi_assignee () =
+  let filter =
     issue_filter ~assignee:(Some { op = `In; values = [ "Carol"; "Dana" ] }) ()
+  in
   check_bool "one of multi-assignees hits CI" true
     (allows ~filter ~ctx:(ctx ~assignees:[ "alice"; "carol"; "eve" ] ()));
   check_bool "all multi-assignees none match" false
@@ -395,6 +527,7 @@ let test_multi_assignee () =
     (allows ~filter ~ctx:(ctx ~assignees:[] ()));
   let unassigned_only =
     issue_filter ~assignee:(Some { op = `Not_in; values = [ "botservice" ] }) ()
+  in
   check_bool "empty assignees pass not_in" true
     (allows ~filter:unassigned_only ~ctx:(ctx ~assignees:[] ()));
   check_bool "botservice on multi list rejected" false
@@ -403,6 +536,7 @@ let test_multi_assignee () =
   (* eq against multi-valued assignees: intersection with single value *)
   let eq_bob =
     issue_filter ~assignee:(Some { op = `Eq; values = [ "bob" ] }) ()
+  in
   check_bool "eq among multi" true
     (allows ~filter:eq_bob ~ctx:(ctx ~assignees:[ "alice"; "Bob" ] ()));
   check_bool "eq miss multi" false
@@ -413,6 +547,7 @@ let test_multi_assignee () =
 let test_cleared_milestone () =
   let want_v1 =
     issue_filter ~milestone:(Some { op = `Eq; values = [ "v1.0" ] }) ()
+  in
   check_bool "milestone title CI hit" true
     (allows ~filter:want_v1 ~ctx:(ctx ~milestone:(Some "V1.0") ()));
   check_bool "cleared milestone fails eq" false
@@ -421,6 +556,7 @@ let test_cleared_milestone () =
     (allows ~filter:want_v1 ~ctx:(ctx ~milestone:(Some "v2.0") ()));
   let not_v1 =
     issue_filter ~milestone:(Some { op = `Neq; values = [ "v1.0" ] }) ()
+  in
   check_bool "cleared milestone passes neq (known absence)" true
     (allows ~filter:not_v1 ~ctx:(ctx ~milestone:None ()));
   check_bool "other title passes neq" true
@@ -428,7 +564,10 @@ let test_cleared_milestone () =
   check_bool "v1 fails neq" false
     (allows ~filter:not_v1 ~ctx:(ctx ~milestone:(Some "V1.0") ()));
   let not_in_closed =
+    issue_filter
       ~milestone:(Some { op = `Not_in; values = [ "closed-out"; "parked" ] })
+      ()
+  in
   check_bool "cleared passes not_in closed milestones" true
     (allows ~filter:not_in_closed ~ctx:(ctx ~milestone:None ()));
   check_bool "parked rejected" false
@@ -440,20 +579,24 @@ let test_deleted_labels_and_users () =
   (* Labels removed → known empty list *)
   let needs_bug =
     issue_filter ~labels:(Some { op = `In; values = [ "bug" ] }) ()
+  in
   check_bool "deleted all labels fail in" false
     (allows ~filter:needs_bug ~ctx:(ctx ~labels:[] ()));
   let exclude_bug =
     issue_filter ~labels:(Some { op = `Not_in; values = [ "bug" ] }) ()
+  in
   check_bool "deleted labels pass not_in" true
     (allows ~filter:exclude_bug ~ctx:(ctx ~labels:[] ()));
   (* Deleted/missing author fails closed when author predicate set *)
   let from_alice =
     issue_filter ~author:(Some { op = `Eq; values = [ "alice" ] }) ()
+  in
   check_bool "deleted author fail closed" false
     (allows ~filter:from_alice ~ctx:(ctx ~author:None ()));
   (* Deleted assignee removed from list; remaining multi-assignees still match *)
   let needs_bob =
     issue_filter ~assignee:(Some { op = `In; values = [ "bob" ] }) ()
+  in
   check_bool "deleted bob from multi fails" false
     (allows ~filter:needs_bob ~ctx:(ctx ~assignees:[ "carol" ] ()));
   check_bool "bob still present among multi" true
@@ -462,26 +605,57 @@ let test_deleted_labels_and_users () =
 (** ---- Team membership / missing access / rate-limited enrichment ---- *)
 
 let test_team_missing_access_and_rate_limit () =
+  let filter =
+    issue_filter
       ~team:(Some { op = `In; values = [ "acme/triage"; "acme/core" ] })
+      ()
+  in
+  check_bool "member hit CI" true
     (allows ~filter ~ctx:(ctx ~teams:(Some [ "Acme/Triage" ]) ()));
+  check_bool "non-member" false
+    (allows ~filter ~ctx:(ctx ~teams:(Some [ "acme/frontend" ]) ()));
+  check_bool "known empty membership" false
+    (allows ~filter ~ctx:(ctx ~teams:(Some []) ()));
   check_bool "missing team access / not enriched fails closed" false
+    (allows ~filter ~ctx:(ctx ~teams:None ()));
   (* rate_limited enrichment → None teams via issue_context_of_envelope *)
   let enr_rl : En.enrichment =
+    {
+      paths = None;
+      teams = Some (Error "rate_limited");
+      reasons = [ "rate_limited" ];
+      complete = false;
+    }
+  in
   let env = sample_issue_envelope () in
   let c = Ev.issue_context_of_envelope ~envelope:env ~enrichment:enr_rl () in
   check_bool "rate_limited teams → None" true (c.teams = None);
+  check_bool "fail closed rate-limited teams" false (allows ~filter ~ctx:c);
   let enr_ad =
+    {
       enr_rl with
       teams = Some (Error "access_denied");
       reasons = [ "access_denied" ];
+    }
+  in
   let c2 = Ev.issue_context_of_envelope ~envelope:env ~enrichment:enr_ad () in
+  check_bool "fail closed access_denied teams" false (allows ~filter ~ctx:c2);
   (* Successful enrichment *)
   let enr_ok : En.enrichment =
+    {
+      paths = None;
       teams = Some (Ok [ "acme/triage" ]);
+      reasons = [];
+      complete = true;
+    }
+  in
   let c3 = Ev.issue_context_of_envelope ~envelope:env ~enrichment:enr_ok () in
   check_bool "enriched teams allow" true (allows ~filter ~ctx:c3);
   (* not_in team with known membership *)
+  let excl =
     issue_filter ~team:(Some { op = `Not_in; values = [ "acme/bots" ] }) ()
+  in
+  check_bool "not_in team ok" true
     (allows ~filter:excl ~ctx:(ctx ~teams:(Some [ "acme/triage" ]) ()));
   check_bool "not_in team missing still fail closed" false
     (allows ~filter:excl ~ctx:(ctx ~teams:None ()))
@@ -489,10 +663,13 @@ let test_team_missing_access_and_rate_limit () =
 (** ---- Transfer: current state predicates still apply ---- *)
 
 let test_transfer_uses_current_state () =
+  let filter =
+    issue_filter
       ~labels:(Some { op = `In; values = [ "moved" ] })
       ~assignee:(Some { op = `In; values = [ "carol" ] })
       ~milestone:(Some { op = `Eq; values = [ "inbox" ] })
       ~include_events:[ "issues" ] ()
+  in
   let env =
     sample_issue_envelope ~action:"transferred" ~login:(Some "alice")
       ~labels:[ "Moved"; "ops" ] ~assignees:[ "Carol"; "dave" ]
@@ -500,6 +677,7 @@ let test_transfer_uses_current_state () =
       ~transfer:
         (Some { E.from_repo = Some "acme/old"; to_repo = Some "acme/widget" })
       ~repo:"acme/widget" ()
+  in
   let c = Ev.issue_context_of_envelope ~envelope:env () in
   Alcotest.(check (list string)) "transfer labels" [ "Moved"; "ops" ] c.labels;
   Alcotest.(check (list string))
@@ -510,18 +688,36 @@ let test_transfer_uses_current_state () =
     (allows ~filter ~ctx:c);
   check_bool "transfer + baseline ok" true
     (Ev.eval_issue_with_baseline ~filter ~event:"issues" ~repo:"acme/widget"
+       ~ctx:c ());
   (* After transfer, cleared milestone + missing label fail *)
   let cleared = { c with labels = [ "ops" ]; milestone = None } in
   check_bool "post-transfer cleared milestone / missing label" false
     (allows ~filter ~ctx:cleared)
 
+(** ---- Full positive / negative composition ---- *)
 
+let test_full_positive_negative_composition () =
+  let filter =
+    issue_filter
+      ~labels:(Some { op = `In; values = [ "ready" ] })
+      ~author:(Some { op = `In; values = [ "alice"; "bob" ] })
       ~team:(Some { op = `In; values = [ "acme/triage" ] })
       ~assignee:(Some { op = `In; values = [ "carol"; "dana" ] })
       ~milestone:(Some { op = `Eq; values = [ "v1.0" ] })
+      ()
+  in
+  let good =
     ctx ~labels:[ "ready"; "p20" ] ~author:(Some "Bob")
       ~teams:(Some [ "acme/triage" ]) ~assignees:[ "eve"; "Carol" ]
       ~milestone:(Some "V1.0") ()
+  in
+  check_bool "full positive" true (allows ~filter ~ctx:good);
+  check_bool "neg labels" false
+    (allows ~filter ~ctx:{ good with labels = [ "wip" ] });
+  check_bool "neg author" false
+    (allows ~filter ~ctx:{ good with author = Some "eve" });
+  check_bool "neg team" false
+    (allows ~filter ~ctx:{ good with teams = Some [ "acme/other" ] });
   check_bool "neg assignee" false
     (allows ~filter ~ctx:{ good with assignees = [ "eve" ] });
   check_bool "neg milestone" false
@@ -530,42 +726,107 @@ let test_transfer_uses_current_state () =
     (allows ~filter ~ctx:{ good with milestone = None });
   check_bool "missing team fail closed" false
     (allows ~filter ~ctx:{ good with teams = None });
+  check_bool "empty advanced allow" true
+    (allows ~filter:F.default ~ctx:(ctx ()))
 
+(** ---- Baseline composition ---- *)
 
 let test_baseline_and_issue_composition () =
+  let filter =
     issue_filter ~include_events:[ "issues" ]
+      ~exclude_events:[ "issue_comment" ] ~exclude_repos:[ "acme/secret" ]
+      ~labels:(Some { op = `In; values = [ "go" ] })
+      ()
+  in
+  let c = ctx ~labels:[ "go" ] () in
   check_bool "baseline+issue ok" true
+    (Ev.eval_issue_with_baseline ~filter ~event:"issues" ~repo:"acme/widget"
+       ~ctx:c ());
+  check_bool "event excluded" false
     (Ev.eval_issue_with_baseline ~filter ~event:"issue_comment"
        ~repo:"acme/widget" ~ctx:c ());
+  check_bool "repo excluded" false
     (Ev.eval_issue_with_baseline ~filter ~event:"issues" ~repo:"acme/secret"
+       ~ctx:c ());
   check_bool "issue labels fail after baseline" false
+    (Ev.eval_issue_with_baseline ~filter ~event:"issues" ~repo:"acme/widget"
        ~ctx:(ctx ~labels:[] ()) ())
 
 (** ---- issue_context_of_envelope fields ---- *)
 
 let test_issue_context_of_envelope_fields () =
+  let env =
     sample_issue_envelope ~login:(Some "Dana") ~labels:[ "a"; "b" ]
       ~assignees:[ "x"; "y" ] ~milestone:(Some "M1") ()
+  in
+  let enr : En.enrichment =
+    {
+      paths = None;
+      teams = Some (Ok [ "acme/triage" ]);
+      reasons = [];
+      complete = true;
+    }
+  in
   let c = Ev.issue_context_of_envelope ~envelope:env ~enrichment:enr () in
+  Alcotest.(check (option string)) "author" (Some "Dana") c.author;
+  Alcotest.(check (list string)) "labels" [ "a"; "b" ] c.labels;
   Alcotest.(check (list string)) "assignees" [ "x"; "y" ] c.assignees;
   Alcotest.(check (option string)) "milestone" (Some "M1") c.milestone;
+  Alcotest.(check (option (list string)))
     "teams" (Some [ "acme/triage" ]) c.teams;
   (* blank milestone title → cleared *)
   let env2 =
     sample_issue_envelope ~milestone:(Some "   ") ~assignees:[] ~labels:[] ()
+  in
   let c2 = Ev.issue_context_of_envelope ~envelope:env2 () in
   Alcotest.(check (option string)) "blank milestone cleared" None c2.milestone;
   Alcotest.(check (list string)) "empty assignees" [] c2.assignees
 
+let suite =
+  [
+    ("match_glob basics", `Quick, pr_test_match_glob_basics);
+    ( "base/head branch positive negative",
+      `Quick,
+      pr_test_base_head_branch_positive_negative );
+    ( "deleted branches fail closed",
+      `Quick,
+      pr_test_deleted_branches_fail_closed );
+    ( "changed paths glob and rename",
+      `Quick,
+      pr_test_changed_paths_glob_and_rename );
+    ( "rate-limited missing path enrichment",
+      `Quick,
+      pr_test_rate_limited_and_missing_path_enrichment );
+    ( "labels author draft case composition",
+      `Quick,
+      pr_test_labels_author_draft_case_and_composition );
+    ( "team membership and missing access",
+      `Quick,
+      pr_test_team_membership_and_missing_access );
+    ( "full positive negative composition",
+      `Quick,
+      pr_test_full_positive_negative_composition );
+    ("baseline and pr composition", `Quick, pr_test_baseline_and_pr_composition);
+    ( "pr_context_of_envelope fields",
+      `Quick,
+      pr_test_pr_context_of_envelope_fields );
     ( "labels author case composition",
+      `Quick,
       test_labels_author_case_and_composition );
     ("multi-assignee", `Quick, test_multi_assignee);
     ("cleared milestone", `Quick, test_cleared_milestone);
     ("deleted labels and users", `Quick, test_deleted_labels_and_users);
     ( "team missing access and rate limit",
+      `Quick,
       test_team_missing_access_and_rate_limit );
     ("transfer uses current state", `Quick, test_transfer_uses_current_state);
+    ( "full positive negative composition",
+      `Quick,
+      test_full_positive_negative_composition );
     ( "baseline and issue composition",
+      `Quick,
       test_baseline_and_issue_composition );
     ( "issue_context_of_envelope fields",
+      `Quick,
       test_issue_context_of_envelope_fields );
+  ]
