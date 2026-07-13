@@ -49,6 +49,7 @@ type denial =
   | Lease_expired
   | Lease_revoked
   | Generation_mismatch of { expected : int; actual : int }
+  | Vault_not_active
   | Token_expired
   | Account_mismatch of { expected : V.account_key; found : V.account_key }
   | Vault of V.denial
@@ -90,6 +91,7 @@ let string_of_denial = function
   | Lease_revoked -> "lease_revoked"
   | Generation_mismatch { expected; actual } ->
       Printf.sprintf "generation_mismatch:expected=%d actual=%d" expected actual
+  | Vault_not_active -> "vault_not_active"
   | Token_expired -> "token_expired"
   | Account_mismatch { expected; found } ->
       Printf.sprintf "account_mismatch:expected=%s/%Ld/%d@%s found=%s/%Ld/%d@%s"
@@ -200,6 +202,7 @@ let issue_from_record ?(now = Unix.gettimeofday ())
   if ttl_seconds <= 0. then Error (Invalid_input "ttl_seconds must be positive")
   else if record.generation < 1 then
     Error (Invalid_input "record generation must be positive")
+  else if not record.active then Error Vault_not_active
   else
     let token_expires_at = String.trim record.expires_at in
     if token_expires_at = "" then
@@ -295,25 +298,28 @@ let with_token ~db ~keys ?(now = Unix.gettimeofday ()) ~lease:l ~f () =
           Error (Account_mismatch { expected; found })
       | Error e -> Error (Vault e)
       | Ok opened -> (
-          let actual_gen = opened.record.generation in
-          if actual_gen <> l.binding.generation then
-            Error
-              (Generation_mismatch
-                 { expected = l.binding.generation; actual = actual_gen })
+          if not opened.record.active then Error Vault_not_active
           else
-            match
-              check_token_not_expired ~now ~expires_at:opened.record.expires_at
-            with
-            | Error e -> Error e
-            | Ok () ->
-                let access = String.trim opened.tokens.access_token in
-                if access = "" then
-                  Error
-                    (Vault (V.Invalid_input "access_token empty after open"))
-                else
-                  (* Token exists only for the duration of f. Refresh is never
-                     passed out. *)
-                  Ok (f ~access_token:access)))
+            let actual_gen = opened.record.generation in
+            if actual_gen <> l.binding.generation then
+              Error
+                (Generation_mismatch
+                   { expected = l.binding.generation; actual = actual_gen })
+            else
+              match
+                check_token_not_expired ~now
+                  ~expires_at:opened.record.expires_at
+              with
+              | Error e -> Error e
+              | Ok () ->
+                  let access = String.trim opened.tokens.access_token in
+                  if access = "" then
+                    Error
+                      (Vault (V.Invalid_input "access_token empty after open"))
+                  else
+                    (* Token exists only for the duration of f. Refresh is never
+                       passed out. *)
+                    Ok (f ~access_token:access)))
 
 let with_authorization_header ~db ~keys ?(now = Unix.gettimeofday ())
     ?(header_name = "Authorization") ~lease ~f () =

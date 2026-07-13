@@ -1,4 +1,4 @@
-(** Fail-closed mutable GitHub user-token vault CRUD (P21.M2.E4.T002).
+(** Fail-closed mutable GitHub user-token vault CRUD (P21.M2.E4.T002/T004).
 
     SQLite-backed store for Principal-owned GitHub App user access/refresh
     material. Every durable row is authenticated ciphertext under the versioned
@@ -10,15 +10,18 @@
       injectable provider that never logs key bytes.
     - Create and replace require [Ready] master-key readiness (active write key)
       and record [key_id] / [key_version] on every write.
-    - Each sealed row carries a token [generation] for later CAS transitions and
-      staged rewrap (T004 / T007) without weakening generation compare-and-set.
+    - Each sealed row carries a token [generation] and durable [active] flag.
+      Replace and {!cas_set_active} compare binding + generation + active
+      transactionally (T004) without weakening generation compare-and-set for
+      staged rewrap (T007).
     - Missing/wrong key, corrupt envelope, unsupported version, swapped record,
-      account mismatch, or crypto failure returns a typed [denial] and never a
-      partial token.
+      account mismatch, inactive, or crypto failure returns a typed [denial] and
+      never a partial token.
 
-    Opaque HTTP leases: {!Github_user_token_lease} (T003). Full generation CAS
-    transitions / lease invalidation: T004. Staged rewrap primitives are
-    provided here; job orchestration is {!Github_user_token_rewrap} (T007).
+    Opaque HTTP leases: {!Github_user_token_lease} (T003). Coordinated
+    replace/disable/revoke/unlink with lease invalidation:
+    {!Github_user_token_cas} (T004). Staged rewrap primitives are provided here;
+    job orchestration is {!Github_user_token_rewrap} (T007).
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
@@ -60,6 +63,9 @@ type vault_record = {
   key_version : Github_user_token_master_key.key_version;
   generation : int;
       (** Token-lineage generation (CAS). Independent of [key_version]. *)
+  active : bool;
+      (** Authorization active flag. Disable/revoke/unlink set this false and
+          advance [generation]; replace requires the expected active state. *)
   scopes : string list;
   expires_at : string;
   created_at : string;
@@ -94,7 +100,12 @@ type denial =
   | Not_found
   | Already_exists
   | Generation_conflict of { expected : int; actual : int }
-      (** Replace CAS: stored generation ≠ expected. *)
+      (** Replace / cas_set_active CAS: stored generation ≠ expected. *)
+  | Active_conflict of { expected : bool; actual : bool }
+      (** CAS: stored [active] ≠ expected. *)
+  | Not_active
+      (** Row exists but [active = false]; issue/replace that requires active
+          authority fails closed. *)
   | Crypto_failure
       (** Key material unsuitable for AEAD or unexpected crypto error. *)
   | Invalid_input of string
@@ -200,15 +211,40 @@ val replace :
   ?now:float ->
   id:string ->
   expected_generation:int ->
+  ?expected_active:bool ->
+  ?expected:account_key ->
   tokens:Github_user_token_store.plaintext_tokens ->
   scopes:string list ->
   expires_at:string ->
   unit ->
   (vault_record, denial) result
-(** CAS replace: succeeds only when stored [generation = expected_generation].
-    Reseals under the current active key, records new [key_id]/[key_version],
-    and advances [generation] by 1. Does not weaken CAS for later rewrap (rewrap
-    will compare generation without advancing it). *)
+(** Transactional CAS replace: succeeds only when stored
+    [generation = expected_generation], [active = expected_active] (default
+    [true]), and optional [expected] account binding matches the row. The
+    [WHERE] clause re-checks binding + generation + active so concurrent stale
+    writers cannot restore older token material. Reseals under the current write
+    key, records new [key_id]/[key_version], advances [generation] by 1, and
+    leaves [active] unchanged. Does not weaken CAS for later rewrap (rewrap
+    compares generation without advancing it). Lease invalidation is
+    {!Github_user_token_cas}. *)
+
+val cas_set_active :
+  db:Sqlite3.db ->
+  keys:key_provider ->
+  ?now:float ->
+  id:string ->
+  expected_generation:int ->
+  expected_active:bool ->
+  ?expected:account_key ->
+  active:bool ->
+  unit ->
+  (vault_record, denial) result
+(** Transactional CAS active-state transition for disable/revoke/unlink (and
+    operator re-enable). Succeeds only when stored generation, active flag, and
+    optional account binding match. Reseals ciphertext under the write key with
+    [generation + 1] so AEAD binding stays consistent, then sets [active].
+    Tokens are preserved (no plaintext export). Lease invalidation is
+    {!Github_user_token_cas}. *)
 
 val destroy : db:Sqlite3.db -> id:string -> (unit, denial) result
 (** Delete the sealed row. Missing id is [Not_found]. Does not require key
