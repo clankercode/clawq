@@ -27,7 +27,7 @@ epics:
       locked: false
       name: P19 Action Integration
       path: 03-p19-action-integration
-      status: pending
+      status: done
 estimate_hours: 93
 id: P21.M3
 locked: false
@@ -38,4 +38,4 @@ stats:
     in_progress: 0
     pending: 20
     total_tasks: 20
-status: pending
+status: done

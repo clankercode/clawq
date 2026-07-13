@@ -30,7 +30,7 @@ milestones:
       locked: false
       name: Rotation Revocation and Attributed Actions
       path: 03-rotation-revocation-and-attrib
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Deliver user/admin surfaces, diagnostics, compatibility, integration/security tests, a live Teams pilot, and final operator contracts.

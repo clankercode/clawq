@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 9
     total: 9
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -79,7 +79,7 @@ tasks:
       file: T005-reconcile-resulting-webhooks-w.todo
       id: T005
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Reconcile resulting webhooks with native attribution receipts
     - complexity: high
