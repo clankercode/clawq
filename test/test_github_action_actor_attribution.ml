@@ -178,7 +178,8 @@ let test_preview_pins_actor_snapshot () =
        (fun (r : Setup_plan.readiness_item) -> r.name = "actor_snapshot")
        plan.readiness)
 
-(* 2. apply re-resolves usable authority and succeeds *)
+(* 2. apply re-resolves usable authority; ordinary collab fail-closes without
+   a live REST dispatcher (no false Applied receipt). *)
 let test_apply_reresolves_usable_authority () =
   with_db @@ fun db ->
   let _pid, key, _link, binding = seed_ada ~db in
@@ -204,10 +205,15 @@ let test_apply_reresolves_usable_authority () =
          ~principal:principal_plan ~current_base_revision:base_revision
          ~now:fixed_now ())
   with
-  | Setup_plan_apply.Applied { first_time = true; _ } -> ()
-  | Setup_plan_apply.Applied { first_time = false; _ } ->
-      Alcotest.fail "expected first apply"
-  | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail
+        "collab apply must fail closed without a live GitHub REST dispatcher"
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "apply_error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (contains message "dispatcher")
 
 (* 3. unlink / split invalidates confirmation at apply *)
 let test_unlink_invalidates_confirmation () =
@@ -342,7 +348,8 @@ let test_attach_extract_roundtrip_no_tokens () =
     (contains (Yojson.Safe.to_string data_json) "\"authority\":false"
     || contains (Yojson.Safe.to_string data_json) "authority")
 
-(* 7. legacy plan without snapshot still applies (App path) *)
+(* 7. legacy plan without snapshot still reaches apply; ordinary collab
+   fail-closes without a live REST dispatcher (no false Applied receipt). *)
 let test_legacy_plan_without_snapshot_still_applies () =
   with_db @@ fun db ->
   let route = make_route ~id:"rt_legacy" ~policy:(caps ~reply:true) in
@@ -358,8 +365,15 @@ let test_legacy_plan_without_snapshot_still_applies () =
          ~principal:principal_plan ~current_base_revision:base_revision
          ~now:fixed_now ())
   with
-  | Setup_plan_apply.Applied _ -> ()
-  | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail
+        "collab apply must fail closed without a live GitHub REST dispatcher"
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "apply_error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool) "mentions dispatcher" true
+        (contains message "dispatcher")
 
 (* 8. account revocation invalidates confirmation *)
 let test_account_lineage_change_invalidates () =
@@ -396,7 +410,7 @@ let test_account_lineage_change_invalidates () =
 let suite =
   [
     ("preview pins actor snapshot", `Quick, test_preview_pins_actor_snapshot);
-    ( "apply re-resolves usable authority",
+    ( "apply re-resolves usable authority then fail-closes without dispatcher",
       `Quick,
       test_apply_reresolves_usable_authority );
     ( "unlink invalidates confirmation",
@@ -409,7 +423,7 @@ let suite =
     ( "attach extract roundtrip no tokens",
       `Quick,
       test_attach_extract_roundtrip_no_tokens );
-    ( "legacy plan without snapshot still applies",
+    ( "legacy plan without snapshot fail-closes without dispatcher",
       `Quick,
       test_legacy_plan_without_snapshot_still_applies );
     ( "account lineage change invalidates",
