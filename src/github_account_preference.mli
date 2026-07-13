@@ -279,6 +279,17 @@ val list_eligible_bindings :
 (** Authorized bindings owned by [principal_id], filtered by host/App. Sorted by
     binding id ascending (stable; deliberately not recency or login). *)
 
+val resolve_with_eligible :
+  db:Sqlite3.db ->
+  context:resolve_context ->
+  eligible:B.binding list ->
+  unit ->
+  (resolve_result, string) result
+(** Same precedence walk as {!resolve}, but uses a caller-supplied [eligible]
+    list (already principal-scoped and sorted). Callers that apply stricter
+    current-validity filters (vault attached/active, Principal lineage) should
+    use this entry point rather than reimplementing the walk. *)
+
 val resolve :
   db:Sqlite3.db ->
   context:resolve_context ->

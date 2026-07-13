@@ -188,6 +188,7 @@
   github_account_binding
   github_account_ownership_policy
   github_account_preference
+  github_eligible_account_resolve
   github_account_admin_surface
   principal_unlink_split
   actor_snapshot

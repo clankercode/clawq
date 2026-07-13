@@ -121,6 +121,8 @@ let () =
        ( "github_account_ownership_policy",
          Test_github_account_ownership_policy.suite );
        ("github_account_preference", Test_github_account_preference.suite);
+       ( "github_eligible_account_resolve",
+         Test_github_eligible_account_resolve.suite );
        ("github_account_admin_surface", Test_github_account_admin_surface.suite);
        ("principal_unlink_split", Test_principal_unlink_split.suite);
        ("actor_snapshot", Test_actor_snapshot.suite);

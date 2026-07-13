@@ -263,6 +263,12 @@ let pending_credential_of_pkce
    Github_user_auth_pkce_callback / device_poll. Callers project through
    [make_pending_credential] instead. *)
 
+
+(* Web PKCE and device-poll callers project their token responses through
+   [make_pending_credential] before [prepare]. Keeping those projections in the
+   flow modules avoids cycles with [Github_user_auth_pkce_callback] /
+   [Github_user_auth_device_poll]. *)
+
 (* -------------------------------------------------------------------------- *)
 (* Crypto / ids                                                               *)
 (* -------------------------------------------------------------------------- *)

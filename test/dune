@@ -225,6 +225,7 @@
   test_github_account_binding
   test_github_account_ownership_policy
   test_github_account_preference
+  test_github_eligible_account_resolve
   test_github_account_admin_surface
   test_principal_unlink_split
   test_actor_snapshot
