@@ -19,7 +19,8 @@ tasks:
       file: T001-add-github-account-cli-and-red.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add GitHub account CLI and redacted agent surfaces
     - complexity: high
       depends_on:
