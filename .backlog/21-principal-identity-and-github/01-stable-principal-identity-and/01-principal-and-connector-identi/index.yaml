@@ -54,7 +54,7 @@ tasks:
       file: T004-add-private-cross-connector-li.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Define private cross-Connector linking and admin repair protocol
     - complexity: high
