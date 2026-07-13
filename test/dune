@@ -82,6 +82,7 @@
   test_github_plain_delivery_render
   test_github_item_context_resolve
   test_github_collab_grounding
+  test_github_room_tools
   test_github_auth_selection
   test_github_pr_subscriptions
   test_github_pr_dispatch
