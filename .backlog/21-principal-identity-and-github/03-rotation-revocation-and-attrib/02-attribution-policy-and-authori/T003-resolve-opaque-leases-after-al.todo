@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T05:52:58Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:49Z"
@@ -9,10 +11,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M3.E2.T003
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T05:52:58Z"
+status: in_progress
 tags: []
 title: Resolve attribution authorization after all current policy checks
-updated_at: "2026-07-12T14:52:49Z"
+updated_at: "2026-07-13T05:52:58Z"
 ---
 Acceptance: Resolve a typed allow/deny decision by intersecting the frozen current-turn Room/session Tool catalog, repo grant, Principal/confirmation, logical binding lineage and state, App installation/permissions/repo selection, user/Org/SSO authority, and live action state. Record checked revisions and repair reason but issue no token or lease; stale or ambiguous inputs deny. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

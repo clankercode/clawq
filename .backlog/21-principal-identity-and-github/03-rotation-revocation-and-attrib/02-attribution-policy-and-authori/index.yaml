@@ -44,7 +44,7 @@ tasks:
       file: T003-resolve-opaque-leases-after-al.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Resolve attribution authorization after all current policy checks
     - complexity: high
