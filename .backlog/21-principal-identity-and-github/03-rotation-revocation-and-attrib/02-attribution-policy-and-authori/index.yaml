@@ -67,7 +67,7 @@ tasks:
       file: T005-add-attribution-previews-recei.todo
       id: T005
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add attribution previews receipts repair states and audit
     - complexity: high
