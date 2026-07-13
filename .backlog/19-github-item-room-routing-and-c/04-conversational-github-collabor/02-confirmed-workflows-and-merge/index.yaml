@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 7
     total: 7
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -59,7 +59,7 @@ tasks:
       file: T004-reconcile-action-receipts-back.todo
       id: T004
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Reconcile action receipts backlinks and resulting webhooks without loops
     - complexity: high

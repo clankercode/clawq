@@ -23,7 +23,7 @@ epics:
       locked: false
       name: Confirmed Workflows and Merge
       path: 02-confirmed-workflows-and-merge
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M4.E2
