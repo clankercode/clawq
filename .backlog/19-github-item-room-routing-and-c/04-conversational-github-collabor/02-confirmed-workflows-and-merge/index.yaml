@@ -43,7 +43,7 @@ tasks:
       file: T003-add-independently-enabled-fres.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Add independently enabled fresh-confirmed merge with live policy checks
     - complexity: high
@@ -69,7 +69,8 @@ tasks:
       file: T005-implement-confirmed-issue-crea.todo
       id: T005
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement confirmed Issue creation and lifecycle actions
     - complexity: high
       depends_on:
@@ -78,7 +79,8 @@ tasks:
       file: T006-implement-confirmed-typed-work.todo
       id: T006
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement confirmed typed workflow dispatch
     - complexity: high
       depends_on:
@@ -87,5 +89,6 @@ tasks:
       file: T007-implement-confirmed-code-chang.todo
       id: T007
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement confirmed code-changing work and constrained PR creation

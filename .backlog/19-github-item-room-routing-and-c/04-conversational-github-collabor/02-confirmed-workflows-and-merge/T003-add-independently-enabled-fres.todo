@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T01:10:07Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:06Z"
@@ -8,10 +10,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M4.E2.T003
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T01:10:07Z"
+status: in_progress
 tags: []
 title: Add independently enabled fresh-confirmed merge with live policy checks
-updated_at: "2026-07-12T12:34:06Z"
+updated_at: "2026-07-13T01:10:07Z"
 ---
 Acceptance: Merge capability defaults off and is separate from write/review. Before preview and immediately before execution validate current head, draft, mergeability, required checks/reviews, branch policy, allowed method, actor mode, and authority; changed prerequisites cause no attempt, while success reconciles through the merged event. Production enablement remains gated by the P21 user-required attribution rollout. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
