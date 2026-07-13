@@ -124,6 +124,7 @@ let () =
        ("github_account_admin_surface", Test_github_account_admin_surface.suite);
        ("principal_unlink_split", Test_principal_unlink_split.suite);
        ("actor_snapshot", Test_actor_snapshot.suite);
+       ("principal_legacy_migrate", Test_principal_legacy_migrate.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);
        ("discord_principal", Test_discord_principal_ingress.suite);
