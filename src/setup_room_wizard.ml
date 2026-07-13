@@ -524,6 +524,13 @@ let run_plan ~(profile_id : string) ~(model : string) ~(system_prompt : string)
   in
   let plan = generate_plan ~cfg ~state in
   display_plan plan;
+  (* Shared typed Setup_plan (P20.M2.E1.T001): agent and CLI use one adapter. *)
+  let typed =
+    Room_agent_setup_plan.plan ~cfg ~state
+      ~principal:Room_agent_setup_plan.default_cli_principal ()
+  in
+  Printf.printf "\n%s\n" (Setup_common.bold "=== Setup_plan (shared) ===");
+  Printf.printf "%s\n" (Setup_plan.format_summary typed);
   if connector_type = "teams" then begin
     let has_slack = connector_is_configured cfg "slack" in
     if has_slack then display_capability_comparison ()
