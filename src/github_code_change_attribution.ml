@@ -418,6 +418,90 @@ let enforce_dispatch_mode ~(issued : Dispatch.issued) ~policy_action =
            "%s is User_required: App/PAT fallback is forbidden at dispatch"
            policy_action)
 
+(* Token isolation helpers (used at dispatch return; P21.M3.E3.T004). *)
+let isolation_materials_of_issued ~(issued : Dispatch.issued) ?plan
+    ?(extra = []) () =
+  let issued_blob = Yojson.Safe.to_string (Dispatch.issued_to_json issued) in
+  let summary = Dispatch.string_of_issued issued in
+  let identity_blob =
+    match issued.identity with
+    | None -> ""
+    | Some id -> Yojson.Safe.to_string (Token_lease.identity_to_json id)
+  in
+  let plan_blob =
+    match plan with
+    | None -> ""
+    | Some p ->
+        Yojson.Safe.to_string (Setup_plan.to_persist_json p)
+        ^ " "
+        ^ Yojson.Safe.to_string p.apply_payload.data
+  in
+  [
+    (Token_lease.Job_payload, issued_blob);
+    (Token_lease.Job_payload, summary);
+    (Token_lease.Tool_data, identity_blob);
+    (Token_lease.Job_payload, plan_blob);
+    (Token_lease.Runner_env, issued_blob);
+    (Token_lease.Shell, issued_blob);
+    (Token_lease.Git_transport, issued_blob);
+    (Token_lease.Worktree, plan_blob);
+    (Token_lease.Prompt, plan_blob);
+    (Token_lease.Crash_output, summary);
+    (Token_lease.Scheduled_ambient, issued_blob);
+  ]
+  @ extra
+
+let enforce_token_isolation ~db ?lease ?(materials = []) ?item_key ?room_id
+    ?plan_id ?receipt_id ?actor_snapshot ?(now = Unix.gettimeofday ()) () =
+  let refuse_res =
+    match lease with
+    | None -> Ok ()
+    | Some l -> Token_lease.assert_non_http_refused l
+  in
+  match refuse_res with
+  | Error e ->
+      let _ =
+        Audit.record_repair ~db ~action:policy_action ~reason:e
+          ~failure_class:Audit.Policy ~failure_code:"token_isolation_refuse"
+          ?item_key ?room_id ?plan_id ?actor_snapshot ~now ()
+      in
+      Error e
+  | Ok () -> (
+      match Token_lease.assert_materials_token_free ~materials with
+      | Error d ->
+          let reason = Token_lease.string_of_denial d in
+          let _ =
+            Audit.record_repair ~db ~action:policy_action ~reason
+              ~failure_class:Audit.Policy
+              ~failure_code:"token_isolation_scan_failed" ?item_key ?room_id
+              ?plan_id ?actor_snapshot ~now ()
+          in
+          Error reason
+      | Ok () -> (
+          let reason =
+            Printf.sprintf
+              "token_isolation ok action=%s non_http_surfaces_refused=%b \
+               materials_scanned=%d lease=%b"
+              policy_action (Option.is_some lease) (List.length materials)
+              (Option.is_some lease)
+          in
+          match
+            Audit.record_audit ~db ~action:policy_action ~reason
+              ~result:Audit.Completed ?item_key ?room_id ?plan_id ?receipt_id
+              ?actor_snapshot ~failure_code:"token_isolation_ok" ~now ()
+          with
+          | Error e -> Error ("token isolation audit failed: " ^ e)
+          | Ok a -> Ok a))
+
+let enforce_isolation_after_dispatch ~db ~(issued : Dispatch.issued) ?plan
+    ?item_key ?room_id ?plan_id ?receipt_id ?actor_snapshot ~now () =
+  let materials = isolation_materials_of_issued ~issued ?plan () in
+  enforce_token_isolation ~db ?lease:issued.lease ~materials ?item_key ?room_id
+    ?plan_id ?receipt_id ?actor_snapshot ~now ()
+
+let revoke_issued_lease_now (issued : Dispatch.issued) =
+  match issued.lease with Some l -> Token_lease.revoke l | None -> ()
+
 let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
     ?room_id ?plan_id ?receipt_id ?actor_snapshot ?github_user_id
     ?(now = Unix.gettimeofday ()) ?ttl_seconds () =
@@ -547,15 +631,26 @@ let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
                   deny_dispatch ~policy_action
                     ~reason:("receipt audit failed: " ^ e)
                     ()
-              | Ok receipt ->
-                  Ok
-                    {
-                      issued;
-                      receipt;
-                      policy_action;
-                      mode = issued.mode;
-                      has_user_lease;
-                    })))
+              | Ok receipt -> (
+                  (* P21.M3.E3.T004: refuse non-HTTP surfaces + scan
+                     issued/receipt materials before returning the lease. *)
+                  match
+                    enforce_isolation_after_dispatch ~db ~issued ?item_key
+                      ?room_id ?plan_id ~receipt_id:receipt.id ?actor_snapshot
+                      ~now ()
+                  with
+                  | Error e ->
+                      revoke_issued_lease_now issued;
+                      deny_dispatch ~policy_action ~reason:e ()
+                  | Ok _isolation_audit ->
+                      Ok
+                        {
+                          issued;
+                          receipt;
+                          policy_action;
+                          mode = issued.mode;
+                          has_user_lease;
+                        }))))
 
 (* -------------------------------------------------------------------------- *)
 (* Prior Allow JSON (plan pin)                                                 *)
@@ -995,5 +1090,4 @@ let prepare_dispatch_from_plan ~db ~plan ~live_auth ~live ?vault_id ?expected
           | Ok d -> Ok d
           | Error d -> Error (string_of_dispatch_deny d)))
 
-let revoke_issued_lease (issued : Dispatch.issued) =
-  match issued.lease with Some l -> Token_lease.revoke l | None -> ()
+let revoke_issued_lease = revoke_issued_lease_now

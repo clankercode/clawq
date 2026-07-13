@@ -590,20 +590,150 @@ let identity_contains_plaintext ~(identity : identity) ~plaintext =
     List.exists (fun s -> String_util.contains s plaintext) haystacks
 
 (* -------------------------------------------------------------------------- *)
-(* Explicit refuse surfaces                                                   *)
+(* Explicit refuse surfaces (non-HTTP)                                        *)
 (* -------------------------------------------------------------------------- *)
 
-let refuse_runner_env (_l : lease) =
-  Error
-    (Forbidden_surface
-       "github_user_token must not be injected into runner environment")
+type non_http_surface =
+  | Runner_env
+  | Process_env
+  | Shell
+  | Git_transport
+  | Worktree
+  | Prompt
+  | Tool_data
+  | Job_payload
+  | Crash_output
+  | Scheduled_ambient
 
-let refuse_shell_injection (_l : lease) =
-  Error
-    (Forbidden_surface
-       "github_user_token must not be injected into shell commands")
+let string_of_non_http_surface = function
+  | Runner_env -> "runner_env"
+  | Process_env -> "process_env"
+  | Shell -> "shell"
+  | Git_transport -> "git_transport"
+  | Worktree -> "worktree"
+  | Prompt -> "prompt"
+  | Tool_data -> "tool_data"
+  | Job_payload -> "job_payload"
+  | Crash_output -> "crash_output"
+  | Scheduled_ambient -> "scheduled_ambient"
 
-let refuse_git_transport (_l : lease) =
-  Error
-    (Forbidden_surface
-       "github_user_token must not be injected into Git transport")
+let all_non_http_surfaces =
+  [
+    Runner_env;
+    Process_env;
+    Shell;
+    Git_transport;
+    Worktree;
+    Prompt;
+    Tool_data;
+    Job_payload;
+    Crash_output;
+    Scheduled_ambient;
+  ]
+
+let refuse_message = function
+  | Runner_env ->
+      "github_user_token must not be injected into runner environment"
+  | Process_env ->
+      "github_user_token must not be injected into process environment"
+  | Shell -> "github_user_token must not be injected into shell commands"
+  | Git_transport -> "github_user_token must not be injected into Git transport"
+  | Worktree ->
+      "github_user_token must not be written into worktrees or worktree git \
+       config"
+  | Prompt -> "github_user_token must not enter prompts or Session history"
+  | Tool_data ->
+      "github_user_token must not enter tool arguments or tool results"
+  | Job_payload ->
+      "github_user_token must not enter durable job / outbox payloads"
+  | Crash_output ->
+      "github_user_token must not appear in crash output or operator dumps"
+  | Scheduled_ambient ->
+      "github_user_token must not authorize scheduled / ambient automation \
+       (App identity only)"
+
+let refuse (_l : lease) (surface : non_http_surface) =
+  Error (Forbidden_surface (refuse_message surface))
+
+let refuse_runner_env l = refuse l Runner_env
+let refuse_process_env l = refuse l Process_env
+let refuse_shell_injection l = refuse l Shell
+let refuse_git_transport l = refuse l Git_transport
+let refuse_worktree l = refuse l Worktree
+let refuse_prompt l = refuse l Prompt
+let refuse_tool_data l = refuse l Tool_data
+let refuse_job_payload l = refuse l Job_payload
+let refuse_crash_output l = refuse l Crash_output
+let refuse_scheduled_ambient l = refuse l Scheduled_ambient
+
+let assert_non_http_refused (l : lease) =
+  let rec go = function
+    | [] -> Ok ()
+    | surface :: rest -> (
+        match refuse l surface with
+        | Error (Forbidden_surface _) -> go rest
+        | Error d ->
+            Error
+              (Printf.sprintf
+                 "non_http_surface %s returned unexpected denial: %s"
+                 (string_of_non_http_surface surface)
+                 (string_of_denial d))
+        | Ok () ->
+            Error
+              (Printf.sprintf
+                 "non_http_surface %s incorrectly permitted user-token lease"
+                 (string_of_non_http_surface surface)))
+  in
+  go all_non_http_surfaces
+
+(* -------------------------------------------------------------------------- *)
+(* Shape-based scanning                                                       *)
+(* -------------------------------------------------------------------------- *)
+
+let token_shape_res =
+  lazy
+    [
+      (* GitHub classic / App user / refresh / server-to-server shapes. *)
+      Str.regexp "\\(ghp\\|gho\\|ghu\\|ghs\\|ghr\\)_[A-Za-z0-9_]+";
+      Str.regexp "github_pat_[A-Za-z0-9_]+";
+      Str.regexp "[Bb]earer [A-Za-z0-9._+/=-]\\{8,\\}";
+    ]
+
+let text_contains_token_shape s =
+  if s = "" then false
+  else
+    List.exists
+      (fun re ->
+        try
+          ignore (Str.search_forward re s 0);
+          true
+        with Not_found -> false)
+      (Lazy.force token_shape_res)
+
+let materials_contain_token_shape xs = List.exists text_contains_token_shape xs
+
+let env_entries_contain_token_shape entries =
+  materials_contain_token_shape entries
+
+let argv_contains_token_shape argv =
+  materials_contain_token_shape (Array.to_list argv)
+
+let refuse_scanned_material ~surface ~material =
+  if text_contains_token_shape material then
+    Error
+      (Forbidden_surface
+         (Printf.sprintf
+            "token shape detected on %s; github_user_token must not leave the \
+             HTTP boundary"
+            (string_of_non_http_surface surface)))
+  else Ok ()
+
+let assert_materials_token_free ~materials =
+  let rec go = function
+    | [] -> Ok ()
+    | (surface, material) :: rest -> (
+        match refuse_scanned_material ~surface ~material with
+        | Ok () -> go rest
+        | Error _ as e -> e)
+  in
+  go materials

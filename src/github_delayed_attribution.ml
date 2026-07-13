@@ -710,6 +710,95 @@ let issue_user_lease_delayed ~db ~now ~ttl_seconds ~vault_id ~expected
             let identity = Token_lease.identity_of lease in
             Ok (lease, identity))
 
+let identity_blob_of_issued = function
+  | None -> ""
+  | Some (i : Lease.issued) -> (
+      match i.identity with
+      | None -> ""
+      | Some id -> Yojson.Safe.to_string (Token_lease.identity_to_json id))
+
+let isolation_materials_of_pin ~(pin : pin) ?issued ?(extra = []) () =
+  let pin_blob =
+    match pin_to_storage_json pin with
+    | Ok j -> Yojson.Safe.to_string j
+    | Error _ -> ""
+  in
+  let allow_blob =
+    match allow_storage_json_of_pin pin with
+    | Ok j -> Yojson.Safe.to_string j
+    | Error _ -> ""
+  in
+  let snap_blob = Yojson.Safe.to_string (A.to_redacted_json pin.snapshot) in
+  let issued_blob =
+    match issued with
+    | None -> ""
+    | Some i -> Yojson.Safe.to_string (Lease.issued_to_json i)
+  in
+  let summary =
+    match issued with None -> "" | Some i -> Lease.string_of_issued i
+  in
+  [
+    (Token_lease.Job_payload, pin_blob);
+    (Token_lease.Job_payload, allow_blob);
+    (Token_lease.Job_payload, snap_blob);
+    (Token_lease.Job_payload, issued_blob);
+    (Token_lease.Tool_data, identity_blob_of_issued issued);
+    (Token_lease.Runner_env, issued_blob);
+    (Token_lease.Process_env, issued_blob);
+    (Token_lease.Shell, issued_blob);
+    (Token_lease.Git_transport, issued_blob);
+    (Token_lease.Worktree, pin_blob);
+    (Token_lease.Prompt, pin_blob);
+    (Token_lease.Crash_output, summary);
+    (Token_lease.Scheduled_ambient, pin_blob ^ " " ^ issued_blob);
+  ]
+  @ extra
+
+let enforce_token_isolation ~db ?lease ?(materials = []) ?job_id ?item_key
+    ?room_id ?plan_id ?actor_snapshot ?(now = Unix.gettimeofday ()) () =
+  let refuse_res =
+    match lease with
+    | None -> Ok ()
+    | Some l -> Token_lease.assert_non_http_refused l
+  in
+  match refuse_res with
+  | Error e ->
+      let _ =
+        Audit.record_repair ~db ~action:"delayed_work" ~reason:e
+          ~failure_class:Audit.Policy ~failure_code:"token_isolation_refuse"
+          ?item_key ?room_id ?job_id ?plan_id ?actor_snapshot ~now ()
+      in
+      Error e
+  | Ok () -> (
+      match Token_lease.assert_materials_token_free ~materials with
+      | Error d ->
+          let reason = Token_lease.string_of_denial d in
+          let _ =
+            Audit.record_repair ~db ~action:"delayed_work" ~reason
+              ~failure_class:Audit.Policy
+              ~failure_code:"token_isolation_scan_failed" ?item_key ?room_id
+              ?job_id ?plan_id ?actor_snapshot ~now ()
+          in
+          Error reason
+      | Ok () -> (
+          let reason =
+            Printf.sprintf
+              "token_isolation ok delayed_work non_http_surfaces_refused=%b \
+               materials_scanned=%d lease=%b scheduled_ambient=app_only"
+              (Option.is_some lease) (List.length materials)
+              (Option.is_some lease)
+          in
+          match
+            Audit.record_audit ~db ~action:"delayed_work" ~reason
+              ~result:Audit.Completed ?item_key ?room_id ?job_id ?plan_id
+              ?actor_snapshot ~failure_code:"token_isolation_ok" ~now ()
+          with
+          | Error e -> Error ("token isolation audit failed: " ^ e)
+          | Ok a -> Ok a))
+
+let revoke_issued_lease (issued : Lease.issued) =
+  match issued.lease with Some l -> Token_lease.revoke l | None -> ()
+
 let issue_for_delayed_dispatch ~db ~job_id ~pin ~live ?vault_id ?expected
     ?claimed_actor ?cancelled ?(now = Unix.gettimeofday ()) ?ttl_seconds () =
   match
@@ -718,18 +807,25 @@ let issue_for_delayed_dispatch ~db ~job_id ~pin ~live ?vault_id ?expected
   | Error inv -> Error (string_of_exec_invalidation inv)
   | Ok envelope -> (
       match envelope.fresh_allow.mode with
-      | Auth.App ->
-          Ok
+      | Auth.App -> (
+          (* Ambient / App path: no user lease; still scan pin materials. *)
+          let issued_app : Lease.issued =
             {
-              envelope;
-              issued =
-                {
-                  Lease.mode = Auth.App;
-                  decision = envelope.fresh_allow;
-                  lease = None;
-                  identity = None;
-                };
+              mode = Auth.App;
+              decision = envelope.fresh_allow;
+              lease = None;
+              identity = None;
             }
+          in
+          let materials =
+            isolation_materials_of_pin ~pin ~issued:issued_app ()
+          in
+          match
+            enforce_token_isolation ~db ~materials ~job_id
+              ~actor_snapshot:pin.snapshot ~now ()
+          with
+          | Error e -> Error e
+          | Ok _ -> Ok { envelope; issued = issued_app })
       | Auth.User -> (
           match vault_id with
           | None ->
@@ -742,21 +838,26 @@ let issue_for_delayed_dispatch ~db ~job_id ~pin ~live ?vault_id ?expected
                   ~fresh:envelope.fresh_allow
               with
               | Error e -> Error e
-              | Ok (lease, identity) ->
-                  Ok
+              | Ok (lease, identity) -> (
+                  let issued_user : Lease.issued =
                     {
-                      envelope;
-                      issued =
-                        {
-                          Lease.mode = Auth.User;
-                          decision = envelope.fresh_allow;
-                          lease = Some lease;
-                          identity = Some identity;
-                        };
-                    })))
-
-let revoke_issued_lease (issued : Lease.issued) =
-  match issued.lease with Some l -> Token_lease.revoke l | None -> ()
+                      mode = Auth.User;
+                      decision = envelope.fresh_allow;
+                      lease = Some lease;
+                      identity = Some identity;
+                    }
+                  in
+                  let materials =
+                    isolation_materials_of_pin ~pin ~issued:issued_user ()
+                  in
+                  match
+                    enforce_token_isolation ~db ~lease ~materials ~job_id
+                      ~actor_snapshot:pin.snapshot ~now ()
+                  with
+                  | Error e ->
+                      Token_lease.revoke lease;
+                      Error e
+                  | Ok _ -> Ok { envelope; issued = issued_user }))))
 
 (* -------------------------------------------------------------------------- *)
 (* Conflicting pin                                                             *)

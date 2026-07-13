@@ -793,6 +793,128 @@ let test_pr_opened_webhook_reconciliation_with_user_receipt () =
                (match other with None -> "None" | Some s -> s)));
       Alcotest.(check (option string)) "plan id" (Some plan.id) c_open.plan_id
 
+(* -------------------------------------------------------------------------- *)
+(* Token isolation (P21.M3.E3.T004)                                             *)
+(* -------------------------------------------------------------------------- *)
+
+let test_dispatch_enforces_token_isolation () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let vault = create_vault ~db ~keys ~account:acct () in
+  let auth = base_request () in
+  let family = Attr.Code_work (code_work_req ()) in
+  let live = live_ok () in
+  let preview =
+    expect_preview_ok
+      (Attr.authorize_preview ~db ~family ~route:(Some route_on)
+         ~pilot:pilot_off ~user_auth_available:true ~auth ~live ~room_id
+         ~now:fixed_now ())
+  in
+  let disp =
+    expect_dispatch_ok
+      (Attr.dispatch ~db ~family ~live_auth:auth ~prior:preview.allow ~live
+         ~vault_id:vault.id ~expected:acct ~room_id ~receipt_id:"rcpt_iso_1"
+         ~now:fixed_now ())
+  in
+  Alcotest.(check bool) "has lease" true disp.has_user_lease;
+  (match disp.issued.lease with
+  | None -> Alcotest.fail "expected lease"
+  | Some lease -> (
+      match Lease.assert_non_http_refused lease with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail e));
+  let materials = Attr.isolation_materials_of_issued ~issued:disp.issued () in
+  (match Lease.assert_materials_token_free ~materials with
+  | Ok () -> ()
+  | Error d -> Alcotest.fail (Lease.string_of_denial d));
+  let issued_json = Yojson.Safe.to_string (D.issued_to_json disp.issued) in
+  Alcotest.(check bool)
+    "issued json no access" false
+    (contains ~needle:sample_tokens.access_token issued_json);
+  Alcotest.(check bool)
+    "issued json no refresh" false
+    (contains ~needle:(Option.get sample_tokens.refresh_token) issued_json);
+  (* Isolation audit row recorded on successful dispatch. *)
+  let audits = Audit.list_by_action ~db ~action:"code_change" ~limit:50 () in
+  Alcotest.(check bool)
+    "isolation audit" true
+    (List.exists
+       (fun (r : Audit.t) ->
+         r.kind = Audit.Audit && contains ~needle:"token_isolation" r.reason)
+       audits);
+  (* Attempted transport injection of token shape is denied + audited. *)
+  (match
+     Attr.enforce_token_isolation ~db
+       ~lease:(Option.get disp.issued.lease)
+       ~materials:
+         [
+           ( Lease.Git_transport,
+             "git push https://x-access-token:" ^ sample_tokens.access_token
+             ^ "@github.com/acme/widget.git" );
+         ]
+       ~room_id ~now:fixed_now ()
+   with
+  | Error reason ->
+      Alcotest.(check bool)
+        "scan deny" true
+        (contains ~needle:"token" reason || contains ~needle:"forbidden" reason)
+  | Ok _ -> Alcotest.fail "dirty git transport material must be denied");
+  Attr.revoke_issued_lease disp.issued
+
+let test_plan_materials_token_free_under_isolation () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let vault = create_vault ~db ~keys ~account:acct () in
+  let auth = base_request () in
+  let live = live_ok ~refs:(live_refs ()) () in
+  let planned =
+    assert_ok
+      (Attr.plan_with_attribution ~db ~principal ~room_id
+         ~family:(Attr.Pr_create (pr_req_explicit ()))
+         ~base_revision ~auth ~live ~route:(Some route_on) ~pilot:pilot_off
+         ~user_auth_available:true ~now:fixed_now ())
+  in
+  let disp =
+    assert_ok
+      (Attr.prepare_dispatch_from_plan ~db ~plan:planned.plan ~live_auth:auth
+         ~live ~vault_id:vault.id ~expected:acct ~now:fixed_now ())
+  in
+  let materials =
+    Attr.isolation_materials_of_issued ~issued:disp.issued ~plan:planned.plan ()
+  in
+  (match Lease.assert_materials_token_free ~materials with
+  | Ok () -> ()
+  | Error d -> Alcotest.fail (Lease.string_of_denial d));
+  let plan_s =
+    Yojson.Safe.to_string (Setup_plan.to_persist_json planned.plan)
+  in
+  Alcotest.(check bool)
+    "plan free of access" false
+    (contains ~needle:sample_tokens.access_token plan_s);
+  Alcotest.(check bool)
+    "plan free of refresh" false
+    (contains ~needle:(Option.get sample_tokens.refresh_token) plan_s);
+  (* Runner / shell / git refuse explicitly on the live lease. *)
+  (match disp.issued.lease with
+  | None -> Alcotest.fail "lease required"
+  | Some lease ->
+      List.iter
+        (fun refuse ->
+          match refuse lease with
+          | Error (Lease.Forbidden_surface _) -> ()
+          | _ -> Alcotest.fail "expected refuse")
+        [
+          Lease.refuse_runner_env;
+          Lease.refuse_shell_injection;
+          Lease.refuse_git_transport;
+          Lease.refuse_process_env;
+          Lease.refuse_worktree;
+          Lease.refuse_scheduled_ambient;
+        ]);
+  Attr.revoke_issued_lease disp.issued
+
 let suite =
   [
     ("policy action user_required", `Quick, test_policy_action_user_required);
@@ -842,4 +964,10 @@ let suite =
     ( "pr opened webhook reconciliation with user receipt",
       `Quick,
       test_pr_opened_webhook_reconciliation_with_user_receipt );
+    ( "dispatch enforces token isolation refuse+scan+audit",
+      `Quick,
+      test_dispatch_enforces_token_isolation );
+    ( "plan/dispatch materials stay token-free under isolation",
+      `Quick,
+      test_plan_materials_token_free_under_isolation );
   ]
