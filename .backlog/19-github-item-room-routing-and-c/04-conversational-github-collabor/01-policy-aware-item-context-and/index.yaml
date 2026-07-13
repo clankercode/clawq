@@ -33,7 +33,8 @@ tasks:
       file: T002-expose-room-scoped-github-read.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Expose Room-scoped GitHub read search and status tools
     - complexity: high
       depends_on:
