@@ -182,6 +182,7 @@
   test_setup_plan_apply
   test_setup_plan_consent
   test_setup_plan_bundle
+  test_principal_identity
   test_tool_authz
   test_tool_catalog
   test_tool_discovery
