@@ -17,7 +17,8 @@
       partial token.
 
     Out of scope: opaque HTTP leases (T003), full generation CAS transitions /
-    lease invalidation (T004), staged rewrap engine (T007).
+    lease invalidation (T004). Staged rewrap primitives are provided here; job
+    orchestration is {!Github_user_token_rewrap} (T007).
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and
@@ -212,6 +213,45 @@ val replace :
 val destroy : db:Sqlite3.db -> id:string -> (unit, denial) result
 (** Delete the sealed row. Missing id is [Not_found]. Does not require key
     material (ciphertext is discarded). *)
+
+(** {1 Staged rewrap primitives (T007)}
+
+    Master-key rotation reseals under a new [key_id] while preserving token
+    [generation] for refresh/revoke CAS. Full job orchestration lives in
+    {!Github_user_token_rewrap}. *)
+
+val rewrap :
+  db:Sqlite3.db ->
+  keys:key_provider ->
+  ?now:float ->
+  id:string ->
+  expected_generation:int ->
+  target_key_id:Github_user_token_master_key.key_id ->
+  ?expected_key_id:Github_user_token_master_key.key_id ->
+  unit ->
+  (vault_record, denial) result
+(** Open under the row's current key and reseal under [target_key_id] without
+    advancing [generation]. CAS: stored generation must equal
+    [expected_generation]; optional [expected_key_id] must match the stored key
+    before rewrite. Fresh AEAD nonce on each successful rewrite. Idempotent when
+    already under [target_key_id] at the expected generation. *)
+
+val count_all : db:Sqlite3.db -> (int, denial) result
+val count_for_key : db:Sqlite3.db -> key_id:string -> (int, denial) result
+
+val list_ids_for_key :
+  db:Sqlite3.db ->
+  key_id:string ->
+  ?after_id:string ->
+  ?limit:int ->
+  unit ->
+  (string list, denial) result
+(** Lexicographic id order for resumable batch scans. *)
+
+val list_distinct_key_ids : db:Sqlite3.db -> (string list, denial) result
+
+val ciphertext_of : db:Sqlite3.db -> id:string -> (string, denial) result
+(** Test/ops helper: raw envelope (never a plaintext token). *)
 
 (** {1 Introspection helpers (no secrets)} *)
 
