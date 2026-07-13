@@ -114,6 +114,7 @@ let () =
        ("principal_identity_store", Test_principal_identity_store.suite);
        ("principal_bootstrap", Test_principal_bootstrap.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
+       ("slack_principal", Test_slack_principal_ingress.suite);
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
        ("github_app_setup_resume", Test_github_app_setup_resume.suite);

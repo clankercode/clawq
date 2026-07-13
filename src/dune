@@ -453,6 +453,7 @@
   ws_client
   discord_gateway
   slack_socket
+  slack_principal_ingress
   github_hooks
   github
   github_webhook
