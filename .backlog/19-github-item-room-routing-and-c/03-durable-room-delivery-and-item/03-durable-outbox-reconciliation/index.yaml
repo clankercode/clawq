@@ -22,7 +22,8 @@ tasks:
       file: T001-add-the-24-hour-retrying-deliv.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Add the 24-hour retrying delivery outbox and per-event dead letters
     - complexity: high
       depends_on:

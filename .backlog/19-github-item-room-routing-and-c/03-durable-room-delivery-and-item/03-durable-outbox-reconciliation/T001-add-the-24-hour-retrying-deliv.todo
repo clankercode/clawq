@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T00:40:26Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:00Z"
 depends_on:
@@ -7,11 +10,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M3.E3.T001
 priority: critical
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-13T00:40:26Z"
+status: in_progress
+tags: []
 title: Add the 24-hour retrying delivery outbox and per-event dead letters
-updated_at: "2026-07-12T12:34:00Z"
+updated_at: "2026-07-13T00:40:26Z"
 ---
 Acceptance: Atomically enqueue unique destination/projection intents, persist leases/attempt history/status, resume after restart, and retry transient failures with bounded exponential backoff and jitter for 24 hours. Permanent failures terminate immediately; each expired event becomes independently inspectable dead-letter state. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
