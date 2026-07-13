@@ -70,7 +70,7 @@ tasks:
       file: T006-define-master-key-source-versi.todo
       id: T006
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Define master-key source version and startup boundary
     - complexity: high

@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T02:37:25Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T02:59:42Z"
 complexity: high
 created_at: "2026-07-12T17:01:18Z"
 depends_on:
     - P21.M2.E4.T001
+duration_minutes: 22.285419009383332
 estimate_hours: 4
 id: P21.M2.E4.T006
 priority: critical
 started_at: "2026-07-13T02:37:25Z"
-status: in_progress
+status: done
 tags: []
 title: Define master-key source version and startup boundary
-updated_at: "2026-07-13T02:37:25Z"
+updated_at: "2026-07-13T02:59:42Z"
 ---
 Acceptance: Define the supported master-key source, permissions, key ID/version metadata, startup readiness, redacted diagnostics, and fail-closed behavior for missing, wrong, duplicated, unsupported, or inaccessible keys. No key or plaintext token enters config exports, logs, prompts, DB rows, backups, or fallback storage. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
