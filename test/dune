@@ -94,6 +94,7 @@
   test_github_collab_grounding
   test_github_collab_actions
   test_github_pr_review_actions
+  test_github_pr_review_attribution
   test_github_code_change_action
   test_github_room_background_work
   test_github_merge_action

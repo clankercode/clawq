@@ -1,19 +1,24 @@
 (** Policy-gated PR reviewer requests and high-risk review submission
-    (P19.M4.E1.T004).
+    (P19.M4.E1.T004 / P21.M3.E3.T002).
 
-    Reviewer requests follow ordinary metadata policy ([allow_review]). PR
-    review submission (comment / approve / request changes) is a high-risk
-    App-attributed action available only inside a named, time-bounded pilot gate
-    that is off by default. Outside that pilot it is denied and must not be
-    presented as production-ready. Production availability waits for P21
-    [User_required] attribution; if P21 user auth is disabled/unavailable there
-    is no App/PAT fallback.
+    Reviewer requests follow ordinary metadata policy ([allow_review]) and P21
+    [User_preferred] attribution (native user lease or explicitly previewed
+    policy-permitted App fallback) via {!Github_pr_review_attribution}.
+
+    PR review submission (comment / approve / request changes) is high-risk:
+    - P21 production: [User_required] — current Principal user lease +
+      confirmation only; App/PAT fallback is forbidden.
+    - P19 interim: App-attributed only inside a named, time-bounded pilot gate
+      (off by default). Not production-ready and never a silent substitute when
+      user auth is unavailable.
 
     Planning produces confirmable [Setup_plan] values only — no live GitHub
-    mutation. GitHub rejection and projection failures should be surfaced via
-    [receipt_safe_error] (projection-safe, secret-free).
+    mutation. Attribution authorize, dispatch lease, and audit live in
+    {!Github_pr_review_attribution}. GitHub rejection and projection failures
+    should be surfaced via [receipt_safe_error] (projection-safe, secret-free).
 
-    Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
+    Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md and
+    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 type review_kind = Comment | Approve | Request_changes
 
@@ -62,18 +67,17 @@ val authorize_submit_review :
   (unit, string) result
 (** High-risk review submission authorization:
 
-    1. If pilot is not enabled or has expired → deny (not available outside
-    pilot; not production-ready). P21 user-auth absence never falls back to
-    App/PAT for a production path. 2. When pilot is on: require route with
-    [allow_review]. 3. Require non-empty exact [head_sha]. 4. Optional
-    self-approve guard: [Approve] with [actor_login] matching a reviewer-style
-    self target is denied when login is non-empty and equals a reserved self
-    marker is not used; instead, empty actor is allowed and callers may pass
-    author login equality checks externally. Simple rule: if [Approve] and
-    [actor_login] is [Some ""] after trim → deny.
+    1. When the P19 pilot is enabled and unexpired: require route with
+    [allow_review], non-empty [head_sha], and Approve actor_login rules (App
+    interim path). 2. Else when [user_auth_available]: same input/route checks
+    for the P21 [User_required] path (lease + attribution at
+    {!Github_pr_review_attribution} dispatch). 3. Else deny: not available
+    outside pilot and not production-ready; P21 user-auth absence never falls
+    back to App/PAT.
 
-    Document: P21 will require [User_required]; P19 pilot allows App-attributed
-    submission only while the gate is enabled and unexpired. *)
+    Self-approve against the PR author is enforced in
+    {!Github_pr_review_attribution.revalidate_live}. Empty [actor_login] on
+    Approve when provided as [Some ""] is denied here. *)
 
 val plan_request_reviewers :
   db:Sqlite3.db ->

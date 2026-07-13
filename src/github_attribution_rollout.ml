@@ -212,7 +212,8 @@ let normalize_action action =
   | "workflow" -> "workflow_dispatch"
   | "collab_comment" -> "comment"
   | "collab_label" -> "label"
-  | "request_review" | "reviewer_request" -> "review_request"
+  | "request_reviewers" | "request_review" | "reviewer_request" ->
+      "review_request"
   | "issue_open" | "create_issue" -> "issue_create"
   | "close_issue" -> "issue_close"
   | "reopen_issue" -> "issue_reopen"

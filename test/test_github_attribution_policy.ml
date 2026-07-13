@@ -26,6 +26,7 @@ let test_defaults_cover_required_actions () =
     [
       "comment";
       "label";
+      "review_request";
       "review_submit";
       "code_change";
       "workflow_dispatch";
@@ -50,6 +51,8 @@ let test_defaults_tiers_and_attribution () =
   in
   check "comment" ~tier:P.Low ~attribution:P.User_preferred ~pilot_allowed:false;
   check "label" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false;
+  check "review_request" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false;
   check "review_submit" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true;
@@ -78,7 +81,10 @@ let test_lookup_user_preferred_low_medium () =
     ~pilot_allowed:false c;
   let l = P.lookup ~action:"label" in
   expect ~action:"label" ~tier:P.Medium ~attribution:P.User_preferred
-    ~pilot_allowed:false l
+    ~pilot_allowed:false l;
+  let rr = P.lookup ~action:"review_request" in
+  expect ~action:"review_request" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false rr
 
 let test_lookup_normalizes_case_and_aliases () =
   let r = P.lookup ~action:"  MERGE  " in
@@ -87,6 +93,9 @@ let test_lookup_normalizes_case_and_aliases () =
   let rev = P.lookup ~action:"submit_review" in
   expect ~action:"review_submit" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true rev;
+  let req_rev = P.lookup ~action:"request_reviewers" in
+  expect ~action:"review_request" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false req_rev;
   let code = P.lookup ~action:"code_work" in
   expect ~action:"code_change" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true code;
