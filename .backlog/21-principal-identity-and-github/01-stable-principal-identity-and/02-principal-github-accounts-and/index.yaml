@@ -32,7 +32,7 @@ tasks:
       file: T002-enforce-verified-ownership-and.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Enforce verified ownership and duplicate-account policy
     - complexity: high
