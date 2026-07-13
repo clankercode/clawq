@@ -74,7 +74,7 @@ tasks:
       file: T006-validate-slack-ingress-and-der.todo
       id: T006
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Validate Slack ingress and derive canonical user identity
     - complexity: high
