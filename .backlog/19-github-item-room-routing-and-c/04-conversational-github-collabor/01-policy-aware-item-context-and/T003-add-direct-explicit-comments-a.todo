@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T00:59:14Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T12:34:04Z"
 depends_on:
@@ -6,11 +9,10 @@ depends_on:
 estimate_hours: 5
 id: P19.M4.E1.T003
 priority: high
-status: pending
-tags:
-    - github-routing
-    - room-agent
+started_at: "2026-07-13T00:59:14Z"
+status: in_progress
+tags: []
 title: Add direct explicit comments and metadata mutations
-updated_at: "2026-07-12T12:34:04Z"
+updated_at: "2026-07-13T00:59:14Z"
 ---
 Acceptance: Explicit requests can comment, edit title/body, change labels/assignees/milestone, and other approved ordinary metadata after showing the resolved target. Mutations use current Room/App policy, emit provenance receipts, and reconcile resulting webhooks without duplicate action messages or partial local success. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
