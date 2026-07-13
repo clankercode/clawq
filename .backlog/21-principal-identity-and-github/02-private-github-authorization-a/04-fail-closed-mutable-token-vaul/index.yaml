@@ -62,7 +62,7 @@ tasks:
       file: T005-prove-vault-tamper-restart-del.todo
       id: T005
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Prove vault tamper restart deletion and rollback limits
     - complexity: high
