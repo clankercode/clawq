@@ -196,6 +196,7 @@ let () =
        ("github_delayed_attribution", Test_github_delayed_attribution.suite);
        ("github_action_reconcile", Test_github_action_reconcile.suite);
        ("github_p19_integration", Test_github_p19_integration.suite);
+       ("github_p21_integration", Test_github_p21_integration.suite);
        ("github_room_tools", Test_github_room_tools.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("github_attribution_policy", Test_github_attribution_policy.suite);
