@@ -12,13 +12,15 @@ module Pref = Github_account_preference
 module U = Principal_unlink_split
 module V = Github_user_token_vault
 module Cas = Github_user_token_cas
+module Inv = Github_user_auth_invalidate
 
 let schema_version = 1
 
 let ensure_schema db =
   Pref.ensure_schema db;
   U.ensure_schema db;
-  V.ensure_schema db
+  V.ensure_schema db;
+  Inv.ensure_schema db
 
 (* -------------------------------------------------------------------------- *)
 (* Helpers                                                                    *)
@@ -555,6 +557,11 @@ let try_vault_deactivate ~db ~keys ~(b : B.binding) ~kind ~now =
                 Error ("stale:" ^ V.string_of_denial d)
             | Error d -> Error (Cas.string_of_denial d)))
 
+let inv_kind_of_account_kind = function
+  | Revoke -> Inv.Revoke
+  | Unlink_account -> Inv.Unlink
+  | Disable -> Inv.Disable
+
 let apply_account_action ~db ~surface ~plan ~presented_digest ?keys
     ?(now = Unix.gettimeofday ()) () =
   let subject = subject_principal surface in
@@ -632,60 +639,57 @@ let apply_account_action ~db ~surface ~plan ~presented_digest ?keys
                 let previous_status =
                   B.string_of_authorization_status b.authorization_status
                 in
-                let target = status_of_kind plan.kind in
-                let snapshot_reason =
-                  match plan.kind with
-                  | Revoke -> "pre_revoke"
-                  | Unlink_account -> "pre_unlink_account"
-                  | Disable -> "pre_disable"
-                in
-                (* Snapshot first so historical attribution retains the prior
-                   Principal ownership and status before authority is broken. *)
-                match
-                  B.snapshot ~db ~now ~reason:snapshot_reason ~id:b.id ()
-                with
-                | Error e -> Refused { reason = e; conflicts = [] }
-                | Ok snap -> (
-                    let vault_result =
-                      match (keys, b.vault_ref) with
-                      | Some keys, Some _ ->
-                          try_vault_deactivate ~db ~keys ~b ~kind:plan.kind ~now
-                      | _ -> Ok (false, 0, None)
-                    in
-                    match vault_result with
-                    | Error msg
-                      when String.length msg >= 6
-                           && String.sub msg 0 6 = "stale:" ->
-                        Stale_revision
-                          (String.sub msg 6 (String.length msg - 6))
-                    | Error msg -> Refused { reason = msg; conflicts = [] }
-                    | Ok (vault_invalidated, leases_invalidated, cas_binding)
-                      -> (
-                        match
-                          match cas_binding with
-                          | Some updated -> Ok updated
-                          | None -> (
-                              (* Binding-only path (no keys, no vault, or vault
-                                 already inactive without Cas binding update). *)
-                              let clear =
-                                if plan.kind = Unlink_account then Some None
-                                else None
-                              in
-                              match
-                                B.update ~db ~expected_revision:b.revision ~now
-                                  ~id:b.id ~authorization_status:target
-                                  ?vault_ref:clear ()
-                              with
-                              | Error e -> Error e
-                              | Ok updated -> Ok updated)
-                        with
-                        | Error e when is_revision_conflict e ->
-                            Stale_revision e
+                (* Destructive kinds with keys: canonical invalidate lifecycle
+                   (local disable + lineage break → optional remote → destroy). *)
+                match (plan.kind, keys) with
+                | ((Revoke | Unlink_account) as kind), Some keys -> (
+                    match
+                      Inv.invalidate_binding ~db ~keys
+                        ~kind:(inv_kind_of_account_kind kind)
+                        ~remote_mode:Inv.Skip ~now ~binding_id:plan.binding_id
+                        ()
+                    with
+                    | Error d ->
+                        Refused
+                          { reason = Inv.string_of_denial d; conflicts = [] }
+                    | Ok inv -> (
+                        match B.get ~db ~id:plan.binding_id with
                         | Error e -> Refused { reason = e; conflicts = [] }
-                        | Ok final_b ->
-                            let vault_ref_cleared =
-                              Option.is_none final_b.vault_ref
-                              && Option.is_some b.vault_ref
+                        | Ok None ->
+                            Refused
+                              {
+                                reason = "binding missing after invalidate";
+                                conflicts = [];
+                              }
+                        | Ok (Some final_b) ->
+                            let effect =
+                              match inv.effects with
+                              | e :: _ -> e
+                              | [] ->
+                                  {
+                                    Inv.binding_id = final_b.id;
+                                    principal_id =
+                                      P.principal_id_to_string
+                                        final_b.principal_id;
+                                    host = final_b.identity.host;
+                                    app_id = final_b.identity.app_id;
+                                    github_user_id =
+                                      final_b.identity.github_user_id;
+                                    vault_id = None;
+                                    prior_generation = None;
+                                    new_generation = None;
+                                    prior_lineage_id = b.lineage_id;
+                                    new_lineage_id = None;
+                                    local_disabled = true;
+                                    leases_invalidated = 0;
+                                    secrets_destroyed = false;
+                                    vault_ref_cleared = false;
+                                    already_terminal = false;
+                                    remote = Inv.Remote_skipped "none";
+                                    status_after =
+                                      B.string_of_authorization_status
+                                        final_b.authorization_status;
+                                  }
                             in
                             Applied
                               {
@@ -699,25 +703,112 @@ let apply_account_action ~db ~surface ~plan ~presented_digest ?keys
                                   B.string_of_authorization_status
                                     final_b.authorization_status;
                                 binding_revision_after = final_b.revision;
-                                snapshot_id = Some snap.id;
-                                vault_invalidated;
-                                leases_invalidated;
-                                vault_ref_cleared;
-                                applied_at = Time_util.iso8601_utc ~t:now ();
+                                snapshot_id = None;
+                                vault_invalidated = effect.local_disabled;
+                                leases_invalidated = inv.leases_invalidated;
+                                vault_ref_cleared = effect.vault_ref_cleared;
+                                applied_at = inv.created_at;
                                 notes =
                                   [
-                                    "historical binding snapshot retained";
-                                    "lineage_id preserved on live row";
-                                    (if vault_invalidated then
-                                       "vault deactivated and leases \
-                                        invalidated"
-                                     else if plan.vault_attached && keys = None
-                                     then
-                                       "vault keys not supplied; binding \
-                                        authority revoked locally only"
-                                     else "no vault transition");
-                                  ];
-                              }))))
+                                    "canonical invalidate lifecycle \
+                                     (P21.M3.E1.T004)";
+                                    "local disable and lineage break precede \
+                                     network work";
+                                    "secrets destroyed regardless of remote \
+                                     outcome";
+                                    "old lineage pins fail rather than \
+                                     following a relink";
+                                  ]
+                                  @ inv.notes;
+                              }))
+                | _ -> (
+                    let target = status_of_kind plan.kind in
+                    let snapshot_reason =
+                      match plan.kind with
+                      | Revoke -> "pre_revoke"
+                      | Unlink_account -> "pre_unlink_account"
+                      | Disable -> "pre_disable"
+                    in
+                    (* Snapshot first so historical attribution retains the
+                       prior Principal ownership and status before authority is
+                       broken. *)
+                    match
+                      B.snapshot ~db ~now ~reason:snapshot_reason ~id:b.id ()
+                    with
+                    | Error e -> Refused { reason = e; conflicts = [] }
+                    | Ok snap -> (
+                        let vault_result =
+                          match (keys, b.vault_ref) with
+                          | Some keys, Some _ ->
+                              try_vault_deactivate ~db ~keys ~b ~kind:plan.kind
+                                ~now
+                          | _ -> Ok (false, 0, None)
+                        in
+                        match vault_result with
+                        | Error msg
+                          when String.length msg >= 6
+                               && String.sub msg 0 6 = "stale:" ->
+                            Stale_revision
+                              (String.sub msg 6 (String.length msg - 6))
+                        | Error msg -> Refused { reason = msg; conflicts = [] }
+                        | Ok (vault_invalidated, leases_invalidated, cas_binding)
+                          -> (
+                            match
+                              match cas_binding with
+                              | Some updated -> Ok updated
+                              | None -> (
+                                  let clear =
+                                    if plan.kind = Unlink_account then Some None
+                                    else None
+                                  in
+                                  match
+                                    B.update ~db ~expected_revision:b.revision
+                                      ~now ~id:b.id ~authorization_status:target
+                                      ?vault_ref:clear ()
+                                  with
+                                  | Error e -> Error e
+                                  | Ok updated -> Ok updated)
+                            with
+                            | Error e when is_revision_conflict e ->
+                                Stale_revision e
+                            | Error e -> Refused { reason = e; conflicts = [] }
+                            | Ok final_b ->
+                                let vault_ref_cleared =
+                                  Option.is_none final_b.vault_ref
+                                  && Option.is_some b.vault_ref
+                                in
+                                Applied
+                                  {
+                                    kind = plan.kind;
+                                    binding_id = final_b.id;
+                                    lineage_id = final_b.lineage_id;
+                                    principal_id =
+                                      P.principal_id_to_string
+                                        final_b.principal_id;
+                                    previous_status;
+                                    new_status =
+                                      B.string_of_authorization_status
+                                        final_b.authorization_status;
+                                    binding_revision_after = final_b.revision;
+                                    snapshot_id = Some snap.id;
+                                    vault_invalidated;
+                                    leases_invalidated;
+                                    vault_ref_cleared;
+                                    applied_at = Time_util.iso8601_utc ~t:now ();
+                                    notes =
+                                      [
+                                        "historical binding snapshot retained";
+                                        (if vault_invalidated then
+                                           "vault deactivated and leases \
+                                            invalidated"
+                                         else if
+                                           plan.vault_attached && keys = None
+                                         then
+                                           "vault keys not supplied; binding \
+                                            authority revoked locally only"
+                                         else "no vault transition");
+                                      ];
+                                  })))))
 
 (* -------------------------------------------------------------------------- *)
 (* Actor unlink / split                                                       *)

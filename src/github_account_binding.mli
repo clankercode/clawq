@@ -223,6 +223,21 @@ val update :
 (** Combined CAS update for mutable fields. [identity] and [lineage_id] are
     immutable here. *)
 
+val break_lineage :
+  db:Sqlite3.db ->
+  ?expected_revision:int ->
+  ?now:float ->
+  ?new_lineage_id:string ->
+  id:string ->
+  unit ->
+  (binding * string, string) result
+(** Unconditionally assign a new [lineage_id] under CAS and bump [revision].
+    Returns [(updated_binding, prior_lineage_id)]. Historical snapshots retain
+    the old lineage; delayed work pinned to the prior lineage fails
+    re-resolution rather than following a later relink. Ordinary display and
+    status updates never call this — only unlink / revoke / principal removal
+    invalidation. *)
+
 (** {1 Lineage snapshots} *)
 
 val snapshot :
