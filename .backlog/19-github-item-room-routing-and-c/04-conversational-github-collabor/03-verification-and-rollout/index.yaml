@@ -20,7 +20,7 @@ tasks:
       file: T001-add-cross-connector-policy-mig.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add cross-Connector policy migration and failure-path integration coverage
     - complexity: high
