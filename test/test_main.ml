@@ -124,6 +124,7 @@ let () =
        ( "github_eligible_account_resolve",
          Test_github_eligible_account_resolve.suite );
        ("github_account_admin_surface", Test_github_account_admin_surface.suite);
+       ("github_account_cli", Test_github_account_cli.suite);
        ("principal_unlink_split", Test_principal_unlink_split.suite);
        ("actor_snapshot", Test_actor_snapshot.suite);
        ("principal_legacy_migrate", Test_principal_legacy_migrate.suite);
