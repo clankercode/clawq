@@ -1,20 +1,21 @@
 ---
 claimed_at: "2026-07-13T00:36:07Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T00:40:26Z"
 complexity: high
 created_at: "2026-07-12T12:33:59Z"
 depends_on:
     - P19.M3.E2.T002
     - P19.M3.E2.T003
     - P19.M3.E1.T004
+duration_minutes: 4.319975589083334
 estimate_hours: 5
 id: P19.M3.E2.T004
 priority: high
 started_at: "2026-07-13T00:36:07Z"
-status: in_progress
+status: done
 tags: []
 title: Resolve card actions thread replies and Room mentions back to item context
-updated_at: "2026-07-13T00:36:07Z"
+updated_at: "2026-07-13T00:40:26Z"
 ---
 Acceptance: Valid actions and replies resolve durable destination/item identity into the shared Room Session; main-Room mentions can reference any routed item and ambiguous references request clarification. Webhook delivery never invokes the agent, and malformed/unauthorized actions fail safely. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.

@@ -21,7 +21,7 @@ epics:
       locked: false
       name: Connector-Neutral Delivery with Teams Cards
       path: 02-connector-neutral-delivery-wit
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M3.E1
