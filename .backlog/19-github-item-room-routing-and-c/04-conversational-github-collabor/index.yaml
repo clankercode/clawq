@@ -33,7 +33,7 @@ epics:
       locked: false
       name: Verification and Rollout
       path: 03-verification-and-rollout
-      status: pending
+      status: done
 estimate_hours: 68
 id: P19.M4
 locked: false
@@ -44,4 +44,4 @@ stats:
     in_progress: 0
     pending: 14
     total_tasks: 14
-status: pending
+status: done
