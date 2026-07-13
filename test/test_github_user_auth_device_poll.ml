@@ -297,6 +297,138 @@ let test_at_most_one_worker_polls () =
           Alcotest.(check string) "b wins" "worker-b" lease_b.worker_id
       | Error o -> Alcotest.fail ("claim b: " ^ Poll.redacted_outcome o))
 
+let test_invalid_lease_seconds_never_claim_or_poll () =
+  let cases =
+    [ ("zero", 0.0); ("negative", -1.0); ("infinite", infinity); ("nan", nan) ]
+  in
+  List.iter
+    (fun (label, lease_seconds) ->
+      with_db @@ fun db ->
+      let keys, started =
+        start_session ~db
+          ~id:("dev_invalid_lease_" ^ label)
+          ~tx_id:("tx_invalid_lease_" ^ label)
+          ()
+      in
+      let session = started.session in
+      let due = fixed_now +. 5. in
+      let http_calls = ref 0 in
+      let http_post ~url:_ ~headers:_ ~body:_ =
+        incr http_calls;
+        Ok (200, "error=authorization_pending")
+      in
+      let outcome =
+        match
+          Poll.poll_once ~db ~keys ~http_post ~resolve_client_id
+            ~session_id:session.id ~worker_id:"invalid-lease" ~lease_seconds
+            ~now:due ()
+        with
+        | Ok outcome -> outcome
+        | Error e -> Alcotest.fail e.message
+      in
+      (match outcome with
+      | Poll.Stopped { reason = Poll.Terminal "invalid_lease_seconds"; _ } -> ()
+      | other ->
+          Alcotest.fail
+            (label ^ " must reject invalid lease: "
+            ^ Poll.redacted_outcome other));
+      Alcotest.(check int) (label ^ " no HTTP") 0 !http_calls;
+      let state =
+        match Poll.get_poll_state ~db ~session_id:session.id with
+        | Ok (Some state) -> state
+        | Ok None -> Alcotest.fail (label ^ " poll state missing")
+        | Error e -> Alcotest.fail e.message
+      in
+      Alcotest.(check (option string))
+        (label ^ " no durable lease")
+        None state.poll_lease_token;
+      match
+        Poll.try_claim ~db ~session_id:session.id ~worker_id:"valid-worker"
+          ~now:due ()
+      with
+      | Ok _ -> ()
+      | Error o ->
+          Alcotest.fail
+            (label ^ " invalid lease must not block a valid worker: "
+           ^ Poll.redacted_outcome o))
+    cases
+
+let test_stale_terminal_lease_does_not_stop_newer_worker () =
+  with_db @@ fun db ->
+  let _, started =
+    start_session ~db ~id:"dev_stale_terminal" ~tx_id:"tx_stale_terminal" ()
+  in
+  let session = started.session in
+  let due = fixed_now +. 5. in
+  let lease_a =
+    match
+      Poll.try_claim ~db ~session_id:session.id ~worker_id:"worker-a"
+        ~lease_seconds:1.0 ~now:due ()
+    with
+    | Ok lease -> lease
+    | Error o -> Alcotest.fail ("claim worker-a: " ^ Poll.redacted_outcome o)
+  in
+  let newer_now = due +. 2.0 in
+  let lease_b =
+    match
+      Poll.try_claim ~db ~session_id:session.id ~worker_id:"worker-b"
+        ~now:newer_now ()
+    with
+    | Ok lease -> lease
+    | Error o -> Alcotest.fail ("claim worker-b: " ^ Poll.redacted_outcome o)
+  in
+  let terminal_response =
+    Poll.Token_error
+      {
+        error = "access_denied";
+        error_description = Some "stale worker response";
+        interval = None;
+      }
+  in
+  (match
+     Poll.apply_token_response ~db ~session_id:session.id
+       ~lease_token:lease_a.token ~response:terminal_response ~now:newer_now ()
+   with
+  | Error e ->
+      Alcotest.(check bool)
+        "stale response reports lost lease" true
+        (Test_helpers.string_contains e.message "lost poll lease")
+  | Ok outcome ->
+      Alcotest.fail
+        ("stale terminal response must not apply: "
+        ^ Poll.redacted_outcome outcome));
+  let state =
+    match Poll.get_poll_state ~db ~session_id:session.id with
+    | Ok (Some state) -> state
+    | Ok None -> Alcotest.fail "poll state missing"
+    | Error e -> Alcotest.fail e.message
+  in
+  Alcotest.(check (option string))
+    "newer lease remains" (Some lease_b.token) state.poll_lease_token;
+  Alcotest.(check (option string))
+    "stale response does not stop polling" None
+    (Option.map Poll.string_of_stop_reason state.poll_stop_reason);
+  (match Tx.get ~db ~id:started.tx.id with
+  | Ok (Some tx) -> (
+      match tx.Tx.status with
+      | Tx.Open -> ()
+      | status ->
+          Alcotest.fail
+            ("stale response changed auth transaction to "
+           ^ Tx.string_of_status status))
+  | Ok None -> Alcotest.fail "auth transaction missing"
+  | Error e -> Alcotest.fail e);
+  match
+    Poll.apply_token_response ~db ~session_id:session.id
+      ~lease_token:lease_b.token ~response:terminal_response ~now:newer_now ()
+  with
+  | Ok (Poll.Stopped { reason = Poll.Access_denied; _ }) -> ()
+  | Ok outcome ->
+      Alcotest.fail
+        ("current lease terminal response must apply: "
+        ^ Poll.redacted_outcome outcome)
+  | Error e -> Alcotest.fail e.message
+
 (* -------------------------------------------------------------------------- *)
 (* Restart preserves expiry                                                   *)
 (* -------------------------------------------------------------------------- *)
@@ -980,6 +1112,12 @@ let suite =
       `Quick,
       test_never_polls_before_next_poll_at );
     ("at most one worker polls", `Quick, test_at_most_one_worker_polls);
+    ( "invalid lease seconds never claim or poll",
+      `Quick,
+      test_invalid_lease_seconds_never_claim_or_poll );
+    ( "stale terminal lease leaves newer worker alone",
+      `Quick,
+      test_stale_terminal_lease_does_not_stop_newer_worker );
     ("restart does not reset expiry", `Quick, test_restart_does_not_reset_expiry);
     ( "authorization_pending retains interval",
       `Quick,

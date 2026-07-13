@@ -142,6 +142,13 @@ let is_due ~now iso =
   let now_s = now_iso ~now () in
   String.compare now_s iso >= 0
 
+let valid_lease_seconds seconds =
+  seconds > 0.
+  &&
+  match classify_float seconds with
+  | FP_normal | FP_subnormal -> true
+  | FP_zero | FP_infinite | FP_nan -> false
+
 (* -------------------------------------------------------------------------- *)
 (* URL                                                                        *)
 (* -------------------------------------------------------------------------- *)
@@ -511,8 +518,7 @@ let stop_and_release ~db ~session_id ~lease_token ~reason ~now =
             poll_lease_token = NULL,
             poll_lease_expires_at = NULL,
             updated_at = ?
-        WHERE id = ? AND (poll_lease_token = ? OR poll_lease_token IS NULL
-                          OR poll_lease_token = '')|}
+        WHERE id = ? AND poll_lease_token = ?|}
     ~params:
       [
         Sqlite3.Data.TEXT reason_s;
@@ -520,7 +526,13 @@ let stop_and_release ~db ~session_id ~lease_token ~reason ~now =
         Sqlite3.Data.TEXT session_id;
         Sqlite3.Data.TEXT lease_token;
       ]
-  |> Result.map (fun _ -> ())
+  |> fun result ->
+  Result.bind result (fun changed ->
+      if changed > 0 then Ok ()
+      else
+        Error
+          (refuse_storage
+             "lost poll lease while applying terminal device response"))
 
 (* -------------------------------------------------------------------------- *)
 (* Pre-claim guards (cancel / expiry / stop)                                  *)
@@ -641,6 +653,14 @@ let try_claim ~db ~session_id ~worker_id
            session = None;
            reason = Terminal "invalid_worker";
            message = "worker_id must be non-empty";
+         })
+  else if not (valid_lease_seconds lease_seconds) then
+    Error
+      (Stopped
+         {
+           session = None;
+           reason = Terminal "invalid_lease_seconds";
+           message = "lease_seconds must be finite and strictly positive";
          })
   else
     match get_poll_state ~db ~session_id with
