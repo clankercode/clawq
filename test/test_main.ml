@@ -165,6 +165,7 @@ let () =
        ("github_room_tools", Test_github_room_tools.suite);
        ("github_auth_selection", Test_github_auth_selection.suite);
        ("github_user_auth_readiness", Test_github_user_auth_readiness.suite);
+       ("github_user_token", Test_github_user_token_store.suite);
        ("tool_authz", Test_tool_authz.suite);
        ("tool_catalog", Test_tool_catalog.suite);
        ("tool_discovery", Test_tool_discovery.suite);
