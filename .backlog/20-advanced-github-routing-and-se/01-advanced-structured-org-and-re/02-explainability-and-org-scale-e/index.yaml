@@ -41,5 +41,6 @@ tasks:
       file: T003-add-migration-fixtures-rate-li.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add migration fixtures rate-limit behavior and Org-scale benchmarks
