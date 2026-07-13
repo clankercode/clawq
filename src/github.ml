@@ -1036,7 +1036,9 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
       | Some r, None when String.lowercase_ascii r <> "auto" ->
           block
             (Printf.sprintf
-               "Unknown runner %S. Use runner=auto, codex, or claude." r)
+               "Unknown runner %S. Use runner=auto, codex, claude, kimi, \
+                gemini, opencode, cursor, or local."
+               r)
       | _ -> (
           match
             Background_task.resolve_runner ~check_available:true ?preferred
