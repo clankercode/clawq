@@ -83,8 +83,28 @@ plan/manifest tx  →  browser install/callback  →  verify exchange (one-time)
 
 ## Route admin surfaces
 
-Implemented domain modules (agent/CLI call these; names may be wrapped by
-command bridge as features land):
+Full-build CLI commands are live. Planning and explicit confirmation require
+`CLAWQ_ADMIN=1` plus the independently authenticated
+`CLAWQ_PRINCIPAL_ID=<principal-id>`; the latter is compared with the stored
+plan principal rather than copied from the plan. Read-only inspection and
+diagnostics do not require the admin flag.
+
+```sh
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
+  clawq github route plan ROOM repo:owner/repo
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
+  clawq github route apply PLAN_ID DIGEST --room ROOM
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
+  clawq github app apply PLAN_ID DIGEST --room ROOM
+clawq github app deliveries --room ROOM
+clawq github diagnostics audit --plan PLAN_ID
+```
+
+Session-bound App setup uses `github app apply … --session SESSION_KEY` and
+requires global-admin authority. `clawq-min github …` always reports the
+integration boundary instead of applying a partial route/App change.
+
+Implemented domain modules behind those commands:
 
 | Intent | Planning API | Notes |
 |--------|--------------|-------|
@@ -96,7 +116,7 @@ command bridge as features land):
 | Apply | `Github_route_apply.apply_confirmed` | Digest, authority, Org App gate |
 | Readiness | `Github_route_ops.assess_readiness` | Fail/Warn/Pass + repair strings |
 | Match explain | `Github_route_ops.explain_match` | Matched / Muted / No_route |
-| Audit | `Github_route_ops.audit_event` | Always `redact_json` on details |
+| Audit | `Github_route_ops.record_audit` / `list_audit` | Durable; always `redact_json` on details |
 
 Ops payload shapes (secret-free): `create` | `update` | `disable` | `remove`.
 
@@ -115,7 +135,9 @@ Legacy per-PR subscription CLI remains a compatibility alias that plans/applies
   Room access linkage.
 - Disable/remove of the last managed feature detaches **only** setup-owned
   linkage; independent/manual grants are preserved.
-- Tool catalog for the Room refreshes on the **next turn** (no restart).
+- Apply atomically records a Room catalog-refresh request. The next Room turn
+  consumes it before freezing its Tool catalog — **no restart** and no
+  audit-only placeholder.
 
 ## Match outcomes operators will see
 

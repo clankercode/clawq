@@ -32,6 +32,12 @@ type exchange_result = {
   receipt_id : string;
 }
 
+type resume_hook = exchange_result -> (unit, string) result
+
+let resume_hook : resume_hook option ref = ref None
+let set_resume_hook hook = resume_hook := Some hook
+let clear_resume_hook () = resume_hook := None
+
 type http_post =
   url:string ->
   headers:(string * string) list ->
@@ -121,8 +127,7 @@ let begin_exchange ~db =
         (Printf.sprintf "github_app_setup_callback begin exchange failed: %s"
            (Sqlite3.Rc.to_string rc))
 
-let rollback_exchange ~db =
-  ignore (Sqlite3.exec db "ROLLBACK")
+let rollback_exchange ~db = ignore (Sqlite3.exec db "ROLLBACK")
 
 let commit_exchange ~db =
   match Sqlite3.exec db "COMMIT" with
@@ -131,6 +136,25 @@ let commit_exchange ~db =
       Error
         (Printf.sprintf "github_app_setup_callback commit exchange failed: %s"
            (Sqlite3.Rc.to_string rc))
+
+let run_resume_hook result =
+  match !resume_hook with
+  | None -> ()
+  | Some hook -> (
+      match hook result with
+      | Ok () -> ()
+      | Error error ->
+          Logs.err (fun message ->
+              message
+                "GitHub App callback committed but setup resume continuation \
+                 failed: %s"
+                error)
+      | exception exn ->
+          Logs.err (fun message ->
+              message
+                "GitHub App callback committed but setup resume continuation \
+                 raised: %s"
+                (Printexc.to_string exn)))
 
 let generate_receipt_id ?(now = Unix.gettimeofday ()) () =
   let ts = int_of_float now in
@@ -413,11 +437,7 @@ let mark_expired ~db ~id ~now =
   ignore (Sqlite3.finalize stmt)
 
 let callback_context (req : exchange_request) =
-  match
-    ( req.expected_bind,
-      req.expected_principal_id,
-      req.callback_path )
-  with
+  match (req.expected_bind, req.expected_principal_id, req.callback_path) with
   | Some bind, Some principal_id, Some callback_path
     when String.trim principal_id <> "" && String.trim callback_path <> "" ->
       Ok (bind, principal_id, callback_path)
@@ -445,42 +465,44 @@ let validate_transaction ~db ~(req : exchange_request) ~now =
         else
           match callback_context req with
           | Error _ as e -> e
-          | Ok (expected_bind, expected_principal_id, callback_path) ->
+          | Ok (expected_bind, expected_principal_id, callback_path) -> (
               let bind_ok =
                 Github_app_setup_tx.bind_to_string expected_bind
                 = Github_app_setup_tx.bind_to_string tx.bind
               in
-          if not bind_ok then
-            Error
-              (Printf.sprintf
-                 "bind target mismatch: callback expected %s but transaction \
-                  is bound to %s"
-                 (Github_app_setup_tx.bind_to_string expected_bind)
-                 (Github_app_setup_tx.bind_to_string tx.bind))
-          else
-            let principal_ok = expected_principal_id = tx.principal.id in
-            if not principal_ok then
-              Error
-                (Printf.sprintf
-                   "principal mismatch: callback expected %s but transaction \
-                    belongs to %s"
-                   expected_principal_id tx.principal.id)
-            else
-              match
-                normalize_callback_ref ~public_base_url:tx.public_base_url
-                  callback_path
-              with
-              | Error e -> Error e
-              | Ok got ->
-                  let expected =
-                    expected_callback_url ~public_base_url:tx.public_base_url
-                  in
-                  if trim_trailing_slash got <> trim_trailing_slash expected then
-                    Error
-                      (Printf.sprintf
-                         "callback path mismatch: got %s expected %s" got
-                         expected)
-                  else Ok tx)
+              if not bind_ok then
+                Error
+                  (Printf.sprintf
+                     "bind target mismatch: callback expected %s but \
+                      transaction is bound to %s"
+                     (Github_app_setup_tx.bind_to_string expected_bind)
+                     (Github_app_setup_tx.bind_to_string tx.bind))
+              else
+                let principal_ok = expected_principal_id = tx.principal.id in
+                if not principal_ok then
+                  Error
+                    (Printf.sprintf
+                       "principal mismatch: callback expected %s but \
+                        transaction belongs to %s"
+                       expected_principal_id tx.principal.id)
+                else
+                  match
+                    normalize_callback_ref ~public_base_url:tx.public_base_url
+                      callback_path
+                  with
+                  | Error e -> Error e
+                  | Ok got ->
+                      let expected =
+                        expected_callback_url
+                          ~public_base_url:tx.public_base_url
+                      in
+                      if trim_trailing_slash got <> trim_trailing_slash expected
+                      then
+                        Error
+                          (Printf.sprintf
+                             "callback path mismatch: got %s expected %s" got
+                             expected)
+                      else Ok tx))
 
 let normalized_names names =
   names
@@ -505,21 +527,20 @@ let verified_scope_matches_transaction ~(tx : Github_app_setup_tx.t)
     match (tx.scope.selection, scope.selection) with
     | Github_app_setup_tx.All_repos, Github_app_installation_scope.All_repos ->
         Ok ()
-    | Github_app_setup_tx.Selected requested,
-      Github_app_installation_scope.Selected_repos ->
+    | ( Github_app_setup_tx.Selected requested,
+        Github_app_installation_scope.Selected_repos ) ->
         let actual =
           scope.repositories
-          |> List.map
-               (fun (repo : Github_app_installation_scope.repo_ref) ->
-                 repo.full_name)
+          |> List.map (fun (repo : Github_app_installation_scope.repo_ref) ->
+              repo.full_name)
         in
         if normalized_names requested = normalized_names actual then Ok ()
         else
           Error
             "verified installation repository selection does not match the \
              setup transaction"
-    | Github_app_setup_tx.All_repos,
-      Github_app_installation_scope.Selected_repos ->
+    | ( Github_app_setup_tx.All_repos,
+        Github_app_installation_scope.Selected_repos ) ->
         Error
           "verified installation selected repositories but setup transaction \
            requires all repositories"
@@ -547,8 +568,8 @@ let verify_installation_scope ~(verify_installation : verify_installation)
         match scope.app_id with
         | Some app_id when app_id = payload.app_id -> (
             match scope.status with
-            | Github_app_installation_scope.Active ->
-                (match verified_scope_matches_transaction ~tx scope with
+            | Github_app_installation_scope.Active -> (
+                match verified_scope_matches_transaction ~tx scope with
                 | Ok () -> Ok scope
                 | Error _ as error -> error)
             | Github_app_installation_scope.Suspended _
@@ -563,9 +584,8 @@ let verify_installation_scope ~(verify_installation : verify_installation)
                  "verified installation app_id %d does not match converted App \
                   %d"
                  app_id payload.app_id)
-        | None ->
-            Error
-              "verified installation omitted its owning GitHub App id")
+        | None -> Error "verified installation omitted its owning GitHub App id"
+      )
 
 let exchange ~db ?http_post ?verify_installation
     ?(store_secret = default_store_secret) ?(now = Unix.gettimeofday ())
@@ -591,124 +611,132 @@ let exchange ~db ?http_post ?verify_installation
                    "callback validation failed (%s) and transaction commit \
                     failed: %s"
                    e commit_error))
-      | Ok tx ->
-      let http =
-        match http_post with
-        | Some f -> f
-        | None ->
-            fun ~url:_ ~headers:_ ~body:_ ->
-              Error
-                "http_post not provided: inject a client or wire production \
-                 HTTP"
-      in
-      let url = conversion_url ~code:req.code in
-      let result =
-        match http ~url ~headers:conversion_headers ~body:"" with
-        | Error e ->
-            Error
-              (Printf.sprintf "GitHub conversion HTTP transport error: %s" e)
-        | Ok (status, body) ->
-            if status < 200 || status >= 300 then
-              Error
-                (Printf.sprintf
-                   "GitHub conversion HTTP error: status=%d body=%s" status
-                   (truncate_body ~max_len:200 body))
-            else
-              match parse_conversion_body body with
-              | Error e -> Error e
-              | Ok payload -> (
-                  match req.installation_id with
-                  | None ->
-                      Error
-                        "installation_id is required for a manifest callback; \
-                         refusing unverified App setup"
-                  | Some installation_id when installation_id <= 0 ->
-                      Error "installation_id must be positive"
-                  | Some installation_id -> (
-                      match verify_installation with
+      | Ok tx -> (
+          let http =
+            match http_post with
+            | Some f -> f
+            | None ->
+                fun ~url:_ ~headers:_ ~body:_ ->
+                  Error
+                    "http_post not provided: inject a client or wire \
+                     production HTTP"
+          in
+          let url = conversion_url ~code:req.code in
+          let result =
+            match http ~url ~headers:conversion_headers ~body:"" with
+            | Error e ->
+                Error
+                  (Printf.sprintf "GitHub conversion HTTP transport error: %s" e)
+            | Ok (status, body) -> (
+                if status < 200 || status >= 300 then
+                  Error
+                    (Printf.sprintf
+                       "GitHub conversion HTTP error: status=%d body=%s" status
+                       (truncate_body ~max_len:200 body))
+                else
+                  match parse_conversion_body body with
+                  | Error e -> Error e
+                  | Ok payload -> (
+                      match req.installation_id with
                       | None ->
                           Error
-                            "installation verifier is required; callback data \
-                             must be confirmed through authenticated GitHub App \
-                             API responses"
-                      | Some verify_installation -> (
-                          match
-                            verify_installation_scope ~verify_installation ~tx
-                              ~payload ~installation_id
-                          with
-                          | Error e -> Error e
-                          | Ok verified_installation -> (
+                            "installation_id is required for a manifest \
+                             callback; refusing unverified App setup"
+                      | Some installation_id when installation_id <= 0 ->
+                          Error "installation_id must be positive"
+                      | Some installation_id -> (
+                          match verify_installation with
+                          | None ->
+                              Error
+                                "installation verifier is required; callback \
+                                 data must be confirmed through authenticated \
+                                 GitHub App API responses"
+                          | Some verify_installation -> (
                               match
-                                store_all_secrets ~store_secret ~payload
-                                  ~tx_id:tx.id
+                                verify_installation_scope ~verify_installation
+                                  ~tx ~payload ~installation_id
                               with
-                              | Error e ->
-                                  Error
-                                    (Printf.sprintf
-                                       "credential store failed (transaction \
-                                        left open, no partial config): %s"
-                                       e)
-                              | Ok app ->
-                                  let receipt_id = generate_receipt_id ~now () in
-                                  let created_at =
-                                    Time_util.iso8601_utc ~t:now ()
-                                  in
+                              | Error e -> Error e
+                              | Ok verified_installation -> (
                                   match
-                                    Github_app_installation_scope.upsert ~db
-                                      verified_installation
+                                    store_all_secrets ~store_secret ~payload
+                                      ~tx_id:tx.id
                                   with
                                   | Error e ->
                                       Error
                                         (Printf.sprintf
-                                           "failed to persist verified \
-                                            installation scope: %s"
+                                           "credential store failed \
+                                            (transaction left open, no partial \
+                                            config): %s"
                                            e)
-                                  | Ok verified_installation -> (
+                                  | Ok app -> (
+                                      let receipt_id =
+                                        generate_receipt_id ~now ()
+                                      in
+                                      let created_at =
+                                        Time_util.iso8601_utc ~t:now ()
+                                      in
                                       match
-                                        insert_receipt ~db ~id:receipt_id
-                                          ~tx_id:tx.id ~app
-                                          ~installation_id:(Some installation_id)
-                                          ~created_at
+                                        Github_app_installation_scope.upsert ~db
+                                          verified_installation
                                       with
                                       | Error e ->
                                           Error
                                             (Printf.sprintf
-                                               "failed to persist callback \
-                                                receipt; transaction remains \
-                                                open: %s"
+                                               "failed to persist verified \
+                                                installation scope: %s"
                                                e)
-                                      | Ok () -> (
+                                      | Ok verified_installation -> (
                                           match
-                                            Github_app_setup_tx.mark_consumed
-                                              ~db ~id:tx.id
-                                              ~principal_id:tx.principal.id
-                                              ~now ()
+                                            insert_receipt ~db ~id:receipt_id
+                                              ~tx_id:tx.id ~app
+                                              ~installation_id:
+                                                (Some installation_id)
+                                              ~created_at
                                           with
                                           | Error e ->
                                               Error
                                                 (Printf.sprintf
-                                                   "failed to consume setup \
-                                                    transaction; transaction \
-                                                    remains recoverable: %s"
+                                                   "failed to persist callback \
+                                                    receipt; transaction \
+                                                    remains open: %s"
                                                    e)
-                                          | Ok consumed ->
-                                              Ok
-                                                {
-                                                  transaction = consumed;
-                                                  app;
-                                                  installation_id = Some installation_id;
-                                                  verified_installation;
-                                                  raw_app_id = app.app_id;
-                                                  receipt_id;
-                                                }))))))
-      in
-      match result with
-      | Error e ->
-          rollback_exchange ~db;
-          Error e
-      | Ok result -> (
-          match commit_exchange ~db with
-          | Ok () -> Ok result
+                                          | Ok () -> (
+                                              match
+                                                Github_app_setup_tx
+                                                .mark_consumed ~db ~id:tx.id
+                                                  ~principal_id:tx.principal.id
+                                                  ~now ()
+                                              with
+                                              | Error e ->
+                                                  Error
+                                                    (Printf.sprintf
+                                                       "failed to consume \
+                                                        setup transaction; \
+                                                        transaction remains \
+                                                        recoverable: %s"
+                                                       e)
+                                              | Ok consumed ->
+                                                  Ok
+                                                    {
+                                                      transaction = consumed;
+                                                      app;
+                                                      installation_id =
+                                                        Some installation_id;
+                                                      verified_installation;
+                                                      raw_app_id = app.app_id;
+                                                      receipt_id;
+                                                    }))))))))
+          in
+          match result with
           | Error e ->
               rollback_exchange ~db;
-              Error e))
+              Error e
+          | Ok result -> (
+              match commit_exchange ~db with
+              | Ok () ->
+                  run_resume_hook result;
+                  Ok result
+              | Error e ->
+                  rollback_exchange ~db;
+                  Error e)))

@@ -48,6 +48,15 @@ type audit_record = {
   details : Yojson.Safe.t;  (** always redacted *)
 }
 
+type catalog_refresh_request = {
+  room_id : string;
+  setup_plan_id : string;
+  requested_at : string;
+}
+(** Durable next-turn catalog refresh work. It is created in the same
+    transaction as confirmed route/App setup apply and consumed by the next Room
+    turn before that turn freezes its Tool catalog. *)
+
 val assess_readiness :
   ?route:Github_route_store.t ->
   ?installation:Github_app_installation_scope.t ->
@@ -89,6 +98,45 @@ val audit_event :
   audit_record
 (** Build a correlated audit record; [details] are passed through [redact_json].
 *)
+
+val record_audit :
+  db:Sqlite3.db ->
+  ?setup_plan_id:string ->
+  ?route_id:string ->
+  ?installation_id:int ->
+  action:string ->
+  details:Yojson.Safe.t ->
+  ?now:float ->
+  unit ->
+  (audit_record, string) result
+(** Persist one correlated redacted audit record. *)
+
+val list_audit :
+  db:Sqlite3.db ->
+  ?setup_plan_id:string ->
+  ?route_id:string ->
+  ?installation_id:int ->
+  ?limit:int ->
+  unit ->
+  audit_record list
+(** Query durable correlated audit records, newest first. *)
+
+val request_catalog_refresh :
+  db:Sqlite3.db ->
+  setup_plan_id:string ->
+  room_id:string ->
+  unit ->
+  (unit, string) result
+(** Persist or replace a Room's next-turn catalog refresh request. Intended to
+    run inside the setup apply transaction. *)
+
+val consume_catalog_refresh :
+  db:Sqlite3.db -> room_id:string -> unit -> catalog_refresh_request option
+(** Consume one pending request immediately before a Room turn builds its access
+    snapshot and frozen Tool catalog. *)
+
+val list_catalog_refresh_requests :
+  db:Sqlite3.db -> unit -> catalog_refresh_request list
 
 val check_status_to_string : check_status -> string
 

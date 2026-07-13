@@ -6,9 +6,8 @@
     scope ([can_claim_org_scope]). PAT-only Org plans are refused with App
     migration guidance. On success, route ops run via
     [Github_route_admin.apply_route_ops], setup-owned managed bundle linkage is
-    attached when the payload carries feature/bundle ids, and an optional
-    catalog refresh hook marks affected Rooms so the next turn sees updated Tool
-    access.
+    attached when the payload carries feature/bundle ids, and the same apply
+    transaction durably queues affected Rooms for next-turn catalog refresh.
 
     Canonical: docs/plans/2026-07-12-github-item-room-routing.md. *)
 
@@ -25,6 +24,9 @@ type apply_request = {
   destination_room : string option;
       (** Expected destination Room; defaults to the plan destination when
           omitted. Required for Room-targeted plans. *)
+  destination_session : string option;
+      (** Expected direct Session destination for a Session-targeted GitHub App
+          setup plan. Room route plans remain Room-targeted. *)
   now : float;
   is_global_admin : bool;
   is_room_admin : room_id:string -> bool;
@@ -56,9 +58,11 @@ val apply_confirmed :
     authority check derived from [is_global_admin] / [is_room_admin] (plus
     identity/revision/digest rechecks in the apply engine). 3. On first-time
     success, attach setup-owned bundle links when create/update ops carry
-    [managed_bundle_id] + [managed_feature_id]; detach on disable/remove when
-    the route holds managed linkage. 4. Invoke [on_catalog_refresh] for each
-    affected Room (next-turn catalog).
+    [managed_bundle_id] + [managed_feature_id]; App setup carries an explicit
+    Room bundle/feature attachment. Detach on disable/remove when the route
+    holds managed linkage. 4. Persist affected Room catalog refresh requests
+    before commit, then invoke [on_catalog_refresh] after success for optional
+    observer notification.
 
     Atomicity relies on [Setup_plan_apply]'s [BEGIN IMMEDIATE] transaction and
     [Github_route_store] SAVEPOINT nesting for domain mutations. *)

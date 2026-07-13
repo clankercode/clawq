@@ -333,9 +333,32 @@ let apply_kind_name = function
   | Access_bundle -> "access_bundle"
   | Generic s -> s
 
+let destination_matches (destination : Setup_plan.context) ~destination_room
+    ~destination_session =
+  match (destination.room_id, destination.session_key) with
+  | Some room_id, None -> String.equal room_id destination_room
+  | None, Some session_key -> (
+      match destination_session with
+      | Some supplied -> String.equal session_key supplied
+      | None -> false)
+  | _ -> false
+
+let destination_json (destination : Setup_plan.context) =
+  `Assoc
+    [
+      ( "room_id",
+        match destination.room_id with
+        | Some room_id -> `String room_id
+        | None -> `Null );
+      ( "session_key",
+        match destination.session_key with
+        | Some session_key -> `String session_key
+        | None -> `Null );
+    ]
+
 let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
-    ~current_base_revision ~destination_room ?(now = Unix.gettimeofday ())
-    ~authority ~apply_ops () =
+    ~current_base_revision ~destination_room ?destination_session
+    ?(now = Unix.gettimeofday ()) ~authority ~apply_ops () =
   let principal_id = principal.id in
   let reject reason message extra =
     match
@@ -395,14 +418,19 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
             ("plan_base_revision", `String plan.base_revision);
             ("current_base_revision", `String current_base_revision);
           ]
-      else if plan.destination.room_id <> Some destination_room then
-        reject Destination_mismatch "destination room does not match expected"
+      else if
+        not
+          (destination_matches plan.destination ~destination_room
+             ~destination_session)
+      then
+        reject Destination_mismatch "destination does not match expected"
           [
-            ( "plan_destination",
-              match plan.destination.room_id with
-              | None -> `Null
-              | Some r -> `String r );
-            ("expected", `String destination_room);
+            ("plan_destination", destination_json plan.destination);
+            ("expected_room", `String destination_room);
+            ( "expected_session",
+              match destination_session with
+              | Some session_key -> `String session_key
+              | None -> `Null );
           ]
       else if not (Setup_plan.readiness_ok plan) then
         reject Readiness_failed "plan readiness has failing checks" []

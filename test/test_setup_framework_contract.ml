@@ -199,6 +199,7 @@ let gh_apply ~db ~(plan : Setup_plan.t) ?(digest = plan.digest)
       principal = gh_principal;
       current_base_revision = revision;
       destination_room = Some gh_room_id;
+      destination_session = None;
       now = gh_fixed_now;
       is_global_admin;
       is_room_admin;

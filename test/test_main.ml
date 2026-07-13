@@ -123,6 +123,7 @@ let () =
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
        ("github_app_setup_callback", Test_github_app_setup_callback.suite);
        ("github_app_setup_resume", Test_github_app_setup_resume.suite);
+       ("github_route_runtime", Test_github_route_runtime.suite);
        ( "github_app_installation_scope",
          Test_github_app_installation_scope.suite );
        ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);

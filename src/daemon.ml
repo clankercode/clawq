@@ -69,6 +69,11 @@ let run ~(config : Runtime_config.t) =
       m "Sandbox backend: %s"
         (Sandbox.backend_to_string !sandbox.Sandbox.backend));
   let db = Daemon_startup.init_database ~config in
+  (match db with
+  | Some db ->
+      Github_app_setup_runtime.install_callback_resume ~db
+        ~current_config:(fun () -> !current_config)
+  | None -> Github_app_setup_callback.clear_resume_hook ());
   Daemon_startup.reconcile_room_profiles_at_startup ~db ~config;
   let tool_registry =
     Daemon_startup.init_tool_registry ~config ~current_config ~sandbox:!sandbox

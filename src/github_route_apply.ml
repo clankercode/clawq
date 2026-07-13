@@ -9,6 +9,7 @@ type apply_request = {
   principal : Setup_plan.principal;
   current_base_revision : string;
   destination_room : string option;
+  destination_session : string option;
   now : float;
   is_global_admin : bool;
   is_room_admin : room_id:string -> bool;
@@ -89,17 +90,22 @@ let authority_of_request (req : apply_request) :
  fun ~principal:_ ~destination ->
   if req.is_global_admin then Ok ()
   else
-    match destination.room_id with
-    | Some room_id when req.is_room_admin ~room_id -> Ok ()
-    | Some room_id ->
+    match (destination.room_id, destination.session_key) with
+    | Some room_id, _ when req.is_room_admin ~room_id -> Ok ()
+    | Some room_id, _ ->
         Error
           (Printf.sprintf
              "principal lacks Room-admin or global-admin authority for room %s"
              room_id)
-    | None ->
+    | None, Some session_key ->
         Error
-          "destination Room is required for authority check; global-admin or \
-           Room-admin required"
+          (Printf.sprintf
+             "direct Session setup for %s requires global-admin authority"
+             session_key)
+    | None, None ->
+        Error
+          "destination is missing; global-admin or destination Room-admin \
+           authority required"
 
 let room_of_destination_json (j : Yojson.Safe.t) : string option =
   match j with
@@ -155,7 +161,21 @@ let collect_refresh_rooms ~(plan : Setup_plan.t) ~destination_room =
     | [] -> List.rev seen
     | x :: xs -> if List.mem x seen then uniq seen xs else uniq (x :: seen) xs
   in
-  uniq [] (destination_room :: (from_ops @ from_plan))
+  let requested =
+    match destination_room with Some room_id -> [ room_id ] | None -> []
+  in
+  uniq [] (requested @ from_ops @ from_plan)
+
+let request_catalog_refreshes ~db ~(plan : Setup_plan.t) ~destination_room =
+  collect_refresh_rooms ~plan ~destination_room
+  |> List.fold_left
+       (fun result room_id ->
+         match result with
+         | Error _ -> result
+         | Ok () ->
+             Github_route_ops.request_catalog_refresh ~db ~setup_plan_id:plan.id
+               ~room_id ())
+       (Ok ())
 
 (** Attach or detach setup-owned managed linkage based on route ops. Runs inside
     the Setup_plan_apply transaction (same [db]). *)
@@ -220,7 +240,40 @@ let managed_linkage_ops ~db ~(plan : Setup_plan.t) ~now =
 let domain_apply_ops ~db ~now ~plan ~receipt_id =
   match Github_route_admin.apply_route_ops ~db ~plan ~receipt_id with
   | Error e -> Error e
-  | Ok () -> managed_linkage_ops ~db ~plan ~now
+  | Ok () -> (
+      match managed_linkage_ops ~db ~plan ~now with
+      | Error _ as error -> error
+      | Ok () -> (
+          match
+            request_catalog_refreshes ~db ~plan
+              ~destination_room:plan.destination.room_id
+          with
+          | Error _ as error -> error
+          | Ok () -> (
+              let kind =
+                match plan.apply_payload.kind with
+                | Setup_plan.Github_route -> "github_route"
+                | Setup_plan.Github_app_setup -> "github_app_setup"
+                | Setup_plan.Room_profile -> "room_profile"
+                | Setup_plan.Access_bundle -> "access_bundle"
+                | Setup_plan.Generic value -> value
+              in
+              match
+                Github_route_ops.record_audit ~db ~setup_plan_id:plan.id
+                  ~action:"setup_plan_domain_applied"
+                  ~details:
+                    (`Assoc
+                       [
+                         ("receipt_id", `String receipt_id);
+                         ("kind", `String kind);
+                       ])
+                  ()
+              with
+              | Ok _ -> Ok ()
+              | Error error ->
+                  Error
+                    ("failed to persist required GitHub setup audit: " ^ error))
+          ))
 
 let apply_confirmed ~db ?on_catalog_refresh (req : apply_request) =
   Setup_plan_apply.init_schema db;
@@ -236,30 +289,55 @@ let apply_confirmed ~db ?on_catalog_refresh (req : apply_request) =
         plan_targets_org_selector plan && not (org_scope_allowed req)
       then rejected "org_requires_app" pat_org_migration_message
       else
-        let destination_room =
-          match req.destination_room with
-          | Some r -> Some r
-          | None -> plan.destination.room_id
+        let destination_room, destination_session =
+          match (plan.destination.room_id, plan.destination.session_key) with
+          | Some room_id, None ->
+              ( Some
+                  (match req.destination_room with
+                  | Some room_id -> room_id
+                  | None -> room_id),
+                None )
+          | None, Some session_key ->
+              ( None,
+                Some
+                  (match req.destination_session with
+                  | Some session_key -> session_key
+                  | None -> session_key) )
+          | _ -> (None, None)
         in
-        match destination_room with
-        | None ->
+        match (destination_room, destination_session) with
+        | None, None ->
             rejected "destination_mismatch"
-              "destination Room is required to apply a GitHub route plan"
-        | Some destination_room -> (
+              "GitHub route/App setup plans require exactly one Room or \
+               Session destination"
+        | _ -> (
+            let destination_room_arg =
+              Option.value destination_room ~default:""
+            in
             let authority = authority_of_request req in
             let outcome =
               Setup_plan_apply.apply ~db ~plan_id:req.plan_id ~digest:req.digest
                 ~principal:req.principal
                 ~current_base_revision:req.current_base_revision
-                ~destination_room ~now:req.now ~authority
+                ~destination_room:destination_room_arg ?destination_session
+                ~now:req.now ~authority
                 ~apply_ops:(domain_apply_ops ~db ~now:req.now)
                 ()
             in
             match outcome with
             | Setup_plan_apply.Rejected { reason; message } ->
-                rejected
-                  (Setup_plan_apply.string_of_reject_reason reason)
-                  message
+                let reason = Setup_plan_apply.string_of_reject_reason reason in
+                ignore
+                  (Github_route_ops.record_audit ~db ~setup_plan_id:plan.id
+                     ~action:"setup_plan_apply_rejected"
+                     ~details:
+                       (`Assoc
+                          [
+                            ("reason", `String reason);
+                            ("message", `String message);
+                          ])
+                     ());
+                rejected reason message
             | Setup_plan_apply.Applied { receipt_id; first_time = _ } ->
                 (* Reload plan (still same payload) for id/room extraction. *)
                 let plan =
@@ -271,6 +349,29 @@ let apply_confirmed ~db ?on_catalog_refresh (req : apply_request) =
                 let catalog_refresh_rooms =
                   collect_refresh_rooms ~plan ~destination_room
                 in
+                ignore
+                  (Github_route_ops.record_audit ~db ~setup_plan_id:plan.id
+                     ?installation_id:
+                       (match req.installation with
+                       | Some installation -> Some installation.installation_id
+                       | None -> None)
+                     ~action:"setup_plan_applied"
+                     ~details:
+                       (`Assoc
+                          [
+                            ("receipt_id", `String receipt_id);
+                            ( "route_ids",
+                              `List
+                                (List.map
+                                   (fun route_id -> `String route_id)
+                                   route_ids) );
+                            ( "catalog_refresh_rooms",
+                              `List
+                                (List.map
+                                   (fun room_id -> `String room_id)
+                                   catalog_refresh_rooms) );
+                          ])
+                     ());
                 (match on_catalog_refresh with
                 | None -> ()
                 | Some hook ->

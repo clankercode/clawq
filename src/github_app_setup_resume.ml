@@ -301,6 +301,26 @@ let managed_access_diff ~(tx : Github_app_setup_tx.t)
   in
   [ create_app; bind_op; access_note ] @ scope_note
 
+let managed_access_op ~(tx : Github_app_setup_tx.t)
+    ~(app : Github_app_setup_callback.app_credentials) =
+  match tx.bind with
+  | Github_app_setup_tx.Room room_id ->
+      `Assoc
+        [
+          ("op", `String "attach_managed_access");
+          ("room_id", `String room_id);
+          ("bundle_id", `String "github_app_tools");
+          ( "feature_id",
+            `String (Printf.sprintf "github_app:%d:%s" app.app_id tx.id) );
+        ]
+  | Github_app_setup_tx.Session session_key ->
+      `Assoc
+        [
+          ("op", `String "attach_managed_access");
+          ("scope", `String "session");
+          ("session_key", `String session_key);
+        ]
+
 let resolve_target_with_app ~(tx : Github_app_setup_tx.t)
     ~(app : Github_app_setup_callback.app_credentials) ~room_active :
     resume_target =
@@ -369,7 +389,7 @@ let build_plan ~(tx : Github_app_setup_tx.t)
             ("op", `String "bind_origin");
             ("bind", `String (Github_app_setup_tx.bind_to_string tx.bind));
           ];
-        `Assoc [ ("op", `String "attach_managed_access") ];
+        managed_access_op ~tx ~app;
       ]
   in
   let apply_data =

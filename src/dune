@@ -417,6 +417,7 @@
   daemon_heartbeat
   daemon_background_loops
   daemon_runtime_loops
+  github_app_setup_runtime
   ambient_daemon
   daemon
   command_bridge_models
@@ -424,6 +425,7 @@
   command_bridge_usage
   command_bridge_session_fmt
   command_bridge_helpers
+  github_route_cli
   command_bridge_cron
   github_pr_subscriptions_cli
   command_bridge_bgargs

@@ -35,6 +35,12 @@ type audit_record = {
   details : Yojson.Safe.t;
 }
 
+type catalog_refresh_request = {
+  room_id : string;
+  setup_plan_id : string;
+  requested_at : string;
+}
+
 let check_status_to_string = function
   | Pass -> "pass"
   | Warn -> "warn"
@@ -444,3 +450,233 @@ let audit_event ?setup_plan_id ?route_id ?installation_id ~action ~details ?now
     action;
     details = redact_json details;
   }
+
+let ensure_durable_ops_schema db =
+  let statements =
+    [
+      {|CREATE TABLE IF NOT EXISTS github_route_ops_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp TEXT NOT NULL,
+          setup_plan_id TEXT,
+          route_id TEXT,
+          installation_id INTEGER,
+          action TEXT NOT NULL,
+          details_json TEXT NOT NULL
+        )|};
+      {|CREATE INDEX IF NOT EXISTS idx_github_route_ops_audit_plan
+          ON github_route_ops_audit(setup_plan_id, timestamp DESC)|};
+      {|CREATE INDEX IF NOT EXISTS idx_github_route_ops_audit_route
+          ON github_route_ops_audit(route_id, timestamp DESC)|};
+      {|CREATE TABLE IF NOT EXISTS github_route_catalog_refresh (
+          room_id TEXT PRIMARY KEY NOT NULL,
+          setup_plan_id TEXT NOT NULL,
+          requested_at TEXT NOT NULL
+        )|};
+    ]
+  in
+  let rec run = function
+    | [] -> Ok ()
+    | sql :: rest -> (
+        match Sqlite3.exec db sql with
+        | Sqlite3.Rc.OK -> run rest
+        | rc ->
+            Error
+              (Printf.sprintf "GitHub route durable ops schema failed: %s"
+                 (Sqlite3.Rc.to_string rc)))
+  in
+  run statements
+
+let sql_data_opt_string = function
+  | Some value -> Sqlite3.Data.TEXT value
+  | None -> Sqlite3.Data.NULL
+
+let sql_data_opt_int = function
+  | Some value -> Sqlite3.Data.INT (Int64.of_int value)
+  | None -> Sqlite3.Data.NULL
+
+let record_audit ~db ?setup_plan_id ?route_id ?installation_id ~action ~details
+    ?now () =
+  let record =
+    audit_event ?setup_plan_id ?route_id ?installation_id ~action ~details ?now
+      ()
+  in
+  match ensure_durable_ops_schema db with
+  | Error _ as error -> error
+  | Ok () -> (
+      let stmt =
+        Sqlite3.prepare db
+          {|INSERT INTO github_route_ops_audit
+              (timestamp, setup_plan_id, route_id, installation_id, action,
+               details_json)
+            VALUES (?, ?, ?, ?, ?, ?)|}
+      in
+      let bind index value = ignore (Sqlite3.bind stmt index value) in
+      bind 1 (Sqlite3.Data.TEXT record.timestamp);
+      bind 2 (sql_data_opt_string record.setup_plan_id);
+      bind 3 (sql_data_opt_string record.route_id);
+      bind 4 (sql_data_opt_int record.installation_id);
+      bind 5 (Sqlite3.Data.TEXT record.action);
+      bind 6 (Sqlite3.Data.TEXT (Yojson.Safe.to_string record.details));
+      let rc = Sqlite3.step stmt in
+      ignore (Sqlite3.finalize stmt);
+      match rc with
+      | Sqlite3.Rc.DONE -> Ok record
+      | rc ->
+          Error
+            (Printf.sprintf "failed to persist GitHub route audit: %s"
+               (Sqlite3.Rc.to_string rc)))
+
+let audit_record_of_stmt stmt =
+  let opt_text index =
+    match Sqlite3.column stmt index with
+    | Sqlite3.Data.TEXT value -> Some value
+    | _ -> None
+  in
+  let opt_int index =
+    match Sqlite3.column stmt index with
+    | Sqlite3.Data.INT value -> Some (Int64.to_int value)
+    | _ -> None
+  in
+  let details =
+    match Sqlite3.column stmt 5 with
+    | Sqlite3.Data.TEXT value -> (
+        try Yojson.Safe.from_string value with _ -> `Null)
+    | _ -> `Null
+  in
+  {
+    timestamp = Option.value (opt_text 0) ~default:"";
+    setup_plan_id = opt_text 1;
+    route_id = opt_text 2;
+    installation_id = opt_int 3;
+    action = Option.value (opt_text 4) ~default:"";
+    details;
+  }
+
+let list_audit ~db ?setup_plan_id ?route_id ?installation_id ?(limit = 100) () =
+  match ensure_durable_ops_schema db with
+  | Error _ -> []
+  | Ok () ->
+      let filters =
+        (match setup_plan_id with
+          | Some value -> [ ("setup_plan_id", Sqlite3.Data.TEXT value) ]
+          | None -> [])
+        @
+        match route_id with
+        | Some value -> [ ("route_id", Sqlite3.Data.TEXT value) ]
+        | None -> (
+            []
+            @
+            match installation_id with
+            | Some value ->
+                [ ("installation_id", Sqlite3.Data.INT (Int64.of_int value)) ]
+            | None -> [])
+      in
+      let where =
+        match filters with
+        | [] -> ""
+        | _ ->
+            " WHERE "
+            ^ String.concat " AND "
+                (List.map (fun (column, _) -> column ^ " = ?") filters)
+      in
+      let stmt =
+        Sqlite3.prepare db
+          ("SELECT timestamp, setup_plan_id, route_id, installation_id, \
+            action, details_json FROM github_route_ops_audit" ^ where
+         ^ " ORDER BY id DESC LIMIT ?")
+      in
+      List.iteri
+        (fun index (_, value) -> ignore (Sqlite3.bind stmt (index + 1) value))
+        filters;
+      ignore
+        (Sqlite3.bind stmt
+           (List.length filters + 1)
+           (Sqlite3.Data.INT (Int64.of_int (max 1 limit))));
+      let rec collect records =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> collect (audit_record_of_stmt stmt :: records)
+        | _ -> List.rev records
+      in
+      let records = collect [] in
+      ignore (Sqlite3.finalize stmt);
+      records
+
+let request_catalog_refresh ~db ~setup_plan_id ~room_id () =
+  match ensure_durable_ops_schema db with
+  | Error _ as error -> error
+  | Ok () -> (
+      let stmt =
+        Sqlite3.prepare db
+          {|INSERT INTO github_route_catalog_refresh
+              (room_id, setup_plan_id, requested_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(room_id) DO UPDATE SET
+              setup_plan_id = excluded.setup_plan_id,
+              requested_at = excluded.requested_at|}
+      in
+      let bind index value = ignore (Sqlite3.bind stmt index value) in
+      bind 1 (Sqlite3.Data.TEXT room_id);
+      bind 2 (Sqlite3.Data.TEXT setup_plan_id);
+      bind 3 (Sqlite3.Data.TEXT (Time_util.iso8601_utc ()));
+      let rc = Sqlite3.step stmt in
+      ignore (Sqlite3.finalize stmt);
+      match rc with
+      | Sqlite3.Rc.DONE -> Ok ()
+      | rc ->
+          Error
+            (Printf.sprintf "failed to request Room catalog refresh: %s"
+               (Sqlite3.Rc.to_string rc)))
+
+let catalog_refresh_of_stmt stmt =
+  let text index =
+    match Sqlite3.column stmt index with
+    | Sqlite3.Data.TEXT value -> value
+    | _ -> ""
+  in
+  { room_id = text 0; setup_plan_id = text 1; requested_at = text 2 }
+
+let list_catalog_refresh_requests ~db () =
+  match ensure_durable_ops_schema db with
+  | Error _ -> []
+  | Ok () ->
+      let stmt =
+        Sqlite3.prepare db
+          {|SELECT room_id, setup_plan_id, requested_at
+            FROM github_route_catalog_refresh ORDER BY requested_at ASC|}
+      in
+      let rec collect requests =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> collect (catalog_refresh_of_stmt stmt :: requests)
+        | _ -> List.rev requests
+      in
+      let requests = collect [] in
+      ignore (Sqlite3.finalize stmt);
+      requests
+
+let consume_catalog_refresh ~db ~room_id () =
+  match ensure_durable_ops_schema db with
+  | Error _ -> None
+  | Ok () -> (
+      let select =
+        Sqlite3.prepare db
+          {|SELECT room_id, setup_plan_id, requested_at
+            FROM github_route_catalog_refresh WHERE room_id = ?|}
+      in
+      ignore (Sqlite3.bind select 1 (Sqlite3.Data.TEXT room_id));
+      let request =
+        match Sqlite3.step select with
+        | Sqlite3.Rc.ROW -> Some (catalog_refresh_of_stmt select)
+        | _ -> None
+      in
+      ignore (Sqlite3.finalize select);
+      match request with
+      | None -> None
+      | Some _ ->
+          let delete =
+            Sqlite3.prepare db
+              "DELETE FROM github_route_catalog_refresh WHERE room_id = ?"
+          in
+          ignore (Sqlite3.bind delete 1 (Sqlite3.Data.TEXT room_id));
+          ignore (Sqlite3.step delete);
+          ignore (Sqlite3.finalize delete);
+          request)

@@ -113,6 +113,8 @@ val apply_route_ops :
   plan:Setup_plan.t ->
   receipt_id:string ->
   (unit, string) result
-(** Domain adapter for [Setup_plan_apply.apply]: interpret [apply_payload.ops]
-    JSON and create/update/disable/remove via [Github_route_store]. Idempotent
+(** Domain adapter for [Setup_plan_apply.apply]. [Github_route] plans interpret
+    route create/update/disable/remove ops; verified [Github_app_setup] plans
+    recheck transaction/receipt/installation identity, attach Room-managed
+    access when applicable, and persist activation. Both paths are idempotent
     on retry with the same plan/receipt. *)

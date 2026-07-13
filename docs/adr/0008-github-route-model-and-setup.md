@@ -51,12 +51,17 @@ Terms: [docs/glossary-github-routes.md](../glossary-github-routes.md).
    callback never counts as confirmation; plan-confirm-apply is still required.
 3. **Apply gates.** Apply requires plan id + digest, principal, base revision,
    destination authority (global admin or destination Room admin), and for Org
-   selectors an Active App installation that can claim org scope. Apply is
-   atomic, idempotent, and audited.
-4. **Managed access.** Confirmed setup may attach a setup-owned Room access
-   bundle/feature. Removing/disabling the last managed route detaches only
-   setup-owned linkage; manual grants stay. Catalog refresh for affected Rooms
-   is next-turn without daemon restart.
+   selectors an Active App installation that can claim org scope. The full CLI
+   takes the independently supplied `CLAWQ_PRINCIPAL_ID`; it never copies the
+   stored plan principal into the apply request. Apply is atomic, idempotent,
+   and durably audited. Direct Session App setup requires global-admin
+   authority and an explicit matching Session destination.
+4. **Managed access.** Confirmed Room-bound App setup attaches a
+   setup-owned Room access bundle/feature in the same apply transaction.
+   Removing/disabling the last managed route detaches only setup-owned linkage;
+   manual grants stay. The same transaction records a durable next-turn catalog
+   refresh request; the next Room turn consumes it before freezing its Tool
+   catalog, without daemon restart.
 5. **Secrets.** Credential material (PEM, client secret, webhook secret, tokens)
    is stored only through the credential boundary. Plans, inspect views, audit
    details, and Channel messages carry handles/public metadata only; redaction
@@ -78,13 +83,13 @@ Terms: [docs/glossary-github-routes.md](../glossary-github-routes.md).
 
 ### Operator surface
 
-Agent and full-build CLI expose route **plan**, **inspect**, **change**,
-**disable**, and **remove**, plus App readiness **assess**, match **explain**,
-correlated **audit**, and secret-free **repair** guidance. Legacy per-PR
-subscription commands remain compatibility aliases over Item routes. Networked
-GitHub App webhook/setup features live in `clawq_runtime_integrations`; the
-minimal binary reports integration commands as disabled rather than partially
-applying routes.
+The full-build CLI exposes `github route plan|inspect|list|change|disable|remove|apply`,
+`github app deliveries|apply`, and `github diagnostics route|audit`.
+Planning/apply commands require `CLAWQ_ADMIN=1` and
+`CLAWQ_PRINCIPAL_ID=…`; inspection/diagnostics do not. The minimal binary
+reports the entire `github` route/App setup surface as disabled rather than
+partially applying routes. Networked GitHub App webhook/setup features live in
+`clawq_runtime_integrations`.
 
 ## Consequences
 

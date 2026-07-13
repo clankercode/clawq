@@ -3,12 +3,12 @@
 
     Validates state, expiry, origin transaction, trusted callback path,
     bind/principal context, and non-reuse before conversion. Exchanges the
-    temporary [code] via [POST https://api.github.com/app-manifests/{code}/
-    conversions], then requires authenticated verification of the returned App
-    installation before storing credential handles. The verified installation
-    scope, exchange receipt, and consumed marker are committed together.
-    Failures leave no active partial GitHub App config and keep the setup
-    transaction recoverable.
+    temporary [code] via
+    [POST https://api.github.com/app-manifests/{code}/ conversions], then
+    requires authenticated verification of the returned App installation before
+    storing credential handles. The verified installation scope, exchange
+    receipt, and consumed marker are committed together. Failures leave no
+    active partial GitHub App config and keep the setup transaction recoverable.
 
     Production HTTP, Secret_store wiring, and daemon route registration are
     intentionally injectable / out of pure-module scope; unit tests inject fakes
@@ -57,6 +57,10 @@ type exchange_result = {
       (** Durable exchange receipt row id (handles + public metadata only). *)
 }
 
+type resume_hook = exchange_result -> (unit, string) result
+(** Full-runtime continuation invoked only after a callback exchange commits. It
+    may resume a confirmable plan but must never apply it. *)
+
 type http_post =
   url:string ->
   headers:(string * string) list ->
@@ -88,6 +92,9 @@ val expected_callback_url : public_base_url:string -> string
 val ensure_schema : Sqlite3.db -> unit
 (** Idempotent SQLite schema for exchange receipts (handles + metadata only). *)
 
+val set_resume_hook : resume_hook -> unit
+val clear_resume_hook : unit -> unit
+
 val exchange :
   db:Sqlite3.db ->
   ?http_post:http_post ->
@@ -104,7 +111,9 @@ val exchange :
     [verify_installation]; omitted context fails closed. Requires [http_post]
     (or fails with a clear message). Default [store_secret] encrypts via
     [Secret_store] when [CLAWQ_MASTER_KEY] is set; tests should inject an
-    in-memory store. Does not mutate Runtime_config directly. *)
+    in-memory store. Does not mutate Runtime_config directly. A successful
+    commit invokes the installed resume hook; hook errors are logged without
+    undoing the durable callback exchange. *)
 
 val get_receipt :
   db:Sqlite3.db -> id:string -> (app_credentials option, string) result

@@ -1,6 +1,19 @@
 open Session_postmortem
 include Session_agents
 
+let consume_pending_github_catalog_refresh ?db ?room_id () =
+  match (db, room_id) with
+  | Some db, Some room_id -> (
+      match Github_route_ops.consume_catalog_refresh ~db ~room_id () with
+      | None -> ()
+      | Some request ->
+          Logs.info (fun message ->
+              message
+                "Applying pending GitHub catalog refresh for room=%s plan=%s \
+                 before freezing this turn's Tool catalog"
+                request.room_id request.setup_plan_id))
+  | _ -> ()
+
 let persist_compacted_if_dirty mgr ~key agent =
   if Agent.take_compaction_dirty agent then (
     try
@@ -490,6 +503,8 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
                 Logs.warn (fun m -> m "Room policy denied: %s" msg);
                 (Runtime_config_types.Rm_unknown, "deny: " ^ msg)
           in
+          consume_pending_github_catalog_refresh ?db:mgr.Session_core.db
+            ?room_id:queued.channel_id ();
           (match queued.snapshot_work_type with
           | Some work_type -> (
               match mgr.Session_core.db with
@@ -642,6 +657,8 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
                       | Ok (cls, dec) -> (cls.scope, dec)
                       | Error _msg -> (Runtime_config_types.Rm_unknown, "denied")
                     in
+                    consume_pending_github_catalog_refresh
+                      ?db:mgr.Session_core.db ?room_id:channel_id ();
                     (match snapshot_work_type with
                     | Some work_type -> (
                         match mgr.Session_core.db with

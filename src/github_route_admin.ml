@@ -944,6 +944,209 @@ let ops_list (ops : Yojson.Safe.t) : (Yojson.Safe.t list, string) result =
   | `Null -> Ok []
   | _ -> Error "apply_payload.ops must be a list or object"
 
+let ensure_app_setup_activation_schema db =
+  match
+    Sqlite3.exec db
+      {|CREATE TABLE IF NOT EXISTS github_app_setup_activations (
+          setup_plan_id TEXT PRIMARY KEY NOT NULL,
+          receipt_id TEXT NOT NULL,
+          tx_id TEXT NOT NULL,
+          app_id INTEGER NOT NULL,
+          installation_id INTEGER NOT NULL,
+          bind_target TEXT NOT NULL,
+          managed_access_attached INTEGER NOT NULL,
+          activated_at TEXT NOT NULL
+        )|}
+  with
+  | Sqlite3.Rc.OK -> Ok ()
+  | rc ->
+      Error
+        (Printf.sprintf "GitHub App setup activation schema failed: %s"
+           (Sqlite3.Rc.to_string rc))
+
+let int_member key j =
+  match member_opt key j with
+  | Some (`Int value) -> Some value
+  | Some (`Intlit value) -> int_of_string_opt value
+  | _ -> None
+
+let find_setup_op name ops =
+  List.find_opt (fun op -> string_member "op" op = Some name) ops
+
+let attach_app_setup_managed_access ~db ~(plan : Setup_plan.t) ~tx access_op =
+  match tx.Github_app_setup_tx.bind with
+  | Github_app_setup_tx.Room room_id -> (
+      match
+        ( string_member "room_id" access_op,
+          string_member "bundle_id" access_op,
+          string_member "feature_id" access_op )
+      with
+      | Some planned_room_id, Some bundle_id, Some feature_id ->
+          if planned_room_id <> room_id then
+            Error
+              "GitHub App setup managed-access Room differs from transaction"
+          else (
+            Setup_plan_bundle.init_schema db;
+            match
+              Setup_plan_bundle.attach ~db ~room_id ~bundle_id ~feature_id
+                ~setup_plan_id:plan.id ()
+            with
+            | Ok _ -> Ok true
+            | Error error ->
+                Error
+                  ("GitHub App setup managed-access attachment failed: " ^ error))
+      | _ ->
+          Error
+            "Room-bound GitHub App setup plan is missing managed-access Room, \
+             bundle, or feature id")
+  | Github_app_setup_tx.Session session_key -> (
+      match
+        (string_member "scope" access_op, string_member "session_key" access_op)
+      with
+      | Some "session", Some planned_session_key
+        when planned_session_key = session_key ->
+          Ok false
+      | _ ->
+          Error
+            "Session-bound GitHub App setup plan has invalid managed-access \
+             scope")
+
+let apply_github_app_setup_ops ~db ~(plan : Setup_plan.t) ~receipt_id =
+  match ops_list plan.apply_payload.ops with
+  | Error _ as error -> error
+  | Ok ops -> (
+      match
+        ( find_setup_op "register_github_app" ops,
+          find_setup_op "bind_origin" ops,
+          find_setup_op "attach_managed_access" ops,
+          string_member "tx_id" plan.apply_payload.data,
+          member_opt "app" plan.apply_payload.data )
+      with
+      | ( Some register_op,
+          Some bind_op,
+          Some access_op,
+          Some tx_id,
+          Some app_json ) -> (
+          match
+            ( int_member "app_id" app_json,
+              int_member "installation_id" app_json,
+              string_member "exchange_receipt_id" app_json,
+              int_member "app_id" register_op,
+              string_member "exchange_receipt_id" register_op,
+              string_member "bind" bind_op )
+          with
+          | ( Some app_id,
+              Some installation_id,
+              Some planned_receipt_id,
+              Some registered_app_id,
+              Some registered_receipt_id,
+              Some bind_target ) -> (
+              if app_id <> registered_app_id then
+                Error "GitHub App setup plan app_id differs between data and op"
+              else if planned_receipt_id <> registered_receipt_id then
+                Error
+                  "GitHub App setup plan receipt differs between data and \
+                   register op"
+              else
+                match
+                  ( Github_app_setup_tx.get ~db ~id:tx_id,
+                    Github_app_setup_callback.find_receipt_by_tx ~db ~tx_id,
+                    Github_app_installation_scope.get ~db ~installation_id )
+                with
+                | Error error, _, _ | _, Error error, _ | _, _, Error error ->
+                    Error error
+                | Ok None, _, _ ->
+                    Error "GitHub App setup transaction is missing"
+                | Ok (Some tx), Ok receipt, Ok installation -> (
+                    match (receipt, installation) with
+                    | None, _ ->
+                        Error
+                          "GitHub App setup receipt is missing; cannot activate"
+                    | Some _, None ->
+                        Error
+                          "verified GitHub App installation scope is missing"
+                    | Some (stored_receipt_id, app), Some installation -> (
+                        if tx.status <> Github_app_setup_tx.Consumed then
+                          Error "GitHub App setup transaction is not consumed"
+                        else if stored_receipt_id <> planned_receipt_id then
+                          Error
+                            "GitHub App setup plan receipt does not match \
+                             transaction receipt"
+                        else if app.app_id <> app_id then
+                          Error
+                            "GitHub App setup plan app_id does not match \
+                             receipt"
+                        else if
+                          Github_app_setup_tx.bind_to_string tx.bind
+                          <> bind_target
+                        then
+                          Error
+                            "GitHub App setup plan bind target does not match \
+                             transaction"
+                        else if
+                          installation.app_id <> Some app_id
+                          || installation.status
+                             <> Github_app_installation_scope.Active
+                        then
+                          Error
+                            "GitHub App installation must be Active and belong \
+                             to the planned App"
+                        else
+                          match
+                            attach_app_setup_managed_access ~db ~plan ~tx
+                              access_op
+                          with
+                          | Error _ as error -> error
+                          | Ok managed_access_attached -> (
+                              match ensure_app_setup_activation_schema db with
+                              | Error _ as error -> error
+                              | Ok () -> (
+                                  let stmt =
+                                    Sqlite3.prepare db
+                                      {|INSERT OR IGNORE INTO github_app_setup_activations
+                                          (setup_plan_id, receipt_id, tx_id, app_id,
+                                           installation_id, bind_target,
+                                           managed_access_attached, activated_at)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)|}
+                                  in
+                                  let bind index value =
+                                    ignore (Sqlite3.bind stmt index value)
+                                  in
+                                  bind 1 (Sqlite3.Data.TEXT plan.id);
+                                  bind 2 (Sqlite3.Data.TEXT receipt_id);
+                                  bind 3 (Sqlite3.Data.TEXT tx_id);
+                                  bind 4
+                                    (Sqlite3.Data.INT (Int64.of_int app_id));
+                                  bind 5
+                                    (Sqlite3.Data.INT
+                                       (Int64.of_int installation_id));
+                                  bind 6 (Sqlite3.Data.TEXT bind_target);
+                                  bind 7
+                                    (Sqlite3.Data.INT
+                                       (if managed_access_attached then 1L
+                                        else 0L));
+                                  bind 8
+                                    (Sqlite3.Data.TEXT
+                                       (Time_util.iso8601_utc ()));
+                                  let outcome = Sqlite3.step stmt in
+                                  ignore (Sqlite3.finalize stmt);
+                                  match outcome with
+                                  | Sqlite3.Rc.DONE -> Ok ()
+                                  | rc ->
+                                      Error
+                                        (Printf.sprintf
+                                           "failed to persist GitHub App setup \
+                                            activation: %s"
+                                           (Sqlite3.Rc.to_string rc)))))))
+          | _ ->
+              Error
+                "GitHub App setup plan is missing app id, installation id, \
+                 receipt, or bind details")
+      | _ ->
+          Error
+            "GitHub App setup plan requires register_github_app, bind_origin, \
+             and attach_managed_access ops")
+
 let apply_route_ops ~db ~(plan : Setup_plan.t) ~receipt_id =
   match plan.apply_payload.kind with
   | Setup_plan.Github_route -> (
@@ -960,6 +1163,8 @@ let apply_route_ops ~db ~(plan : Setup_plan.t) ~receipt_id =
                 | Ok () -> loop rest)
           in
           loop ops)
+  | Setup_plan.Github_app_setup ->
+      apply_github_app_setup_ops ~db ~plan ~receipt_id
   | other ->
       let name =
         match other with

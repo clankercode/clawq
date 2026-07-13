@@ -650,6 +650,7 @@ let handle args =
   | "agent" :: _ -> unsupported "agent"
   | "transcribe" :: _ -> unsupported "transcribe"
   | "mcp" :: _ -> unsupported "mcp"
+  | "github" :: _ -> unsupported "github route/App setup"
   | "runner" :: _ -> unsupported "runner"
   | "runtime" :: _ -> unsupported "runtime"
   | "tunnel" :: _ -> unsupported "tunnel"

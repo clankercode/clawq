@@ -62,6 +62,7 @@ let make_req ?(digest_override = None) ?(destination_room = Some "room-teams-1")
     principal;
     current_base_revision = base_revision;
     destination_room;
+    destination_session = None;
     now = fixed_now;
     is_global_admin;
     is_room_admin;
