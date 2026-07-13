@@ -122,6 +122,7 @@ let () =
        ("github_route_apply", Test_github_route_apply.suite);
        ("github_route_ops", Test_github_route_ops.suite);
        ("github_route_docs", Test_github_route_docs.suite);
+       ("github_p19_docs", Test_github_p19_docs.suite);
        ("github_room_event_journal", Test_github_room_event_journal.suite);
        ("github_item_projection", Test_github_item_projection.suite);
        ("github_comment_mode", Test_github_comment_mode.suite);

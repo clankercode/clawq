@@ -70,6 +70,7 @@
   test_github_route_apply
   test_github_route_ops
   test_github_route_docs
+  test_github_p19_docs
   test_github_room_event_journal
   test_github_item_projection
   test_github_comment_mode
