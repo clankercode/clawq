@@ -77,6 +77,7 @@
   test_github_delivery_intent
   test_github_teams_card_render
   test_github_plain_delivery_render
+  test_github_item_context_resolve
   test_github_auth_selection
   test_github_pr_subscriptions
   test_github_pr_dispatch
