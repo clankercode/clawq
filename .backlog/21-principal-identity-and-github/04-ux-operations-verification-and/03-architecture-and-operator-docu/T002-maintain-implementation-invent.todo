@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T11:54:26Z"
+claimed_by: cli-user
 completed_at: null
 complexity: medium
 created_at: "2026-07-12T14:52:53Z"
@@ -7,10 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M4.E3.T002
 priority: high
-started_at: null
-status: pending
+started_at: "2026-07-13T11:54:26Z"
+status: in_progress
 tags: []
 title: Maintain implementation inventory and user-auth operator contract
-updated_at: "2026-07-12T14:52:53Z"
+updated_at: "2026-07-13T11:54:26Z"
 ---
 Acceptance: Maintain a task/source/schema/API/test crosswalk plus operator contract for trust-adapter readiness, linking conflicts, authorization, key lifecycle, attribution rollout, delayed-job repair, revoke/relink, backup/restore, pilot cleanup, and compatibility. It names safe defaults and actionable failure states without secrets or unsupported guarantees. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
