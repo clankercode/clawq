@@ -1,9 +1,10 @@
-(* Durable leased GitHub App device-code polling (P21.M2.E3.T002).
-   See github_user_auth_device_poll.mli and
+(* Durable leased GitHub App device-code polling + terminal activation routing
+   (P21.M2.E3.T002 + T003). See github_user_auth_device_poll.mli and
    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 module Dev = Github_user_auth_device
 module Tx = Github_user_auth_tx
+module Activate = Github_user_auth_activate
 
 let schema_version = 1
 let default_lease_seconds = 30.0
@@ -119,8 +120,13 @@ let stop_reason_of_github_error err =
   | "slow_down" -> None
   | "access_denied" -> Some Access_denied
   | "expired_token" -> Some Device_code_expired
-  | "unsupported_grant_type" -> Some Unsupported_grant
-  | "incorrect_device_code" -> Some Incorrect_device_code
+  | "unsupported_grant_type" | "unsupported_grant" -> Some Unsupported_grant
+  | "incorrect_device_code" | "invalid_grant" -> Some Incorrect_device_code
+  | "invalid_client" | "unauthorized_client" | "incorrect_client" ->
+      Some (Terminal "incorrect_client")
+  | "malformed_response" | "malformed" -> Some (Terminal "malformed")
+  | "device_flow_disabled" | "disabled" | "access_denied_disabled" ->
+      Some (Terminal "device_flow_disabled")
   | other -> Some (Terminal other)
 
 (* -------------------------------------------------------------------------- *)
@@ -532,6 +538,39 @@ let load_session ~db ~session_id =
 let stopped_outcome ~session ~reason ~message =
   Stopped { session = Some session; reason; message }
 
+let bound_context_of_tx (tx : Tx.t) : Tx.bound_context =
+  {
+    principal_id = tx.Tx.principal_id;
+    connector_actor = tx.Tx.connector_actor;
+    source = tx.Tx.source;
+    app_id = tx.Tx.app.Tx.app_id;
+    base_revision = tx.Tx.base_revision;
+  }
+
+(** Close the bound auth transaction for a terminal poll reason.
+    [Access_granted] leaves the tx open so shared [Activate.prepare] remains
+    eligible. *)
+let terminate_auth_tx ~db ~tx_id ~reason ~now =
+  match reason with
+  | Access_granted -> ()
+  | _ -> (
+      match Tx.get ~db ~id:tx_id with
+      | Error _ | Ok None -> ()
+      | Ok (Some tx) when Tx.status_is_terminal tx.Tx.status -> ()
+      | Ok (Some tx) -> (
+          let context = bound_context_of_tx tx in
+          let reason_s = string_of_stop_reason reason in
+          match reason with
+          | Expired | Device_code_expired ->
+              if Tx.is_expired ~now tx then
+                ignore (Tx.expire ~db ~id:tx_id ~now ())
+              else
+                ignore
+                  (Tx.cancel ~db ~id:tx_id ~context ~reason:reason_s ~now ())
+          | _ ->
+              ignore (Tx.cancel ~db ~id:tx_id ~context ~reason:reason_s ~now ())
+          ))
+
 let check_tx_and_expiry ~db ~(sess : Dev.session) ~now =
   (* Local durable expiry is authoritative across restart — never recompute. *)
   if String.compare (now_iso ~now ()) sess.Dev.expires_at >= 0 then (
@@ -722,6 +761,7 @@ let apply_token_response ~db ~session_id ~lease_token ~response
           with
           | Error e -> Error e
           | Ok () ->
+              (* Leave auth tx open for shared Activate.prepare (T003). *)
               let session = reload_session_or ~db ~session_id ~fallback:sess in
               Ok (Granted { session; tokens }))
       | Token_error te -> (
@@ -732,6 +772,7 @@ let apply_token_response ~db ~session_id ~lease_token ~response
               with
               | Error e -> Error e
               | Ok () ->
+                  terminate_auth_tx ~db ~tx_id:sess.Dev.tx_id ~reason ~now;
                   let session =
                     reload_session_or ~db ~session_id ~fallback:sess
                   in
@@ -803,6 +844,7 @@ let apply_token_response ~db ~session_id ~lease_token ~response
                 with
                 | Error e -> Error e
                 | Ok () ->
+                    terminate_auth_tx ~db ~tx_id:sess.Dev.tx_id ~reason ~now;
                     Ok
                       (Stopped
                          { session = Some sess; reason; message = te.error }))))
@@ -839,22 +881,16 @@ let request_access_token ~http_post ~host ~client_id ~device_code =
       match parse_token_response ~body:resp_body with
       | Ok resp -> Ok resp
       | Error parse_err ->
-          if status < 200 || status >= 300 then
-            Error
-              {
-                Dev.reason = Dev.Http parse_err;
-                message =
-                  Printf.sprintf "device token poll failed (HTTP %d): %s" status
-                    parse_err;
-                room_safe_progress = None;
-              }
-          else
-            Error
-              {
-                Dev.reason = Dev.Http parse_err;
-                message = parse_err;
-                room_safe_progress = None;
-              })
+          (* Malformed / unknown body is terminal (T003): do not retry as
+             authorization_pending. Transport-only failures stay Error above. *)
+          Ok
+            (Token_error
+               {
+                 error = "malformed_response";
+                 error_description =
+                   Some (Printf.sprintf "HTTP %d: %s" status parse_err);
+                 interval = None;
+               }))
 
 (* -------------------------------------------------------------------------- *)
 (* poll_once                                                                  *)
@@ -931,3 +967,239 @@ let poll_once ~db ~keys ?http_post ?resolve_client_id ~session_id ~worker_id
                 | Ok response ->
                     apply_token_response ~db ~session_id
                       ~lease_token:lease.token ~response ~now ())))
+
+(* -------------------------------------------------------------------------- *)
+(* T003: project grant → Activate.prepare; terminate failures fail-closed     *)
+(* -------------------------------------------------------------------------- *)
+
+type fetch_user = Activate.fetch_user
+
+type prepared = {
+  session : Dev.session;
+  prepared : Activate.prepared;
+  auth_tx_id : string;
+}
+
+type terminated = {
+  session : Dev.session option;
+  reason : stop_reason;
+  message : string;
+  repair : string;
+  activation : Activate.activation option;
+}
+
+type handle_result =
+  | Continuing of poll_outcome
+  | Prepared of prepared
+  | Terminated of terminated
+
+let credential_of_token_success (t : token_success) =
+  match t.expires_in with
+  | None ->
+      Error
+        "device token success missing expires_in; expiring user tokens are \
+         required"
+  | Some expires_in ->
+      let scopes =
+        match t.scope with
+        | None | Some "" -> []
+        | Some s ->
+            String.split_on_char ' ' s |> List.map String.trim
+            |> List.filter (fun x -> x <> "")
+      in
+      Activate.make_pending_credential ~access_token:t.access_token
+        ?refresh_token:t.refresh_token ~scopes ~expires_in
+        ?token_type:t.token_type ()
+
+let repair_for_stop_reason = function
+  | Cancelled ->
+      "Authorization was cancelled; restart device authorization from a \
+       private channel when ready."
+  | Expired | Device_code_expired ->
+      "Device authorization expired; start a new device flow privately."
+  | Access_denied ->
+      "GitHub access was denied; restart device authorization from a private \
+       channel if you still want to link."
+  | Access_granted ->
+      "Device grant already consumed; complete private confirmation if a plan \
+       is pending, or start a new device flow."
+  | Unsupported_grant ->
+      "Device grant type unsupported for this App; enable device flow or use \
+       web PKCE from a private channel."
+  | Incorrect_device_code ->
+      "Device code incorrect or invalid; start a new device authorization \
+       privately."
+  | Terminal "malformed" ->
+      "Token endpoint returned a malformed body; start a new device flow \
+       privately when GitHub is healthy."
+  | Terminal "incorrect_client" ->
+      "OAuth client id is incorrect or unauthorized; fix App client settings \
+       and restart device authorization privately."
+  | Terminal "device_flow_disabled" ->
+      "Device authorization is disabled for this App; enable device flow or \
+       use web PKCE from a private channel."
+  | Terminal _ ->
+      "Device authorization failed terminal; start a new device flow privately."
+
+let activation_repair (f : Activate.failure) =
+  match f.Activate.kind with
+  | Activate.Collision _ ->
+      "GitHub account collision: resolve or unlink the existing binding \
+       privately, then start a new device flow."
+  | Activate.Identity_mismatch _ ->
+      "Authorize the intended GitHub account from a private channel; restart \
+       device authorization."
+  | Activate.Principal_changed _ ->
+      "Principal lineage changed; restart authorization from a private channel."
+  | Activate.User_probe _ ->
+      "GitHub /user probe failed after device grant; start a new device flow \
+       privately when GitHub is healthy."
+  | Activate.Replay ->
+      "Activation already exists for this authorization; complete or destroy \
+       the pending confirmation privately, or start a new flow."
+  | Activate.Expired ->
+      "Authorization or activation expired; start a new device flow privately."
+  | Activate.Cancelled ->
+      "Authorization was cancelled; restart from a private channel when ready."
+  | Activate.Invalid_credential _ ->
+      "Token response shape invalid for activation (expiring tokens required); \
+       restart device authorization privately."
+  | Activate.Incomplete_exchange ->
+      "Authorization is not activation-eligible; restart the full device flow \
+       privately."
+  | Activate.Partial _ | Activate.Storage _ | Activate.Invalid _
+  | Activate.Confirmation_mismatch | Activate.Plan_mismatch | Activate.Not_found
+  | Activate.Already_activated | Activate.Destroyed_status ->
+      "Activation failed fail-closed and pending material was destroyed; start \
+       a new device flow privately."
+
+let redacted_handle_result = function
+  | Continuing o -> "continuing:" ^ redacted_outcome o
+  | Prepared p ->
+      Printf.sprintf "prepared session=%s activation=%s auth_tx=%s %s"
+        p.session.Dev.id p.prepared.Activate.activation.Activate.id p.auth_tx_id
+        (Activate.redacted_prepared_summary p.prepared)
+  | Terminated t ->
+      Printf.sprintf "terminated reason=%s msg=%s repair_len=%d act=%s"
+        (string_of_stop_reason t.reason)
+        t.message (String.length t.repair)
+        (match t.activation with None -> "-" | Some a -> a.Activate.id)
+
+let make_terminated ~session ~reason ~message ?activation ?(repair = "") () =
+  let repair =
+    if String.trim repair = "" then repair_for_stop_reason reason else repair
+  in
+  Terminated { session; reason; message; repair; activation }
+
+let prepare_granted ~db ~keys ?fetch_user ~(granted : granted)
+    ?(now = Unix.gettimeofday ()) ?ttl_seconds ?activation_id ?vault_id
+    ?binding_id ?plan_id () =
+  Activate.ensure_schema db;
+  let session = granted.session in
+  let auth_tx_id = session.Dev.tx_id in
+  match credential_of_token_success granted.tokens with
+  | Error e ->
+      (* Shape invalid (e.g. missing expires_in): close auth tx, no binding. *)
+      terminate_auth_tx ~db ~tx_id:auth_tx_id
+        ~reason:(Terminal "invalid_credential") ~now;
+      Error
+        {
+          session = Some session;
+          reason = Terminal "invalid_credential";
+          message = e;
+          repair =
+            activation_repair
+              {
+                Activate.kind = Activate.Invalid_credential e;
+                message = e;
+                activation = None;
+              };
+          activation = None;
+        }
+  | Ok credential -> (
+      match
+        Activate.prepare ~db ~keys ?fetch_user ~auth_tx_id ~credential ~now
+          ?ttl_seconds ?activation_id ?vault_id ?binding_id ?plan_id ()
+      with
+      | Error f ->
+          (* Activate destroys partial material; close auth tx so nothing
+             re-activates without a fresh grant. *)
+          terminate_auth_tx ~db ~tx_id:auth_tx_id
+            ~reason:(Terminal "activation_failed") ~now;
+          Error
+            {
+              session = Some session;
+              reason = Terminal "activation_failed";
+              message = f.Activate.message;
+              repair = activation_repair f;
+              activation = f.Activate.activation;
+            }
+      | Ok prepared ->
+          if Activate.has_active_binding ~binding:prepared.Activate.binding then (
+            (* Shared prepare must never authorize without private confirmation. *)
+            let _ =
+              Activate.destroy ~db ~keys
+                ~activation_id:prepared.Activate.activation.Activate.id
+                ~reason:
+                  "refusing Authorized binding from raw device grant; \
+                   activation requires private confirmation"
+                ~now ()
+            in
+            terminate_auth_tx ~db ~tx_id:auth_tx_id
+              ~reason:(Terminal "authorized_without_confirm") ~now;
+            Error
+              {
+                session = Some session;
+                reason = Terminal "authorized_without_confirm";
+                message =
+                  "refusing active Authorized binding from device grant; \
+                   activation requires private confirmation";
+                repair =
+                  "Device grant was sealed incorrectly; pending material \
+                   destroyed. Start a new device flow privately.";
+                activation = None;
+              })
+          else Ok { session; prepared; auth_tx_id })
+
+let finalize_terminal ~db ~outcome ?(now = Unix.gettimeofday ()) () =
+  match outcome with
+  | Authorization_pending _ | Slow_down _ | Not_due _ | Lease_busy _ ->
+      Ok (Continuing outcome)
+  | Granted g ->
+      (* Caller must use prepare_granted / handle_outcome for activation. *)
+      Ok (Continuing (Granted g))
+  | Stopped { session; reason; message } ->
+      (match session with
+      | Some s -> terminate_auth_tx ~db ~tx_id:s.Dev.tx_id ~reason ~now
+      | None -> ());
+      Ok (make_terminated ~session ~reason ~message ())
+
+let handle_outcome ~db ~keys ?fetch_user ~outcome ?(now = Unix.gettimeofday ())
+    ?ttl_seconds ?activation_id ?vault_id ?binding_id ?plan_id () =
+  match outcome with
+  | Authorization_pending _ | Slow_down _ | Not_due _ | Lease_busy _ ->
+      Ok (Continuing outcome)
+  | Granted granted -> (
+      match
+        prepare_granted ~db ~keys ?fetch_user ~granted ~now ?ttl_seconds
+          ?activation_id ?vault_id ?binding_id ?plan_id ()
+      with
+      | Ok p -> Ok (Prepared p)
+      | Error t -> Ok (Terminated t))
+  | Stopped { session; reason; message } ->
+      (match session with
+      | Some s -> terminate_auth_tx ~db ~tx_id:s.Dev.tx_id ~reason ~now
+      | None -> ());
+      Ok (make_terminated ~session ~reason ~message ())
+
+let poll_and_prepare ~db ~keys ?http_post ?resolve_client_id ?fetch_user
+    ~session_id ~worker_id ?lease_seconds ?(now = Unix.gettimeofday ())
+    ?ttl_seconds ?activation_id ?vault_id ?binding_id ?plan_id () =
+  match
+    poll_once ~db ~keys ?http_post ?resolve_client_id ~session_id ~worker_id
+      ?lease_seconds ~now ()
+  with
+  | Error e -> Error e
+  | Ok outcome ->
+      handle_outcome ~db ~keys ?fetch_user ~outcome ~now ?ttl_seconds
+        ?activation_id ?vault_id ?binding_id ?plan_id ()

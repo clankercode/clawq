@@ -230,24 +230,9 @@ let pending_credential_of_pkce
     ?refresh_token:t.refresh_token ~scopes:t.scopes ~expires_in:t.expires_in
     ?token_type:t.token_type ()
 
-let pending_credential_of_device
-    (t : Github_user_auth_device_poll.token_success) =
-  match t.expires_in with
-  | None ->
-      Error
-        "device token success missing expires_in; expiring user tokens are \
-         required"
-  | Some expires_in ->
-      let scopes =
-        match t.scope with
-        | None | Some "" -> []
-        | Some s ->
-            String.split_on_char ' ' s |> List.map String.trim
-            |> List.filter (fun x -> x <> "")
-      in
-      make_pending_credential ~access_token:t.access_token
-        ?refresh_token:t.refresh_token ~scopes ~expires_in
-        ?token_type:t.token_type ()
+(* Device-grant projection lives in [Github_user_auth_device_poll] (uses
+   [make_pending_credential]) so this module stays free of a device_poll
+   dependency and device_poll can route Granted into [prepare]. *)
 
 (* -------------------------------------------------------------------------- *)
 (* Crypto / ids                                                               *)
