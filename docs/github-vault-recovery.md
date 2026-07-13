@@ -1,6 +1,6 @@
 # GitHub user-token vault backup, restore, and key-compromise recovery
 
-Status: Implemented for P21.M2.E4.T008  
+Status: Implemented for P21.M2.E4.T008; security proofs in P21.M2.E4.T005  
 Module: `Github_user_token_vault_recovery`  
 Canonical ADR: [0006-use-principal-owned-github-user-tokens.md](adr/0006-use-principal-owned-github-user-tokens.md)
 
@@ -93,6 +93,29 @@ Github_user_token_vault_recovery.whole_store_rollback_detectable_without_externa
 Operators must treat backup selection and restore authorization as an
 **explicit operational trust boundary**. V1 makes no whole-store anti-rollback
 claim.
+
+## Security proofs (P21.M2.E4.T005)
+
+Cross-cutting suite: `test/test_github_user_token_vault_security.ml`
+(suite name `github_user_token_vault_security`).
+
+| Mode | Expected fail-closed / proof |
+|---|---|
+| Restart | Sealed rows survive file reopen under the same key; process-local leases do not. |
+| Corruption | Malformed envelope → `Corrupt_envelope` (no tokens). |
+| Ciphertext / row swap | Cross-row ciphertext swap → `Swapped_record`. |
+| Record replay | Old ciphertext replayed onto advanced generation → `Swapped_record`. |
+| Concurrent stale CAS | Stale `expected_generation` cannot restore older tokens. |
+| Key loss / wrong material | `Missing_key` / `Wrong_key` (no tokens). |
+| Destruction | After unlink + destroy + lease discard, no plaintext in vault, recovery, rewrap, or binding secondary state. |
+| Rotation crash / rewrap | Partial rewrap resumes; generation preserved under new key. |
+| Backup / restore | Wrong key or missing operator proof fails closed; success disables user authorization. |
+| Whole-store rollback | Internally consistent older DB file under the same key **opens silently** — constant `whole_store_rollback_detectable_without_external_anchor = false`. Mitigation: operator proof + authorization disable on restore, compromise disable + relink on key loss. |
+
+**Boundary statement (asserted in tests):** generation CAS and record AEAD detect
+live stale writes and record swaps, but an internally consistent whole-store
+rollback under the same available key is undetectable without an external
+monotonic anchor.
 
 ## Durable gate
 
