@@ -124,7 +124,7 @@ let test_apply_success_receipt_only () =
     Apply.apply_confirmed ~db
       ~config_apply:(fun ~plan:_ ~receipt_id:_ ->
         incr config_calls;
-        Ok ())
+        Ok (fun () -> Ok ()))
       (make_req ~plan_id:plan.id ~digest:plan.digest ())
   in
   match outcome with
@@ -144,6 +144,43 @@ let test_apply_success_receipt_only () =
         "applied audit" true
         (List.exists (fun a -> a.Setup_plan_apply.outcome = "applied") audits)
 
+(* Profile-only setup is global and intentionally has no Room destination. *)
+let test_profile_only_apply () =
+  with_db @@ fun db ->
+  let cfg = make_teams_cfg () in
+  let state = sample_state ~connector_room:"" () in
+  let plan =
+    assert_ok
+      (Apply.plan_and_store ~db ~cfg ~state ~principal:sample_principal
+         ~base_revision ~now:fixed_now ~id:"plan_ra_profile_only" ())
+  in
+  Alcotest.(check bool)
+    "no Room destination" true
+    (Option.is_none plan.destination.room_id);
+  Alcotest.(check bool) "readiness ok" true (Setup_plan.readiness_ok plan);
+  (match
+     Apply.apply_confirmed ~db
+       (make_req ~destination_room:None ~plan_id:plan.id ~digest:plan.digest ())
+   with
+  | Apply.Applied { first_time = true; attached_bundles; _ } ->
+      Alcotest.(check (list string))
+        "no Room bundle linkage" [] attached_bundles
+  | Apply.Applied { first_time = false; _ } ->
+      Alcotest.fail "expected first-time profile-only apply"
+  | Apply.Rejected { reason; message } ->
+      Alcotest.fail (Printf.sprintf "%s: %s" reason message));
+  match
+    Apply.apply_confirmed ~db
+      (make_req ~destination_room:None ~plan_id:plan.id ~digest:plan.digest ())
+  with
+  | Apply.Applied { first_time = false; attached_bundles; _ } ->
+      Alcotest.(check (list string))
+        "retry has no Room bundle linkage" [] attached_bundles
+  | Apply.Applied { first_time = true; _ } ->
+      Alcotest.fail "expected idempotent profile-only retry"
+  | Apply.Rejected { reason; message } ->
+      Alcotest.fail (Printf.sprintf "%s: %s" reason message)
+
 (* 2. Idempotent retry: same receipt, apply_ops not re-run, advanced revision ok *)
 let test_apply_idempotent () =
   with_db @@ fun db ->
@@ -157,7 +194,7 @@ let test_apply_idempotent () =
   let calls = ref 0 in
   let config_apply ~plan:_ ~receipt_id:_ =
     incr calls;
-    Ok ()
+    Ok (fun () -> Ok ())
   in
   let first =
     Apply.apply_confirmed ~db ~config_apply
@@ -310,8 +347,12 @@ let test_stale_and_repair () =
       (Apply.plan_and_store ~db ~cfg ~state ~principal:sample_principal
          ~base_revision ~now:fixed_now ~id:"plan_ra_stale" ())
   in
+  let config_calls = ref 0 in
   let stale =
     Apply.apply_confirmed ~db
+      ~config_apply:(fun ~plan:_ ~receipt_id:_ ->
+        incr config_calls;
+        Ok (fun () -> Ok ()))
       (make_req ~plan_id:plan.id ~digest:plan.digest
          ~revision:"rev-moved-forward" ())
   in
@@ -319,6 +360,7 @@ let test_stale_and_repair () =
   | Apply.Rejected { reason; _ } ->
       Alcotest.(check string) "stale" "stale_revision" reason
   | Apply.Applied _ -> Alcotest.fail "expected stale revision reject");
+  Alcotest.(check int) "stale plan did not mutate config" 0 !config_calls;
   match
     Apply.repair_if_stale ~db ~cfg ~state ~plan
       ~current_base_revision:"rev-moved-forward" ~now:fixed_now ()
@@ -343,6 +385,51 @@ let test_stale_and_repair () =
           Alcotest.fail "expected first-time apply of repaired plan"
       | Apply.Rejected { reason; message } ->
           Alcotest.fail (Printf.sprintf "%s: %s" reason message))
+
+(* A failure after domain mutation must invoke its compensation after the
+   shared transaction rolls back.  Changing the pending row forces the CAS
+   failure after [config_apply] has returned successfully. *)
+let test_failed_apply_runs_config_rollback () =
+  with_db @@ fun db ->
+  let cfg = make_teams_cfg_with_bundle () in
+  let state = sample_state ~access_bundle_ids:[ "pilot-tools" ] () in
+  let plan =
+    assert_ok
+      (Apply.plan_and_store ~db ~cfg ~state ~principal:sample_principal
+         ~base_revision ~now:fixed_now ~id:"plan_ra_rollback" ())
+  in
+  let external_config_changed = ref false in
+  let config_apply ~plan:_ ~receipt_id:_ =
+    external_config_changed := true;
+    let rc =
+      Sqlite3.exec db
+        (Printf.sprintf
+           "UPDATE setup_plans SET status = 'cancelled' WHERE id = '%s'" plan.id)
+    in
+    Alcotest.(check bool) "force CAS failure" true (rc = Sqlite3.Rc.OK);
+    Ok
+      (fun () ->
+        external_config_changed := false;
+        Ok ())
+  in
+  (match
+     Apply.apply_confirmed ~db ~config_apply
+       (make_req ~plan_id:plan.id ~digest:plan.digest ())
+   with
+  | Apply.Rejected { reason; _ } ->
+      Alcotest.(check string)
+        "CAS failure is rejected" "concurrent_conflict" reason
+  | Apply.Applied _ -> Alcotest.fail "expected forced post-mutation failure");
+  Alcotest.(check bool)
+    "external config compensated" false !external_config_changed;
+  Alcotest.(check bool)
+    "no durable bundle linkage" false
+    (Setup_plan_bundle.is_setup_owned ~db ~room_id:room ~bundle_id:"pilot-tools"
+       ());
+  let audits = Setup_plan_apply.list_audit ~db ~plan_id:plan.id () in
+  Alcotest.(check bool)
+    "no applied receipt audit" false
+    (List.exists (fun a -> a.Setup_plan_apply.outcome = "applied") audits)
 
 (* 8. Digest mismatch rejected; no bundle attach *)
 let test_digest_mismatch () =
@@ -391,12 +478,16 @@ let test_repair_current_noop () =
 let suite =
   [
     ("apply success receipt-only", `Quick, test_apply_success_receipt_only);
+    ("profile-only apply", `Quick, test_profile_only_apply);
     ("apply idempotent", `Quick, test_apply_idempotent);
     ("room-admin authority", `Quick, test_room_admin_authority);
     ("cross-room authority denied", `Quick, test_cross_room_authority_denied);
     ("cross-room with consent", `Quick, test_cross_room_with_consent);
     ("managed bundle attach", `Quick, test_bundle_attach);
     ("stale revision and repair", `Quick, test_stale_and_repair);
+    ( "failed apply compensates config",
+      `Quick,
+      test_failed_apply_runs_config_rollback );
     ("digest mismatch", `Quick, test_digest_mismatch);
     ("repair current is no-op", `Quick, test_repair_current_noop);
   ]

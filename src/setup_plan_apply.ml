@@ -362,14 +362,18 @@ let apply_kind_name = function
   | Access_bundle -> "access_bundle"
   | Generic s -> s
 
-let destination_matches (destination : Setup_plan.context) ~destination_room
+let destination_matches (plan : Setup_plan.t) ~destination_room
     ~destination_session =
-  match (destination.room_id, destination.session_key) with
+  match (plan.destination.room_id, plan.destination.session_key) with
   | Some room_id, None -> String.equal room_id destination_room
   | None, Some session_key -> (
       match destination_session with
       | Some supplied -> String.equal session_key supplied
       | None -> false)
+  | None, None ->
+      plan.apply_payload.kind = Setup_plan.Room_profile
+      && destination_room = ""
+      && Option.is_none destination_session
   | _ -> false
 
 let destination_json (destination : Setup_plan.context) =
@@ -448,9 +452,7 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
             ("current_base_revision", `String current_base_revision);
           ]
       else if
-        not
-          (destination_matches plan.destination ~destination_room
-             ~destination_session)
+        not (destination_matches plan ~destination_room ~destination_session)
       then
         reject Destination_mismatch "destination does not match expected"
           [

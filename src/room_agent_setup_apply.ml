@@ -22,8 +22,10 @@ type apply_outcome =
     }
   | Rejected of { reason : string; message : string }
 
+type config_rollback = unit -> (unit, string) result
+
 type config_apply =
-  plan:Setup_plan.t -> receipt_id:string -> (unit, string) result
+  plan:Setup_plan.t -> receipt_id:string -> (config_rollback, string) result
 
 let rejected reason message = Rejected { reason; message }
 
@@ -115,7 +117,7 @@ let attach_managed_bundles ~db ~(plan : Setup_plan.t) ~now =
       loop [] bundles
 
 let domain_apply_ops ~db ~now ~config_apply ~config_mutated_ref ~attached_ref
-    ~plan ~receipt_id =
+    ~config_rollback_ref ~plan ~receipt_id =
   if not (is_room_profile_plan plan) then
     Error
       (Printf.sprintf
@@ -133,7 +135,8 @@ let domain_apply_ops ~db ~now ~config_apply ~config_mutated_ref ~attached_ref
             Ok ()
         | Some f -> (
             match f ~plan ~receipt_id with
-            | Ok () ->
+            | Ok rollback ->
+                config_rollback_ref := Some rollback;
                 config_mutated_ref := true;
                 Ok ()
             | Error e -> Error e))
@@ -196,43 +199,57 @@ let apply_confirmed ~db ?config_apply (req : apply_request) =
           | Some r -> Some r
           | None -> plan.destination.room_id
         in
-        match destination_room with
-        | None ->
-            rejected "destination_mismatch"
-              "destination Room is required to apply a room-agent setup plan"
-        | Some destination_room -> (
-            let config_mutated_ref = ref false in
-            let attached_ref = ref [] in
-            let authority =
-              Setup_plan_consent.authority_check ~db ~actor:req.actor
-                ~now:req.now ()
-            in
-            let apply_ops =
-              domain_apply_ops ~db ~now:req.now ~config_apply
-                ~config_mutated_ref ~attached_ref
-            in
-            let outcome =
-              Setup_plan_apply.apply ~db ~plan_id:req.plan_id ~digest:req.digest
-                ~principal:req.principal
-                ~current_base_revision:req.current_base_revision
-                ~destination_room ~now:req.now ~authority ~apply_ops ()
-            in
-            match outcome with
-            | Setup_plan_apply.Rejected { reason; message } ->
+        let destination_room = Option.value destination_room ~default:"" in
+        let config_mutated_ref = ref false in
+        let attached_ref = ref [] in
+        let config_rollback_ref = ref None in
+        let authority =
+          Setup_plan_consent.authority_check ~db ~actor:req.actor ~now:req.now
+            ()
+        in
+        let apply_ops =
+          domain_apply_ops ~db ~now:req.now ~config_apply ~config_mutated_ref
+            ~attached_ref ~config_rollback_ref
+        in
+        let outcome =
+          Setup_plan_apply.apply ~db ~plan_id:req.plan_id ~digest:req.digest
+            ~principal:req.principal
+            ~current_base_revision:req.current_base_revision ~destination_room
+            ~now:req.now ~authority ~apply_ops ()
+        in
+        match outcome with
+        | Setup_plan_apply.Rejected { reason; message } -> (
+            match !config_rollback_ref with
+            | None ->
                 rejected
                   (Setup_plan_apply.string_of_reject_reason reason)
                   message
-            | Setup_plan_apply.Applied { receipt_id; first_time } ->
-                Applied
-                  {
-                    receipt_id;
-                    first_time;
-                    config_mutated =
-                      (if first_time then !config_mutated_ref else false);
-                    attached_bundles =
-                      (if first_time then !attached_ref
-                       else access_bundle_ids_of_plan plan);
-                  }))
+            | Some rollback -> (
+                match rollback () with
+                | Ok () ->
+                    rejected
+                      (Setup_plan_apply.string_of_reject_reason reason)
+                      message
+                | Error rollback_error ->
+                    rejected "apply_error"
+                      (Printf.sprintf
+                         "setup apply rejected (%s), and config rollback \
+                          failed: %s"
+                         (Setup_plan_apply.string_of_reject_reason reason)
+                         rollback_error)))
+        | Setup_plan_apply.Applied { receipt_id; first_time } ->
+            Applied
+              {
+                receipt_id;
+                first_time;
+                config_mutated =
+                  (if first_time then !config_mutated_ref else false);
+                attached_bundles =
+                  (if first_time then !attached_ref
+                   else if Option.is_some plan.destination.room_id then
+                     access_bundle_ids_of_plan plan
+                   else []);
+              })
 
 (* ── Repair (stale / expired plan regeneration) ──────────────────── *)
 

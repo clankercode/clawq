@@ -82,8 +82,9 @@ val apply :
 
     Order: identity (id/digest/principal) → already-applied short-circuit
     (retry-idempotent; ignores advanced revision/expiry) → live rechecks
-    (expiry, base revision, Room-or-Session destination, readiness, authority) →
-    BEGIN IMMEDIATE \+ CAS pending→applied + in-tx success audit.
+    (expiry, base revision, Room-or-Session destination, or an empty global
+    destination for [Room_profile] only, readiness, authority) → BEGIN IMMEDIATE
+    \+ CAS pending→applied + in-tx success audit.
 
     Concurrent writers are rejected with [Stale_revision] /
     [Concurrent_conflict] rather than overwriting a committed apply. *)

@@ -43,10 +43,15 @@ type apply_outcome =
     }
   | Rejected of { reason : string; message : string }
 
+type config_rollback = unit -> (unit, string) result
+(** Restore the exact pre-apply config after the shared transaction rejects
+    after a config mutation. *)
+
 type config_apply =
-  plan:Setup_plan.t -> receipt_id:string -> (unit, string) result
+  plan:Setup_plan.t -> receipt_id:string -> (config_rollback, string) result
 (** Optional config mutation after rechecks. Invoked only on first successful
-    apply (not on idempotent retries). Typical production hook closes over
+    apply (not on idempotent retries). It returns a rollback for a later shared
+    transaction failure. Typical production hook closes over
     [Setup_room_wizard.apply_plan ~db ~cfg ~state]. *)
 
 val init_schemas : Sqlite3.db -> unit
@@ -71,6 +76,10 @@ val plan_and_store :
 val apply_confirmed :
   db:Sqlite3.db -> ?config_apply:config_apply -> apply_request -> apply_outcome
 (** Confirm/apply a pending [Room_profile] plan.
+
+    Room-targeted plans retain destination/bundle checks. Profile-only plans
+    have no Room destination, attach no managed Room bundle, and require the
+    global-admin path in the shared consent authority.
 
     Order: load plan → resolve destination → [Setup_plan_apply.apply] with
     consent authority and domain adapter (bundle attach + optional config

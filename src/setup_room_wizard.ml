@@ -255,6 +255,60 @@ let apply_plan ~(db : Sqlite3.db) ~(cfg : Runtime_config.t)
         Error (base_msg ^ "\nWarnings: " ^ String.concat "; " errors)
       else Ok base_msg
 
+type config_file_snapshot = Missing_config | Config_contents of string
+
+let snapshot_config_file () =
+  let path = Setup_common.config_path () in
+  if Sys.file_exists path then
+    try
+      Ok (Config_contents (In_channel.with_open_bin path In_channel.input_all))
+    with Sys_error e -> Error e
+  else Ok Missing_config
+
+let restore_config_file snapshot =
+  let path = Setup_common.config_path () in
+  try
+    match snapshot with
+    | Missing_config ->
+        if Sys.file_exists path then Unix.unlink path;
+        Ok ()
+    | Config_contents contents ->
+        Out_channel.with_open_bin path (fun oc ->
+            Out_channel.output_string oc contents);
+        Ok ()
+  with Sys_error e -> Error e
+
+(** Run the legacy config mutation with compensation for the shared apply
+    transaction. The config file is external to SQLite, so a later receipt or
+    audit failure must restore the exact pre-apply contents. *)
+let apply_plan_with_rollback ~db ~cfg ~state =
+  match snapshot_config_file () with
+  | Error error -> Error ("failed to snapshot config before apply: " ^ error)
+  | Ok snapshot -> (
+      match apply_plan ~db ~cfg ~state with
+      | Ok message -> Ok (message, fun () -> restore_config_file snapshot)
+      | Error error -> (
+          match restore_config_file snapshot with
+          | Ok () -> Error error
+          | Error rollback_error ->
+              Error
+                (Printf.sprintf "%s; config rollback failed: %s" error
+                   rollback_error)))
+
+let current_live_base_revision () =
+  Setup_plan.base_revision_of_config (Command_bridge_helpers.get_config ())
+
+let fresh_apply_request ~plan ~principal ~actor =
+  {
+    Room_agent_setup_apply.plan_id = plan.Setup_plan.id;
+    digest = plan.digest;
+    principal;
+    current_base_revision = current_live_base_revision ();
+    destination_room = plan.destination.room_id;
+    now = Unix.gettimeofday ();
+    actor;
+  }
+
 (* ── Interactive wizard ─────────────────────────────────────────── *)
 
 let run_wizard () =
@@ -509,21 +563,11 @@ let run_wizard () =
                     }
                   in
                   let config_apply ~plan:_ ~receipt_id:_ =
-                    match apply_plan ~db ~cfg ~state:!state with
-                    | Ok _ -> Ok ()
+                    match apply_plan_with_rollback ~db ~cfg ~state:!state with
+                    | Ok (_, rollback) -> Ok rollback
                     | Error e -> Error e
                   in
-                  let req : Room_agent_setup_apply.apply_request =
-                    {
-                      plan_id = plan.id;
-                      digest = plan.digest;
-                      principal;
-                      current_base_revision = base_revision;
-                      destination_room = plan.destination.room_id;
-                      now = Unix.gettimeofday ();
-                      actor;
-                    }
-                  in
+                  let req = fresh_apply_request ~plan ~principal ~actor in
                   match
                     Room_agent_setup_apply.apply_confirmed ~db ~config_apply req
                   with
@@ -673,21 +717,11 @@ let run_rerun ~(profile_id : string) ~(model : string) ~(system_prompt : string)
             }
           in
           let config_apply ~plan:_ ~receipt_id:_ =
-            match apply_plan ~db ~cfg ~state with
-            | Ok _ -> Ok ()
+            match apply_plan_with_rollback ~db ~cfg ~state with
+            | Ok (_, rollback) -> Ok rollback
             | Error e -> Error e
           in
-          let req : Room_agent_setup_apply.apply_request =
-            {
-              plan_id = plan.id;
-              digest = plan.digest;
-              principal;
-              current_base_revision = base_revision;
-              destination_room = plan.destination.room_id;
-              now = Unix.gettimeofday ();
-              actor;
-            }
-          in
+          let req = fresh_apply_request ~plan ~principal ~actor in
           match
             Room_agent_setup_apply.apply_confirmed ~db ~config_apply req
           with
@@ -890,21 +924,11 @@ let run args =
                         }
                       in
                       let config_apply ~plan:_ ~receipt_id:_ =
-                        match apply_plan ~db ~cfg ~state with
-                        | Ok _ -> Ok ()
+                        match apply_plan_with_rollback ~db ~cfg ~state with
+                        | Ok (_, rollback) -> Ok rollback
                         | Error e -> Error e
                       in
-                      let req : Room_agent_setup_apply.apply_request =
-                        {
-                          plan_id = plan.id;
-                          digest = plan.digest;
-                          principal;
-                          current_base_revision = base_revision;
-                          destination_room = plan.destination.room_id;
-                          now = Unix.gettimeofday ();
-                          actor;
-                        }
-                      in
+                      let req = fresh_apply_request ~plan ~principal ~actor in
                       match
                         Room_agent_setup_apply.apply_confirmed ~db ~config_apply
                           req

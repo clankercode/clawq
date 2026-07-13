@@ -27,6 +27,24 @@ let make_both_cfg () : Runtime_config.t =
   in
   Config_loader.parse_config json
 
+let with_temp_clawq_home f =
+  let previous = Sys.getenv_opt "CLAWQ_HOME" in
+  let dir = Filename.temp_file "clawq-room-wizard-test" "" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o700;
+  Fun.protect
+    ~finally:(fun () ->
+      let config_path = Filename.concat dir "config.json" in
+      (try if Sys.file_exists config_path then Unix.unlink config_path
+       with _ -> ());
+      (try Unix.rmdir dir with _ -> ());
+      match previous with
+      | Some value -> Unix.putenv "CLAWQ_HOME" value
+      | None -> Unix.putenv "CLAWQ_HOME" "")
+    (fun () ->
+      Unix.putenv "CLAWQ_HOME" dir;
+      f ())
+
 (** {1 Connector detection tests} *)
 
 let test_connector_is_configured () =
@@ -71,6 +89,86 @@ let test_default_connector () =
   Alcotest.(check string)
     "default with slack only" "slack"
     (default_connector cfg_with_slack)
+
+let test_apply_request_uses_live_revision () =
+  with_temp_clawq_home @@ fun () ->
+  let old_json =
+    Yojson.Safe.from_string
+      {|{"channels":{"teams":{"app_id":"old-app","app_secret":"secret","tenant_id":"tenant","webhook_path":"/webhook","service_url":"https://smba.trafficmanager.net"}}}|}
+  in
+  let new_json =
+    Yojson.Safe.from_string
+      {|{"channels":{"teams":{"app_id":"new-app","app_secret":"secret","tenant_id":"tenant","webhook_path":"/webhook","service_url":"https://smba.trafficmanager.net"}}}|}
+  in
+  ignore (Setup_common.write_config_json old_json);
+  let cfg = Command_bridge_helpers.get_config () in
+  let state =
+    {
+      default_state with
+      profile_id = "fresh-revision-profile";
+      connector_type = "teams";
+      connector_room = "19:abc@thread.tacv2";
+    }
+  in
+  let plan =
+    Room_agent_setup_plan.plan ~cfg ~state
+      ~principal:Room_agent_setup_plan.default_cli_principal ()
+  in
+  ignore (Setup_common.write_config_json new_json);
+  let actor : Setup_plan_consent.actor =
+    {
+      principal_id = Room_agent_setup_plan.default_cli_principal.id;
+      role = Global_admin;
+      source_room_id = plan.destination.room_id;
+    }
+  in
+  let request =
+    fresh_apply_request ~plan
+      ~principal:Room_agent_setup_plan.default_cli_principal ~actor
+  in
+  let expected_revision =
+    Setup_plan.base_revision_of_config (Config_loader.parse_config new_json)
+  in
+  Alcotest.(check string)
+    "request sees revised config" expected_revision
+    request.current_base_revision;
+  Alcotest.(check bool)
+    "request does not reuse plan revision" true
+    (not (String.equal plan.base_revision request.current_base_revision))
+
+let test_apply_plan_rollback_restores_config () =
+  with_temp_clawq_home @@ fun () ->
+  let original_json =
+    Yojson.Safe.from_string
+      {|{"channels":{"teams":{"app_id":"test-app","app_secret":"secret","tenant_id":"tenant","webhook_path":"/webhook","service_url":"https://smba.trafficmanager.net"}}}|}
+  in
+  ignore (Setup_common.write_config_json original_json);
+  let path = Setup_common.config_path () in
+  let cfg = Command_bridge_helpers.get_config () in
+  (* Config loading may backfill defaults, so snapshot the exact on-disk
+     baseline after the wizard has loaded its config. *)
+  let original = In_channel.with_open_bin path In_channel.input_all in
+  let db = Memory.init ~db_path:":memory:" () in
+  let state =
+    {
+      default_state with
+      profile_id = "rollback-profile";
+      connector_type = "teams";
+      connector_room = "19:rollback@thread.tacv2";
+    }
+  in
+  match apply_plan_with_rollback ~db ~cfg ~state with
+  | Error error -> Alcotest.fail error
+  | Ok (_, rollback) ->
+      let applied = In_channel.with_open_bin path In_channel.input_all in
+      Alcotest.(check bool)
+        "config was changed before shared apply completes" true
+        (not (String.equal original applied));
+      (match rollback () with
+      | Ok () -> ()
+      | Error error -> Alcotest.fail error);
+      let restored = In_channel.with_open_bin path In_channel.input_all in
+      Alcotest.(check string) "rollback restores exact config" original restored
 
 (** {1 Room validation tests} *)
 
@@ -748,6 +846,10 @@ let suite =
       test_connector_is_configured;
     Alcotest.test_case "configured_connectors" `Quick test_configured_connectors;
     Alcotest.test_case "default_connector" `Quick test_default_connector;
+    Alcotest.test_case "apply_request_uses_live_revision" `Quick
+      test_apply_request_uses_live_revision;
+    Alcotest.test_case "apply_plan_rollback_restores_config" `Quick
+      test_apply_plan_rollback_restores_config;
     Alcotest.test_case "validate_teams_room_id" `Quick
       test_validate_teams_room_id;
     Alcotest.test_case "validate_slack_room_id" `Quick

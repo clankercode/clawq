@@ -24,7 +24,7 @@ implement a second confirmation or apply state machine.
 
 | Adapter | Plan | Confirm/apply | Domain mutation |
 |---------|------|---------------|-----------------|
-| Room-agent pilot | `Room_agent_setup_plan` | `Room_agent_setup_apply` | Optional `config_apply` → wizard `apply_plan` + managed bundles |
+| Room-agent pilot | `Room_agent_setup_plan` | `Room_agent_setup_apply` | Optional compensatable `config_apply` → wizard `apply_plan` + managed bundles |
 | GitHub routes | `Github_route_admin` plan_* | `Github_route_apply` | `Github_route_admin.apply_route_ops` + managed bundles |
 | GitHub App setup | setup tx / resume | `Setup_plan_apply` via resume path | App/installation materialization (callback ≠ apply) |
 
@@ -73,3 +73,9 @@ Adapters must surface the same `Setup_plan_apply` reason strings for core gates:
 
 Adapter-specific gates (e.g. GitHub `org_requires_app`) may add reasons but must
 not rename the core ones above.
+
+When a domain mutation touches state outside the shared SQLite transaction, its
+adapter must return a compensating rollback. The room-agent wizard snapshots
+the config before its mutation and restores it if the shared CAS/receipt/audit
+transaction later rejects; it also refreshes the config revision immediately
+before confirm/apply.
