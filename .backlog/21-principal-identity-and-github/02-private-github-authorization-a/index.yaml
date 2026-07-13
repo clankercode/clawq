@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Web Authorization with PKCE and State
       path: 02-web-authorization-with-pkce-an
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Implement first-class restart-safe GitHub device flow with private code delivery and correct polling state.

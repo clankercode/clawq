@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 4
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -43,7 +43,7 @@ tasks:
       file: T003-verify-github-numeric-identity.todo
       id: T003
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Route web authorization through shared verified activation
     - complexity: high
