@@ -32,7 +32,7 @@ tasks:
       file: T002-run-the-live-github-app-to-cla.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Run the live GitHub App to Clawq to Teams pilot
     - complexity: medium
