@@ -64,5 +64,6 @@ tasks:
       file: T005-write-route-model-setup-adrs-g.todo
       id: T005
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Write route-model setup ADRs glossary and operator contract
