@@ -146,8 +146,15 @@ let display_capability_comparison () =
     (dim "Slack: reactions, native threads, ambient history capture.");
   Printf.printf "\n"
 
-(* ── Plan generation ────────────────────────────────────────────── *)
+(* ── Plan generation (display-only compatibility) ───────────────── *)
 
+(** [generate_plan] builds a human-readable category/action item list for CLI
+    display. It is **not** a second confirmation/apply plan type.
+
+    Canonical setup planning is [Room_agent_setup_plan.plan] → [Setup_plan.t]
+    (see docs/setup-framework-boundary.md). Keep this helper only as a
+    compatibility summary for [clawq rooms wizard plan] and tests that assert
+    connector/profile wording. *)
 let generate_plan ~(cfg : Runtime_config.t) ~(state : wizard_state) :
     plan_item list =
   let items = ref [] in
