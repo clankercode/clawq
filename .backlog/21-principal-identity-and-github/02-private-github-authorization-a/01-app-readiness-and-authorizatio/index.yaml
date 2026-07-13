@@ -30,7 +30,7 @@ tasks:
       file: T002-persist-one-time-principal-bou.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Persist one-time Principal-bound authorization transactions
     - complexity: high
