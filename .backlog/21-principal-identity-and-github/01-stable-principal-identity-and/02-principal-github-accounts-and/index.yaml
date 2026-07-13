@@ -55,6 +55,6 @@ tasks:
       file: T004-expose-redacted-account-inspec.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Expose redacted account inspection preference and unlink operations
