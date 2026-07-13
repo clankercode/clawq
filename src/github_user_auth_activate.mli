@@ -242,6 +242,12 @@ val get : db:Sqlite3.db -> id:string -> (activation option, failure) result
 val get_by_auth_tx :
   db:Sqlite3.db -> auth_tx_id:string -> (activation option, failure) result
 
+val get_activated_by_binding :
+  db:Sqlite3.db -> binding_id:string -> (activation option, failure) result
+(** Return the most recent activated authorization row for a durable account
+    binding. Pending and terminal non-activated rows are deliberately ignored.
+*)
+
 val get_plan :
   db:Sqlite3.db ->
   activation_id:string ->

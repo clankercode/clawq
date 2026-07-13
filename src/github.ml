@@ -916,8 +916,8 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
     ?(egress_audit = Policy_http_client.no_audit) ~db
     ~(repo_config : Runtime_config.github_repo_config)
     ~(config : Runtime_config.t option) ~api_limiter ~delivery_id ~owner ~repo
-    ~author ?actor_snapshot event ~(options : Github_work_item.command_options)
-    ~preamble =
+    ~author ?actor_snapshot ?verified_actor event
+    ~(options : Github_work_item.command_options) ~preamble =
   let open Lwt.Syntax in
   let repo_full_name = owner ^ "/" ^ repo in
   let issue_number = issue_number_of_event event in
@@ -931,12 +931,31 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
     Github_work_item.dedup_key_for ~repo_full_name ~issue_number ~comment_id
       ~delivery_id:(Some delivery_id)
   in
-  match
-    Github_work_item.create_if_new ~db ~dedup_key ~delivery_id ~repo_full_name
-      ~is_pr ~issue_number ~requester:author ?runner_pref:options.runner_opt
-      ?host_pref:options.host_opt ~prompt:options.request ~preamble
-      ?actor_snapshot ()
-  with
+  let actor_snapshot =
+    match (actor_snapshot, verified_actor) with
+    | Some _, Some _ ->
+        Result.Error
+          "work item refuses both an explicit actor snapshot and verified \
+           webhook actor evidence"
+    | Some snapshot, None -> Result.Ok (Some snapshot)
+    | None, None -> Result.Ok None
+    | None, Some (actor_key, account_binding_id) ->
+        let message_id = Option.map string_of_int comment_id in
+        Github_durable_job_actor_attribution.capture_for_delayed_job ~db
+          ~actor_key ~account_binding_id ~delayed_job_id:dedup_key
+          ~room_id:repo_full_name
+          ~session_id:(Github_webhook.session_key event)
+          ?message_id ()
+        |> Result.map Option.some
+  in
+  let work_item =
+    Result.bind actor_snapshot (fun actor_snapshot ->
+        Github_work_item.create_if_new ~db ~dedup_key ~delivery_id
+          ~repo_full_name ~is_pr ~issue_number ~requester:author
+          ?runner_pref:options.runner_opt ?host_pref:options.host_opt
+          ~prompt:options.request ~preamble ?actor_snapshot ())
+  in
+  match work_item with
   | Result.Error msg -> Lwt.return (Ok ("work item refused: " ^ msg))
   | Result.Ok (Github_work_item.Duplicate existing) ->
       Logs.info (fun m ->
@@ -1113,6 +1132,100 @@ let run_clawq_work_item ~(github_config : Runtime_config.github_config)
                           Lwt.return
                             (Ok (Printf.sprintf "work item %d queued" item.id)))
                   ))))
+
+let verified_sender_id_of_webhook_body body =
+  try
+    let open Yojson.Safe.Util in
+    match Yojson.Safe.from_string body |> member "sender" |> member "id" with
+    | `Int id when id > 0 -> Some (Int64.of_int id)
+    | `Intlit id -> (
+        try
+          let id = Int64.of_string id in
+          if id > 0L then Some id else None
+        with Failure _ -> None)
+    | _ -> None
+  with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> None
+
+let verified_webhook_actor ~db ~(github_config : Runtime_config.github_config)
+    ~body =
+  match github_config.auth with
+  | Runtime_config.GithubPat _ -> Result.Ok None
+  | Runtime_config.GithubApp app -> (
+      match verified_sender_id_of_webhook_body body with
+      | None -> Result.Ok None
+      | Some github_user_id -> (
+          Github_user_auth_activate.ensure_schema db;
+          match
+            Github_account_binding.make_account_identity ~app_id:app.app_id
+              ~github_user_id ()
+          with
+          | Result.Error e ->
+              Result.Error ("verified webhook actor identity invalid: " ^ e)
+          | Result.Ok identity -> (
+              match Github_account_binding.get_by_identity ~db ~identity with
+              | Result.Error e ->
+                  Result.Error
+                    ("verified webhook actor binding lookup failed: " ^ e)
+              | Result.Ok None -> Result.Ok None
+              | Result.Ok (Some binding) -> (
+                  match binding.authorization_status with
+                  | Github_account_binding.Authorized -> (
+                      match
+                        Github_user_auth_activate.get_activated_by_binding ~db
+                          ~binding_id:binding.id
+                      with
+                      | Result.Error failure ->
+                          Result.Error
+                            ("verified webhook actor activation lookup failed: "
+                           ^ failure.message)
+                      | Result.Ok None ->
+                          Result.Error
+                            "verified webhook actor binding has no activated \
+                             authorization"
+                      | Result.Ok (Some activation) -> (
+                          match
+                            Github_user_auth_tx.get ~db
+                              ~id:activation.auth_tx_id
+                          with
+                          | Result.Error e ->
+                              Result.Error
+                                ("verified webhook actor authorization lookup \
+                                  failed: " ^ e)
+                          | Result.Ok None ->
+                              Result.Error
+                                "verified webhook actor activation lost its \
+                                 authorization transaction"
+                          | Result.Ok (Some tx) ->
+                              let principal_id =
+                                Principal_identity.principal_id_to_string
+                                  binding.principal_id
+                              in
+                              if
+                                not
+                                  (String.equal activation.binding_id binding.id
+                                  && String.equal activation.principal_id
+                                       principal_id
+                                  && String.equal activation.host identity.host
+                                  && activation.app_id = identity.app_id
+                                  && activation.github_user_id
+                                     = identity.github_user_id
+                                  && String.equal tx.principal_id principal_id
+                                  && String.equal tx.app.host identity.host
+                                  && tx.app.app_id = identity.app_id)
+                              then
+                                Result.Error
+                                  "verified webhook actor authorization does \
+                                   not match its binding"
+                              else
+                                Result.Ok
+                                  (Some (tx.connector_actor, binding.id))))
+                  | status ->
+                      Result.Error
+                        (Printf.sprintf
+                           "verified webhook actor binding is not authorized \
+                            (%s)"
+                           (Github_account_binding
+                            .string_of_authorization_status status))))))
 
 (* B774: periodic publication sweep — publish terminal-but-unpublished
    items (e.g. completed by a remote worker). Publication is idempotent, so
@@ -1582,6 +1695,17 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                       | _ -> Lwt.return 0
                     in
                     let db_opt = Session.get_db session_manager in
+                    let enqueue_verified_work_item ~db ~options ~preamble =
+                      Github_work_item.init_schema db;
+                      match verified_webhook_actor ~db ~github_config ~body with
+                      | Error msg ->
+                          Lwt.return (Ok ("work item refused: " ^ msg))
+                      | Ok verified_actor ->
+                          run_clawq_work_item ~github_config ~resolve_headers
+                            ~egress_rules ~egress_audit ~db ~repo_config ~config
+                            ~api_limiter ~delivery_id ~owner ~repo ~author
+                            ?verified_actor event ~options ~preamble
+                    in
                     match event with
                     | Github_webhook.IssueAssigned assigned -> (
                         (* B773: assignment intake — launches only when the new
@@ -1609,7 +1733,6 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                           match db_opt with
                           | None -> Lwt.return (Ok "assignment ignored (no db)")
                           | Some db ->
-                              Github_work_item.init_schema db;
                               let options =
                                 {
                                   Github_work_item.runner_opt = Some "auto";
@@ -1639,10 +1762,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                                         (String.length assigned.issue_body)))
                                   assigned.html_url
                               in
-                              run_clawq_work_item ~github_config
-                                ~resolve_headers ~egress_rules ~egress_audit ~db
-                                ~repo_config ~config ~api_limiter ~delivery_id
-                                ~owner ~repo ~author event ~options ~preamble)
+                              enqueue_verified_work_item ~db ~options ~preamble)
                     | _ -> (
                         match
                           Github_webhook.extract_trigger
@@ -1658,12 +1778,8 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                             | Some db
                               when Github_work_item.wants_work_item options
                                    && options.request <> "" ->
-                                Github_work_item.init_schema db;
-                                run_clawq_work_item ~github_config
-                                  ~resolve_headers ~egress_rules ~egress_audit
-                                  ~db ~repo_config ~config ~api_limiter
-                                  ~delivery_id ~owner ~repo ~author event
-                                  ~options ~preamble
+                                enqueue_verified_work_item ~db ~options
+                                  ~preamble
                             | _ ->
                                 run_clawq_command ~github_config
                                   ~resolve_headers ~egress_rules ~egress_audit

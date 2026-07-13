@@ -608,6 +608,26 @@ let load_by_auth_tx ~db ~auth_tx_id : (row option, string) result =
             (Printf.sprintf "activate SELECT by auth_tx failed: %s (%s)"
                (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
 
+let load_activated_by_binding ~db ~binding_id : (row option, string) result =
+  let sql =
+    select_sql
+    ^ "WHERE binding_id = ? AND status = 'activated' ORDER BY activated_at \
+       DESC, id DESC LIMIT 1"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT binding_id));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match row_of_stmt stmt with Ok r -> Ok (Some r) | Error e -> Error e)
+      | Sqlite3.Rc.DONE -> Ok None
+      | rc ->
+          Error
+            (Printf.sprintf "activate SELECT by binding failed: %s (%s)"
+               (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+
 let insert_row ~db (r : row) : (unit, string) result =
   let a = r.act in
   let sql =
@@ -728,6 +748,13 @@ let get ~db ~id =
 let get_by_auth_tx ~db ~auth_tx_id =
   ensure_schema db;
   match load_by_auth_tx ~db ~auth_tx_id with
+  | Error e -> fail (Storage e) e
+  | Ok None -> Ok None
+  | Ok (Some r) -> Ok (Some r.act)
+
+let get_activated_by_binding ~db ~binding_id =
+  ensure_schema db;
+  match load_activated_by_binding ~db ~binding_id with
   | Error e -> fail (Storage e) e
   | Ok None -> Ok None
   | Ok (Some r) -> Ok (Some r.act)

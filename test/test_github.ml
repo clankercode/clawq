@@ -1514,6 +1514,178 @@ let handle_webhook_reconciles_verified_ingress () =
               in
               Alcotest.(check int) "verified ingress closes receipt" 1 closed)))
 
+let handle_webhook_work_item_captures_bound_actor_and_fails_closed () =
+  let module P = Principal_identity in
+  let module S = Principal_identity_store in
+  let module A = Github_user_auth_activate in
+  let module B = Github_account_binding in
+  let module Bg = Github_room_background_work in
+  let module Auth_test = Test_github_user_auth_activate in
+  let assert_ok = function
+    | Ok value -> value
+    | Error err -> Alcotest.fail err
+  in
+  let contains hay needle = Test_helpers.string_contains hay needle in
+  Test_github_app_token.with_test_rsa_key (fun key_path ->
+      Auth_test.with_db (fun db ->
+          let principal_id =
+            assert_ok (P.principal_id_of_string Auth_test.principal_id)
+          in
+          let actor =
+            P.make_connector_actor ~key:Auth_test.actor ~principal_id
+              ~verified_at:"2026-07-14T00:00:00Z"
+              ~created_at:"2026-07-14T00:00:00Z"
+              ~updated_at:"2026-07-14T00:00:00Z" ()
+          in
+          ignore (assert_ok (S.insert_connector_actor ~db actor));
+          let link =
+            P.make_identity_link ~id:"link_webhook_actor" ~principal_id
+              ~actor_key:Auth_test.actor ~linked_at:"2026-07-14T00:00:00Z" ()
+          in
+          let link = assert_ok (S.insert_identity_link ~db link) in
+          let tx =
+            Auth_test.make_completed_web_tx ~db ~id:"tx_webhook_actor" ()
+          in
+          let prepared =
+            Auth_test.assert_prep
+              (A.prepare ~db ~keys:(Auth_test.make_keys ())
+                 ~fetch_user:Auth_test.fetch_user ~auth_tx_id:tx.id
+                 ~credential:(Auth_test.sample_credential ())
+                 ~now:Auth_test.fixed_now ~activation_id:"act_webhook_actor"
+                 ~vault_id:"vault_webhook_actor"
+                 ~binding_id:"binding_webhook_actor"
+                 ~plan_id:"plan_webhook_actor" ())
+          in
+          let activated =
+            Auth_test.assert_act
+              (A.confirm ~db ~keys:(Auth_test.make_keys ())
+                 ~activation_id:prepared.activation.id
+                 ~confirmation_token:prepared.confirmation_token
+                 ~expected_principal_id:Auth_test.principal_id
+                 ~expected_plan_digest:prepared.plan.digest
+                 ~now:(Auth_test.fixed_now +. 1.)
+                 ())
+          in
+          let body =
+            {|{"action":"created","issue":{"number":42,"title":"Fix bug","state":"open","user":{"login":"alice"},"body":"PR body"},"comment":{"id":702,"user":{"login":"bob","type":"User"},"body":"/clawq runner=not-a-runner write a plan","html_url":"https://github.com/acme/backend/issues/42#issuecomment-702"},"repository":{"name":"backend","owner":{"login":"acme"}},"sender":{"id":424242,"login":"bob","type":"User"},"installation":{"id":77}}|}
+          in
+          let secret = "bound-actor-secret" in
+          let ( repo_config,
+                legacy_github_config,
+                _unused_session,
+                api_limiter,
+                headers ) =
+            make_webhook_env ~secret ~body ~allow_users:[ "bob" ]
+          in
+          let app : Runtime_config.github_app_config =
+            {
+              app_id = 42;
+              private_key_path = key_path;
+              webhook_secret = secret;
+              installations =
+                [
+                  {
+                    Runtime_config.installation_id = 77;
+                    repos = [ "acme/backend" ];
+                  };
+                ];
+            }
+          in
+          let github_config =
+            { legacy_github_config with auth = Runtime_config.GithubApp app }
+          in
+          let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+          let previous_timeout = !Http_client.default_timeout_s in
+          Fun.protect
+            ~finally:(fun () ->
+              Http_client.set_default_timeout_s previous_timeout;
+              (match previous_api_base with
+              | Some value -> Unix.putenv "CLAWQ_GITHUB_API_BASE" value
+              | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "");
+              Github_app_token.invalidate_all ())
+            (fun () ->
+              Github_app_token.init_from_config github_config;
+              Unix.putenv "CLAWQ_GITHUB_API_BASE" "http://127.0.0.1:1";
+              Http_client.set_default_timeout_s 0.01;
+              let session_manager =
+                Session.create ~config:Runtime_config.default ~db ()
+              in
+              (match
+                 Lwt_main.run
+                   (Github.handle_webhook ~repo_config ~github_config
+                      ?config:None ~session_manager ~api_limiter
+                      ~event_type:"issue_comment" ~body ~headers)
+               with
+              | Github.Ok _ -> ()
+              | Github.BadSignature -> Alcotest.fail "expected verified webhook");
+              let item =
+                match Github_work_item.list ~db () with
+                | [ item ] -> item
+                | _ -> Alcotest.fail "expected one persisted webhook work item"
+              in
+              let snapshot =
+                match assert_ok (Github_work_item.snapshot_of_item item) with
+                | Some snapshot -> snapshot
+                | None -> Alcotest.fail "webhook work item lost actor snapshot"
+              in
+              Alcotest.(check string)
+                "captures original authenticated actor"
+                (P.actor_identity_key Auth_test.actor)
+                (P.actor_identity_key snapshot.lineage.actor_key);
+              Alcotest.(check string)
+                "captures authorized account binding" activated.binding.id
+                (match snapshot.account_binding with
+                | Some evidence -> evidence.binding_id
+                | None -> Alcotest.fail "missing account binding evidence");
+              let split_principal_id =
+                assert_ok (P.principal_id_of_string "prin_webhook_split")
+              in
+              let split_principal =
+                P.make_principal ~id:split_principal_id
+                  ~created_at:"2026-07-14T00:00:00Z"
+                  ~updated_at:"2026-07-14T00:00:00Z" ()
+              in
+              ignore (assert_ok (S.insert_principal ~db split_principal));
+              let split_link =
+                assert_ok
+                  (S.update_identity_link ~db ~id:link.id
+                     ~principal_id:split_principal_id ())
+              in
+              (match
+                 Github_work_item.require_actor_snapshot_current ~db item
+               with
+              | Ok _ -> Alcotest.fail "split snapshot must refuse dispatch"
+              | Error _ -> ());
+              ignore
+                (assert_ok
+                   (S.update_identity_link ~db ~id:split_link.id ~principal_id
+                      ()));
+              ignore
+                (assert_ok
+                   (B.update_authorization_status ~db ~id:activated.binding.id
+                      ~status:B.Revoked ()));
+              (match Bg.request_retry ~db ~id:item.id () with
+              | Ok _ -> Alcotest.fail "revoked snapshot must refuse retry"
+              | Error msg ->
+                  Alcotest.(check bool)
+                    "revocation blocks retry" true
+                    (contains msg "retry refused"));
+              Github_work_item.set_status ~db ~id:item.id
+                ~status:Github_work_item.Queued;
+              Github.recover_work_items ~github_config ~api_limiter ~db ();
+              let recovered =
+                match Github_work_item.get ~db ~id:item.id with
+                | Some item -> item
+                | None -> Alcotest.fail "work item disappeared during recovery"
+              in
+              Alcotest.(check string)
+                "recovery keeps work item blocked" "blocked"
+                (Github_work_item.string_of_status recovered.status);
+              Alcotest.(check bool)
+                "recovery fails closed" true
+                ( Option.value recovered.result_summary ~default:""
+                |> fun summary -> contains summary "blocked during recovery" ))))
+
 let session_integration_suite =
   [
     Alcotest.test_case "PR comment → stable session key" `Quick
@@ -1533,6 +1705,8 @@ let lifecycle_suite =
     Alcotest.test_case "delivery dedup" `Quick handle_webhook_dedup_delivery_id;
     Alcotest.test_case "verified ingress reconciles receipt" `Quick
       handle_webhook_reconciles_verified_ingress;
+    Alcotest.test_case "work item webhook captures bound actor and fails closed"
+      `Quick handle_webhook_work_item_captures_bound_actor_and_fails_closed;
   ]
 
 (* ---- Credential lease integration tests ---- *)
