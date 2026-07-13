@@ -25,7 +25,7 @@ milestones:
       locked: false
       name: Live GitHub App Ingress and Unified Routes
       path: 02-live-github-app-ingress-and-un
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P19.M2
