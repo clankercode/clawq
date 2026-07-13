@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T02:19:42Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:07Z"
@@ -12,10 +14,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M1.E1.T003
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T02:19:42Z"
+status: in_progress
 tags: []
 title: Resolve adapter-verified Connector actors to stable Principals
-updated_at: "2026-07-12T14:51:07Z"
+updated_at: "2026-07-13T02:19:42Z"
 ---
 Acceptance: One resolver consumes only typed verified actor assertions from the Teams, Slack, Discord, Telegram, web, CLI, and direct-session trust adapters. Namespace plus immutable user ID is collision-safe; rename preserves identity; bot, forged, replayed, missing, expired, revoked, or ambiguous provenance never resolves as a human Principal and first-seen creation remains concurrency-safe. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.

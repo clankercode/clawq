@@ -43,7 +43,7 @@ tasks:
       file: T003-resolve-verified-connector-act.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Resolve adapter-verified Connector actors to stable Principals
     - complexity: high
