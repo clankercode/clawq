@@ -1,7 +1,7 @@
 ---
 claimed_at: "2026-07-13T06:10:22Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T06:19:22Z"
 complexity: high
 created_at: "2026-07-12T17:01:23Z"
 depends_on:
@@ -9,13 +9,14 @@ depends_on:
     - P21.M2.E4.T003
     - P21.M2.E4.T004
     - P19.M1.E2.T003
+duration_minutes: 9.0122341161
 estimate_hours: 4
 id: P21.M3.E2.T007
 priority: critical
 started_at: "2026-07-13T06:10:22Z"
-status: in_progress
+status: done
 tags: []
 title: Issue opaque GitHub leases after final authorization revalidation
-updated_at: "2026-07-13T06:10:22Z"
+updated_at: "2026-07-13T06:19:22Z"
 ---
 Acceptance: Immediately before HTTP dispatch revalidate the resolved authorization decision, frozen current-turn Tool catalog, confirmation, Principal/account lineage, binding state, generation, repository and App/Org/SSO authority, then expose only a callback-scoped lease. Any change denies without raw token escape; tests cover policy races and revocation between preview, queue, and dispatch. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
