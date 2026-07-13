@@ -205,6 +205,7 @@
   github_delivery_outbox
   github_delivery_reconcile
   github_delivery_ops
+  github_route_diagnostics
   github_teams_card_render
   github_plain_delivery_render
   github_item_context_resolve
