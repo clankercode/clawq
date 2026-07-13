@@ -105,7 +105,7 @@ tasks:
       file: T007-integrate-user-required-typed.todo
       id: T007
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Integrate user-required typed workflow dispatch
     - complexity: high

@@ -1,7 +1,7 @@
 ---
 claimed_at: "2026-07-13T07:44:05Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T07:56:27Z"
 complexity: high
 created_at: "2026-07-12T17:01:24Z"
 depends_on:
@@ -9,13 +9,14 @@ depends_on:
     - P21.M3.E2.T005
     - P21.M3.E2.T006
     - P21.M3.E2.T007
+duration_minutes: 12.38012198775
 estimate_hours: 4
 id: P21.M3.E3.T007
 priority: critical
 started_at: "2026-07-13T07:44:05Z"
-status: in_progress
+status: done
 tags: []
 title: Integrate user-required typed workflow dispatch
-updated_at: "2026-07-13T07:44:05Z"
+updated_at: "2026-07-13T07:56:27Z"
 ---
 Acceptance: Typed workflow dispatch binds the verified user actor, repository/ref, resolved inputs, and fresh confirmation, obtains a current lease at dispatch, and never falls back to App/PAT. Stale workflow/ref/input, authority loss, replay, retry, receipt, and webhook reconciliation are independently tested. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
