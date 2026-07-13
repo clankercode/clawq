@@ -3,6 +3,8 @@
 
 module S = Github_route_store
 module E = Github_event_envelope
+module F = Github_route_filter
+module En = Github_filter_enrichment
 module M = Github_route_match
 module T = Github_route_transfer
 
@@ -17,8 +19,10 @@ let room_a = S.Room "room-a"
 let room_b = S.Room "room-b"
 let assert_ok = function Ok v -> v | Error e -> Alcotest.fail e
 
-let create ~db ?(id = "route-1") ?(enabled = true) ~selector ~destination () =
-  assert_ok (S.create ~db ~id ~destination ~selector ~enabled ~now:fixed_now ())
+let create ~db ?(id = "route-1") ?(enabled = true) ?(filter = S.default_filter)
+    ~selector ~destination () =
+  assert_ok
+    (S.create ~db ~id ~destination ~selector ~filter ~enabled ~now:fixed_now ())
 
 let make_transfer_envelope ?(delivery_id = Some "deliv-xfer-1")
     ?(from_repo = "acme/widgets") ?(to_repo = "acme/platform")
@@ -38,6 +42,7 @@ let make_transfer_envelope ?(delivery_id = Some "deliv-xfer-1")
     html_url = None;
     family = E.Lifecycle;
     actor = E.empty_actor;
+    item_author = None;
     before = None;
     after = None;
     transfer = Some { from_repo = Some from_repo; to_repo = Some to_repo };
@@ -47,6 +52,42 @@ let make_transfer_envelope ?(delivery_id = Some "deliv-xfer-1")
     unsupported = false;
     skip_reason = None;
   }
+
+let normalized_transfer_envelope ~delivery_id ~labels =
+  let label name = `Assoc [ ("name", `String name) ] in
+  let payload =
+    `Assoc
+      [
+        ("action", `String "transferred");
+        ( "repository",
+          `Assoc
+            [
+              ("full_name", `String "acme/widgets");
+              ("owner", `Assoc [ ("login", `String "acme") ]);
+            ] );
+        ("sender", `Assoc [ ("login", `String "transfer-actor") ]);
+        ( "issue",
+          `Assoc
+            [
+              ("number", `Int 10);
+              ("node_id", `String "I_kwDO_transfer");
+              ("state", `String "open");
+              ("labels", `List (List.map label labels));
+              ("user", `Assoc [ ("login", `String "item-author") ]);
+            ] );
+        ( "changes",
+          `Assoc
+            [
+              ( "old_repository",
+                `Assoc [ ("full_name", `String "acme/widgets") ] );
+              ( "new_repository",
+                `Assoc [ ("full_name", `String "acme/platform") ] );
+            ] );
+      ]
+  in
+  match E.normalize ~delivery_id ~event:"issues" ~payload () with
+  | E.Ok_envelope envelope -> envelope
+  | E.Unsupported { reason; _ } | E.Error reason -> Alcotest.fail reason
 
 let dest_key = function
   | S.Room id -> "room:" ^ id
@@ -225,6 +266,102 @@ let test_stable_item_key_uses_to_repo () =
   let key = T.transfer_stable_item_key env in
   Alcotest.(check string) "key" "issue:acme/platform:42" key
 
+let test_advanced_filter_controls_transfer_delivery_and_accept () =
+  with_db @@ fun db ->
+  let filter =
+    assert_ok
+      (F.validate
+         {
+           F.default with
+           issue =
+             {
+               F.empty_issue with
+               labels = Some { op = `In; values = [ "urgent" ] };
+             };
+         })
+  in
+  ignore
+    (create ~db ~id:"rt-advanced-transfer" ~destination:room_a
+       ~selector:(S.Repo "acme/platform") ~filter ());
+  let rejected =
+    normalized_transfer_envelope ~delivery_id:"transfer-advanced-reject"
+      ~labels:[ "bug" ]
+  in
+  Alcotest.(check int)
+    "advanced reject plans no destination" 0
+    (List.length
+       (T.plan_transfer ~db ~destinations:[ room_a ] ~envelope:rejected ())
+         .destinations);
+  Alcotest.(check int)
+    "advanced reject does not accept" 0
+    (count_accepted
+       (T.accept_transfer ~db ~destinations:[ room_a ] ~envelope:rejected
+          ~now:fixed_now ()));
+  let accepted =
+    normalized_transfer_envelope ~delivery_id:"transfer-advanced-accept"
+      ~labels:[ "urgent" ]
+  in
+  Alcotest.(check int)
+    "advanced accept reaches ledger" 1
+    (count_accepted
+       (T.accept_transfer ~db ~destinations:[ room_a ] ~envelope:accepted
+          ~now:fixed_now ()))
+
+let test_transfer_forwards_safe_enrichment_hooks () =
+  with_db @@ fun db ->
+  let filter =
+    assert_ok
+      (F.validate
+         {
+           F.default with
+           issue =
+             {
+               F.empty_issue with
+               team = Some { op = `In; values = [ "acme/triage" ] };
+             };
+         })
+  in
+  ignore
+    (create ~db ~id:"rt-transfer-team" ~destination:room_a
+       ~selector:(S.Repo "acme/platform") ~filter ());
+  let calls = ref 0 in
+  let fetch_teams ~(envelope : E.t) ~team_slugs =
+    incr calls;
+    Alcotest.(check (option string))
+      "team lookup uses item author" (Some "item-author") envelope.item_author;
+    Alcotest.(check (list string))
+      "team lookup requests configured scope" [ "acme/triage" ] team_slugs;
+    Ok [ "acme/triage" ]
+  in
+  let cache = En.create_cache () in
+  let envelope =
+    normalized_transfer_envelope ~delivery_id:"transfer-team" ~labels:[ "bug" ]
+  in
+  Alcotest.(check int)
+    "safe enrichment permits transfer" 1
+    (count_accepted
+       (T.accept_transfer ~db ~destinations:[ room_a ] ~envelope ~fetch_teams
+          ~cache
+          ~rate_limited:(fun () -> false)
+          ~access_allowed:(fun () -> true)
+          ~now:fixed_now ()));
+  Alcotest.(check bool) "fetcher used" true (!calls > 0);
+  let calls_before_rate_limit = !calls in
+  let throttled =
+    normalized_transfer_envelope ~delivery_id:"transfer-team-rate"
+      ~labels:[ "bug" ]
+  in
+  Alcotest.(check int)
+    "rate limit fails closed" 0
+    (List.length
+       (T.plan_transfer ~db ~destinations:[ room_a ] ~envelope:throttled
+          ~fetch_teams ~cache
+          ~rate_limited:(fun () -> true)
+          ~access_allowed:(fun () -> true)
+          ~now:fixed_now ())
+         .destinations);
+  Alcotest.(check int) "rate gate blocks fetcher" calls_before_rate_limit !calls
+
 let suite =
   [
     ( "same room dual match one accept",
@@ -239,4 +376,10 @@ let suite =
       `Quick,
       test_same_room_org_both_views_one_accept );
     ("stable item key uses to_repo", `Quick, test_stable_item_key_uses_to_repo);
+    ( "advanced filter controls transfer delivery and accept",
+      `Quick,
+      test_advanced_filter_controls_transfer_delivery_and_accept );
+    ( "transfer forwards safe enrichment hooks",
+      `Quick,
+      test_transfer_forwards_safe_enrichment_hooks );
   ]

@@ -43,11 +43,6 @@ let option_of_enrichment_result = function
   | Some (Ok xs) -> Some xs
   | Some (Error _) | None -> None
 
-let actor_login (envelope : E.t) =
-  match envelope.E.actor.login with
-  | Some l when String.trim l <> "" -> Some (String.trim l)
-  | _ -> None
-
 let teams_from_enrichment enrichment =
   match enrichment with
   | None -> None
@@ -65,7 +60,7 @@ let pr_context_of_envelope ~envelope ?enrichment () : pr_context =
         | _ -> None)
     | None -> None
   in
-  let author = actor_login envelope in
+  let author = envelope.E.item_author in
   let changed_paths, teams =
     match enrichment with
     | None -> (None, None)
@@ -75,7 +70,13 @@ let pr_context_of_envelope ~envelope ?enrichment () : pr_context =
   in
   {
     base_branch;
-    head_branch = None;
+    head_branch =
+      (match after with
+      | Some s -> (
+          match s.E.head_ref with
+          | Some r when String.trim r <> "" -> Some (String.trim r)
+          | _ -> None)
+      | None -> None);
     changed_paths;
     labels;
     author;
@@ -97,7 +98,7 @@ let issue_context_of_envelope ~envelope ?enrichment () : issue_context =
   in
   {
     labels;
-    author = actor_login envelope;
+    author = envelope.E.item_author;
     teams = teams_from_enrichment enrichment;
     assignees;
     milestone;

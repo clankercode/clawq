@@ -117,6 +117,7 @@ let make_pr_envelope ~repo ~org ~number : E.t =
     html_url = None;
     family = E.Lifecycle;
     actor = { E.empty_actor with login = Some "alice" };
+    item_author = Some "alice";
     before = None;
     after =
       Some

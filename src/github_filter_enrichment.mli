@@ -41,9 +41,9 @@ type teams_fetch =
   envelope:Github_event_envelope.t ->
   team_slugs:string list ->
   (string list, string) result
-(** Return the subset of [team_slugs] of which the envelope actor is a member.
-    Prefer stable codes: [rate_limited], [access_denied], [missing_actor],
-    [unavailable]. *)
+(** Return the subset of [team_slugs] of which the envelope item author is a
+    member. Prefer stable codes: [rate_limited], [access_denied],
+    [missing_item_author], [unavailable]. *)
 
 (** {1 Enrichment result} *)
 
@@ -86,7 +86,7 @@ val cache_key_paths : Github_event_envelope.t -> string
 
 val cache_key_teams :
   Github_event_envelope.t -> team_slugs:string list -> string
-(** Pure key: [teams:install:repo:actor:slugs…:revision]. *)
+(** Pure key: [teams:install:repo:item_author:slugs…:revision]. *)
 
 val item_revision : Github_event_envelope.t -> string
 (** Item revision for cache identity: head SHA when present, else item number,
@@ -113,7 +113,7 @@ val enrich :
     - When demanded and [access_allowed] is false → [Error "access_denied"].
     - When paths demanded but envelope is not a PR with a number →
       [Error "not_a_pr"] (no fetch).
-    - When teams demanded but actor login missing → [Error "missing_actor"] (no
-      fetch).
+    - When teams demanded but item author missing →
+      [Error "missing_item_author"] (no fetch).
     - When demanded and no fetcher is provided → [Error "fetcher_unavailable"].
     - Cache hits skip the fetcher. TTL/max-entries bound memory. *)

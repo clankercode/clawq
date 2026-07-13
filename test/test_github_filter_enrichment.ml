@@ -10,7 +10,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "opened")
     ?(repo = "acme/widget") ?(org = Some "acme") ?(kind = Some E.Pull_request)
     ?(number = Some 42) ?(family = E.Lifecycle) ?(delivery_id = Some "deliv-1")
     ?(installation_id = Some 99) ?(actor_login = Some "alice")
-    ?(head_sha = Some "abc123") () : E.t =
+    ?(item_author = actor_login) ?(head_sha = Some "abc123") () : E.t =
   {
     version = E.envelope_version;
     delivery_id;
@@ -26,6 +26,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "opened")
     html_url = Some "https://github.com/acme/widget/pull/42";
     family;
     actor = { E.empty_actor with login = actor_login };
+    item_author;
     before = None;
     after =
       Some
@@ -160,7 +161,8 @@ let test_teams_only_fetches_teams () =
   in
   let fetch_teams ~(envelope : E.t) ~team_slugs =
     incr team_calls;
-    Alcotest.(check (option string)) "actor" (Some "alice") envelope.actor.login;
+    Alcotest.(check (option string))
+      "item author" (Some "alice") envelope.item_author;
     Alcotest.(check (list string)) "slugs" [ "acme/backend" ] team_slugs;
     Ok [ "acme/backend" ]
   in
@@ -253,20 +255,22 @@ let test_not_a_pr_without_fetch () =
   | Some (Error "not_a_pr") -> ()
   | _ -> Alcotest.fail "expected not_a_pr"
 
-(** 10. Team demand without actor login → missing_actor. *)
-let test_missing_actor_without_fetch () =
+(** 10. Team demand without item author → missing_item_author. *)
+let test_missing_item_author_without_fetch () =
   let team_calls = ref 0 in
   let fetch_teams ~envelope:_ ~team_slugs:_ =
     incr team_calls;
     Ok []
   in
   let filter = filter_with ~issue_team:[ "acme/triage" ] () in
-  let env = make_envelope ~actor_login:None () in
+  let env =
+    make_envelope ~actor_login:(Some "webhook-sender") ~item_author:None ()
+  in
   let e = En.enrich ~filter ~envelope:env ~fetch_teams () in
   Alcotest.(check int) "no fetch" 0 !team_calls;
   match e.teams with
-  | Some (Error "missing_actor") -> ()
-  | _ -> Alcotest.fail "expected missing_actor"
+  | Some (Error "missing_item_author") -> ()
+  | _ -> Alcotest.fail "expected missing_item_author"
 
 (** 11. Cache hit avoids second fetch (same install/repo/item revision). *)
 let test_cache_hit_skips_second_fetch () =
@@ -313,7 +317,7 @@ let test_cache_key_identity () =
   let slugs = [ "acme/backend"; "acme/triage" ] in
   let tk = En.cache_key_teams env ~team_slugs:slugs in
   Alcotest.(check bool)
-    "teams key has actor" true
+    "teams key has item author" true
     (Test_helpers.string_contains tk "alice")
 
 (** 13. team_slugs_of_filter collects PR + Issue teams. *)
@@ -372,7 +376,9 @@ let suite =
     ("access denied skips fetch", `Quick, test_access_denied_skips_fetch);
     ("missing fetcher unavailable", `Quick, test_missing_fetcher_unavailable);
     ("not a pr without fetch", `Quick, test_not_a_pr_without_fetch);
-    ("missing actor without fetch", `Quick, test_missing_actor_without_fetch);
+    ( "missing item author without fetch",
+      `Quick,
+      test_missing_item_author_without_fetch );
     ("cache hit skips second fetch", `Quick, test_cache_hit_skips_second_fetch);
     ("cache key install repo revision", `Quick, test_cache_key_identity);
     ("team slugs collected and deduped", `Quick, test_team_slugs_collected);

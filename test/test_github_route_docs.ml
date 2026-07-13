@@ -2,15 +2,16 @@
     operator contract (P19.M2.E3.T005).
 
     Asserts the canonical docs exist and still state selector specificity,
-    fail-closed mute, Org-requires-App, plan-not-apply on callback, delivery
-    ACK independence from Connector, and secrets redaction. *)
+    fail-closed mute, Org-requires-App, plan-not-apply on callback, delivery ACK
+    independence from Connector, and secrets redaction. *)
 
 let contains = Test_helpers.string_contains
 
 let repo_root () =
   let rec find_from dir =
     let has_file name = Sys.file_exists (Filename.concat dir name) in
-    if has_file "dune-project" && has_file "src" && has_file "docs" then Some dir
+    if has_file "dune-project" && has_file "src" && has_file "docs" then
+      Some dir
     else
       let parent = Filename.dirname dir in
       if parent = dir then None else find_from parent
@@ -100,6 +101,33 @@ let test_plan_cross_links () =
       "github-route-operator-contract.md";
     ]
 
+let test_advanced_filter_operator_surface () =
+  let operator = doc "docs/github-route-operator-contract.md" in
+  let glossary = doc "docs/glossary-github-routes.md" in
+  let adr = doc "docs/adr/0008-github-route-model-and-setup.md" in
+  let plan = doc "docs/plans/2026-07-12-github-item-room-routing.md" in
+  let cli = doc "docs/cli-reference.md" in
+  must_contain ~label:"operator advanced filter contract" ~doc:operator
+    [
+      "--filter-json";
+      "route preview";
+      "schema_version";
+      "mutually exclusive";
+      "item's";
+    ];
+  must_contain ~label:"advanced filter glossary" ~doc:glossary
+    [
+      "Versioned advanced filter";
+      "Item author / webhook actor";
+      "Filter preview";
+    ];
+  must_contain ~label:"advanced filter ADR" ~doc:adr
+    [ "Versioned advanced filters"; "route preview"; "head.ref" ];
+  must_contain ~label:"P20 current-state plan" ~doc:plan
+    [ "Current P20 filter interface"; "--filter-json"; "head.ref" ];
+  must_contain ~label:"CLI advanced filter reference" ~doc:cli
+    [ "clawq github route preview"; "--filter-json"; "schema_version" ]
+
 let suite =
   [
     ( "ADR 0008 states route model and setup contract",
@@ -108,6 +136,13 @@ let suite =
     ( "operator contract covers setup inspect apply repair",
       `Quick,
       test_operator_contract );
-    ("glossary defines route and setup terms", `Quick, test_glossary_github_routes);
-    ("plan cross-links ADR glossary operator contract", `Quick, test_plan_cross_links);
+    ( "glossary defines route and setup terms",
+      `Quick,
+      test_glossary_github_routes );
+    ( "plan cross-links ADR glossary operator contract",
+      `Quick,
+      test_plan_cross_links );
+    ( "advanced filters are documented across operator surfaces",
+      `Quick,
+      test_advanced_filter_operator_surface );
   ]

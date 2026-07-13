@@ -167,6 +167,7 @@ let pr_test_rate_limited_and_missing_path_enrichment () =
       html_url = None;
       family = E.Lifecycle;
       actor = { E.empty_actor with login = Some "alice" };
+      item_author = Some "alice";
       before = None;
       after =
         Some
@@ -276,6 +277,7 @@ let pr_test_team_membership_and_missing_access () =
       html_url = None;
       family = E.Lifecycle;
       actor = { E.empty_actor with login = Some "carol" };
+      item_author = Some "carol";
       before = None;
       after = Some E.empty_safe_state;
       transfer = None;
@@ -384,7 +386,8 @@ let pr_test_pr_context_of_envelope_fields () =
       item_url = None;
       html_url = None;
       family = E.Lifecycle;
-      actor = { E.empty_actor with login = Some "Dana" };
+      actor = { E.empty_actor with login = Some "webhook-sender" };
+      item_author = Some "Dana";
       before = None;
       after =
         Some
@@ -393,6 +396,7 @@ let pr_test_pr_context_of_envelope_fields () =
             labels = [ "a"; "b" ];
             draft = Some true;
             base_ref = Some "develop";
+            head_ref = Some "feature/item-author";
           };
       transfer = None;
       received_at = None;
@@ -412,6 +416,8 @@ let pr_test_pr_context_of_envelope_fields () =
   in
   let c = Ev.pr_context_of_envelope ~envelope:env ~enrichment:enr () in
   Alcotest.(check (option string)) "base" (Some "develop") c.base_branch;
+  Alcotest.(check (option string))
+    "head from persisted head ref" (Some "feature/item-author") c.head_branch;
   Alcotest.(check (option string)) "author" (Some "Dana") c.author;
   Alcotest.(check (list string)) "labels" [ "a"; "b" ] c.labels;
   Alcotest.(check (option bool)) "draft" (Some true) c.draft;
@@ -466,6 +472,7 @@ let sample_issue_envelope ?(action = "opened") ?(login = Some "alice")
     html_url = None;
     family = (if action = "transferred" then E.Lifecycle else E.Lifecycle);
     actor = { E.empty_actor with login };
+    item_author = login;
     before = None;
     after =
       Some

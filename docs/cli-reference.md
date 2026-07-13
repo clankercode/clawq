@@ -604,6 +604,28 @@ clawq pair notes <id>                            Show notes for a pair session
 
 ## Setup
 
+### `clawq github route` (full build)
+
+Inspect and administer GitHub Item/Repo/Org routes. The minimal build keeps
+this integration surface disabled.
+
+```
+clawq github route inspect ROUTE_ID
+clawq github route list ROOM
+clawq github route preview ROOM --envelope-json JSON
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route plan ROOM SELECTOR [--id ID] [--filter-json JSON]
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route change ROUTE_ID [--filter-json JSON] [--enabled true|false] [--comment-mode off|summary|threaded] [--revision REV]
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route disable ROUTE_ID [--revision REV]
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route remove ROUTE_ID [--revision REV]
+CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID clawq github route apply PLAN_ID DIGEST [--room ROOM]
+```
+
+`--filter-json` accepts only the typed `Github_route_filter` schema. Advanced
+`pr`/`issue` predicates require `"schema_version": 1`; use either direct
+fields or the exclusive `advanced` wrapper, never raw predicate JSON.
+`route preview` is read-only and requires a safe normalized envelope JSON; it
+reports predicate results and fails closed when required enrichment is absent.
+
 ### `clawq rooms wizard`
 
 Interactive room-agent pilot wizard with plan/apply flow. **[admin]**

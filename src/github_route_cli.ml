@@ -4,6 +4,9 @@
 module Admin = Github_route_admin
 module Apply = Github_route_apply
 module Store = Github_route_store
+module Filter = Github_route_filter
+module Envelope = Github_event_envelope
+module Preview = Github_route_filter_preview
 
 let admin_env_var = "CLAWQ_ADMIN"
 
@@ -49,6 +52,34 @@ let bool_option_after flag args =
   | None -> Ok None
 
 let expected_revision args = value_after "--revision" args
+
+let json_option_after ~flag ~what ~parse args =
+  match value_after flag args with
+  | None -> Ok None
+  | Some text -> (
+      try
+        match parse (Yojson.Safe.from_string text) with
+        | Ok value -> Ok (Some value)
+        | Error error ->
+            Error (Printf.sprintf "invalid %s %s: %s" what flag error)
+      with Yojson.Json_error error ->
+        Error (Printf.sprintf "invalid %s JSON: %s" flag error))
+
+let filter_option_after args =
+  json_option_after ~flag:"--filter-json" ~what:"filter" ~parse:Filter.of_json
+    args
+
+let envelope_after args =
+  match
+    json_option_after ~flag:"--envelope-json" ~what:"normalized envelope"
+      ~parse:Envelope.of_safe_json args
+  with
+  | Ok (Some envelope) -> Ok envelope
+  | Ok None ->
+      Error
+        "--envelope-json is required and must be a safe normalized GitHub \
+         envelope"
+  | Error error -> Error error
 
 let parse_selector selector =
   let selector = String.trim selector in
@@ -192,6 +223,13 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
       | Ok views ->
           String.concat "\n"
             (List.map (fun (view : Admin.inspect_view) -> view.summary) views))
+  | "route" :: "preview" :: room_id :: rest -> (
+      match envelope_after rest with
+      | Error error -> "Error: " ^ error
+      | Ok envelope ->
+          Admin.preview_filter ~db ~destination:(Store.Room room_id) ~envelope
+            ()
+          |> Preview.format_lines |> String.concat "\n")
   | "diagnostics" :: "route" :: id :: _ -> (
       match route_of_id ~db id with
       | Error error -> "Error: " ^ error
@@ -255,35 +293,42 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
               match parse_selector selector with
               | Error error -> "Error: " ^ error
               | Ok selector -> (
-                  match
-                    Admin.plan_create ~db ~principal
-                      ~destination:(Store.Room room_id) ~selector
-                      ?route_id:(value_after "--id" rest) ~base_revision ()
-                  with
+                  match filter_option_after rest with
                   | Error error -> "Error: " ^ error
-                  | Ok plan -> format_plan plan))
+                  | Ok filter -> (
+                      match
+                        Admin.plan_create ~db ~principal
+                          ~destination:(Store.Room room_id) ~selector ?filter
+                          ?route_id:(value_after "--id" rest) ~base_revision ()
+                      with
+                      | Error error -> "Error: " ^ error
+                      | Ok plan -> format_plan plan)))
           | "route" :: "change" :: id :: rest -> (
               match bool_option_after "--enabled" rest with
               | Error error -> "Error: " ^ error
               | Ok enabled -> (
-                  let comment_mode =
-                    match value_after "--comment-mode" rest with
-                    | None -> Ok None
-                    | Some "off" -> Ok (Some Store.Off)
-                    | Some "summary" -> Ok (Some Store.Summary)
-                    | Some "threaded" -> Ok (Some Store.Threaded)
-                    | Some value -> Error ("unknown comment mode: " ^ value)
-                  in
-                  match comment_mode with
+                  match filter_option_after rest with
                   | Error error -> "Error: " ^ error
-                  | Ok comment_mode -> (
-                      match
-                        Admin.plan_update ~db ~principal ~id ?comment_mode
-                          ?enabled ?expected_revision:(expected_revision rest)
-                          ~base_revision ()
-                      with
+                  | Ok filter -> (
+                      let comment_mode =
+                        match value_after "--comment-mode" rest with
+                        | None -> Ok None
+                        | Some "off" -> Ok (Some Store.Off)
+                        | Some "summary" -> Ok (Some Store.Summary)
+                        | Some "threaded" -> Ok (Some Store.Threaded)
+                        | Some value -> Error ("unknown comment mode: " ^ value)
+                      in
+                      match comment_mode with
                       | Error error -> "Error: " ^ error
-                      | Ok plan -> format_plan plan)))
+                      | Ok comment_mode -> (
+                          match
+                            Admin.plan_update ~db ~principal ~id ?filter
+                              ?comment_mode ?enabled
+                              ?expected_revision:(expected_revision rest)
+                              ~base_revision ()
+                          with
+                          | Error error -> "Error: " ^ error
+                          | Ok plan -> format_plan plan))))
           | "route" :: "disable" :: id :: rest -> (
               match
                 Admin.plan_disable ~db ~principal ~id
@@ -307,14 +352,18 @@ let cmd_with_db ~db ~(config : Runtime_config.t) args =
   | _ ->
       "Usage: clawq github <route|app|diagnostics> ...\n\n\
        Safe inspection: github route inspect ROUTE_ID | route list ROOM | \
-       diagnostics route ROUTE_ID | diagnostics audit [--plan ID] [--route ID]\n\
+       route preview ROOM --envelope-json JSON | diagnostics route ROUTE_ID | \
+       diagnostics audit [--plan ID] [--route ID]\n\
        Admin planning (CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=ID): github route plan \
-       ROOM SELECTOR [--id ID] | route change ROUTE_ID [--enabled true|false] \
-       [--comment-mode off|summary|threaded] [--revision REV] | route disable \
-       ROUTE_ID [--revision REV] | route remove ROUTE_ID [--revision REV]\n\
+       ROOM SELECTOR [--id ID] [--filter-json JSON] | route change ROUTE_ID \
+       [--filter-json JSON] [--enabled true|false] [--comment-mode \
+       off|summary|threaded] [--revision REV] | route disable ROUTE_ID \
+       [--revision REV] | route remove ROUTE_ID [--revision REV]\n\
        Explicit confirmation: github route apply PLAN_ID DIGEST [--room ROOM] \
        | github app apply PLAN_ID DIGEST [--room ROOM|--session SESSION].\n\
-       SELECTOR is repo:owner/repo, org:organization, or item:owner/repo:pr:N."
+       SELECTOR is repo:owner/repo, org:organization, or item:owner/repo:pr:N. \
+       --filter-json accepts the versioned typed Github_route_filter JSON \
+       shape; raw predicate JSON is rejected."
 
 let cmd args =
   cmd_with_db

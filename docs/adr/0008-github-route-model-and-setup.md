@@ -39,6 +39,13 @@ Terms: [docs/glossary-github-routes.md](../glossary-github-routes.md).
    (`can_claim_org_scope`). PAT authentication is exact-Repo compatibility only
    and cannot claim Org. Suspended/deleted installations and selected-repo
    removals fail closed.
+6. **Versioned advanced filters.** `Github_route_filter` schema version 1
+   carries typed PR/Issue predicates. Advanced keys require version 1 and are
+   either direct `pr` / `issue` fields or the mutually exclusive `advanced`
+   wrapper; raw or unknown wrapper contents are rejected. Required enrichment
+   (paths/teams) fails closed. Normalized envelopes persist PR `head.ref` and
+   item `user.login` separately from the webhook sender, so branch/author and
+   team-cache evaluation use item data rather than attribution actor data.
 
 ### Setup (extends ADR 0003)
 
@@ -83,13 +90,17 @@ Terms: [docs/glossary-github-routes.md](../glossary-github-routes.md).
 
 ### Operator surface
 
-The full-build CLI exposes `github route plan|inspect|list|change|disable|remove|apply`,
+The full-build CLI exposes `github route plan|inspect|list|change|disable|remove|apply|preview`,
 `github app deliveries|apply`, and `github diagnostics route|audit`.
 Planning/apply commands require `CLAWQ_ADMIN=1` and
 `CLAWQ_PRINCIPAL_ID=…`; inspection/diagnostics do not. The minimal binary
 reports the entire `github` route/App setup surface as disabled rather than
 partially applying routes. Networked GitHub App webhook/setup features live in
 `clawq_runtime_integrations`.
+
+`route plan` and `route change` take typed `--filter-json` configuration;
+`route preview ROOM --envelope-json JSON` is read-only and explains the selected
+route and predicate outcomes for a safe normalized envelope.
 
 ## Consequences
 

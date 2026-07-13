@@ -61,8 +61,8 @@ let install_part (env : E.t) =
 let number_part (env : E.t) =
   match env.item_number with Some n -> string_of_int n | None -> "-"
 
-let actor_part (env : E.t) =
-  match env.actor.login with
+let item_author_part (env : E.t) =
+  match env.item_author with
   | Some l when String.trim l <> "" -> String.trim l
   | _ -> "-"
 
@@ -80,7 +80,7 @@ let cache_key_teams (env : E.t) ~team_slugs =
   in
   Printf.sprintf "teams:%s:%s:%s:%s:%s" (install_part env)
     (String.lowercase_ascii (String.trim env.repo_full_name))
-    (String.lowercase_ascii (actor_part env))
+    (String.lowercase_ascii (item_author_part env))
     slugs (item_revision env)
 
 (* ---- Cache ---- *)
@@ -153,8 +153,8 @@ let is_pr_with_number (env : E.t) =
   | Some E.Pull_request, Some n when n > 0 -> true
   | _ -> false
 
-let has_actor_login (env : E.t) =
-  match env.actor.login with
+let has_item_author (env : E.t) =
+  match env.item_author with
   | Some l when String.trim l <> "" -> true
   | _ -> false
 
@@ -192,7 +192,7 @@ let resolve_teams ~envelope ~team_slugs ~fetch_teams ~cache ~now ~rate_limited
     ~access_allowed : (string list, string) result =
   if rate_limited () then Error "rate_limited"
   else if not (access_allowed ()) then Error "access_denied"
-  else if not (has_actor_login envelope) then Error "missing_actor"
+  else if not (has_item_author envelope) then Error "missing_item_author"
   else if team_slugs = [] then Error "no_team_slugs"
   else
     let key = cache_key_teams envelope ~team_slugs in

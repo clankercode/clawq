@@ -49,6 +49,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "opened")
     html_url = None;
     family;
     actor = E.empty_actor;
+    item_author = None;
     before = None;
     after = None;
     transfer = None;

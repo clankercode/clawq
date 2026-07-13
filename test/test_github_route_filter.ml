@@ -213,6 +213,20 @@ let test_reject_raw_json_predicates () =
         "schema_version" );
       ( `Assoc
           [
+            ("schema_version", `Int 0);
+            ("pr", `Assoc [ ("labels", `String "bug") ]);
+          ],
+        "schema_version" );
+      ( `Assoc
+          [
+            ("schema_version", `Int 1);
+            ("advanced", `Assoc [ ("expr", `String "labels contains bug") ]);
+          ],
+        "raw" );
+      ( `Assoc [ ("schema_version", `Int 1); ("advanced", `String "raw") ],
+        "object" );
+      ( `Assoc
+          [
             ("schema_version", `Int 1);
             ("include_events", `List []);
             ("exclude_events", `List []);
@@ -243,6 +257,83 @@ let test_reject_raw_json_predicates () =
                (String.lowercase_ascii msg)
                (String.lowercase_ascii needle)))
     cases
+
+let test_advanced_wrapper_parses_and_is_exclusive () =
+  let wrapped =
+    `Assoc
+      [
+        ("schema_version", `Int 1);
+        ( "advanced",
+          `Assoc
+            [
+              ("pr", `Assoc [ ("labels", `String "ready") ]);
+              ("issue", `Assoc [ ("author", `String "alice") ]);
+            ] );
+      ]
+  in
+  let parsed = assert_ok (F.of_json wrapped) in
+  Alcotest.(check bool)
+    "wrapper preserves advanced fields" true (F.has_advanced parsed);
+  assert_error_contains "cannot be combined"
+    (F.of_json
+       (`Assoc
+          [
+            ("schema_version", `Int 1);
+            ("pr", `Assoc [ ("labels", `String "ready") ]);
+            ("advanced", `Assoc [ ("issue", `Assoc []) ]);
+          ]))
+
+let test_noncanonical_advanced_keys_are_rejected () =
+  let typed_pr = `Assoc [ ("labels", `String "ready") ] in
+  assert_error_contains "unknown field"
+    (F.of_json
+       (`Assoc [ ("schema_version", `Int 1); ("PR", typed_pr) ]));
+  assert_error_contains "unknown or raw field"
+    (F.of_json
+       (`Assoc
+          [
+            ("schema_version", `Int 1);
+            ("advanced", `Assoc [ ("PR", typed_pr) ]);
+          ]))
+
+let test_noncanonical_nested_filter_keys_are_rejected () =
+  let label_match =
+    `Assoc [ ("op", `String "in"); ("values", `List [ `String "ready" ]) ]
+  in
+  assert_error_contains "unknown field"
+    (F.of_json
+       (`Assoc
+          [
+            ("schema_version", `Int 1);
+            ("pr", `Assoc [ ("LABELS", label_match) ]);
+          ]));
+  assert_error_contains "unknown field"
+    (F.of_json
+       (`Assoc
+          [
+            ("schema_version", `Int 1);
+            ("issue", `Assoc [ ("AUTHOR", `String "alice") ]);
+          ]));
+  assert_error_contains "unknown field"
+    (F.of_json
+       (`Assoc
+          [
+            ("schema_version", `Int 1);
+            ( "advanced",
+              `Assoc
+                [
+                  ( "pr",
+                    `Assoc
+                      [
+                        ( "labels",
+                          `Assoc
+                            [
+                              ("OP", `String "in");
+                              ("values", `List [ `String "ready" ]);
+                            ] );
+                      ] );
+                ] );
+          ]))
 
 let test_validate_ops_from_json () =
   let j =
@@ -404,6 +495,15 @@ let suite =
       `Quick,
       test_validate_rejects_bad_operators_and_values );
     ("reject raw JSON predicates", `Quick, test_reject_raw_json_predicates);
+    ( "advanced wrapper parses and is exclusive",
+      `Quick,
+      test_advanced_wrapper_parses_and_is_exclusive );
+    ( "noncanonical advanced keys are rejected",
+      `Quick,
+      test_noncanonical_advanced_keys_are_rejected );
+    ( "noncanonical nested filter keys are rejected",
+      `Quick,
+      test_noncanonical_nested_filter_keys_are_rejected );
     ("validate ops from json", `Quick, test_validate_ops_from_json);
     ( "store persists schema_version and advanced",
       `Quick,

@@ -37,6 +37,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "opened")
     html_url;
     family;
     actor = { E.empty_actor with login = actor_login };
+    item_author = actor_login;
     before = None;
     after =
       Some

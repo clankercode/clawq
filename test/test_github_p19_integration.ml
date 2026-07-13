@@ -223,6 +223,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "closed")
     html_url;
     family;
     actor = { Env.empty_actor with login = actor_login; type_ = actor_type };
+    item_author = actor_login;
     before =
       Some
         {

@@ -210,6 +210,19 @@ hours, and the combined plan has 66 tasks totaling 284 hours.
    - Port the Existing Room-Agent Pilot
    - Upgrade and Operations
 
+#### Current P20 filter interface
+
+Advanced PR/Issue routing is stored as typed `Github_route_filter` schema
+version 1. Operators pass it through `github route plan|change --filter-json
+JSON` and can inspect a safe normalized event with `github route preview ROOM
+--envelope-json JSON`. Direct `pr` / `issue` fields and an `advanced` wrapper
+are mutually exclusive; raw or unknown wrapper fields are rejected. Advanced
+keys need schema version 1 (legacy baseline-only filters remain readable).
+Missing demanded enrichment, rate limits, and access denial mute delivery.
+Normalized PR `head.ref` and PR/Issue `user.login` are persisted for branch,
+author, and team-cache evaluation; webhook `sender` remains separate actor
+attribution.
+
 ## Verification
 
 The implementation must cover manifest replay/forgery/expiry/restart, installation

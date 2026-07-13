@@ -9,6 +9,8 @@ type transfer_plan = {
     (Github_route_store.destination * Github_route_match.decision) list;
 }
 
+module A = Github_route_match_advanced
+
 let normalize s = String.lowercase_ascii (String.trim s)
 
 let org_of_repo full_name =
@@ -95,7 +97,9 @@ let merge_decisions ~prefer_second first second =
   | Github_route_match.No_route, Github_route_match.No_route ->
       Github_route_match.No_route
 
-let plan_transfer ~db ~destinations ~envelope () =
+let plan_transfer ~db ~destinations ~envelope ?enrichment ?fetch_paths
+    ?fetch_teams ?cache ?rate_limited ?access_allowed ?index ?index_cache ?now
+    () =
   let source_env = source_view envelope in
   let dest_env = dest_view envelope in
   let candidates = dedupe_destinations destinations in
@@ -103,11 +107,14 @@ let plan_transfer ~db ~destinations ~envelope () =
     List.filter_map
       (fun dest ->
         let d_src =
-          Github_route_match.resolve ~db ~destination:dest ~envelope:source_env
-            ()
+          A.resolve ~db ~destination:dest ~envelope:source_env ?enrichment
+            ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed
+            ?index ?index_cache ?now ()
         in
         let d_dst =
-          Github_route_match.resolve ~db ~destination:dest ~envelope:dest_env ()
+          A.resolve ~db ~destination:dest ~envelope:dest_env ?enrichment
+            ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed
+            ?index ?index_cache ?now ()
         in
         let merged = merge_decisions ~prefer_second:true d_src d_dst in
         match merged with
@@ -125,21 +132,34 @@ let plan_transfer ~db ~destinations ~envelope () =
   in
   { destinations; per_destination }
 
-let envelope_for_accept ~db ~destination ~source_env ~dest_env =
+let envelope_for_accept ~db ~destination ~source_env ~dest_env ?enrichment
+    ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed ?index
+    ?index_cache ?now () =
   (* Resolve with the view that produces Matched so try_accept re-resolve works.
      Prefer dest view when both match. *)
-  match Github_route_match.resolve ~db ~destination ~envelope:dest_env () with
+  match
+    A.resolve ~db ~destination ~envelope:dest_env ?enrichment ?fetch_paths
+      ?fetch_teams ?cache ?rate_limited ?access_allowed ?index ?index_cache ?now
+      ()
+  with
   | Github_route_match.Matched _ -> dest_env
   | _ -> (
       match
-        Github_route_match.resolve ~db ~destination ~envelope:source_env ()
+        A.resolve ~db ~destination ~envelope:source_env ?enrichment ?fetch_paths
+          ?fetch_teams ?cache ?rate_limited ?access_allowed ?index ?index_cache
+          ?now ()
       with
       | Github_route_match.Matched _ -> source_env
       | _ -> dest_env)
 
-let accept_transfer ~db ~destinations ~envelope ?(now = Unix.gettimeofday ()) ()
-    =
-  let plan = plan_transfer ~db ~destinations ~envelope () in
+let accept_transfer ~db ~destinations ~envelope ?enrichment ?fetch_paths
+    ?fetch_teams ?cache ?rate_limited ?access_allowed ?index ?index_cache
+    ?(now = Unix.gettimeofday ()) () =
+  let plan =
+    plan_transfer ~db ~destinations ~envelope ?enrichment ?fetch_paths
+      ?fetch_teams ?cache ?rate_limited ?access_allowed ?index ?index_cache ~now
+      ()
+  in
   let source_env = source_view envelope in
   let dest_env = dest_view envelope in
   let item_key = transfer_stable_item_key envelope in
@@ -147,10 +167,13 @@ let accept_transfer ~db ~destinations ~envelope ?(now = Unix.gettimeofday ()) ()
     (fun dest ->
       let env_for =
         envelope_for_accept ~db ~destination:dest ~source_env ~dest_env
+          ?enrichment ?fetch_paths ?fetch_teams ?cache ?rate_limited
+          ?access_allowed ?index ?index_cache ~now ()
       in
       let result =
-        Github_route_match.try_accept ~db ~destination:dest ~envelope:env_for
-          ~now ~item_key ()
+        A.try_accept ~db ~destination:dest ~envelope:env_for ?enrichment
+          ?fetch_paths ?fetch_teams ?cache ?rate_limited ?access_allowed ?index
+          ?index_cache ~now ~item_key ()
       in
       (dest, result))
     plan.destinations

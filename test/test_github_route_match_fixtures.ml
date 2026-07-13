@@ -53,6 +53,7 @@ let make_pr_envelope ?(event = "pull_request") ?(action = Some "opened")
     html_url = None;
     family = E.Lifecycle;
     actor = { E.empty_actor with login = actor_login };
+    item_author = actor_login;
     before = None;
     after =
       Some
@@ -93,6 +94,7 @@ let make_issue_envelope ?(event = "issues") ?(action = Some "opened")
     html_url = None;
     family = E.Lifecycle;
     actor = { E.empty_actor with login = actor_login };
+    item_author = actor_login;
     before = None;
     after =
       Some

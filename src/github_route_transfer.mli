@@ -32,6 +32,15 @@ val plan_transfer :
   db:Sqlite3.db ->
   destinations:Github_route_store.destination list ->
   envelope:Github_event_envelope.t ->
+  ?enrichment:Github_filter_enrichment.enrichment ->
+  ?fetch_paths:Github_filter_enrichment.paths_fetch ->
+  ?fetch_teams:Github_filter_enrichment.teams_fetch ->
+  ?cache:Github_filter_enrichment.cache ->
+  ?rate_limited:(unit -> bool) ->
+  ?access_allowed:(unit -> bool) ->
+  ?index:Github_route_match_advanced.route_index ->
+  ?index_cache:Github_route_match_advanced.index_cache ->
+  ?now:float ->
   unit ->
   transfer_plan
 (** For [issues.transferred] envelopes:
@@ -45,6 +54,14 @@ val accept_transfer :
   db:Sqlite3.db ->
   destinations:Github_route_store.destination list ->
   envelope:Github_event_envelope.t ->
+  ?enrichment:Github_filter_enrichment.enrichment ->
+  ?fetch_paths:Github_filter_enrichment.paths_fetch ->
+  ?fetch_teams:Github_filter_enrichment.teams_fetch ->
+  ?cache:Github_filter_enrichment.cache ->
+  ?rate_limited:(unit -> bool) ->
+  ?access_allowed:(unit -> bool) ->
+  ?index:Github_route_match_advanced.route_index ->
+  ?index_cache:Github_route_match_advanced.index_cache ->
   ?now:float ->
   unit ->
   (Github_route_store.destination * Github_route_match.accept_result) list

@@ -70,10 +70,26 @@ one accepted routed event per destination.
 
 ## Filters and comments
 
-**Event filter**  
+**Event filter**
 Baseline include/exclude event names (and families) plus optional
 include/exclude repos (especially for Org narrowing). Exclude always wins.
 Empty include list means “all non-excluded.”
+
+**Versioned advanced filter**
+Typed route-filter fields for PR and Issue predicates, currently
+`schema_version: 1`. Advanced fields require version 1 and can appear directly
+as `pr` / `issue` or in the mutually exclusive `advanced` wrapper. Raw or
+unknown predicate JSON is rejected rather than interpreted.
+
+**Item author / webhook actor**
+The item author is the PR or Issue `user.login` and drives `author` predicates,
+team lookup, and team-cache identity. The webhook actor is the independent
+`sender` recorded for audit/context; it does not substitute for the item author.
+
+**Filter preview**
+Read-only `github route preview` evaluation of a safe normalized envelope. It
+explains route/predicate results without writing the accept ledger; unavailable
+enrichment fails closed.
 
 **Comment mode**
 

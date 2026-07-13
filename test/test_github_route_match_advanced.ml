@@ -43,6 +43,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "opened")
     html_url = None;
     family;
     actor = { E.empty_actor with login = actor_login };
+    item_author = actor_login;
     before = None;
     after =
       Some
@@ -373,6 +374,114 @@ let test_advanced_allows_unit () =
            "enrichment")
   | Ok () -> Alcotest.fail "incomplete team enrichment must reject"
 
+let test_normalized_item_author_and_head_ref_drive_advanced_filters () =
+  with_db @@ fun db ->
+  let filter =
+    assert_ok
+      (F.validate
+         {
+           F.default with
+           pr =
+             {
+               F.empty_pr with
+               head_branch = Some { op = `Glob; values = [ "feature/**" ] };
+               author = Some { op = `Eq; values = [ "item-author" ] };
+             };
+         })
+  in
+  ignore (create ~db ~id:"rt-normalized-pr" ~filter ());
+  let payload =
+    `Assoc
+      [
+        ( "repository",
+          `Assoc
+            [
+              ("full_name", `String "acme/widget");
+              ("owner", `Assoc [ ("login", `String "acme") ]);
+            ] );
+        ("action", `String "opened");
+        ("sender", `Assoc [ ("login", `String "webhook-sender") ]);
+        ( "pull_request",
+          `Assoc
+            [
+              ("number", `Int 42);
+              ("node_id", `String "PR_normalized");
+              ("state", `String "open");
+              ("user", `Assoc [ ("login", `String "item-author") ]);
+              ("base", `Assoc [ ("ref", `String "main") ]);
+              ("head", `Assoc [ ("ref", `String "feature/p20") ]);
+            ] );
+      ]
+  in
+  let envelope =
+    match
+      E.normalize ~delivery_id:"normalized-pr" ~event:"pull_request" ~payload ()
+    with
+    | E.Ok_envelope envelope -> envelope
+    | E.Unsupported { reason; _ } | E.Error reason -> Alcotest.fail reason
+  in
+  Alcotest.(check (option string))
+    "sender remains actor" (Some "webhook-sender") envelope.actor.login;
+  Alcotest.(check (option string))
+    "item author is independent" (Some "item-author") envelope.item_author;
+  let roundtrip = assert_ok (E.of_safe_json (E.to_safe_json envelope)) in
+  Alcotest.(check (option string))
+    "safe JSON retains item author" (Some "item-author") roundtrip.item_author;
+  Alcotest.(check (option string))
+    "safe JSON retains head ref" (Some "feature/p20")
+    (Option.bind roundtrip.after (fun state -> state.head_ref));
+  expect_matched ~id:"rt-normalized-pr" ~spec:`Repo
+    (A.resolve ~db ~destination:room ~envelope ());
+  let issue_filter =
+    assert_ok
+      (F.validate
+         {
+           F.default with
+           issue =
+             {
+               F.empty_issue with
+               author = Some { op = `Eq; values = [ "issue-author" ] };
+             };
+         })
+  in
+  let issue_destination = S.Room "room-normalized-issue" in
+  ignore
+    (create ~db ~id:"rt-normalized-issue" ~destination:issue_destination
+       ~filter:issue_filter ());
+  let issue_payload =
+    `Assoc
+      [
+        ( "repository",
+          `Assoc
+            [
+              ("full_name", `String "acme/widget");
+              ("owner", `Assoc [ ("login", `String "acme") ]);
+            ] );
+        ("action", `String "opened");
+        ("sender", `Assoc [ ("login", `String "triage-bot") ]);
+        ( "issue",
+          `Assoc
+            [
+              ("number", `Int 7);
+              ("node_id", `String "I_normalized");
+              ("state", `String "open");
+              ("user", `Assoc [ ("login", `String "issue-author") ]);
+            ] );
+      ]
+  in
+  let issue =
+    match
+      E.normalize ~delivery_id:"normalized-issue" ~event:"issues"
+        ~payload:issue_payload ()
+    with
+    | E.Ok_envelope envelope -> envelope
+    | E.Unsupported { reason; _ } | E.Error reason -> Alcotest.fail reason
+  in
+  Alcotest.(check (option string))
+    "issue sender remains actor" (Some "triage-bot") issue.actor.login;
+  expect_matched ~id:"rt-normalized-issue" ~spec:`Repo
+    (A.resolve ~db ~destination:issue_destination ~envelope:issue ())
+
 let suite =
   [
     ("baseline matched", `Quick, test_baseline_matched);
@@ -399,4 +508,7 @@ let suite =
       `Quick,
       test_disabled_item_no_fallthrough_with_advanced );
     ("advanced_allows unit", `Quick, test_advanced_allows_unit);
+    ( "normalized item author and head ref drive filters",
+      `Quick,
+      test_normalized_item_author_and_head_ref_drive_advanced_filters );
   ]

@@ -5,6 +5,8 @@
 module Callback = Github_app_setup_callback
 module Runtime = Github_app_setup_runtime
 module Store = Github_route_store
+module Filter = Github_route_filter
+module Envelope = Github_event_envelope
 
 let fixed_now = 1_700_000_000.
 
@@ -106,6 +108,104 @@ let test_cli_plan_then_explicit_apply () =
          event.action = "setup_plan_applied"
          && event.setup_plan_id = Some plan.id)
        (Github_route_ops.list_audit ~db ~setup_plan_id:plan.id ()))
+
+let test_cli_typed_filter_plan_and_preview () =
+  with_db @@ fun db ->
+  with_admin @@ fun () ->
+  let config = Runtime_config.default in
+  let filter_json =
+    Yojson.Safe.to_string
+      (`Assoc
+         [
+           ("schema_version", `Int 1);
+           ( "pr",
+             `Assoc
+               [
+                 ( "labels",
+                   `Assoc
+                     [
+                       ("op", `String "in");
+                       ("values", `List [ `String "ready" ]);
+                     ] );
+               ] );
+         ])
+  in
+  let planned =
+    Github_route_cli.cmd_with_db ~db ~config
+      [
+        "route";
+        "plan";
+        "room-filter-runtime";
+        "repo:Acme/Widget";
+        "--id";
+        "rt-filter-runtime";
+        "--filter-json";
+        filter_json;
+      ]
+  in
+  Alcotest.(check bool)
+    "typed filter JSON produces a plan" true
+    (Test_helpers.string_contains planned "Digest:");
+  let plan = latest_plan db in
+  let applied =
+    Github_route_cli.cmd_with_db ~db ~config
+      [ "route"; "apply"; plan.id; plan.digest ]
+  in
+  Alcotest.(check bool)
+    "typed filter plan applies" true
+    (Test_helpers.string_contains applied "Applied plan");
+  let route =
+    match Store.get ~db ~id:"rt-filter-runtime" with
+    | Ok (Some route) -> route
+    | Ok None -> Alcotest.fail "typed filter route was not persisted"
+    | Error error -> Alcotest.fail error
+  in
+  Alcotest.(check bool)
+    "persisted route retains typed advanced filter" true
+    (Filter.has_advanced route.filter);
+  let envelope : Envelope.t =
+    {
+      version = Envelope.envelope_version;
+      delivery_id = Some "cli-filter-preview";
+      installation_id = Some 1;
+      event = "pull_request";
+      action = Some "opened";
+      repo_full_name = "acme/widget";
+      org = Some "acme";
+      item_kind = Some Envelope.Pull_request;
+      item_number = Some 9;
+      item_node_id = Some "PR_cli_filter_preview";
+      item_url = None;
+      html_url = None;
+      family = Envelope.Lifecycle;
+      actor = { Envelope.empty_actor with login = Some "webhook-sender" };
+      item_author = Some "item-author";
+      before = None;
+      after = Some { Envelope.empty_safe_state with labels = [ "ready" ] };
+      transfer = None;
+      received_at = None;
+      event_at = None;
+      head_sha = None;
+      unsupported = false;
+      skip_reason = None;
+    }
+  in
+  let preview =
+    Github_route_cli.cmd_with_db ~db ~config
+      [
+        "route";
+        "preview";
+        "room-filter-runtime";
+        "--envelope-json";
+        Yojson.Safe.to_string (Envelope.to_safe_json envelope);
+      ]
+  in
+  Alcotest.(check bool)
+    "preview matches typed filter" true
+    (Test_helpers.string_contains preview "decision=Matched");
+  Alcotest.(check bool)
+    "preview explains typed predicate" true
+    (Test_helpers.string_contains preview "pr.labels PASS")
 
 let test_minimal_build_disables_github_surface () =
   let result = Command_bridge_min.handle [ "github"; "route"; "list" ] in
@@ -251,6 +351,9 @@ let suite =
     ( "CLI route plan and explicit apply",
       `Quick,
       test_cli_plan_then_explicit_apply );
+    ( "CLI typed filter plan and read-only preview",
+      `Quick,
+      test_cli_typed_filter_plan_and_preview );
     ( "minimal build disables GitHub route/App commands",
       `Quick,
       test_minimal_build_disables_github_surface );

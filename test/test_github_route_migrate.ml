@@ -422,6 +422,7 @@ let test_one_accepted_event_per_destination () =
       html_url = None;
       family = E.Lifecycle;
       actor = E.empty_actor;
+      item_author = None;
       before = None;
       after = None;
       transfer = None;

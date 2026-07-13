@@ -68,6 +68,14 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq debug html-preview` | Preview HTML rendering |
 | `clawq debug http on\|off\|status\|clear\|tail` | Manage HTTP debug logging |
 | `clawq doctor` | Check configuration for common issues |
+| `clawq github route inspect ROUTE_ID` | Inspect a persisted GitHub Item/Repo/Org route (full build) |
+| `clawq github route list ROOM` | List GitHub routes for a Room (full build) |
+| `clawq github route preview ROOM --envelope-json JSON` | Read-only filter explain for a safe normalized GitHub envelope |
+| `clawq github route plan ROOM SELECTOR [--filter-json JSON]` | Create a confirmable typed route plan; requires admin and principal identity |
+| `clawq github route change ROUTE_ID [--filter-json JSON]` | Plan a typed filter/mode/enabled update; requires admin and principal identity |
+| `clawq github route disable\|remove\|apply` | Plan disable/remove or explicitly apply a confirmed route plan |
+| `clawq github app deliveries\|apply` | Inspect or explicitly apply GitHub App setup delivery plans |
+| `clawq github diagnostics route\|audit` | Read-only route readiness and audit information |
 | `clawq held-items` | Manage held feature plans awaiting admin review (default: list pending) |
 | `clawq held-items save --name N --desc D --plan-file F --layer L` | Save a feature plan to the held items queue |
 | `clawq held-items list [--status STATUS]` | List held items by status (pending, approved, rejected, all) |

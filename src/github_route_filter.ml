@@ -366,7 +366,10 @@ let known_top_level =
   ]
 
 let is_known_top_level k =
-  List.mem (String.lowercase_ascii (String.trim k)) known_top_level
+  (* The parser below uses exact [member] lookups. Accepting a case- or
+     whitespace-variant here would otherwise validate it and then silently
+     discard the value during lookup. *)
+  List.mem k known_top_level
 
 let known_pr_fields =
   [
@@ -381,16 +384,20 @@ let known_pr_fields =
 
 let known_issue_fields = [ "labels"; "author"; "team"; "assignee"; "milestone" ]
 
+let known_match_fields = [ "op"; "value"; "values" ]
+
 let reject_unknown ~ctx ~known fields =
   let rec loop = function
     | [] -> Ok ()
     | (k, _) :: rest ->
-        let kl = String.lowercase_ascii (String.trim k) in
-        if is_forbidden_raw_key kl then
+        if is_forbidden_raw_key k then
           Error
             (Printf.sprintf "%s rejects raw JSON predicates (forbidden key %S)"
                ctx k)
-        else if not (List.mem kl known) then
+        (* Parsed objects are subsequently read with exact [member] lookups.
+           Only canonical field names can pass validation; accepting a
+           case- or whitespace-variant would otherwise drop its value. *)
+        else if not (List.mem k known) then
           Error
             (Printf.sprintf
                "%s has unknown field %S (typed filters only; raw predicates \
@@ -404,11 +411,9 @@ let parse_set_match ~field j : (set_match, string) result =
   let open Yojson.Safe.Util in
   match j with
   | `Assoc fields -> (
-      if List.exists (fun (k, _) -> is_forbidden_raw_key k) fields then
-        Error
-          (Printf.sprintf
-             "%s rejects raw JSON predicates; use {\"op\", \"values\"}" field)
-      else
+      match reject_unknown ~ctx:field ~known:known_match_fields fields with
+      | Error e -> Error e
+      | Ok () ->
         let op_s =
           match member "op" j with
           | `String s -> s
@@ -449,11 +454,9 @@ let parse_glob_match ~field j : (glob_match, string) result =
   let open Yojson.Safe.Util in
   match j with
   | `Assoc fields -> (
-      if List.exists (fun (k, _) -> is_forbidden_raw_key k) fields then
-        Error
-          (Printf.sprintf
-             "%s rejects raw JSON predicates; use {\"op\", \"values\"}" field)
-      else
+      match reject_unknown ~ctx:field ~known:known_match_fields fields with
+      | Error e -> Error e
+      | Ok () ->
         let op_s =
           match member "op" j with `String s -> s | `Null -> "in" | _ -> ""
         in
@@ -487,8 +490,11 @@ let parse_draft ~field j : (bool, string) result =
   let open Yojson.Safe.Util in
   match j with
   | `Bool b -> Ok b
-  | `Assoc _ -> (
-      match member "op" j with
+  | `Assoc fields -> (
+      match reject_unknown ~ctx:field ~known:known_match_fields fields with
+      | Error e -> Error e
+      | Ok () -> (
+          match member "op" j with
       | `String s
         when let s = String.lowercase_ascii (String.trim s) in
              s = "is" || s = "eq" || s = "=" || s = "==" -> (
@@ -510,7 +516,7 @@ let parse_draft ~field j : (bool, string) result =
           | `Bool b -> Ok b
           | _ ->
               Error (field ^ ": draft requires {\"op\":\"is\",\"value\":bool}"))
-      | _ -> Error (field ^ ": draft op must be string \"is\""))
+          | _ -> Error (field ^ ": draft op must be string \"is\"")))
   | _ ->
       Error (field ^ ": draft must be boolean or {\"op\":\"is\",\"value\":bool}")
 
@@ -674,66 +680,105 @@ let of_json (j : Yojson.Safe.t) : (t, string) result =
               let has_advanced_keys =
                 List.exists
                   (fun (k, _) ->
-                    let k = String.lowercase_ascii k in
                     k = "pr" || k = "issue" || k = "pull_request"
                     || k = "advanced")
                   fields
               in
-              match version with
-              | None when has_advanced_keys ->
+              let advanced_wrapper = member "advanced" j in
+              let has_advanced_wrapper = advanced_wrapper <> `Null in
+              let has_direct_advanced_fields =
+                List.exists
+                  (fun (key, _) ->
+                    key = "pr" || key = "pull_request" || key = "issue")
+                  fields
+              in
+              let advanced_fields =
+                match advanced_wrapper with
+                | `Null -> Ok []
+                | `Assoc fields -> (
+                    let known = [ "pr"; "issue" ] in
+                    match
+                      List.find_opt
+                        (fun (key, _) ->
+                          is_forbidden_raw_key key || not (List.mem key known))
+                        fields
+                    with
+                    | Some (key, _) ->
+                        Error
+                          (Printf.sprintf
+                             "advanced filter has unknown or raw field %S; use \
+                              only typed pr/issue fields"
+                             key)
+                    | None -> Ok fields)
+                | _ ->
+                    Error
+                      "advanced filter must be an object with typed pr/issue \
+                       fields"
+              in
+              match advanced_fields with
+              | Error error -> Error error
+              | Ok _ when has_advanced_wrapper && has_direct_advanced_fields ->
                   Error
-                    "schema_version is required when advanced pr/issue filter \
-                     fields are present"
-              | None | Some 0 -> (
-                  (* v0 baseline: migrate empty include/exclude as-is. *)
-                  match baseline_lists j with
-                  | Error e -> Error e
-                  | Ok v0 -> Ok (migrate_v0_to_v1 v0))
-              | Some n when n > current_schema_version ->
-                  Error
-                    (Printf.sprintf
-                       "unsupported filter schema_version %d (current is %d)" n
-                       current_schema_version)
-              | Some n when n < 0 ->
-                  Error (Printf.sprintf "invalid filter schema_version %d" n)
-              | Some _ -> (
-                  match baseline_lists j with
-                  | Error e -> Error e
-                  | Ok base -> (
-                      let pr_j =
-                        match member "pr" j with
-                        | `Null -> member "pull_request" j
-                        | other -> other
-                      in
-                      let pr_j =
-                        match pr_j with
-                        | `Null -> (
-                            match member "advanced" j with
-                            | `Assoc _ as adv -> member "pr" adv
-                            | _ -> `Null)
-                        | other -> other
-                      in
-                      let issue_j =
-                        match member "issue" j with
-                        | `Null -> (
-                            match member "advanced" j with
-                            | `Assoc _ as adv -> member "issue" adv
-                            | _ -> `Null)
-                        | other -> other
-                      in
-                      match (parse_pr pr_j, parse_issue issue_j) with
-                      | Error e, _ | _, Error e -> Error e
-                      | Ok pr, Ok issue ->
-                          let f =
-                            {
-                              schema_version = current_schema_version;
-                              include_events = base.include_events;
-                              exclude_events = base.exclude_events;
-                              include_repos = base.include_repos;
-                              exclude_repos = base.exclude_repos;
-                              pr;
-                              issue;
-                            }
+                    "advanced wrapper cannot be combined with direct pr/issue \
+                     fields; choose one typed representation"
+              | Ok _ -> (
+                  match version with
+                  | (None | Some 0) when has_advanced_keys ->
+                      Error
+                        "filter schema_version 1 is required when advanced \
+                         pr/issue filter fields are present"
+                  | None | Some 0 -> (
+                      (* v0 baseline: migrate empty include/exclude as-is. *)
+                      match baseline_lists j with
+                      | Error e -> Error e
+                      | Ok v0 -> Ok (migrate_v0_to_v1 v0))
+                  | Some n when n > current_schema_version ->
+                      Error
+                        (Printf.sprintf
+                           "unsupported filter schema_version %d (current is \
+                            %d)"
+                           n current_schema_version)
+                  | Some n when n < 0 ->
+                      Error
+                        (Printf.sprintf "invalid filter schema_version %d" n)
+                  | Some _ -> (
+                      match baseline_lists j with
+                      | Error e -> Error e
+                      | Ok base -> (
+                          let pr_j =
+                            match member "pr" j with
+                            | `Null -> member "pull_request" j
+                            | other -> other
                           in
-                          validate f)))))
+                          let pr_j =
+                            match pr_j with
+                            | `Null -> (
+                                match member "advanced" j with
+                                | `Assoc _ as adv -> member "pr" adv
+                                | _ -> `Null)
+                            | other -> other
+                          in
+                          let issue_j =
+                            match member "issue" j with
+                            | `Null -> (
+                                match member "advanced" j with
+                                | `Assoc _ as adv -> member "issue" adv
+                                | _ -> `Null)
+                            | other -> other
+                          in
+                          match (parse_pr pr_j, parse_issue issue_j) with
+                          | Error e, _ | _, Error e -> Error e
+                          | Ok pr, Ok issue ->
+                              let f =
+                                {
+                                  schema_version = current_schema_version;
+                                  include_events = base.include_events;
+                                  exclude_events = base.exclude_events;
+                                  include_repos = base.include_repos;
+                                  exclude_repos = base.exclude_repos;
+                                  pr;
+                                  issue;
+                                }
+                              in
+                              validate f))))))
   | _ -> Error "filter must be object or null"

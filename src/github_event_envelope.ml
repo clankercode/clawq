@@ -25,6 +25,7 @@ type safe_state = {
   milestone : string option;
   head_sha : string option;
   base_ref : string option;
+  head_ref : string option;
 }
 
 type transfer_info = { from_repo : string option; to_repo : string option }
@@ -44,6 +45,7 @@ type t = {
   html_url : string option;
   family : family;
   actor : actor;
+  item_author : string option;
   before : safe_state option;
   after : safe_state option;
   transfer : transfer_info option;
@@ -72,6 +74,7 @@ let empty_safe_state =
     milestone = None;
     head_sha = None;
     base_ref = None;
+    head_ref = None;
   }
 
 let string_of_item_kind = function
@@ -104,7 +107,8 @@ let safe_state_to_json (s : safe_state) =
     @ [ ("assignees", `List (List.map (fun a -> `String a) s.assignees)) ]
     @ opt_string_field "milestone" s.milestone
     @ opt_string_field "head_sha" s.head_sha
-    @ opt_string_field "base_ref" s.base_ref)
+    @ opt_string_field "base_ref" s.base_ref
+    @ opt_string_field "head_ref" s.head_ref)
 
 let opt_safe_state_field key = function
   | None -> []
@@ -142,6 +146,7 @@ let to_safe_json (env : t) =
     @ opt_string_field "item_node_id" env.item_node_id
     @ opt_string_field "item_url" env.item_url
     @ opt_string_field "html_url" env.html_url
+    @ opt_string_field "item_author" env.item_author
     @ opt_safe_state_field "before" env.before
     @ opt_safe_state_field "after" env.after
     @ (match env.transfer with
@@ -260,6 +265,16 @@ let base_ref_of node =
   | Some base -> get_string "ref" base
   | None -> None
 
+let head_ref_of node =
+  match get_assoc "head" node with
+  | Some head -> get_string "ref" head
+  | None -> None
+
+let item_author_of node =
+  match get_assoc "user" node with
+  | Some user -> get_string "login" user
+  | None -> None
+
 let safe_state_of_item ?(is_pr = false) node =
   let draft =
     if is_pr then get_bool "draft" node
@@ -276,6 +291,7 @@ let safe_state_of_item ?(is_pr = false) node =
     milestone = milestone_title node;
     head_sha = head_sha_of node;
     base_ref = base_ref_of node;
+    head_ref = head_ref_of node;
   }
 
 let first_pr_number_from_list node key =
@@ -315,7 +331,7 @@ let issue_is_pr issue =
 let make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
     ~repo_full_name ~org ~item_kind ~item_number ~item_node_id ~item_url
     ~html_url ~family ~actor ~before ~after ~transfer ~event_at ~head_sha
-    ?(unsupported = false) ?skip_reason () =
+    ?item_author ?(unsupported = false) ?skip_reason () =
   {
     version = envelope_version;
     delivery_id = non_empty_opt delivery_id;
@@ -331,6 +347,7 @@ let make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
     html_url;
     family;
     actor;
+    item_author = non_empty_opt item_author;
     before;
     after;
     transfer;
@@ -411,6 +428,7 @@ let normalize_pull_request ~delivery_id ~installation_id ~received_at ~event
     ~action ~payload ~repo_full_name ~org ~actor =
   let action_s = Option.value action ~default:"" in
   let pr = get_assoc "pull_request" payload in
+  let item_author = Option.bind pr item_author_of in
   let after =
     match pr with
     | Some node -> Some (safe_state_of_item ~is_pr:true node)
@@ -457,12 +475,13 @@ let normalize_pull_request ~delivery_id ~installation_id ~received_at ~event
         (make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
            ~repo_full_name ~org ~item_kind:(Some Pull_request) ~item_number
            ~item_node_id ~item_url ~html_url ~family ~actor ~before ~after
-           ~transfer:None ~event_at ~head_sha ())
+           ~transfer:None ~event_at ~head_sha ?item_author ())
 
 let normalize_issues ~delivery_id ~installation_id ~received_at ~event ~action
     ~payload ~repo_full_name ~org ~actor =
   let action_s = Option.value action ~default:"" in
   let issue = get_assoc "issue" payload in
+  let item_author = Option.bind issue item_author_of in
   let kind =
     match issue with
     | Some node when issue_is_pr node -> Pull_request
@@ -536,7 +555,7 @@ let normalize_issues ~delivery_id ~installation_id ~received_at ~event ~action
         (make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
            ~repo_full_name ~org ~item_kind:(Some kind) ~item_number
            ~item_node_id ~item_url ~html_url ~family ~actor ~before ~after
-           ~transfer ~event_at ~head_sha:None ())
+           ~transfer ~event_at ~head_sha:None ?item_author ())
 
 let normalize_issue_comment ~delivery_id ~installation_id ~received_at ~event
     ~action ~payload ~repo_full_name ~org ~actor =
@@ -546,6 +565,7 @@ let normalize_issue_comment ~delivery_id ~installation_id ~received_at ~event
       (Printf.sprintf "unsupported issue_comment action %S" action_s)
   else
     let issue = get_assoc "issue" payload in
+    let item_author = Option.bind issue item_author_of in
     let comment = get_assoc "comment" payload in
     let kind =
       match issue with
@@ -590,7 +610,7 @@ let normalize_issue_comment ~delivery_id ~installation_id ~received_at ~event
       (make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
          ~repo_full_name ~org ~item_kind:(Some kind) ~item_number ~item_node_id
          ~item_url ~html_url ~family:Comment ~actor ~before:None ~after
-         ~transfer:None ~event_at ~head_sha ())
+         ~transfer:None ~event_at ~head_sha ?item_author ())
 
 let normalize_pull_request_review ~delivery_id ~installation_id ~received_at
     ~event ~action ~payload ~repo_full_name ~org ~actor =
@@ -600,6 +620,7 @@ let normalize_pull_request_review ~delivery_id ~installation_id ~received_at
       (Printf.sprintf "unsupported pull_request_review action %S" action_s)
   else
     let pr = get_assoc "pull_request" payload in
+    let item_author = Option.bind pr item_author_of in
     let review = get_assoc "review" payload in
     let after =
       match pr with
@@ -642,7 +663,7 @@ let normalize_pull_request_review ~delivery_id ~installation_id ~received_at
       (make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
          ~repo_full_name ~org ~item_kind:(Some Pull_request) ~item_number
          ~item_node_id ~item_url ~html_url ~family:Review ~actor ~before:None
-         ~after ~transfer:None ~event_at ~head_sha ())
+         ~after ~transfer:None ~event_at ~head_sha ?item_author ())
 
 let normalize_pull_request_review_comment ~delivery_id ~installation_id
     ~received_at ~event ~action ~payload ~repo_full_name ~org ~actor =
@@ -653,6 +674,7 @@ let normalize_pull_request_review_comment ~delivery_id ~installation_id
          action_s)
   else
     let pr = get_assoc "pull_request" payload in
+    let item_author = Option.bind pr item_author_of in
     let comment = get_assoc "comment" payload in
     let after =
       match pr with
@@ -689,7 +711,7 @@ let normalize_pull_request_review_comment ~delivery_id ~installation_id
       (make_envelope ~delivery_id ~installation_id ~received_at ~event ~action
          ~repo_full_name ~org ~item_kind:(Some Pull_request) ~item_number
          ~item_node_id ~item_url ~html_url ~family:Comment ~actor ~before:None
-         ~after ~transfer:None ~event_at ~head_sha ())
+         ~after ~transfer:None ~event_at ~head_sha ?item_author ())
 
 let normalize_ci ~delivery_id ~installation_id ~received_at ~event ~action
     ~payload ~repo_full_name ~org ~actor ~object_key ~allowed_actions =
@@ -840,6 +862,7 @@ let safe_state_of_json = function
         milestone = get_string "milestone" j;
         head_sha = get_string "head_sha" j;
         base_ref = get_string "base_ref" j;
+        head_ref = get_string "head_ref" j;
       }
   | _ -> empty_safe_state
 
@@ -922,6 +945,7 @@ let of_safe_json json : (t, string) result =
               html_url = get_string "html_url" j;
               family;
               actor;
+              item_author = get_string "item_author" j;
               before;
               after;
               transfer;

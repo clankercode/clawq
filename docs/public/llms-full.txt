@@ -830,6 +830,18 @@ All mutation operations (save, correct, redact, hard delete, grant, revoke) emit
 
 Clawq supports GitHub Apps for authentication, repository access, PR subscriptions, CI dispatch, review runs, and backlinks.
 
+### Unified Routes and Typed Filters
+
+GitHub Item, Repo, and Org routes resolve `Item > Repo > Org`; a disabled or
+filter-rejected narrower route is a fail-closed mute and never falls through.
+The full build supports `clawq github route inspect|list|preview|plan|change|disable|remove|apply`.
+`route plan` and `route change` accept typed `--filter-json` data with
+`schema_version: 1`; PR/Issue predicates are direct `pr`/`issue` fields or the
+exclusive `advanced` wrapper. Raw predicates are rejected. `route preview ROOM
+--envelope-json JSON` is read-only, explains predicate/enrichment outcomes, and
+fails closed when demanded path/team data is unavailable. The minimal binary
+keeps this integration surface disabled.
+
 ### Authentication
 
 - **PAT mode**: Set `channels.github.auth` to a personal access token with `repo` scope.

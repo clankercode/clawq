@@ -151,6 +151,7 @@ let make_envelope ?(event = "pull_request") ?(action = Some "closed")
     html_url = Some "https://github.com/acme/widget/pull/7";
     family;
     actor = { E.empty_actor with login = actor_login; type_ = actor_type };
+    item_author = actor_login;
     before =
       Some
         {

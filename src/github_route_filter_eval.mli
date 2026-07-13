@@ -55,9 +55,9 @@
     [changed_paths]; matching either path is sufficient.
 
     Transfer fixtures: Issue evaluation uses the current item state ([after]
-    labels/assignees/milestone/author); transfer metadata does not itself alter
-    set/identity predicates. Callers match transfer events via baseline
-    include/exclude as usual.
+    labels/assignees/milestone) and the envelope [item_author]; transfer
+    metadata does not itself alter set/identity predicates. Callers match
+    transfer events via baseline include/exclude as usual.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
 
@@ -101,10 +101,9 @@ val pr_context_of_envelope :
   pr_context
 (** Build context from envelope safe state + optional enrichment.
 
-    - Branches: [after.base_ref] (base); head branch is not on the envelope, so
-      [head_branch] stays [None] unless a future envelope field supplies it —
-      callers may override the record for head-branch tests.
-    - Labels / draft / author from [after] and [actor.login].
+    - Branches: [after.base_ref] (base) and [after.head_ref] (head).
+    - Labels / draft from [after]; author from [envelope.item_author], not the
+      webhook [actor.login].
     - [changed_paths] / [teams] from enrichment: [Some (Ok xs)] → [Some xs];
       [Some (Error _)] or [None] → [None] (fail closed when demanded). *)
 
@@ -116,7 +115,7 @@ val issue_context_of_envelope :
 (** Build Issue context from envelope safe state + optional enrichment.
 
     - Labels / assignees / milestone from [after].
-    - Author from [actor.login].
+    - Author from [envelope.item_author], not the webhook [actor.login].
     - [teams] from enrichment: [Some (Ok xs)] → [Some xs]; [Some (Error _)] or
       [None] → [None] (fail closed when team demanded).
     - Transfer metadata is ignored for set/identity fields (current state only).

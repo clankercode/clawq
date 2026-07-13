@@ -36,6 +36,8 @@ type safe_state = {
   milestone : string option;
   head_sha : string option;
   base_ref : string option;  (** No bodies/secrets — safe for journal/cards. *)
+  head_ref : string option;
+      (** PR [pull_request.head.ref], safe for routing predicates. *)
 }
 
 type transfer_info = { from_repo : string option; to_repo : string option }
@@ -55,6 +57,8 @@ type t = {
   html_url : string option;
   family : family;
   actor : actor;
+  item_author : string option;
+      (** PR/Issue [user.login], distinct from webhook [actor]. *)
   before : safe_state option;
   after : safe_state option;
   transfer : transfer_info option;

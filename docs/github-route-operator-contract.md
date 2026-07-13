@@ -14,7 +14,7 @@ Terms: [docs/glossary-github-routes.md](glossary-github-routes.md).
 | In scope | Out of scope (elsewhere) |
 |----------|---------------------------|
 | App manifest/callback setup resume | Secret-bearing Connector onboarding (Teams/Slack adapters) |
-| Route plan / inspect / apply / disable / remove | Advanced branch/path/team filters (P20) |
+| Route plan / inspect / apply / disable / remove / preview, including typed advanced filters | Raw JSON predicates |
 | Org vs Repo auth, mute semantics | Production user-attribution for high-risk actions (P21) |
 | Webhook ingress readiness, delivery ledger | Full outbox/card pilot runbook (P19.M3/M4) |
 | Redacted audit and repair steps | Raw JSON predicates |
@@ -98,6 +98,7 @@ CLAWQ_ADMIN=1 CLAWQ_PRINCIPAL_ID=principal:alice \
   clawq github app apply PLAN_ID DIGEST --room ROOM
 clawq github app deliveries --room ROOM
 clawq github diagnostics audit --plan PLAN_ID
+clawq github route preview ROOM --envelope-json '{"version":1,"event":"pull_request",...}'
 ```
 
 Session-bound App setup uses `github app apply … --session SESSION_KEY` and
@@ -122,6 +123,28 @@ Ops payload shapes (secret-free): `create` | `update` | `disable` | `remove`.
 
 Legacy per-PR subscription CLI remains a compatibility alias that plans/applies
 **Item** routes.
+
+### Typed advanced filters and preview
+
+`github route plan ROOM SELECTOR --filter-json JSON` and
+`github route change ROUTE_ID --filter-json JSON` accept the typed, versioned
+`Github_route_filter` JSON shape. The current shape has
+`"schema_version": 1`; baseline-only legacy filters may omit it, but a filter
+with `pr` or `issue` predicates must declare version 1. Version 0 or a missing
+version with advanced predicates is rejected.
+
+Advanced predicates may be supplied either directly as `pr` / `issue` or in an
+`advanced` wrapper containing only those two fields. The two representations
+are mutually exclusive, and unknown or raw predicate-wrapper contents are
+rejected. This is not a generic JSON expression language.
+
+Use `github route preview ROOM --envelope-json JSON` to evaluate a safe,
+normalized event envelope without mutating routes or the accept ledger. It
+prints the selected route, predicate outcomes, and decision. Demanded
+path/team enrichment that is absent, rate-limited, or out of scope fails closed
+to **Muted**. PR `head_branch` predicates read persisted `pull_request.head.ref`;
+`author` predicates and team-cache identity read the PR/Issue item's
+`user.login`, never the webhook sender/actor.
 
 ### Authority
 
