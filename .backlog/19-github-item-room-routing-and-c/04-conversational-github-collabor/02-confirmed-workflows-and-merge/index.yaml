@@ -32,7 +32,7 @@ tasks:
       file: T002-bring-claude-tag-equivalent-ba.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Bring Claude-tag-equivalent background work into Room threads
     - complexity: high
