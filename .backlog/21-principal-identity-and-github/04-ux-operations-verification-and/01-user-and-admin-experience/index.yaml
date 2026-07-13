@@ -41,7 +41,8 @@ tasks:
       file: T003-add-user-authorization-diagnos.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add user-authorization diagnostics and metrics
     - complexity: high
       depends_on:

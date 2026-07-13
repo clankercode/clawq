@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-13T07:59:43Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-12T14:52:51Z"
 depends_on:
@@ -7,12 +10,10 @@ depends_on:
 estimate_hours: 3
 id: P21.M4.E1.T003
 priority: high
-status: pending
-tags:
-    - github
-    - diagnostics
-    - metrics
+started_at: "2026-07-13T07:59:43Z"
+status: in_progress
+tags: []
 title: Add user-authorization diagnostics and metrics
-updated_at: "2026-07-12T14:52:51Z"
+updated_at: "2026-07-13T07:59:43Z"
 ---
 Acceptance: Status and metrics distinguish SSO, permission, refresh, rate-limit, revocation, App/repo scope, expiry, ambiguity, private-delivery, and identity failures with actionable safe guidance and no tokens or reusable codes. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
