@@ -31,7 +31,8 @@ tasks:
       file: T002-add-durable-single-flight-refr.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Add durable single-flight refresh with CAS rotation
     - complexity: high
       depends_on:
