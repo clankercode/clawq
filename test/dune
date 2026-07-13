@@ -114,6 +114,7 @@
   test_github_p21_integration
   test_github_p21_security
   test_github_p21_pilot_dryrun
+  test_github_p21_docs
   test_github_room_tools
   test_github_auth_selection
   test_github_attribution_policy
