@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T01:03:03Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T01:06:51Z"
 complexity: high
 created_at: "2026-07-12T12:34:05Z"
 depends_on:
     - P19.M4.E1.T002
     - P19.M4.E1.T003
+duration_minutes: 3.8031259128833335
 estimate_hours: 4
 id: P19.M4.E1.T004
 priority: high
 started_at: "2026-07-13T01:03:03Z"
-status: in_progress
+status: done
 tags: []
 title: Add reviewer requests and PR review submission
-updated_at: "2026-07-13T01:03:03Z"
+updated_at: "2026-07-13T01:06:51Z"
 ---
 Acceptance: Authorized users can request reviewers under the ordinary metadata policy after displaying the PR and selected reviewers. PR review submission (comment, approve, or request changes) is a separate high-risk App-attributed action: display the PR, exact head SHA, review kind, and governing policy; revalidate the head, self-review rule, duplicate state, permission, and policy immediately before submission. In P19 it is available only inside the named, time-bounded pilot behind an explicit gate that is off by default; outside that pilot it is denied and must not be presented as production-ready. Production availability waits for P21 to migrate the action to audited User_required attribution and pass its enablement gate. If P21 user authorization is disabled, incomplete, revoked, or unavailable, deny the action without App or PAT fallback. GitHub rejection and projection/reconciliation failures produce actionable, projection-safe receipts. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
