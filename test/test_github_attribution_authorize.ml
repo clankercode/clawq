@@ -36,7 +36,8 @@ let base_request ?(action = "merge") ?(tool_authorized = true)
     ?(live_revision = Some "sha_abc") ?(pin = A.empty_revision_pin)
     ?(actor_snapshot_id = Some "snap_1") ?(catalog_revision = "cat_rev_1")
     ?(access_revision = "acc_rev_1") ?(principal_revision = 3)
-    ?(installation_revision = Some "inst_rev_1") () : A.request =
+    ?(installation_revision = Some "inst_rev_1")
+    ?(fallback = A.default_fallback_context) () : A.request =
   {
     action;
     tool_catalog =
@@ -79,6 +80,7 @@ let base_request ?(action = "merge") ?(tool_authorized = true)
       { ok = live_ok; revision = live_revision; detail = live_detail };
     pin;
     actor_snapshot_id;
+    fallback;
   }
 
 let expect_allow ?(mode = A.User) decision =
@@ -132,16 +134,33 @@ let test_allow_user_required_merge () =
         (List.assoc "issues_lease" fields = `Bool false)
   | _ -> Alcotest.fail "decision json must be object"
 
-let test_allow_app_installation_comment () =
+let test_allow_user_preferred_comment_as_user () =
   let d =
     A.authorize
       (base_request ~action:"comment" ~confirmation_required:false
          ~confirmation_satisfied:true ~confirmation_id:None
-         ~binding:A.Not_required ~user_authority_ok:true ())
+         ~binding:(A.Selected (selected ()))
+         ~user_authority_ok:true ())
+  in
+  let a = expect_allow ~mode:A.User d in
+  Alcotest.(check string) "action" "comment" a.requirement.action;
+  Alcotest.(check string)
+    "attribution" "user_preferred"
+    (Policy.attribution_to_string a.requirement.attribution);
+  Alcotest.(check bool) "not fallback" false a.used_app_fallback;
+  Alcotest.(check (option string)) "binding" (Some "bind_1") a.binding_id
+
+let test_allow_user_preferred_visible_app_fallback () =
+  let fallback = A.fallback_context ~preview_actor:A.Fallback.Names_app () in
+  let d =
+    A.authorize
+      (base_request ~action:"comment" ~confirmation_required:false
+         ~confirmation_id:None ~binding:A.Not_required ~fallback
+         ~user_authority_ok:false ())
   in
   let a = expect_allow ~mode:A.App d in
-  Alcotest.(check string) "action" "comment" a.requirement.action;
-  Alcotest.(check (option string)) "no binding" None a.binding_id
+  Alcotest.(check bool) "used_app_fallback" true a.used_app_fallback;
+  Alcotest.(check (option string)) "no user binding" None a.binding_id
 
 let test_allow_with_matching_pins () =
   let pin : A.revision_pin =
@@ -369,7 +388,8 @@ let test_string_of_decision () =
   let allow_s =
     A.string_of_decision
       (A.authorize
-         (base_request ~action:"label" ~binding:A.Not_required
+         (base_request ~action:"label"
+            ~binding:(A.Selected (selected ()))
             ~confirmation_required:false ~confirmation_id:None ()))
   in
   Alcotest.(check bool)
@@ -382,28 +402,76 @@ let test_string_of_decision () =
     "deny prefix" true
     (String.length deny_s >= 4 && String.sub deny_s 0 4 = "deny")
 
-let test_app_path_skips_user_authority () =
-  (* App path: user_authority_ok=false is ignored; org/sso still apply. *)
+let test_app_fallback_skips_user_authority () =
+  (* Visible App fallback: user_authority_ok=false is ignored; org/sso still apply. *)
+  let fallback = A.fallback_context ~preview_actor:A.Fallback.Names_app () in
   let d =
     A.authorize
       (base_request ~action:"comment" ~binding:A.Not_required
-         ~confirmation_required:false ~confirmation_id:None
+         ~confirmation_required:false ~confirmation_id:None ~fallback
          ~user_authority_ok:false ())
   in
   ignore (expect_allow ~mode:A.App d);
   let d2 =
     A.authorize
       (base_request ~action:"comment" ~binding:A.Not_required
-         ~confirmation_required:false ~confirmation_id:None ~sso_ok:false ())
+         ~confirmation_required:false ~confirmation_id:None ~fallback
+         ~sso_ok:false ())
   in
   ignore (expect_deny ~check:"user_org_sso" ~code:"sso_required" d2)
+
+let test_user_required_never_app_fallback_via_authorize () =
+  let fallback = A.fallback_context ~preview_actor:A.Fallback.Names_app () in
+  let d =
+    A.authorize
+      (base_request ~action:"merge" ~binding:A.Not_required ~fallback ())
+  in
+  ignore (expect_deny ~check:"fallback" ~code:"user_required_no_fallback" d)
+
+let test_attribution_gate_disabled_via_authorize () =
+  let fallback = A.fallback_context ~attribution_gate_enabled:false () in
+  let d = A.authorize (base_request ~action:"merge" ~fallback ()) in
+  ignore (expect_deny ~check:"fallback" ~code:"attribution_gate_disabled" d)
+
+let test_post_confirm_authority_loss_via_authorize () =
+  let fallback =
+    A.fallback_context ~post_confirm_authority_lost:true
+      ~phase:(A.Fallback.Post_confirm { locked_mode = A.Fallback.User })
+      ()
+  in
+  let d = A.authorize (base_request ~action:"merge" ~fallback ()) in
+  ignore (expect_deny ~check:"fallback" ~code:"post_confirm_authority_lost" d)
+
+let test_retry_mode_lock_via_authorize () =
+  let fallback =
+    A.fallback_context
+      ~phase:(A.Fallback.Retry { locked_mode = A.Fallback.User })
+      ~preview_actor:A.Fallback.Names_app ()
+  in
+  (* Locked User with healthy binding: stays User despite preview naming App. *)
+  let d =
+    A.authorize
+      (base_request ~action:"comment" ~fallback ~confirmation_required:false
+         ~confirmation_id:None ())
+  in
+  let a = expect_allow ~mode:A.User d in
+  Alcotest.(check bool) "not fallback" false a.used_app_fallback;
+  (* Locked User with no binding: cannot switch to App. *)
+  let d2 =
+    A.authorize
+      (base_request ~action:"comment" ~binding:A.Not_required ~fallback
+         ~confirmation_required:false ~confirmation_id:None ())
+  in
+  ignore (expect_deny ~check:"fallback" ~code:"locked_user_path_unavailable" d2)
 
 let suite =
   [
     Alcotest.test_case "allow User_required merge" `Quick
       test_allow_user_required_merge;
-    Alcotest.test_case "allow App_installation comment" `Quick
-      test_allow_app_installation_comment;
+    Alcotest.test_case "allow User_preferred comment as user" `Quick
+      test_allow_user_preferred_comment_as_user;
+    Alcotest.test_case "allow User_preferred visible App fallback" `Quick
+      test_allow_user_preferred_visible_app_fallback;
     Alcotest.test_case "allow with matching pins" `Quick
       test_allow_with_matching_pins;
     Alcotest.test_case "deny tool not in catalog" `Quick
@@ -459,6 +527,14 @@ let suite =
     Alcotest.test_case "make_selected_binding rejects empty" `Quick
       test_make_selected_binding_rejects_empty;
     Alcotest.test_case "string_of_decision" `Quick test_string_of_decision;
-    Alcotest.test_case "App path skips user_authority" `Quick
-      test_app_path_skips_user_authority;
+    Alcotest.test_case "App fallback skips user_authority" `Quick
+      test_app_fallback_skips_user_authority;
+    Alcotest.test_case "User_required never App fallback via authorize" `Quick
+      test_user_required_never_app_fallback_via_authorize;
+    Alcotest.test_case "attribution gate disabled via authorize" `Quick
+      test_attribution_gate_disabled_via_authorize;
+    Alcotest.test_case "post-confirm authority loss via authorize" `Quick
+      test_post_confirm_authority_loss_via_authorize;
+    Alcotest.test_case "retry mode lock via authorize" `Quick
+      test_retry_mode_lock_via_authorize;
   ]
