@@ -49,7 +49,7 @@ matching target attribution, tier, and `pilot_allowed`
 |--------|---------|------------|------------|------------|---------|----------|---------|---------|---------|
 | `read` / `search` / `get_status` / `get_item` / `list_room_items` | read | App | App_installation | — | not required | none | none | app actor | ambient |
 | `pat_read` | read | PAT | Pat_compat | — | not required | none | none | app actor | ambient |
-| `comment` / `label` / `review_request` | mutation | App | User_preferred | — | names actor | visible App | pin lineage | resolved mode | match receipt |
+| `comment` / `label` / `assign` / `review_request` | mutation | App | User_preferred | — | names actor | visible App | pin lineage | resolved mode | match receipt |
 | `review_submit` | mutation | pilot App | User_required | `p19-pr-review-pilot` | user only | none | pin lineage | pilot | self-loop guard |
 | `issue_create` / `issue_close` / `issue_reopen` | mutation | pilot App | User_required | `p19-issue-lifecycle-pilot` | user only | none | pin lineage | pilot | self-loop guard |
 | `workflow_dispatch` | mutation | pilot App | User_required | `p19-workflow-dispatch-pilot` | user only | none | pin lineage | pilot | self-loop guard |

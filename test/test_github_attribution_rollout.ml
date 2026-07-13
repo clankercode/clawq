@@ -64,6 +64,7 @@ let test_matrix_covers_reads_mutations_background () =
       "get_status";
       "comment";
       "label";
+      "assign";
       "review_request";
       "review_submit";
       "issue_create";

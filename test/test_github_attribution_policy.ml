@@ -26,6 +26,7 @@ let test_defaults_cover_required_actions () =
     [
       "comment";
       "label";
+      "assign";
       "review_submit";
       "code_change";
       "workflow_dispatch";
@@ -50,6 +51,8 @@ let test_defaults_tiers_and_attribution () =
   in
   check "comment" ~tier:P.Low ~attribution:P.User_preferred ~pilot_allowed:false;
   check "label" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false;
+  check "assign" ~tier:P.Medium ~attribution:P.User_preferred
     ~pilot_allowed:false;
   check "review_submit" ~tier:P.High ~attribution:P.User_required
     ~pilot_allowed:true;
@@ -78,7 +81,13 @@ let test_lookup_user_preferred_low_medium () =
     ~pilot_allowed:false c;
   let l = P.lookup ~action:"label" in
   expect ~action:"label" ~tier:P.Medium ~attribution:P.User_preferred
-    ~pilot_allowed:false l
+    ~pilot_allowed:false l;
+  let a = P.lookup ~action:"assign" in
+  expect ~action:"assign" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false a;
+  let a2 = P.lookup ~action:"collab_assign" in
+  expect ~action:"assign" ~tier:P.Medium ~attribution:P.User_preferred
+    ~pilot_allowed:false a2
 
 let test_lookup_normalizes_case_and_aliases () =
   let r = P.lookup ~action:"  MERGE  " in

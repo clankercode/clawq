@@ -3,6 +3,7 @@
 
 module Attr = Github_action_actor_attribution
 module Reconcile = Github_action_reconcile
+module Collab_attr = Github_collab_attribution
 
 type action_kind =
   | Collab of Github_collab_actions.action
@@ -89,12 +90,23 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(issue_pilot = Github_issue_actions.default_pilot_gate)
     ?(workflow_pilot = Github_workflow_dispatch.default_pilot_gate)
     ?(user_auth_available = false) ?actor_key ?actor_snapshot
-    ?account_binding_id ?session_id ?(now = Unix.gettimeofday ()) () =
+    ?account_binding_id ?session_id ?attribution_evidence ?github_user_id
+    ?(now = Unix.gettimeofday ()) () =
   let plan_res =
     match action with
-    | Collab collab ->
-        Github_collab_actions.plan_action ~db ~principal ~room_id ~action:collab
-          ~base_revision ?route ~now ()
+    | Collab collab -> (
+        match attribution_evidence with
+        | Some evidence -> (
+            match
+              Collab_attr.plan_with_attribution ~db ~principal ~room_id
+                ~action:collab ~base_revision ~evidence ?route ?actor_snapshot
+                ?github_user_id ~now ()
+            with
+            | Ok planned -> Ok planned.plan
+            | Error e -> Error e)
+        | None ->
+            Github_collab_actions.plan_action ~db ~principal ~room_id
+              ~action:collab ~base_revision ?route ~now ())
     | Request_reviewers req ->
         Github_pr_review_actions.plan_request_reviewers ~db ~principal ~room_id
           ~req ~base_revision ?route ~now ()
@@ -142,26 +154,58 @@ let apply_outcome_with_correlation ~db ~plan ~now
       ());
   outcome
 
+(** When a collab plan carries staged attribution, revalidate live evidence and
+    issue an opaque lease before receipt-only apply. Receipt-only path revokes
+    the lease after native attribution receipt (no live HTTP in this layer). *)
+let maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
+    ?expected_account ?github_user_id ~now () =
+  if not (Collab_attr.has_attribution_allow plan) then Ok None
+  else
+    match attribution_live with
+    | None ->
+        Error
+          "collab plan has staged attribution_allow; apply requires \
+           attribution_live evidence for revalidation and dispatch lease"
+    | Some live -> (
+        match
+          Collab_attr.prepare_dispatch_from_plan ~db ~plan ~live ?vault_id
+            ?expected:expected_account ?github_user_id ~now ()
+        with
+        | Error e -> Error e
+        | Ok dispatched ->
+            (* Receipt-only apply: lease proves dispatch gate; no HTTP here. *)
+            Collab_attr.revoke_issued_lease dispatched.issued;
+            Ok (Some dispatched))
+
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
-    ~current_base_revision ~destination_room ?current_target
-    ?(now = Unix.gettimeofday ()) () =
+    ~current_base_revision ~destination_room ?current_target ?attribution_live
+    ?vault_id ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) ()
+    =
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
   with
   | Error msg -> Ok (reject_actor_attribution msg)
-  | Ok _envelope_opt ->
-      (* Snapshot (when present) re-resolved usable; proceed with receipt-only
-         apply. Envelope is available for later live dispatch wiring. *)
-      let outcome =
-        Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-          ~current_base_revision ~destination_room ~now
-          ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ()
-      in
-      Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)
+  | Ok _envelope_opt -> (
+      match
+        maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
+          ?expected_account ?github_user_id ~now ()
+      with
+      | Error msg -> Ok (reject_actor_attribution msg)
+      | Ok _dispatched_opt ->
+          (* Snapshot (when present) re-resolved usable; collab attribution
+             dispatch (when staged) revalidated. Proceed with receipt-only
+             apply. *)
+          let outcome =
+            Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+              ~current_base_revision ~destination_room ~now
+              ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ()
+          in
+          Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
-    ?current_merge_policy ?current_target ?(now = Unix.gettimeofday ()) () =
+    ?current_merge_policy ?current_target ?attribution_live ?vault_id
+    ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
   Setup_plan_apply.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id with
   | None ->
@@ -201,4 +245,6 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
                  plan_id)
         | Some destination_room ->
             apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
-              ~current_base_revision ~destination_room ?current_target ~now ())
+              ~current_base_revision ~destination_room ?current_target
+              ?attribution_live ?vault_id ?expected_account ?github_user_id ~now
+              ())

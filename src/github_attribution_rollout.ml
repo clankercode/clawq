@@ -154,6 +154,11 @@ let matrix () =
       ~preview:Preview_names_actor ~fallback:Visible_app_fallback
       ~delayed:Pin_actor_lineage ~receipt:Receipt_resolved_mode
       ~webhook:Webhook_match_receipt ~production_requires_user_gate:true ();
+    row ~action:"assign" ~surface:Mutation ~legacy:Legacy_app
+      ~target:Policy.User_preferred ~tier:Policy.Medium ~pilot_allowed:false
+      ~preview:Preview_names_actor ~fallback:Visible_app_fallback
+      ~delayed:Pin_actor_lineage ~receipt:Receipt_resolved_mode
+      ~webhook:Webhook_match_receipt ~production_requires_user_gate:true ();
     row ~action:"review_request" ~surface:Mutation ~legacy:Legacy_app
       ~target:Policy.User_preferred ~tier:Policy.Medium ~pilot_allowed:false
       ~preview:Preview_names_actor ~fallback:Visible_app_fallback
@@ -212,6 +217,7 @@ let normalize_action action =
   | "workflow" -> "workflow_dispatch"
   | "collab_comment" -> "comment"
   | "collab_label" -> "label"
+  | "collab_assign" | "assignee" | "assignees" -> "assign"
   | "request_review" | "reviewer_request" -> "review_request"
   | "issue_open" | "create_issue" -> "issue_create"
   | "close_issue" -> "issue_close"
