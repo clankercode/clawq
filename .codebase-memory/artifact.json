@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "466d67a4ccab61c5d165469f2253396874ff71df",
-    "indexed_at": "2026-07-13T04:13:18Z",
+    "commit": "f8d513876293587fae7a1116a6d930348dddb765",
+    "indexed_at": "2026-07-13T04:27:06Z",
     "project": "home-xertrov-src-clawq",
-    "nodes": 29630,
-    "edges": 126383,
-    "original_size": 91095040,
-    "compressed_size": 15877930,
+    "nodes": 550,
+    "edges": 358,
+    "original_size": 2883584,
+    "compressed_size": 230156,
     "compression_level": 3
 }
