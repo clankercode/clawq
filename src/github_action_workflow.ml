@@ -2,6 +2,7 @@
    See github_action_workflow.mli. *)
 
 module Attr = Github_action_actor_attribution
+module Reconcile = Github_action_reconcile
 
 type action_kind =
   | Collab of Github_collab_actions.action
@@ -123,6 +124,24 @@ let reject_actor_attribution msg : Setup_plan_apply.outcome =
   Setup_plan_apply.Rejected
     { reason = Setup_plan_apply.Apply_error; message = msg }
 
+(** After a successful apply, attach the initiating Actor snapshot (when pinned)
+    and attribution modes to a durable open correlation so webhook reconcile
+    retains historical identity. Best-effort: apply receipt is already durable;
+    correlation record failure must not rewrite the applied plan. *)
+let maybe_record_receipt_correlation ~db ~plan ~receipt_id ~now =
+  match Reconcile.record_from_applied_plan ~db ~plan ~receipt_id ~now () with
+  | Ok _ | Error _ -> ()
+
+let apply_outcome_with_correlation ~db ~plan ~now
+    (outcome : Setup_plan_apply.outcome) =
+  (match outcome with
+  | Setup_plan_apply.Applied { receipt_id; first_time = true } ->
+      maybe_record_receipt_correlation ~db ~plan ~receipt_id ~now
+  | Setup_plan_apply.Applied { first_time = false; _ }
+  | Setup_plan_apply.Rejected _ ->
+      ());
+  outcome
+
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target
     ?(now = Unix.gettimeofday ()) () =
@@ -134,10 +153,12 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
   | Ok _envelope_opt ->
       (* Snapshot (when present) re-resolved usable; proceed with receipt-only
          apply. Envelope is available for later live dispatch wiring. *)
-      Ok
-        (Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
-           ~current_base_revision ~destination_room ~now
-           ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ())
+      let outcome =
+        Setup_plan_apply.apply ~db ~plan_id ~digest ~principal
+          ~current_base_revision ~destination_room ~now
+          ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ()
+      in
+      Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?(now = Unix.gettimeofday ()) () =
@@ -162,10 +183,15 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
             ~require_snapshot:false ()
         with
         | Error msg -> Ok (reject_actor_attribution msg)
-        | Ok _ ->
-            Github_merge_action.apply_confirmed ~db ~plan_id ~digest ~principal
-              ~current_base_revision ?current_policy:current_merge_policy ~now
-              ()
+        | Ok _ -> (
+            match
+              Github_merge_action.apply_confirmed ~db ~plan_id ~digest
+                ~principal ~current_base_revision
+                ?current_policy:current_merge_policy ~now ()
+            with
+            | Error e -> Error e
+            | Ok outcome ->
+                Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))
       else
         match plan.destination.room_id with
         | None ->

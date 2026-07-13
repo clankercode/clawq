@@ -11,7 +11,9 @@
       or policy changes invalidate the confirmation. Snapshots are never
       reusable authority.
 
-    Jobs, receipts, and webhooks are separate slices (T005 / T006).
+    Durable jobs/outbox are T005. Receipts and webhook reconcile attach the same
+    snapshot via [Github_action_reconcile] (T006) without elevating it to
+    authority.
 
     Canonical contract:
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md and

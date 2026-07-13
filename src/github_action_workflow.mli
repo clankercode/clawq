@@ -14,7 +14,10 @@
     [Actor_snapshot] is pinned onto the plan (intent / confirmation envelope).
     Confirm/apply re-resolves live Principal, identity link, and account
     lineage; actor, link, account, target, or policy changes invalidate
-    confirmation. Room history cannot supply identity.
+    confirmation. Room history cannot supply identity. On first successful
+    apply, the initiating snapshot and requested/resolved attribution are
+    attached to a durable receipt correlation for webhook reconcile
+    (P21.M1.E3.T006); the snapshot is never reusable authority.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md, and
