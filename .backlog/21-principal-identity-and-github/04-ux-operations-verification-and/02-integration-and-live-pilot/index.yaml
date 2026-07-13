@@ -44,7 +44,7 @@ tasks:
       file: T002-run-token-leak-restart-concurr.todo
       id: T002
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Run token-leak restart concurrency and private-delivery verification
     - complexity: high
