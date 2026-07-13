@@ -236,6 +236,7 @@
   github_user_token_master_key
   github_user_token_vault
   github_user_token_rewrap
+  github_user_token_vault_recovery
   credential_lease
   skills
   skills_cmd_inject
