@@ -185,6 +185,7 @@
   github_app_installation_scope
   github_event_envelope
   github_route_filter
+  github_filter_enrichment
   github_route_store
   github_route_match
   github_route_transfer
