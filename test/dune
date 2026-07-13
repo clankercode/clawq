@@ -108,6 +108,7 @@
   test_github_user_auth_readiness
   test_github_user_auth_tx
   test_github_user_auth_delivery
+  test_github_user_auth_device
   test_github_user_token_store
   test_github_user_token_master_key
   test_github_user_token_vault
