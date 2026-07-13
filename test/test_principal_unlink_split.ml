@@ -560,6 +560,64 @@ let test_source_retains_state_when_last_actor_unlinked () =
       | _ -> Alcotest.fail "source missing")
   | other -> Alcotest.fail (status_msg other)
 
+(* -------------------------------------------------------------------------- *)
+(* Canonical invalidation is transactional                                    *)
+(* -------------------------------------------------------------------------- *)
+
+let test_split_rolls_back_when_invalidation_receipt_fails () =
+  with_db @@ fun db ->
+  let source =
+    insert_principal ~db ~id:"prin_invalidation_tx"
+      ~created_at:"2026-01-01T00:00:00Z" ()
+  in
+  let k = key ~connector:P.Slack ~tenant:"ws" ~user:"invalidation-tx" () in
+  ignore
+    (seed_owned_actor ~db ~principal_id:source.id ~key:k
+       ~link_id:"link_invalidation_tx" ());
+  ignore
+    (assert_ok
+       (M.set_pending_authorization_count ~db ~principal_id:source.id ~count:2));
+  Github_user_auth_invalidate.ensure_schema db;
+  (match
+     Sqlite3.exec db
+       {|CREATE TRIGGER reject_connector_split_invalidation_receipt
+           BEFORE INSERT ON github_user_auth_invalidate_receipts
+           BEGIN
+             SELECT RAISE(ABORT, 'test invalidation receipt failure');
+           END|}
+   with
+  | Sqlite3.Rc.OK -> ()
+  | rc ->
+      Alcotest.fail
+        ("could not install invalidation failure trigger: "
+       ^ Sqlite3.Rc.to_string rc));
+  (match
+     U.unlink_actor ~db ~source_principal_id:source.id ~actor_key:k
+       ~plan_id:"psplit_invalidation_tx" ~now:fixed_now ()
+   with
+  | U.Refused { reason; _ } ->
+      Alcotest.(check bool)
+        "propagates invalidation storage failure" true
+        (Test_helpers.string_contains
+           (String.lowercase_ascii reason)
+           "invalidation")
+  | other -> Alcotest.fail ("expected refusal, got " ^ status_msg other));
+  (match S.get_connector_actor ~db ~key:k with
+  | Ok (Some actor) ->
+      Alcotest.(check string)
+        "actor ownership rolled back" "prin_invalidation_tx"
+        (P.principal_id_to_string actor.principal_id)
+  | _ -> Alcotest.fail "actor missing after failed split");
+  (match S.get_active_identity_link ~db ~key:k with
+  | Ok (Some link) ->
+      Alcotest.(check string)
+        "identity link rolled back" "prin_invalidation_tx"
+        (P.principal_id_to_string link.principal_id)
+  | _ -> Alcotest.fail "active link was not rolled back");
+  Alcotest.(check int)
+    "pending authorization rollback" 2
+    (assert_ok (M.get_pending_authorization_count ~db ~principal_id:source.id))
+
 let suite =
   [
     ( "unlink actor creates empty principal revokes authority",
@@ -578,4 +636,7 @@ let suite =
     ( "source retains state when last actor unlinked",
       `Quick,
       test_source_retains_state_when_last_actor_unlinked );
+    ( "split rolls back when canonical invalidation fails",
+      `Quick,
+      test_split_rolls_back_when_invalidation_receipt_fails );
   ]
