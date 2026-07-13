@@ -115,7 +115,6 @@ let () =
        ("principal_bootstrap", Test_principal_bootstrap.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);
-||||||| 51cc10dd
        ("discord_principal", Test_discord_principal_ingress.suite);
        ("telegram_principal", Test_telegram_principal_ingress.suite);
        ("github_app_setup_tx", Test_github_app_setup_tx.suite);
@@ -131,6 +130,7 @@ let () =
        ("github_route_filter_preview", Test_github_route_filter_preview.suite);
        ("github_route_store", Test_github_route_store.suite);
        ("github_route_match", Test_github_route_match.suite);
+       ("github_route_match_advanced", Test_github_route_match_advanced.suite);
        ("github_route_transfer", Test_github_route_transfer.suite);
        ("github_route_migrate", Test_github_route_migrate.suite);
        ("github_route_admin", Test_github_route_admin.suite);
