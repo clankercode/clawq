@@ -72,7 +72,7 @@ tasks:
       file: T005-propagate-actor-snapshots-thro.todo
       id: T005
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Propagate Actor snapshots through durable jobs retries and outbox
     - complexity: high
