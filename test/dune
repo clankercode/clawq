@@ -68,6 +68,7 @@
   test_github_route_filter_preview
   test_github_route_store
   test_github_route_match
+  test_github_route_match_advanced
   test_github_route_transfer
   test_github_route_migrate
   test_github_route_admin
