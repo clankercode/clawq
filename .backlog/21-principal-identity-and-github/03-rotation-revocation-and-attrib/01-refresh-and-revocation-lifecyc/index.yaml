@@ -41,7 +41,8 @@ tasks:
       file: T003-process-github-app-authorizati.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Process GitHub App authorization revocation webhooks
     - complexity: high
       depends_on:
