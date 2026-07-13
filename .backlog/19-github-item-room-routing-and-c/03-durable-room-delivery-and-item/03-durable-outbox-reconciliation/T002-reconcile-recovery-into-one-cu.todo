@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-13T00:43:39Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T00:47:21Z"
 complexity: high
 created_at: "2026-07-12T12:34:00Z"
 depends_on:
     - P19.M3.E3.T001
     - P19.M3.E1.T002
+duration_minutes: 3.7153715892333334
 estimate_hours: 4
 id: P19.M3.E3.T002
 priority: high
 started_at: "2026-07-13T00:43:39Z"
-status: in_progress
+status: done
 tags: []
 title: Reconcile recovery into one current-state catch-up per item
-updated_at: "2026-07-13T00:43:39Z"
+updated_at: "2026-07-13T00:47:21Z"
 ---
 Acceptance: After outage or dead-letter recovery, fetch/reduce current GitHub state and send or edit at most one catch-up projection per item rather than replaying a flood. Repair missing jobs, stale leases, message identity loss, and projection mismatch without duplicate visible delivery. Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md.
