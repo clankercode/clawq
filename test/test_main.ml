@@ -118,7 +118,6 @@ let () =
        ("principal_link_exec", Test_principal_link_exec.suite);
        ("principal_merge", Test_principal_merge.suite);
        ("github_account_binding", Test_github_account_binding.suite);
-||||||| 87178962
        ("principal_unlink_split", Test_principal_unlink_split.suite);
        ("teams_principal", Test_teams_principal_ingress.suite);
        ("slack_principal", Test_slack_principal_ingress.suite);
@@ -179,7 +178,6 @@ let () =
        ("github_user_auth_tx", Test_github_user_auth_tx.suite);
        ("github_user_auth_delivery", Test_github_user_auth_delivery.suite);
        ("github_user_auth_pkce", Test_github_user_auth_pkce.suite);
-||||||| 87178962
        ("github_user_auth_device", Test_github_user_auth_device.suite);
        ("github_user_token", Test_github_user_token_store.suite);
        ("github_user_token_master_key", Test_github_user_token_master_key.suite);
