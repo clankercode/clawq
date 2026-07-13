@@ -208,6 +208,38 @@ let test_deletion () =
       in
       Alcotest.(check bool) "second delete None" true (again = None)
 
+let test_stale_create_and_snapshot_cannot_reactivate_deleted () =
+  with_db @@ fun db ->
+  ignore (create_all ~db ());
+  ignore
+    (assert_ok
+       (S.apply_event ~db ~now:(fixed_now +. 1.)
+          (S.Installation_deleted { installation_id = 1001 })));
+  let stale_create =
+    assert_ok
+      (S.apply_event ~db ~now:(fixed_now +. 2.)
+         (S.Installation_created
+            {
+              installation_id = 1001;
+              account;
+              selection = S.All_repos;
+              repositories = [ repo "acme-corp/reactivated" () ];
+              permissions = perms;
+              app_id = Some 42;
+            }))
+  in
+  Alcotest.(check bool) "stale create returns no active scope" true
+    (stale_create = None);
+  let snapshot =
+    sample_scope ~repositories:[ repo "acme-corp/reactivated" () ] ()
+  in
+  let reconciled = assert_ok (S.reconcile_from_snapshot ~db ~snapshot) in
+  Alcotest.(check bool) "snapshot retains tombstone" true
+    (reconciled.status = S.Deleted);
+  Alcotest.(check bool)
+    "reactivated repo remains denied" false
+    (S.is_repo_authorized reconciled ~repo_full_name:"acme-corp/reactivated")
+
 (* 7. idempotent double apply of create *)
 let test_idempotent_create () =
   with_db @@ fun db ->
@@ -360,6 +392,9 @@ let suite =
       test_repos_removed_selected );
     ("suspension unauthorized all", `Quick, test_suspension_unauthorized);
     ("deletion soft-delete unauthorized", `Quick, test_deletion);
+    ( "stale create/snapshot cannot reactivate deleted installation",
+      `Quick,
+      test_stale_create_and_snapshot_cannot_reactivate_deleted );
     ("idempotent double create", `Quick, test_idempotent_create);
     ( "snapshot reconcile overwrites drift",
       `Quick,

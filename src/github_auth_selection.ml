@@ -66,9 +66,17 @@ let classify_snapshot (s : auth_snapshot) : auth_mode =
 let classify_auth (auth : Runtime_config.github_auth option) : auth_mode =
   classify_snapshot (snapshot_of_auth auth)
 
-let app_installation_viable (installation : Github_app_installation_scope.t)
-    ~repo_full_name =
-  Github_app_installation_scope.is_repo_authorized installation ~repo_full_name
+let app_owns_installation
+    (app : Runtime_config.github_app_config)
+    (installation : Github_app_installation_scope.t) =
+  match installation.app_id with
+  | Some app_id -> app_id = app.app_id
+  | None -> false
+
+let app_installation_viable ~(app : Runtime_config.github_app_config)
+    (installation : Github_app_installation_scope.t) ~repo_full_name =
+  app_owns_installation app installation
+  && Github_app_installation_scope.is_repo_authorized installation ~repo_full_name
 
 let make_selection ~mode ~chosen ~installation_id ~repo ~reason ~explanation :
     selection =
@@ -81,7 +89,7 @@ let select_for_repo ~(auth : auth_snapshot) ?installation ~repo_full_name () :
   let repo = Some repo_full_name in
   let app_viable =
     match (auth.app, installation) with
-    | Some _, Some inst -> app_installation_viable inst ~repo_full_name
+    | Some app, Some inst -> app_installation_viable ~app inst ~repo_full_name
     | _ -> false
   in
   let app_inst_id =
@@ -112,13 +120,18 @@ let select_for_repo ~(auth : auth_snapshot) ?installation ~repo_full_name () :
         match installation with
         | None -> "no installation scope provided"
         | Some inst -> (
-            match inst.status with
-            | Github_app_installation_scope.Active ->
-                "repository not authorized on the installation"
-            | Github_app_installation_scope.Suspended { reason } ->
-                Printf.sprintf "installation suspended%s"
-                  (match reason with Some r -> ": " ^ r | None -> "")
-            | Github_app_installation_scope.Deleted -> "installation deleted")
+            match auth.app with
+            | Some app when not (app_owns_installation app inst) ->
+                "installation does not belong to the configured GitHub App"
+            | Some _ -> (
+                match inst.status with
+                | Github_app_installation_scope.Active ->
+                    "repository not authorized on the installation"
+                | Github_app_installation_scope.Suspended { reason } ->
+                    Printf.sprintf "installation suspended%s"
+                      (match reason with Some r -> ": " ^ r | None -> "")
+                | Github_app_installation_scope.Deleted -> "installation deleted")
+            | None -> "GitHub App credentials are not configured")
       in
       make_selection ~mode ~chosen:`Pat ~installation_id:None ~repo
         ~reason:Pat_fallback_exact_repo
@@ -160,7 +173,7 @@ let org_matches_account ~org (account : Github_app_installation_scope.account) =
 let can_claim_org_scope ~(auth : auth_snapshot)
     ~(installation : Github_app_installation_scope.t option) : bool =
   match (auth.app, installation) with
-  | Some _, Some inst -> (
+  | Some app, Some inst when app_owns_installation app inst -> (
       match inst.status with
       | Github_app_installation_scope.Active -> true
       | Github_app_installation_scope.Suspended _
@@ -187,13 +200,22 @@ let select_for_org_route ~(auth : auth_snapshot) ?installation ~org () :
         ~detail:
           (if auth.pat_token_present then "Current auth is PAT-only."
            else "No App or PAT credentials are configured.")
-  | Some _ -> (
+  | Some app -> (
       match installation with
       | None ->
           reject_requires_app
             ~detail:"No installation scope was provided for the org account."
       | Some inst -> (
-          match inst.Github_app_installation_scope.status with
+          match app_owns_installation app inst with
+          | false ->
+              reject_requires_app
+                ~detail:
+                  (Printf.sprintf
+                     "Installation %d is not verified as belonging to the \
+                      configured GitHub App."
+                     inst.installation_id)
+          | true -> (
+              match inst.Github_app_installation_scope.status with
           | Github_app_installation_scope.Suspended { reason } ->
               reject_requires_app
                 ~detail:
@@ -231,7 +253,7 @@ let select_for_org_route ~(auth : auth_snapshot) ?installation ~org () :
                         org iid inst.account.login )
                 in
                 make_selection ~mode ~chosen:(`App iid)
-                  ~installation_id:(Some iid) ~repo:None ~reason ~explanation))
+                  ~installation_id:(Some iid) ~repo:None ~reason ~explanation)))
 
 let migration_preserves_pat ~(before : auth_snapshot) ~(after : auth_snapshot) :
     bool =

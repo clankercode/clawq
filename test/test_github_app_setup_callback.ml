@@ -16,11 +16,11 @@ let public_base = "https://clawq.example.com"
 let base_revision = "rev-config-abc"
 let fixed_now = 1_700_000_000.0
 
-let create_tx ?id ?state ?(bind = room_bind) ?(ttl_seconds = 1800.0)
+let create_tx ?id ?state ?(bind = room_bind) ?scope ?(ttl_seconds = 1800.0)
     ?(now = fixed_now) ~db () =
   Github_app_setup_tx.create ~db ~principal ~bind ~base_revision
     ~public_base_url:public_base ~app_name:"Clawq" ~now ~ttl_seconds ?id ?state
-    ()
+    ?scope ()
 
 let assert_ok = function Ok v -> v | Error e -> Alcotest.fail e
 let contains hay needle = Test_helpers.string_contains hay needle
@@ -64,16 +64,34 @@ let ok_http ?(body = conversion_json ()) ?(status = 201) () ~url:_ ~headers:_
     ~body:_ =
   Ok (status, body)
 
-let make_req ?callback_path ?expected_bind ?expected_principal_id
-    ?installation_id ~code ~state () :
+let verify_installation ~app_id ~private_key_pem:_ ~installation_id =
+  Ok
+    (Github_app_installation_scope.with_revision
+       {
+         installation_id;
+         app_id = Some app_id;
+         account = { login = "acme-corp"; id = 99; account_type = "Organization" };
+         selection = Github_app_installation_scope.All_repos;
+         repositories = [];
+         revoked_repositories = [];
+         permissions = [ ("metadata", "read") ];
+         status = Github_app_installation_scope.Active;
+         revision = "";
+         updated_at = Time_util.iso8601_utc ~t:fixed_now ();
+       })
+
+let make_req
+    ?(callback_path = Github_app_setup_tx.default_callback_path)
+    ?(expected_bind = room_bind) ?(expected_principal_id = principal.id)
+    ?(installation_id = 99) ~code ~state () :
     Github_app_setup_callback.exchange_request =
   {
     code;
     state;
-    callback_path;
-    expected_bind;
-    expected_principal_id;
-    installation_id;
+    callback_path = Some callback_path;
+    expected_bind = Some expected_bind;
+    expected_principal_id = Some expected_principal_id;
+    installation_id = Some installation_id;
     setup_action = None;
   }
 
@@ -86,7 +104,7 @@ let test_happy_path () =
   let result =
     assert_ok
       (Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
-         ~store_secret ~now:fixed_now
+         ~verify_installation ~store_secret ~now:fixed_now
          (make_req ~code:"tmp_code_1" ~state:tx.state
             ~callback_path:Github_app_setup_tx.default_callback_path
             ~expected_bind:room_bind ~expected_principal_id:principal.id
@@ -99,6 +117,9 @@ let test_happy_path () =
   Alcotest.(check int) "app_id" 424242 result.app.app_id;
   Alcotest.(check int) "raw_app_id" 424242 result.raw_app_id;
   Alcotest.(check (option int)) "installation" (Some 99) result.installation_id;
+  Alcotest.(check int)
+    "verified scope app" 424242
+    (Option.value result.verified_installation.app_id ~default:0);
   Alcotest.(check (option string))
     "slug" (Some "clawq-test-app") result.app.slug;
   Alcotest.(check bool)
@@ -185,7 +206,7 @@ let test_replay_after_consume () =
   let _ =
     assert_ok
       (Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
-         ~store_secret ~now:fixed_now
+         ~verify_installation ~store_secret ~now:fixed_now
          (make_req ~code:"c1" ~state:tx.state ()))
   in
   let before = List.length !stored in
@@ -345,7 +366,7 @@ let test_concurrent_duplicate_only_one_succeeds () =
   let first =
     assert_ok
       (Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
-         ~store_secret ~now:fixed_now
+         ~verify_installation ~store_secret ~now:fixed_now
          (make_req ~code:"c1" ~state:tx.state ()))
   in
   Alcotest.(check int) "app from first" 424242 first.app.app_id;
@@ -384,6 +405,146 @@ let test_callback_path_mismatch () =
         "path mismatch" true
         (contains (String.lowercase_ascii msg) "callback")
   | Ok _ -> Alcotest.fail "wrong path must fail");
+  Alcotest.(check int) "no secrets" 0 (List.length !stored)
+
+let test_missing_callback_context_fails_closed () =
+  with_db @@ fun db ->
+  let tx =
+    assert_ok (create_tx ~db ~id:"tx_context" ~state:"state_context_llll" ())
+  in
+  let store_secret, stored = make_store () in
+  let req : Github_app_setup_callback.exchange_request =
+    {
+      code = "c";
+      state = tx.state;
+      callback_path = Some Github_app_setup_tx.default_callback_path;
+      expected_bind = None;
+      expected_principal_id = Some principal.id;
+      installation_id = Some 99;
+      setup_action = None;
+    }
+  in
+  (match
+     Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
+       ~verify_installation ~store_secret ~now:fixed_now req
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions context" true
+        (contains (String.lowercase_ascii msg) "context")
+  | Ok _ -> Alcotest.fail "missing trusted callback context must fail");
+  Alcotest.(check int) "no secrets" 0 (List.length !stored)
+
+let test_verified_installation_must_match_converted_app () =
+  with_db @@ fun db ->
+  let tx =
+    assert_ok (create_tx ~db ~id:"tx_verify" ~state:"state_verify_mmmm" ())
+  in
+  let store_secret, stored = make_store () in
+  let verify_wrong_app ~app_id:_ ~private_key_pem:_ ~installation_id =
+    verify_installation ~app_id:7 ~private_key_pem:"unused" ~installation_id
+  in
+  (match
+     Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
+       ~verify_installation:verify_wrong_app ~store_secret ~now:fixed_now
+       (make_req ~code:"c" ~state:tx.state ())
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "app mismatch" true
+        (contains (String.lowercase_ascii msg) "app_id")
+  | Ok _ -> Alcotest.fail "mismatched verified App must fail");
+  Alcotest.(check int) "no secrets" 0 (List.length !stored);
+  match Github_app_setup_tx.get ~db ~id:tx.id with
+  | Ok (Some stored_tx) ->
+      Alcotest.(check string)
+        "transaction remains recoverable" "open"
+        (Github_app_setup_tx.status_to_string stored_tx.status)
+  | Ok None -> Alcotest.fail "transaction missing"
+  | Error e -> Alcotest.fail e
+
+let test_verified_installation_must_match_setup_org () =
+  with_db @@ fun db ->
+  let requested_scope : Github_app_setup_tx.requested_scope =
+    {
+      org = Some "acme-corp";
+      selection = Github_app_setup_tx.All_repos;
+      permissions = Github_app_setup_tx.default_permissions;
+      events = Github_app_setup_tx.default_events;
+    }
+  in
+  let tx =
+    assert_ok
+      (create_tx ~db ~id:"tx_org" ~state:"state_org_oooo"
+         ~scope:requested_scope ())
+  in
+  let verify_other_org ~app_id ~private_key_pem ~installation_id =
+    match verify_installation ~app_id ~private_key_pem ~installation_id with
+    | Error _ as error -> error
+    | Ok scope ->
+        Ok
+          {
+            scope with
+            account =
+              { scope.account with login = "other-org"; id = 100 };
+          }
+  in
+  let store_secret, stored = make_store () in
+  (match
+     Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
+       ~verify_installation:verify_other_org ~store_secret ~now:fixed_now
+       (make_req ~code:"c" ~state:tx.state ())
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "org mismatch" true
+        (contains (String.lowercase_ascii msg) "org")
+  | Ok _ -> Alcotest.fail "verified installation for another org must fail");
+  Alcotest.(check int) "no secrets" 0 (List.length !stored)
+
+let test_reentrant_duplicate_fails_before_secret_store () =
+  with_db @@ fun db ->
+  let tx =
+    assert_ok (create_tx ~db ~id:"tx_reentrant" ~state:"state_reentrant_pppp" ())
+  in
+  let store_secret, stored = make_store () in
+  let req = make_req ~code:"c" ~state:tx.state () in
+  let duplicate = ref None in
+  let http ~url:_ ~headers:_ ~body:_ =
+    duplicate :=
+      Some
+        (Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
+           ~verify_installation ~store_secret ~now:fixed_now req);
+    Ok (201, conversion_json ())
+  in
+  ignore
+    (assert_ok
+       (Github_app_setup_callback.exchange ~db ~http_post:http
+          ~verify_installation ~store_secret ~now:fixed_now req));
+  (match !duplicate with
+  | Some (Error _) -> ()
+  | Some (Ok _) -> Alcotest.fail "duplicate callback unexpectedly succeeded"
+  | None -> Alcotest.fail "reentrant callback was not attempted");
+  Alcotest.(check int)
+    "only winner stored one complete secret set" 4 (List.length !stored)
+
+let test_missing_installation_verifier_fails_closed () =
+  with_db @@ fun db ->
+  let tx =
+    assert_ok
+      (create_tx ~db ~id:"tx_missing_verifier" ~state:"state_verifier_nnnn" ())
+  in
+  let store_secret, stored = make_store () in
+  (match
+     Github_app_setup_callback.exchange ~db ~http_post:(ok_http ())
+       ~store_secret ~now:fixed_now
+       (make_req ~code:"c" ~state:tx.state ())
+   with
+  | Error msg ->
+      Alcotest.(check bool)
+        "requires authenticated verifier" true
+        (contains (String.lowercase_ascii msg) "verifier")
+  | Ok _ -> Alcotest.fail "callback without installation verifier must fail");
   Alcotest.(check int) "no secrets" 0 (List.length !stored)
 
 let test_schema_idempotent () =
@@ -434,6 +595,21 @@ let suite =
       `Quick,
       test_concurrent_duplicate_only_one_succeeds );
     ("callback path mismatch fails", `Quick, test_callback_path_mismatch);
+    ( "missing callback context fails closed",
+      `Quick,
+      test_missing_callback_context_fails_closed );
+    ( "verified installation must match converted App",
+      `Quick,
+      test_verified_installation_must_match_converted_app );
+    ( "verified installation must match setup org",
+      `Quick,
+      test_verified_installation_must_match_setup_org );
+    ( "reentrant duplicate fails before secret store",
+      `Quick,
+      test_reentrant_duplicate_fails_before_secret_store );
+    ( "missing installation verifier fails closed",
+      `Quick,
+      test_missing_installation_verifier_fails_closed );
     ("schema/helpers", `Quick, test_schema_idempotent);
     ("transport error leaves open", `Quick, test_transport_error_leaves_open);
   ]

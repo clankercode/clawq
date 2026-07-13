@@ -20,6 +20,8 @@ type reject_reason =
   | Invalid_payload
   | Wrong_path
   | App_id_mismatch
+  | Missing_app_id
+  | Missing_installation_id
 
 type accepted = {
   delivery_id : string;
@@ -49,6 +51,8 @@ let reject_reason_to_string = function
   | Invalid_payload -> "invalid_payload"
   | Wrong_path -> "wrong_path"
   | App_id_mismatch -> "app_id_mismatch"
+  | Missing_app_id -> "missing_app_id"
+  | Missing_installation_id -> "missing_installation_id"
 
 let rejected reason message = Rejected { reason; message }
 
@@ -148,6 +152,11 @@ let extract_fields (payload : Yojson.Safe.t) =
     match installation with `Null -> None | j -> json_int (member "app_id" j)
   in
   let app_id_from_root = json_int (member "app_id" payload) in
+  let app_ids_match =
+    match (app_id_from_installation, app_id_from_root) with
+    | Some from_installation, Some from_root -> from_installation = from_root
+    | _ -> true
+  in
   let app_id =
     match app_id_from_installation with
     | Some _ as id -> id
@@ -161,13 +170,15 @@ let extract_fields (payload : Yojson.Safe.t) =
         | `String s when String.trim s <> "" -> Some s
         | _ -> None)
   in
-  (installation_id, app_id, repo_full_name, action)
+  (installation_id, app_id, app_ids_match, repo_full_name, action)
 
 let is_installation_event event =
   event = "installation" || event = "installation_repositories"
 
+let is_ping event = String.equal event "ping"
+
 let event_allowed ~allowed_events ~event =
-  event = "ping" || List.exists (fun e -> String.equal e event) allowed_events
+  is_ping event || List.exists (fun e -> String.equal e event) allowed_events
 
 let normalize_path p =
   let p = String.trim p in
@@ -177,7 +188,7 @@ let normalize_path p =
   | None -> p
 
 let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
-    ?(allowed_events = default_allowed_events) ?expected_app_id
+    ?(allowed_events = default_allowed_events) ~expected_app_id
     ?(now = Unix.gettimeofday ()) (req : request) =
   let path = normalize_path req.path in
   let expected = normalize_path expected_path in
@@ -224,25 +235,54 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                   rejected Invalid_payload
                     (Printf.sprintf "invalid JSON payload: %s" msg)
               | Ok payload -> (
-                  let installation_id, app_id, repo_full_name, action =
+                  let installation_id, app_id, app_ids_match, repo_full_name,
+                      action =
                     extract_fields payload
                   in
-                  let app_ok =
-                    match (expected_app_id, app_id) with
-                    | Some want, Some got when want <> got -> false
-                    | _ -> true
+                  let app_result =
+                    if is_ping event then
+                      (* Ping is the only GitHub delivery that legitimately
+                         lacks App and installation identity. If it includes an
+                         App id, still reject a conflicting identity. *)
+                      match app_id with
+                      | Some app_id
+                        when not app_ids_match || app_id <> expected_app_id ->
+                          Error
+                            ( App_id_mismatch,
+                              "ping payload App identity does not match the \
+                               configured App" )
+                      | _ -> Ok ()
+                    else
+                      match app_id with
+                      | None ->
+                          Error
+                            ( Missing_app_id,
+                              "missing App identity for a non-ping GitHub \
+                               webhook" )
+                      | Some app_id when not app_ids_match ->
+                          Error
+                            ( App_id_mismatch,
+                              "root and installation App identities disagree" )
+                      | Some app_id when app_id <> expected_app_id ->
+                          Error
+                            ( App_id_mismatch,
+                              Printf.sprintf
+                                "payload app_id %d does not match configured \
+                                 App %d"
+                                app_id expected_app_id )
+                      | Some _ -> Ok ()
                   in
-                  if not app_ok then
-                    rejected App_id_mismatch
-                      (Printf.sprintf
-                         "payload app_id does not match expected %d"
-                         (Option.get expected_app_id))
-                  else
-                    let scope_result =
-                      if is_installation_event event then Ok ()
-                      else
+                  let scope_result =
+                    match app_result with
+                    | Error _ as e -> e
+                    | Ok () when is_ping event -> Ok ()
+                    | Ok () -> (
                         match installation_id with
-                        | None -> Ok ()
+                        | None ->
+                            Error
+                              ( Missing_installation_id,
+                                "missing installation identity for a non-ping \
+                                 GitHub webhook" )
                         | Some iid -> (
                             match
                               Github_app_installation_scope.get ~db
@@ -253,37 +293,65 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                                   ( Unknown_or_suspended_installation,
                                     Printf.sprintf
                                       "installation lookup failed: %s" e )
+                            | Ok None when is_installation_event event ->
+                                (* A signed installation create/delete event is
+                                   allowed to establish or retain a scope. *)
+                                Ok ()
                             | Ok None ->
                                 Error
                                   ( Unknown_or_suspended_installation,
                                     Printf.sprintf "unknown installation_id %d"
                                       iid )
                             | Ok (Some scope) -> (
-                                match scope.status with
-                                | Github_app_installation_scope.Suspended _
-                                | Github_app_installation_scope.Deleted ->
+                                match scope.app_id with
+                                | Some scope_app_id
+                                  when scope_app_id <> expected_app_id ->
                                     Error
-                                      ( Unknown_or_suspended_installation,
-                                        Printf.sprintf "installation %d is %s"
-                                          iid
-                                          (Github_app_installation_scope
-                                           .status_to_string scope.status) )
-                                | Github_app_installation_scope.Active -> (
-                                    match repo_full_name with
-                                    | None -> Ok ()
-                                    | Some repo ->
-                                        if
-                                          Github_app_installation_scope
-                                          .is_repo_authorized scope
-                                            ~repo_full_name:repo
-                                        then Ok ()
-                                        else
-                                          Error
-                                            ( Repo_not_in_scope,
-                                              Printf.sprintf
-                                                "repository %S not in \
-                                                 installation %d scope"
-                                                repo iid ))))
+                                      ( App_id_mismatch,
+                                        Printf.sprintf
+                                          "installation %d belongs to App %d, \
+                                           not configured App %d"
+                                          iid scope_app_id expected_app_id )
+                                | None ->
+                                    Error
+                                      ( App_id_mismatch,
+                                        Printf.sprintf
+                                          "installation %d has no verified App \
+                                           identity"
+                                          iid )
+                                | Some _ when is_installation_event event ->
+                                    Ok ()
+                                | Some _ -> (
+                                    match scope.status with
+                                    | Github_app_installation_scope.Suspended _
+                                    | Github_app_installation_scope.Deleted ->
+                                        Error
+                                          ( Unknown_or_suspended_installation,
+                                            Printf.sprintf
+                                              "installation %d is %s" iid
+                                              (Github_app_installation_scope
+                                               .status_to_string scope.status) )
+                                    | Github_app_installation_scope.Active -> (
+                                        match repo_full_name with
+                                        | None ->
+                                            Error
+                                              ( Repo_not_in_scope,
+                                                "missing repository identity for \
+                                                 a non-installation GitHub \
+                                                 webhook" )
+                                        | Some repo ->
+                                            if
+                                              Github_app_installation_scope
+                                              .is_repo_authorized scope
+                                                ~repo_full_name:repo
+                                            then Ok ()
+                                            else
+                                              Error
+                                                ( Repo_not_in_scope,
+                                                  Printf.sprintf
+                                                    "repository %S not in \
+                                                     installation %d scope"
+                                                    repo iid ))))))
                     in
                     match scope_result with
                     | Error (reason, message) -> rejected reason message

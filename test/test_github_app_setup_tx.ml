@@ -224,6 +224,25 @@ let test_create_supersedes_previous_open () =
   in
   Alcotest.(check string) "resume newest" second.id resumed.id
 
+let test_failed_replacement_preserves_previous_open () =
+  with_db @@ fun db ->
+  let first =
+    assert_ok
+      (create_tx ~db ~id:"tx_preserved" ~state:"state_preserved_aaaaaaaa" ())
+  in
+  (match
+     create_tx ~db ~id:"tx_conflict" ~state:"state_preserved_aaaaaaaa" ()
+   with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "duplicate state replacement must fail");
+  match Github_app_setup_tx.get ~db ~id:first.id with
+  | Ok (Some stored) ->
+      Alcotest.(check string)
+        "previous transaction remains resumable" "open"
+        (Github_app_setup_tx.status_to_string stored.status)
+  | Ok None -> Alcotest.fail "previous transaction disappeared"
+  | Error e -> Alcotest.fail e
+
 let test_org_manifest_url () =
   with_db @@ fun db ->
   let scope =
@@ -283,6 +302,9 @@ let suite =
     ( "create supersedes previous open",
       `Quick,
       test_create_supersedes_previous_open );
+    ( "failed replacement preserves previous open transaction",
+      `Quick,
+      test_failed_replacement_preserves_previous_open );
     ("org manifest url path", `Quick, test_org_manifest_url);
     ("mark_consumed and find_by_state hooks", `Quick, test_mark_consumed_hook);
   ]

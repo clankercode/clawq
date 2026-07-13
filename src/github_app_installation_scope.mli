@@ -13,6 +13,8 @@
       immediately.
     - All-mode access revocations maintain a denylist so [is_repo_authorized]
       fails closed for the removed repo until a snapshot clears it.
+    - Deletion creates a durable tombstone. Delayed create events and stale
+      snapshots cannot reactivate that installation id.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
 
@@ -82,7 +84,8 @@ val with_revision : t -> t
 (** Set [revision] from [compute_revision]. *)
 
 val upsert : db:Sqlite3.db -> t -> (t, string) result
-(** Persist scope (INSERT OR REPLACE). Recomputes revision from content. *)
+(** Persist scope (INSERT OR REPLACE). Recomputes revision from content. A
+    deleted installation cannot be replaced with an active/suspended row. *)
 
 val get : db:Sqlite3.db -> installation_id:int -> (t option, string) result
 (** Load by installation id (any status, including [Deleted]). *)
@@ -114,7 +117,8 @@ val is_repo_authorized : t -> repo_full_name:string -> bool
 
 val reconcile_from_snapshot : db:Sqlite3.db -> snapshot:t -> (t, string) result
 (** Startup reconcile: replace with live API snapshot; idempotent when content
-    revision matches. Clears drift including revoked denylist. *)
+    revision matches. Clears drift including revoked denylist, except that a
+    durable deletion tombstone always remains fail closed. *)
 
 val selection_mode_to_string : selection_mode -> string
 val selection_mode_of_string : string -> (selection_mode, string) result

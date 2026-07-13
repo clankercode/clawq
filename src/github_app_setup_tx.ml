@@ -455,6 +455,48 @@ let insert_tx ~db (tx : t) =
         (Printf.sprintf "github_app_setup_tx insert failed: %s"
            (Sqlite3.Rc.to_string rc))
 
+let begin_replace ~db =
+  match Sqlite3.exec db "BEGIN IMMEDIATE" with
+  | Sqlite3.Rc.OK -> Ok ()
+  | rc ->
+      Error
+        (Printf.sprintf "github_app_setup_tx begin replace failed: %s"
+           (Sqlite3.Rc.to_string rc))
+
+let rollback_replace ~db =
+  ignore (Sqlite3.exec db "ROLLBACK")
+
+let commit_replace ~db =
+  match Sqlite3.exec db "COMMIT" with
+  | Sqlite3.Rc.OK -> Ok ()
+  | rc ->
+      Error
+        (Printf.sprintf "github_app_setup_tx commit replace failed: %s"
+           (Sqlite3.Rc.to_string rc))
+
+let replace_open ~db ~(principal : principal) ~bind ~now tx =
+  (* Replacing the resumable transaction is one database transition.  In
+     particular, a state/id collision must not leave the previous browser URL
+     unusable merely because the replacement could not be written. *)
+  match begin_replace ~db with
+  | Error _ as e -> e
+  | Ok () -> (
+      match supersede_open ~db ~principal_id:principal.id ~bind ~now () with
+      | Error e ->
+          rollback_replace ~db;
+          Error e
+      | Ok () -> (
+          match insert_tx ~db tx with
+          | Error e ->
+              rollback_replace ~db;
+              Error e
+          | Ok () -> (
+              match commit_replace ~db with
+              | Ok () -> Ok tx
+              | Error e ->
+                  rollback_replace ~db;
+                  Error e)))
+
 let create ~db ~(principal : principal) ~(bind : bind_target) ~base_revision
     ~public_base_url ?(app_name = "Clawq") ?description
     ?(scope : requested_scope option) ?(ttl_seconds = default_ttl_seconds)
@@ -478,42 +520,36 @@ let create ~db ~(principal : principal) ~(bind : bind_target) ~base_revision
       | [] -> { scope with events = default_events }
       | _ -> scope
     in
-    match supersede_open ~db ~principal_id:principal.id ~bind ~now () with
-    | Error e -> Error e
-    | Ok () -> (
-        let tx_id = match id with Some i -> i | None -> generate_id ~now () in
-        let state_token =
-          match state with Some s -> s | None -> generate_state ()
-        in
-        if String.trim state_token = "" then Error "state must be non-empty"
-        else
-          let manifest_json =
-            build_manifest_json ~app_name ~public_base_url ?description
-              ~permissions:scope.permissions ~events:scope.events ()
-          in
-          let manifest_url =
-            build_manifest_url ?org:scope.org ~state:state_token ~manifest_json
-              ()
-          in
-          let created_at = Time_util.iso8601_utc ~t:now () in
-          let expires_at = Time_util.iso8601_utc ~t:(now +. ttl_seconds) () in
-          let tx : t =
-            {
-              id = tx_id;
-              principal;
-              bind;
-              scope;
-              base_revision;
-              state = state_token;
-              manifest_url;
-              manifest_json;
-              public_base_url = trim_trailing_slash public_base_url;
-              created_at;
-              expires_at;
-              status = Open;
-            }
-          in
-          match insert_tx ~db tx with Ok () -> Ok tx | Error e -> Error e)
+    let tx_id = match id with Some i -> i | None -> generate_id ~now () in
+    let state_token = match state with Some s -> s | None -> generate_state () in
+    if String.trim state_token = "" then Error "state must be non-empty"
+    else
+      let manifest_json =
+        build_manifest_json ~app_name ~public_base_url ?description
+          ~permissions:scope.permissions ~events:scope.events ()
+      in
+      let manifest_url =
+        build_manifest_url ?org:scope.org ~state:state_token ~manifest_json ()
+      in
+      let created_at = Time_util.iso8601_utc ~t:now () in
+      let expires_at = Time_util.iso8601_utc ~t:(now +. ttl_seconds) () in
+      let tx : t =
+        {
+          id = tx_id;
+          principal;
+          bind;
+          scope;
+          base_revision;
+          state = state_token;
+          manifest_url;
+          manifest_json;
+          public_base_url = trim_trailing_slash public_base_url;
+          created_at;
+          expires_at;
+          status = Open;
+        }
+      in
+      replace_open ~db ~principal ~bind ~now tx
 
 let find_open ~db ~principal_id ~bind =
   let bind_kind, bind_id = bind_kind_and_id bind in

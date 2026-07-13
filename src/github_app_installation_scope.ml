@@ -383,8 +383,19 @@ let status_reason_of = function
   | Active | Deleted -> None
 
 let upsert ~db (scope : t) =
-  let scope = with_revision scope in
-  let sql =
+  (* A deletion is a durable fail-closed tombstone.  Only a separately
+     modelled, deliberate recovery may replace it; stale create/snapshot data
+     must never make the installation eligible again. *)
+  match get ~db ~installation_id:scope.installation_id with
+  | Error _ as e -> e
+  | Ok (Some { status = Deleted; _ }) when scope.status <> Deleted ->
+      Error
+        (Printf.sprintf
+           "installation %d is deleted and cannot be reactivated by an upsert"
+           scope.installation_id)
+  | Ok _ ->
+      let scope = with_revision scope in
+      let sql =
     {|INSERT INTO github_app_installations (
         installation_id, app_id, account_login, account_id, account_type,
         selection, repositories_json, revoked_repositories_json,
@@ -402,43 +413,52 @@ let upsert ~db (scope : t) =
         status = excluded.status,
         status_reason = excluded.status_reason,
         revision = excluded.revision,
-        updated_at = excluded.updated_at|}
-  in
-  let stmt = Sqlite3.prepare db sql in
-  let bind i d = ignore (Sqlite3.bind stmt i d) in
-  bind 1 (Sqlite3.Data.INT (Int64.of_int scope.installation_id));
-  (match scope.app_id with
-  | Some id -> bind 2 (Sqlite3.Data.INT (Int64.of_int id))
-  | None -> bind 2 Sqlite3.Data.NULL);
-  bind 3 (Sqlite3.Data.TEXT scope.account.login);
-  bind 4 (Sqlite3.Data.INT (Int64.of_int scope.account.id));
-  bind 5 (Sqlite3.Data.TEXT scope.account.account_type);
-  bind 6 (Sqlite3.Data.TEXT (selection_mode_to_string scope.selection));
-  bind 7
-    (Sqlite3.Data.TEXT
-       (Yojson.Safe.to_string (repos_to_json scope.repositories)));
-  bind 8
-    (Sqlite3.Data.TEXT
-       (Yojson.Safe.to_string (repos_to_json scope.revoked_repositories)));
-  bind 9
-    (Sqlite3.Data.TEXT
-       (Yojson.Safe.to_string (permissions_to_json scope.permissions)));
-  bind 10 (Sqlite3.Data.TEXT (status_to_string scope.status));
-  (match status_reason_of scope.status with
-  | Some r -> bind 11 (Sqlite3.Data.TEXT r)
-  | None -> bind 11 Sqlite3.Data.NULL);
-  bind 12 (Sqlite3.Data.TEXT scope.revision);
-  bind 13 (Sqlite3.Data.TEXT scope.updated_at);
-  let result =
-    match Sqlite3.step stmt with
-    | Sqlite3.Rc.DONE -> Ok scope
-    | rc ->
-        Error
-          (Printf.sprintf "github_app_installation_scope upsert failed: %s"
-             (Sqlite3.Rc.to_string rc))
-  in
-  ignore (Sqlite3.finalize stmt);
-  result
+        updated_at = excluded.updated_at
+      WHERE github_app_installations.status <> 'deleted'
+         OR excluded.status = 'deleted'|}
+      in
+      let stmt = Sqlite3.prepare db sql in
+      let bind i d = ignore (Sqlite3.bind stmt i d) in
+      bind 1 (Sqlite3.Data.INT (Int64.of_int scope.installation_id));
+      (match scope.app_id with
+      | Some id -> bind 2 (Sqlite3.Data.INT (Int64.of_int id))
+      | None -> bind 2 Sqlite3.Data.NULL);
+      bind 3 (Sqlite3.Data.TEXT scope.account.login);
+      bind 4 (Sqlite3.Data.INT (Int64.of_int scope.account.id));
+      bind 5 (Sqlite3.Data.TEXT scope.account.account_type);
+      bind 6 (Sqlite3.Data.TEXT (selection_mode_to_string scope.selection));
+      bind 7
+        (Sqlite3.Data.TEXT
+           (Yojson.Safe.to_string (repos_to_json scope.repositories)));
+      bind 8
+        (Sqlite3.Data.TEXT
+           (Yojson.Safe.to_string (repos_to_json scope.revoked_repositories)));
+      bind 9
+        (Sqlite3.Data.TEXT
+           (Yojson.Safe.to_string (permissions_to_json scope.permissions)));
+      bind 10 (Sqlite3.Data.TEXT (status_to_string scope.status));
+      (match status_reason_of scope.status with
+      | Some r -> bind 11 (Sqlite3.Data.TEXT r)
+      | None -> bind 11 Sqlite3.Data.NULL);
+      bind 12 (Sqlite3.Data.TEXT scope.revision);
+      bind 13 (Sqlite3.Data.TEXT scope.updated_at);
+      let result =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.DONE ->
+            if Sqlite3.changes db = 0 then
+              Error
+                (Printf.sprintf
+                   "installation %d is deleted and cannot be reactivated by \
+                    a concurrent upsert"
+                   scope.installation_id)
+            else Ok scope
+        | rc ->
+            Error
+              (Printf.sprintf "github_app_installation_scope upsert failed: %s"
+                 (Sqlite3.Rc.to_string rc))
+      in
+      ignore (Sqlite3.finalize stmt);
+      result
 
 let delete ~db ~installation_id =
   let sql = "DELETE FROM github_app_installations WHERE installation_id = ?" in
@@ -555,6 +575,10 @@ let reconcile_from_snapshot ~db ~snapshot =
   in
   match get ~db ~installation_id:snap.installation_id with
   | Error e -> Error e
+  | Ok (Some ({ status = Deleted; _ } as existing)) ->
+      (* A snapshot that arrives after a deletion webhook may be stale. Keep
+         the tombstone until an explicit reinstallation lifecycle is added. *)
+      Ok existing
   | Ok (Some existing) when existing.revision = snap.revision -> Ok existing
   | Ok (Some existing) when same_logical existing snap ->
       (* Same content, keep existing timestamps/revision string. *)
@@ -586,6 +610,10 @@ let apply_event ~db ?(now = Unix.gettimeofday ()) event =
       in
       match get ~db ~installation_id with
       | Error e -> Error e
+      | Ok (Some { status = Deleted; _ }) ->
+          (* GitHub installation ids are immutable.  A delayed created event
+             must not resurrect a tombstoned installation. *)
+          Ok None
       | Ok (Some existing) when same_logical existing candidate ->
           (* Idempotent: same logical create, keep stored row (stable
              updated_at/revision). *)

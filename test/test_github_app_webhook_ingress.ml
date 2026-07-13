@@ -85,8 +85,8 @@ let test_accept_happy_path () =
   let req = make_request ~delivery_id ~body () in
   let a =
     accept_ok
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now
-         ~expected_app_id:42 req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now
+         req)
   in
   Alcotest.(check string) "delivery_id" delivery_id a.delivery_id;
   Alcotest.(check string) "event" "pull_request" a.event;
@@ -106,7 +106,7 @@ let test_bad_signature () =
   let req = make_request ~delivery_id ~signature:"sha256=deadbeef" ~body () in
   let reason =
     reject_reason_of
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req)
   in
   Alcotest.(check bool) "bad_signature" true (reason = I.Bad_signature);
   Alcotest.(check bool) "not ledgered" false (I.was_seen ~db ~delivery_id)
@@ -120,7 +120,7 @@ let test_missing_delivery_id () =
   (* delivery_id defaults to None *)
   let reason =
     reject_reason_of
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req)
   in
   Alcotest.(check bool)
     "missing_delivery_id" true
@@ -135,8 +135,8 @@ let test_replay_duplicate () =
   let req = make_request ~delivery_id ~body () in
   ignore
     (accept_ok
-       (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req));
-  match I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req with
+       (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req));
+  match I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req with
   | I.Duplicate { delivery_id = d } ->
       Alcotest.(check string) "same id" delivery_id d
   | other ->
@@ -161,14 +161,14 @@ let test_durable_across_reopen () =
       let req = make_request ~delivery_id ~body () in
       ignore
         (accept_ok
-           (I.verify_and_accept ~db:first ~webhook_secret:secret ~now:fixed_now
+           (I.verify_and_accept ~db:first ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now
               req));
       ignore (Sqlite3.db_close first);
       let second = Sqlite3.db_open path in
       I.ensure_schema second;
       S.ensure_schema second;
       (match
-         I.verify_and_accept ~db:second ~webhook_secret:secret ~now:fixed_now
+         I.verify_and_accept ~db:second ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now
            req
        with
       | I.Duplicate { delivery_id = d } ->
@@ -188,7 +188,7 @@ let test_suspended_installation () =
   let req = make_request ~delivery_id ~body () in
   let reason =
     reject_reason_of
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req)
   in
   Alcotest.(check bool)
     "unknown_or_suspended" true
@@ -210,7 +210,7 @@ let test_repo_not_authorized () =
   let req = make_request ~delivery_id ~body () in
   let reason =
     reject_reason_of
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req)
   in
   Alcotest.(check bool) "repo_not_in_scope" true (reason = I.Repo_not_in_scope);
   Alcotest.(check bool) "not ledgered" false (I.was_seen ~db ~delivery_id)
@@ -224,7 +224,7 @@ let test_installation_event_no_repo () =
   let req = make_request ~delivery_id ~event:"installation" ~body () in
   let a =
     accept_ok
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req)
   in
   Alcotest.(check string) "event" "installation" a.event;
   Alcotest.(check (option string)) "no repo" None a.repo_full_name;
@@ -238,7 +238,7 @@ let test_installation_event_no_repo () =
   in
   ignore
     (accept_ok
-       (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req2));
+       (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req2));
   Alcotest.(check bool) "ledgered create" true (I.was_seen ~db ~delivery_id);
   Alcotest.(check bool)
     "ledgered suspend" true
@@ -253,7 +253,7 @@ let test_event_not_subscribed () =
   let req = make_request ~delivery_id ~event:"star" ~body () in
   let reason =
     reject_reason_of
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now
          ~allowed_events:[ "pull_request"; "issues" ]
          req)
   in
@@ -271,7 +271,7 @@ let test_wrong_path () =
   let req = make_request ~path:"/github/wrong" ~delivery_id ~body () in
   let reason =
     reject_reason_of
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req)
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req)
   in
   Alcotest.(check bool) "wrong_path" true (reason = I.Wrong_path);
   Alcotest.(check bool) "not ledgered" false (I.was_seen ~db ~delivery_id)
@@ -284,13 +284,57 @@ let test_ping_allowed () =
   let req = make_request ~delivery_id ~event:"ping" ~body () in
   let a =
     accept_ok
-      (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now
          ~allowed_events:[] req)
   in
   Alcotest.(check string) "ping" "ping" a.event;
   Alcotest.(check bool) "ledgered" true (I.was_seen ~db ~delivery_id)
 
-(* 12. ensure_schema idempotent *)
+(* 12. Non-ping deliveries must carry both App and installation identity. *)
+let test_missing_app_or_installation_identity_rejected () =
+  with_db @@ fun db ->
+  ignore (seed_installation ~db ());
+  let missing_app =
+    {|{"installation":{"id":1001},"repository":{"full_name":"acme-corp/alpha"}}|}
+  in
+  let app_reason =
+    reject_reason_of
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42
+         ~now:fixed_now
+         (make_request ~delivery_id:"deliv-missing-app" ~body:missing_app ()))
+  in
+  Alcotest.(check bool)
+    "missing App identity rejected" true
+    (app_reason = I.Missing_app_id);
+  let missing_installation =
+    {|{"app_id":42,"repository":{"full_name":"acme-corp/alpha"}}|}
+  in
+  let installation_reason =
+    reject_reason_of
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42
+         ~now:fixed_now
+         (make_request ~delivery_id:"deliv-missing-installation"
+            ~body:missing_installation ()))
+  in
+  Alcotest.(check bool)
+    "missing installation identity rejected" true
+    (installation_reason = I.Missing_installation_id)
+
+let test_non_installation_event_requires_repository_identity () =
+  with_db @@ fun db ->
+  ignore (seed_installation ~db ());
+  let body = {|{"app_id":42,"installation":{"id":1001,"app_id":42}}|} in
+  let reason =
+    reject_reason_of
+      (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42
+         ~now:fixed_now
+         (make_request ~delivery_id:"deliv-missing-repository" ~body ()))
+  in
+  Alcotest.(check bool)
+    "missing repository identity rejected" true
+    (reason = I.Repo_not_in_scope)
+
+(* 13. ensure_schema idempotent *)
 let test_ensure_schema_idempotent () =
   with_db @@ fun db ->
   I.ensure_schema db;
@@ -300,7 +344,7 @@ let test_ensure_schema_idempotent () =
   let req = make_request ~delivery_id:"deliv-schema" ~body () in
   ignore
     (accept_ok
-       (I.verify_and_accept ~db ~webhook_secret:secret ~now:fixed_now req));
+       (I.verify_and_accept ~db ~webhook_secret:secret ~expected_app_id:42 ~now:fixed_now req));
   Alcotest.(check bool) "seen" true (I.was_seen ~db ~delivery_id:"deliv-schema");
   match I.record_ack ~db ~delivery_id:"deliv-schema" with
   | Ok () -> ()
@@ -321,5 +365,11 @@ let suite =
     ("event not subscribed rejected", `Quick, test_event_not_subscribed);
     ("wrong path rejected", `Quick, test_wrong_path);
     ("ping always allowed", `Quick, test_ping_allowed);
+    ( "missing App or installation identity rejected",
+      `Quick,
+      test_missing_app_or_installation_identity_rejected );
+    ( "non-installation event requires repository identity",
+      `Quick,
+      test_non_installation_event_requires_repository_identity );
     ("ensure_schema idempotent", `Quick, test_ensure_schema_idempotent);
   ]

@@ -32,6 +32,8 @@ type reject_reason =
   | Invalid_payload
   | Wrong_path
   | App_id_mismatch
+  | Missing_app_id
+  | Missing_installation_id
 
 type accepted = {
   delivery_id : string;
@@ -61,15 +63,19 @@ val ensure_schema : Sqlite3.db -> unit
 
 val verify_and_accept :
   db:Sqlite3.db ->
-  webhook_secret:string ->
-  ?expected_path:string ->
-  ?allowed_events:string list ->
-  ?expected_app_id:int ->
+    webhook_secret:string ->
+    ?expected_path:string ->
+    ?allowed_events:string list ->
+    expected_app_id:int ->
   ?now:float ->
   request ->
   outcome
 (** Validate and, on success, reserve [delivery_id] in the ledger before
-    returning [Accepted]. Never invokes Connector/delivery. *)
+    returning [Accepted]. A configured [expected_app_id] is mandatory. Every
+    non-ping event must carry a matching App and installation id before
+    normalization; installation events may establish a previously unseen local
+    scope, while ping alone may omit both identities. Never invokes
+    Connector/delivery. *)
 
 val record_ack : db:Sqlite3.db -> delivery_id:string -> (unit, string) result
 (** Optional status update after processing; acceptance already reserved the id.

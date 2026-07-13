@@ -57,9 +57,11 @@ val select_for_repo :
   repo_full_name:string ->
   unit ->
   selection
-(** Deterministic rules: 1. If App installation is Active and repo authorized →
-    App 2. Else if PAT present → Pat exact-repo 3. Else reject When Mixed and
-    both viable, prefer App with reason [App_preferred_when_mixed]. *)
+(** Deterministic rules: 1. If the active installation belongs to the configured
+    App and authorizes the repo in live scope → App 2. Else if PAT present →
+    PAT exact-repo 3. Else reject. When Mixed and both viable, prefer App with
+    reason [App_preferred_when_mixed]. Static legacy repository entries do not
+    block newly granted repositories from a live all-repos installation. *)
 
 val select_for_org_route :
   auth:auth_snapshot ->
@@ -67,16 +69,18 @@ val select_for_org_route :
   org:string ->
   unit ->
   selection
-(** Org routes require a verified App installation for that org account.
-    PAT-only → [Rejected_org_requires_app]. Installation account.login must
-    match org (case-insensitive) and status must be Active. *)
+(** Org routes require a verified active installation for that org account
+    which belongs to the configured App. PAT-only →
+    [Rejected_org_requires_app]. Installation account.login must match org
+    (case-insensitive). *)
 
 val can_claim_org_scope :
   auth:auth_snapshot ->
   installation:Github_app_installation_scope.t option ->
   bool
-(** True only when App auth is present and installation is Active (Org scope is
-    live App installation scope; PAT cannot claim it). *)
+(** True only when App auth is present, the installation belongs to that
+    configured App, and it is Active (Org scope is live App installation scope;
+    PAT cannot claim it). *)
 
 val migration_preserves_pat :
   before:auth_snapshot -> after:auth_snapshot -> bool

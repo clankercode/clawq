@@ -235,6 +235,29 @@ let test_selected_repos_unauthorized_pat_fallback () =
   check_reason "fallback" A.Pat_fallback_exact_repo sel;
   check_chosen_pat sel
 
+let test_scope_must_belong_to_configured_app_installation () =
+  let app = sample_app () in
+  let auth = A.snapshot_of_parts ~pat:"ghp_test_token_value" ~app () in
+  let mismatched_scope =
+    S.with_revision
+      { (sample_scope ()) with app_id = Some 7 }
+  in
+  let repo_selection =
+    A.select_for_repo ~auth ~installation:mismatched_scope
+      ~repo_full_name:"acme-corp/alpha" ()
+  in
+  check_reason "PAT fallback" A.Pat_fallback_exact_repo repo_selection;
+  check_chosen_pat repo_selection;
+  Alcotest.(check bool)
+    "cannot claim Org through mismatched App" false
+    (A.can_claim_org_scope ~auth ~installation:(Some mismatched_scope));
+  let org_selection =
+    A.select_for_org_route ~auth ~installation:mismatched_scope
+      ~org:"acme-corp" ()
+  in
+  check_reason "Org rejects mismatched App" A.Rejected_org_requires_app
+    org_selection
+
 let suite =
   [
     Alcotest.test_case "PAT-only exact repo selects Pat" `Quick
@@ -263,4 +286,6 @@ let suite =
       test_snapshot_and_classify;
     Alcotest.test_case "selected-repos unauthorized falls back to PAT" `Quick
       test_selected_repos_unauthorized_pat_fallback;
+    Alcotest.test_case "scope belongs to configured App installation" `Quick
+      test_scope_must_belong_to_configured_app_installation;
   ]
