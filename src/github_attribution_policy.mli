@@ -17,8 +17,8 @@ type attribution =
           App-first policy). Not a user→App fallback. *)
   | User_required
       (** Must use a current Principal-owned user access token; no App/PAT
-          fallback. High-risk mutations (merge, review submit, code change,
-          workflow dispatch). *)
+          fallback. High-risk mutations (merge, review submit, issue create /
+          close / reopen, code change, workflow dispatch). *)
   | User_preferred
       (** Prefer Principal-owned user attribution. App is allowed only as a
           visible fallback when action policy permits and the current preview
@@ -49,14 +49,12 @@ val defaults : unit -> requirement list
 (** Built-in attribution requirements for known GitHub mutation families. *)
 
 val lookup : action:string -> requirement
-(** Lookup by action id (case-insensitive, trimmed). Accepts a few aliases
-    ([submit_review] → [review_submit], [code_work] → [code_change],
-    [collab_comment] → [comment], [collab_label] → [label],
-    [collab_assign]/[assignee] → [assign]).
-    [collab_comment] → [comment], [collab_label] → [label]).
-    ([submit_review] → [review_submit], [request_reviewers] → [review_request],
+(** Lookup by action id (case-insensitive, trimmed). Accepts aliases including
+    [submit_review] → [review_submit], [request_reviewers] → [review_request],
     [code_work] → [code_change], [collab_comment] → [comment], [collab_label] →
-    [label]).
+    [label], [collab_assign]/[assignee] → [assign], [issue_open]/[create_issue]
+    → [issue_create], [close_issue] → [issue_close], [reopen_issue] →
+    [issue_reopen].
 
     Unknown actions fail closed as [User_required] / [Critical] with
     [pilot_allowed = false] so undeclared mutations never silently use App. *)

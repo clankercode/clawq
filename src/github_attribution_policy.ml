@@ -61,6 +61,12 @@ let defaults () =
     (* High / Critical — User_required; pilot App interim allowed (not fallback) *)
     req ~action:"review_submit" ~tier:High ~attribution:User_required
       ~pilot_allowed:true;
+    req ~action:"issue_create" ~tier:High ~attribution:User_required
+      ~pilot_allowed:true;
+    req ~action:"issue_close" ~tier:High ~attribution:User_required
+      ~pilot_allowed:true;
+    req ~action:"issue_reopen" ~tier:High ~attribution:User_required
+      ~pilot_allowed:true;
     req ~action:"code_change" ~tier:High ~attribution:User_required
       ~pilot_allowed:true;
     req ~action:"workflow_dispatch" ~tier:Critical ~attribution:User_required
@@ -80,6 +86,9 @@ let normalize_action action =
   | "collab_comment" -> "comment"
   | "collab_label" -> "label"
   | "collab_assign" | "assignee" | "assignees" -> "assign"
+  | "issue_open" | "create_issue" | "open_issue" -> "issue_create"
+  | "close_issue" -> "issue_close"
+  | "reopen_issue" -> "issue_reopen"
   | other -> other
 
 let by_action =

@@ -1,12 +1,15 @@
-(** Confirmed Issue creation and Issue/PR lifecycle actions (P19.M4.E2.T005).
+(** Confirmed Issue creation and Issue/PR lifecycle actions (P19.M4.E2.T005 /
+    P21.M3.E3.T006).
 
     Implements Issue create / open / close / reopen through the shared
-    preview-confirm-apply framework ([Setup_plan] + [Setup_plan_apply]). This
-    family is high-risk and App-attributed in P19: it remains off by default
-    outside one named, time-bounded pilot gate and must not be presented as
-    production-ready. Production enablement waits for P21 [User_required]
-    attribution; if P21 user auth is disabled/unavailable there is no App/PAT
-    fallback.
+    preview-confirm-apply framework ([Setup_plan] + [Setup_plan_apply]).
+
+    P19 path: high-risk App-attributed execution under the named time-bounded
+    pilot gate (off by default; not production-ready). P21 production path: when
+    [user_auth_available] is true, capability checks alone authorize the plan;
+    live execution requires [User_required] attribution authorize + the same
+    current Principal's user lease via [Github_issue_attribution]. App/PAT is
+    never a silent fallback when user auth is unavailable.
 
     Authorization also requires an explicit route capability:
     - [Create] → ["allow_create"] (route [capability_policy.extra])
@@ -17,7 +20,8 @@
     mutation. GitHub rejection and projection failures should be surfaced via
     [receipt_safe_error] (projection-safe, secret-free).
 
-    Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
+    Canonical contracts: docs/plans/2026-07-12-github-item-room-routing.md and
+    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 type pilot_gate = {
   enabled : bool;
@@ -82,11 +86,12 @@ val authorize :
   decision
 (** High-risk authorization:
 
-    1. If pilot is not enabled or has expired → deny (not available outside
-    pilot; not production-ready). P21 user-auth absence never falls back to
-    App/PAT for a production path. 2. When pilot is on: require a route granting
-    the action capability ([allow_create] via [extra], or [allow_close]). 3.
-    Validate non-empty targets / title. *)
+    1. P19 pilot path: when the named pilot is enabled and unexpired, require a
+    route granting the action capability. 2. P21 production path: when
+    [user_auth_available] is true (even if pilot is off), allow capability +
+    input checks; execution still requires User_required attribution + user
+    lease. 3. Otherwise deny (not available outside pilot; no App/PAT fallback).
+    4. Validate non-empty targets / title. *)
 
 val plan_action :
   db:Sqlite3.db ->

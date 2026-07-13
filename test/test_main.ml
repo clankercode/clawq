@@ -180,6 +180,7 @@ let () =
        ("github_room_background", Test_github_room_background_work.suite);
        ("github_merge_action", Test_github_merge_action.suite);
        ("github_issue_actions", Test_github_issue_actions.suite);
+       ("github_issue_attribution", Test_github_issue_attribution.suite);
        ("github_workflow_dispatch", Test_github_workflow_dispatch.suite);
        ("github_action_workflow", Test_github_action_workflow.suite);
        ( "github_action_actor_attribution",

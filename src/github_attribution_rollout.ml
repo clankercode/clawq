@@ -220,7 +220,7 @@ let normalize_action action =
   | "collab_assign" | "assignee" | "assignees" -> "assign"
   | "request_reviewers" | "request_review" | "reviewer_request" ->
       "review_request"
-  | "issue_open" | "create_issue" -> "issue_create"
+  | "issue_open" | "create_issue" | "open_issue" -> "issue_create"
   | "close_issue" -> "issue_close"
   | "reopen_issue" -> "issue_reopen"
   | "background" | "room_background" -> "room_background_work"

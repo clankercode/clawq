@@ -100,6 +100,7 @@
   test_github_room_background_work
   test_github_merge_action
   test_github_issue_actions
+  test_github_issue_attribution
   test_github_workflow_dispatch
   test_github_action_workflow
   test_github_action_actor_attribution

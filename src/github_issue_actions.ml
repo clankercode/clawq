@@ -176,39 +176,46 @@ let validate_action = function
         Error "reopen item_key must be non-empty"
       else Ok ()
 
-let authorize ~route ~pilot ~user_auth_available ~action
-    ?(now = Unix.gettimeofday ()) () =
-  if (not pilot.enabled) || pilot_expired ~now pilot then
-    Denied
-      { reason = pilot_unavailable_reason ~pilot ~user_auth_available ~now }
-  else
-    match validate_action action with
-    | Error reason -> Denied { reason }
-    | Ok () -> (
-        match route with
-        | None ->
+let capability_inputs_ok ~route ~action =
+  match validate_action action with
+  | Error reason -> Denied { reason }
+  | Ok () -> (
+      match route with
+      | None ->
+          Denied
+            {
+              reason =
+                Printf.sprintf
+                  "no route available to authorize %s (capability %s required)"
+                  (action_kind_string action)
+                  (capability_for_action action);
+            }
+      | Some (r : t) ->
+          let cap = capability_for_action action in
+          if capability_granted r.capability_policy action then
+            Allowed { action; capability = cap }
+          else
             Denied
               {
                 reason =
                   Printf.sprintf
-                    "no route available to authorize %s (capability %s \
-                     required)"
-                    (action_kind_string action)
-                    (capability_for_action action);
-              }
-        | Some (r : t) ->
-            let cap = capability_for_action action in
-            if capability_granted r.capability_policy action then
-              Allowed { action; capability = cap }
-            else
-              Denied
-                {
-                  reason =
-                    Printf.sprintf
-                      "capability %s not granted by route %s policy for %s" cap
-                      r.id
-                      (action_kind_string action);
-                })
+                    "capability %s not granted by route %s policy for %s" cap
+                    r.id
+                    (action_kind_string action);
+              })
+
+let authorize ~route ~pilot ~user_auth_available ~action
+    ?(now = Unix.gettimeofday ()) () =
+  (* P21 production path (User_required): when user auth is available, route +
+     input checks alone authorize the plan; attribution authorize + user lease
+     at dispatch are required for execution (no App/PAT fallback). P19 App
+     pilot remains the only non-user path and is never a silent substitute. *)
+  let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+  if pilot_active then capability_inputs_ok ~route ~action
+  else if user_auth_available then capability_inputs_ok ~route ~action
+  else
+    Denied
+      { reason = pilot_unavailable_reason ~pilot ~user_auth_available ~now }
 
 let room_context ~room_id : Setup_plan.context =
   {
@@ -237,6 +244,16 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
         let target = action_target action in
         let action_json = action_to_json action in
         let path = Printf.sprintf "github_issue/%s/%s" kind target in
+        let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+        let p21_user = (not pilot_active) && user_auth_available in
+        let attribution_s = if p21_user then "User_required" else "App" in
+        let production_ready = p21_user in
+        let policy_action =
+          match action with
+          | Create _ | Open _ -> "issue_create"
+          | Close _ -> "issue_close"
+          | Reopen _ -> "issue_reopen"
+        in
         let current_state =
           `Assoc
             (sort_assoc
@@ -246,6 +263,7 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
                  ("status", `String "pending_mutation");
                  ("pilot_name", `String pilot.pilot_name);
                  ("action_kind", `String kind);
+                 ("attribution", `String attribution_s);
                ])
         in
         let planned_state =
@@ -258,9 +276,10 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
                   ("room_id", `String room_id);
                   ("status", `String "planned");
                   ("pilot_name", `String pilot.pilot_name);
-                  ("attribution", `String "App");
-                  ("production_ready", `Bool false);
-                  ("pilot_only", `Bool true);
+                  ("attribution", `String attribution_s);
+                  ("production_ready", `Bool production_ready);
+                  ("pilot_only", `Bool (not p21_user));
+                  ("policy_action", `String policy_action);
                 ]
                @
                match route with
@@ -271,21 +290,26 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
                      ("route_revision", `String r.revision);
                    ]))
         in
+        let note_msg =
+          if p21_user then
+            Printf.sprintf
+              "User_required issue %s on %s via %s; revalidate target, state, \
+               Principal user lease, and confirmation immediately before \
+               dispatch via Github_issue_attribution. Confirm before apply. No \
+               live GitHub mutation at plan time."
+              kind target capability
+          else
+            Printf.sprintf
+              "High-risk App-attributed issue %s on %s via %s under pilot %S; \
+               revalidate target, authority, and policy before dispatch. \
+               Confirm before apply. Not production-ready (P21 User_required \
+               pending). No live GitHub mutation at plan time."
+              kind target capability pilot.pilot_name
+        in
         let diff =
           [
             Setup_plan.Create { path; value = action_json };
-            Setup_plan.Note
-              {
-                path;
-                message =
-                  Printf.sprintf
-                    "High-risk App-attributed issue %s on %s via %s under \
-                     pilot %S; revalidate target, authority, and policy before \
-                     dispatch. Confirm before apply. Not production-ready (P21 \
-                     User_required pending). No live GitHub mutation at plan \
-                     time."
-                    kind target capability pilot.pilot_name;
-              };
+            Setup_plan.Note { path; message = note_msg };
           ]
         in
         let readiness =
@@ -298,14 +322,19 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
             {
               name = "pilot";
               status = Setup_plan.Pass;
-              message = pilot.pilot_name;
+              message =
+                (if p21_user then "p21_user_required" else pilot.pilot_name);
             };
             { name = "target"; status = Setup_plan.Pass; message = target };
             { name = "action_kind"; status = Setup_plan.Pass; message = kind };
             {
-              name = "not_production_ready";
+              name =
+                (if p21_user then "production_ready" else "not_production_ready");
               status = Setup_plan.Pass;
-              message = "P19 pilot only; production waits for P21 User_required";
+              message =
+                (if p21_user then
+                   "P21 User_required path; App/PAT fallback forbidden"
+                 else "P19 pilot only; production waits for P21 User_required");
             };
             {
               name = "no_live_mutation";
@@ -322,6 +351,8 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
                ("capability", `String capability);
                ("pilot_name", `String pilot.pilot_name);
                ("action", action_json);
+               ("attribution", `String attribution_s);
+               ("policy_action", `String policy_action);
              ]
             @
             match route with
@@ -343,7 +374,9 @@ let plan_action ~db ~principal ~room_id ~pilot ~user_auth_available ~action
                  ("capability", `String capability);
                  ("pilot_name", `String pilot.pilot_name);
                  ("action_kind", `String kind);
-                 ("production_ready", `Bool false);
+                 ("production_ready", `Bool production_ready);
+                 ("attribution", `String attribution_s);
+                 ("policy_action", `String policy_action);
                ])
         in
         let ctx = room_context ~room_id in
