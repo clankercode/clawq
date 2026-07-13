@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-13T03:46:18Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-13T03:57:22Z"
 complexity: high
 created_at: "2026-07-12T17:01:19Z"
 depends_on:
     - P21.M2.E4.T007
+duration_minutes: 11.068177388533334
 estimate_hours: 5
 id: P21.M2.E4.T008
 priority: critical
 started_at: "2026-07-13T03:46:18Z"
-status: in_progress
+status: done
 tags: []
 title: Define vault backup restore and key-compromise recovery
-updated_at: "2026-07-13T03:46:18Z"
+updated_at: "2026-07-13T03:57:22Z"
 ---
 Acceptance: Document and test encrypted backup/restore compatibility by key ID and schema, explicit operator proof before restore, and compromise response that disables authorization, destroys affected bindings and pending material, rotates keys, and requires safe relink where confidentiality cannot be proven. State plainly that a whole-store rollback under the same key is not detectable without an external monotonic anchor. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
