@@ -237,6 +237,7 @@
   github_issue_actions
   github_issue_attribution
   github_workflow_dispatch
+  github_workflow_dispatch_attribution
   github_action_actor_attribution
   github_action_reconcile
   github_room_tools

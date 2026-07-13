@@ -102,6 +102,7 @@
   test_github_issue_actions
   test_github_issue_attribution
   test_github_workflow_dispatch
+  test_github_workflow_dispatch_attribution
   test_github_action_workflow
   test_github_action_actor_attribution
   test_github_durable_job_actor_attribution
