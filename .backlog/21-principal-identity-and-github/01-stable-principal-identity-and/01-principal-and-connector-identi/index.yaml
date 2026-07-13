@@ -74,7 +74,7 @@ tasks:
       file: T006-validate-slack-ingress-and-der.todo
       id: T006
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Validate Slack ingress and derive canonical user identity
     - complexity: high
@@ -84,7 +84,7 @@ tasks:
       file: T007-validate-discord-ingress-and-d.todo
       id: T007
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Validate Discord ingress and derive canonical user identity
     - complexity: high
@@ -94,7 +94,7 @@ tasks:
       file: T008-validate-telegram-ingress-and.todo
       id: T008
       priority: critical
-      status: pending
+      status: in_progress
       tags: []
       title: Validate Telegram ingress and derive canonical user identity
     - complexity: high
@@ -104,7 +104,8 @@ tasks:
       file: T009-fail-closed-for-web-cli-and-di.todo
       id: T009
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: Fail closed for web CLI and direct-session Principal bootstrap
     - complexity: high
       depends_on:

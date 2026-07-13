@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T02:07:35Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T17:00:18Z"
@@ -7,10 +9,10 @@ depends_on:
 estimate_hours: 4
 id: P21.M1.E1.T007
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T02:07:35Z"
+status: in_progress
 tags: []
 title: Validate Discord ingress and derive canonical user identity
-updated_at: "2026-07-12T17:00:18Z"
+updated_at: "2026-07-13T02:07:35Z"
 ---
 Acceptance: Treat a successfully authenticated Discord Gateway WSS session established with the configured bot token, Identify/Ready application identity, intents, session ID, and monotonic dispatch sequence as the production trust boundary. Derive the canonical actor from bot/application namespace plus immutable Discord user ID and guild scope where policy requires it; reject pre-Ready, wrong-application, bot/webhook, replayed or regressed sequence, invalid resume/session, malformed, DM-ambiguous, or display-only evidence. HTTP interaction signature verification remains a separate adapter if that ingress is enabled. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
