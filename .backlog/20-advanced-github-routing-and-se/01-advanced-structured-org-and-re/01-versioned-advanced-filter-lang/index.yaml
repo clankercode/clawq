@@ -40,7 +40,7 @@ tasks:
       file: T003-implement-pr-branch-path-label.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement PR branch path label author team and draft predicates
     - complexity: high
