@@ -89,6 +89,6 @@ tasks:
       file: T007-implement-confirmed-code-chang.todo
       id: T007
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: Implement confirmed code-changing work and constrained PR creation
