@@ -177,6 +177,7 @@
   setup_plan_apply
   setup_plan_consent
   setup_plan_bundle
+  principal_identity
   github_app_setup_tx
   github_app_setup_callback
   github_app_setup_resume
