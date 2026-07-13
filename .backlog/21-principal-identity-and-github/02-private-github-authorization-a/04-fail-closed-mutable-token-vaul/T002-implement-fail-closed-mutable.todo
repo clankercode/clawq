@@ -1,4 +1,6 @@
 ---
+claimed_at: "2026-07-13T03:01:49Z"
+claimed_by: cli-user
 completed_at: null
 complexity: high
 created_at: "2026-07-12T14:51:45Z"
@@ -8,10 +10,10 @@ depends_on:
 estimate_hours: 5
 id: P21.M2.E4.T002
 priority: critical
-started_at: null
-status: pending
+started_at: "2026-07-13T03:01:49Z"
+status: in_progress
 tags: []
 title: Implement fail-closed mutable vault CRUD
-updated_at: "2026-07-12T14:51:45Z"
+updated_at: "2026-07-13T03:01:49Z"
 ---
 Acceptance: Create/read/replace/destroy uses the versioned master-key boundary without plaintext fallback; missing/wrong key, corrupt envelope, unsupported version, swapped record, account mismatch, or crypto failure returns typed denial and no partial token. CRUD records key ID and supports later staged rewrap without weakening CAS. Canonical contract: docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md.
