@@ -99,41 +99,48 @@ let authorize_request_reviewers ~route ~(req : request_reviewers) =
                 request_reviewers"
                r.id)
 
+let submit_review_inputs_ok ~route ~(req : submit_review) =
+  let item_key = String.trim req.item_key in
+  let head_sha = String.trim req.head_sha in
+  if item_key = "" then Error "submit_review item_key must be non-empty"
+  else if head_sha = "" then
+    Error
+      "submit_review requires exact non-empty head_sha (revalidate displayed \
+       head before submission)"
+  else
+    match route with
+    | None ->
+        Error
+          "no route available to authorize submit_review (capability \
+           allow_review required)"
+    | Some (r : t) -> (
+        if not r.capability_policy.allow_review then
+          Error
+            (Printf.sprintf
+               "capability allow_review not granted by route %s policy for \
+                submit_review"
+               r.id)
+        else
+          (* Optional self-approve guard: empty actor_login on Approve is
+             invalid when provided as Some "". Full author equality is owned
+             by the attribution revalidation path (P21.M3.E3.T002). *)
+          match (req.kind, req.actor_login) with
+          | Approve, Some login when String.trim login = "" ->
+              Error
+                "submit_review Approve requires non-empty actor_login when \
+                 provided (self-review revalidation)"
+          | _ -> Ok ())
+
 let authorize_submit_review ~route ~pilot ~user_auth_available
     ~(req : submit_review) ?(now = Unix.gettimeofday ()) () =
-  if (not pilot.enabled) || pilot_expired ~now pilot then
-    Error (pilot_unavailable_reason ~pilot ~user_auth_available ~now)
-  else
-    let item_key = String.trim req.item_key in
-    let head_sha = String.trim req.head_sha in
-    if item_key = "" then Error "submit_review item_key must be non-empty"
-    else if head_sha = "" then
-      Error
-        "submit_review requires exact non-empty head_sha (revalidate displayed \
-         head before submission)"
-    else
-      match route with
-      | None ->
-          Error
-            "no route available to authorize submit_review (capability \
-             allow_review required; pilot path only)"
-      | Some (r : t) -> (
-          if not r.capability_policy.allow_review then
-            Error
-              (Printf.sprintf
-                 "capability allow_review not granted by route %s policy for \
-                  submit_review"
-                 r.id)
-          else
-            (* Optional self-approve guard: empty actor_login on Approve is
-               invalid when provided as Some "". Full author equality is owned
-               by the apply/revalidation path. *)
-            match (req.kind, req.actor_login) with
-            | Approve, Some login when String.trim login = "" ->
-                Error
-                  "submit_review Approve requires non-empty actor_login when \
-                   provided (self-review revalidation)"
-            | _ -> Ok ())
+  (* P21 production path (User_required): when user auth is available, route +
+     input checks alone authorize the plan; attribution authorize + user lease
+     at dispatch are required for execution (no App/PAT fallback). P19 App
+     pilot remains the only non-user path and is never a silent substitute. *)
+  let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+  if pilot_active then submit_review_inputs_ok ~route ~req
+  else if user_auth_available then submit_review_inputs_ok ~route ~req
+  else Error (pilot_unavailable_reason ~pilot ~user_auth_available ~now)
 
 let room_context ~room_id : Setup_plan.context =
   {
@@ -212,6 +219,8 @@ let plan_request_reviewers ~db ~principal ~room_id ~(req : request_reviewers)
                   ("item_key", `String item_key);
                   ("room_id", `String room_id);
                   ("status", `String "planned");
+                  ("attribution", `String "User_preferred");
+                  ("policy_action", `String "review_request");
                 ]
                @
                match route with
@@ -231,8 +240,11 @@ let plan_request_reviewers ~db ~principal ~room_id ~(req : request_reviewers)
                 message =
                   Printf.sprintf
                     "Policy-gated request_reviewers on %s via allow_review; \
-                     confirm before apply. No live GitHub mutation at plan \
-                     time. Ordinary metadata path (not high-risk pilot)."
+                     User_preferred attribution (native user lease or \
+                     explicitly previewed App fallback) via \
+                     Github_pr_review_attribution. Confirm before apply. No \
+                     live GitHub mutation at plan time. Ordinary metadata path \
+                     (not high-risk pilot)."
                     item_key;
               };
           ]
@@ -243,6 +255,11 @@ let plan_request_reviewers ~db ~principal ~room_id ~(req : request_reviewers)
               Setup_plan.name = "capability";
               status = Setup_plan.Pass;
               message = "allow_review";
+            };
+            {
+              name = "attribution";
+              status = Setup_plan.Pass;
+              message = "User_preferred";
             };
             { name = "item_key"; status = Setup_plan.Pass; message = item_key };
             {
@@ -263,6 +280,7 @@ let plan_request_reviewers ~db ~principal ~room_id ~(req : request_reviewers)
                ("op", `String "request_reviewers");
                ("item_key", `String item_key);
                ("capability", `String "allow_review");
+               ("attribution", `String "User_preferred");
                ("action", action_json);
              ]
             @
@@ -312,7 +330,33 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
         let item_key = String.trim req.item_key in
         let head_sha = String.trim req.head_sha in
         let kind_s = review_kind_to_string req.kind in
-        let action_json = submit_review_to_json ~pilot ~req in
+        let pilot_active = pilot.enabled && not (pilot_expired ~now pilot) in
+        let p21_user = (not pilot_active) && user_auth_available in
+        let attribution_s = if p21_user then "User_required" else "App" in
+        let production_ready = p21_user in
+        let action_json =
+          if p21_user then
+            `Assoc
+              (sort_assoc
+                 ([
+                    ("kind", `String "submit_review");
+                    ("review_kind", `String kind_s);
+                    ("item_key", `String item_key);
+                    ("head_sha", `String head_sha);
+                    ("attribution", `String "User_required");
+                    ("pilot_only", `Bool false);
+                    ("production_ready", `Bool true);
+                    ("policy_action", `String "review_submit");
+                  ]
+                 @ (match req.body with
+                   | None -> []
+                   | Some b -> [ ("body", `String b) ])
+                 @
+                 match req.actor_login with
+                 | None -> []
+                 | Some a -> [ ("actor_login", `String a) ]))
+          else submit_review_to_json ~pilot ~req
+        in
         let path =
           Printf.sprintf "github_pr_review/submit_review/%s/%s" kind_s item_key
         in
@@ -325,6 +369,7 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
                  ("room_id", `String room_id);
                  ("status", `String "pending_mutation");
                  ("pilot_name", `String pilot.pilot_name);
+                 ("attribution", `String attribution_s);
                ])
         in
         let planned_state =
@@ -339,8 +384,9 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
                   ("pilot_name", `String pilot.pilot_name);
                   ("room_id", `String room_id);
                   ("status", `String "planned");
-                  ("attribution", `String "App");
-                  ("production_ready", `Bool false);
+                  ("attribution", `String attribution_s);
+                  ("production_ready", `Bool production_ready);
+                  ("policy_action", `String "review_submit");
                 ]
                @
                match route with
@@ -351,22 +397,28 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
                      ("route_revision", `String r.revision);
                    ]))
         in
+        let note_msg =
+          if p21_user then
+            Printf.sprintf
+              "User_required submit_review (%s) on %s at head %s; revalidate \
+               head, self-review, duplicate state, Principal user lease, and \
+               confirmation immediately before submission via \
+               Github_pr_review_attribution. Confirm before apply. No live \
+               GitHub mutation at plan time."
+              kind_s item_key head_sha
+          else
+            Printf.sprintf
+              "High-risk App-attributed submit_review (%s) on %s at head %s \
+               under pilot %S; revalidate head, self-review, duplicate state, \
+               permission, and policy immediately before submission. Confirm \
+               before apply. Not production-ready (P21 User_required pending). \
+               No live GitHub mutation at plan time."
+              kind_s item_key head_sha pilot.pilot_name
+        in
         let diff =
           [
             Setup_plan.Create { path; value = action_json };
-            Setup_plan.Note
-              {
-                path;
-                message =
-                  Printf.sprintf
-                    "High-risk App-attributed submit_review (%s) on %s at head \
-                     %s under pilot %S; revalidate head, self-review, \
-                     duplicate state, permission, and policy immediately \
-                     before submission. Confirm before apply. Not \
-                     production-ready (P21 User_required pending). No live \
-                     GitHub mutation at plan time."
-                    kind_s item_key head_sha pilot.pilot_name;
-              };
+            Setup_plan.Note { path; message = note_msg };
           ]
         in
         let readiness =
@@ -377,16 +429,22 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
               message = "allow_review";
             };
             {
+              name = "attribution";
+              status = Setup_plan.Pass;
+              message = attribution_s;
+            };
+            {
               name = "pilot";
               status = Setup_plan.Pass;
-              message = pilot.pilot_name;
+              message =
+                (if p21_user then "p21_user_required" else pilot.pilot_name);
             };
             { name = "head_sha"; status = Setup_plan.Pass; message = head_sha };
             { name = "review_kind"; status = Setup_plan.Pass; message = kind_s };
             {
-              name = "not_production_ready";
+              name = "production_ready";
               status = Setup_plan.Pass;
-              message = "P19 pilot only; production waits for P21 User_required";
+              message = string_of_bool production_ready;
             };
             {
               name = "no_live_mutation";
@@ -404,6 +462,7 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
                ("review_kind", `String kind_s);
                ("pilot_name", `String pilot.pilot_name);
                ("capability", `String "allow_review");
+               ("attribution", `String attribution_s);
                ("action", action_json);
              ]
             @
@@ -427,7 +486,8 @@ let plan_submit_review ~db ~principal ~room_id ~pilot ~user_auth_available
                  ("review_kind", `String kind_s);
                  ("pilot_name", `String pilot.pilot_name);
                  ("capability", `String "allow_review");
-                 ("production_ready", `Bool false);
+                 ("attribution", `String attribution_s);
+                 ("production_ready", `Bool production_ready);
                ])
         in
         let ctx = room_context ~room_id in

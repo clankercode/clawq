@@ -55,6 +55,8 @@ let defaults () =
       ~pilot_allowed:false;
     req ~action:"assign" ~tier:Medium ~attribution:User_preferred
       ~pilot_allowed:false;
+    (* Ordinary metadata: request reviewers (not high-risk review submission) *)
+    req ~action:"review_request" ~tier:Medium ~attribution:User_preferred
     (* High / Critical — User_required; pilot App interim allowed (not fallback) *)
     req ~action:"review_submit" ~tier:High ~attribution:User_required
       ~pilot_allowed:true;
@@ -70,6 +72,8 @@ let normalize_action action =
   let a = String.lowercase_ascii (String.trim action) in
   match a with
   | "submit_review" | "review" -> "review_submit"
+  | "request_reviewers" | "request_review" | "reviewer_request" ->
+      "review_request"
   | "code_work" | "pr_create" -> "code_change"
   | "workflow" -> "workflow_dispatch"
   | "collab_comment" -> "comment"

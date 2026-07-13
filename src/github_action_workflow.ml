@@ -4,6 +4,7 @@
 module Attr = Github_action_actor_attribution
 module Reconcile = Github_action_reconcile
 module Collab_attr = Github_collab_attribution
+module Review_attr = Github_pr_review_attribution
 
 type action_kind =
   | Collab of Github_collab_actions.action
@@ -92,6 +93,9 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     ?(user_auth_available = false) ?actor_key ?actor_snapshot
     ?account_binding_id ?session_id ?attribution_evidence ?github_user_id
     ?(now = Unix.gettimeofday ()) () =
+    ?account_binding_id ?session_id ?(now = Unix.gettimeofday ()) () =
+    ?account_binding_id ?session_id ?attribution_evidence
+    ?(review_live = Review_attr.default_live_revalidation) ?github_user_id
   let plan_res =
     match action with
     | Collab collab -> (
@@ -113,6 +117,20 @@ let preview ~db ~principal ~room_id ~action ~base_revision ?route
     | Submit_review req ->
         Github_pr_review_actions.plan_submit_review ~db ~principal ~room_id
           ~pilot ~user_auth_available ~req ~base_revision ?route ~now ()
+    | Collab collab ->
+        Github_collab_actions.plan_action ~db ~principal ~room_id ~action:collab
+          ~base_revision ?route ~now ()
+    | Request_reviewers req -> (
+        | Some auth -> (
+              Review_attr.plan_with_attribution ~db ~principal ~room_id
+                ~family:(Review_attr.Request_reviewers req) ~base_revision ~auth
+                ~live:review_live ~route ~pilot ~user_auth_available
+                ?actor_snapshot ?github_user_id ~now ()
+            Github_pr_review_actions.plan_request_reviewers ~db ~principal
+              ~room_id ~req ~base_revision ?route ~now ())
+    | Submit_review req -> (
+                ~family:(Review_attr.Submit_review req) ~base_revision ~auth
+              ~pilot ~user_auth_available ~req ~base_revision ?route ~now ())
     | Merge { req; policy } ->
         Github_merge_action.plan_merge ~db ~principal ~room_id
           ~pilot:merge_pilot ~user_auth_available ~req ~policy ~base_revision
@@ -177,10 +195,25 @@ let maybe_collab_attribution_dispatch ~db ~plan ?attribution_live ?vault_id
             Collab_attr.revoke_issued_lease dispatched.issued;
             Ok (Some dispatched))
 
+(** When a PR review plan carries staged attribution, revalidate live evidence
+    and issue an opaque lease before receipt-only apply. *)
+let maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
+    ?(review_live = Review_attr.default_live_revalidation) ?vault_id
+  if not (Review_attr.has_attribution_allow plan) then Ok None
+          "PR review plan has staged attribution_allow; apply requires \
+    | Some live_auth -> (
+          Review_attr.prepare_dispatch_from_plan ~db ~plan ~live_auth
+            ~live:review_live ?vault_id ?expected:expected_account
+            ?github_user_id ~now ()
+            Review_attr.revoke_issued_lease dispatched.issued;
+
 let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
     ~current_base_revision ~destination_room ?current_target ?attribution_live
     ?vault_id ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) ()
     =
+    ~current_base_revision ~destination_room ?current_target
+    ?(now = Unix.gettimeofday ()) () =
+    ?review_live ?vault_id ?expected_account ?github_user_id
   match
     Attr.revalidate_for_apply ~db ~plan ?current_target ~require_snapshot:false
       ()
@@ -202,10 +235,20 @@ let apply_with_actor_revalidation ~db ~plan ~plan_id ~digest ~principal
               ~authority:authority_allow ~apply_ops:receipt_only_apply_ops ()
           in
           Ok (apply_outcome_with_correlation ~db ~plan ~now outcome))
+  | Ok _envelope_opt ->
+      (* Snapshot (when present) re-resolved usable; proceed with receipt-only
+         apply. Envelope is available for later live dispatch wiring. *)
+      Ok (apply_outcome_with_correlation ~db ~plan ~now outcome)
+        maybe_pr_review_attribution_dispatch ~db ~plan ?attribution_live
+          ?review_live ?vault_id ?expected_account ?github_user_id ~now ()
 
 let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
     ?current_merge_policy ?current_target ?attribution_live ?vault_id
     ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) () =
+    ?current_merge_policy ?current_target ?(now = Unix.gettimeofday ()) () =
+    ?current_merge_policy ?current_target ?attribution_live ?review_live
+    ?vault_id ?expected_account ?github_user_id ?(now = Unix.gettimeofday ()) ()
+    =
   Setup_plan_apply.init_schema db;
   match Setup_plan_apply.get_plan ~db ~plan_id with
   | None ->
@@ -248,3 +291,6 @@ let apply_confirmed ~db ~plan_id ~digest ~principal ~current_base_revision
               ~current_base_revision ~destination_room ?current_target
               ?attribution_live ?vault_id ?expected_account ?github_user_id ~now
               ())
+              ~current_base_revision ~destination_room ?current_target ~now ())
+              ?attribution_live ?review_live ?vault_id ?expected_account
+              ?github_user_id ~now ())

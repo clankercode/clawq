@@ -228,6 +228,7 @@
   github_collab_grounding
   github_collab_actions
   github_pr_review_actions
+  github_pr_review_attribution
   github_code_change_action
   github_room_background_work
   github_merge_action

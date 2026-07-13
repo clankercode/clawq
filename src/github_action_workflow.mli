@@ -25,6 +25,13 @@
     evidence to revalidate, issue an opaque lease, and record a native
     attribution receipt before the Setup_plan apply receipt.
 
+    Optional [attribution_evidence] on PR review preview stages P21 attribution
+    (authorize + audit preview + frozen prior Allow) via
+    [Github_pr_review_attribution]: [request_reviewers] is User_preferred;
+    [submit_review] is User_required with no App/PAT fallback. Apply then
+    requires matching [attribution_live] (+ [review_live] revalidation) to issue
+    an opaque lease and record a native attribution receipt.
+
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
     docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md, and
     docs/adr/0003-require-plan-confirm-apply-for-agent-setup.md. *)
@@ -58,6 +65,7 @@ val preview :
   ?session_id:string ->
   ?attribution_evidence:Github_attribution_authorize.request ->
   ?github_user_id:int64 ->
+  ?review_live:Github_pr_review_attribution.live_revalidation ->
   ?now:float ->
   unit ->
   (Setup_plan.t, string) result
@@ -75,6 +83,10 @@ val preview :
     [Github_collab_attribution.plan_with_attribution]: capability + P21
     authorize, audit preview, and frozen prior Allow on the plan.
 
+    Optional [attribution_evidence] (PR review families) runs
+    [Github_pr_review_attribution.plan_with_attribution] with [review_live]
+    revalidation (head / self-review / reviewers / replay).
+
     [pilot] gates PR submit_review; [merge_pilot] gates merge; [issue_pilot]
     gates Issue create/lifecycle; [workflow_pilot] gates workflow_dispatch. All
     high-risk pilots default off. *)
@@ -91,6 +103,7 @@ val apply_confirmed :
   ?vault_id:string ->
   ?expected_account:Github_user_token_vault.account_key ->
   ?github_user_id:int64 ->
+  ?review_live:Github_pr_review_attribution.live_revalidation ->
   ?now:float ->
   unit ->
   (Setup_plan_apply.outcome, string) result
@@ -108,6 +121,16 @@ val apply_confirmed :
     native attribution receipt, then continue with receipt-only apply. Returns
     [Error] only for structural issues (e.g. missing destination room on the
     stored plan); domain rejects are [Ok (Rejected _)]. *)
+    plans optionally revalidate [current_merge_policy]. Returns [Error] only for
+    structural issues (e.g. missing destination room on the stored plan); domain
+    rejects are [Ok (Rejected _)]. *)
+
+    PR review plans with staged [attribution_allow] require [attribution_live]
+    (and [vault_id] for User mode) plus [review_live] revalidation to issue an
+    opaque lease and record a native attribution receipt before the Setup_plan
+    apply receipt. Returns [Error] only for structural issues (e.g. missing
+    destination room on the stored plan); domain rejects are [Ok (Rejected _)].
+*)
 
 val is_github_action_plan : Setup_plan.t -> bool
 (** True when [apply_payload.kind] is a GitHub collab / request_reviewers /

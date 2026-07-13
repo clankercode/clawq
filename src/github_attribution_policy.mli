@@ -53,6 +53,10 @@ val lookup : action:string -> requirement
     ([submit_review] → [review_submit], [code_work] → [code_change],
     [collab_comment] → [comment], [collab_label] → [label],
     [collab_assign]/[assignee] → [assign]).
+    [collab_comment] → [comment], [collab_label] → [label]).
+    ([submit_review] → [review_submit], [request_reviewers] → [review_request],
+    [code_work] → [code_change], [collab_comment] → [comment], [collab_label] →
+    [label]).
 
     Unknown actions fail closed as [User_required] / [Critical] with
     [pilot_allowed = false] so undeclared mutations never silently use App. *)
