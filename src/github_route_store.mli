@@ -30,13 +30,10 @@ type selector =
 
 type comment_mode = Off | Summary | Threaded
 
-type event_filter = {
-  include_events : string list;  (** empty = baseline defaults *)
-  exclude_events : string list;
-  include_repos : string list;
-      (** for Org: optional narrow; empty = all authorized *)
-  exclude_repos : string list;
-}
+type event_filter = Github_route_filter.t
+(** Versioned baseline + advanced PR/Issue filter. See [Github_route_filter].
+    Empty include lists still mean baseline allow-all; advanced predicates are
+    typed (no raw JSON). *)
 
 type capability_policy = {
   allow_reply : bool;

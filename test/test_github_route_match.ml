@@ -145,7 +145,8 @@ let test_filtered_item_no_org_fallthrough () =
     (create ~db ~id:"rt_item" ~selector:item_pr
        ~filter:
          {
-           S.include_events = [];
+           S.default_filter with
+           include_events = [];
            exclude_events = [ "pull_request" ];
            include_repos = [];
            exclude_repos = [];
@@ -196,7 +197,8 @@ let test_filter_include_exclude () =
   (* exclude wins *)
   let excl =
     {
-      S.include_events = [ "pull_request" ];
+      S.default_filter with
+      include_events = [ "pull_request" ];
       exclude_events = [ "pull_request" ];
       include_repos = [];
       exclude_repos = [];
@@ -206,7 +208,8 @@ let test_filter_include_exclude () =
   (* non-empty include requires membership *)
   let only_comment =
     {
-      S.include_events = [ "issue_comment" ];
+      S.default_filter with
+      include_events = [ "issue_comment" ];
       exclude_events = [];
       include_repos = [];
       exclude_repos = [];
@@ -221,7 +224,8 @@ let test_filter_include_exclude () =
   (* family string matching *)
   let by_family =
     {
-      S.include_events = [ "lifecycle" ];
+      S.default_filter with
+      include_events = [ "lifecycle" ];
       exclude_events = [];
       include_repos = [];
       exclude_repos = [];
@@ -230,7 +234,8 @@ let test_filter_include_exclude () =
   Alcotest.(check bool) "family include" true (M.filter_allows by_family env_pr);
   let excl_family =
     {
-      S.include_events = [];
+      S.default_filter with
+      include_events = [];
       exclude_events = [ "comment" ];
       include_repos = [];
       exclude_repos = [];
@@ -247,7 +252,8 @@ let test_org_include_repos_narrows () =
     (create ~db ~id:"rt_org" ~selector:org_sel
        ~filter:
          {
-           S.include_events = [];
+           S.default_filter with
+           include_events = [];
            exclude_events = [];
            include_repos = [ "acme/widget" ];
            exclude_repos = [];
@@ -265,7 +271,8 @@ let test_org_include_repos_narrows () =
     (create ~db ~id:"rt_org2" ~selector:org_sel
        ~filter:
          {
-           S.include_events = [];
+           S.default_filter with
+           include_events = [];
            exclude_events = [];
            include_repos = [];
            exclude_repos = [ "acme/widget" ];

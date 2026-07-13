@@ -47,6 +47,7 @@ let test_create_get_roundtrip () =
          ~comment_mode:S.Threaded
          ~filter:
            {
+             S.default_filter with
              include_events = [ "pull_request" ];
              exclude_events = [ "issue_comment" ];
              include_repos = [];
@@ -236,7 +237,8 @@ let test_fields_persist () =
   with_db @@ fun db ->
   let filter =
     {
-      S.include_events = [ "issues"; "pull_request" ];
+      S.default_filter with
+      include_events = [ "issues"; "pull_request" ];
       exclude_events = [ "issue_comment" ];
       include_repos = [ "acme/a" ];
       exclude_repos = [ "acme/b" ];

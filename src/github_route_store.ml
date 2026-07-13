@@ -11,13 +11,7 @@ type item_ref = {
 
 type selector = Item of item_ref | Repo of string | Org of string
 type comment_mode = Off | Summary | Threaded
-
-type event_filter = {
-  include_events : string list;
-  exclude_events : string list;
-  include_repos : string list;
-  exclude_repos : string list;
-}
+type event_filter = Github_route_filter.t
 
 type capability_policy = {
   allow_reply : bool;
@@ -52,13 +46,7 @@ type t = {
   updated_at : string;
 }
 
-let default_filter =
-  {
-    include_events = [];
-    exclude_events = [];
-    include_repos = [];
-    exclude_repos = [];
-  }
+let default_filter = Github_route_filter.default
 
 let default_capability_policy =
   {
@@ -135,38 +123,10 @@ let string_list_of_json = function
   | _ -> Error "expected string list or null"
 
 let filter_to_json (f : event_filter) : Yojson.Safe.t =
-  `Assoc
-    [
-      ("include_events", string_list_to_json f.include_events);
-      ("exclude_events", string_list_to_json f.exclude_events);
-      ("include_repos", string_list_to_json f.include_repos);
-      ("exclude_repos", string_list_to_json f.exclude_repos);
-    ]
+  Github_route_filter.to_json f
 
 let filter_of_json (j : Yojson.Safe.t) : (event_filter, string) result =
-  let open Yojson.Safe.Util in
-  match j with
-  | `Assoc _ -> (
-      let get key =
-        match string_list_of_json (member key j) with
-        | Ok xs -> Ok xs
-        | Error e -> Error (key ^ ": " ^ e)
-      in
-      match
-        ( get "include_events",
-          get "exclude_events",
-          get "include_repos",
-          get "exclude_repos" )
-      with
-      | Ok include_events, Ok exclude_events, Ok include_repos, Ok exclude_repos
-        ->
-          Ok { include_events; exclude_events; include_repos; exclude_repos }
-      | Error e, _, _, _
-      | _, Error e, _, _
-      | _, _, Error e, _
-      | _, _, _, Error e ->
-          Error e)
-  | _ -> Error "filter must be object"
+  Github_route_filter.of_json j
 
 let capability_to_json (c : capability_policy) : Yojson.Safe.t =
   let extra =

@@ -59,6 +59,7 @@ let test_apply_create_route () =
          ~comment_mode:S.Threaded
          ~filter:
            {
+             S.default_filter with
              include_events = [ "pull_request" ];
              exclude_events = [];
              include_repos = [];
