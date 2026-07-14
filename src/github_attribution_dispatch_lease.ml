@@ -3,7 +3,9 @@
    docs/plans/2026-07-13-github-user-attribution-and-feature-discovery.md. *)
 
 module Auth = Github_attribution_authorize
+module Binding = Github_account_binding
 module Lease = Github_user_token_lease
+module Principal = Principal_identity
 module V = Github_user_token_vault
 
 let schema_version = 1
@@ -94,6 +96,7 @@ type denial =
       actual : string option;
     }
   | User_lease_requires_vault_id
+  | Binding_provenance of { binding_id : string option; code : string }
   | Generation_race of { expected : int; actual : int }
   | Lease of Lease.denial
   | Invalid_input of string
@@ -118,6 +121,10 @@ let string_of_denial = function
       Printf.sprintf "prior_binding_mismatch:expected=%s actual=%s"
         (show expected) (show actual)
   | User_lease_requires_vault_id -> "user_lease_requires_vault_id"
+  | Binding_provenance { binding_id; code } ->
+      Printf.sprintf "binding_provenance:%s:%s"
+        (Option.value binding_id ~default:"-")
+        code
   | Generation_race { expected; actual } ->
       Printf.sprintf "generation_race:expected=%d actual=%d" expected actual
   | Lease d -> "lease:" ^ Lease.string_of_denial d
@@ -175,6 +182,15 @@ let denial_to_json = function
         [
           ("schema_version", `Int schema_version);
           ("kind", `String "user_lease_requires_vault_id");
+          ("issues_token", `Bool false);
+        ]
+  | Binding_provenance { binding_id; code } ->
+      `Assoc
+        [
+          ("schema_version", `Int schema_version);
+          ("kind", `String "binding_provenance");
+          opt_string "binding_id" binding_id;
+          ("code", `String code);
           ("issues_token", `Bool false);
         ]
   | Generation_race { expected; actual } ->
@@ -268,29 +284,121 @@ let revalidate ~(live : Auth.request) ~(prior : Auth.allow) () :
 (* Issue after revalidation                                                    *)
 (* -------------------------------------------------------------------------- *)
 
-let issue_user_lease ~db ~now ~ttl_seconds ~vault_id ~expected ~binding_id
-    ~(prior : Auth.allow) ~(fresh : Auth.allow) :
+let account_equal (a : V.account_key) (b : V.account_key) =
+  String.equal a.principal_id b.principal_id
+  && Int64.equal a.github_user_id b.github_user_id
+  && a.app_id = b.app_id && String.equal a.host b.host
+
+let account_of_binding (binding : Binding.binding) =
+  V.make_account_key
+    ~principal_id:(Principal.principal_id_to_string binding.principal_id)
+    ~github_user_id:binding.identity.github_user_id
+    ~app_id:binding.identity.app_id ~host:binding.identity.host ()
+
+let validate_binding_provenance ~db ~(fresh : Auth.allow) ~vault_id ~expected :
+    (V.account_key, denial) result =
+  Binding.ensure_schema db;
+  let vault_id = String.trim vault_id in
+  let binding_id = fresh.binding_id in
+  match (binding_id, fresh.principal_id) with
+  | None, _ ->
+      Error
+        (Binding_provenance { binding_id; code = "user_allow_missing_binding" })
+  | Some _, None ->
+      Error
+        (Binding_provenance
+           { binding_id; code = "user_allow_missing_principal" })
+  | Some binding_id, Some principal_id -> (
+      match Binding.get ~db ~id:binding_id with
+      | Error _ ->
+          Error
+            (Binding_provenance
+               { binding_id = Some binding_id; code = "binding_lookup_failed" })
+      | Ok None ->
+          Error
+            (Binding_provenance
+               { binding_id = Some binding_id; code = "binding_not_found" })
+      | Ok (Some binding) -> (
+          if
+            not
+              (String.equal
+                 (Principal.principal_id_to_string binding.principal_id)
+                 principal_id)
+          then
+            Error
+              (Binding_provenance
+                 {
+                   binding_id = Some binding_id;
+                   code = "binding_principal_mismatch";
+                 })
+          else if binding.authorization_status <> Binding.Authorized then
+            Error
+              (Binding_provenance
+                 {
+                   binding_id = Some binding_id;
+                   code = "binding_not_authorized";
+                 })
+          else if
+            match fresh.revisions.binding_lineage_id with
+            | Some lineage -> not (String.equal lineage binding.lineage_id)
+            | None -> true
+          then
+            Error
+              (Binding_provenance
+                 {
+                   binding_id = Some binding_id;
+                   code = "binding_lineage_mismatch";
+                 })
+          else if
+            match binding.vault_ref with
+            | Some ref ->
+                not (String.equal (Binding.vault_ref_to_string ref) vault_id)
+            | None -> true
+          then
+            Error
+              (Binding_provenance
+                 {
+                   binding_id = Some binding_id;
+                   code = "binding_vault_mismatch";
+                 })
+          else
+            match account_of_binding binding with
+            | Error _ ->
+                Error
+                  (Binding_provenance
+                     {
+                       binding_id = Some binding_id;
+                       code = "binding_account_invalid";
+                     })
+            | Ok account -> (
+                match expected with
+                | Some supplied when not (account_equal supplied account) ->
+                    Error
+                      (Binding_provenance
+                         {
+                           binding_id = Some binding_id;
+                           code = "binding_account_mismatch";
+                         })
+                | None | Some _ -> Ok account)))
+
+let issue_user_lease ~db ~now ~ttl_seconds ~vault_id ~expected
+    ~(fresh : Auth.allow) ~(prior : Auth.allow) :
     (Lease.lease * Lease.identity, denial) result =
   let vault_id = String.trim vault_id in
   if vault_id = "" then Error (Invalid_input "vault_id must be non-empty")
   else
-    match
-      Lease.issue ~db ~now ?ttl_seconds ?binding_id ?expected ~vault_id ()
-    with
-    | Error d -> Error (Lease d)
-    | Ok lease -> (
-        (* Close race: vault generation advanced between authorize evidence and
+    match validate_binding_provenance ~db ~fresh ~vault_id ~expected with
+    | Error denial -> Error denial
+    | Ok expected -> (
+        match
+          Lease.issue ~db ~now ?ttl_seconds ?binding_id:fresh.binding_id
+            ~expected ~vault_id ()
+        with
+        | Error d -> Error (Lease d)
+        | Ok lease -> (
+            (* Close race: vault generation advanced between authorize evidence and
            lease issue (refresh/replace/revoke). *)
-        match prior.revisions.vault_generation with
-        | Some expected_gen when Lease.generation lease <> expected_gen ->
-            Lease.revoke lease;
-            Error
-              (Generation_race
-                 { expected = expected_gen; actual = Lease.generation lease })
-        | _ -> (
-            (* Fresh authorize may have recorded a generation; prefer that pin
-               when prior did not (defensive). *)
-            match fresh.revisions.vault_generation with
+            match prior.revisions.vault_generation with
             | Some expected_gen when Lease.generation lease <> expected_gen ->
                 Lease.revoke lease;
                 Error
@@ -299,9 +407,22 @@ let issue_user_lease ~db ~now ~ttl_seconds ~vault_id ~expected ~binding_id
                        expected = expected_gen;
                        actual = Lease.generation lease;
                      })
-            | _ ->
-                let identity = Lease.identity_of lease in
-                Ok (lease, identity)))
+            | _ -> (
+                (* Fresh authorize may have recorded a generation; prefer that pin
+               when prior did not (defensive). *)
+                match fresh.revisions.vault_generation with
+                | Some expected_gen when Lease.generation lease <> expected_gen
+                  ->
+                    Lease.revoke lease;
+                    Error
+                      (Generation_race
+                         {
+                           expected = expected_gen;
+                           actual = Lease.generation lease;
+                         })
+                | _ ->
+                    let identity = Lease.identity_of lease in
+                    Ok (lease, identity))))
 
 let issue_for_dispatch ~db ?(now = Unix.gettimeofday ()) ?ttl_seconds
     ~(live : Auth.request) ~(prior : Auth.allow) ?vault_id ?expected () :
@@ -319,7 +440,7 @@ let issue_for_dispatch ~db ?(now = Unix.gettimeofday ()) ?ttl_seconds
           | Some vault_id -> (
               match
                 issue_user_lease ~db ~now ~ttl_seconds ~vault_id ~expected
-                  ~binding_id:fresh.binding_id ~prior ~fresh
+                  ~fresh ~prior
               with
               | Error e -> Error e
               | Ok (lease, identity) ->

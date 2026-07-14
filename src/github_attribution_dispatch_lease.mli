@@ -88,6 +88,9 @@ type denial =
     }
   | User_lease_requires_vault_id
       (** User mode Allow but caller omitted [vault_id]. *)
+  | Binding_provenance of { binding_id : string option; code : string }
+      (** The current binding no longer proves ownership of the requested vault
+          and account identity. No lease is issued. *)
   | Generation_race of { expected : int; actual : int }
       (** Vault generation changed between authorize evidence and lease issue;
           issued lease (if any) is revoked before return. *)
@@ -126,10 +129,12 @@ val issue_for_dispatch :
 (** Immediately before HTTP dispatch:
 
     1. {!revalidate} against live evidence pinned by [prior] 2. On User mode:
-    require [vault_id], issue {!Lease.issue} with optional [expected] account
-    and [prior] binding_id 3. After issue, refuse if vault generation advanced
-    past the prior pin (revoke the just-issued lease on race) 4. On App mode:
-    return [lease = None] without touching the vault
+    require [vault_id], then verify the current selected binding is Authorized,
+    belongs to the revalidated Principal and lineage, and owns that vault and
+    its account identity before issuing {!Lease.issue}. An optional [expected]
+    account must agree with the binding. 3. After issue, refuse if vault
+    generation advanced past the prior pin (revoke the just-issued lease on
+    race) 4. On App mode: return [lease = None] without touching the vault
 
     Never returns raw access/refresh tokens. Use {!Lease.with_token} /
     {!Lease.with_authorization_header} on [issued.lease] for HTTP only. *)

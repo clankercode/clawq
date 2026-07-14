@@ -427,6 +427,7 @@ let record_dispatch_denial ~db ~(prior : Auth.allow) ~live ?item_key ?room_id
         (Audit.Identity, "prior_binding_mismatch")
     | Lease.User_lease_requires_vault_id ->
         (Audit.Identity, "user_lease_requires_vault_id")
+    | Lease.Binding_provenance { code; _ } -> (Audit.Identity, code)
     | Lease.Generation_race _ -> (Audit.Refresh, "generation_race")
     | Lease.Lease _ -> (Audit.Refresh, "lease_denied")
     | Lease.Invalid_input _ -> (Audit.Other "invalid_input", "invalid_input")

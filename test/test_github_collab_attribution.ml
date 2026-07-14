@@ -6,6 +6,7 @@
     receipt, and secret non-escape. *)
 
 module A = Github_attribution_authorize
+module B = Github_account_binding
 module C = Github_collab_attribution
 module Collab = Github_collab_actions
 module Audit = Github_attribution_audit
@@ -72,6 +73,7 @@ let with_db f =
   Setup_plan_apply.init_schema db;
   Audit.ensure_schema db;
   V.ensure_schema db;
+  B.ensure_schema db;
   Fun.protect
     ~finally:(fun () ->
       ignore (Token_lease.discard_all ());
@@ -190,7 +192,23 @@ let create_vault ~db ?(keys = make_keys ()) ?(account = account ())
     V.create ~db ~keys ~id ~now:fixed_now ~account ~tokens
       ~scopes:[ "repo"; "read:user" ] ~expires_at ()
   with
-  | Ok r -> r
+  | Ok r ->
+      let identity =
+        assert_ok
+          (B.make_account_identity ~host:r.account.host ~app_id:r.account.app_id
+             ~github_user_id:r.account.github_user_id ())
+      in
+      let binding =
+        B.make_binding ~id:"bind_1"
+          ~principal_id:
+            (assert_ok
+               (Principal_identity.principal_id_of_string r.account.principal_id))
+          ~identity ~authorization_status:B.Authorized ~lineage_id:"lin_1"
+          ~vault_ref:(assert_ok (B.make_vault_ref r.id))
+          ()
+      in
+      ignore (assert_ok (B.insert ~db ~now:fixed_now binding));
+      r
   | Error d -> Alcotest.fail ("create vault: " ^ V.string_of_denial d)
 
 (* -------------------------------------------------------------------------- *)

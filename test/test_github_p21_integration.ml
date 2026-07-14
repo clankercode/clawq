@@ -450,7 +450,22 @@ let create_vault ~db ?(keys = make_keys ()) ?(account = account ())
     V.create ~db ~keys ~id ~now:fixed_now ~account ~tokens
       ~scopes:[ "repo"; "read:user" ] ~expires_at ()
   with
-  | Ok r -> r
+  | Ok r ->
+      let identity =
+        assert_ok
+          (B.make_account_identity ~host:r.account.host ~app_id:r.account.app_id
+             ~github_user_id:r.account.github_user_id ())
+      in
+      let binding =
+        B.make_binding ~id:"gh_ada"
+          ~principal_id:
+            (assert_ok (P.principal_id_of_string r.account.principal_id))
+          ~identity ~authorization_status:B.Authorized ~lineage_id:"lin_ada"
+          ~vault_ref:(assert_ok (B.make_vault_ref r.id))
+          ()
+      in
+      ignore (assert_ok (B.insert ~db ~now:fixed_now binding));
+      r
   | Error d -> Alcotest.fail ("create vault: " ^ V.string_of_denial d)
 
 let make_snapshot ?(snapshot_id = "actorsnap_p21_ada")

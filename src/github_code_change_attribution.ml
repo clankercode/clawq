@@ -542,7 +542,8 @@ let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
                   ~code:d.repair.code ()
             | Dispatch.Prior_mode_mismatch _ | Dispatch.Prior_action_mismatch _
             | Dispatch.Prior_principal_mismatch _
-            | Dispatch.Prior_binding_mismatch _ ->
+            | Dispatch.Prior_binding_mismatch _ | Dispatch.Binding_provenance _
+              ->
                 Audit.Identity
             | Dispatch.Generation_race _ -> Audit.Refresh
             | Dispatch.User_lease_requires_vault_id | Dispatch.Lease _ ->
@@ -558,6 +559,7 @@ let dispatch ~db ~family ~live_auth ~prior ~live ?vault_id ?expected ?item_key
             | Dispatch.Prior_binding_mismatch _ -> "prior_binding_mismatch"
             | Dispatch.User_lease_requires_vault_id ->
                 "user_lease_requires_vault"
+            | Dispatch.Binding_provenance { code; _ } -> code
             | Dispatch.Generation_race _ -> "generation_race"
             | Dispatch.Lease _ -> "lease_denied"
             | Dispatch.Invalid_input _ -> "invalid_input"

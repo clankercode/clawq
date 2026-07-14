@@ -9,6 +9,7 @@
     - No raw token escape in issued / denial / JSON surfaces *)
 
 module A = Github_attribution_authorize
+module B = Github_account_binding
 module D = Github_attribution_dispatch_lease
 module L = Github_user_token_lease
 module V = Github_user_token_vault
@@ -52,6 +53,7 @@ let make_keys ?(key_id = "mk-dispatch-1") ?(key_version = 1) () =
 let with_db f =
   let db = Sqlite3.db_open ":memory:" in
   V.ensure_schema db;
+  B.ensure_schema db;
   Fun.protect
     ~finally:(fun () ->
       ignore (L.discard_all ());
@@ -70,6 +72,24 @@ let create_vault ~db ?(keys = make_keys ()) ?(account = account ())
   with
   | Ok r -> r
   | Error d -> Alcotest.fail ("create: " ^ V.string_of_denial d)
+
+let insert_current_binding ~db ~(vault : V.vault_record) ~binding_id ~lineage_id
+    =
+  let identity =
+    assert_ok
+      (B.make_account_identity ~host:vault.account.host
+         ~app_id:vault.account.app_id
+         ~github_user_id:vault.account.github_user_id ())
+  in
+  let vault_ref = assert_ok (B.make_vault_ref vault.id) in
+  let binding =
+    B.make_binding ~id:binding_id
+      ~principal_id:
+        (assert_ok
+           (Principal_identity.principal_id_of_string vault.account.principal_id))
+      ~identity ~authorization_status:B.Authorized ~lineage_id ~vault_ref ()
+  in
+  ignore (assert_ok (B.insert ~db ~now:fixed_now binding))
 
 let selected ?(binding_id = "bind_1") ?(lineage_id = "lin_1")
     ?(authorized = true) ?(vault_active = true) ?(vault_generation = 1)
@@ -171,6 +191,8 @@ let test_issue_user_lease_after_revalidation () =
   let keys = make_keys () in
   let acct = account () in
   let rec_ = create_vault ~db ~keys ~account:acct () in
+  insert_current_binding ~db ~vault:rec_ ~binding_id:"bind_1"
+    ~lineage_id:"lin_1";
   let preview = base_request () in
   let prior = prior_allow ~request:preview () in
   (* Dispatch: same live evidence as preview (queue did not change policy). *)
@@ -224,6 +246,30 @@ let test_app_path_no_user_lease () =
   Alcotest.(check string) "mode" "app" (A.resolved_mode_to_string issued.mode);
   Alcotest.(check bool) "no lease" true (Option.is_none issued.lease);
   Alcotest.(check bool) "no identity" true (Option.is_none issued.identity)
+
+let test_user_lease_requires_current_binding_vault () =
+  with_db @@ fun db ->
+  let keys = make_keys () in
+  let acct = account () in
+  let bound = create_vault ~db ~keys ~account:acct ~id:"ghvault_bound" () in
+  let other_account = account ~github_user_id:4243L () in
+  let other =
+    create_vault ~db ~keys ~account:other_account ~id:"ghvault_other" ()
+  in
+  insert_current_binding ~db ~vault:bound ~binding_id:"bind_1"
+    ~lineage_id:"lin_1";
+  let preview = base_request () in
+  let prior = prior_allow ~request:preview () in
+  match
+    D.issue_for_dispatch ~db ~now:fixed_now ~live:preview ~prior
+      ~vault_id:other.id ()
+  with
+  | Error
+      (D.Binding_provenance
+         { binding_id = Some "bind_1"; code = "binding_vault_mismatch" }) ->
+      ()
+  | Error e -> Alcotest.fail ("unexpected: " ^ D.string_of_denial e)
+  | Ok _ -> Alcotest.fail "expected binding-vault provenance denial"
 
 let test_user_requires_vault_id () =
   with_db @@ fun db ->
@@ -435,6 +481,8 @@ let test_vault_disabled_between_queue_and_issue () =
   let keys = make_keys () in
   let acct = account () in
   let rec_ = create_vault ~db ~keys ~account:acct () in
+  insert_current_binding ~db ~vault:rec_ ~binding_id:"bind_1"
+    ~lineage_id:"lin_1";
   let preview = base_request () in
   let prior = prior_allow ~request:preview () in
   (* Authorize evidence still says vault active, but vault was CAS-disabled. *)
@@ -467,6 +515,8 @@ let test_generation_race_after_cas_replace () =
   let keys = make_keys () in
   let acct = account () in
   let rec_ = create_vault ~db ~keys ~account:acct () in
+  insert_current_binding ~db ~vault:rec_ ~binding_id:"bind_1"
+    ~lineage_id:"lin_1";
   let preview =
     base_request ~binding:(A.Selected (selected ~vault_generation:1 ())) ()
   in
@@ -520,6 +570,8 @@ let test_denial_and_issued_never_embed_token () =
   with_db @@ fun db ->
   let keys = make_keys () in
   let rec_ = create_vault ~db ~keys () in
+  insert_current_binding ~db ~vault:rec_ ~binding_id:"bind_1"
+    ~lineage_id:"lin_1";
   let preview = base_request () in
   let prior = prior_allow ~request:preview () in
   let issued =
@@ -558,6 +610,8 @@ let suite =
       test_issue_user_lease_after_revalidation;
     Alcotest.test_case "App path no user lease" `Quick
       test_app_path_no_user_lease;
+    Alcotest.test_case "User lease requires current binding vault" `Quick
+      test_user_lease_requires_current_binding_vault;
     Alcotest.test_case "User requires vault_id" `Quick
       test_user_requires_vault_id;
     Alcotest.test_case "revalidate only no lease" `Quick
