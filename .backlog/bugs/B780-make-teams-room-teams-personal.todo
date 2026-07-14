@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-14T04:33:48Z"
+claimed_by: grok-bl-fix-many
+completed_at: null
 complexity: medium
 created_at: "2026-07-14T04:08:38Z"
 depends_on:
@@ -6,9 +9,10 @@ depends_on:
 estimate_hours: 1
 id: B780
 priority: high
-status: pending
+started_at: "2026-07-14T04:33:48Z"
+status: in_progress
 tags: []
 title: Make Teams room teams:personal:19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2 low volume
-updated_at: "2026-07-14T04:08:38Z"
+updated_at: "2026-07-14T04:33:48Z"
 ---
 Depends on B779. Add a room-specific low-volume setting for Teams room teams:personal:19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2, hiding routine details such as tool execution and cron prompts while retaining important results and alerts.
