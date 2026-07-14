@@ -423,6 +423,35 @@ let test_status_free_text_redacts_secrets () =
         (contains ~needle:secret formatted))
     [ code_secret; message_secret; guidance_secret; source_secret ]
 
+let test_notes_redact_secrets () =
+  let constructed_secret = "ghu_NOTE_CONSTRUCTED_SECRET_123456"
+  and imported_secret = "ghu_NOTE_IMPORTED_SECRET_123456" in
+  let constructed =
+    D.with_notes (D.empty_counters ~now:fixed_now ())
+      [ "operator note=" ^ constructed_secret ]
+  in
+  let imported =
+    assert_ok
+      (D.of_json
+         (`Assoc
+           [
+             ("schema_version", `Int D.schema_version);
+             ("generated_at", `String "2026-01-01T00:00:00Z");
+             ( "notes",
+               `List [ `String ("imported note=" ^ imported_secret) ] );
+           ]))
+  in
+  List.iter
+    (fun (counters, secret) ->
+      let json = Yojson.Safe.to_string (D.to_json counters) in
+      let formatted = String.concat "\n" (D.format_diagnostics counters) in
+      Alcotest.(check bool)
+        "notes JSON redacts secret" false (contains ~needle:secret json);
+      Alcotest.(check bool)
+        "notes format redacts secret" false
+        (contains ~needle:secret formatted))
+    [ (constructed, constructed_secret); (imported, imported_secret) ]
+
 let test_format_status_actionable () =
   let entries =
     List.map
@@ -511,6 +540,7 @@ let suite =
     ( "status free text redacts secrets",
       `Quick,
       test_status_free_text_redacts_secrets );
+    ("notes redact secrets", `Quick, test_notes_redact_secrets);
     ("format status actionable", `Quick, test_format_status_actionable);
     ("merge counters", `Quick, test_merge_counters);
     ("authorize deny status", `Quick, test_authorize_deny_status);
