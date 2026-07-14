@@ -369,6 +369,7 @@
   model_validation
   completions
   stuck_detector
+  cron_room_preflight
   session_observer
   postmortem
   postmortem_followup

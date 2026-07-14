@@ -568,72 +568,104 @@ let run_turn agent ~mk_io ~user_message ?db ?session_key ?interrupt_check
                   | Some signals, Some cb -> cb signals
                   | _ -> Lwt.return_unit
                 in
-                (* B652: watchdog — count consecutive Definite stuck detections
-                   and hard-stop after `watchdog_threshold` so a wedged session
-                   does not keep burning cost. The observer/postmortem already
-                   fired by here. Reset the counter on any non-stuck
-                   iteration. *)
-                (match stuck_signals with
-                | Some _ -> incr consecutive_stuck
-                | None -> consecutive_stuck := 0);
-                if !consecutive_stuck >= watchdog_threshold then begin
-                  let signal_desc =
-                    match stuck_signals with
-                    | Some s -> Stuck_detector.signals_to_string s
-                    | None -> "(unknown)"
-                  in
-                  let pause_msg =
-                    Printf.sprintf
-                      "[Watchdog] Pausing this session after %d consecutive \
-                       stuck detections (threshold=%d). Last signal: %s\n\n\
-                       The model appears to be looping on the same failure \
-                       mode. I'm stopping the turn so cost doesn't keep \
-                       accruing. Reply with new context or `/reset` to start \
-                       over."
-                      !consecutive_stuck watchdog_threshold signal_desc
-                  in
-                  Logs.warn (fun m ->
-                      m
-                        "B652 watchdog: pausing after %d consecutive Definite \
-                         stuck detections (threshold=%d)"
-                        !consecutive_stuck watchdog_threshold);
-                  agent.history <-
-                    Provider.make_message ~role:"assistant" ~content:pause_msg
-                    :: agent.history;
-                  trim_history agent;
-                  let* () = io.emit (Provider.Delta pause_msg) in
-                  Lwt.return pause_msg
-                end
-                else
-                  match interrupt_check with
-                  | Some check -> (
-                      match check () with
-                      | interrupt when is_restart_interrupt interrupt ->
-                          Lwt.fail Restart_requested
-                      | interrupt when is_queued_message_interrupt interrupt ->
-                          (* Not a real interrupt: continue looping. Queued
-                             messages are picked up via inject_messages between
-                             tool batches. Restart-resume turns remap this token
-                             to a real stop signal in daemon_util.ml. *)
-                          loop (iteration + 1)
-                      | interrupt when is_stop_interrupt interrupt ->
-                          let stopped = record_stopped_by_admin agent in
-                          let* () = io.emit (Provider.Delta stopped) in
-                          Lwt.return stopped
-                      | Some _ ->
-                          let partial =
-                            "[Agent was interrupted mid-task] --- [NOTE: \
-                             interrupted by user]"
-                          in
-                          agent.history <-
-                            Provider.make_message ~role:"assistant"
-                              ~content:partial
-                            :: agent.history;
-                          trim_history agent;
-                          let* () = io.emit (Provider.Delta partial) in
-                          Lwt.return partial
-                      | None -> loop (iteration + 1))
-                  | None -> loop (iteration + 1))))
+                (* B778: configuration-class stuck signals (missing room profile
+                   binding, empty GitHub room access, missing CLAWQ_PRINCIPAL_ID)
+                   are not recoverable by retry. Abort immediately with an
+                   actionable "room not configured" report instead of spinning
+                   until the generic watchdog threshold. *)
+                let config_abort_msg =
+                  match stuck_signals with
+                  | Some signals
+                    when Stuck_detector.has_configuration_error signals ->
+                      Some (Stuck_detector.configuration_abort_message signals)
+                  | _ -> None
+                in
+                match config_abort_msg with
+                | Some pause_msg ->
+                    Logs.warn (fun m ->
+                        m
+                          "B778: aborting turn on configuration-class stuck \
+                           signals: %s"
+                          (match stuck_signals with
+                          | Some s -> Stuck_detector.signals_to_string s
+                          | None -> "(unknown)"));
+                    agent.history <-
+                      Provider.make_message ~role:"assistant" ~content:pause_msg
+                      :: agent.history;
+                    trim_history agent;
+                    let* () = io.emit (Provider.Delta pause_msg) in
+                    Lwt.return pause_msg
+                | None -> (
+                    (* B652: watchdog — count consecutive Definite stuck
+                       detections and hard-stop after `watchdog_threshold` so a
+                       wedged session does not keep burning cost. The
+                       observer/postmortem already fired by here. Reset the
+                       counter on any non-stuck iteration. *)
+                    (match stuck_signals with
+                    | Some _ -> incr consecutive_stuck
+                    | None -> consecutive_stuck := 0);
+                    if !consecutive_stuck >= watchdog_threshold then begin
+                      let signal_desc =
+                        match stuck_signals with
+                        | Some s -> Stuck_detector.signals_to_string s
+                        | None -> "(unknown)"
+                      in
+                      let pause_msg =
+                        Printf.sprintf
+                          "[Watchdog] Pausing this session after %d \
+                           consecutive stuck detections (threshold=%d). Last \
+                           signal: %s\n\n\
+                           The model appears to be looping on the same failure \
+                           mode. I'm stopping the turn so cost doesn't keep \
+                           accruing. Reply with new context or `/reset` to \
+                           start over."
+                          !consecutive_stuck watchdog_threshold signal_desc
+                      in
+                      Logs.warn (fun m ->
+                          m
+                            "B652 watchdog: pausing after %d consecutive \
+                             Definite stuck detections (threshold=%d)"
+                            !consecutive_stuck watchdog_threshold);
+                      agent.history <-
+                        Provider.make_message ~role:"assistant"
+                          ~content:pause_msg
+                        :: agent.history;
+                      trim_history agent;
+                      let* () = io.emit (Provider.Delta pause_msg) in
+                      Lwt.return pause_msg
+                    end
+                    else
+                      match interrupt_check with
+                      | Some check -> (
+                          match check () with
+                          | interrupt when is_restart_interrupt interrupt ->
+                              Lwt.fail Restart_requested
+                          | interrupt when is_queued_message_interrupt interrupt
+                            ->
+                              (* Not a real interrupt: continue looping. Queued
+                                 messages are picked up via inject_messages
+                                 between tool batches. Restart-resume turns
+                                 remap this token to a real stop signal in
+                                 daemon_util.ml. *)
+                              loop (iteration + 1)
+                          | interrupt when is_stop_interrupt interrupt ->
+                              let stopped = record_stopped_by_admin agent in
+                              let* () = io.emit (Provider.Delta stopped) in
+                              Lwt.return stopped
+                          | Some _ ->
+                              let partial =
+                                "[Agent was interrupted mid-task] --- [NOTE: \
+                                 interrupted by user]"
+                              in
+                              agent.history <-
+                                Provider.make_message ~role:"assistant"
+                                  ~content:partial
+                                :: agent.history;
+                              trim_history agent;
+                              let* () = io.emit (Provider.Delta partial) in
+                              Lwt.return partial
+                          | None -> loop (iteration + 1))
+                      | None -> loop (iteration + 1)))))
       (fun exn ->
         match exn with
         | Restart_requested -> Lwt.fail Restart_requested

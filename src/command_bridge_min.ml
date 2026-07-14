@@ -507,7 +507,10 @@ let cmd_cron args =
         "Cron jobs:\n" ^ Table_format.render columns rows
   | "add" :: name :: session_key :: schedule :: message -> (
       let db = get_db () in
+      let cfg = get_config () in
       Scheduler.init_schema db;
+      let force = List.mem "--force" message in
+      let message = List.filter (fun s -> s <> "--force") message in
       let rec extract_ttl acc = function
         | "--ttl" :: v :: rest -> (Some v, List.rev_append acc rest)
         | x :: rest -> extract_ttl (x :: acc) rest
@@ -516,10 +519,20 @@ let cmd_cron args =
       let ttl, message = extract_ttl [] message in
       let msg = String.concat " " message in
       match
-        Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule ?ttl ()
+        Cron_room_preflight.validate ~config:cfg ~db ~force ~session_key ~name
+          ~message:msg ()
       with
-      | Ok () -> Printf.sprintf "Added cron job '%s'" name
-      | Error e -> Printf.sprintf "Error: %s" e)
+      | Error e -> Printf.sprintf "Error: %s" e
+      | Ok preflight -> (
+          match
+            Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule ?ttl
+              ()
+          with
+          | Error e -> Printf.sprintf "Error: %s" e
+          | Ok () ->
+              let base = Printf.sprintf "Added cron job '%s'" name in
+              if preflight.warnings = [] then base
+              else base ^ "\n" ^ String.concat "\n" preflight.warnings))
   | [ "remove"; name ] ->
       let db = get_db () in
       Scheduler.init_schema db;

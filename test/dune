@@ -227,6 +227,7 @@
   test_room_progress
   test_sandbox
   test_scheduler
+  test_cron_room_preflight
   test_secret_store
   test_scope_resolver
   test_invariant_conformance

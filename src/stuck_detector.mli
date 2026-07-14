@@ -16,3 +16,14 @@ val check :
 val signals_to_string : signal list -> string
 (** [signals_to_string signals] produces a human-readable summary of the signals
     suitable for injection into LLM context. *)
+
+val is_configuration_error : string -> bool
+(** [true] when a tool error string indicates a non-retryable room/setup
+    misconfiguration (missing profile binding, empty GitHub room access, missing
+    CLAWQ_PRINCIPAL_ID, etc.). *)
+
+val has_configuration_error : signal list -> bool
+(** [true] when any stuck signal is a configuration-class failure. *)
+
+val configuration_abort_message : signal list -> string
+(** User-facing abort text for configuration-error loops (B778). *)

@@ -102,9 +102,10 @@ let rec result_to_string = function
   | Slash_commands.Cron Slash_commands.CronList -> "Cron(List)"
   | Slash_commands.Cron Slash_commands.CronHelp -> "Cron(Help)"
   | Slash_commands.Cron
-      (Slash_commands.CronAdd { name; schedule; message; ttl }) ->
-      Printf.sprintf "Cron(Add %s %s %s ttl=%s)" name schedule message
+      (Slash_commands.CronAdd { name; schedule; message; ttl; force }) ->
+      Printf.sprintf "Cron(Add %s %s %s ttl=%s force=%b)" name schedule message
         (Option.value ~default:"-" ttl)
+        force
   | Slash_commands.Cron
       (Slash_commands.CronEdit { name; schedule; message; ttl }) ->
       Printf.sprintf "Cron(Edit %s sched=%s msg=%s ttl=%s)" name
@@ -2485,6 +2486,7 @@ let test_cron_add () =
             schedule = "every 5m";
             message = "hello";
             ttl = None;
+            force = false;
           }))
     (Slash_commands.handle "/cron add test-job every 5m hello")
 
@@ -2497,6 +2499,7 @@ let test_cron_add_multi_word () =
             schedule = "0 9 * * *";
             message = "check the dashboard";
             ttl = None;
+            force = false;
           }))
     (Slash_commands.handle "/cron add daily 0 9 * * * check the dashboard")
 
@@ -2509,6 +2512,7 @@ let test_cron_add_with_ttl () =
             schedule = "every 5m";
             message = "message";
             ttl = Some "24h";
+            force = false;
           }))
     (Slash_commands.handle "/cron add jobname every 5m message --ttl 24h")
 

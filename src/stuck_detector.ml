@@ -19,6 +19,46 @@ let is_error_content content =
 let is_tool_error (msg : Provider.message) =
   msg.role = "tool" && (msg.is_error || is_error_content msg.content)
 
+(* B778: configuration-class tool failures are not recoverable by retrying the
+   same call — missing room profile bindings, empty GitHub room data, or missing
+   principal env vars. Treat them as fatal sooner than generic tool errors. *)
+let configuration_error_needles =
+  [
+    "no memory scope or profile binding";
+    "bind a room profile";
+    "has no github item access";
+    "empty journal and projections";
+    "clawq_principal_id must be set";
+    "no memory scope found for room";
+    "must be set so the tool can scope";
+  ]
+
+let contains_ci ~haystack ~needle =
+  let hay = String.lowercase_ascii haystack in
+  let nee = String.lowercase_ascii needle in
+  let hlen = String.length hay in
+  let nlen = String.length nee in
+  let rec loop i =
+    if nlen = 0 then true
+    else if i + nlen > hlen then false
+    else if String.sub hay i nlen = nee then true
+    else loop (i + 1)
+  in
+  loop 0
+
+let is_configuration_error (msg : string) : bool =
+  List.exists
+    (fun needle -> contains_ci ~haystack:msg ~needle)
+    configuration_error_needles
+
+let signal_is_configuration_error = function
+  | ConsecutiveErrors { last_error; _ } -> is_configuration_error last_error
+  | SameErrorString { msg; _ } -> is_configuration_error msg
+  | RepeatedToolCall _ | NearMaxIters _ -> false
+
+let has_configuration_error (signals : signal list) : bool =
+  List.exists signal_is_configuration_error signals
+
 let take n lst =
   let rec aux acc k = function
     | [] -> List.rev acc
@@ -84,11 +124,13 @@ let check ~history ~iteration ~max_iters =
   let add_definite s = definite_signals := s :: !definite_signals in
   let add_suspicious s = suspicious_signals := s :: !suspicious_signals in
 
-  (* ConsecutiveErrors *)
+  (* ConsecutiveErrors — config-class failures become Definite at 2. *)
   let consec_count, consec_tool, consec_err =
     check_consecutive_errors history
   in
-  if consec_count >= 3 then
+  if
+    consec_count >= 3 || (consec_count >= 2 && is_configuration_error consec_err)
+  then
     add_definite
       (ConsecutiveErrors
          { count = consec_count; tool = consec_tool; last_error = consec_err })
@@ -106,11 +148,12 @@ let check ~history ~iteration ~max_iters =
       else add_suspicious (RepeatedToolCall { tool = fn; args; count }))
     repeated;
 
-  (* SameErrorString *)
+  (* SameErrorString — config-class failures become Definite at 2. *)
   let same_errors = check_same_error_string history in
   List.iter
     (fun (msg, count) ->
-      if count >= 3 then add_definite (SameErrorString { msg; count })
+      if count >= 3 || (count >= 2 && is_configuration_error msg) then
+        add_definite (SameErrorString { msg; count })
       else add_suspicious (SameErrorString { msg; count }))
     same_errors;
 
@@ -169,3 +212,17 @@ let signals_to_string signals =
       ())
     signals;
   String.trim (Buffer.contents buf)
+
+let configuration_abort_message (signals : signal list) : string =
+  let detail = signals_to_string signals in
+  Printf.sprintf
+    "[Room not configured] Aborting after repeated identical configuration \
+     tool errors.\n\n\
+     %s\n\n\
+     This is a setup problem, not a transient tool failure. Fix the room \
+     configuration and re-run:\n\
+    \  - Bind a room profile: clawq rooms bind <room_id> <profile_id>\n\
+    \  - For GitHub room tools: ensure the room has journal entries or item \
+     projections\n\
+    \  - For github_account: set CLAWQ_PRINCIPAL_ID for the agent process"
+    detail

@@ -442,8 +442,14 @@ let handle ?(skill_names = []) text =
               in
               aux [] tokens
             in
+            let extract_force tokens =
+              let force = List.mem "--force" tokens in
+              let tokens = List.filter (fun s -> s <> "--force") tokens in
+              (force, tokens)
+            in
             let parse_cron_add name rest =
               let ttl, rest = extract_ttl rest in
+              let force, rest = extract_force rest in
               match rest with
               | [] ->
                   FormattedReply
@@ -468,6 +474,7 @@ let handle ?(skill_names = []) text =
                            schedule;
                            message = String.concat " " remainder;
                            ttl;
+                           force;
                          })
               | f1 :: f2 :: f3 :: f4 :: f5 :: remainder when remainder <> [] ->
                   let schedule = String.concat " " [ f1; f2; f3; f4; f5 ] in
@@ -478,6 +485,7 @@ let handle ?(skill_names = []) text =
                          schedule;
                          message = String.concat " " remainder;
                          ttl;
+                         force;
                        })
               | _ ->
                   FormattedReply
