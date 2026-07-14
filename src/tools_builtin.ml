@@ -151,17 +151,10 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
   (* Set the session model after a successful safety-net check. Returns the
      tool response string. Includes a rollback hint so the agent can self-
      recover even after committing. *)
-  let do_set ~cfg ~session_key ~model ~provider ~model_id ~fmt ~previous_model =
+  let do_set ~cfg ~session_key ~model ~provider ~hint ~previous_model =
     let open Lwt.Syntax in
-    let hint =
-      match fmt with
-      | Models_catalog.Legacy ->
-          Printf.sprintf "\nHint: use %s:%s format instead of %s/%s." provider
-            model_id provider model_id
-      | _ -> ""
-    in
     let provider_in_config =
-      List.mem_assoc provider cfg.Runtime_config.providers
+      provider = "" || List.mem_assoc provider cfg.Runtime_config.providers
     in
     let warn =
       if not provider_in_config then
@@ -184,12 +177,12 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             in
             Lwt.return
               (Printf.sprintf
-                 "Model set to: %s (provider: %s)%s%s\n\
+                 "Model set to: %s%s%s\n\
                   Previous model: %s\n\
                   Rollback (call this tool again with): %s\n\
                   Persisted for this session across restarts. Use 'models \
                   set-default' to change the global default."
-                 model_id provider hint warn previous_model rollback_tool_call)
+                 model hint warn previous_model rollback_tool_call)
         | None ->
             Lwt.return
               "Error: session key not available; cannot set session model.")
@@ -238,8 +231,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                      model)
             | _ -> (
                 let provider = resolved.Models_catalog.canonical_provider in
-                let model_id = resolved.Models_catalog.canonical_model_id in
-                let fmt = resolved.Models_catalog.fmt in
+                let hint = resolved.Models_catalog.hint in
                 let previous_model =
                   match session_key with
                   | Some key -> Session.get_session_effective_model mgr ~key
@@ -259,16 +251,16 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                         (fun s ->
                           s
                           ^ "\nNote: validation skipped (skip_validation=true).")
-                        (do_set ~cfg ~session_key ~model ~provider ~model_id
-                           ~fmt ~previous_model)
+                        (do_set ~cfg ~session_key ~model ~provider ~hint
+                           ~previous_model)
                     else
                       let* result =
                         Model_validation.validate ~config:cfg ~model ()
                       in
                       match result with
                       | Model_validation.Ok_validated ->
-                          do_set ~cfg ~session_key ~model ~provider ~model_id
-                            ~fmt ~previous_model
+                          do_set ~cfg ~session_key ~model ~provider ~hint
+                            ~previous_model
                       | Model_validation.Error_msg msg ->
                           let rollback_cmd =
                             Printf.sprintf
@@ -398,8 +390,10 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                             ~provider_filter ~availability ())
                 in
                 Lwt.return
-                  (Models_catalog.to_plain_list ~provider_filter ~availability
-                     ~db_extras ())
+                  (Models_catalog.with_list_header
+                     ~current_default:(current_model ())
+                     (Models_catalog.to_plain_list ~provider_filter
+                        ~availability ~db_extras ()))
             end
         | "get" ->
             let model =

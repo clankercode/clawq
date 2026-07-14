@@ -702,74 +702,85 @@ let rec cmd_session args =
           let skip_validation, positional = parse_set_args set_args in
           match positional with
           | [ raw_model ] -> (
-              let model = Models_catalog.resolve_alias_or_name raw_model in
-              let provider, model_id, fmt = Models_catalog.split_name model in
-              let canonical, hint =
-                match fmt with
-                | Models_catalog.Legacy ->
-                    let canonical_id =
-                      Option.value ~default:model_id
-                        (Models_catalog.canonical_id ~provider model_id)
-                    in
-                    let c = provider ^ ":" ^ canonical_id in
-                    ( c,
-                      Printf.sprintf
-                        "\nNote: normalized to canonical format \"%s\"." c )
-                | Models_catalog.Canonical -> (
-                    match Models_catalog.canonical_id ~provider model_id with
-                    | Some canonical_id ->
-                        let c = provider ^ ":" ^ canonical_id in
-                        ( c,
-                          Printf.sprintf
-                            "\nNote: corrected model casing \"%s\" -> \"%s\"."
-                            model c )
-                    | None -> (model, ""))
-                | Models_catalog.Plain -> (model, "")
-              in
-              let previous_override =
-                Memory.get_session_model_override ~db ~session_key
-              in
-              let rollback_cmd =
-                match previous_override with
-                | Some prev ->
-                    Printf.sprintf "clawq session model %s set %s" session_key
-                      prev
-                | None ->
-                    Printf.sprintf "clawq session model %s clear" session_key
-              in
-              let previous_label =
-                match previous_override with
-                | Some prev -> Printf.sprintf "override=%s" prev
-                | None ->
-                    Printf.sprintf "no override (default: %s)"
-                      config.agent_defaults.primary_model
-              in
-              let rollback_banner =
-                Printf.sprintf
-                  "Current session model: %s\n\
-                   Rollback command if needed:\n\
-                  \  %s\n"
-                  previous_label rollback_cmd
-              in
-              let commit () =
-                Memory.set_session_model_override ~db ~session_key
-                  ~model:canonical;
-                Printf.sprintf "%sModel override set for session %s: %s%s"
-                  rollback_banner session_key canonical hint
-              in
-              if skip_validation then
-                commit () ^ "\nNote: validation skipped (--skip-validation)."
-              else
-                let result =
-                  Model_validation.validate_sync ~config ~model:canonical ()
-                in
-                match result with
-                | Model_validation.Ok_validated -> commit ()
-                | Model_validation.Error_msg msg ->
-                    rollback_banner
-                    ^ Model_validation.format_failure ~rollback_cmd msg)
+              let configured_providers = List.map fst config.providers in
+              match
+                Models_catalog.resolve_model_name_for_set
+                  ~require_configured_provider:false ~configured_providers
+                  raw_model
+              with
+              | Error err ->
+                  if
+                    String.length err >= 6
+                    && String.lowercase_ascii (String.sub err 0 6) = "error:"
+                  then err
+                  else "Error: " ^ err
+              | Ok resolved -> (
+                  let canonical = resolved.Models_catalog.canonical_value in
+                  let hint = resolved.Models_catalog.hint in
+                  let previous_override =
+                    Memory.get_session_model_override ~db ~session_key
+                  in
+                  let rollback_cmd =
+                    match previous_override with
+                    | Some prev ->
+                        Printf.sprintf "clawq session model %s set %s"
+                          session_key prev
+                    | None ->
+                        Printf.sprintf "clawq session model %s clear"
+                          session_key
+                  in
+                  let previous_label =
+                    match previous_override with
+                    | Some prev -> Printf.sprintf "override=%s" prev
+                    | None ->
+                        Printf.sprintf "no override (default: %s)"
+                          config.agent_defaults.primary_model
+                  in
+                  let rollback_banner =
+                    Printf.sprintf
+                      "Current session model: %s\n\
+                       Rollback command if needed:\n\
+                      \  %s\n"
+                      previous_label rollback_cmd
+                  in
+                  let commit () =
+                    Memory.set_session_model_override ~db ~session_key
+                      ~model:canonical;
+                    Printf.sprintf "%sModel override set for session %s: %s%s"
+                      rollback_banner session_key canonical hint
+                  in
+                  match
+                    try
+                      Model_discovery.validate_cached_model_allowed ~db
+                        canonical
+                    with _ -> None
+                  with
+                  | Some msg ->
+                      if
+                        String.length msg >= 6
+                        && String.lowercase_ascii (String.sub msg 0 6)
+                           = "error:"
+                      then msg
+                      else "Error: " ^ msg
+                  | None -> (
+                      if skip_validation then
+                        commit ()
+                        ^ "\nNote: validation skipped (--skip-validation)."
+                      else
+                        let result =
+                          Model_validation.validate_sync ~config
+                            ~model:canonical ()
+                        in
+                        match result with
+                        | Model_validation.Ok_validated -> commit ()
+                        | Model_validation.Error_msg msg ->
+                            rollback_banner
+                            ^ Model_validation.format_failure ~rollback_cmd msg)
+                  ))
           | _ ->
-              "Usage: clawq session model SESSION set MODEL [--skip-validation]"
+              "Usage: clawq session model SESSION set MODEL [--skip-validation]\n\
+               MODEL uses provider:model (e.g. anthropic:claude-sonnet-4-6).\n\
+               Bare names resolve when unique; ambiguous names list candidates."
           )
       | [ "clear" ] ->
           Memory.clear_session_model_override ~db ~session_key;

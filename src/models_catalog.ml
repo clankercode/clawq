@@ -651,36 +651,58 @@ let find_by_full_name name =
         known_models
   | _, model, Plain -> find_by_id model
 
+(** Sorted unique full names for candidate lists in error messages. *)
+let candidate_full_names matches =
+  matches |> List.map full_name |> List.sort_uniq String.compare
+
+let ambiguous_plain_error name matches =
+  let candidates = candidate_full_names matches in
+  let block = String.concat "\n  " candidates in
+  let example =
+    match candidates with c :: _ -> c | [] -> "provider:model-id"
+  in
+  Printf.sprintf
+    "Ambiguous model '%s'. Multiple providers match — use provider:model format.\n\
+     Candidates:\n\
+    \  %s\n\
+     Example: %s"
+    name block example
+
+let unknown_plain_error name =
+  Printf.sprintf
+    "Unknown model '%s' (not in catalog).\n\
+     Use provider:model format (e.g. openai:%s or anthropic:claude-sonnet-4-6).\n\
+     List available models: clawq models list  (or /model list)\n\
+     Session-only force: /model set-force %s"
+    name name name
+
+let unknown_provider_error ~allow_force provider name =
+  if allow_force then
+    Printf.sprintf
+      "Unknown provider '%s' (not configured).\n\
+       Add it: clawq config provider add %s ...\n\
+       Or pick a model from a configured provider (clawq models list / /model \
+       list).\n\
+       Session-only force: /model set-force %s"
+      provider provider name
+  else
+    Printf.sprintf
+      "Unknown provider '%s' (not configured).\n\
+       Add it: clawq config provider add %s ...\n\
+       Or pick a model from a configured provider (clawq models list)."
+      provider provider
+
 let validate_model_name ~configured_providers name =
   let provider, _model_id, fmt = split_name name in
   match fmt with
   | Canonical | Legacy ->
       if List.mem provider configured_providers then None
-      else
-        Some
-          (Printf.sprintf
-             "Unknown provider '%s'. Use /model set-force %s to set anyway, or \
-              add '%s' to your config.json providers."
-             provider name provider)
+      else Some (unknown_provider_error ~allow_force:true provider name)
   | Plain -> (
       match fuzzy_plain_matches name with
       | [ _ ] -> None
-      | _ :: _ as matches ->
-          let candidates =
-            matches |> List.map full_name
-            |> List.sort_uniq String.compare
-            |> String.concat ", "
-          in
-          Some
-            (Printf.sprintf
-               "Ambiguous model '%s'. Use provider:model format. Candidates: %s"
-               name candidates)
-      | [] ->
-          Some
-            (Printf.sprintf
-               "Unknown model '%s'. Use /model set-force %s to set anyway, or \
-                use provider:model format (e.g., openai:%s)."
-               name name name))
+      | _ :: _ as matches -> Some (ambiguous_plain_error name matches)
+      | [] -> Some (unknown_plain_error name))
 
 type resolved_model_name = {
   canonical_value : string;
@@ -692,22 +714,6 @@ type resolved_model_name = {
   hint : string;
   catalog_match : model_info option;
 }
-
-let ambiguous_plain_error name matches =
-  let candidates =
-    matches |> List.map full_name
-    |> List.sort_uniq String.compare
-    |> String.concat ", "
-  in
-  Printf.sprintf
-    "Ambiguous model '%s'. Use provider:model format. Candidates: %s" name
-    candidates
-
-let unknown_plain_error name =
-  Printf.sprintf
-    "Unknown model '%s'. Use /model set-force %s to set anyway, or use \
-     provider:model format (e.g., openai:%s)."
-    name name name
 
 let resolve_model_name_for_set ?(force = false)
     ?(require_configured_provider = true) ~configured_providers raw_name =
@@ -721,8 +727,8 @@ let resolve_model_name_for_set ?(force = false)
     let hint =
       match fmt with
       | Legacy ->
-          Printf.sprintf "\nHint: use %s:%s format instead." provider
-            canonical_id
+          Printf.sprintf "\nNote: normalized legacy \"%s\" to canonical \"%s\"."
+            name canonical_value
       | Canonical when canonical_id <> model_id ->
           Printf.sprintf "\nNote: corrected model casing \"%s\" -> \"%s\"." name
             canonical_value
@@ -745,12 +751,7 @@ let resolve_model_name_for_set ?(force = false)
       if
         (not force) && require_configured_provider
         && not (List.mem provider configured_providers)
-      then
-        Error
-          (Printf.sprintf
-             "Unknown provider '%s'. Use /model set-force %s to set anyway, or \
-              add '%s' to your config.json providers."
-             provider name provider)
+      then Error (unknown_provider_error ~allow_force:true provider name)
       else resolve_provider_model ()
   | Plain -> (
       let matches = fuzzy_plain_matches name in
@@ -788,6 +789,29 @@ let resolve_model_name_for_set ?(force = false)
             }
       | [] -> Error (unknown_plain_error name)
       | _ :: _ -> Error (ambiguous_plain_error name matches))
+
+(** Header shown above plain-text model lists so users see the active default
+    and the canonical selection syntax without guesswork. *)
+let format_list_header ~current_default =
+  let default_disp =
+    if String.trim current_default = "" then "(not set)" else current_default
+  in
+  Printf.sprintf
+    "Current default: %s\n\
+     Syntax: provider:model  (e.g. anthropic:claude-sonnet-4-6)\n\
+     Legacy provider/model is accepted but normalized to provider:model.\n\
+     Set default: clawq models set-default <provider:model>\n\
+     Session override: /model set <provider:model>\n"
+    default_disp
+
+(** Prefix a list body with [format_list_header] when [current_default] is
+    provided. JSON list paths should omit this. *)
+let with_list_header ?current_default body =
+  match current_default with
+  | None -> body
+  | Some current ->
+      let header = format_list_header ~current_default:current in
+      if body = "" then header else header ^ "\n" ^ body
 
 let format_context_window = function
   | None -> ""

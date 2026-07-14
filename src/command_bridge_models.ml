@@ -42,14 +42,45 @@ let db_only_model_infos ?(availability = Models_catalog.Available) ~get_db
       ~availability ()
   with _ -> []
 
+let error_prefix msg =
+  if
+    String.length msg >= 6
+    && String.lowercase_ascii (String.sub msg 0 6) = "error:"
+  then msg
+  else "Error: " ^ msg
+
+let models_usage =
+  "Usage: clawq models <subcommand>\n\n\
+   Model names use provider:model (e.g. anthropic:claude-sonnet-4-6).\n\
+   Bare names work when unique; ambiguous names list candidates.\n\
+   Legacy provider/model is accepted and normalized to provider:model.\n\n\
+   Subcommands:\n\
+  \  list [--provider P] [--json] [--availability available|unavailable|all]\n\
+  \                           List known models + current default\n\
+  \  set-default MODEL            Set default model (validates first)\n\
+  \                           Options: --skip-validation / --no-test\n\
+  \  refresh [--force]            Refresh model list from provider APIs\n\
+  \  refresh --provider PNAME     Refresh models for a specific provider"
+
 let cmd_models ~get_db ~get_config args =
+  let current_default () =
+    let cfg : Runtime_config.t = get_config () in
+    cfg.agent_defaults.primary_model
+  in
+  let plain_list ~provider_filter ~availability ~db_extras =
+    let body =
+      Models_catalog.to_plain_list ~provider_filter ~availability ~db_extras ()
+    in
+    Models_catalog.with_list_header ~current_default:(current_default ()) body
+  in
   match args with
   | [] ->
       let db_extras =
         db_only_model_infos ~get_db ~provider_filter:None
           ~availability:Models_catalog.Available ()
       in
-      Models_catalog.to_plain_list ~db_extras ()
+      plain_list ~provider_filter:None ~availability:Models_catalog.Available
+        ~db_extras
   | "list" :: rest -> (
       match parse_models_list_args rest with
       | Error msg -> msg
@@ -61,9 +92,7 @@ let cmd_models ~get_db ~get_config args =
             Yojson.Safe.to_string
               (Models_catalog.to_json ~provider_filter ~availability ~db_extras
                  ())
-          else
-            Models_catalog.to_plain_list ~provider_filter ~availability
-              ~db_extras ())
+          else plain_list ~provider_filter ~availability ~db_extras)
   | "set-default" :: rest when rest <> [] -> (
       let skip_validation =
         List.exists (fun a -> a = "--skip-validation" || a = "--no-test") rest
@@ -73,105 +102,49 @@ let cmd_models ~get_db ~get_config args =
       in
       match positional with
       | [ raw_model ] -> (
-          let model = Models_catalog.resolve_alias_or_name raw_model in
-          let provider, model_id, fmt = Models_catalog.split_name model in
-          let plain_matches =
-            match fmt with
-            | Models_catalog.Plain -> Models_catalog.fuzzy_plain_matches model
-            | Models_catalog.Canonical | Models_catalog.Legacy -> []
-          in
-          match (fmt, plain_matches) with
-          | Models_catalog.Plain, [] ->
-              Printf.sprintf
-                "Error: model '%s' not found in catalog.\n\
-                 Hint: use provider:model format (e.g. \
-                 anthropic:claude-sonnet-4-6) to set an unknown model."
-                model
-          | Models_catalog.Plain, _ :: _ :: _ ->
-              let candidates =
-                plain_matches
-                |> List.map Models_catalog.full_name
-                |> List.sort_uniq String.compare
-                |> String.concat "\n  "
-              in
-              Printf.sprintf
-                "Error: ambiguous model '%s'. Use provider:model format.\n\
-                 Candidates:\n\
-                \  %s"
-                model candidates
-          | _ -> (
-              let canonical_value, hint =
-                match fmt with
-                | Models_catalog.Legacy ->
-                    let canonical_id =
-                      Option.value ~default:model_id
-                        (Models_catalog.canonical_id ~provider model_id)
-                    in
-                    let canonical = provider ^ ":" ^ canonical_id in
-                    ( canonical,
-                      Printf.sprintf
-                        "\nNote: normalized \"%s\" to canonical format \"%s\"."
-                        model canonical )
-                | Models_catalog.Plain -> (
-                    match plain_matches with
-                    | [ m ] when m.Models_catalog.provider <> "" ->
-                        let canonical =
-                          m.Models_catalog.provider ^ ":" ^ m.Models_catalog.id
-                        in
-                        ( canonical,
-                          Printf.sprintf
-                            "\nNote: resolved bare model name to \"%s\"."
-                            canonical )
-                    | _ -> (model, ""))
-                | Models_catalog.Canonical -> (
-                    match Models_catalog.canonical_id ~provider model_id with
-                    | Some canonical_id ->
-                        let canonical = provider ^ ":" ^ canonical_id in
-                        ( canonical,
-                          Printf.sprintf
-                            "\nNote: corrected model casing \"%s\" -> \"%s\"."
-                            model canonical )
-                    | None -> (model, ""))
-              in
-              let cfg : Runtime_config.t = get_config () in
+          let cfg : Runtime_config.t = get_config () in
+          let configured_providers = List.map fst cfg.providers in
+          (* Do not require a configured provider here: users may point at a
+             custom/self-hosted provider:model before the provider is added.
+             Live validation / preflight still catches unusable targets. *)
+          match
+            Models_catalog.resolve_model_name_for_set
+              ~require_configured_provider:false ~configured_providers raw_model
+          with
+          | Error err -> error_prefix err
+          | Ok resolved -> (
+              let canonical_value = resolved.Models_catalog.canonical_value in
               let previous_model = cfg.agent_defaults.primary_model in
+              let previous_disp =
+                if String.trim previous_model = "" then "(not set)"
+                else previous_model
+              in
               let rollback_cmd =
-                if previous_model <> "" then
+                if String.trim previous_model <> "" then
                   Printf.sprintf "clawq models set-default %s" previous_model
                 else "clawq models set-default <previous-model>"
-              in
-              let display_provider =
-                match fmt with
-                | Models_catalog.Canonical | Models_catalog.Legacy -> provider
-                | Models_catalog.Plain -> (
-                    match plain_matches with
-                    | [ m ] when m.Models_catalog.provider <> "" ->
-                        m.Models_catalog.provider
-                    | _ -> "")
-              in
-              let display_model =
-                match fmt with
-                | Models_catalog.Canonical | Models_catalog.Legacy -> model_id
-                | Models_catalog.Plain -> model
               in
               let rollback_banner =
                 Printf.sprintf
                   "Current model: %s\nRollback command if needed:\n  %s\n"
-                  previous_model rollback_cmd
+                  previous_disp rollback_cmd
               in
               let commit_and_format () =
                 let set_result =
                   Config_set.set_value "agent_defaults.primary_model"
                     canonical_value
                 in
-                if display_provider <> "" then
-                  Printf.sprintf
-                    "%sDefault model set to: %s (provider: %s)%s\n%s"
-                    rollback_banner display_model display_provider hint
-                    set_result
-                else
-                  Printf.sprintf "%sDefault model set to: %s%s\n%s"
-                    rollback_banner display_model hint set_result
+                let catalog_note =
+                  match resolved.Models_catalog.catalog_match with
+                  | Some _ -> ""
+                  | None ->
+                      "\n\
+                       Note: model is not in the built-in catalog; ensure the \
+                       provider can serve it."
+                in
+                Printf.sprintf "%sDefault model set to: %s%s%s\n%s"
+                  rollback_banner canonical_value resolved.Models_catalog.hint
+                  catalog_note set_result
               in
               match
                 try
@@ -179,7 +152,7 @@ let cmd_models ~get_db ~get_config args =
                     canonical_value
                 with _ -> None
               with
-              | Some msg -> "Error: " ^ msg
+              | Some msg -> error_prefix msg
               | None -> (
                   if skip_validation then
                     commit_and_format ()
@@ -194,7 +167,10 @@ let cmd_models ~get_db ~get_config args =
                     | Model_validation.Error_msg msg ->
                         rollback_banner
                         ^ Model_validation.format_failure ~rollback_cmd msg)))
-      | _ -> "Usage: clawq models set-default MODEL [--skip-validation]")
+      | _ ->
+          "Usage: clawq models set-default MODEL [--skip-validation]\n\
+           MODEL uses provider:model (e.g. anthropic:claude-sonnet-4-6).\n\
+           Bare names resolve when unique; ambiguous names list candidates.")
   | [ "refresh" ] ->
       let db = get_db () in
       let config : Runtime_config.t = get_config () in
@@ -225,12 +201,4 @@ let cmd_models ~get_db ~get_config args =
               Printf.sprintf "Refreshed %d model(s) for provider '%s'." n pname
           | Error e ->
               Printf.sprintf "Refresh failed for provider '%s': %s" pname e))
-  | _ ->
-      "Usage: clawq models <subcommand>\n\n\
-       Subcommands:\n\
-      \  list [--provider P] [--json] [--availability available|unavailable|all]\n\
-      \                           List known models (catalog + DB cache)\n\
-      \  set-default MODEL            Set default model (e.g. \
-       anthropic:claude-sonnet-4-6)\n\
-      \  refresh [--force]            Refresh model list from provider APIs\n\
-      \  refresh --provider PNAME     Refresh models for a specific provider"
+  | _ -> models_usage

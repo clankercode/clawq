@@ -193,14 +193,21 @@ let cmd_models args =
     in
     loop None Models_catalog.Available args
   in
+  let current_default () =
+    let cfg = get_config () in
+    cfg.Runtime_config.agent_defaults.primary_model
+  in
+  let plain_list ~provider_filter ~availability =
+    let body = Models_catalog.to_plain_list ~provider_filter ~availability () in
+    Models_catalog.with_list_header ~current_default:(current_default ()) body
+  in
   match args with
   | [] | [ "list" ] ->
-      let provider_filter = None in
-      Models_catalog.to_plain_list ~provider_filter ()
+      plain_list ~provider_filter:None ~availability:Models_catalog.Available
   | "list" :: rest -> (
       match parse_list_args rest with
       | Ok (provider_filter, availability) ->
-          Models_catalog.to_plain_list ~provider_filter ~availability ()
+          plain_list ~provider_filter ~availability
       | Error msg -> msg)
   | [ "set-default"; raw_model ] -> (
       let cfg = get_config () in
@@ -209,11 +216,25 @@ let cmd_models args =
         Models_catalog.resolve_model_name_for_set
           ~require_configured_provider:false ~configured_providers raw_model
       with
-      | Error msg -> "Error: " ^ msg
+      | Error msg ->
+          if
+            String.length msg >= 6
+            && String.lowercase_ascii (String.sub msg 0 6) = "error:"
+          then msg
+          else "Error: " ^ msg
       | Ok resolved ->
           let canonical_value, hint =
             ( resolved.Models_catalog.canonical_value,
               resolved.Models_catalog.hint )
+          in
+          let previous = cfg.Runtime_config.agent_defaults.primary_model in
+          let previous_disp =
+            if String.trim previous = "" then "(not set)" else previous
+          in
+          let rollback_cmd =
+            if String.trim previous <> "" then
+              Printf.sprintf "clawq-min models set-default %s" previous
+            else "clawq-min models set-default <previous-model>"
           in
           let set_result =
             Config_set.set_value "agent_defaults.primary_model" canonical_value
@@ -225,9 +246,17 @@ let cmd_models args =
                 Printf.sprintf "Warning: model '%s' not found in catalog.\n"
                   canonical_value
           in
-          warning ^ set_result ^ hint)
+          Printf.sprintf
+            "Current model: %s\n\
+             Rollback command if needed:\n\
+            \  %s\n\
+             %sDefault model set to: %s%s\n\
+             %s"
+            previous_disp rollback_cmd warning canonical_value hint set_result)
   | _ ->
       "Usage: clawq-min models <subcommand>\n\n\
+       Model names use provider:model (e.g. anthropic:claude-sonnet-4-6).\n\
+       Bare names work when unique; ambiguous names list candidates.\n\n\
        Subcommands:\n\
       \  list [--provider P] [--availability available|unavailable|all]\n\
       \  set-default MODEL       Set default model"
