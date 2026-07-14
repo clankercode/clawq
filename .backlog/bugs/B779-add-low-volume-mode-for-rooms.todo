@@ -1,13 +1,17 @@
 ---
+claimed_at: "2026-07-14T04:20:49Z"
+claimed_by: grok-bl-fix-many
+completed_at: null
 complexity: medium
 created_at: "2026-07-14T04:07:05Z"
 depends_on: []
 estimate_hours: 1
 id: B779
 priority: high
-status: pending
+started_at: "2026-07-14T04:20:49Z"
+status: in_progress
 tags: []
 title: Add low-volume mode for rooms
-updated_at: "2026-07-14T04:07:05Z"
+updated_at: "2026-07-14T04:20:49Z"
 ---
 Allow rooms to opt into a low-volume presentation mode that hides or suppresses most operational detail, including tool execution updates and cron prompts, while retaining important user-facing results and alerts.
