@@ -543,11 +543,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   (fun _exn -> Lwt.return_unit)
               else Lwt.return_unit
             else
-              let agent_defaults =
-                (Session.get_config session_mgr).agent_defaults
+              let cfg = Session.get_config session_mgr in
+              let agent_defaults = cfg.agent_defaults in
+              let low_volume =
+                Runtime_config.room_low_volume cfg ~session_key:key
               in
               let use_consolidated =
-                agent_defaults.show_tool_calls
+                Status_update.shows_tool_status ~agent_defaults ~low_volume ()
                 && agent_defaults.tool_status_mode = "consolidated"
               in
               let current_turn_has_tools = ref false in
@@ -591,6 +593,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               let strategy =
                 Status_update.select_strategy ~agent_defaults
                   ~capabilities:(Some Connector_capabilities.telegram)
+                  ~low_volume ()
               in
               let send_expandable ~name ~result ~is_error =
                 if is_error then
@@ -629,12 +632,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     in
                     refresh_typing ();
                     Lwt.return_unit)
-                  ~agent_defaults ~parse_mode:"HTML"
+                  ~agent_defaults ~low_volume ~parse_mode:"HTML"
                   ~on_tool_event:(fun event ->
                     let open Lwt.Syntax in
                     match event with
                     | Status_update.Tool_started _ ->
-                        if not !tool_reaction_set then begin
+                        if low_volume then Lwt.return_unit
+                        else if not !tool_reaction_set then begin
                           tool_reaction_set := true;
                           set_reaction reaction_emoji_tools
                         end
@@ -652,7 +656,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           format_tool_result_detail ~name ~result
                           :: !current_turn_tool_details;
                         current_turn_has_tools := true;
-                        if (not use_consolidated) && not is_error then
+                        if low_volume then Lwt.return_unit
+                        else if (not use_consolidated) && not is_error then
                           send_expandable ~name ~result ~is_error
                         else Lwt.return_unit)
                   ~on_error_detail:(fun (detail : Status_update.error_detail) ->

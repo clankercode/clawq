@@ -28,9 +28,9 @@ let default_ambient_quiet_end = 8
 let make_profile ?(ambient_enabled = false)
     ?(ambient_quiet_start = default_ambient_quiet_start)
     ?(ambient_quiet_end = default_ambient_quiet_end)
-    ?(ambient_rate_limit_rph = 0) ~id ~display_name ~model ~system_prompt
-    ~max_tool_iterations ~status ~allowed_tools ~denied_tools () : room_profile
-    =
+    ?(ambient_rate_limit_rph = 0) ?(low_volume = false) ~id ~display_name ~model
+    ~system_prompt ~max_tool_iterations ~status ~allowed_tools ~denied_tools ()
+    : room_profile =
   {
     id;
     display_name;
@@ -45,6 +45,7 @@ let make_profile ?(ambient_enabled = false)
     ambient_quiet_start;
     ambient_quiet_end;
     ambient_rate_limit_rph;
+    low_volume;
   }
 
 let check_ambient_enabled (profile : room_profile) =

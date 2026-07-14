@@ -517,11 +517,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                        "Sorry, an error occurred processing your message: %s"
                        err))
         | NotACommand -> (
-            let agent_defaults =
-              (Session.get_config session_mgr).agent_defaults
+            let cfg = Session.get_config session_mgr in
+            let agent_defaults = cfg.agent_defaults in
+            let low_volume =
+              Runtime_config.room_low_volume cfg ~session_key:key
             in
             let use_consolidated =
-              agent_defaults.show_tool_calls
+              Status_update.shows_tool_status ~agent_defaults ~low_volume ()
               && agent_defaults.tool_status_mode = "consolidated"
             in
             let tool_reaction_set = ref false in
@@ -567,18 +569,19 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             in
             let strategy =
               Status_update.select_strategy ~agent_defaults
-                ~capabilities:(Some Connector_capabilities.discord)
+                ~capabilities:(Some Connector_capabilities.discord) ~low_volume
+                ()
             in
             let handler =
               Status_update.make_handler ~strategy ~notifier_factory
                 ~notify:(fun text ->
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text)
-                ~agent_defaults ~parse_mode:"Markdown" ()
+                ~agent_defaults ~low_volume ~parse_mode:"Markdown" ()
             in
             let on_chunk chunk =
               (match chunk with
-              | Provider.ToolStart _ ->
+              | Provider.ToolStart _ when not low_volume ->
                   if not !tool_reaction_set then begin
                     tool_reaction_set := true;
                     Lwt.async (fun () ->

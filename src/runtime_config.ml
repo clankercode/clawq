@@ -216,6 +216,14 @@ let resolve_room_profile_model (cfg : t) ~session_key : string option =
   | Some p when p.model <> "" -> Some p.model
   | _ -> None
 
+(** [room_low_volume cfg ~session_key] is true when the active room profile for
+    [session_key] opts into low-volume presentation (suppress tool chatter and
+    routine operational prompts; keep final replies and alerts). *)
+let room_low_volume (cfg : t) ~session_key : bool =
+  match resolve_room_profile cfg ~session_key with
+  | Some p -> p.low_volume
+  | None -> false
+
 let unique_strings items =
   let seen = Hashtbl.create (List.length items) in
   List.filter

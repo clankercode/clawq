@@ -28,6 +28,7 @@ type room_agent_config = {
   ambient_quiet_start : int;
   ambient_quiet_end : int;
   ambient_rate_limit_rph : int;
+  low_volume : bool;
 }
 (** Immutable snapshot of the room profile configuration at record creation.
 
@@ -38,7 +39,8 @@ type room_agent_config = {
     - [max_tool_iterations] is the configured iteration cap.
     - [status] is the profile status string ("active", "disabled", etc.).
     - [allowed_tools] / [denied_tools] are the profile-level tool lists.
-    - [ambient_enabled] indicates whether ambient work is allowed. *)
+    - [ambient_enabled] indicates whether ambient work is allowed.
+    - [low_volume] indicates quiet presentation (suppress tool/cron chatter). *)
 
 let system_prompt_digest (prompt : string) : string =
   Digestif.SHA256.(digest_string prompt |> to_hex)
@@ -59,6 +61,7 @@ let config_of_room_profile (p : Runtime_config.room_profile) : room_agent_config
     ambient_quiet_start = p.ambient_quiet_start;
     ambient_quiet_end = p.ambient_quiet_end;
     ambient_rate_limit_rph = p.ambient_rate_limit_rph;
+    low_volume = p.low_volume;
   }
 
 (** {1 Connector context} *)
@@ -218,6 +221,7 @@ let json_of_agent_config (c : room_agent_config) : Yojson.Safe.t =
       ("ambient_quiet_start", `Int c.ambient_quiet_start);
       ("ambient_quiet_end", `Int c.ambient_quiet_end);
       ("ambient_rate_limit_rph", `Int c.ambient_rate_limit_rph);
+      ("low_volume", `Bool c.low_volume);
     ]
 
 let agent_config_of_json (json : Yojson.Safe.t) :
@@ -268,6 +272,7 @@ let agent_config_of_json (json : Yojson.Safe.t) :
               ambient_quiet_start = int_val "ambient_quiet_start" 0;
               ambient_quiet_end = int_val "ambient_quiet_end" 0;
               ambient_rate_limit_rph = int_val "ambient_rate_limit_rph" 0;
+              low_volume = bool_val "low_volume" false;
             }
       | _ -> Error "agent_config: missing profile_id")
   | _ -> Error "agent_config: expected JSON object"

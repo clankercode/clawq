@@ -1212,11 +1212,13 @@ let test_parse_room_profiles () =
   Alcotest.(check int) "p1.max_tool_iterations" 5 p1.max_tool_iterations;
   Alcotest.(check (list string))
     "p1.access_bundle_ids" [ "bundle-dev" ] p1.access_bundle_ids;
+  Alcotest.(check bool) "p1.low_volume defaults false" false p1.low_volume;
   let p2 = List.nth cfg.room_profiles 1 in
   Alcotest.(check string) "p2.id" "p2" p2.id;
   Alcotest.(check string) "p2.system_prompt empty" "" p2.system_prompt;
   Alcotest.(check int)
     "p2.max_tool_iterations default" 10 p2.max_tool_iterations;
+  Alcotest.(check bool) "p2.low_volume defaults false" false p2.low_volume;
   Alcotest.(check int)
     "room_profile_bindings count" 2
     (List.length cfg.room_profile_bindings);
@@ -1262,6 +1264,7 @@ let test_room_profiles_roundtrip () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       access_bundles =
@@ -1317,6 +1320,7 @@ let test_room_profiles_roundtrip () =
   let p = List.nth cfg2.room_profiles 0 in
   Alcotest.(check string) "id roundtrip" "test-p" p.id;
   Alcotest.(check string) "model roundtrip" "openai:gpt-4o" p.model;
+  Alcotest.(check bool) "low_volume default roundtrip" false p.low_volume;
   Alcotest.(check (list string))
     "access bundle ids roundtrip" [ "test-bundle" ] p.access_bundle_ids;
   Alcotest.(check int)
@@ -1350,6 +1354,72 @@ let test_room_profiles_roundtrip () =
   Alcotest.(check (list string))
     "scope bundle ids roundtrip" [ "test-bundle" ] s.access_bundle_ids;
   Alcotest.(check string) "scope status roundtrip" "active" s.status
+
+let test_room_profile_low_volume_parse_and_resolve () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "room_profiles": [
+          {"id": "quiet", "model": "openai:gpt-4o", "low_volume": true},
+          {"id": "loud", "model": "openai:gpt-4o", "low_volume": false},
+          {"id": "default-vol", "model": "openai:gpt-4o"}
+        ],
+        "room_profile_bindings": [
+          {"profile_id": "quiet", "room": "teams:personal:1@thread.v2", "active": true},
+          {"profile_id": "loud", "room": "slack:C-loud", "active": true},
+          {"profile_id": "default-vol", "room": "discord:D1", "active": true}
+        ]
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let quiet = List.nth cfg.room_profiles 0 in
+  let loud = List.nth cfg.room_profiles 1 in
+  let default_vol = List.nth cfg.room_profiles 2 in
+  Alcotest.(check bool) "quiet.low_volume true" true quiet.low_volume;
+  Alcotest.(check bool) "loud.low_volume false" false loud.low_volume;
+  Alcotest.(check bool)
+    "omitted low_volume defaults false" false default_vol.low_volume;
+  Alcotest.(check bool)
+    "resolve quiet room" true
+    (Runtime_config.room_low_volume cfg
+       ~session_key:"teams:personal:1@thread.v2");
+  Alcotest.(check bool)
+    "resolve loud room" false
+    (Runtime_config.room_low_volume cfg ~session_key:"slack:C-loud");
+  Alcotest.(check bool)
+    "resolve default room" false
+    (Runtime_config.room_low_volume cfg ~session_key:"discord:D1");
+  Alcotest.(check bool)
+    "unbound room is not low_volume" false
+    (Runtime_config.room_low_volume cfg ~session_key:"slack:unbound");
+  (* Roundtrip preserves low_volume=true (emitted) and false (omitted/default) *)
+  let cfg2 = Config_loader.parse_config (Runtime_config.to_json cfg) in
+  let quiet2 =
+    List.find
+      (fun (p : Runtime_config.room_profile) -> p.id = "quiet")
+      cfg2.room_profiles
+  in
+  let loud2 =
+    List.find
+      (fun (p : Runtime_config.room_profile) -> p.id = "loud")
+      cfg2.room_profiles
+  in
+  Alcotest.(check bool) "quiet roundtrip" true quiet2.low_volume;
+  Alcotest.(check bool) "loud roundtrip" false loud2.low_volume;
+  let quiet_json =
+    List.find
+      (function
+        | `Assoc fields -> (
+            match List.assoc_opt "id" fields with
+            | Some (`String "quiet") -> true
+            | _ -> false)
+        | _ -> false)
+      (Yojson.Safe.Util.to_list
+         (Yojson.Safe.Util.member "room_profiles" (Runtime_config.to_json cfg)))
+  in
+  Alcotest.(check bool)
+    "to_json emits low_volume when true" true
+    (Yojson.Safe.Util.member "low_volume" quiet_json = `Bool true)
 
 let test_room_profile_legacy_fields_compile_to_implicit_bundle () =
   let json =
@@ -1963,6 +2033,8 @@ let suite =
     Alcotest.test_case "parse room profiles" `Quick test_parse_room_profiles;
     Alcotest.test_case "room_profiles roundtrip" `Quick
       test_room_profiles_roundtrip;
+    Alcotest.test_case "room profile low_volume parse and resolve" `Quick
+      test_room_profile_low_volume_parse_and_resolve;
     Alcotest.test_case "legacy profile fields compile to implicit bundle" `Quick
       test_room_profile_legacy_fields_compile_to_implicit_bundle;
     Alcotest.test_case "to_json omits empty room profiles" `Quick

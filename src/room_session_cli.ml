@@ -59,7 +59,8 @@ let format_session_record_detail (r : Room_session_record.t) =
           (Printf.sprintf "Ambient Hours:   %02d:00-%02d:00"
              ac.ambient_quiet_start ac.ambient_quiet_end);
         add (Printf.sprintf "Ambient Rate:    %d rph" ac.ambient_rate_limit_rph)
-      end
+      end;
+      if ac.low_volume then add (Printf.sprintf "Low volume:      yes")
   | None -> add "Agent Config:        (none)");
   (match r.delivery with
   | Some d -> (

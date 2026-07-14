@@ -224,6 +224,7 @@ let test_room_profile_model_overrides_channel_default () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -259,6 +260,7 @@ let test_room_profile_model_overrides_global () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -295,6 +297,7 @@ let test_session_override_takes_precedence_over_room_profile () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -329,6 +332,7 @@ let test_inactive_room_profile_binding_skipped () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -383,6 +387,7 @@ let test_room_profile_full_precedence_chain () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -441,6 +446,7 @@ let test_clear_session_model_restores_room_profile_on_active_session () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -492,6 +498,7 @@ let test_room_profile_model_applied_on_session_load () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -535,6 +542,7 @@ let test_room_profile_binding_matches_full_session_key () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -684,6 +692,7 @@ let test_room_profile_beats_template () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ]
       in
@@ -733,6 +742,7 @@ let test_security_gate_denies_anthropic_from_profile () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -770,6 +780,7 @@ let test_security_gate_allows_anthropic_when_enabled () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -805,6 +816,7 @@ let test_security_gate_allows_non_anthropic () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -871,6 +883,7 @@ let test_room_profile_system_prompt_applied () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -907,6 +920,7 @@ let test_room_profile_max_tool_iterations_applied () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -942,6 +956,7 @@ let test_room_profile_template_overrides_global () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -979,6 +994,7 @@ let test_session_model_override_does_not_affect_template () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -1016,6 +1032,7 @@ let test_inactive_room_profile_skips_template () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -1061,6 +1078,7 @@ let test_room_profile_prompt_out_ranks_template_in_built_prompt () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ]
       in
@@ -1122,6 +1140,7 @@ let test_child_thread_session_inherits_profile_model_template_and_privacy () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -1171,6 +1190,7 @@ let test_child_thread_session_inherits_parent_room_cwd () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -1225,6 +1245,7 @@ let test_threadless_child_fallback_inherits_profile_and_parent_room_cwd () =
         ambient_quiet_start = 23;
         ambient_quiet_end = 8;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       };
     ]
   in
@@ -1311,6 +1332,7 @@ let test_routine_session_inherits_profile_and_uses_routine_cwd () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ]
       in

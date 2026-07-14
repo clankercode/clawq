@@ -2472,6 +2472,7 @@ let room_profile_tool_config ?(allowed_tools = []) ?(denied_tools = []) () =
           ambient_quiet_start = 23;
           ambient_quiet_end = 8;
           ambient_rate_limit_rph = 0;
+          low_volume = false;
         };
       ];
     room_profile_bindings =

@@ -35,6 +35,7 @@ let profile_to_json (p : room_profile) : Yojson.Safe.t =
     @ (if not p.ambient_enabled then [] else [ ("ambient_enabled", `Bool true) ])
     @ (if p.ambient_rate_limit_rph = 0 then []
        else [ ("ambient_rate_limit_rph", `Int p.ambient_rate_limit_rph) ])
+    @ (if not p.low_volume then [] else [ ("low_volume", `Bool true) ])
     @
     match p.display_name with
     | Some name -> [ ("display_name", `String name) ]
@@ -105,6 +106,7 @@ let planned_profile ~(cfg : Runtime_config.t) ~(state : wizard_state) :
         ambient_quiet_start = existing.ambient_quiet_start;
         ambient_quiet_end = existing.ambient_quiet_end;
         ambient_rate_limit_rph = existing.ambient_rate_limit_rph;
+        low_volume = existing.low_volume;
       }
   | None ->
       {
@@ -122,6 +124,7 @@ let planned_profile ~(cfg : Runtime_config.t) ~(state : wizard_state) :
         ambient_quiet_start = 0;
         ambient_quiet_end = 0;
         ambient_rate_limit_rph = 0;
+        low_volume = false;
       }
 
 let planned_binding ~(state : wizard_state) : room_profile_binding option =

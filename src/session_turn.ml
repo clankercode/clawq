@@ -61,8 +61,13 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~runtime_context ~on_history_update ?on_stuck ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let agent_defaults = mgr.Session_core.config.agent_defaults in
+  let low_volume =
+    Runtime_config.room_low_volume mgr.Session_core.config ~session_key:key
+  in
   let capabilities = Session_core.find_connector_capabilities mgr ~key in
-  let strategy = Status_update.select_strategy ~agent_defaults ~capabilities in
+  let strategy =
+    Status_update.select_strategy ~agent_defaults ~capabilities ~low_volume ()
+  in
   let notifier_factory =
     Hashtbl.find_opt mgr.Session_core.status_message_factories key
   in
@@ -71,7 +76,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
   in
   let handler =
     Status_update.make_handler ~strategy ~notifier_factory ~notify
-      ~agent_defaults ~parse_mode ()
+      ~agent_defaults ~low_volume ~parse_mode ()
   in
   let* response =
     Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
@@ -83,7 +88,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
   let* () = handler.finalize () in
   let thinking = handler.get_thinking () in
   let* () =
-    if agent_defaults.show_thinking && thinking <> "" then
+    if (not low_volume) && agent_defaults.show_thinking && thinking <> "" then
       notify (Stream_visibility.thinking_message thinking)
     else Lwt.return_unit
   in
@@ -401,10 +406,15 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                   ~history_prepared:true ~on_history_update ?on_llm_call_debug
                   ~on_chunk:io.emit ()
             | None -> (
+                let low_volume =
+                  Runtime_config.room_low_volume mgr.config ~session_key:key
+                in
                 match notify with
                 | Some send
-                  when mgr.config.agent_defaults.show_thinking
+                  when low_volume || mgr.config.agent_defaults.show_thinking
                        || mgr.config.agent_defaults.show_tool_calls ->
+                    (* low_volume still uses visibility path so tool *errors*
+                       surface as alerts while start/success chatter is muted. *)
                     stream_turn_with_visibility mgr ~notify:send agent ~key
                       ~effective_message ~persisted_up_to ~interrupt_check
                       ~inject_messages ?on_tool_round_complete ~runtime_context
@@ -426,10 +436,13 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                   agent;
                 Lwt.fail exn)
       in
+      let low_volume =
+        Runtime_config.room_low_volume mgr.config ~session_key:key
+      in
       (match notify with
       | Some _
         when (not io.streaming)
-             && (mgr.config.agent_defaults.show_thinking
+             && (low_volume || mgr.config.agent_defaults.show_thinking
                || mgr.config.agent_defaults.show_tool_calls) ->
           ()
       | _ ->

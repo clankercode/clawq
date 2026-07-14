@@ -30,6 +30,7 @@ let room_profile_to_json (p : Runtime_config.room_profile) =
     @ (if not p.ambient_enabled then [] else [ ("ambient_enabled", `Bool true) ])
     @ (if p.ambient_rate_limit_rph = 0 then []
        else [ ("ambient_rate_limit_rph", `Int p.ambient_rate_limit_rph) ])
+    @ (if not p.low_volume then [] else [ ("low_volume", `Bool true) ])
     @
     match p.display_name with
     | Some name -> [ ("display_name", `String name) ]
@@ -496,6 +497,9 @@ let cmd_rooms args =
       | Some p ->
           add (Printf.sprintf "Model:     %s" p.model);
           add (Printf.sprintf "Max iters: %d" p.max_tool_iterations);
+          add
+            (Printf.sprintf "Low volume: %s"
+               (if p.low_volume then "yes" else "no"));
           if p.system_prompt <> "" then begin
             add "";
             add "--- System Prompt ---";
@@ -717,6 +721,132 @@ let cmd_rooms args =
                      %s"
                     profile_id display_name path
               | Error e -> Printf.sprintf "Failed to write config: %s" e))
+  | "profile" :: "show" :: profile_id :: _ -> (
+      match
+        List.find_opt
+          (fun (p : Runtime_config.room_profile) -> p.id = profile_id)
+          cfg.room_profiles
+      with
+      | None -> Printf.sprintf "Error: profile '%s' not found." profile_id
+      | Some p ->
+          let lines = ref [] in
+          let add s = lines := s :: !lines in
+          add (Printf.sprintf "Profile:    %s" p.id);
+          (match p.display_name with
+          | Some n -> add (Printf.sprintf "Name:       %s" n)
+          | None -> ());
+          add (Printf.sprintf "Model:      %s" p.model);
+          add (Printf.sprintf "Status:     %s" p.status);
+          add (Printf.sprintf "Max iters:  %d" p.max_tool_iterations);
+          add
+            (Printf.sprintf "Low volume: %s"
+               (if p.low_volume then "yes" else "no"));
+          add
+            (Printf.sprintf "Ambient:    %s"
+               (if p.ambient_enabled then "yes" else "no"));
+          if p.allowed_tools <> [] then
+            add
+              (Printf.sprintf "Allowed:    %s"
+                 (String.concat ", " p.allowed_tools));
+          if p.denied_tools <> [] then
+            add
+              (Printf.sprintf "Denied:     %s"
+                 (String.concat ", " p.denied_tools));
+          let bound_rooms =
+            List.filter_map
+              (fun (b : Runtime_config.room_profile_binding) ->
+                if b.profile_id = p.id then
+                  Some
+                    (Printf.sprintf "%s%s" b.room
+                       (if b.active then "" else " (inactive)"))
+                else None)
+              cfg.room_profile_bindings
+          in
+          if bound_rooms <> [] then
+            add
+              (Printf.sprintf "Rooms:      %s" (String.concat ", " bound_rooms));
+          String.concat "\n" (List.rev !lines))
+  | "profile" :: "set" :: profile_id :: flags -> (
+      match require_admin () with
+      | Some err -> err
+      | None -> (
+          let parse_bool_flag = function
+            | "true" | "1" | "yes" | "on" -> Ok true
+            | "false" | "0" | "no" | "off" -> Ok false
+            | other ->
+                Error
+                  (Printf.sprintf
+                     "Error: invalid boolean '%s' (use true|false)." other)
+          in
+          let rec parse_flags acc = function
+            | [] -> Ok acc
+            | "--low-volume" :: v :: rest -> (
+                match parse_bool_flag (String.lowercase_ascii v) with
+                | Ok b -> parse_flags (`Low_volume b :: acc) rest
+                | Error e -> Error e)
+            | unknown :: _ ->
+                Error
+                  (Printf.sprintf
+                     "Error: unknown flag '%s'.\n\n\
+                      Usage: clawq rooms profile set <profile_id> --low-volume \
+                      true|false"
+                     unknown)
+          in
+          match parse_flags [] flags with
+          | Error e -> e
+          | Ok [] ->
+              "Error: rooms profile set requires at least one flag.\n\n\
+               Usage: clawq rooms profile set <profile_id> --low-volume \
+               true|false"
+          | Ok updates -> (
+              let found =
+                List.find_opt
+                  (fun (p : Runtime_config.room_profile) ->
+                    p.id = profile_id && not (room_profile_deleted p))
+                  cfg.room_profiles
+              in
+              match found with
+              | None ->
+                  Printf.sprintf "Error: active profile '%s' not found."
+                    profile_id
+              | Some _ -> (
+                  let apply (p : Runtime_config.room_profile) =
+                    List.fold_left
+                      (fun (p : Runtime_config.room_profile) -> function
+                        | `Low_volume b ->
+                            { p with Runtime_config.low_volume = b })
+                      p updates
+                  in
+                  let profiles =
+                    List.map
+                      (fun (p : Runtime_config.room_profile) ->
+                        if p.id = profile_id then apply p else p)
+                      cfg.room_profiles
+                  in
+                  match
+                    write_room_config ~profiles
+                      ~bindings:cfg.room_profile_bindings
+                  with
+                  | Ok path ->
+                      let updated =
+                        List.find
+                          (fun (p : Runtime_config.room_profile) ->
+                            p.id = profile_id)
+                          profiles
+                      in
+                      Printf.sprintf "Profile '%s' updated (low_volume=%s).\n%s"
+                        profile_id
+                        (if updated.low_volume then "true" else "false")
+                        path
+                  | Error e -> Printf.sprintf "Failed to write config: %s" e))))
+  | "profile" :: _ ->
+      "Usage: clawq rooms profile <show|set> ...\n\n\
+       Subcommands:\n\
+      \  profile show <profile_id>\n\
+      \                              Show profile settings including low_volume\n\
+      \  profile set <profile_id> --low-volume true|false\n\
+      \                              Update profile presentation settings \
+       (admin-only)"
   | "delete" :: profile_id :: flags -> (
       match require_admin () with
       | Some err -> err
@@ -865,10 +995,14 @@ let cmd_rooms args =
   | "wizard" :: rest -> Setup_room_wizard.run rest
   | _ ->
       "Usage: clawq rooms \
-       <list|show|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|readiness|audit-export|wizard>\n\n\
+       <list|show|profile|workspace|inspect|ledger|deliveries|gc|bind|rename|delete|unbind|routine|memory|explain-access|session|readiness|audit-export|wizard>\n\n\
        Subcommands:\n\
       \  list                        List all room profiles and bindings\n\
       \  show <room_id>              Show room binding and profile details\n\
+      \  profile show <profile_id>   Show profile settings (incl. low_volume)\n\
+      \  profile set <profile_id> --low-volume true|false\n\
+      \                              Update profile presentation settings \
+       (admin-only)\n\
       \  workspace <room_id>         Show/create the room workspace path\n\
       \  inspect <room_id>           Inspect ambient watcher state (admin-only)\n\
       \  ledger <list|export|retention-cleanup>\n\

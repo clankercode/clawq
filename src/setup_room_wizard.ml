@@ -66,6 +66,7 @@ let apply_plan ~(db : Sqlite3.db) ~(cfg : Runtime_config.t)
           ambient_quiet_start = existing.ambient_quiet_start;
           ambient_quiet_end = existing.ambient_quiet_end;
           ambient_rate_limit_rph = existing.ambient_rate_limit_rph;
+          low_volume = existing.low_volume;
         }
     | None ->
         (* New profile *)
@@ -84,6 +85,7 @@ let apply_plan ~(db : Sqlite3.db) ~(cfg : Runtime_config.t)
           ambient_quiet_start = 0;
           ambient_quiet_end = 0;
           ambient_rate_limit_rph = 0;
+          low_volume = false;
         }
   in
   (* Merge profiles *)
@@ -149,6 +151,7 @@ let apply_plan ~(db : Sqlite3.db) ~(cfg : Runtime_config.t)
                     ("ambient_rate_limit_rph", `Int p.ambient_rate_limit_rph);
                   ]
                 else [])
+             @ (if not p.low_volume then [] else [ ("low_volume", `Bool true) ])
              @
              match p.display_name with
              | Some name -> [ ("display_name", `String name) ]
