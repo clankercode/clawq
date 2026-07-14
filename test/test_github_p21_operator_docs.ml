@@ -62,7 +62,95 @@ let test_inventory () =
       "github_p21_integration";
       "github_user_auth_diagnostics";
       "github-user-auth-operator-contract.md";
+    ];
+  let acceptance_crosswalk =
+    [
+      ( "trust-adapter readiness",
+        [
+          "Trust-adapter readiness";
+          "P21.M1.E1.T003";
+          "clawq github user-auth readiness";
+          "github_user_auth_readiness";
+        ] );
+      ( "linking conflicts",
+        [
+          "Linking conflicts";
+          "P21.M1.E1.T010";
+          "clawq github account link|relink|unlink";
+          "principal_link_exec";
+        ] );
+      ( "authorization",
+        [
+          "Authorization";
+          "P21.M2.E2.T004";
+          "clawq github user-auth status|readiness|repair|enable|disable|apply";
+          "github_user_auth_tx";
+        ] );
+      ( "key lifecycle",
+        [
+          "Key lifecycle";
+          "P21.M2.E4.T007";
+          "Github_user_token_vault_recovery.check_compatibility";
+          "github_user_token_master_key";
+        ] );
+      ( "attribution rollout",
+        [
+          "Attribution rollout";
+          "P21.M3.E2.T006";
+          "Github_attribution_rollout.cleanup_complete";
+          "github_attribution_rollout";
+        ] );
+      ( "delayed-job repair",
+        [
+          "Delayed-job repair";
+          "P21.M3.E3.T003";
+          "Principal_legacy_migrate.rollback_run";
+          "github_durable_job_actor_attribution";
+        ] );
+      ( "revoke/relink",
+        [
+          "Revoke/relink";
+          "P21.M3.E1.T003";
+          "clawq github account relink|unlink";
+          "github_user_auth_revocation_webhook";
+        ] );
+      ( "backup/restore",
+        [
+          "Backup/restore";
+          "P21.M2.E4.T008";
+          "Github_user_token_vault_recovery.restore";
+          "github_user_token_vault_recovery";
+        ] );
+      ( "pilot cleanup",
+        [
+          "Pilot cleanup";
+          "P21.M4.E2.T004";
+          "Github_attribution_rollout.no_residual_authority";
+          "github_p21_pilot_dryrun";
+        ] );
+      ( "compatibility",
+        [
+          "Compatibility";
+          "P21.M4.E1.T004";
+          "command_bridge_min";
+          "github_app_pat_compat";
+        ] );
     ]
+  in
+  must_contain ~label:"inventory crosswalk headers" ~doc:body
+    [
+      "Task lineage";
+      "Source";
+      "Schema/store";
+      "API/operator surface";
+      "Regression evidence";
+    ];
+  List.iter
+    (fun (category, evidence) ->
+      must_contain ~label:("inventory crosswalk " ^ category) ~doc:body evidence)
+    acceptance_crosswalk;
+  must_contain ~label:"inventory doc drift coverage" ~doc:body
+    [ "github_p21_operator_docs" ]
 
 let suite =
   [
