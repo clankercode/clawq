@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-07-14T04:20:49Z"
 claimed_by: grok-bl-fix-many
-completed_at: null
+completed_at: "2026-07-14T04:33:41Z"
 complexity: medium
 created_at: "2026-07-14T03:49:43Z"
 depends_on: []
+duration_minutes: 12.868471682983333
 estimate_hours: 1
 id: B777
 priority: high
 started_at: "2026-07-14T04:20:49Z"
-status: in_progress
+status: done
 tags: []
 title: Model selection is confusing and error-prone
-updated_at: "2026-07-14T04:20:49Z"
+updated_at: "2026-07-14T04:33:41Z"
 ---
 Choosing and switching models is currently confusing and error-prone. Improve the model-selection UX so available choices, provider/model syntax, ambiguity, invalid selections, and safe switching are clear and reliable.

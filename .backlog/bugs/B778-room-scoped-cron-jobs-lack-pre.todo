@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-14T04:20:49Z"
 claimed_by: grok-bl-fix-many
-completed_at: null
+completed_at: "2026-07-14T04:33:41Z"
 complexity: medium
 created_at: "2026-07-14T03:57:01Z"
 depends_on: []
+duration_minutes: 12.868754412
 estimate_hours: 1
 id: B778
 priority: high
 started_at: "2026-07-14T04:20:49Z"
-status: in_progress
+status: done
 tags: []
 title: Room-scoped cron jobs lack pre-flight configuration validation before scheduling
-updated_at: "2026-07-14T04:20:49Z"
+updated_at: "2026-07-14T04:33:41Z"
 ---
 The `github-repo-monitor` cron was scheduled in `teams:personal:19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2` without verifying three prerequisites that the tools it uses require:
 1. A room profile binding (required by `room_memory_*` tools — fails with "No memory scope or profile binding found for room").
