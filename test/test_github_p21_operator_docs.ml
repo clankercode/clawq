@@ -75,28 +75,28 @@ let test_inventory () =
       ( "linking conflicts",
         [
           "Linking conflicts";
-          "P21.M1.E1.T010";
+          "P21.M1.E1.T010–T012";
           "clawq github account link|relink|unlink";
           "principal_link_exec";
         ] );
       ( "authorization",
         [
           "Authorization";
-          "P21.M2.E2.T004";
+          "P21.M2.E2.T001–T004";
           "clawq github user-auth status|readiness|repair|enable|disable|apply";
           "github_user_auth_tx";
         ] );
       ( "key lifecycle",
         [
           "Key lifecycle";
-          "P21.M2.E4.T007";
+          "P21.M2.E4.T001–T008";
           "Github_user_token_vault_recovery.check_compatibility";
           "github_user_token_master_key";
         ] );
       ( "attribution rollout",
         [
           "Attribution rollout";
-          "P21.M3.E2.T006";
+          "P21.M3.E2.T003–T007";
           "Github_attribution_rollout.cleanup_complete";
           "github_attribution_rollout";
         ] );
@@ -110,7 +110,7 @@ let test_inventory () =
       ( "revoke/relink",
         [
           "Revoke/relink";
-          "P21.M3.E1.T003";
+          "P21.M3.E1.T003–T004";
           "clawq github account relink|unlink";
           "github_user_auth_revocation_webhook";
         ] );
@@ -124,7 +124,7 @@ let test_inventory () =
       ( "pilot cleanup",
         [
           "Pilot cleanup";
-          "P21.M4.E2.T004";
+          "P21.M4.E2.T003–T004";
           "Github_attribution_rollout.no_residual_authority";
           "github_p21_pilot_dryrun";
         ] );
