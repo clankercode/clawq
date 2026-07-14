@@ -41,8 +41,12 @@ let test_adr_0009 () =
       "Status: Accepted";
       "Verified Connector trust adapters";
       "Immutable Actor snapshots";
+      "### 2. Principal adoption, tombstone, and split";
+      "### 3. Immutable Actor snapshots vs current authority";
       "Authorization activation";
       "generation";
+      "### 6. Key source, version, rotation, backup, compromise";
+      "### 7. P19 → P21 rollout states";
       "Whole-store rollback";
       "Token confinement";
       "User_required";
@@ -54,9 +58,14 @@ let test_glossary () =
   must_contain ~label:"glossary" ~doc:body
     [
       "Principal";
+      "Identity link";
       "Actor snapshot";
+      "Current authority";
       "Token generation";
+      "Master key / key id";
       "Opaque lease";
+      "Pending activation";
+      "Attribution rollout stage";
       "Whole-store rollback limitation";
       "0009-principal-token-vault-security-boundary.md";
     ]

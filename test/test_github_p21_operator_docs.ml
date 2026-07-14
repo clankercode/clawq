@@ -71,6 +71,7 @@ let test_inventory () =
           "P21.M1.E1.T003";
           "clawq github user-auth readiness";
           "github_user_auth_readiness";
+          "connector_actors";
         ] );
       ( "linking conflicts",
         [
@@ -78,6 +79,7 @@ let test_inventory () =
           "P21.M1.E1.T010–T012";
           "clawq github account link|relink|unlink";
           "principal_link_exec";
+          "github_account_bindings";
         ] );
       ( "authorization",
         [
@@ -85,6 +87,7 @@ let test_inventory () =
           "P21.M2.E2.T001–T004";
           "clawq github user-auth status|readiness|repair|enable|disable|apply";
           "github_user_auth_tx";
+          "| `github_user_auth_tx` |";
         ] );
       ( "key lifecycle",
         [
@@ -92,6 +95,7 @@ let test_inventory () =
           "P21.M2.E4.T001–T008";
           "Github_user_token_vault_recovery.check_compatibility";
           "github_user_token_master_key";
+          "github_user_token_rewrap";
         ] );
       ( "attribution rollout",
         [
@@ -99,6 +103,7 @@ let test_inventory () =
           "P21.M3.E2.T003–T007";
           "Github_attribution_rollout.cleanup_complete";
           "github_attribution_rollout";
+          "github_action_correlations";
         ] );
       ( "delayed-job repair",
         [
@@ -106,6 +111,7 @@ let test_inventory () =
           "P21.M3.E3.T003";
           "Principal_legacy_migrate.rollback_run";
           "github_durable_job_actor_attribution";
+          "principal_legacy_migration_runs";
         ] );
       ( "revoke/relink",
         [
@@ -113,6 +119,7 @@ let test_inventory () =
           "P21.M3.E1.T003–T004";
           "clawq github account relink|unlink";
           "github_user_auth_revocation_webhook";
+          "github_account_bindings";
         ] );
       ( "backup/restore",
         [
@@ -120,6 +127,7 @@ let test_inventory () =
           "P21.M2.E4.T008";
           "Github_user_token_vault_recovery.restore";
           "github_user_token_vault_recovery";
+          "github_user_token_vault_recovery_events";
         ] );
       ( "pilot cleanup",
         [
@@ -127,6 +135,7 @@ let test_inventory () =
           "P21.M4.E2.T003–T004";
           "Github_attribution_rollout.no_residual_authority";
           "github_p21_pilot_dryrun";
+          "cleanup_gate";
         ] );
       ( "compatibility",
         [
@@ -134,6 +143,7 @@ let test_inventory () =
           "P21.M4.E1.T004";
           "command_bridge_min";
           "github_app_pat_compat";
+          "github_user_auth_enablement_plans";
         ] );
     ]
   in
