@@ -18,6 +18,7 @@ let room_profile id : Runtime_config.room_profile =
     ambient_quiet_start = 23;
     ambient_quiet_end = 8;
     ambient_rate_limit_rph = 0;
+    low_volume = false;
   }
 
 let with_binding room profile_id =
