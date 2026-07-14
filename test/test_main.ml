@@ -42,6 +42,7 @@ let () =
        ("phase3", Test_phase3.suite);
        ("postmortem", Test_postmortem.suite);
        ("scheduler", Test_scheduler.suite);
+       ("cron_room_preflight", Test_cron_room_preflight.suite);
        ("background_task", Test_background_task.suite);
        ("subagent_context", Test_subagent_context.suite);
        ("bg_shell", Test_bg_shell.suite);

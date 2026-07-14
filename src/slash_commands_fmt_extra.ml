@@ -16,6 +16,7 @@ type cron_action =
       schedule : string;
       message : string;
       ttl : string option;
+      force : bool;
     }
   | CronEdit of {
       name : string;
@@ -116,7 +117,7 @@ let format_cron_usage ~connector =
   ^ Format_adapter.code connector "/cron show <name>"
   ^ "                        \xe2\x80\x94 Show job details\n  "
   ^ Format_adapter.code connector
-      "/cron add <name> <schedule> <message> [--ttl <duration>]"
+      "/cron add <name> <schedule> <message> [--ttl <duration>] [--force]"
   ^ " \xe2\x80\x94 Create a cron job\n  "
   ^ Format_adapter.code connector
       "/cron edit <name> --schedule <expr> [--ttl <duration>]"
@@ -915,15 +916,31 @@ let format_cron ~connector ~db ~session_key ?(is_admin = false) action =
         Format_adapter.bold connector "Cron Jobs"
         ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:80 columns rows
-  | CronAdd { name; schedule; message; ttl } -> (
+  | CronAdd { name; schedule; message; ttl; force } -> (
+      let cfg = Config_loader.load () in
       match
-        Scheduler.add_job ~db ~name ~session_key ~message ~schedule ?ttl ()
+        Cron_room_preflight.validate ~config:cfg ~db ~force ~session_key ~name
+          ~message ()
       with
-      | Ok () -> format_cron_confirm ~connector "added" name
       | Error e ->
           Format_adapter.bold connector "Error"
           ^ ": "
-          ^ Format_adapter.escape connector e)
+          ^ Format_adapter.escape connector e
+      | Ok preflight -> (
+          match
+            Scheduler.add_job ~db ~name ~session_key ~message ~schedule ?ttl ()
+          with
+          | Ok () ->
+              let base = format_cron_confirm ~connector "added" name in
+              if preflight.warnings = [] then base
+              else
+                base ^ "\n"
+                ^ Format_adapter.escape connector
+                    (String.concat "\n" preflight.warnings)
+          | Error e ->
+              Format_adapter.bold connector "Error"
+              ^ ": "
+              ^ Format_adapter.escape connector e))
   | CronEdit { name; schedule; message; ttl } -> (
       match Scheduler.update_job ~db ~name ?schedule ?message ?ttl () with
       | Ok () -> format_cron_confirm ~connector "updated" name

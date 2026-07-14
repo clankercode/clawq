@@ -205,9 +205,13 @@ let cmd_cron args =
           Content_dsl.render_document connector doc)
   | "add" :: name :: session_key :: schedule :: message -> (
       let db = get_db () in
+      let cfg = get_config () in
       Scheduler.init_schema db;
+      let force = List.mem "--force" message in
       let ephemeral = List.mem "--ephemeral" message in
-      let message = List.filter (fun s -> s <> "--ephemeral") message in
+      let message =
+        List.filter (fun s -> s <> "--ephemeral" && s <> "--force") message
+      in
       let rec extract_ttl acc = function
         | "--ttl" :: v :: rest -> (Some v, List.rev_append acc rest)
         | x :: rest -> extract_ttl (x :: acc) rest
@@ -216,11 +220,20 @@ let cmd_cron args =
       let ttl, message = extract_ttl [] message in
       let msg = String.concat " " message in
       match
-        Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule
-          ~ephemeral ?ttl ()
+        Cron_room_preflight.validate ~config:cfg ~db ~force ~session_key ~name
+          ~message:msg ()
       with
-      | Ok () -> Printf.sprintf "Added cron job '%s'" name
-      | Error e -> Printf.sprintf "Error: %s" e)
+      | Error e -> Printf.sprintf "Error: %s" e
+      | Ok preflight -> (
+          match
+            Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule
+              ~ephemeral ?ttl ()
+          with
+          | Error e -> Printf.sprintf "Error: %s" e
+          | Ok () ->
+              let base = Printf.sprintf "Added cron job '%s'" name in
+              if preflight.warnings = [] then base
+              else base ^ "\n" ^ String.concat "\n" preflight.warnings))
   | [ "remove"; name ] ->
       let db = get_db () in
       Scheduler.init_schema db;
@@ -413,7 +426,9 @@ let cmd_cron args =
        (--prompt shows prompt text)\n\
       \  cron show <name>                             - Show job details\n\
       \  cron add <name> <session> <schedule> <msg> [--ephemeral] [--ttl \
-       <duration>] - Add a job\n\
+       <duration>] [--force] - Add a job\n\
+      \                              Room-scoped sessions require a profile \
+       binding (use --force to bypass)\n\
       \  cron remove <name>                           - Remove a job\n\
       \  cron enable <name>                           - Enable a paused job\n\
       \  cron disable <name>                          - Pause job (keeps \
