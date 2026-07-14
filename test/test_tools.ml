@@ -3287,6 +3287,7 @@ let make_room_profile_codebase_config ?(workspace_only = false) ~workspace
           ambient_quiet_start = 23;
           ambient_quiet_end = 8;
           ambient_rate_limit_rph = 0;
+          low_volume = false;
         };
       ];
     room_profile_bindings =

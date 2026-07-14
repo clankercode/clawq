@@ -738,57 +738,74 @@ let tick ~db ~session_mgr
                                   ~session_key:(Some turn_key);
                               (* Post the cron prompt into chat before running
                                  the LLM turn, so users see what initiated the
-                                 response. *)
-                              let prompt_text =
-                                Printf.sprintf "[cron:%s] %s" job.name
-                                  job.message
+                                 response. Low-volume rooms suppress this
+                                 operational echo; final replies still deliver. *)
+                              let low_volume =
+                                Runtime_config.room_low_volume
+                                  session_mgr.Session_core.config
+                                  ~session_key:delivery_key
                               in
                               let* () =
-                                match
-                                  delivery_notifier session_mgr ~delivery_key
-                                with
-                                | Some notify ->
-                                    Lwt.catch
-                                      (fun () -> notify prompt_text)
-                                      (fun exn ->
-                                        Logs.warn (fun m ->
-                                            m
-                                              "Cron job %s: prompt delivery \
-                                               via notifier failed: %s"
-                                              job.name (Printexc.to_string exn));
-                                        Lwt.return_unit)
-                                | None -> (
-                                    match
-                                      ( deliver,
-                                        delivery_channel_info ~db ~delivery_key
-                                      )
-                                    with
-                                    | Some deliver_fn, Some (channel, channel_id)
-                                      ->
-                                        let* _result =
-                                          Lwt.catch
-                                            (fun () ->
-                                              deliver_fn ~channel ~channel_id
-                                                ~text:prompt_text)
-                                            (fun exn ->
-                                              Lwt.return
-                                                (Error (Printexc.to_string exn)))
-                                        in
-                                        (match _result with
-                                        | Ok () ->
-                                            Logs.info (fun m ->
-                                                m
-                                                  "Cron job %s: prompt posted \
-                                                   to %s:%s"
-                                                  job.name channel channel_id)
-                                        | Error err ->
-                                            Logs.warn (fun m ->
-                                                m
-                                                  "Cron job %s: prompt \
-                                                   delivery failed: %s"
-                                                  job.name err));
-                                        Lwt.return_unit
-                                    | _ -> Lwt.return_unit)
+                                if low_volume then begin
+                                  Logs.info (fun m ->
+                                      m
+                                        "Cron job %s: skipping prompt echo \
+                                         (low_volume room %s)"
+                                        job.name delivery_key);
+                                  Lwt.return_unit
+                                end
+                                else
+                                  let prompt_text =
+                                    Printf.sprintf "[cron:%s] %s" job.name
+                                      job.message
+                                  in
+                                  match
+                                    delivery_notifier session_mgr ~delivery_key
+                                  with
+                                  | Some notify ->
+                                      Lwt.catch
+                                        (fun () -> notify prompt_text)
+                                        (fun exn ->
+                                          Logs.warn (fun m ->
+                                              m
+                                                "Cron job %s: prompt delivery \
+                                                 via notifier failed: %s"
+                                                job.name
+                                                (Printexc.to_string exn));
+                                          Lwt.return_unit)
+                                  | None -> (
+                                      match
+                                        ( deliver,
+                                          delivery_channel_info ~db
+                                            ~delivery_key )
+                                      with
+                                      | ( Some deliver_fn,
+                                          Some (channel, channel_id) ) ->
+                                          let* _result =
+                                            Lwt.catch
+                                              (fun () ->
+                                                deliver_fn ~channel ~channel_id
+                                                  ~text:prompt_text)
+                                              (fun exn ->
+                                                Lwt.return
+                                                  (Error
+                                                     (Printexc.to_string exn)))
+                                          in
+                                          (match _result with
+                                          | Ok () ->
+                                              Logs.info (fun m ->
+                                                  m
+                                                    "Cron job %s: prompt \
+                                                     posted to %s:%s"
+                                                    job.name channel channel_id)
+                                          | Error err ->
+                                              Logs.warn (fun m ->
+                                                  m
+                                                    "Cron job %s: prompt \
+                                                     delivery failed: %s"
+                                                    job.name err));
+                                          Lwt.return_unit
+                                      | _ -> Lwt.return_unit)
                               in
                               let* result =
                                 Session.turn session_mgr ~key:turn_key

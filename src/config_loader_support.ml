@@ -655,6 +655,7 @@ let locked_profile_for_missing_binding invalid_bundle_id profile_id :
     ambient_quiet_start = Ambient_policy.default_ambient_quiet_start;
     ambient_quiet_end = Ambient_policy.default_ambient_quiet_end;
     ambient_rate_limit_rph = 0;
+    low_volume = false;
   }
 
 let fail_closed_access_policy (cfg : Runtime_config.t) =

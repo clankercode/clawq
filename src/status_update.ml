@@ -41,9 +41,37 @@ type handler = {
 
 type strategy = Consolidated | Individual | Buffered
 
+(** Build stream-visibility settings for a turn. Low-volume rooms suppress
+    thinking and tool start/success chatter but still surface tool errors as
+    alerts ([show_tool_calls=true] with notify flags off). *)
+let visibility_settings ~(agent_defaults : Runtime_config.agent_defaults)
+    ?(low_volume = false) () : Stream_visibility.settings =
+  if low_volume then
+    {
+      show_thinking = false;
+      show_tool_calls = true;
+      notify_tool_starts = false;
+      notify_tool_successes = false;
+    }
+  else
+    {
+      show_thinking = agent_defaults.show_thinking;
+      show_tool_calls = agent_defaults.show_tool_calls;
+      notify_tool_starts = false;
+      notify_tool_successes = true;
+    }
+
+(** Whether tool status should be presented at all for this turn. Low-volume
+    rooms still deliver error alerts via [visibility_settings] but never use
+    consolidated/buffered multi-tool status cards. *)
+let shows_tool_status ~(agent_defaults : Runtime_config.agent_defaults)
+    ?(low_volume = false) () =
+  (not low_volume) && agent_defaults.show_tool_calls
+
 let select_strategy ~(agent_defaults : Runtime_config.agent_defaults)
-    ~capabilities =
-  if
+    ~capabilities ?(low_volume = false) () =
+  if low_volume then Individual
+  else if
     agent_defaults.show_tool_calls
     && agent_defaults.tool_status_mode = "consolidated"
   then
@@ -61,8 +89,8 @@ let no_op_error_detail _ = Lwt.return_unit
 
 let make_handler ~strategy ~notifier_factory ~notify
     ~(agent_defaults : Runtime_config.agent_defaults) ~parse_mode
-    ?(on_tool_event = no_op_tool_event) ?(on_error_detail = no_op_error_detail)
-    () =
+    ?(low_volume = false) ?(on_tool_event = no_op_tool_event)
+    ?(on_error_detail = no_op_error_detail) () =
   match strategy with
   | Consolidated -> (
       match notifier_factory with
@@ -107,7 +135,7 @@ let make_handler ~strategy ~notifier_factory ~notify
                 end
                 else Lwt.return_unit
             | Provider.ThinkingDelta text ->
-                if agent_defaults.show_thinking then begin
+                if (not low_volume) && agent_defaults.show_thinking then begin
                   Buffer.add_string thinking_buf text;
                   Status_message.update_thinking !sm text
                 end
@@ -137,14 +165,7 @@ let make_handler ~strategy ~notifier_factory ~notify
       | None ->
           (* Fall back to Individual if no factory available *)
           let visibility = Stream_visibility.create () in
-          let settings : Stream_visibility.settings =
-            {
-              show_thinking = agent_defaults.show_thinking;
-              show_tool_calls = agent_defaults.show_tool_calls;
-              notify_tool_starts = false;
-              notify_tool_successes = true;
-            }
-          in
+          let settings = visibility_settings ~agent_defaults ~low_volume () in
           let on_chunk chunk =
             Stream_visibility.on_chunk visibility ~settings ~notify chunk
           in
@@ -161,14 +182,7 @@ let make_handler ~strategy ~notifier_factory ~notify
           })
   | Individual ->
       let visibility = Stream_visibility.create () in
-      let settings : Stream_visibility.settings =
-        {
-          show_thinking = agent_defaults.show_thinking;
-          show_tool_calls = agent_defaults.show_tool_calls;
-          notify_tool_starts = false;
-          notify_tool_successes = true;
-        }
-      in
+      let settings = visibility_settings ~agent_defaults ~low_volume () in
       let on_chunk chunk =
         Stream_visibility.on_chunk visibility ~settings ~notify chunk
       in
@@ -188,16 +202,23 @@ let make_handler ~strategy ~notifier_factory ~notify
       let tool_events = ref [] in
       let on_chunk = function
         | Provider.ToolStart { id; name; arguments } ->
-            let summary =
-              Stream_visibility.summarize_tool_arguments ~name arguments
-            in
-            tool_events := `Start (id, name, summary) :: !tool_events;
-            Lwt.return_unit
+            if low_volume then Lwt.return_unit
+            else
+              let summary =
+                Stream_visibility.summarize_tool_arguments ~name arguments
+              in
+              tool_events := `Start (id, name, summary) :: !tool_events;
+              Lwt.return_unit
         | Provider.ToolResult { id; name; result; is_error } ->
-            tool_events := `Result (id, name, result, is_error) :: !tool_events;
-            Lwt.return_unit
+            (* Low-volume: only keep failures (alerts); drop routine successes. *)
+            if low_volume && not is_error then Lwt.return_unit
+            else begin
+              tool_events :=
+                `Result (id, name, result, is_error) :: !tool_events;
+              Lwt.return_unit
+            end
         | Provider.ThinkingDelta text ->
-            if agent_defaults.show_thinking then
+            if (not low_volume) && agent_defaults.show_thinking then
               Buffer.add_string thinking_buf text;
             Lwt.return_unit
         | Provider.Delta _ | Provider.ToolCallDelta _

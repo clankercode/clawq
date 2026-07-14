@@ -10,7 +10,7 @@ let with_db f =
 let make_profile ?(ambient_enabled = false)
     ?(ambient_quiet_start = Ambient_policy.default_ambient_quiet_start)
     ?(ambient_quiet_end = Ambient_policy.default_ambient_quiet_end)
-    ?(ambient_rate_limit_rph = 0) () =
+    ?(ambient_rate_limit_rph = 0) ?(low_volume = false) () =
   {
     Runtime_config_types.id = "test-profile";
     display_name = Some "Test";
@@ -25,6 +25,7 @@ let make_profile ?(ambient_enabled = false)
     ambient_quiet_start;
     ambient_quiet_end;
     ambient_rate_limit_rph;
+    low_volume;
   }
 
 let make_cfg ?profile ?(bindings = []) () =

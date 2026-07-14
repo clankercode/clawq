@@ -15,6 +15,7 @@ let test_profile id =
     ambient_quiet_start = 23;
     ambient_quiet_end = 8;
     ambient_rate_limit_rph = 0;
+    low_volume = false;
   }
 
 let test_reconcile_empty_config_noop () =
@@ -50,6 +51,7 @@ let test_reconcile_syncs_config_profiles () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -90,6 +92,7 @@ let test_reconcile_removes_stale_binding () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -141,6 +144,7 @@ let test_reconcile_removes_orphan_profile () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
           {
             id = "p2";
@@ -156,6 +160,7 @@ let test_reconcile_removes_orphan_profile () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -186,6 +191,7 @@ let test_reconcile_removes_orphan_profile () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
     }
@@ -223,6 +229,7 @@ let test_reconcile_removes_stale_binding_and_orphan_profile () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -271,6 +278,7 @@ let test_reconcile_deterministic () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
           {
             id = "p2";
@@ -286,6 +294,7 @@ let test_reconcile_deterministic () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -328,6 +337,7 @@ let test_reconcile_ignores_inactive_bindings () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -373,6 +383,7 @@ let test_reconcile_reports_duplicate_room_bindings () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
           {
             id = "p2";
@@ -388,6 +399,7 @@ let test_reconcile_reports_duplicate_room_bindings () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -433,6 +445,7 @@ let test_reconcile_reports_duplicate_profile_bindings () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -547,6 +560,7 @@ let test_reconcile_reload_helper_updates_db () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =
@@ -608,6 +622,7 @@ let test_reconcile_detects_profile_mismatch () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
           {
             id = "p2";
@@ -623,6 +638,7 @@ let test_reconcile_detects_profile_mismatch () =
             ambient_quiet_start = 23;
             ambient_quiet_end = 8;
             ambient_rate_limit_rph = 0;
+            low_volume = false;
           };
         ];
       room_profile_bindings =

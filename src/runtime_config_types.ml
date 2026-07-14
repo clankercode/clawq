@@ -871,6 +871,10 @@ type room_profile = {
   ambient_quiet_start : int;
   ambient_quiet_end : int;
   ambient_rate_limit_rph : int;
+  low_volume : bool;
+      (** When true, suppress operational chatter in the room (tool execution
+          updates, cron prompt echoes) while retaining final replies and
+          alerts/errors. Default false. *)
 }
 
 type room_profile_binding = {

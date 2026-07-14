@@ -556,11 +556,14 @@ let handle_event ~(config : Runtime_config.slack_config)
               | SkillInvoke _ ->
                   Lwt.return "ok" (* unreachable: preprocessed above *)
               | NotACommand -> (
-                  let agent_defaults =
-                    (Session.get_config session_manager).agent_defaults
+                  let cfg = Session.get_config session_manager in
+                  let agent_defaults = cfg.agent_defaults in
+                  let low_volume =
+                    Runtime_config.room_low_volume cfg ~session_key:key
                   in
                   let use_consolidated =
-                    agent_defaults.show_tool_calls
+                    Status_update.shows_tool_status ~agent_defaults ~low_volume
+                      ()
                     && agent_defaults.tool_status_mode = "consolidated"
                   in
                   let tool_reaction_set = ref false in
@@ -610,16 +613,17 @@ let handle_event ~(config : Runtime_config.slack_config)
                   let strategy =
                     Status_update.select_strategy ~agent_defaults
                       ~capabilities:(Some Connector_capabilities.slack)
+                      ~low_volume ()
                   in
                   let handler =
                     Status_update.make_handler ~strategy ~notifier_factory
                       ~notify:(fun text -> reply ~text)
-                      ~agent_defaults
+                      ~agent_defaults ~low_volume
                       ~parse_mode:Connector_status.Slack.status_parse_mode ()
                   in
                   let on_chunk chunk =
                     (match chunk with
-                    | Provider.ToolStart _ ->
+                    | Provider.ToolStart _ when not low_volume ->
                         if not !tool_reaction_set then begin
                           tool_reaction_set := true;
                           Lwt.async (fun () ->

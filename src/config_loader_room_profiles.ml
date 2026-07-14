@@ -41,6 +41,9 @@ let parse_room_profiles json =
         let ambient_rate_limit_rph =
           try p |> member "ambient_rate_limit_rph" |> to_int with _ -> 0
         in
+        let low_volume =
+          try p |> member "low_volume" |> to_bool with _ -> false
+        in
         ({
            id;
            display_name;
@@ -55,6 +58,7 @@ let parse_room_profiles json =
            ambient_quiet_start;
            ambient_quiet_end;
            ambient_rate_limit_rph;
+           low_volume;
          }
           : Runtime_config.room_profile))
   with _ -> []
