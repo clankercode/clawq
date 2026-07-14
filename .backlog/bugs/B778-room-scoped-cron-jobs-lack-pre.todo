@@ -1,0 +1,28 @@
+---
+complexity: medium
+created_at: "2026-07-14T03:57:01Z"
+depends_on: []
+estimate_hours: 1
+id: B778
+priority: high
+status: pending
+tags: []
+title: Room-scoped cron jobs lack pre-flight configuration validation before scheduling
+updated_at: "2026-07-14T03:57:01Z"
+---
+The `github-repo-monitor` cron was scheduled in `teams:personal:19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2` without verifying three prerequisites that the tools it uses require:
+1. A room profile binding (required by `room_memory_*` tools — fails with "No memory scope or profile binding found for room").
+2. GitHub item projections or journal entries in the room (required by `github_room_search_items` / `github_room_list_items` — fails with "Room has no GitHub item access: empty journal and projections").
+3. `CLAWQ_PRINCIPAL_ID` environment variable (required by `github_account` tool).
+
+When the cron fired, the agent repeatedly called these tools, got the same configuration errors, and entered a stuck loop (same error 3×, 4 consecutive errors). The agent has no heuristic to treat repeated identical configuration errors as fatal.
+
+Suggested fixes:
+- Add pre-flight validation when scheduling room-scoped crons: verify the room has a profile binding and relevant data before allowing the cron to be created.
+- In the agent loop, detect repeated identical configuration errors (missing binding, missing scope, missing env var) and abort with a clear "room not configured" report instead of retrying.
+- Alternatively, auto-provision a minimal room profile binding when a cron is first scheduled for an unbound room, or emit an actionable setup message like `Run: clawq room profile bind <room> <profile>`.
+
+--
+Auto-filed by clawq postmortem for session teams:personal:19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2 (pattern: SameErrorString: error repeated 3 times: Error: Room "personal" has no GitHub item access: empty journal and projections
+ConsecutiveErrors: 4 consecutive tool errors from "room_memory_list". Last error: Error: No memory scope or profile binding found for room 'https://smba.trafficmanager.net/au/2fdee6e6-38a0-4625-aaa1-1a84314b6b0e/|19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2'. Bind a room profile f...).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-07-14T135023-teams:personal:19:f42c673471c643cdbbc2cb32a9aa6029@thread.v2.md
