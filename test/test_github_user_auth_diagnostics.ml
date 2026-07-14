@@ -369,6 +369,60 @@ let test_export_never_embeds_secrets () =
     (contains ~needle:"private_delivery" text);
   Alcotest.(check bool) "format no secret" false (contains ~needle:secret text)
 
+let test_status_free_text_redacts_secrets () =
+  let code_secret = "ghu_STATUS_CODE_SECRET_123456"
+  and message_secret = "ghu_STATUS_MESSAGE_SECRET_123456"
+  and guidance_secret = "ghu_STATUS_GUIDANCE_SECRET_123456"
+  and source_secret = "ghu_STATUS_SOURCE_SECRET_123456" in
+  let make_entry ~code ~message ~guidance ~source =
+    D.make_status_entry ~failure_class:D.Private_delivery ~code ~message
+      ~guidance ~source ()
+  in
+  let constructed =
+    make_entry ~code:("code=" ^ code_secret)
+      ~message:("message=" ^ message_secret)
+      ~guidance:("guidance=" ^ guidance_secret)
+      ~source:("source=" ^ source_secret)
+  in
+  let imported =
+    assert_ok
+      (D.of_json
+         (`Assoc
+            [
+              ("schema_version", `Int D.schema_version);
+              ("generated_at", `String "2026-01-01T00:00:00Z");
+              ( "status",
+                `List
+                  [
+                    `Assoc
+                      [
+                        ("failure_class", `String "private_delivery");
+                        ("code", `String ("code=" ^ code_secret));
+                        ("message", `String ("message=" ^ message_secret));
+                        ("guidance", `String ("guidance=" ^ guidance_secret));
+                        ("source", `String ("source=" ^ source_secret));
+                      ];
+                  ] );
+            ]))
+  in
+  let entries = constructed :: imported.status in
+  let counters = D.with_status (D.empty_counters ~now:fixed_now ()) entries in
+  let json = Yojson.Safe.to_string (D.to_json counters) in
+  let status = String.concat "\n" (D.format_status entries) in
+  let formatted = String.concat "\n" (D.format_diagnostics counters) in
+  List.iter
+    (fun secret ->
+      Alcotest.(check bool)
+        "JSON redacts free-text secret" false
+        (contains ~needle:secret json);
+      Alcotest.(check bool)
+        "status redacts free-text secret" false
+        (contains ~needle:secret status);
+      Alcotest.(check bool)
+        "diagnostics redacts free-text secret" false
+        (contains ~needle:secret formatted))
+    [ code_secret; message_secret; guidance_secret; source_secret ]
+
 let test_format_status_actionable () =
   let entries =
     List.map
@@ -454,6 +508,9 @@ let suite =
     ("json roundtrip empty", `Quick, test_json_roundtrip_empty);
     ("json rejects secret keys", `Quick, test_json_rejects_secret_keys);
     ("export never embeds secrets", `Quick, test_export_never_embeds_secrets);
+    ( "status free text redacts secrets",
+      `Quick,
+      test_status_free_text_redacts_secrets );
     ("format status actionable", `Quick, test_format_status_actionable);
     ("merge counters", `Quick, test_merge_counters);
     ("authorize deny status", `Quick, test_authorize_deny_status);

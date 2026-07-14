@@ -264,11 +264,12 @@ let cmd_apply ~db plan_id digest =
   | None -> (
       match cli_admin_principal () with
       | Error e -> e
-      | Ok _admin ->
+      | Ok admin ->
           let gate = E.load_gate ~db () in
           let evidence = evidence_from_env ~gate () in
           format_apply_status
-            (E.apply_plan ~db ~plan_id ~presented_digest:digest ~evidence ()))
+            (E.apply_plan ~db ~acting_admin_principal_id:admin ~plan_id
+               ~presented_digest:digest ~evidence ()))
 
 let cmd_plan_show ~db plan_id =
   match E.get_plan ~db ~plan_id () with

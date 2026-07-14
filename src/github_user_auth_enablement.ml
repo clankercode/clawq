@@ -1258,9 +1258,10 @@ let is_expired ~now ~expires_at =
   let now_s = Time_util.iso8601_utc ~t:now () in
   parse_iso8601_approx expires_at < parse_iso8601_approx now_s
 
-let apply_plan ~db ~plan_id ~presented_digest ~evidence
-    ?(now = Unix.gettimeofday ()) () =
+let apply_plan ~db ~acting_admin_principal_id ~plan_id ~presented_digest
+    ~evidence ?(now = Unix.gettimeofday ()) () =
   ensure_schema db;
+  let acting_admin_principal_id = String.trim acting_admin_principal_id in
   let plan_id = String.trim plan_id in
   let presented_digest = String.trim presented_digest in
   if plan_id = "" then Not_found "plan_id must be non-empty"
@@ -1271,205 +1272,230 @@ let apply_plan ~db ~plan_id ~presented_digest ~evidence
     | Error e when String_util.contains e "not found" -> Not_found e
     | Error e -> Refused { reason = e; conflicts = [] }
     | Ok plan -> (
-        match plan_status ~db ~plan_id with
-        | None -> Not_found ("plan not found: " ^ plan_id)
-        | Some "applied" ->
-            Refused
-              {
-                reason = "plan already applied";
-                conflicts =
-                  [ { code = "already_applied"; summary = plan.plan_id } ];
-              }
-        | Some status when status <> "planned" ->
-            Refused
-              {
-                reason = "plan status is " ^ status;
-                conflicts = [ { code = "bad_status"; summary = status } ];
-              }
-        | Some _ (* planned *) -> (
-            if not (String.equal plan.digest presented_digest) then
-              Digest_mismatch
-                (Printf.sprintf
-                   "digest mismatch: presented does not match plan %s" plan_id)
-            else if is_expired ~now ~expires_at:plan.expires_at then
-              Expired
-                (Printf.sprintf "plan %s expired at %s" plan_id plan.expires_at)
-            else if not plan.can_apply then
+        if not (String.equal acting_admin_principal_id plan.admin_principal_id)
+        then
+          Refused
+            {
+              reason =
+                "acting admin Principal does not match the Principal that \
+                 created this plan; re-run apply as the planning admin";
+              conflicts =
+                [
+                  {
+                    code = "admin_principal_mismatch";
+                    summary = "apply must be performed by the planning admin";
+                  };
+                ];
+            }
+        else
+          match plan_status ~db ~plan_id with
+          | None -> Not_found ("plan not found: " ^ plan_id)
+          | Some "applied" ->
               Refused
                 {
-                  reason = "plan has hard conflicts and cannot be applied";
-                  conflicts = plan.hard_conflicts;
+                  reason = "plan already applied";
+                  conflicts =
+                    [ { code = "already_applied"; summary = plan.plan_id } ];
                 }
-            else
-              let gate = load_gate ~db () in
-              if gate.revision <> plan.expected_revision then
-                Stale_revision
-                  (Printf.sprintf "gate revision is %d, plan expected %d"
-                     gate.revision plan.expected_revision)
-              else if
-                gate.production.enabled <> plan.expected_production_enabled
-              then
-                Stale_revision
-                  "production enabled flag changed since plan was created"
-              else
-                (* Re-seed evidence with current gate; reassess for enable. *)
-                let evidence : evidence =
+          | Some status when status <> "planned" ->
+              Refused
+                {
+                  reason = "plan status is " ^ status;
+                  conflicts = [ { code = "bad_status"; summary = status } ];
+                }
+          | Some _ (* planned *) -> (
+              if not (String.equal plan.digest presented_digest) then
+                Digest_mismatch
+                  (Printf.sprintf
+                     "digest mismatch: presented does not match plan %s" plan_id)
+              else if is_expired ~now ~expires_at:plan.expires_at then
+                Expired
+                  (Printf.sprintf "plan %s expired at %s" plan_id
+                     plan.expires_at)
+              else if not plan.can_apply then
+                Refused
                   {
-                    evidence with
-                    stage = gate.stage;
-                    production = gate.production;
+                    reason = "plan has hard conflicts and cannot be applied";
+                    conflicts = plan.hard_conflicts;
                   }
-                in
-                let report = assess evidence in
-                match plan.kind with
-                | Enable_production -> (
-                    let conflicts = conflicts_for_enable report evidence in
-                    if conflicts <> [] then
-                      Refused
-                        {
-                          reason = "enable revalidation failed at apply time";
-                          conflicts;
-                        }
-                    else
-                      let production : Rollout.production_gate =
-                        {
-                          enabled = true;
-                          audit_ref = Some plan.audit_ref;
-                          enabled_at = Some (Time_util.iso8601_utc ~t:now ());
-                        }
-                      in
-                      let req : Rollout.transition_request =
-                        {
-                          kind = Rollout.Gate_production_enable;
-                          from_stage = gate.stage;
-                          pilot = None;
-                          production = Some production;
-                          rollback = None;
-                          cleanup = None;
-                          readiness = report.rollout_readiness;
-                          audit_ref = Some plan.audit_ref;
-                        }
-                      in
-                      match Rollout.validate_transition req with
-                      | Error e ->
-                          Refused
-                            {
-                              reason = e;
-                              conflicts =
-                                [
-                                  { code = "transition_rejected"; summary = e };
-                                ];
-                            }
-                      | Ok tr -> (
-                          let applied_at = Time_util.iso8601_utc ~t:now () in
-                          let new_gate : gate_state =
-                            {
-                              stage = tr.to_stage;
-                              production = tr.production;
-                              revision = gate.revision + 1;
-                              updated_at = applied_at;
-                              last_admin_principal_id =
-                                Some plan.admin_principal_id;
-                              last_reason = Some plan.reason;
-                              last_audit_ref = Some plan.audit_ref;
-                            }
-                          in
-                          match
-                            save_gate ~db ~gate:new_gate
-                              ~expected_revision:gate.revision
-                          with
-                          | Error e when String_util.contains e "stale" ->
-                              Stale_revision e
-                          | Error e -> Refused { reason = e; conflicts = [] }
-                          | Ok () ->
-                              if mark_plan_applied ~db ~plan_id ~applied_at then
-                                Applied
-                                  {
-                                    plan;
-                                    gate = new_gate;
-                                    message = tr.message;
-                                    applied_at;
-                                  }
-                              else
-                                Refused
-                                  {
-                                    reason =
-                                      "plan mark-applied failed (concurrent \
-                                       apply?)";
-                                    conflicts = [];
-                                  }))
-                | Disable_production -> (
-                    let conflicts = conflicts_for_disable evidence in
-                    if conflicts <> [] then
-                      Refused
-                        { reason = "disable revalidation failed"; conflicts }
-                    else
-                      let req : Rollout.transition_request =
-                        {
-                          kind = Rollout.Gate_production_disable;
-                          from_stage = gate.stage;
-                          pilot = None;
-                          production =
-                            Some
+              else
+                let gate = load_gate ~db () in
+                if gate.revision <> plan.expected_revision then
+                  Stale_revision
+                    (Printf.sprintf "gate revision is %d, plan expected %d"
+                       gate.revision plan.expected_revision)
+                else if
+                  gate.production.enabled <> plan.expected_production_enabled
+                then
+                  Stale_revision
+                    "production enabled flag changed since plan was created"
+                else
+                  (* Re-seed evidence with current gate; reassess for enable. *)
+                  let evidence : evidence =
+                    {
+                      evidence with
+                      stage = gate.stage;
+                      production = gate.production;
+                    }
+                  in
+                  let report = assess evidence in
+                  match plan.kind with
+                  | Enable_production -> (
+                      let conflicts = conflicts_for_enable report evidence in
+                      if conflicts <> [] then
+                        Refused
+                          {
+                            reason = "enable revalidation failed at apply time";
+                            conflicts;
+                          }
+                      else
+                        let production : Rollout.production_gate =
+                          {
+                            enabled = true;
+                            audit_ref = Some plan.audit_ref;
+                            enabled_at = Some (Time_util.iso8601_utc ~t:now ());
+                          }
+                        in
+                        let req : Rollout.transition_request =
+                          {
+                            kind = Rollout.Gate_production_enable;
+                            from_stage = gate.stage;
+                            pilot = None;
+                            production = Some production;
+                            rollback = None;
+                            cleanup = None;
+                            readiness = report.rollout_readiness;
+                            audit_ref = Some plan.audit_ref;
+                          }
+                        in
+                        match Rollout.validate_transition req with
+                        | Error e ->
+                            Refused
                               {
-                                enabled = false;
-                                audit_ref = Some plan.audit_ref;
-                                enabled_at = None;
-                              };
-                          rollback = None;
-                          cleanup = None;
-                          readiness = report.rollout_readiness;
-                          audit_ref = Some plan.audit_ref;
-                        }
-                      in
-                      match Rollout.validate_transition req with
-                      | Error e ->
-                          Refused
-                            {
-                              reason = e;
-                              conflicts =
-                                [
-                                  { code = "transition_rejected"; summary = e };
-                                ];
-                            }
-                      | Ok tr -> (
-                          let applied_at = Time_util.iso8601_utc ~t:now () in
-                          let new_gate : gate_state =
-                            {
-                              stage = tr.to_stage;
-                              production = tr.production;
-                              revision = gate.revision + 1;
-                              updated_at = applied_at;
-                              last_admin_principal_id =
-                                Some plan.admin_principal_id;
-                              last_reason = Some plan.reason;
-                              last_audit_ref = Some plan.audit_ref;
-                            }
-                          in
-                          match
-                            save_gate ~db ~gate:new_gate
-                              ~expected_revision:gate.revision
-                          with
-                          | Error e when String_util.contains e "stale" ->
-                              Stale_revision e
-                          | Error e -> Refused { reason = e; conflicts = [] }
-                          | Ok () ->
-                              if mark_plan_applied ~db ~plan_id ~applied_at then
-                                Applied
-                                  {
-                                    plan;
-                                    gate = new_gate;
-                                    message = tr.message;
-                                    applied_at;
-                                  }
-                              else
-                                Refused
-                                  {
-                                    reason =
-                                      "plan mark-applied failed (concurrent \
-                                       apply?)";
-                                    conflicts = [];
-                                  }))))
+                                reason = e;
+                                conflicts =
+                                  [
+                                    {
+                                      code = "transition_rejected";
+                                      summary = e;
+                                    };
+                                  ];
+                              }
+                        | Ok tr -> (
+                            let applied_at = Time_util.iso8601_utc ~t:now () in
+                            let new_gate : gate_state =
+                              {
+                                stage = tr.to_stage;
+                                production = tr.production;
+                                revision = gate.revision + 1;
+                                updated_at = applied_at;
+                                last_admin_principal_id =
+                                  Some plan.admin_principal_id;
+                                last_reason = Some plan.reason;
+                                last_audit_ref = Some plan.audit_ref;
+                              }
+                            in
+                            match
+                              save_gate ~db ~gate:new_gate
+                                ~expected_revision:gate.revision
+                            with
+                            | Error e when String_util.contains e "stale" ->
+                                Stale_revision e
+                            | Error e -> Refused { reason = e; conflicts = [] }
+                            | Ok () ->
+                                if mark_plan_applied ~db ~plan_id ~applied_at
+                                then
+                                  Applied
+                                    {
+                                      plan;
+                                      gate = new_gate;
+                                      message = tr.message;
+                                      applied_at;
+                                    }
+                                else
+                                  Refused
+                                    {
+                                      reason =
+                                        "plan mark-applied failed (concurrent \
+                                         apply?)";
+                                      conflicts = [];
+                                    }))
+                  | Disable_production -> (
+                      let conflicts = conflicts_for_disable evidence in
+                      if conflicts <> [] then
+                        Refused
+                          { reason = "disable revalidation failed"; conflicts }
+                      else
+                        let req : Rollout.transition_request =
+                          {
+                            kind = Rollout.Gate_production_disable;
+                            from_stage = gate.stage;
+                            pilot = None;
+                            production =
+                              Some
+                                {
+                                  enabled = false;
+                                  audit_ref = Some plan.audit_ref;
+                                  enabled_at = None;
+                                };
+                            rollback = None;
+                            cleanup = None;
+                            readiness = report.rollout_readiness;
+                            audit_ref = Some plan.audit_ref;
+                          }
+                        in
+                        match Rollout.validate_transition req with
+                        | Error e ->
+                            Refused
+                              {
+                                reason = e;
+                                conflicts =
+                                  [
+                                    {
+                                      code = "transition_rejected";
+                                      summary = e;
+                                    };
+                                  ];
+                              }
+                        | Ok tr -> (
+                            let applied_at = Time_util.iso8601_utc ~t:now () in
+                            let new_gate : gate_state =
+                              {
+                                stage = tr.to_stage;
+                                production = tr.production;
+                                revision = gate.revision + 1;
+                                updated_at = applied_at;
+                                last_admin_principal_id =
+                                  Some plan.admin_principal_id;
+                                last_reason = Some plan.reason;
+                                last_audit_ref = Some plan.audit_ref;
+                              }
+                            in
+                            match
+                              save_gate ~db ~gate:new_gate
+                                ~expected_revision:gate.revision
+                            with
+                            | Error e when String_util.contains e "stale" ->
+                                Stale_revision e
+                            | Error e -> Refused { reason = e; conflicts = [] }
+                            | Ok () ->
+                                if mark_plan_applied ~db ~plan_id ~applied_at
+                                then
+                                  Applied
+                                    {
+                                      plan;
+                                      gate = new_gate;
+                                      message = tr.message;
+                                      applied_at;
+                                    }
+                                else
+                                  Refused
+                                    {
+                                      reason =
+                                        "plan mark-applied failed (concurrent \
+                                         apply?)";
+                                      conflicts = [];
+                                    }))))
 
 let format_status ~gate ~readiness =
   let buf = Buffer.create 1024 in

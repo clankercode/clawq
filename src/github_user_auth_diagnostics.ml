@@ -5,6 +5,7 @@
 module Readiness = Github_user_auth_readiness
 module Admin = Github_account_admin_surface
 module Audit = Github_attribution_audit
+module Route_ops = Github_route_ops
 module Refresh = Github_user_token_refresh
 module Invalidate = Github_user_auth_invalidate
 module Delivery = Github_user_auth_delivery
@@ -398,33 +399,84 @@ type status_entry = {
   source : string option;
 }
 
+let status_text_has_token_like_secret s =
+  let s = String.lowercase_ascii s in
+  List.exists
+    (fun marker -> contains_substring s ~sub:marker)
+    [
+      "bearer ";
+      "ghp_";
+      "gho_";
+      "ghu_";
+      "ghs_";
+      "ghr_";
+      "github_pat_";
+      "xoxb-";
+      "xoxa-";
+      "xoxp-";
+      "xoxr-";
+      "xoxs-";
+      "token=";
+      "token:";
+      "secret=";
+      "secret:";
+      "password=";
+      "password:";
+      "api_key=";
+      "api_key:";
+      "private_key=";
+      "private_key:";
+      "bot_token=";
+      "bot_token:";
+    ]
+
+let redact_status_text s =
+  let s = String.trim s in
+  if status_text_has_token_like_secret s then "***REDACTED***"
+  else
+    match Route_ops.redact_json (`String s) with
+    | `String redacted -> String.trim redacted
+    | _ -> "***REDACTED***"
+
+let sanitize_status_entry (entry : status_entry) =
+  {
+    entry with
+    code = redact_status_text entry.code;
+    message = redact_status_text entry.message;
+    guidance = redact_status_text entry.guidance;
+    severity = severity_of entry.failure_class;
+    source = Option.map redact_status_text entry.source;
+  }
+
 let make_status_entry ~failure_class ~code ?message ?guidance ?source () =
-  let code = String.trim code in
+  let code = redact_status_text code in
   let code =
     if code = "" then failure_class_to_string failure_class else code
   in
   let message =
     match message with
-    | Some m when String.trim m <> "" -> String.trim m
+    | Some m when redact_status_text m <> "" -> redact_status_text m
     | _ ->
         Printf.sprintf "user authorization %s"
           (failure_class_to_string failure_class)
   in
   let guidance =
     match guidance with
-    | Some g when String.trim g <> "" -> String.trim g
+    | Some g when redact_status_text g <> "" -> redact_status_text g
     | _ -> guidance_for failure_class
   in
-  {
-    failure_class;
-    code;
-    message;
-    guidance;
-    severity = severity_of failure_class;
-    source;
-  }
+  sanitize_status_entry
+    {
+      failure_class;
+      code;
+      message;
+      guidance;
+      severity = severity_of failure_class;
+      source;
+    }
 
 let status_entry_to_json (e : status_entry) =
+  let e = sanitize_status_entry e in
   `Assoc
     (sort_assoc
        ([
@@ -437,6 +489,7 @@ let status_entry_to_json (e : status_entry) =
        @ match e.source with None -> [] | Some s -> [ ("source", `String s) ]))
 
 let status_entry_format (e : status_entry) =
+  let e = sanitize_status_entry e in
   let src =
     match e.source with None -> "" | Some s -> Printf.sprintf " source=%s" s
   in
@@ -1462,11 +1515,6 @@ let status_entry_of_json = function
       let* failure_class = failure_class_of_string fc_s in
       let* message = string_field "message" j in
       let* guidance = string_field "guidance" j in
-      let severity =
-        match string_field "severity" j with
-        | Ok s -> s
-        | Error _ -> severity_of failure_class
-      in
       let source =
         match j with
         | `Assoc fields -> (
@@ -1475,7 +1523,7 @@ let status_entry_of_json = function
             | _ -> None)
         | _ -> None
       in
-      Ok { failure_class; code; message; guidance; severity; source }
+      Ok (make_status_entry ~failure_class ~code ~message ~guidance ?source ())
   | _ -> Error "status entry must be object"
 
 let of_json = function

@@ -292,15 +292,17 @@ type apply_status =
 
 val apply_plan :
   db:Sqlite3.db ->
+  acting_admin_principal_id:string ->
   plan_id:string ->
   presented_digest:string ->
   evidence:evidence ->
   ?now:float ->
   unit ->
   apply_status
-(** Confirm + apply by digest. Revalidates readiness for enable at apply time.
-    Uses {!Github_attribution_rollout.validate_transition}. Advances gate
-    revision under CAS. Never starts user OAuth. *)
+(** Confirm + apply by digest as the Principal that created the plan.
+    Revalidates readiness for enable at apply time. Uses
+    {!Github_attribution_rollout.validate_transition}. Advances gate revision
+    under CAS. Never starts user OAuth. *)
 
 val get_plan :
   db:Sqlite3.db -> plan_id:string -> unit -> (enablement_plan, string) result

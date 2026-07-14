@@ -197,8 +197,9 @@ let test_plan_enable_and_apply () =
         (String.trim plan.digest <> "");
       (* Wrong digest refused. *)
       (match
-         E.apply_plan ~db ~plan_id:plan.plan_id ~presented_digest:"deadbeef"
-           ~evidence ~now:fixed_now ()
+         E.apply_plan ~db ~acting_admin_principal_id:"admin-p1"
+           ~plan_id:plan.plan_id ~presented_digest:"deadbeef" ~evidence
+           ~now:fixed_now ()
        with
       | E.Digest_mismatch _ -> ()
       | other ->
@@ -207,8 +208,9 @@ let test_plan_enable_and_apply () =
             | E.Applied _ -> "unexpected Applied"
             | _ -> "expected Digest_mismatch"));
       match
-        E.apply_plan ~db ~plan_id:plan.plan_id ~presented_digest:plan.digest
-          ~evidence ~now:fixed_now ()
+        E.apply_plan ~db ~acting_admin_principal_id:"admin-p1"
+          ~plan_id:plan.plan_id ~presented_digest:plan.digest ~evidence
+          ~now:fixed_now ()
       with
       | E.Applied { gate; message; _ } ->
           Alcotest.(check bool) "production on" true gate.production.enabled;
@@ -223,8 +225,9 @@ let test_plan_enable_and_apply () =
             || String_util.contains message "production");
           (* Second apply of same plan refused. *)
           (match
-             E.apply_plan ~db ~plan_id:plan.plan_id
-               ~presented_digest:plan.digest ~evidence ~now:fixed_now ()
+             E.apply_plan ~db ~acting_admin_principal_id:"admin-p1"
+               ~plan_id:plan.plan_id ~presented_digest:plan.digest ~evidence
+               ~now:fixed_now ()
            with
           | E.Refused _ -> ()
           | _ -> Alcotest.fail "expected refuse on re-apply");
@@ -253,11 +256,51 @@ let test_plan_enable_blocked_when_not_ready () =
            (fun (c : E.conflict) -> c.code = "readiness_incomplete")
            plan.hard_conflicts);
       match
-        E.apply_plan ~db ~plan_id:plan.plan_id ~presented_digest:plan.digest
-          ~evidence ~now:fixed_now ()
+        E.apply_plan ~db ~acting_admin_principal_id:"admin-p1"
+          ~plan_id:plan.plan_id ~presented_digest:plan.digest ~evidence
+          ~now:fixed_now ()
       with
       | E.Refused _ -> ()
       | _ -> Alcotest.fail "expected refuse")
+
+let test_plan_apply_requires_planning_admin () =
+  with_db @@ fun db ->
+  let evidence = full_evidence () in
+  let plan =
+    match
+      E.plan_enable ~db ~admin_principal_id:"admin-p1" ~reason:"admin binding"
+        ~audit_ref:"audit-admin-binding" ~evidence ~now:fixed_now ()
+    with
+    | Ok plan -> plan
+    | Error e -> Alcotest.fail e
+  in
+  (match
+     E.apply_plan ~db ~acting_admin_principal_id:"admin-p2"
+       ~plan_id:plan.plan_id ~presented_digest:plan.digest ~evidence
+       ~now:fixed_now ()
+   with
+  | E.Refused { reason; conflicts } ->
+      Alcotest.(check bool)
+        "mismatched admin is named" true
+        (String_util.contains reason "acting admin Principal");
+      Alcotest.(check bool)
+        "mismatch conflict" true
+        (List.exists
+           (fun (conflict : E.conflict) ->
+             conflict.code = "admin_principal_mismatch")
+           conflicts)
+  | _ -> Alcotest.fail "mismatched admin must be refused");
+  Alcotest.(check bool)
+    "mismatch leaves gate disabled" false
+    (E.load_gate ~db ()).production.enabled;
+  match
+    E.apply_plan ~db ~acting_admin_principal_id:"admin-p1" ~plan_id:plan.plan_id
+      ~presented_digest:plan.digest ~evidence ~now:fixed_now ()
+  with
+  | E.Applied { gate; _ } ->
+      Alcotest.(check bool)
+        "planning admin can apply" true gate.production.enabled
+  | _ -> Alcotest.fail "planning admin must apply successfully"
 
 let test_plan_disable_after_enable () =
   with_db @@ fun db ->
@@ -271,8 +314,9 @@ let test_plan_disable_after_enable () =
     | Error e -> Alcotest.fail e
   in
   (match
-     E.apply_plan ~db ~plan_id:enable_plan.plan_id
-       ~presented_digest:enable_plan.digest ~evidence ~now:fixed_now ()
+     E.apply_plan ~db ~acting_admin_principal_id:"admin-p1"
+       ~plan_id:enable_plan.plan_id ~presented_digest:enable_plan.digest
+       ~evidence ~now:fixed_now ()
    with
   | E.Applied _ -> ()
   | E.Refused { reason; _ } -> Alcotest.fail reason
@@ -295,8 +339,9 @@ let test_plan_disable_after_enable () =
   in
   Alcotest.(check bool) "disable can_apply" true disable_plan.can_apply;
   match
-    E.apply_plan ~db ~plan_id:disable_plan.plan_id
-      ~presented_digest:disable_plan.digest ~evidence ~now:(fixed_now +. 10.) ()
+    E.apply_plan ~db ~acting_admin_principal_id:"admin-p1"
+      ~plan_id:disable_plan.plan_id ~presented_digest:disable_plan.digest
+      ~evidence ~now:(fixed_now +. 10.) ()
   with
   | E.Applied { gate; _ } ->
       Alcotest.(check bool) "production off" false gate.production.enabled;
@@ -381,6 +426,50 @@ let test_cli_enable_requires_admin () =
         (String_util.contains out "CLAWQ_ADMIN"
         || String_util.contains out "admin privileges"))
 
+let test_cli_apply_requires_planning_admin () =
+  with_db @@ fun db ->
+  let evidence = full_evidence () in
+  let plan =
+    match
+      E.plan_enable ~db ~admin_principal_id:"admin-p1"
+        ~reason:"cli admin binding" ~audit_ref:"audit-cli-admin-binding"
+        ~evidence ~now:fixed_now ()
+    with
+    | Ok plan -> plan
+    | Error e -> Alcotest.fail e
+  in
+  let env =
+    [
+      (Cli.admin_env_var, "1");
+      (Cli.principal_env_var, "admin-p2");
+      ("CLAWQ_GH_UA_READY", "1");
+    ]
+  in
+  let previous = List.map (fun (name, _) -> (name, Sys.getenv_opt name)) env in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun (name, value) -> Unix.putenv name (Option.value ~default:"" value))
+        previous)
+    (fun () ->
+      List.iter (fun (name, value) -> Unix.putenv name value) env;
+      let refused =
+        Cli.cmd_with_db ~db [ "apply"; plan.plan_id; plan.digest ]
+      in
+      Alcotest.(check bool)
+        "CLI mismatched admin refused" true
+        (String_util.contains refused "acting admin Principal");
+      Alcotest.(check bool)
+        "CLI mismatch leaves gate disabled" false
+        (E.load_gate ~db ()).production.enabled;
+      Unix.putenv Cli.principal_env_var "admin-p1";
+      let applied =
+        Cli.cmd_with_db ~db [ "apply"; plan.plan_id; plan.digest ]
+      in
+      Alcotest.(check bool)
+        "CLI planning admin applies" true
+        (String_util.contains applied "Applied enable_production"))
+
 let suite =
   [
     Alcotest.test_case "all readiness pass enables production eligibility"
@@ -409,6 +498,8 @@ let suite =
       test_plan_enable_and_apply;
     Alcotest.test_case "plan enable blocked when not ready" `Quick
       test_plan_enable_blocked_when_not_ready;
+    Alcotest.test_case "plan apply requires its planning admin" `Quick
+      test_plan_apply_requires_planning_admin;
     Alcotest.test_case "plan-confirm-apply disables production gate" `Quick
       test_plan_disable_after_enable;
     Alcotest.test_case "plan json and text redact secrets" `Quick
@@ -419,4 +510,6 @@ let suite =
       test_cli_readiness_with_db;
     Alcotest.test_case "CLI enable requires CLAWQ_ADMIN" `Quick
       test_cli_enable_requires_admin;
+    Alcotest.test_case "CLI apply requires its planning admin" `Quick
+      test_cli_apply_requires_planning_admin;
   ]
