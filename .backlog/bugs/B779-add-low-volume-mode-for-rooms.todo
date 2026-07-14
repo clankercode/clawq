@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-07-14T04:07:05Z"
+depends_on: []
+estimate_hours: 1
+id: B779
+priority: high
+status: pending
+tags: []
+title: Add low-volume mode for rooms
+updated_at: "2026-07-14T04:07:05Z"
+---
+Allow rooms to opt into a low-volume presentation mode that hides or suppresses most operational detail, including tool execution updates and cron prompts, while retaining important user-facing results and alerts.
