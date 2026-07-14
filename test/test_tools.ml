@@ -3822,7 +3822,7 @@ let test_models_tool_set_accepts_db_only_provider_qualified_model () =
   in
   Alcotest.(check bool)
     "set accepts db-only provider-qualified model" true
-    (Test_helpers.string_contains result "Model set to: fresh-model")
+    (Test_helpers.string_contains result "Model set to: dbprov:fresh-model")
 
 let test_models_tool_set_rejects_unavailable_cached_model () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -3939,7 +3939,8 @@ let test_models_tool_set_canonicalizes_unique_plain_with_skip_validation () =
   in
   Alcotest.(check bool)
     "set accepts unique bare model" true
-    (Test_helpers.string_contains result "Model set to: claude-sonnet-4-6");
+    (Test_helpers.string_contains result
+       "Model set to: anthropic:claude-sonnet-4-6");
   Alcotest.(check string)
     "stores canonical model" "anthropic:claude-sonnet-4-6"
     (Session.get_session_effective_model mgr ~key:session_key)

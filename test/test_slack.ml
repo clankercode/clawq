@@ -309,9 +309,11 @@ let test_model_set_bare_match_persists_canonical () =
   in
   Alcotest.(check string) "returns ok" "ok" result;
   Alcotest.(check bool)
-    "reply reports canonical provider" true
+    "reply reports full provider:model" true
     (List.exists
-       (fun text -> Test_helpers.string_contains text "provider: openai-codex")
+       (fun text ->
+         Test_helpers.string_contains text
+           "Model set to: openai-codex:gpt-5.4-mini")
        !sent);
   Alcotest.(check (option string))
     "persists canonical session model" (Some "openai-codex:gpt-5.4-mini")

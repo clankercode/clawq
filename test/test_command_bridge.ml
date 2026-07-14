@@ -3506,7 +3506,7 @@ let test_models_set_default_shows_candidates_on_ambiguous_plain () =
       in
       Alcotest.(check bool)
         "reports ambiguity" true
-        (Test_helpers.string_contains result "ambiguous");
+        (Test_helpers.string_contains result "Ambiguous model");
       Alcotest.(check bool)
         "shows openai candidate" true
         (Test_helpers.string_contains result "openai:gpt-5.4");
@@ -3527,7 +3527,28 @@ let test_models_set_default_accepts_known_plain () =
       in
       Alcotest.(check bool)
         "confirms set" true
-        (Test_helpers.string_contains result "Default model set to:"))
+        (Test_helpers.string_contains result "Default model set to:");
+      Alcotest.(check bool)
+        "shows full provider:model canonical" true
+        (Test_helpers.string_contains result
+           "Default model set to: anthropic:claude-sonnet-4-6");
+      Alcotest.(check bool)
+        "shows previous model + rollback" true
+        (Test_helpers.string_contains result "Current model:"
+        && Test_helpers.string_contains result "Rollback command if needed"))
+
+let test_models_list_shows_current_default_and_syntax () =
+  with_temp_home (fun _dir ->
+      let result = Command_bridge.handle [ "models"; "list" ] in
+      Alcotest.(check bool)
+        "shows current default header" true
+        (Test_helpers.string_contains result "Current default:");
+      Alcotest.(check bool)
+        "documents provider:model syntax" true
+        (Test_helpers.string_contains result "provider:model");
+      Alcotest.(check bool)
+        "still lists catalog models" true
+        (Test_helpers.string_contains result "anthropic:claude-sonnet-4-6"))
 
 let test_models_set_default_accepts_unknown_with_provider () =
   with_temp_home (fun _dir ->
@@ -5653,6 +5674,8 @@ let suite =
       test_models_list_json_provider_filter_includes_db_only_only_for_provider;
     Alcotest.test_case "models list availability filters DB rows" `Quick
       test_models_list_availability_filters_db_rows;
+    Alcotest.test_case "models list shows current default and syntax" `Quick
+      test_models_list_shows_current_default_and_syntax;
     Alcotest.test_case "models set-default rejects unknown plain model" `Quick
       test_models_set_default_rejects_unknown_plain;
     Alcotest.test_case "models set-default shows ambiguous plain candidates"

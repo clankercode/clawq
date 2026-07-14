@@ -425,6 +425,90 @@ let test_resolve_alias_or_name_resolves () =
     "alias is resolved" "kimi_coding:kimi-for-coding"
     (Models_catalog.resolve_alias_or_name "kimi")
 
+let test_resolve_model_name_ambiguous_lists_candidates () =
+  match
+    Models_catalog.resolve_model_name_for_set ~configured_providers:[] "gpt-5.4"
+  with
+  | Ok _ -> Alcotest.fail "expected ambiguous error for gpt-5.4"
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions ambiguous" true
+        (Test_helpers.string_contains msg "Ambiguous model");
+      Alcotest.(check bool)
+        "lists openai candidate" true
+        (Test_helpers.string_contains msg "openai:gpt-5.4");
+      Alcotest.(check bool)
+        "lists codex candidate" true
+        (Test_helpers.string_contains msg "openai-codex:gpt-5.4");
+      Alcotest.(check bool)
+        "mentions provider:model format" true
+        (Test_helpers.string_contains msg "provider:model")
+
+let test_resolve_model_name_unknown_plain_actionable () =
+  match
+    Models_catalog.resolve_model_name_for_set ~configured_providers:[]
+      "nonexistent-model-xyz"
+  with
+  | Ok _ -> Alcotest.fail "expected unknown model error"
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions unknown" true
+        (Test_helpers.string_contains msg "Unknown model");
+      Alcotest.(check bool)
+        "mentions provider:model" true
+        (Test_helpers.string_contains msg "provider:model");
+      Alcotest.(check bool)
+        "points at models list" true
+        (Test_helpers.string_contains msg "models list")
+
+let test_resolve_model_name_unique_plain_resolves () =
+  match
+    Models_catalog.resolve_model_name_for_set ~configured_providers:[]
+      "claude-sonnet-4-6"
+  with
+  | Error e -> Alcotest.failf "expected resolve success, got: %s" e
+  | Ok resolved ->
+      Alcotest.(check string)
+        "canonical full name" "anthropic:claude-sonnet-4-6"
+        resolved.Models_catalog.canonical_value;
+      Alcotest.(check bool)
+        "resolution hint present" true
+        (Test_helpers.string_contains resolved.Models_catalog.hint
+           "resolved bare model name")
+
+let test_resolve_model_name_legacy_normalized () =
+  match
+    Models_catalog.resolve_model_name_for_set
+      ~require_configured_provider:false ~configured_providers:[]
+      "anthropic/claude-sonnet-4-6"
+  with
+  | Error e -> Alcotest.failf "expected resolve success, got: %s" e
+  | Ok resolved ->
+      Alcotest.(check string)
+        "normalized to colon form" "anthropic:claude-sonnet-4-6"
+        resolved.Models_catalog.canonical_value;
+      Alcotest.(check bool)
+        "legacy note present" true
+        (Test_helpers.string_contains resolved.Models_catalog.hint "normalized")
+
+let test_format_list_header_includes_default_and_syntax () =
+  let header =
+    Models_catalog.format_list_header ~current_default:"openai-codex:gpt-5.4"
+  in
+  Alcotest.(check bool)
+    "shows current default value" true
+    (Test_helpers.string_contains header "openai-codex:gpt-5.4");
+  Alcotest.(check bool)
+    "documents syntax" true
+    (Test_helpers.string_contains header "provider:model");
+  let with_header =
+    Models_catalog.with_list_header ~current_default:"x:y" "openai:gpt-5.4"
+  in
+  Alcotest.(check bool)
+    "header precedes body" true
+    (Test_helpers.string_contains with_header "Current default: x:y"
+    && Test_helpers.string_contains with_header "openai:gpt-5.4")
+
 let suite =
   [
     ("find_by_id", `Quick, test_find_by_id);
@@ -444,6 +528,21 @@ let suite =
     ( "resolve_alias_or_name resolves",
       `Quick,
       test_resolve_alias_or_name_resolves );
+    ( "resolve_model_name ambiguous lists candidates",
+      `Quick,
+      test_resolve_model_name_ambiguous_lists_candidates );
+    ( "resolve_model_name unknown plain actionable",
+      `Quick,
+      test_resolve_model_name_unknown_plain_actionable );
+    ( "resolve_model_name unique plain resolves",
+      `Quick,
+      test_resolve_model_name_unique_plain_resolves );
+    ( "resolve_model_name legacy normalized",
+      `Quick,
+      test_resolve_model_name_legacy_normalized );
+    ( "format_list_header includes default and syntax",
+      `Quick,
+      test_format_list_header_includes_default_and_syntax );
     ("find_by_full_name", `Quick, test_find_by_full_name);
     ("split_name", `Quick, test_split_name);
     ("by_provider", `Quick, test_by_provider);
