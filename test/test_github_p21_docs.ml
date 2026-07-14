@@ -2,15 +2,16 @@
     receipt template, and filled dry-run receipt (P21.M4.E2.T004).
 
     Asserts the canonical pilot docs exist and still state gate defaults,
-    cleanup of production path / bindings / credentials, secrets redaction,
-    and whole-store vault rollback limitations. *)
+    cleanup of production path / bindings / credentials, secrets redaction, and
+    whole-store vault rollback limitations. *)
 
 let contains = Test_helpers.string_contains
 
 let repo_root () =
   let rec find_from dir =
     let has_file name = Sys.file_exists (Filename.concat dir name) in
-    if has_file "dune-project" && has_file "src" && has_file "docs" then Some dir
+    if has_file "dune-project" && has_file "src" && has_file "docs" then
+      Some dir
     else
       let parent = Filename.dirname dir in
       if parent = dir then None else find_from parent

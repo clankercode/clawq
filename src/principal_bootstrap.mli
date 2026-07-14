@@ -45,8 +45,8 @@ val resolve :
 (** Fail-closed Principal bootstrap.
 
     - [Direct_session] is always [Anonymous].
-    - [Web_oidc] is always [Anonymous]: a raw issuer/subject/expiry tuple has
-      no configured issuer trust anchor or JWT/JWKS signature verification.
+    - [Web_oidc] is always [Anonymous]: a raw issuer/subject/expiry tuple has no
+      configured issuer trust anchor or JWT/JWKS signature verification.
     - [Cli_enrolled] requires non-empty device id, [exp > now], an [enrolled]
       lookup that returns a Principal for that device (missing = not enrolled or
       revoked), and claimed [principal_id] matching the enrolment.

@@ -501,7 +501,8 @@ let test_worker_retry_revalidates_work_item_snapshot () =
         "retry cites durable guard" true
         (contains msg "human-attributed" || contains msg "attribution")
 
-let invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id =
+let invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id
+    =
   (match Github_work_item.find_by_task ~db ~background_task_id:task_id with
   | None -> ()
   | Some _ -> Alcotest.fail "fixture must have no GitHub work item");
@@ -522,15 +523,14 @@ let invalidate_revalidated_legacy_background_task_without_work_item ~db ~task_id
   ignore
     (assert_ok
        (S.update_identity_link ~db ~id:link.id ~status:P.Unlinked
-          ~unlinked_at:(Some "2026-07-14T00:00:00Z")
-          ~now:(fixed_now +. 1.) ()));
+          ~unlinked_at:(Some "2026-07-14T00:00:00Z") ~now:(fixed_now +. 1.) ()));
   let restart =
     assert_ok
       (L.migrate_rows ~db ~rows:[ row ] ~run_id:"restart-revalidation"
          ~now:(fixed_now +. 2.) ())
   in
-  Alcotest.(check int) "legacy task invalidated on restart" 1
-    restart.jobs_invalidated;
+  Alcotest.(check int)
+    "legacy task invalidated on restart" 1 restart.jobs_invalidated;
   Alcotest.(check bool)
     "revalidated legacy task invalidated" true
     (assert_ok
@@ -541,7 +541,8 @@ let enqueue_legacy_background_task ~db ~prompt =
   assert_ok
     (Background_task.enqueue ~db ~runner:Background_task.Local
        ~require_git:false ~automerge:false ~use_worktree:false
-       ~repo_path:(Filename.get_temp_dir_name ()) ~prompt ())
+       ~repo_path:(Filename.get_temp_dir_name ())
+       ~prompt ())
 
 let test_worker_spawn_rejects_invalidated_task_without_work_item () =
   with_db @@ fun db ->
@@ -679,7 +680,8 @@ let test_worker_retry_rejects_invalidated_task_without_work_item () =
   (match Background_task.retry ~db ~id:task_id with
   | Ok _ -> Alcotest.fail "retry must not requeue an invalidated legacy task"
   | Error msg ->
-      Alcotest.(check bool) "invalidation reported" true
+      Alcotest.(check bool)
+        "invalidation reported" true
         (contains msg "invalidated"));
   match Background_task.get_task ~db ~id:task_id with
   | None -> Alcotest.fail "missing failed background task"

@@ -2,14 +2,16 @@
     receipt template (P19.M4.E3.T003).
 
     Asserts the canonical pilot docs exist and still state gate defaults,
-    cleanup of routes/outbox/dead letters, secrets redaction, and P21 handoff. *)
+    cleanup of routes/outbox/dead letters, secrets redaction, and P21 handoff.
+*)
 
 let contains = Test_helpers.string_contains
 
 let repo_root () =
   let rec find_from dir =
     let has_file name = Sys.file_exists (Filename.concat dir name) in
-    if has_file "dune-project" && has_file "src" && has_file "docs" then Some dir
+    if has_file "dune-project" && has_file "src" && has_file "docs" then
+      Some dir
     else
       let parent = Filename.dirname dir in
       if parent = dir then None else find_from parent
@@ -105,10 +107,7 @@ let test_guide_links_receipt_and_plan () =
 let test_receipt_links_guide () =
   let body = doc "docs/pilots/p19-redacted-pilot-receipt-template.md" in
   must_contain ~label:"receipt cross-links" ~doc:body
-    [
-      "p19-rollout-backout-guide.md";
-      "2026-07-12-github-item-room-routing.md";
-    ]
+    [ "p19-rollout-backout-guide.md"; "2026-07-12-github-item-room-routing.md" ]
 
 let suite =
   [
@@ -118,6 +117,8 @@ let suite =
     ( "P19 redacted pilot receipt template covers families and redaction",
       `Quick,
       test_redacted_receipt_template );
-    ("rollout guide cross-links receipt and plan", `Quick, test_guide_links_receipt_and_plan);
+    ( "rollout guide cross-links receipt and plan",
+      `Quick,
+      test_guide_links_receipt_and_plan );
     ("receipt template cross-links guide", `Quick, test_receipt_links_guide);
   ]

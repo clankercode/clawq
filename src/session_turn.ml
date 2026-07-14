@@ -148,8 +148,7 @@ let dedup_skill_injections = Skill_dedup.dedup_skill_injections
 let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
-    ?sender_id ?sender_name ?user_group ?channel ?channel_id
-    ?message_id
+    ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id
     ?on_tool_round_complete ?(io = buffered_turn_io) () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
@@ -727,8 +726,7 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
                         ~content_parts ~attachments ~skill_injections
                         ?channel_name ?channel_type ?sender_id ?sender_name
                         ?user_group ?channel ?channel_id ?message_id
-                        ?on_tool_round_complete
-                        ~io ()
+                        ?on_tool_round_complete ~io ()
                     in
                     (* Persist effective_cwd after turn (may have changed via
                    change_working_dir tool) *)

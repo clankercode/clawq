@@ -161,8 +161,7 @@ let test_unlinked_actor_without_active_link_invalidates_active_work () =
   ignore
     (assert_ok
        (S.insert_principal ~db
-          (P.make_principal ~id:principal_id
-             ~created_at:"2026-01-01T00:00:00Z"
+          (P.make_principal ~id:principal_id ~created_at:"2026-01-01T00:00:00Z"
              ~updated_at:"2026-01-01T00:00:00Z" ())));
   let key =
     assert_ok
@@ -188,7 +187,9 @@ let test_unlinked_actor_without_active_link_invalidates_active_work () =
   Alcotest.(check int) "unresolved" 1 report.unresolved;
   Alcotest.(check int) "active work invalidated" 1 report.jobs_invalidated;
   (match report.records with
-  | [ { classification = L.Legacy_unresolved { reason = L.Actor_unlinked }; _ } ] ->
+  | [
+   { classification = L.Legacy_unresolved { reason = L.Actor_unlinked }; _ };
+  ] ->
       ()
   | _ -> Alcotest.fail "unlinked actor must not backfill from stored principal");
   Alcotest.(check bool)
@@ -201,9 +202,7 @@ let test_unlinked_actor_without_active_link_invalidates_active_work () =
     (assert_ok
        (L.is_job_invalidated ~db ~source_kind:L.Background_task
           ~source_id:"legacy-unlinked-task"));
-  ignore
-    (assert_ok
-       (S.update_connector_actor ~db ~lifecycle:P.Active ~key ()));
+  ignore (assert_ok (S.update_connector_actor ~db ~lifecycle:P.Active ~key ()));
   match assert_ok (L.classify_row ~db row) with
   | L.Legacy_unresolved { reason = L.Active_identity_link_missing } -> ()
   | _ -> Alcotest.fail "active actor without active link must not backfill"
@@ -224,8 +223,7 @@ let test_existing_backfill_is_permanently_invalidated_after_link_loss () =
   in
   let first =
     assert_ok
-      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"backfill-run"
-         ~now:fixed_now ())
+      (L.migrate_rows ~db ~rows:[ row ] ~run_id:"backfill-run" ~now:fixed_now ())
   in
   Alcotest.(check int) "initial backfill" 1 first.backfilled;
   let original =
@@ -240,18 +238,17 @@ let test_existing_backfill_is_permanently_invalidated_after_link_loss () =
   ignore
     (assert_ok
        (S.update_identity_link ~db ~id:"link-revalidate" ~status:P.Unlinked
-          ~unlinked_at:(Some "2026-07-14T00:00:00Z")
-          ~now:(fixed_now +. 1.) ()));
+          ~unlinked_at:(Some "2026-07-14T00:00:00Z") ~now:(fixed_now +. 1.) ()));
   let restart =
     assert_ok
       (L.migrate_rows ~db ~rows:[ row ] ~run_id:"revalidation-run"
          ~now:(fixed_now +. 2.) ())
   in
   Alcotest.(check int) "restart does not rewrite backfill" 0 restart.backfilled;
-  Alcotest.(check int) "restart does not add unresolved record" 0
-    restart.unresolved;
-  Alcotest.(check int) "restart invalidates stale task" 1
-    restart.jobs_invalidated;
+  Alcotest.(check int)
+    "restart does not add unresolved record" 0 restart.unresolved;
+  Alcotest.(check int)
+    "restart invalidates stale task" 1 restart.jobs_invalidated;
   Alcotest.(check bool)
     "stale task invalidated" true
     (assert_ok
@@ -266,7 +263,8 @@ let test_existing_backfill_is_permanently_invalidated_after_link_loss () =
     | Some record -> record
     | None -> Alcotest.fail "migration evidence must remain"
   in
-  Alcotest.(check string) "original record id preserved" original.id preserved.id;
+  Alcotest.(check string)
+    "original record id preserved" original.id preserved.id;
   Alcotest.(check string)
     "original evidence preserved" original.row.evidence_json
     preserved.row.evidence_json;
@@ -278,15 +276,15 @@ let test_existing_backfill_is_permanently_invalidated_after_link_loss () =
     | Some audit -> audit
     | None -> Alcotest.fail "missing invalidation audit"
   in
-  Alcotest.(check string) "invalidation run" "revalidation-run"
-    (fst audit_before);
+  Alcotest.(check string)
+    "invalidation run" "revalidation-run" (fst audit_before);
   let repeated =
     assert_ok
       (L.migrate_rows ~db ~rows:[ row ] ~run_id:"repeat-unlinked-run"
          ~now:(fixed_now +. 3.) ())
   in
-  Alcotest.(check int) "repeat restart does not reinvalidate" 0
-    repeated.jobs_invalidated;
+  Alcotest.(check int)
+    "repeat restart does not reinvalidate" 0 repeated.jobs_invalidated;
   Alcotest.(check (option (pair string string)))
     "invalidation audit unchanged while unresolved" (Some audit_before)
     (invalidation_audit ~db ~source_kind:L.Background_task
@@ -301,8 +299,8 @@ let test_existing_backfill_is_permanently_invalidated_after_link_loss () =
       (L.migrate_rows ~db ~rows:[ row ] ~run_id:"relinked-run"
          ~now:(fixed_now +. 5.) ())
   in
-  Alcotest.(check int) "relink cannot re-authorize old task" 0
-    relinked.jobs_invalidated;
+  Alcotest.(check int)
+    "relink cannot re-authorize old task" 0 relinked.jobs_invalidated;
   Alcotest.(check bool)
     "invalidation survives relink" true
     (assert_ok

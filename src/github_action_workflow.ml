@@ -74,7 +74,7 @@ let receipt_only_apply_ops ~(plan : Setup_plan.t) ~receipt_id =
       (Printf.sprintf
          "GitHub action apply is unavailable for plan %s: this pilot has no \
           live GitHub REST dispatcher. The pending plan was not applied; no \
-         GitHub mutation, receipt, or webhook correlation was produced."
+          GitHub mutation, receipt, or webhook correlation was produced."
          plan.id)
   else Ok ()
 

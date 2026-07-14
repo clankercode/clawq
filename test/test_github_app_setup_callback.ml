@@ -70,7 +70,8 @@ let verify_installation ~app_id ~private_key_pem:_ ~installation_id =
        {
          installation_id;
          app_id = Some app_id;
-         account = { login = "acme-corp"; id = 99; account_type = "Organization" };
+         account =
+           { login = "acme-corp"; id = 99; account_type = "Organization" };
          selection = Github_app_installation_scope.All_repos;
          repositories = [];
          revoked_repositories = [];
@@ -80,8 +81,7 @@ let verify_installation ~app_id ~private_key_pem:_ ~installation_id =
          updated_at = Time_util.iso8601_utc ~t:fixed_now ();
        })
 
-let make_req
-    ?(callback_path = Github_app_setup_tx.default_callback_path)
+let make_req ?(callback_path = Github_app_setup_tx.default_callback_path)
     ?(expected_bind = room_bind) ?(expected_principal_id = principal.id)
     ?(installation_id = 99) ~code ~state () :
     Github_app_setup_callback.exchange_request =
@@ -475,8 +475,8 @@ let test_verified_installation_must_match_setup_org () =
   in
   let tx =
     assert_ok
-      (create_tx ~db ~id:"tx_org" ~state:"state_org_oooo"
-         ~scope:requested_scope ())
+      (create_tx ~db ~id:"tx_org" ~state:"state_org_oooo" ~scope:requested_scope
+         ())
   in
   let verify_other_org ~app_id ~private_key_pem ~installation_id =
     match verify_installation ~app_id ~private_key_pem ~installation_id with
@@ -485,8 +485,7 @@ let test_verified_installation_must_match_setup_org () =
         Ok
           {
             scope with
-            account =
-              { scope.account with login = "other-org"; id = 100 };
+            account = { scope.account with login = "other-org"; id = 100 };
           }
   in
   let store_secret, stored = make_store () in
@@ -505,7 +504,8 @@ let test_verified_installation_must_match_setup_org () =
 let test_reentrant_duplicate_fails_before_secret_store () =
   with_db @@ fun db ->
   let tx =
-    assert_ok (create_tx ~db ~id:"tx_reentrant" ~state:"state_reentrant_pppp" ())
+    assert_ok
+      (create_tx ~db ~id:"tx_reentrant" ~state:"state_reentrant_pppp" ())
   in
   let store_secret, stored = make_store () in
   let req = make_req ~code:"c" ~state:tx.state () in

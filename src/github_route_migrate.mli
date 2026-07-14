@@ -76,8 +76,8 @@ val migrate_database :
   ?now:float ->
   unit ->
   (migrate_report, string) result
-(** Read every legacy subscription from the database and migrate it. This is
-    the cutover entry point used by compatibility command adapters. *)
+(** Read every legacy subscription from the database and migrate it. This is the
+    cutover entry point used by compatibility command adapters. *)
 
 val legacy_of_subscription :
   Github_pr_subscriptions.subscription -> legacy_subscription

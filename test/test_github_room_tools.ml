@@ -402,7 +402,8 @@ let test_runtime_registry_uses_current_snapshot () =
   let registry = Tool_registry.create () in
   T.register_runtime_tools ~db ~config registry;
   let catalog = Yojson.Safe.to_string (Tool_registry.to_openai_json registry) in
-  Alcotest.(check bool) "catalog has get item" true
+  Alcotest.(check bool)
+    "catalog has get item" true
     (contains_ci catalog "github_room_get_item");
   let tool =
     match Tool_registry.find registry "github_room_get_item" with
@@ -413,16 +414,15 @@ let test_runtime_registry_uses_current_snapshot () =
     Lwt_main.run
       (tool.invoke (`Assoc [ ("item_key", `String "pr:acme/widget:42") ]))
   in
-  Alcotest.(check bool) "requires snapshot" true
+  Alcotest.(check bool)
+    "requires snapshot" true
     (contains_ci no_snapshot "snapshot");
   let snapshot =
     Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
       ~session_key:"teams:room-a:thread" ~room_id:"room-a"
       ~room_policy_decision:"allow" ()
   in
-  let snapshot =
-    { snapshot with allowed_tools = [ "github_room_get_item" ] }
-  in
+  let snapshot = { snapshot with allowed_tools = [ "github_room_get_item" ] } in
   Access_snapshot.persist ~db snapshot;
   let context = { Tool.default_context with snapshot_id = Some snapshot.id } in
   let output =
@@ -430,7 +430,8 @@ let test_runtime_registry_uses_current_snapshot () =
       (tool.invoke ~context
          (`Assoc [ ("item_key", `String "pr:acme/widget:42") ]))
   in
-  Alcotest.(check bool) "uses snapshotted room" true
+  Alcotest.(check bool)
+    "uses snapshotted room" true
     (contains_ci output "pr:acme/widget:42");
   let denied_snapshot =
     Access_snapshot.create ~config ~work_type:Access_snapshot.Room_turn
@@ -446,7 +447,8 @@ let test_runtime_registry_uses_current_snapshot () =
       (tool.invoke ~context:denied_context
          (`Assoc [ ("item_key", `String "pr:acme/widget:42") ]))
   in
-  Alcotest.(check bool) "denied snapshot blocks invocation" true
+  Alcotest.(check bool)
+    "denied snapshot blocks invocation" true
     (contains_ci denied "room policy")
 
 let suite =

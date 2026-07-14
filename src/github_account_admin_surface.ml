@@ -918,7 +918,8 @@ let require_actor_unlink_plan_surface ~db ~surface ~plan_id =
           if Option.is_some plan.admin_principal_id then
             Error
               "self-service surface cannot confirm or apply an admin split plan"
-          else if not (P.principal_id_equal plan.source_principal_id principal_id)
+          else if
+            not (P.principal_id_equal plan.source_principal_id principal_id)
           then
             Error
               "self-service surface does not match the split plan source \
@@ -927,9 +928,12 @@ let require_actor_unlink_plan_surface ~db ~surface ~plan_id =
       | Admin { admin_principal_id; subject_principal_id; _ } -> (
           match plan.admin_principal_id with
           | None ->
-              Error "admin surface cannot confirm or apply a self-service split plan"
+              Error
+                "admin surface cannot confirm or apply a self-service split \
+                 plan"
           | Some planned_admin ->
-              if not (P.principal_id_equal planned_admin admin_principal_id) then
+              if not (P.principal_id_equal planned_admin admin_principal_id)
+              then
                 Error
                   "admin surface does not match the split plan admin principal"
               else if
@@ -938,7 +942,8 @@ let require_actor_unlink_plan_surface ~db ~surface ~plan_id =
                      subject_principal_id)
               then
                 Error
-                  "admin surface does not match the split plan subject principal"
+                  "admin surface does not match the split plan subject \
+                   principal"
               else Ok plan))
 
 let confirm_actor_unlink ~db ~surface ~plan_id ~presented_digest

@@ -36,8 +36,8 @@ val dispatch :
 val runtime_tool_names : string list
 
 val runtime_tools : db:Sqlite3.db -> config:Runtime_config.t -> Tool.t list
-(** Runtime bindings obtain Room scope and policy only from the immutable
-    access snapshot attached to the current turn. *)
+(** Runtime bindings obtain Room scope and policy only from the immutable access
+    snapshot attached to the current turn. *)
 
 val register_runtime_tools :
   db:Sqlite3.db -> config:Runtime_config.t -> Tool_registry.t -> unit

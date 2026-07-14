@@ -238,8 +238,14 @@ let refresh_runtime_bound_tools ?send_file_runtime ~(config : Runtime_config.t)
   (match Session.get_db session_manager with
   | Some db ->
       Tool_registry.replace registry
-        (Subagent_tool.result_tool ~config ~db ~session_mgr:session_manager ())
-  | None -> ());
+        (Subagent_tool.result_tool ~config ~db ~session_mgr:session_manager ());
+      List.iter
+        (Tool_registry.replace registry)
+        (Github_room_tools.runtime_tools ~db ~config)
+  | None ->
+      List.iter
+        (Tool_registry.remove registry)
+        Github_room_tools.runtime_tool_names);
   Tool_registry.replace registry
     (Tools_builtin.doc_write ~workspace
        ~workspace_files:config.prompt.workspace_files);

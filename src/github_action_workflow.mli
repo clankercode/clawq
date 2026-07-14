@@ -10,8 +10,8 @@
     authorizes and stores a pending plan that shows target and effects; apply
     rechecks digest, principal, expiry, and [base_revision]. P19.M4.E1 collab,
     reviewer, and Issue action kinds then fail closed because their live GitHub
-    REST mutation dispatcher is not implemented. Workflow dispatch and code
-    work / constrained PR creation retain their separately scoped attribution
+    REST mutation dispatcher is not implemented. Workflow dispatch and code work
+    / constrained PR creation retain their separately scoped attribution
     dispatch and receipt/correlation paths; merge may also revalidate a fresh
     [live_policy] when supplied.
 
@@ -39,9 +39,9 @@
       (User_required; live refs / result revalidation)
 
     P19.M4.E1 collab, reviewer, and Issue apply keeps actor revalidation
-    side-effect-free and does not dispatch staged attribution, issue a lease,
-    or record a native attribution receipt before its fail-closed adapter.
-    Workflow dispatch and code work / PR create retain their separately scoped
+    side-effect-free and does not dispatch staged attribution, issue a lease, or
+    record a native attribution receipt before its fail-closed adapter. Workflow
+    dispatch and code work / PR create retain their separately scoped
     attribution paths; merge retains its separate attribution path.
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md,
@@ -137,15 +137,14 @@ val apply_confirmed :
     live authority and optionally compares [current_target] before apply. Merge
     plans optionally revalidate [current_merge_policy].
 
-    P19.M4.E1 collab, reviewer, and Issue plans with staged
-    [attribution_allow] do not dispatch that attribution while no live REST
-    action dispatcher exists: they fail closed without a lease, native
-    attribution receipt, apply receipt, or correlation. Workflow dispatch and
-    code-work / PR-create plans retain their existing separately scoped
-    attribution dispatch and receipt/correlation flow; merge retains its
-    separate [merge_live] path. Returns [Error] only for structural issues
-    (e.g. missing destination room on the stored plan); domain rejects are
-    [Ok (Rejected _)]. *)
+    P19.M4.E1 collab, reviewer, and Issue plans with staged [attribution_allow]
+    do not dispatch that attribution while no live REST action dispatcher
+    exists: they fail closed without a lease, native attribution receipt, apply
+    receipt, or correlation. Workflow dispatch and code-work / PR-create plans
+    retain their existing separately scoped attribution dispatch and
+    receipt/correlation flow; merge retains its separate [merge_live] path.
+    Returns [Error] only for structural issues (e.g. missing destination room on
+    the stored plan); domain rejects are [Ok (Rejected _)]. *)
 
 val is_github_action_plan : Setup_plan.t -> bool
 (** True when [apply_payload.kind] is a GitHub collab / request_reviewers /

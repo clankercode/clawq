@@ -441,15 +441,17 @@ let dispatch ~db ~request ?auth ?installation () : tool_result =
               dispatch_list ~db ~room_id ~args:request.args ?auth ?installation
                 ()))
 
-(** The catalog alone conveys no authority.  Runtime invocation reloads the
-    immutable access snapshot for this turn and obtains the Room only from it. *)
+(** The catalog alone conveys no authority. Runtime invocation reloads the
+    immutable access snapshot for this turn and obtains the Room only from it.
+*)
 let runtime_tool_names =
   [ Get_item; Search_items; Get_status; List_room_items ]
   |> List.map tool_name_to_string
 
 let runtime_auth ~(config : Runtime_config.t) =
   Auth.snapshot_of_auth
-    (Option.map (fun (github : Runtime_config.github_config) -> github.auth)
+    (Option.map
+       (fun (github : Runtime_config.github_config) -> github.auth)
        config.channels.github)
 
 let active_installation ~db (auth : Auth.auth_snapshot) =
@@ -468,23 +470,27 @@ let active_installation ~db (auth : Auth.auth_snapshot) =
 let room_for_context ~db ~tool_name = function
   | None ->
       Result.Error
-        "GitHub Room tools require the current Room access snapshot; start a new Room turn."
+        "GitHub Room tools require the current Room access snapshot; start a \
+         new Room turn."
   | Some context -> (
       match context.Tool.snapshot_id with
       | None ->
           Result.Error
-            "GitHub Room tools require a Room-scoped access snapshot; start a new Room turn."
+            "GitHub Room tools require a Room-scoped access snapshot; start a \
+             new Room turn."
       | Some snapshot_id -> (
           match Access_snapshot.get_by_id ~db snapshot_id with
           | None ->
               Result.Error
-                "GitHub Room tool access snapshot is unavailable; start a new Room turn."
+                "GitHub Room tool access snapshot is unavailable; start a new \
+                 Room turn."
           | Some snapshot -> (
               match snapshot.room_id with
               | None | Some "" ->
                   Result.Error
-                    "GitHub Room tools require a Room-scoped access snapshot; start a new Room turn."
-              | Some room_id ->
+                    "GitHub Room tools require a Room-scoped access snapshot; \
+                     start a new Room turn."
+              | Some room_id -> (
                   let decision =
                     String.lowercase_ascii
                       (String.trim snapshot.room_policy_decision)
@@ -496,7 +502,8 @@ let room_for_context ~db ~tool_name = function
                   in
                   if not policy_allows then
                     Result.Error
-                      "GitHub Room tools are denied by the current Room policy snapshot."
+                      "GitHub Room tools are denied by the current Room policy \
+                       snapshot."
                   else
                     match
                       Tool_authz.decide ~canonical:tool_name
@@ -505,7 +512,7 @@ let room_for_context ~db ~tool_name = function
                         ~denied_tools:snapshot.denied_tools ()
                     with
                     | Tool_authz.Allowed -> Result.Ok room_id
-                    | Tool_authz.Denied message -> Result.Error message)))
+                    | Tool_authz.Denied message -> Result.Error message))))
 
 let runtime_definition = function
   | `Assoc fields -> (
@@ -537,33 +544,33 @@ let runtime_tools ~db ~(config : Runtime_config.t) =
   let auth = runtime_auth ~config in
   tool_definitions ()
   |> List.filter_map (fun definition ->
-         match runtime_definition definition with
-         | Some (name, description, parameters) -> (
-             match tool_name_of_string name with
-             | None -> None
-             | Some request_name ->
-                 Some
-                   {
-                     Tool.name;
-                     description;
-                     parameters_schema = parameters;
-                     invoke =
-                       (fun ?context args ->
-                         match room_for_context ~db ~tool_name:name context with
-                         | Result.Error message -> Lwt.return ("Error: " ^ message)
-                         | Result.Ok room_id ->
-                             let installation = active_installation ~db auth in
-                             Lwt.return
-                               (string_of_result
-                                  (dispatch ~db
-                                     ~request:
-                                       { room_id; name = request_name; args }
-                                     ~auth ?installation ())));
-                     invoke_stream = None;
-                     risk_level = Tool.Low;
-                     deferred = false;
-                   })
-         | None -> None)
+      match runtime_definition definition with
+      | Some (name, description, parameters) -> (
+          match tool_name_of_string name with
+          | None -> None
+          | Some request_name ->
+              Some
+                {
+                  Tool.name;
+                  description;
+                  parameters_schema = parameters;
+                  invoke =
+                    (fun ?context args ->
+                      match room_for_context ~db ~tool_name:name context with
+                      | Result.Error message -> Lwt.return ("Error: " ^ message)
+                      | Result.Ok room_id ->
+                          let installation = active_installation ~db auth in
+                          Lwt.return
+                            (string_of_result
+                               (dispatch ~db
+                                  ~request:
+                                    { room_id; name = request_name; args }
+                                  ~auth ?installation ())));
+                  invoke_stream = None;
+                  risk_level = Tool.Low;
+                  deferred = false;
+                })
+      | None -> None)
 
 let register_runtime_tools ~db ~config registry =
   List.iter (Tool_registry.register registry) (runtime_tools ~db ~config)

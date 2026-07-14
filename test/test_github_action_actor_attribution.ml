@@ -212,7 +212,8 @@ let test_apply_reresolves_usable_authority () =
       Alcotest.(check string)
         "apply_error" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (contains message "dispatcher")
 
 (* 3. unlink / split invalidates confirmation at apply *)
@@ -372,7 +373,8 @@ let test_legacy_plan_without_snapshot_still_applies () =
       Alcotest.(check string)
         "apply_error" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (contains message "dispatcher")
 
 (* 8. account revocation invalidates confirmation *)

@@ -396,7 +396,7 @@ let upsert ~db (scope : t) =
   | Ok _ ->
       let scope = with_revision scope in
       let sql =
-    {|INSERT INTO github_app_installations (
+        {|INSERT INTO github_app_installations (
         installation_id, app_id, account_login, account_id, account_type,
         selection, repositories_json, revoked_repositories_json,
         permissions_json, status, status_reason, revision, updated_at
@@ -448,8 +448,8 @@ let upsert ~db (scope : t) =
             if Sqlite3.changes db = 0 then
               Error
                 (Printf.sprintf
-                   "installation %d is deleted and cannot be reactivated by \
-                    a concurrent upsert"
+                   "installation %d is deleted and cannot be reactivated by a \
+                    concurrent upsert"
                    scope.installation_id)
             else Ok scope
         | rc ->

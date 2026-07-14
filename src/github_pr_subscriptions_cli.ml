@@ -28,13 +28,16 @@ let pr_item_of_route (route : Route.t) =
   | Route.Item { kind = `Issue; _ } | Route.Repo _ | Route.Org _ -> None
 
 let route_room_id (route : Route.t) =
-  match route.destination with Route.Room room_id -> Some room_id | Route.Session _ -> None
+  match route.destination with
+  | Route.Room room_id -> Some room_id
+  | Route.Session _ -> None
 
 let subscription_routes routes =
   List.filter_map
     (fun route ->
       match (route_room_id route, pr_item_of_route route) with
-      | Some room_id, Some (repo, pr_number) -> Some (route, room_id, repo, pr_number)
+      | Some room_id, Some (repo, pr_number) ->
+          Some (route, room_id, repo, pr_number)
       | None, _ | _, None -> None)
     routes
 
@@ -57,7 +60,8 @@ let format_subscription_detail (route : Route.t) ~room_id ~repo ~pr_number =
     | [] -> "default baseline"
     | events -> String.concat ", " events)
 
-let format_subscription_row ((route : Route.t), room_id, repo, (pr_number : int)) =
+let format_subscription_row ((route : Route.t), room_id, repo, (pr_number : int))
+    =
   [
     route.id;
     room_id;
@@ -103,7 +107,8 @@ let migration_error = function
   | Error error ->
       Some
         (Printf.sprintf
-           "Error: could not migrate legacy PR subscriptions into GitHub routes: %s"
+           "Error: could not migrate legacy PR subscriptions into GitHub \
+            routes: %s"
            error)
 
 let route_id_of_legacy_id id = "ghroute_migrate_" ^ id
@@ -112,10 +117,10 @@ let find_route_by_command_id ~db id =
   match Route.get ~db ~id with
   | Error _ as error -> error
   | Ok (Some _ as route) -> Ok route
-  | Ok None ->
+  | Ok None -> (
       match int_of_string_opt id with
       | None -> Ok None
-      | Some _ -> Route.get ~db ~id:(route_id_of_legacy_id id)
+      | Some _ -> Route.get ~db ~id:(route_id_of_legacy_id id))
 
 let list_subscription_routes ~db =
   Route.list_all ~db |> Result.map subscription_routes
@@ -149,19 +154,24 @@ let cli_provenance profile_id =
 let create_compat_route ~db ~room_id ~repo ~pr_number ~profile_id ~prefs =
   let destination = Route.Room room_id in
   let selector =
-    Route.Item { repo_full_name = repo; kind = `Pull_request; number = pr_number }
+    Route.Item
+      { repo_full_name = repo; kind = `Pull_request; number = pr_number }
   in
-  Route.create ~db ~destination ~selector ~filter:(route_filter_of_prefs prefs)
-    ~enabled:true ~provenance:(cli_provenance profile_id) ~on_collision:`Replace
-    ()
+  Route.create ~db ~destination ~selector
+    ~filter:(route_filter_of_prefs prefs)
+    ~enabled:true
+    ~provenance:(cli_provenance profile_id)
+    ~on_collision:`Replace ()
 
 let disable_route ~db (route : Route.t) =
-  Route.update ~db ~id:route.id ~expected_revision:route.revision ~enabled:false ()
+  Route.update ~db ~id:route.id ~expected_revision:route.revision ~enabled:false
+    ()
 
 let find_active_item_route ~db ~room_id ~repo ~pr_number =
   let destination = Route.Room room_id in
   let selector =
-    Route.Item { repo_full_name = repo; kind = `Pull_request; number = pr_number }
+    Route.Item
+      { repo_full_name = repo; kind = `Pull_request; number = pr_number }
   in
   Route.find_active ~db ~destination ~selector
 
@@ -176,7 +186,8 @@ let cmd_subscriptions_with_db ~db args =
           | Ok routes ->
               let routes = filter_routes ~room_id routes in
               if routes = [] then
-                Printf.sprintf "No PR subscriptions found for room '%s'." room_id
+                Printf.sprintf "No PR subscriptions found for room '%s'."
+                  room_id
               else
                 Printf.sprintf "PR Subscriptions for room '%s':\n" room_id
                 ^ Table_format.render subscription_columns
@@ -196,8 +207,8 @@ let cmd_subscriptions_with_db ~db args =
           match list_subscription_routes ~db with
           | Error error -> "Error: " ^ error
           | Ok [] ->
-              "No PR subscriptions configured. Use 'clawq subscriptions add' to \
-               create one."
+              "No PR subscriptions configured. Use 'clawq subscriptions add' \
+               to create one."
           | Ok routes ->
               "PR Subscriptions:\n"
               ^ Table_format.render subscription_columns
@@ -205,7 +216,8 @@ let cmd_subscriptions_with_db ~db args =
       | [ "show"; id ] -> (
           match find_route_by_command_id ~db id with
           | Error error -> "Error: " ^ error
-          | Ok None -> Printf.sprintf "No subscription route found with ID %s." id
+          | Ok None ->
+              Printf.sprintf "No subscription route found with ID %s." id
           | Ok (Some route) -> (
               match (route_room_id route, pr_item_of_route route) with
               | Some room_id, Some (repo, pr_number) ->
@@ -217,16 +229,18 @@ let cmd_subscriptions_with_db ~db args =
           | None | Some 0 -> "Error: PR number must be a positive integer."
           | Some pr_number when pr_number < 0 ->
               "Error: PR number must be a positive integer."
-          | Some pr_number ->
+          | Some pr_number -> (
               let profile_name =
-                match rest with "--profile" :: name :: _ -> name | _ -> "default"
+                match rest with
+                | "--profile" :: name :: _ -> name
+                | _ -> "default"
               in
               let profile_id = profile_id_for_name ~db profile_name in
               let prefs = parse_notification_prefs rest in
-              (match
-                 create_compat_route ~db ~room_id ~repo ~pr_number ~profile_id
-                   ~prefs
-               with
+              match
+                create_compat_route ~db ~room_id ~repo ~pr_number ~profile_id
+                  ~prefs
+              with
               | Error error -> "Error: " ^ error
               | Ok route ->
                   Printf.sprintf
@@ -236,25 +250,31 @@ let cmd_subscriptions_with_db ~db args =
       | ([ "disable"; id ] | [ "enable"; id ]) as command -> (
           match find_route_by_command_id ~db id with
           | Error error -> "Error: " ^ error
-          | Ok None -> Printf.sprintf "No subscription route found with ID %s." id
-          | Ok (Some route) ->
-              let enabled = match command with [ "enable"; _ ] -> true | _ -> false in
-              (match
-                 Route.update ~db ~id:route.id
-                   ~expected_revision:route.revision ~enabled ()
-               with
+          | Ok None ->
+              Printf.sprintf "No subscription route found with ID %s." id
+          | Ok (Some route) -> (
+              let enabled =
+                match command with [ "enable"; _ ] -> true | _ -> false
+              in
+              match
+                Route.update ~db ~id:route.id ~expected_revision:route.revision
+                  ~enabled ()
+              with
               | Error error -> "Error: " ^ error
               | Ok _ ->
                   Printf.sprintf "%s subscription route %s."
-                    (if enabled then "Enabled" else "Disabled") route.id))
+                    (if enabled then "Enabled" else "Disabled")
+                    route.id))
       | [ "remove"; id ] -> (
           match find_route_by_command_id ~db id with
           | Error error -> "Error: " ^ error
-          | Ok None -> Printf.sprintf "No subscription route found with ID %s." id
+          | Ok None ->
+              Printf.sprintf "No subscription route found with ID %s." id
           | Ok (Some route) -> (
               match disable_route ~db route with
               | Error error -> "Error: " ^ error
-              | Ok _ -> Printf.sprintf "Removed subscription route %s." route.id))
+              | Ok _ -> Printf.sprintf "Removed subscription route %s." route.id
+              ))
       | [ "remove"; room_id; repo; pr_number_str ] -> (
           match int_of_string_opt pr_number_str with
           | None | Some 0 -> "Error: PR number must be a positive integer."
@@ -276,7 +296,8 @@ let cmd_subscriptions_with_db ~db args =
                         pr_number room_id)))
       | _ ->
           "Usage: clawq subscriptions <subcommand>\n\n\
-           Compatibility aliases over GitHub Item routes (no legacy-table writes):\n\
+           Compatibility aliases over GitHub Item routes (no legacy-table \
+           writes):\n\
           \  list [--room ROOM | --repo REPO]   List subscriptions\n\
           \  show ID                             Show subscription route details\n\
           \  add ROOM REPO PR# [--profile P]     Add an Item route\n\

@@ -6,14 +6,13 @@ let contains = Test_helpers.string_contains
 let repo_root () =
   let rec find_from dir =
     let has_file name = Sys.file_exists (Filename.concat dir name) in
-    if has_file "dune-project" && has_file "src" && has_file "docs" then Some dir
+    if has_file "dune-project" && has_file "src" && has_file "docs" then
+      Some dir
     else
       let parent = Filename.dirname dir in
       if parent = dir then None else find_from parent
   in
-  match find_from (Sys.getcwd ()) with
-  | Some dir -> dir
-  | None -> Sys.getcwd ()
+  match find_from (Sys.getcwd ()) with Some dir -> dir | None -> Sys.getcwd ()
 
 let read_file path =
   let ic = open_in path in

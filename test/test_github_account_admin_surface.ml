@@ -548,7 +548,8 @@ let test_admin_actor_unlink_plan_confirm_apply () =
        ~now:(fixed_now +. 1.) ()
    with
   | Error reason ->
-      Alcotest.(check bool) "wrong admin refused" true
+      Alcotest.(check bool)
+        "wrong admin refused" true
         (String_util.contains reason "admin principal")
   | Ok _ -> Alcotest.fail "wrong admin must not confirm plan");
   (match
@@ -557,7 +558,8 @@ let test_admin_actor_unlink_plan_confirm_apply () =
        ~now:(fixed_now +. 1.) ()
    with
   | Error reason ->
-      Alcotest.(check bool) "wrong subject refused" true
+      Alcotest.(check bool)
+        "wrong subject refused" true
         (String_util.contains reason "subject principal")
   | Ok _ -> Alcotest.fail "wrong subject must not confirm plan");
   let confirmed =
@@ -574,7 +576,8 @@ let test_admin_actor_unlink_plan_confirm_apply () =
        ~plan_id:surf_plan.plan.id ~now:(fixed_now +. 2.) ()
    with
   | U.Refused { reason; _ } ->
-      Alcotest.(check bool) "wrong admin cannot apply" true
+      Alcotest.(check bool)
+        "wrong admin cannot apply" true
         (String_util.contains reason "admin principal")
   | _ -> Alcotest.fail "wrong admin must not apply plan");
   match

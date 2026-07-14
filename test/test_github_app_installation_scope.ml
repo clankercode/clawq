@@ -228,13 +228,14 @@ let test_stale_create_and_snapshot_cannot_reactivate_deleted () =
               app_id = Some 42;
             }))
   in
-  Alcotest.(check bool) "stale create returns no active scope" true
-    (stale_create = None);
+  Alcotest.(check bool)
+    "stale create returns no active scope" true (stale_create = None);
   let snapshot =
     sample_scope ~repositories:[ repo "acme-corp/reactivated" () ] ()
   in
   let reconciled = assert_ok (S.reconcile_from_snapshot ~db ~snapshot) in
-  Alcotest.(check bool) "snapshot retains tombstone" true
+  Alcotest.(check bool)
+    "snapshot retains tombstone" true
     (reconciled.status = S.Deleted);
   Alcotest.(check bool)
     "reactivated repo remains denied" false

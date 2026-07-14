@@ -239,8 +239,7 @@ let test_scope_must_belong_to_configured_app_installation () =
   let app = sample_app () in
   let auth = A.snapshot_of_parts ~pat:"ghp_test_token_value" ~app () in
   let mismatched_scope =
-    S.with_revision
-      { (sample_scope ()) with app_id = Some 7 }
+    S.with_revision { (sample_scope ()) with app_id = Some 7 }
   in
   let repo_selection =
     A.select_for_repo ~auth ~installation:mismatched_scope
@@ -252,8 +251,8 @@ let test_scope_must_belong_to_configured_app_installation () =
     "cannot claim Org through mismatched App" false
     (A.can_claim_org_scope ~auth ~installation:(Some mismatched_scope));
   let org_selection =
-    A.select_for_org_route ~auth ~installation:mismatched_scope
-      ~org:"acme-corp" ()
+    A.select_for_org_route ~auth ~installation:mismatched_scope ~org:"acme-corp"
+      ()
   in
   check_reason "Org rejects mismatched App" A.Rejected_org_requires_app
     org_selection

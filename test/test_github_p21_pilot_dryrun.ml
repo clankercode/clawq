@@ -14,13 +14,13 @@ module F = Github_attribution_fallback
 
 let fixed_now = 1_700_000_000.0
 let future_exp = "2099-01-01T00:00:00Z"
-
 let contains = Test_helpers.string_contains
 
 let repo_root () =
   let rec find_from dir =
     let has_file name = Sys.file_exists (Filename.concat dir name) in
-    if has_file "dune-project" && has_file "src" && has_file "docs" then Some dir
+    if has_file "dune-project" && has_file "src" && has_file "docs" then
+      Some dir
     else
       let parent = Filename.dirname dir in
       if parent = dir then None else find_from parent
@@ -87,8 +87,7 @@ let expect_fallback_allow ?(mode = F.User) ?(used_app_fallback = false) d =
         "used_app_fallback" used_app_fallback a.used_app_fallback;
       a
   | F.Deny den ->
-      Alcotest.fail
-        (Printf.sprintf "expected Allow, got Deny code=%s" den.code)
+      Alcotest.fail (Printf.sprintf "expected Allow, got Deny code=%s" den.code)
 
 let expect_fallback_deny ~code d =
   match d with
@@ -108,8 +107,9 @@ let production_on =
   }
 
 let prod_input ~action ?(user_auth_available = true) () =
-  R.default_resolve_input ~action ~stage:R.P21_production ~production:production_on
-    ~readiness:R.all_ready ~now:fixed_now ~user_auth_available ()
+  R.default_resolve_input ~action ~stage:R.P21_production
+    ~production:production_on ~readiness:R.all_ready ~now:fixed_now
+    ~user_auth_available ()
 
 (* -------------------------------------------------------------------------- *)
 (* Docs presence (runbook / checklist / receipt)                                *)
@@ -258,7 +258,8 @@ let test_staged_rollout_gate_sequence () =
   Alcotest.(check string)
     "to rollback" "rollback"
     (R.stage_to_string rolled.to_stage);
-  Alcotest.(check bool) "prod off after rollback" false rolled.production.enabled;
+  Alcotest.(check bool)
+    "prod off after rollback" false rolled.production.enabled;
   ignore
     (expect_denied ~code:"rollout_rollback_active"
        (R.resolve
@@ -326,8 +327,6 @@ let test_p19_pilot_not_production_substitute () =
 (* Dual-Principal isolation (logical handles; pure policy surface)              *)
 (* -------------------------------------------------------------------------- *)
 
-(** Logical dual-Principal fixture used only for dry-run isolation assertions.
-    No network, vault, or DB. *)
 type pilot_principal = {
   principal_id : string;
   link_flow : string; (* "web" | "device" | "none" *)
@@ -335,6 +334,8 @@ type pilot_principal = {
   lineage_id : string option;
   binding_authorized : bool;
 }
+(** Logical dual-Principal fixture used only for dry-run isolation assertions.
+    No network, vault, or DB. *)
 
 let principal_a =
   {
@@ -401,7 +402,8 @@ let test_dual_principal_isolation_contract () =
             ~attribution_gate_enabled:true ~user_path_available:false
             ~app_path_available:true ()))
   in
-  Alcotest.(check bool) "C not app fallback" false c_user_named.used_app_fallback;
+  Alcotest.(check bool)
+    "C not app fallback" false c_user_named.used_app_fallback;
 
   (* Cross-Principal borrow: locked User mode cannot switch to App on retry. *)
   let locked_retry =
@@ -412,7 +414,8 @@ let test_dual_principal_isolation_contract () =
          ~phase:(F.Retry { locked_mode = F.User })
          ())
   in
-  ignore (expect_fallback_deny ~code:"locked_user_path_unavailable" locked_retry);
+  ignore
+    (expect_fallback_deny ~code:"locked_user_path_unavailable" locked_retry);
 
   (* Distinct lineage ids must not coalesce in dry-run bookkeeping. *)
   let lineages =
@@ -451,8 +454,7 @@ let test_attribution_matrix_pilot_families () =
     (fun action ->
       let row = R.lookup ~action in
       Alcotest.(check string)
-        (action ^ " target app")
-        "app_installation"
+        (action ^ " target app") "app_installation"
         (Policy.attribution_to_string row.target);
       expect_path R.Path_app_primary (R.resolve (prod_input ~action ())))
     read_actions;
@@ -489,15 +491,13 @@ let test_attribution_matrix_pilot_families () =
         "no_fallback"
         (R.fallback_rule_to_string row.fallback);
       Alcotest.(check string)
-        (action ^ " pin delayed")
-        "pin_actor_lineage"
+        (action ^ " pin delayed") "pin_actor_lineage"
         (R.delayed_rule_to_string row.delayed);
       expect_path R.Path_user (R.resolve (prod_input ~action ()));
       (* Safe default still denies. *)
       ignore
         (expect_denied ~code:"user_required_gate_disabled"
-           (R.resolve
-              (R.default_resolve_input ~action ~now:fixed_now ()))))
+           (R.resolve (R.default_resolve_input ~action ~now:fixed_now ()))))
     required_actions
 
 let test_fallback_visible_app_and_user_required () =
@@ -562,7 +562,8 @@ let test_matrix_json_and_docs_no_live_claim () =
   let j = R.matrix_to_json (R.matrix ()) in
   let s = Yojson.Safe.to_string j in
   Alcotest.(check bool)
-    "matrix_version present" true (contains s "matrix_version");
+    "matrix_version present" true
+    (contains s "matrix_version");
   Alcotest.(check bool)
     "no access_token" false
     (contains (String.lowercase_ascii s) "\"access_token\"");

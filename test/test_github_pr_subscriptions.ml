@@ -460,11 +460,7 @@ let test_compatibility_cli_migrates_and_writes_routes_only () =
            ("ghroute_migrate_" ^ string_of_int legacy.id));
       let legacy_selector =
         Github_route_store.Item
-          {
-            repo_full_name = "owner/repo";
-            kind = `Pull_request;
-            number = 42;
-          }
+          { repo_full_name = "owner/repo"; kind = `Pull_request; number = 42 }
       in
       (match
          Github_route_store.find_active ~db
@@ -472,15 +468,16 @@ let test_compatibility_cli_migrates_and_writes_routes_only () =
            ~selector:legacy_selector
        with
       | Ok (Some route) ->
-          Alcotest.(check (option string)) "profile binding preserved" (Some "7")
-            route.provenance.created_by
+          Alcotest.(check (option string))
+            "profile binding preserved" (Some "7") route.provenance.created_by
       | Ok None -> Alcotest.fail "legacy subscription was not migrated"
       | Error error -> Alcotest.fail error);
       let add_result =
         Github_pr_subscriptions_cli.cmd_subscriptions_with_db ~db
           [ "add"; "room-new"; "owner/new-repo"; "9"; "--on-comment"; "false" ]
       in
-      Alcotest.(check bool) "add creates route" true
+      Alcotest.(check bool)
+        "add creates route" true
         (Test_helpers.string_contains add_result "Created subscription route");
       (match
          Github_pr_subscriptions.find ~db ~room_id:"room-new"
@@ -502,13 +499,17 @@ let test_compatibility_cli_migrates_and_writes_routes_only () =
           ~selector:new_selector
       with
       | Ok (Some route) ->
-          Alcotest.(check bool) "comment preference removed" false
+          Alcotest.(check bool)
+            "comment preference removed" false
             (List.mem "issue_comment" route.filter.include_events);
-          Alcotest.(check bool) "PR lifecycle still forwarded" true
+          Alcotest.(check bool)
+            "PR lifecycle still forwarded" true
             (List.mem "pull_request" route.filter.include_events);
-          Alcotest.(check bool) "review still forwarded" true
+          Alcotest.(check bool)
+            "review still forwarded" true
             (List.mem "pull_request_review" route.filter.include_events)
-      | Ok None -> Alcotest.fail "compatibility add did not create an Item route"
+      | Ok None ->
+          Alcotest.fail "compatibility add did not create an Item route"
       | Error error -> Alcotest.fail error)
 
 let suite =

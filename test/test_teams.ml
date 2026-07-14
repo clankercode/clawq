@@ -8,7 +8,7 @@ let mention_entity ~id ~name =
 
 let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
     ~user_name ~conversation_id ~team_id ?(is_group = false) ?(entities = [])
-    ?(attachments = []) () =
+    ?(attachments = []) ?(reply_to_id = "") () =
   let team_data =
     if team_id = "" then `Null
     else `Assoc [ ("team", `Assoc [ ("id", `String team_id) ]) ]
@@ -32,6 +32,10 @@ let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
   let fields =
     if attachments = [] then fields
     else fields @ [ ("attachments", `List attachments) ]
+  in
+  let fields =
+    if reply_to_id = "" then fields
+    else fields @ [ ("replyToId", `String reply_to_id) ]
   in
   `Assoc fields |> Yojson.Safe.to_string
 
@@ -75,13 +79,14 @@ let check_ok_invoke_response ~msg body_str =
     (match json |> member "body" with `Assoc [] -> true | _ -> false)
 
 let run_teams_webhook ?send_reply_fn ?send_adaptive_card_fn ?event_limiter
-    ?turn_fn ?(activity_id = "act-webhook") ?(text = "hello") () =
+    ?turn_fn ?(activity_id = "act-webhook") ?(reply_to_id = "")
+    ?(text = "hello") () =
   let config = test_teams_config () in
   let session_manager = Session.create ~config:Runtime_config.default () in
   let body =
     activity_json ~activity_type:"message" ~text ~activity_id
       ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
-      ~conversation_id:"conv-1" ~team_id:"team-1" ()
+      ~conversation_id:"conv-1" ~team_id:"team-1" ~reply_to_id ()
   in
   Lwt_main.run
     (Teams.handle_webhook ~config ~session_manager ?send_reply_fn
@@ -112,6 +117,22 @@ let failing_turn _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
     ?deferred_if_busy:_ ?before_drain:_ ?snapshot_work_type:_
     ?has_external_users:_ () =
   Lwt.fail_with "boom"
+
+let test_webhook_forwards_reply_to_id_as_session_thread_anchor () =
+  let seen_message_id = ref None in
+  let turn _mgr ~key:_ ~message:_ ?content_parts:_ ?attachments:_
+      ?skill_injections:_ ?channel_name:_ ?channel_type:_ ?sender_id:_
+      ?sender_name:_ ?user_group:_ ?channel:_ ?channel_id:_ ?message_id ?cwd:_
+      ?deferred_if_busy:_ ?before_drain:_ ?snapshot_work_type:_
+      ?has_external_users:_ () =
+    seen_message_id := message_id;
+    Lwt.return "agent ok"
+  in
+  run_teams_webhook ~turn_fn:turn ~activity_id:"activity-42"
+    ~reply_to_id:"journal-delivery-42" ();
+  Alcotest.(check (option string))
+    "replyToId reaches Session.turn Thread_reply anchor"
+    (Some "journal-delivery-42") !seen_message_id
 
 let test_parse_activity_returns_record () =
   let body =
@@ -2037,6 +2058,8 @@ let test_get_formatted_for_key_none_for_empty () =
 
 let suite =
   [
+    Alcotest.test_case "webhook forwards replyToId as session thread anchor"
+      `Quick test_webhook_forwards_reply_to_id_as_session_thread_anchor;
     Alcotest.test_case "B464: send_reply empty text short-circuits" `Quick
       test_send_reply_empty_text_short_circuits;
     Alcotest.test_case "thread_session_key with reply_to_id" `Quick

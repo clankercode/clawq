@@ -19,5 +19,5 @@ let cmd args =
   match args with
   | "account" :: _ -> disabled_message
   | _ ->
-      Printf.sprintf
-        "Usage: clawq-min github account <subcommand>\n\n%s" disabled_message
+      Printf.sprintf "Usage: clawq-min github account <subcommand>\n\n%s"
+        disabled_message

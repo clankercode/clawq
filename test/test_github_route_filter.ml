@@ -286,14 +286,12 @@ let test_advanced_wrapper_parses_and_is_exclusive () =
 let test_noncanonical_advanced_keys_are_rejected () =
   let typed_pr = `Assoc [ ("labels", `String "ready") ] in
   assert_error_contains "unknown field"
-    (F.of_json
-       (`Assoc [ ("schema_version", `Int 1); ("PR", typed_pr) ]));
+    (F.of_json (`Assoc [ ("schema_version", `Int 1); ("PR", typed_pr) ]));
   assert_error_contains "unknown or raw field"
     (F.of_json
        (`Assoc
           [
-            ("schema_version", `Int 1);
-            ("advanced", `Assoc [ ("PR", typed_pr) ]);
+            ("schema_version", `Int 1); ("advanced", `Assoc [ ("PR", typed_pr) ]);
           ]))
 
 let test_noncanonical_nested_filter_keys_are_rejected () =

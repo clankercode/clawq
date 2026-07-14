@@ -607,24 +607,30 @@ let test_workflow_attributed_apply_fails_closed_without_receipts () =
   in
   (match outcome1 with
   | Setup_plan_apply.Applied _ ->
-      Alcotest.fail "attributed apply must fail closed without a live dispatcher"
+      Alcotest.fail
+        "attributed apply must fail closed without a live dispatcher"
   | Setup_plan_apply.Rejected { reason; message } ->
       Alcotest.(check string)
         "apply error" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (contains ~needle:"dispatcher" message));
-  Alcotest.(check (option string)) "plan stays pending" (Some "pending")
+  Alcotest.(check (option string))
+    "plan stays pending" (Some "pending")
     (Test_helpers.query_single_text_option db
        (Printf.sprintf "SELECT status FROM setup_plans WHERE id = '%s'" plan.id));
-  Alcotest.(check (option string)) "no apply receipt" None
+  Alcotest.(check (option string))
+    "no apply receipt" None
     (Test_helpers.query_single_text_option db
-       (Printf.sprintf
-          "SELECT receipt_id FROM setup_plans WHERE id = '%s'" plan.id));
-  Alcotest.(check int) "no native attribution receipt" 0
+       (Printf.sprintf "SELECT receipt_id FROM setup_plans WHERE id = '%s'"
+          plan.id));
+  Alcotest.(check int)
+    "no native attribution receipt" 0
     (Audit.count ~db ~kind:Audit.Receipt ());
   Reconcile.ensure_schema db;
-  Alcotest.(check bool) "no correlation" true
+  Alcotest.(check bool)
+    "no correlation" true
     (Option.is_none (Reconcile.get_by_plan_id ~db ~plan_id:plan.id))
 
 let test_workflow_apply_requires_live_when_staged () =

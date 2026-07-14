@@ -497,8 +497,7 @@ let classify_row ~db (row : legacy_row) =
           | P.Unlinked -> Ok (Legacy_unresolved { reason = Actor_unlinked })
           | P.Active -> (
               match actor.verified_at with
-              | None ->
-                  Ok (Legacy_unresolved { reason = Actor_not_verified })
+              | None -> Ok (Legacy_unresolved { reason = Actor_not_verified })
               | Some verified_at when String.trim verified_at = "" ->
                   Ok (Legacy_unresolved { reason = Actor_not_verified })
               | Some _ -> (
@@ -1033,10 +1032,10 @@ let revalidate_existing_backfill ~db ~run_id ~created_at
           (* A prior backfill is immutable audit evidence, not permanent
              authority.  Keep the record untouched and permanently revoke the
              old source if its live identity no longer satisfies backfill. *)
-          insert_invalidation ~db ~run_id
-            ~source_kind:record.row.source_kind
+          insert_invalidation ~db ~run_id ~source_kind:record.row.source_kind
             ~source_id:record.row.source_id
-            ~reason:(string_of_unresolved_reason reason) ~created_at)
+            ~reason:(string_of_unresolved_reason reason)
+            ~created_at)
   | Unresolved | Job_invalidated -> Ok false
 
 let migrate_rows ~db ~rows ?run_id ?(now = Unix.gettimeofday ()) () =
@@ -1080,8 +1079,8 @@ let migrate_rows ~db ~rows ?run_id ?(now = Unix.gettimeofday ()) () =
                 | Error e -> Error e
                 | Ok None ->
                     Error
-                      "migration record disappeared while revalidating existing \
-                       source"
+                      "migration record disappeared while revalidating \
+                       existing source"
                 | Ok (Some record) ->
                     let created_at = Time_util.iso8601_utc ~t:now () in
                     let* inserted =

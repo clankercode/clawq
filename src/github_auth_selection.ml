@@ -66,8 +66,7 @@ let classify_snapshot (s : auth_snapshot) : auth_mode =
 let classify_auth (auth : Runtime_config.github_auth option) : auth_mode =
   classify_snapshot (snapshot_of_auth auth)
 
-let app_owns_installation
-    (app : Runtime_config.github_app_config)
+let app_owns_installation (app : Runtime_config.github_app_config)
     (installation : Github_app_installation_scope.t) =
   match installation.app_id with
   | Some app_id -> app_id = app.app_id
@@ -76,7 +75,8 @@ let app_owns_installation
 let app_installation_viable ~(app : Runtime_config.github_app_config)
     (installation : Github_app_installation_scope.t) ~repo_full_name =
   app_owns_installation app installation
-  && Github_app_installation_scope.is_repo_authorized installation ~repo_full_name
+  && Github_app_installation_scope.is_repo_authorized installation
+       ~repo_full_name
 
 let make_selection ~mode ~chosen ~installation_id ~repo ~reason ~explanation :
     selection =
@@ -130,7 +130,8 @@ let select_for_repo ~(auth : auth_snapshot) ?installation ~repo_full_name () :
                 | Github_app_installation_scope.Suspended { reason } ->
                     Printf.sprintf "installation suspended%s"
                       (match reason with Some r -> ": " ^ r | None -> "")
-                | Github_app_installation_scope.Deleted -> "installation deleted")
+                | Github_app_installation_scope.Deleted ->
+                    "installation deleted")
             | None -> "GitHub App credentials are not configured")
       in
       make_selection ~mode ~chosen:`Pat ~installation_id:None ~repo
@@ -216,44 +217,47 @@ let select_for_org_route ~(auth : auth_snapshot) ?installation ~org () :
                      inst.installation_id)
           | true -> (
               match inst.Github_app_installation_scope.status with
-          | Github_app_installation_scope.Suspended { reason } ->
-              reject_requires_app
-                ~detail:
-                  (Printf.sprintf "Installation %d is suspended%s."
-                     inst.installation_id
-                     (match reason with Some r -> " (" ^ r ^ ")" | None -> ""))
-          | Github_app_installation_scope.Deleted ->
-              reject_requires_app
-                ~detail:
-                  (Printf.sprintf "Installation %d is deleted."
-                     inst.installation_id)
-          | Github_app_installation_scope.Active ->
-              if not (org_matches_account ~org inst.account) then
-                reject_requires_app
-                  ~detail:
-                    (Printf.sprintf
-                       "Installation %d account %S does not match org %S \
-                        (case-insensitive)."
-                       inst.installation_id inst.account.login org)
-              else
-                let iid = inst.installation_id in
-                let reason, explanation =
-                  if mode = Mixed then
-                    ( App_preferred_when_mixed,
-                      Printf.sprintf
-                        "Org route for %s: verified Active App installation %d \
-                         (account %s). Mixed auth present but Org scope \
-                         requires App; selected App."
-                        org iid inst.account.login )
+              | Github_app_installation_scope.Suspended { reason } ->
+                  reject_requires_app
+                    ~detail:
+                      (Printf.sprintf "Installation %d is suspended%s."
+                         inst.installation_id
+                         (match reason with
+                         | Some r -> " (" ^ r ^ ")"
+                         | None -> ""))
+              | Github_app_installation_scope.Deleted ->
+                  reject_requires_app
+                    ~detail:
+                      (Printf.sprintf "Installation %d is deleted."
+                         inst.installation_id)
+              | Github_app_installation_scope.Active ->
+                  if not (org_matches_account ~org inst.account) then
+                    reject_requires_app
+                      ~detail:
+                        (Printf.sprintf
+                           "Installation %d account %S does not match org %S \
+                            (case-insensitive)."
+                           inst.installation_id inst.account.login org)
                   else
-                    ( App_installation_scope,
-                      Printf.sprintf
-                        "Org route for %s: selected verified Active App \
-                         installation %d (account %s)"
-                        org iid inst.account.login )
-                in
-                make_selection ~mode ~chosen:(`App iid)
-                  ~installation_id:(Some iid) ~repo:None ~reason ~explanation)))
+                    let iid = inst.installation_id in
+                    let reason, explanation =
+                      if mode = Mixed then
+                        ( App_preferred_when_mixed,
+                          Printf.sprintf
+                            "Org route for %s: verified Active App \
+                             installation %d (account %s). Mixed auth present \
+                             but Org scope requires App; selected App."
+                            org iid inst.account.login )
+                      else
+                        ( App_installation_scope,
+                          Printf.sprintf
+                            "Org route for %s: selected verified Active App \
+                             installation %d (account %s)"
+                            org iid inst.account.login )
+                    in
+                    make_selection ~mode ~chosen:(`App iid)
+                      ~installation_id:(Some iid) ~repo:None ~reason
+                      ~explanation)))
 
 let migration_preserves_pat ~(before : auth_snapshot) ~(after : auth_snapshot) :
     bool =

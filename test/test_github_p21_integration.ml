@@ -130,8 +130,8 @@ let seed_principal ~db ~id ?(revision = 1)
   ignore (assert_ok (S.insert_principal ~db ~now:fixed_now p));
   pid id
 
-let seed_actor_and_link ~db ~principal_id ~key ~link_id
-    ?(display_name = "User") () =
+let seed_actor_and_link ~db ~principal_id ~key ~link_id ?(display_name = "User")
+    () =
   let actor =
     P.make_connector_actor ~key ~principal_id
       ~display:
@@ -166,8 +166,6 @@ let seed_binding ~db ~principal_id ~id ~github_user_id ~lineage_id
   in
   assert_ok (B.insert ~db ~now:fixed_now b)
 
-(** Shared-Room fixture: Ada (Teams+Slack linked, GitHub bound), Bob (Teams
-    linked + GitHub), Carol (Teams actor only — unlinked, no GitHub). *)
 type shared_fixture = {
   ada : P.principal_id;
   bob : P.principal_id;
@@ -179,6 +177,8 @@ type shared_fixture = {
   bind_ada : B.binding;
   bind_bob : B.binding;
 }
+(** Shared-Room fixture: Ada (Teams+Slack linked, GitHub bound), Bob (Teams
+    linked + GitHub), Carol (Teams actor only — unlinked, no GitHub). *)
 
 let seed_shared_room ~db : shared_fixture =
   let ada =
@@ -256,8 +256,8 @@ let make_envelope ?(event = "pull_request") ?(action = Some "closed")
     ?(family = E.Lifecycle) ?(delivery_id = Some "deliv-1")
     ?(actor_login = Some "clawq-bot") ?(actor_type = Some "Bot")
     ?(kind = Some E.Pull_request) ?(number = Some 42) ?(merged = Some true)
-    ?(state = Some "closed") ?(head_sha = Some "deadbeef")
-    ?(actor_id = None) () : E.t =
+    ?(state = Some "closed") ?(head_sha = Some "deadbeef") ?(actor_id = None) ()
+    : E.t =
   let actor : E.actor =
     { login = actor_login; type_ = actor_type; id = actor_id }
   in
@@ -468,16 +468,14 @@ let create_vault ~db ?(keys = make_keys ()) ?(account = account ())
       r
   | Error d -> Alcotest.fail ("create vault: " ^ V.string_of_denial d)
 
-let make_snapshot ?(snapshot_id = "actorsnap_p21_ada")
-    ?(principal = "prin_ada") ?(user = "aad-ada") ?(display_name = "Ada")
-    ?(binding_id = "gh_ada") ?(lineage_id = "lin_ada")
-    ?(github_user_id = 1001L) () =
+let make_snapshot ?(snapshot_id = "actorsnap_p21_ada") ?(principal = "prin_ada")
+    ?(user = "aad-ada") ?(display_name = "Ada") ?(binding_id = "gh_ada")
+    ?(lineage_id = "lin_ada") ?(github_user_id = 1001L) () =
   assert_ok
     (A.create ~id:snapshot_id ~now:fixed_now ~reason:"p21-integration"
        ~principal_id:(pid principal) ~principal_revision:1
-       ~actor_key:(actor_key ~user ())
-       ~actor_revision:1 ~identity_link_id:("link_" ^ principal)
-       ~identity_link_revision:1
+       ~actor_key:(actor_key ~user ()) ~actor_revision:1
+       ~identity_link_id:("link_" ^ principal) ~identity_link_revision:1
        ~display:
          {
            display_name = Some display_name;
@@ -486,11 +484,7 @@ let make_snapshot ?(snapshot_id = "actorsnap_p21_ada")
            extra = [];
          }
        ~source:
-         {
-           room_id = Some shared_room;
-           session_id = None;
-           message_id = None;
-         }
+         { room_id = Some shared_room; session_id = None; message_id = None }
        ~account_binding:
          (assert_ok
             (A.make_account_binding_evidence ~binding_id ~lineage_id
@@ -573,8 +567,8 @@ let test_shared_room_linked_and_unlinked_isolation () =
   | Error e ->
       Alcotest.(check bool)
         "borrow language" true
-        (contains e "another participant" || contains e "claimed"
-       || contains e "borrow"));
+        (contains e "another participant"
+        || contains e "claimed" || contains e "borrow"));
   (* Outbox: Ada enqueue then Bob conflict. *)
   let intent = sample_intent ~id:"ghdi_shared_p21" () in
   let entry =
@@ -602,8 +596,8 @@ let test_shared_room_linked_and_unlinked_isolation () =
       let msg = Job.string_of_exec_invalidation inv in
       Alcotest.(check bool)
         "borrow at exec" true
-        (contains msg "another participant" || contains msg "claimed"
-       || contains msg "borrow"));
+        (contains msg "another participant"
+        || contains msg "claimed" || contains msg "borrow"));
   (* Preference: Bob room pref never selects for Ada; Carol has none. *)
   let room_scope = assert_ok (Pref.make_room_scope ~room_id:shared_room ()) in
   let bob_pref =
@@ -715,8 +709,7 @@ let test_every_action_family_policy () =
     (fun action ->
       let r = Policy.lookup ~action in
       Alcotest.(check string)
-        (action ^ " preferred")
-        "user_preferred"
+        (action ^ " preferred") "user_preferred"
         (Policy.attribution_to_string r.attribution);
       Alcotest.(check bool)
         (action ^ " permits app fallback")
@@ -727,8 +720,7 @@ let test_every_action_family_policy () =
     (fun action ->
       let r = Policy.lookup ~action in
       Alcotest.(check string)
-        (action ^ " required")
-        "user_required"
+        (action ^ " required") "user_required"
         (Policy.attribution_to_string r.attribution);
       Alcotest.(check bool)
         (action ^ " no app fallback")
@@ -740,18 +732,17 @@ let test_every_action_family_policy () =
     "submit_review alias" "review_submit"
     (Policy.lookup ~action:"submit_review").action;
   Alcotest.(check string)
-    "code_work alias" "code_change"
-    (Policy.lookup ~action:"code_work").action;
+    "code_work alias" "code_change" (Policy.lookup ~action:"code_work").action;
   Alcotest.(check string)
-    "pr_create alias" "code_change"
-    (Policy.lookup ~action:"pr_create").action;
+    "pr_create alias" "code_change" (Policy.lookup ~action:"pr_create").action;
   (* Unknown fail closed as User_required / Critical. *)
   let unk = Policy.lookup ~action:"totally_unknown_mutation" in
   Alcotest.(check string)
     "unknown required" "user_required"
     (Policy.attribution_to_string unk.attribution);
   Alcotest.(check string)
-    "unknown critical" "critical" (Policy.risk_tier_to_string unk.tier);
+    "unknown critical" "critical"
+    (Policy.risk_tier_to_string unk.tier);
   Alcotest.(check bool) "unknown no pilot" false unk.pilot_allowed
 
 (* -------------------------------------------------------------------------- *)
@@ -781,16 +772,19 @@ let test_user_preferred_user_and_app_fallback () =
       Alcotest.fail (Printf.sprintf "deny %s" d.repair.code));
   (* Visible App fallback for label when no user binding. *)
   let label =
-    Collab.Label { item_key = collab_item_key; add = [ "needs-triage" ]; remove = [] }
+    Collab.Label
+      { item_key = collab_item_key; add = [ "needs-triage" ]; remove = [] }
   in
   let evidence_app =
     base_request ~action:"label" ~binding:Auth.Not_required
       ~user_authority_ok:false
-      ~fallback:(Auth.fallback_context ~preview_actor:Auth.Fallback.Names_app ())
+      ~fallback:
+        (Auth.fallback_context ~preview_actor:Auth.Fallback.Names_app ())
       ()
   in
   (match
-     Collab_attr.gate ~route:(Some route) ~action:label ~evidence:evidence_app ()
+     Collab_attr.gate ~route:(Some route) ~action:label ~evidence:evidence_app
+       ()
    with
   | Collab_attr.Attribution { decision = Auth.Allow a; _ } ->
       Alcotest.(check string)
@@ -810,7 +804,8 @@ let test_user_preferred_user_and_app_fallback () =
   Alcotest.(check bool)
     "plan has allow" true
     (Collab_attr.has_attribution_allow planned.plan);
-  Alcotest.(check bool) "fallback on plan" true planned.staged.allow.used_app_fallback;
+  Alcotest.(check bool)
+    "fallback on plan" true planned.staged.allow.used_app_fallback;
   let dispatched =
     match
       Collab_attr.prepare_dispatch ~db ~live:evidence_app
@@ -823,7 +818,9 @@ let test_user_preferred_user_and_app_fallback () =
   Alcotest.(check string)
     "dispatch app" "app"
     (Auth.resolved_mode_to_string dispatched.issued.mode);
-  Alcotest.(check bool) "no lease on app" true (Option.is_none dispatched.issued.lease);
+  Alcotest.(check bool)
+    "no lease on app" true
+    (Option.is_none dispatched.issued.lease);
   secrets_absent
     (Yojson.Safe.to_string (Lease.issued_to_json dispatched.issued)
     ^ Yojson.Safe.to_string (Audit.to_json dispatched.receipt))
@@ -875,14 +872,15 @@ let test_user_required_denial_and_user_success () =
   let app_evidence =
     base_request ~action:"issue_create" ~binding:Auth.Not_required
       ~user_authority_ok:false
-      ~fallback:(Auth.fallback_context ~preview_actor:Auth.Fallback.Names_app ())
+      ~fallback:
+        (Auth.fallback_context ~preview_actor:Auth.Fallback.Names_app ())
       ~confirmation_required:true ~confirmation_satisfied:true
       ~confirmation_id:(Some "conf_1") ()
   in
   (match
      Issue_attr.authorize_preview ~db ~action:create ~route:(Some route)
-       ~pilot:Issue.default_pilot_gate ~user_auth_available:true ~auth:app_evidence
-       ~live ~room_id:shared_room ~now:(fixed_now +. 1.) ()
+       ~pilot:Issue.default_pilot_gate ~user_auth_available:true
+       ~auth:app_evidence ~live ~room_id:shared_room ~now:(fixed_now +. 1.) ()
    with
   | Ok o when o.used_app_fallback || Auth.resolved_mode_to_string o.mode = "app"
     ->
@@ -895,8 +893,9 @@ let test_user_required_denial_and_user_success () =
       let msg = Issue_attr.string_of_preview_deny d in
       Alcotest.(check bool)
         "app forbidden language" true
-        (contains msg "user_required" || contains msg "forbidden"
-       || contains msg "binding" || contains msg "user" || contains msg "app"));
+        (contains msg "user_required"
+        || contains msg "forbidden" || contains msg "binding"
+        || contains msg "user" || contains msg "app"));
   (* User path succeeds. *)
   let user_auth =
     base_request ~action:"issue_create" ~confirmation_required:true
@@ -946,7 +945,9 @@ let test_delayed_lineage_refresh_and_breaks () =
       ~binding:(Auth.Selected (selected ~vault_generation:4 ()))
       ~actor_snapshot_id:(Some snap.id) ~pin:Auth.empty_revision_pin ()
   in
-  (match Delayed.prepare_execution ~db ~job_id:"job_lineage" ~pin ~live:live_refresh ()
+  (match
+     Delayed.prepare_execution ~db ~job_id:"job_lineage" ~pin ~live:live_refresh
+       ()
    with
   | Ok env ->
       Alcotest.(check bool) "gen advanced" true env.generation_advanced;
@@ -1009,8 +1010,8 @@ let test_delayed_lineage_refresh_and_breaks () =
     "pre-merge principal newer" "prin_merge_new"
     (P.principal_id_to_string snap_pre_merge.lineage.principal_id);
   (match
-     Merge.apply_merge ~db ~left_id:older ~right_id:newer
-       ~link_tx_id:"ltx_p21" ~merge_id:"pmerge_p21" ~now:fixed_now ()
+     Merge.apply_merge ~db ~left_id:older ~right_id:newer ~link_tx_id:"ltx_p21"
+       ~merge_id:"pmerge_p21" ~now:fixed_now ()
    with
   | Merge.Applied receipt ->
       Alcotest.(check string)
@@ -1036,8 +1037,7 @@ let test_delayed_lineage_refresh_and_breaks () =
       Alcotest.(check bool)
         "exec usable after merge" true env.live_authority.usable
   | Error inv ->
-      Alcotest.fail
-        ("exec after merge: " ^ Job.string_of_exec_invalidation inv));
+      Alcotest.fail ("exec after merge: " ^ Job.string_of_exec_invalidation inv));
   (* Split: break authority; evidence stays on source. *)
   let snap_split =
     assert_ok
@@ -1047,8 +1047,8 @@ let test_delayed_lineage_refresh_and_breaks () =
   in
   (match
      Unlink.unlink_actor ~db ~source_principal_id:fx.ada
-       ~actor_key:fx.key_ada_slack ~plan_id:"psplit_p21" ~unlink_id:"punlink_p21"
-       ~now:(fixed_now +. 2.) ()
+       ~actor_key:fx.key_ada_slack ~plan_id:"psplit_p21"
+       ~unlink_id:"punlink_p21" ~now:(fixed_now +. 2.) ()
    with
   | Unlink.Applied _ -> ()
   | Unlink.Idempotent _ -> ()
@@ -1096,7 +1096,8 @@ let test_personal_token_exclusion () =
   let acct = account () in
   let vault = create_vault ~db ~keys ~account:acct () in
   let route =
-    make_route ~id:"rt_code" ~policy:(caps ~extra:[ (Code.capability_key, true) ] ())
+    make_route ~id:"rt_code"
+      ~policy:(caps ~extra:[ (Code.capability_key, true) ] ())
   in
   let head_sha = "abc123def4567890abcdef1234567890abcdef12" in
   let head_branch = "clawq/p21-int-fix" in
@@ -1181,8 +1182,9 @@ let test_personal_token_exclusion () =
       | Error reason ->
           Alcotest.(check bool)
             "scan deny" true
-            (contains reason "token" || contains reason "forbidden"
-           || contains reason "refuse")
+            (contains reason "token"
+            || contains reason "forbidden"
+            || contains reason "refuse")
       | Ok _ ->
           Alcotest.fail
             (Printf.sprintf "dirty %s material must be denied"
@@ -1195,10 +1197,8 @@ let test_personal_token_exclusion () =
       ( Token_lease.Git_transport,
         "git push https://x-access-token:" ^ sample_tokens.access_token
         ^ "@github.com/acme/widget.git" );
-      ( Token_lease.Shell,
-        "export GITHUB_TOKEN=" ^ sample_tokens.access_token );
-      ( Token_lease.Runner_env,
-        "GH_TOKEN=" ^ sample_tokens.access_token );
+      (Token_lease.Shell, "export GITHUB_TOKEN=" ^ sample_tokens.access_token);
+      (Token_lease.Runner_env, "GH_TOKEN=" ^ sample_tokens.access_token);
     ];
   Code_attr.revoke_issued_lease disp.issued
 
@@ -1297,8 +1297,8 @@ let test_every_family_receipt_and_isolation () =
           (Rec.record_from_native_receipt ~db ~room_id:shared_room
              ~action:fc.action ~actor_mode:"user" ?item_key:ik
              ~plan_id:(Printf.sprintf "plan_%s_%d" fc.action i)
-             ~receipt_id ~attribution_receipt_id:attr_id
-             ~requested_mode:"user" ~resolved_mode:"user" ~actor_snapshot:snap
+             ~receipt_id ~attribution_receipt_id:attr_id ~requested_mode:"user"
+             ~resolved_mode:"user" ~actor_snapshot:snap
              ~expected_github_login:fc.login ~github_user_id:fc.github_user_id
              ~native_actor_kind:"user"
              ~now:(fixed_now +. float_of_int i)
@@ -1309,7 +1309,8 @@ let test_every_family_receipt_and_isolation () =
         (Rec.canonicalize_action fc.action)
         corr.action;
       Alcotest.(check bool)
-        "receipt never authority" false (Rec.snapshot_is_authority corr);
+        "receipt never authority" false
+        (Rec.snapshot_is_authority corr);
       (match corr.actor_snapshot with
       | Some s -> secrets_absent (Yojson.Safe.to_string (A.to_json s))
       | None -> ());
@@ -1351,7 +1352,8 @@ let test_every_family_receipt_and_isolation () =
       (match r1 with
       | Rec.Closed { correlation = c; _ } -> (
           Alcotest.(check string)
-            "resolved user" "user" (Rec.resolved_attribution c);
+            "resolved user" "user"
+            (Rec.resolved_attribution c);
           Alcotest.(check (option string))
             "closed own receipt" (Some receipt_id) c.receipt_id;
           match c.actor_snapshot with
@@ -1499,9 +1501,7 @@ let test_user_collab_dispatch_secret_free () =
   let keys = make_keys () in
   let acct = account () in
   let vault = create_vault ~db ~keys ~account:acct () in
-  let route =
-    make_route ~id:"rt_reply" ~policy:(caps ~reply:true ())
-  in
+  let route = make_route ~id:"rt_reply" ~policy:(caps ~reply:true ()) in
   let action =
     Collab.Comment { item_key = collab_item_key; body = "native user comment" }
   in
@@ -1516,8 +1516,8 @@ let test_user_collab_dispatch_secret_free () =
     match
       Collab_attr.prepare_dispatch ~db ~live:evidence
         ~prior:planned.staged.allow ~vault_id:vault.id ~expected:acct
-        ~item_key:collab_item_key ~room_id:shared_room
-        ~plan_id:planned.plan.id ~github_user_id:1001L ~now:fixed_now ()
+        ~item_key:collab_item_key ~room_id:shared_room ~plan_id:planned.plan.id
+        ~github_user_id:1001L ~now:fixed_now ()
     with
     | Ok d -> d
     | Error e -> Alcotest.fail (Lease.string_of_denial e)
@@ -1525,7 +1525,9 @@ let test_user_collab_dispatch_secret_free () =
   Alcotest.(check string)
     "mode" "user"
     (Auth.resolved_mode_to_string dispatched.issued.mode);
-  Alcotest.(check bool) "has lease" true (Option.is_some dispatched.issued.lease);
+  Alcotest.(check bool)
+    "has lease" true
+    (Option.is_some dispatched.issued.lease);
   secrets_absent
     (Yojson.Safe.to_string (Lease.issued_to_json dispatched.issued)
     ^ Yojson.Safe.to_string (Audit.to_json dispatched.receipt)
@@ -1554,8 +1556,7 @@ let test_minimal_build_and_module_surface () =
     (O.default_max_age_seconds = 86400.);
   Alcotest.(check string)
     "code_change capability" "code_change" Code.capability_key;
-  Alcotest.(check string)
-    "branch prefix" "clawq/" Code.default_branch_prefix;
+  Alcotest.(check string) "branch prefix" "clawq/" Code.default_branch_prefix;
   Alcotest.(check bool)
     "issue pilot name set" true
     (String.length Issue.default_pilot_gate.pilot_name > 0);
@@ -1566,14 +1567,14 @@ let test_minimal_build_and_module_surface () =
   List.iter
     (fun action ->
       Alcotest.(check bool)
-        (action ^ " no fallback")
-        false
+        (action ^ " no fallback") false
         (Policy.permits_app_fallback (Policy.lookup ~action).attribution))
     required_actions;
   Alcotest.(check bool)
     "preferred do permit" true
     (List.for_all
-       (fun a -> Policy.permits_app_fallback (Policy.lookup ~action:a).attribution)
+       (fun a ->
+         Policy.permits_app_fallback (Policy.lookup ~action:a).attribution)
        preferred_actions)
 
 (* -------------------------------------------------------------------------- *)

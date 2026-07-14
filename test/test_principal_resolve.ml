@@ -166,7 +166,7 @@ let test_bootstrap_unverified_web_rejected_without_persistence () =
       ()
   with
   | R.Principal _ -> Alcotest.fail "raw web claims must not resolve"
-  | R.Rejected { reason } ->
+  | R.Rejected { reason } -> (
       let r = String.lowercase_ascii reason in
       Alcotest.(check bool)
         "reason identifies missing verification" true
@@ -181,7 +181,7 @@ let test_bootstrap_unverified_web_rejected_without_persistence () =
       match S.get_connector_actor ~db ~key with
       | Ok None -> ()
       | Ok (Some _) -> Alcotest.fail "raw web claims created an actor"
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail e)
 
 let test_bootstrap_expired_web_rejected () =
   with_db @@ fun db ->

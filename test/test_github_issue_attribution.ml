@@ -717,7 +717,7 @@ let test_prepare_dispatch_from_plan_success () =
   Alcotest.(check bool) "lease" true disp.has_user_lease;
   Attr.revoke_issued_lease disp.issued
 
-let test_workflow_preview_apply_idempotent () =
+let test_workflow_preview_apply_fails_closed () =
   with_db @@ fun db ->
   let keys = make_keys () in
   let acct = account () in
@@ -740,31 +740,19 @@ let test_workflow_preview_apply_idempotent () =
          ~issue_live:live ~vault_id:vault.id ~expected_account:acct
          ~github_user_id:4242L ~now:fixed_now ())
   in
-  let receipt_id =
-    match outcome1 with
-    | Setup_plan_apply.Applied { first_time = true; receipt_id } -> receipt_id
-    | Setup_plan_apply.Applied { first_time = false; _ } ->
-        Alcotest.fail "expected first_time"
-    | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
-  in
-  Alcotest.(check bool) "receipt id" true (String.length receipt_id > 0);
-  Alcotest.(check bool)
-    "native receipt" true
-    (Audit.count ~db ~kind:Audit.Receipt () >= 1);
-  (* Idempotent re-apply. *)
-  let outcome2 =
-    assert_ok
-      (Workflow.apply_confirmed ~db ~plan_id:plan.id ~digest:plan.digest
-         ~principal ~current_base_revision:base_revision ~attribution_live:auth
-         ~issue_live:live ~vault_id:vault.id ~expected_account:acct
-         ~now:fixed_now ())
-  in
-  match outcome2 with
-  | Setup_plan_apply.Applied { first_time = false; receipt_id = r2 } ->
-      Alcotest.(check string) "same receipt" receipt_id r2
-  | Setup_plan_apply.Applied { first_time = true; _ } ->
-      Alcotest.fail "expected idempotent second apply"
-  | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
+  (match outcome1 with
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "Issue apply must fail closed without a live dispatcher"
+  | Setup_plan_apply.Rejected { reason; message } ->
+      Alcotest.(check string)
+        "apply error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason);
+      Alcotest.(check bool)
+        "mentions dispatcher" true
+        (contains ~needle:"dispatcher" message));
+  Alcotest.(check int)
+    "no native receipt" 0
+    (Audit.count ~db ~kind:Audit.Receipt ())
 
 let test_workflow_apply_requires_live_when_staged () =
   with_db @@ fun db ->
@@ -783,14 +771,13 @@ let test_workflow_apply_requires_live_when_staged () =
   with
   | Ok (Setup_plan_apply.Rejected { message; _ }) ->
       Alcotest.(check bool)
-        "mentions live" true
-        (contains ~needle:"attribution_live" message
-        || contains ~needle:"live evidence" message)
+        "mentions dispatcher" true
+        (contains ~needle:"dispatcher" message)
   | Ok (Setup_plan_apply.Applied _) ->
       Alcotest.fail "expected reject without live evidence"
   | Error e -> Alcotest.fail e
 
-let test_webhook_reconciliation_with_user_receipt () =
+let test_workflow_issue_apply_creates_no_correlation () =
   with_db @@ fun db ->
   let keys = make_keys () in
   let acct = account () in
@@ -812,47 +799,17 @@ let test_webhook_reconciliation_with_user_receipt () =
          ~issue_live:live ~vault_id:vault.id ~expected_account:acct
          ~github_user_id:4242L ~now:fixed_now ())
   in
-  let receipt_id =
-    match outcome with
-    | Setup_plan_apply.Applied { receipt_id; first_time = true } -> receipt_id
-    | Setup_plan_apply.Applied { first_time = false; _ } ->
-        Alcotest.fail "expected first apply"
-    | Setup_plan_apply.Rejected { message; _ } -> Alcotest.fail message
-  in
-  (* Ensure durable correlation exists for webhook reconcile (workflow best-
-     effort path, or explicit record). *)
-  (match Reconcile.get_by_receipt_id ~db ~receipt_id with
-  | Some _ -> ()
-  | None ->
-      let corr =
-        Reconcile.make_correlation ~room_id ~action:"issue_close"
-          ~actor_mode:"user" ~item_key ~plan_id:plan.id ~receipt_id
-          ~requested_mode:"user_required" ~resolved_mode:"user" ()
-      in
-      assert_ok
-        (Reconcile.record_correlation ~db ~correlation:corr ~now:fixed_now ()));
-  match Reconcile.get_by_receipt_id ~db ~receipt_id with
-  | None -> Alcotest.fail "expected correlation after apply/record"
-  | Some c_open ->
+  (match outcome with
+  | Setup_plan_apply.Applied _ ->
+      Alcotest.fail "Issue apply must not create a receipt or correlation"
+  | Setup_plan_apply.Rejected { reason; _ } ->
       Alcotest.(check string)
-        "open correlation action" "issue_close" c_open.action;
-      Alcotest.(check string)
-        "user mode" "user"
-        (Reconcile.resolved_attribution c_open);
-      (* requested_mode is normalized toward resolved actor labels (user). *)
-      (match Reconcile.requested_attribution c_open with
-      | Some ("user" | "user_required") -> ()
-      | other ->
-          Alcotest.fail
-            (Printf.sprintf "unexpected requested_mode: %s"
-               (match other with None -> "None" | Some s -> s)));
-      Alcotest.(check (option string)) "plan id" (Some plan.id) c_open.plan_id;
-      (* item_key may be on plan target; correlation uses item_key field when present *)
-      Alcotest.(check bool)
-        "has receipt" true
-        (match c_open.receipt_id with
-        | Some r -> r = receipt_id
-        | None -> false)
+        "apply error" "apply_error"
+        (Setup_plan_apply.string_of_reject_reason reason));
+  Reconcile.ensure_schema db;
+  Alcotest.(check bool)
+    "no correlation" true
+    (Option.is_none (Reconcile.get_by_plan_id ~db ~plan_id:plan.id))
 
 let test_pr_close_lifecycle_user_required () =
   with_db @@ fun db ->
@@ -918,15 +875,15 @@ let suite =
     ( "prepare dispatch from plan success",
       `Quick,
       test_prepare_dispatch_from_plan_success );
-    ( "workflow preview/apply + idempotent retry",
+    ( "workflow preview/apply fails closed",
       `Quick,
-      test_workflow_preview_apply_idempotent );
+      test_workflow_preview_apply_fails_closed );
     ( "workflow apply requires live when staged",
       `Quick,
       test_workflow_apply_requires_live_when_staged );
-    ( "webhook reconciliation with user receipt",
+    ( "workflow Issue apply creates no correlation",
       `Quick,
-      test_webhook_reconciliation_with_user_receipt );
+      test_workflow_issue_apply_creates_no_correlation );
     ( "PR close lifecycle user_required",
       `Quick,
       test_pr_close_lifecycle_user_required );

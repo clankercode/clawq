@@ -170,7 +170,8 @@ let test_apply_fails_closed_without_dispatcher () =
       Alcotest.(check string)
         "reason" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (contains message "dispatcher")
 
 (* 4. submit_review denied when pilot off at preview *)
@@ -279,7 +280,8 @@ let test_request_reviewers_preview_apply () =
       Alcotest.(check string)
         "reason" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (contains message "dispatcher")
 
 let suite =

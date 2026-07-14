@@ -5045,6 +5045,102 @@ let test_history_delta_tokens_tool_only () =
     "counts tool-only delta" (Some expected) estimated;
   Alcotest.(check bool) "tool result tokens > 0" true (expected > 0)
 
+let test_github_room_grounding_is_turn_local () =
+  let seen_requests = ref [] in
+  let handle_request ~stream:_ ~messages ~json:_ =
+    seen_requests := List.map Yojson.Safe.to_string messages :: !seen_requests;
+    Fake_text "ok"
+  in
+  with_fake_openai_provider ~handle_request (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          Github_event_history_index.ensure_schema db;
+          Github_room_event_journal.ensure_schema db;
+          Github_item_projection.ensure_schema db;
+          let envelope : Github_event_envelope.t =
+            {
+              version = Github_event_envelope.envelope_version;
+              delivery_id = Some "grounding-42";
+              installation_id = Some 99;
+              event = "pull_request";
+              action = Some "opened";
+              repo_full_name = "acme/widget";
+              org = Some "acme";
+              item_kind = Some Github_event_envelope.Pull_request;
+              item_number = Some 42;
+              item_node_id = None;
+              item_url = None;
+              html_url = None;
+              family = Github_event_envelope.Lifecycle;
+              actor = Github_event_envelope.empty_actor;
+              item_author = None;
+              before = None;
+              after =
+                Some
+                  {
+                    Github_event_envelope.empty_safe_state with
+                    title = Some "Grounded PR";
+                    state = Some "open";
+                  };
+              transfer = None;
+              received_at = None;
+              event_at = Some "2024-01-01T00:00:00Z";
+              head_sha = None;
+              unsupported = false;
+              skip_reason = None;
+            }
+          in
+          let entry =
+            match
+              Github_room_event_journal.append ~db ~room_id:"room-a" ~envelope
+                ~now:1_700_000_000. ()
+            with
+            | Ok entry -> entry
+            | Error error -> Alcotest.fail error
+          in
+          (match Github_item_projection.reduce_entry ~db ~entry () with
+          | Ok _ -> ()
+          | Error error -> Alcotest.fail error);
+          let mgr = Session.create ~config ~db () in
+          ignore
+            (Lwt_main.run
+               (Session.turn mgr ~key:"teams:room-a:thread"
+                  ~message:"what is the status?" ~channel:"teams"
+                  ~channel_id:"room-a" ~message_id:"grounding-42" ()));
+          let first =
+            match !seen_requests with
+            | request :: _ -> String.concat "\n" request
+            | [] -> Alcotest.fail "provider did not receive first turn"
+          in
+          let contains haystack needle =
+            let rec go index =
+              if index + String.length needle > String.length haystack then
+                false
+              else if String.sub haystack index (String.length needle) = needle
+              then true
+              else go (index + 1)
+            in
+            go 0
+          in
+          Alcotest.(check bool)
+            "thread ref reaches provider grounding" true
+            (contains first "[github_collab_grounding]"
+            && contains first "pr:acme/widget:42");
+          ignore
+            (Lwt_main.run
+               (Session.turn mgr ~key:"teams:room-a:thread" ~message:"hello"
+                  ~channel:"teams" ~channel_id:"room-b" ()));
+          let second =
+            match !seen_requests with
+            | request :: _ -> String.concat "\n" request
+            | [] -> Alcotest.fail "provider did not receive second turn"
+          in
+          Alcotest.(check bool)
+            "prior Room item is not persisted" false
+            (contains second "pr:acme/widget:42")))
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -5302,6 +5398,8 @@ let suite =
       test_history_delta_tokens_includes_tool_results;
     Alcotest.test_case "history delta tokens tool only" `Quick
       test_history_delta_tokens_tool_only;
+    Alcotest.test_case "github Room grounding is turn local" `Quick
+      test_github_room_grounding_is_turn_local;
     Alcotest.test_case "drain progress callbacks fire for queued messages"
       `Quick test_drain_progress_callbacks_fire_for_queued_messages;
     Alcotest.test_case "drain progress not called when no queued messages"

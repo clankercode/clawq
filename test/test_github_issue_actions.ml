@@ -324,7 +324,8 @@ let test_workflow_apply_receipt_path () =
       Alcotest.(check string)
         "apply_error" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (Test_helpers.string_contains message "dispatcher")
   | Setup_plan_apply.Applied _ ->
       Alcotest.fail "apply must fail closed until a live dispatcher exists");
@@ -332,14 +333,14 @@ let test_workflow_apply_receipt_path () =
   let plan2 =
     assert_ok
       (W.preview ~db ~principal ~room_id ~action:(W.Issue close_action)
-         ~base_revision ~route ~issue_pilot:pilot_on
-         ~user_auth_available:false ~now:(fixed_now +. 2.) ())
+         ~base_revision ~route ~issue_pilot:pilot_on ~user_auth_available:false
+         ~now:(fixed_now +. 2.) ())
   in
   (match
      assert_ok
-       (W.apply_confirmed ~db ~plan_id:plan2.id
-          ~digest:"deadbeef_wrong_digest" ~principal
-          ~current_base_revision:base_revision ~now:(fixed_now +. 2.) ())
+       (W.apply_confirmed ~db ~plan_id:plan2.id ~digest:"deadbeef_wrong_digest"
+          ~principal ~current_base_revision:base_revision ~now:(fixed_now +. 2.)
+          ())
    with
   | Setup_plan_apply.Rejected { reason; _ } ->
       Alcotest.(check string)
@@ -351,14 +352,13 @@ let test_workflow_apply_receipt_path () =
     assert_ok
       (W.preview ~db ~principal ~room_id
          ~action:(W.Issue (A.Reopen { item_key; comment = None }))
-         ~base_revision ~route ~issue_pilot:pilot_on
-         ~user_auth_available:false ~now:(fixed_now +. 3.) ())
+         ~base_revision ~route ~issue_pilot:pilot_on ~user_auth_available:false
+         ~now:(fixed_now +. 3.) ())
   in
   match
     assert_ok
-      (W.apply_confirmed ~db ~plan_id:plan3.id ~digest:plan3.digest
-         ~principal ~current_base_revision:"rev-stale"
-         ~now:(fixed_now +. 3.) ())
+      (W.apply_confirmed ~db ~plan_id:plan3.id ~digest:plan3.digest ~principal
+         ~current_base_revision:"rev-stale" ~now:(fixed_now +. 3.) ())
   with
   | Setup_plan_apply.Rejected { reason; _ } ->
       Alcotest.(check string)

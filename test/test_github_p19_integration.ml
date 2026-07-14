@@ -445,7 +445,8 @@ let test_action_families_collab_and_pilot_denies () =
       Alcotest.(check string)
         "apply_error" "apply_error"
         (Setup_plan_apply.string_of_reject_reason reason);
-      Alcotest.(check bool) "mentions dispatcher" true
+      Alcotest.(check bool)
+        "mentions dispatcher" true
         (contains message "dispatcher"));
 
   (* Review submit denied when pilot off (default gate). *)

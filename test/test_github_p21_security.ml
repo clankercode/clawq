@@ -5,8 +5,8 @@
     - lease refuse of every non-HTTP surface (runner env, process env, shell,
       Git transport, worktree, prompt, tool data, job payload, crash output,
       scheduled ambient)
-    - concurrent refresh single-flight (one remote; waiters/joiners never open
-      a second refresh)
+    - concurrent refresh single-flight (one remote; waiters/joiners never open a
+      second refresh)
     - process restart drops process-local leases while sealed vault survives
     - private delivery redaction (no auth URL / device codes / tokens in Room
       messages, refuse errors, redacted JSON, or crash-shaped surfaces)
@@ -39,7 +39,6 @@ let client_secret_plain = "gh_client_secret_P21_SEC_NEVER_LOG"
 let client_id_plain = "Iv1.clientid_p21_sec"
 let client_id_handle = "handle_client_p21_sec"
 let resolve_ok ~client_id_handle:_ = Ok (client_id_plain, client_secret_plain)
-
 let fixed_now = 1_785_600_000.0
 let far_expires = "2026-12-01T00:00:00Z"
 
@@ -149,7 +148,8 @@ let make_http ~expected_refresh ~body () =
     else if not (String_util.contains req_body ("client_id=" ^ client_id_plain))
     then Error "missing client_id"
     else if
-      (not (String_util.contains req_body ("refresh_token=" ^ expected_refresh)))
+      (not
+         (String_util.contains req_body ("refresh_token=" ^ expected_refresh)))
       && not (String_util.contains req_body (Uri.pct_encode expected_refresh))
     then
       (* still accept when form-encoded variant differs but secret present *)
@@ -216,7 +216,8 @@ let test_lease_refuse_all_non_http_surfaces () =
       | Error (L.Forbidden_surface msg) ->
           secrets_absent msg;
           Alcotest.(check bool)
-            (name ^ " message names surface") true
+            (name ^ " message names surface")
+            true
             (contains msg name || String.length msg > 0)
       | Error d -> Alcotest.fail (L.string_of_denial d)
       | Ok () -> Alcotest.fail (name ^ " must refuse"))
@@ -244,10 +245,8 @@ let test_dirty_execution_surfaces_refused_and_scanned () =
   let access = sample_tokens.access_token in
   let dirty_materials =
     [
-      ( L.Runner_env,
-        Printf.sprintf "GH_TOKEN=%s CLAWQ_RUNNER=1" access );
-      ( L.Process_env,
-        Printf.sprintf "GITHUB_TOKEN=%s PATH=/usr/bin" access );
+      (L.Runner_env, Printf.sprintf "GH_TOKEN=%s CLAWQ_RUNNER=1" access);
+      (L.Process_env, Printf.sprintf "GITHUB_TOKEN=%s PATH=/usr/bin" access);
       (L.Shell, Printf.sprintf "export GITHUB_TOKEN=%s && git push" access);
       ( L.Git_transport,
         Printf.sprintf "https://x-access-token:%s@github.com/acme/w.git" access
@@ -256,10 +255,8 @@ let test_dirty_execution_surfaces_refused_and_scanned () =
       (L.Prompt, "Reply using bearer " ^ access);
       (L.Tool_data, Yojson.Safe.to_string (`Assoc [ ("token", `String access) ]));
       (L.Job_payload, Printf.sprintf {|{"access":"%s"}|} access);
-      ( L.Crash_output,
-        Printf.sprintf "Fatal: Authorization: Bearer %s" access );
-      ( L.Scheduled_ambient,
-        Printf.sprintf "ambient refresh with %s" access );
+      (L.Crash_output, Printf.sprintf "Fatal: Authorization: Bearer %s" access);
+      (L.Scheduled_ambient, Printf.sprintf "ambient refresh with %s" access);
     ]
   in
   List.iter
@@ -398,7 +395,8 @@ let test_concurrent_refresh_single_flight () =
       | Ok tok ->
           Alcotest.(check string) "committed token only" new_access tok;
           secrets_absent (L.string_of_identity (L.identity_of lease));
-          secrets_absent ~extra:[ new_access; new_refresh ]
+          secrets_absent
+            ~extra:[ new_access; new_refresh ]
             (Yojson.Safe.to_string (L.to_json lease))
       | Error d -> Alcotest.fail (L.string_of_denial d))
 
@@ -493,8 +491,8 @@ let test_restart_drops_process_local_leases () =
           Alcotest.(check string)
             "sealed vault survives" sample_tokens.access_token
             opened.tokens.access_token;
-          Alcotest.(check int) "generation retained" pre_gen
-            opened.record.generation;
+          Alcotest.(check int)
+            "generation retained" pre_gen opened.record.generation;
           Alcotest.(check bool) "still active" true opened.record.active);
       (* Pre-restart handle is not registered; revoke_handle is a no-op. *)
       (match L.handle_of_string pre_handle with
@@ -530,7 +528,7 @@ let auth_url_with_token_shaped_state =
     (D.make_authorization_url
        ~url:
          ("https://github.com/login/oauth/authorize?client_id=Iv1.p21sec&state="
-         ^ sample_tokens.access_token))
+        ^ sample_tokens.access_token))
 
 let device_codes =
   assert_ok
@@ -547,8 +545,7 @@ let delivery_ctx () =
        ~source:(Tx.Room "room-shared-p21-sec") ~flow_kind:Tx.Web_pkce ())
 
 let dm_channel () =
-  assert_ok
-    (D.make_private_connector_dm ~connector:P.Teams ~handle_id:"dm:ada")
+  assert_ok (D.make_private_connector_dm ~connector:P.Teams ~handle_id:"dm:ada")
 
 let test_private_delivery_room_redaction () =
   let ctx = delivery_ctx () in
@@ -612,7 +609,8 @@ let test_private_delivery_room_redaction () =
             (contains rb.rendered "WXYZ-9876");
           secrets_absent rb.rendered;
           Alcotest.(check bool)
-            "room safe" true (D.room_message_is_safe rb.rendered))
+            "room safe" true
+            (D.room_message_is_safe rb.rendered))
   | other -> (
       match other with
       | D.Room_progress rb -> Alcotest.fail ("device dump: " ^ rb.rendered)

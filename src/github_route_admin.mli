@@ -116,5 +116,5 @@ val apply_route_ops :
 (** Domain adapter for [Setup_plan_apply.apply]. [Github_route] plans interpret
     route create/update/disable/remove ops; verified [Github_app_setup] plans
     recheck transaction/receipt/installation identity, attach Room-managed
-    access when applicable, and persist activation. Both paths are idempotent
-    on retry with the same plan/receipt. *)
+    access when applicable, and persist activation. Both paths are idempotent on
+    retry with the same plan/receipt. *)

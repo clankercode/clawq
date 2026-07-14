@@ -383,7 +383,6 @@ let known_pr_fields =
   ]
 
 let known_issue_fields = [ "labels"; "author"; "team"; "assignee"; "milestone" ]
-
 let known_match_fields = [ "op"; "value"; "values" ]
 
 let reject_unknown ~ctx ~known fields =
@@ -394,7 +393,7 @@ let reject_unknown ~ctx ~known fields =
           Error
             (Printf.sprintf "%s rejects raw JSON predicates (forbidden key %S)"
                ctx k)
-        (* Parsed objects are subsequently read with exact [member] lookups.
+          (* Parsed objects are subsequently read with exact [member] lookups.
            Only canonical field names can pass validation; accepting a
            case- or whitespace-variant would otherwise drop its value. *)
         else if not (List.mem k known) then
@@ -413,29 +412,29 @@ let parse_set_match ~field j : (set_match, string) result =
   | `Assoc fields -> (
       match reject_unknown ~ctx:field ~known:known_match_fields fields with
       | Error e -> Error e
-      | Ok () ->
-        let op_s =
-          match member "op" j with
-          | `String s -> s
-          | `Null ->
-              (* Shorthand: {"values":[...]} means in *)
-              "in"
-          | _ -> ""
-        in
-        let values_j =
-          match member "values" j with
-          | `Null -> (
-              match member "value" j with
-              | `String s -> `List [ `String s ]
-              | `List _ as l -> l
-              | `Null -> member "values" j
-              | other -> `List [ other ])
-          | other -> other
-        in
-        match (set_op_of_string op_s, string_list_of_json values_j) with
-        | Error e, _ -> Error (field ^ ": " ^ e)
-        | _, Error e -> Error (field ^ ": " ^ e)
-        | Ok op, Ok values -> validate_set_match ~field { op; values })
+      | Ok () -> (
+          let op_s =
+            match member "op" j with
+            | `String s -> s
+            | `Null ->
+                (* Shorthand: {"values":[...]} means in *)
+                "in"
+            | _ -> ""
+          in
+          let values_j =
+            match member "values" j with
+            | `Null -> (
+                match member "value" j with
+                | `String s -> `List [ `String s ]
+                | `List _ as l -> l
+                | `Null -> member "values" j
+                | other -> `List [ other ])
+            | other -> other
+          in
+          match (set_op_of_string op_s, string_list_of_json values_j) with
+          | Error e, _ -> Error (field ^ ": " ^ e)
+          | _, Error e -> Error (field ^ ": " ^ e)
+          | Ok op, Ok values -> validate_set_match ~field { op; values }))
   | `String s ->
       (* Shorthand single value → eq *)
       validate_set_match ~field { op = `Eq; values = [ s ] }
@@ -456,24 +455,24 @@ let parse_glob_match ~field j : (glob_match, string) result =
   | `Assoc fields -> (
       match reject_unknown ~ctx:field ~known:known_match_fields fields with
       | Error e -> Error e
-      | Ok () ->
-        let op_s =
-          match member "op" j with `String s -> s | `Null -> "in" | _ -> ""
-        in
-        let values_j =
-          match member "values" j with
-          | `Null -> (
-              match member "value" j with
-              | `String s -> `List [ `String s ]
-              | `List _ as l -> l
-              | `Null -> member "values" j
-              | other -> `List [ other ])
-          | other -> other
-        in
-        match (glob_op_of_string op_s, string_list_of_json values_j) with
-        | Error e, _ -> Error (field ^ ": " ^ e)
-        | _, Error e -> Error (field ^ ": " ^ e)
-        | Ok op, Ok values -> validate_glob_match ~field { op; values })
+      | Ok () -> (
+          let op_s =
+            match member "op" j with `String s -> s | `Null -> "in" | _ -> ""
+          in
+          let values_j =
+            match member "values" j with
+            | `Null -> (
+                match member "value" j with
+                | `String s -> `List [ `String s ]
+                | `List _ as l -> l
+                | `Null -> member "values" j
+                | other -> `List [ other ])
+            | other -> other
+          in
+          match (glob_op_of_string op_s, string_list_of_json values_j) with
+          | Error e, _ -> Error (field ^ ": " ^ e)
+          | _, Error e -> Error (field ^ ": " ^ e)
+          | Ok op, Ok values -> validate_glob_match ~field { op; values }))
   | `String s -> validate_glob_match ~field { op = `Eq; values = [ s ] }
   | `List _ as l -> (
       match string_list_of_json l with
@@ -495,27 +494,29 @@ let parse_draft ~field j : (bool, string) result =
       | Error e -> Error e
       | Ok () -> (
           match member "op" j with
-      | `String s
-        when let s = String.lowercase_ascii (String.trim s) in
-             s = "is" || s = "eq" || s = "=" || s = "==" -> (
-          match member "value" j with
-          | `Bool b -> Ok b
+          | `String s
+            when let s = String.lowercase_ascii (String.trim s) in
+                 s = "is" || s = "eq" || s = "=" || s = "==" -> (
+              match member "value" j with
+              | `Bool b -> Ok b
+              | `Null -> (
+                  match member "values" j with
+                  | `List [ `Bool b ] -> Ok b
+                  | _ ->
+                      Error
+                        (field ^ ": draft requires boolean value with op \"is\"")
+                  )
+              | _ -> Error (field ^ ": draft value must be boolean"))
+          | `String s ->
+              Error
+                (Printf.sprintf
+                   "%s: draft only supports operator \"is\", got %S" field s)
           | `Null -> (
-              match member "values" j with
-              | `List [ `Bool b ] -> Ok b
+              match member "value" j with
+              | `Bool b -> Ok b
               | _ ->
-                  Error (field ^ ": draft requires boolean value with op \"is\"")
-              )
-          | _ -> Error (field ^ ": draft value must be boolean"))
-      | `String s ->
-          Error
-            (Printf.sprintf "%s: draft only supports operator \"is\", got %S"
-               field s)
-      | `Null -> (
-          match member "value" j with
-          | `Bool b -> Ok b
-          | _ ->
-              Error (field ^ ": draft requires {\"op\":\"is\",\"value\":bool}"))
+                  Error
+                    (field ^ ": draft requires {\"op\":\"is\",\"value\":bool}"))
           | _ -> Error (field ^ ": draft op must be string \"is\"")))
   | _ ->
       Error (field ^ ": draft must be boolean or {\"op\":\"is\",\"value\":bool}")
