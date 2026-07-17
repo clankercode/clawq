@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-07-17T14:12:03Z"
+depends_on: []
+estimate_hours: 1
+id: B781
+priority: high
+status: pending
+tags: []
+title: service holds inherited dune-throttle slot fd for its lifetime (machine-wide build starvation)
+updated_at: "2026-07-17T14:12:03Z"
+---
+Evidence: /home/xertrov/src/clawq/_build/default/src/main.exe service start (pid 3493673, up ~2 days) holds a flock on ~/.cache/dune-throttle/slots/slot.0 (verified via lslocks 2026-07-17). The dune-throttle shim (~/.opam/*/bin/dune) acquires build slots as fd-based flocks with the fd inherited across exec; any daemon launched directly or indirectly from a build/test action inherits the slot fd and pins it forever. With only 2 slots configured, clawq's service permanently consumed 50% of the machine's dune build capacity — this contributed to a c2c test-suite deadlock (nested dune build starved of slots; see c2c finding 2026-07-17T13-19-44Z). Root cause on clawq's side: the service does not sanitize inherited file descriptors when it daemonizes. Fix options: (a) at service/daemon start, close all fds above 2 that are not explicitly needed (or set FD_CLOEXEC on everything early in main); (b) document that the service must be started from a clean environment (e.g. systemd unit, or 'service start' re-execs itself with sanitized fds); (c) defensively, also close-on-exec for any fds clawq opens before spawning children. Companion fix belongs to dune-throttle itself (should use flock -o / CLOEXEC), tracked separately in c2c's notes. Reference: ~/.llm-general/unix/flock-correct-usage.md footgun table row 1.

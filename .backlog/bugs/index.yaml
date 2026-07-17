@@ -774,3 +774,4 @@ bugs:
     - file: B778-room-scoped-cron-jobs-lack-pre.todo
     - file: B779-add-low-volume-mode-for-rooms.todo
     - file: B780-make-teams-room-teams-personal.todo
+    - file: B781-service-holds-inherited-dune-t.todo
