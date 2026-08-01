@@ -134,6 +134,8 @@ routed only through the configured Bot Framework service URL.
 ```
 clawq notify --channel telegram --target CHAT_ID [--account NAME] [--parse-mode MODE] MESSAGE...
 clawq notify --channel teams --target CONVERSATION_ID [--parse-mode Markdown] MESSAGE...
+clawq notify --channel telegram --list-targets [--account NAME]
+clawq notify --channel teams --list-targets
 ```
 
 Telegram parse modes are `HTML`, `Markdown`, and `MarkdownV2`. Account
@@ -141,6 +143,13 @@ selection prefers the configured `main` account, then a sole configured
 account; use `--account` when multiple non-`main` accounts exist. Teams uses
 the configured Bot Framework credentials and service URL and supports Markdown
 messages.
+
+`--list-targets` enumerates available chat/channel targets instead of sending a
+message. Telegram discovery uses `getUpdates` and lists recent chats the bot has
+interacted with (it cannot see chats that have never messaged the bot); a webhook
+or a running agent daemon's long-poll will conflict with `getUpdates`, so stop the
+agent or remove the webhook first. Teams discovery lists conversations the bot has
+been added to via the Bot Framework API.
 
 ### `clawq memory`
 
