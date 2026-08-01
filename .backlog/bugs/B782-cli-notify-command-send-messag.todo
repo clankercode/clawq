@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-08-01T15:20:53Z"
+depends_on: []
+estimate_hours: 1
+id: B782
+priority: medium
+status: pending
+tags: []
+title: 'CLI notify command: send messages via Telegram/Teams from command line'
+updated_at: "2026-08-01T15:20:53Z"
+---
+Add a clawq CLI command (e.g. `clawq notify` or `clawq send`) that lets the user push a message to a configured Telegram chat or Teams channel from the shell. Use cases: alerting from scripts, cron jobs, CI pipelines, quick one-off pings without opening a chat session. Should support specifying target channel/user, message text, and optional parse mode. Should reuse existing connector delivery infrastructure.
