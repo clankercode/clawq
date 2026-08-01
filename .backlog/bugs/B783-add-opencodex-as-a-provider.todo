@@ -1,0 +1,27 @@
+---
+complexity: medium
+created_at: "2026-08-01T15:23:57Z"
+depends_on: []
+estimate_hours: 1
+id: B783
+priority: high
+status: pending
+tags: []
+title: Add OpenCodex as a provider
+updated_at: "2026-08-01T15:23:57Z"
+---
+Add support for OpenCodex as an inference provider in clawq. OpenCodex is a LAN proxy (cachy.lan:10100) that serves the OpenAI Responses/Chat Completions API and translates to any upstream provider.
+
+Key details:
+- Endpoint: http://cachy.lan:10100/v1 (or http://10.100.1.2:10100/v1)
+- Auth: requires x-opencodex-api-key header, sourced from ~/.opencodex/api-token (ocx_... prefix) via OPENCODEX_API_AUTH_TOKEN env var
+- Wire API: OpenAI Responses API (responses_http, NOT responses_websocket)
+- The proxy routes to multiple upstream models (gpt-*, xai/grok-*, etc.)
+
+Implementation considerations:
+- New provider type or generic OpenAI-compatible with custom header injection
+- Config: base_url, api-key path or env var mapping, wire_api selection
+- Token file discovery: ~/.opencodex/api-token with fallback to env var
+- Reuse existing OpenAI Responses API adapter (src/RESPONSES_API_REQUIREMENTS.md) with custom auth header
+- should NOT use websocket transport (supports_websockets = false)
+- See ~/lan-swarm/codex-opencodex-setup.md for full architecture and pitfall docs
