@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-08-01T16:15:26Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-01T17:05:52Z"
 complexity: medium
 created_at: "2026-08-01T15:23:57Z"
 depends_on: []
+duration_minutes: 50.44889397186667
 estimate_hours: 1
 id: B783
 priority: high
 started_at: "2026-08-01T16:15:26Z"
-status: in_progress
+status: done
 tags: []
 title: Add OpenCodex as a provider
-updated_at: "2026-08-01T16:15:26Z"
+updated_at: "2026-08-01T17:05:52Z"
 ---
 Add support for OpenCodex as an inference provider in clawq. OpenCodex is a LAN proxy (cachy.lan:10100) that serves the OpenAI Responses/Chat Completions API and translates to any upstream provider.
 
