@@ -777,3 +777,4 @@ bugs:
     - file: B781-service-holds-inherited-dune-t.todo
     - file: B782-cli-notify-command-send-messag.todo
     - file: B783-add-opencodex-as-a-provider.todo
+    - file: B784-notify-add-list-targets-flag-t.todo
