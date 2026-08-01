@@ -1,14 +1,18 @@
 ---
+claimed_at: "2026-08-01T17:14:34Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-08-01T17:13:39Z"
 depends_on: []
 estimate_hours: 1
 id: B784
 priority: low
-status: pending
+started_at: "2026-08-01T17:14:34Z"
+status: in_progress
 tags: []
 title: 'Notify: add --list-targets flag to enumerate available chat/channel targets'
-updated_at: "2026-08-01T17:13:39Z"
+updated_at: "2026-08-01T17:14:34Z"
 ---
 The notify command currently requires knowing the target chat ID or conversation ID ahead of time. Add a --list-targets flag that discovers and lists available targets for each channel type:
 
