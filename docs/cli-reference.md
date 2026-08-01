@@ -125,6 +125,23 @@ clawq channel show-model <channel>               Show per-channel default model
 clawq channel clear-model <channel>              Clear per-channel model (inherits global)
 ```
 
+### `clawq notify`
+
+Send one outbound message through a configured connector without starting an
+agent turn. Telegram targets are chat IDs; Teams targets are conversation IDs
+routed only through the configured Bot Framework service URL.
+
+```
+clawq notify --channel telegram --target CHAT_ID [--account NAME] [--parse-mode MODE] MESSAGE...
+clawq notify --channel teams --target CONVERSATION_ID [--parse-mode Markdown] MESSAGE...
+```
+
+Telegram parse modes are `HTML`, `Markdown`, and `MarkdownV2`. Account
+selection prefers the configured `main` account, then a sole configured
+account; use `--account` when multiple non-`main` accounts exist. Teams uses
+the configured Bot Framework credentials and service URL and supports Markdown
+messages.
+
 ### `clawq memory`
 
 Show memory backend configuration.

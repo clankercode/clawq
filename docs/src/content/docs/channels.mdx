@@ -148,6 +148,10 @@ Or manually:
 - **Thinking format** --- when `show_thinking` is enabled, thinking blocks
   are rendered as blockquote + italic (`> _thinking..._`) for a clean
   Telegram display.
+- **One-shot outbound delivery** --- `clawq notify --channel telegram --target
+  CHAT_ID MESSAGE...` sends directly through a configured bot without starting
+  an agent turn. Use `--account NAME` for multi-account setups and optional
+  `--parse-mode HTML|Markdown|MarkdownV2` for formatted messages.
 
 ### How It Works
 
@@ -656,6 +660,11 @@ clawq channel              # confirm teams shows as configured
   first 25 KB as truncated text.
 - **Notification suppression** --- tool status messages (thinking indicators,
   tool call updates) do not trigger Teams notifications; only final replies do.
+- **One-shot outbound delivery** --- `clawq notify --channel teams --target
+  CONVERSATION_ID MESSAGE...` sends through the configured Bot Framework
+  credentials and service URL without starting an agent turn. The target
+  cannot override the configured service URL; the optional parse mode is
+  `Markdown`.
 
 See the [Microsoft Teams bot documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots) and the [Bot Framework authentication guide](https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication) for full details.
 

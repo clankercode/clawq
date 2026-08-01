@@ -41,6 +41,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `channel set-model NAME MODEL` | Set a channel-specific default model that overrides the global primary_model for that channel |
 | `channel show-model NAME` | Show the current model for a channel (channel override or global default) |
 | `channel clear-model NAME` | Clear a channel's model override so it inherits the global default |
+| `notify --channel telegram\|teams --target TARGET [--account NAME] [--parse-mode MODE] MESSAGE...` | Send one outbound connector message without starting an agent turn |
 | `config wizard` | Interactive TUI wizard for all settings |
 | `config set KEY VALUE` | Set a config value by dot-path |
 | `config get KEY` | Read a config value by dot-path |
@@ -1180,6 +1181,23 @@ Progress updates are only dispatched for Slack, Teams, and Discord. All other co
 | iMessage | Local Messages database polling on macOS | Implemented |
 | OneBot | OneBot websocket/HTTP integration | Implemented |
 | MS Teams | Bot Framework webhook at configurable path (default /teams/webhook) | Implemented |
+
+### One-shot outbound delivery
+
+`clawq notify` sends directly through an already configured Telegram or Teams
+connector. It does not start an agent turn or require the daemon to be running.
+
+```bash
+clawq notify --channel telegram --target CHAT_ID [--account NAME] [--parse-mode HTML|Markdown|MarkdownV2] MESSAGE...
+clawq notify --channel teams --target CONVERSATION_ID [--parse-mode Markdown] MESSAGE...
+```
+
+Telegram uses the named account, the `main` account, or the sole configured
+account in that order. Teams reuses `channels.teams` Bot Framework credentials
+and `service_url`; the target is a conversation ID and cannot override the
+configured service URL. Success prints the target and connector. Invalid
+configuration, unsupported parse modes, and delivery failures exit nonzero
+with an actionable error.
 
 ### Voice Transcription (All Channels)
 

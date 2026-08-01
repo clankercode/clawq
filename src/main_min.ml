@@ -52,6 +52,7 @@ let active_cmd =
     "Show active 5-hour window usage (requires full clawq binary)."
 
 let channel_cmd = simple "channel" "List configured channels."
+let notify_cmd = disabled "notify" "Send a one-off connector message"
 let memory_cmd = simple "memory" "Show memory backend configuration."
 let workspace_cmd = simple "workspace" "Print the current workspace directory."
 let capabilities_cmd = simple "capabilities" "List active runtime capabilities."
@@ -329,6 +330,7 @@ let () =
       usage_cmd;
       active_cmd;
       channel_cmd;
+      notify_cmd;
       memory_cmd;
       workspace_cmd;
       capabilities_cmd;

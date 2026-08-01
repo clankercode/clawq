@@ -60,6 +60,70 @@ let channel_cmd =
   with_args "channel" "List configured channels or test a channel connection."
     []
 
+let notify_cmd =
+  let channel =
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "channel" ] ~docv:"CHANNEL"
+          ~doc:"Configured connector to use: telegram or teams.")
+  in
+  let target =
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "target" ] ~docv:"TARGET"
+          ~doc:
+            "Destination chat ID (Telegram) or conversation ID (Teams).")
+  in
+  let account =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "account" ] ~docv:"ACCOUNT"
+          ~doc:
+            "Telegram account name. Defaults to main, or the sole configured \
+             account.")
+  in
+  let parse_mode =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "parse-mode" ] ~docv:"MODE"
+          ~doc:
+            "Message parse mode. Telegram: HTML, Markdown, or MarkdownV2. \
+             Teams: Markdown only.")
+  in
+  let message = required_rest_args "MESSAGE" in
+  let run_notify channel target account parse_mode message =
+    match Cli_notify.channel_of_string channel with
+    | Error message -> `Error (false, message)
+    | Ok channel -> (
+        let request : Cli_notify.request =
+          {
+            channel;
+            target;
+            account;
+            parse_mode;
+            message = String.concat " " message;
+          }
+        in
+        match Cli_notify.run request with
+        | Error message -> `Error (false, message)
+        | Ok () ->
+            Printf.printf "Message sent via %s to %s.\n%!"
+              (Cli_notify.channel_name channel)
+              target;
+            `Ok ())
+  in
+  Cmd.v
+    (Cmd.info "notify"
+       ~doc:
+         "Send one outbound message through a configured Telegram or Teams \
+          connector without starting an agent turn.")
+    Term.(
+      ret (const run_notify $ channel $ target $ account $ parse_mode $ message))
+
 let memory_cmd = simple "memory" "Show memory backend configuration."
 let workspace_cmd = simple "workspace" "Print the current workspace directory."
 
@@ -714,6 +778,7 @@ let () =
       active_cmd;
       provider_cmd;
       channel_cmd;
+      notify_cmd;
       memory_cmd;
       Main_session_cmds.session_cmd;
       workspace_cmd;

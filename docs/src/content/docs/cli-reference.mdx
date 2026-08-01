@@ -63,6 +63,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq channel set-model NAME MODEL` | Set a channel-specific default model (overrides global primary_model) |
 | `clawq channel show-model NAME` | Show the current model for a channel (channel override or global default) |
 | `clawq channel clear-model NAME` | Clear a channel's model override to inherit from global default |
+| `clawq notify --channel telegram\|teams --target TARGET [--account NAME] [--parse-mode MODE] MESSAGE...` | Send one connector message without starting an agent turn |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
 | `clawq cron` | Manage cron jobs for scheduled agent messages |
 | `clawq debug html-preview` | Preview HTML rendering |
@@ -274,6 +275,15 @@ clawq status           # check runtime status
 clawq models           # list providers and models
 clawq channel          # list active channels
 clawq capabilities     # list available features
+```
+
+Send a script-friendly one-off message through an already configured
+connector. Telegram accepts `HTML`, `Markdown`, or `MarkdownV2`; Teams accepts
+Markdown. `--account` selects a Telegram account when needed.
+
+```bash
+clawq notify --channel telegram --target 123456789 --parse-mode HTML '<b>Deploy complete</b>'
+clawq notify --channel teams --target 'conversation-id' 'Deploy complete'
 ```
 
 ### Background coding runs

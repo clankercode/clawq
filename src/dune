@@ -506,6 +506,7 @@
   update_pkg_manager
   update_tool
   command_bridge
+  cli_notify
   connector_dispatch
   slack_api
   slack

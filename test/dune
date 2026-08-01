@@ -181,6 +181,7 @@
   test_models_catalog
   test_model_discovery
   test_nostr
+  test_notify
   test_onebot
   test_openai_codex_oauth
   test_pairing

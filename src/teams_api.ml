@@ -413,6 +413,102 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
         in
         Lwt.return !last_id
 
+let activity_id_of_response response =
+  try
+    let json = Yojson.Safe.from_string response in
+    let open Yojson.Safe.Util in
+    try json |> member "id" |> to_string with _ -> ""
+  with _ -> ""
+
+(** Send every message chunk and report an error if any chunk fails. Unlike
+    [send_reply], this checked variant cannot turn a partial delivery into an
+    apparent success merely because a later chunk returned an activity ID. *)
+let send_reply_checked ?(alert = false) ?(fetch_token_fn = fetch_token)
+    ?(post_json_fn = post_json_throttled)
+    ~(config : Runtime_config.teams_config) ~service_url ~conversation_id
+    ~reply_to_id ~text ?mention () =
+  let open Lwt.Syntax in
+  if String.trim text = "" then
+    Lwt.return (Error "Teams delivery failed: message must not be empty.")
+  else if
+    service_url = ""
+    || not
+         (String.length service_url >= 8
+         && (String.sub service_url 0 8 = "https://"
+            || String.sub service_url 0 7 = "http://"))
+  then
+    Lwt.return
+      (Error
+         "Teams delivery failed: configured channels.teams.service_url must be \
+          an absolute HTTP(S) URL.")
+  else
+    let* token_opt = fetch_token_fn ~config in
+    match token_opt with
+    | None ->
+        Lwt.return
+          (Error
+             "Teams delivery failed: could not obtain an OAuth token. Check \
+              channels.teams.app_id, app_secret, and tenant_id, and verify the \
+              client secret has not expired.")
+    | Some token -> (
+        let chunks = split_message text in
+        let chunk_count = List.length chunks in
+        let last_id = ref "" in
+        let first_failure = ref None in
+        let* () =
+          Lwt_list.iteri_s
+            (fun index chunk ->
+              let uri =
+                build_reply_uri ~service_url ~conversation_id ~reply_to_id
+              in
+              let headers = [ ("Authorization", "Bearer " ^ token) ] in
+              let body =
+                build_reply_body ~alert ~text:chunk ~mention
+                  ~mention_mode:config.mention_mode
+              in
+              let* status, response =
+                post_json_fn ~conversation_id ~uri ~headers ~body
+              in
+              (if status < 200 || status >= 300 then begin
+                 if !first_failure = None then
+                   first_failure :=
+                     Some
+                       (Printf.sprintf "chunk %d of %d returned HTTP %d"
+                          (index + 1) chunk_count status);
+                 Logs.warn (fun m ->
+                     m "Teams: checked delivery failed (HTTP %d) conv=%s" status
+                       conversation_id)
+               end
+               else
+                 let activity_id = activity_id_of_response response in
+                 if activity_id = "" then begin
+                   if !first_failure = None then
+                     first_failure :=
+                       Some
+                         (Printf.sprintf
+                            "chunk %d of %d returned no activity ID" (index + 1)
+                            chunk_count);
+                   Logs.warn (fun m ->
+                       m
+                         "Teams: checked delivery returned no activity ID \
+                          conv=%s"
+                         conversation_id)
+                 end
+                 else last_id := activity_id);
+              Lwt.return_unit)
+            chunks
+        in
+        match !first_failure with
+        | None -> Lwt.return (Ok !last_id)
+        | Some failure ->
+            Lwt.return
+              (Error
+                 (Printf.sprintf
+                    "Teams delivery failed: %s. Check the target conversation \
+                     ID, configured channels.teams.service_url, credentials, \
+                     rate limits, and connector logs."
+                    failure)))
+
 let edit_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~activity_id ~text () =
   let open Lwt.Syntax in
@@ -799,6 +895,15 @@ let send_message ~(config : Runtime_config.teams_config) ~channel_id ~text =
   in
   send_reply ~config ~service_url:effective_service_url ~conversation_id
     ~reply_to_id:"" ~text ()
+
+let send_message_checked ?fetch_token_fn ?post_json_fn
+    ~(config : Runtime_config.teams_config) ~channel_id ~text () =
+  let service_url, conversation_id = decode_channel_id channel_id in
+  let effective_service_url =
+    if service_url = "" then config.service_url else service_url
+  in
+  send_reply_checked ?fetch_token_fn ?post_json_fn ~config
+    ~service_url:effective_service_url ~conversation_id ~reply_to_id:"" ~text ()
 
 let is_team_allowed ~(config : Runtime_config.teams_config) ~team_id =
   match config.allow_teams with [ "*" ] -> true | ids -> List.mem team_id ids

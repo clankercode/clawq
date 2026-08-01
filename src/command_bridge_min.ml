@@ -671,6 +671,7 @@ let handle args =
   | "usage" :: rest -> cmd_usage rest
   | "active" :: rest -> cmd_active rest
   | "channel" :: rest -> cmd_channel rest
+  | "notify" :: _ -> unsupported "notify"
   | "memory" :: _ -> cmd_memory ()
   | "workspace" :: rest -> cmd_workspace rest
   | "capabilities" :: _ -> cmd_capabilities ()
