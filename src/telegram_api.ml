@@ -266,6 +266,125 @@ let acknowledge_update ~bot_token ~update_id =
               "Failed to acknowledge Telegram update %d before restart: %s"
               update_id (Printexc.to_string exn))))
 
+type chat_summary = { chat_id : string; chat_type : string; title : string }
+
+(** Best-effort chat display name: title for groups/channels, first/last name
+    for private chats, the username handle as a last resort. *)
+let private_chat_display_name chat =
+  let open Yojson.Safe.Util in
+  let opt f = try Some (f chat) with _ -> None in
+  let title = opt (fun c -> c |> member "title" |> to_string) in
+  let first = opt (fun c -> c |> member "first_name" |> to_string) in
+  let last = opt (fun c -> c |> member "last_name" |> to_string) in
+  let username = opt (fun c -> c |> member "username" |> to_string) in
+  match title with
+  | Some t when t <> "" -> t
+  | _ -> (
+      match first with
+      | Some f -> ( match last with Some l -> f ^ " " ^ l | None -> f)
+      | None -> (
+          match username with Some u -> "@" ^ u | None -> "(untitled)"))
+
+(* Container paths that carry a "chat" object in a Telegram update. *)
+let chat_container_paths =
+  [
+    [ "message" ];
+    [ "edited_message" ];
+    [ "channel_post" ];
+    [ "edited_channel_post" ];
+    [ "my_chat_member" ];
+    [ "chat_member" ];
+    [ "callback_query"; "message" ];
+  ]
+
+let extract_chat_from_update update =
+  let open Yojson.Safe.Util in
+  let rec walk path json =
+    match path with
+    | [] -> Some json
+    | k :: rest ->
+        let child = member k json in
+        if child = `Null then None else walk rest child
+  in
+  List.find_map (fun path -> walk path update) chat_container_paths
+
+let description_of_body body =
+  try
+    Yojson.Safe.Util.(
+      Yojson.Safe.from_string body |> member "description" |> to_string)
+  with _ -> ""
+
+let list_chats_error_message ~status ~body =
+  let desc = description_of_body body in
+  let lower = String.lowercase_ascii desc in
+  let webhook_active =
+    status = 409 || String_util.contains_ci lower "webhook"
+  in
+  if String_util.contains_ci lower "conflict" && webhook_active then
+    "Telegram getUpdates failed: a webhook is active for this bot. Run `clawq \
+     channel test telegram` or remove the webhook (deleteWebhook) so \
+     --list-targets can enumerate recent chats."
+  else if status = 409 || String_util.contains lower "another getupdates" then
+    "Telegram getUpdates failed: another getUpdates instance (the clawq agent \
+     daemon) is running. Stop the agent (`clawq agent` / service) and retry."
+  else
+    Printf.sprintf "Telegram getUpdates failed (HTTP %d)%s." status
+      (if desc = "" then "" else ": " ^ desc)
+
+(** [list_chats ~bot_token] enumerates chats the bot has recently interacted
+    with by calling getUpdates (non-destructive: offset=0, timeout=0, does not
+    acknowledge consumed updates). Returns a deduplicated, chat-id-sorted list.
+    Fails with an actionable error when a webhook or another long-poller is
+    active. *)
+let list_chats ~bot_token =
+  let open Lwt.Syntax in
+  (* Broad allowed_updates so chat_member updates are included for discovery. *)
+  let allowed_updates =
+    "%5B%22message%22%2C%22edited_message%22%2C%22channel_post%22%2C%22edited_channel_post%22%2C%22callback_query%22%2C%22my_chat_member%22%2C%22chat_member%22%5D"
+  in
+  let uri =
+    Printf.sprintf "%s%s/getUpdates?offset=0&timeout=0&allowed_updates=%s"
+      !api_base bot_token allowed_updates
+  in
+  let* status, body =
+    Http_client.get_with_timeout ~timeout_s:30.0 ~uri ~headers:[]
+  in
+  if status < 200 || status >= 300 then
+    Lwt.return (Error (list_chats_error_message ~status ~body))
+  else
+    let json =
+      try Yojson.Safe.from_string body
+      with _ -> `Assoc [ ("result", `List []) ]
+    in
+    let open Yojson.Safe.Util in
+    let results = try json |> member "result" |> to_list with _ -> [] in
+    let seen = Hashtbl.create 16 in
+    let chats =
+      List.filter_map
+        (fun u ->
+          match extract_chat_from_update u with
+          | None -> None
+          | Some chat ->
+              let chat_id =
+                try chat |> member "id" |> to_int |> string_of_int
+                with _ -> ""
+              in
+              if chat_id = "" || Hashtbl.mem seen chat_id then None
+              else begin
+                Hashtbl.add seen chat_id ();
+                let chat_type =
+                  try chat |> member "type" |> to_string with _ -> "unknown"
+                in
+                Some
+                  { chat_id; chat_type; title = private_chat_display_name chat }
+              end)
+        results
+    in
+    let sorted =
+      List.sort (fun a b -> String.compare a.chat_id b.chat_id) chats
+    in
+    Lwt.return (Ok sorted)
+
 let telegram_max_message_len = 4096
 
 let telegram_delegate_prompt ~user_prompt =

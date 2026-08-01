@@ -229,6 +229,183 @@ let test_missing_connector_is_actionable () =
        (request Cli_notify.Telegram "99" "ping"))
   |> check_error_contains "Telegram is not configured"
 
+(* --- --list-targets discovery --- *)
+
+let tg_chat id chat_type title : Telegram_api.chat_summary =
+  { Telegram_api.chat_id = id; chat_type; title }
+
+let tm_conv id conv_type name : Teams_api.conversation_summary =
+  { Teams_api.conversation_id = id; conversation_type = conv_type; name }
+
+let check_list_error expected = function
+  | Ok _ -> Alcotest.failf "expected error containing %S, got success" expected
+  | Error message ->
+      Alcotest.(check bool)
+        "actionable error" true
+        (Test_helpers.string_contains message expected)
+
+let test_list_telegram_targets_resolves_main_account () =
+  let called_token = ref "" in
+  let list_telegram ~bot_token =
+    called_token := bot_token;
+    Lwt.return
+      (Ok [ tg_chat "123" "private" "Alice"; tg_chat "-100" "group" "Devs" ])
+  in
+  let cfg =
+    config
+      ~telegram:
+        (telegram_config
+           [
+             ("other", telegram_account "other-token");
+             ("main", telegram_account "main-token");
+           ])
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Cli_notify.list_targets ~list_telegram ~channel:Cli_notify.Telegram
+         ~config:cfg ())
+  in
+  (match result with
+  | Ok (Cli_notify.Telegram_targets ("main", chats)) ->
+      Alcotest.(check int) "two chats returned" 2 (List.length chats)
+  | _ -> Alcotest.fail "expected Telegram_targets for main account");
+  Alcotest.(check string) "used main account token" "main-token" !called_token
+
+let test_list_telegram_targets_uses_named_account () =
+  let called_token = ref "" in
+  let list_telegram ~bot_token =
+    called_token := bot_token;
+    Lwt.return (Ok [ tg_chat "9" "private" "Bob" ])
+  in
+  let cfg =
+    config
+      ~telegram:
+        (telegram_config
+           [
+             ("work", telegram_account "work-token");
+             ("home", telegram_account "home-token");
+           ])
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Cli_notify.list_targets ~list_telegram ~account:"home"
+         ~channel:Cli_notify.Telegram ~config:cfg ())
+  in
+  (match result with
+  | Ok (Cli_notify.Telegram_targets ("home", _)) -> ()
+  | _ -> Alcotest.fail "expected Telegram_targets for home account");
+  Alcotest.(check string) "used home account token" "home-token" !called_token
+
+let test_list_telegram_targets_requires_account_when_ambiguous () =
+  let cfg =
+    config
+      ~telegram:
+        (telegram_config
+           [ ("work", telegram_account "w"); ("home", telegram_account "h") ])
+      ()
+  in
+  Lwt_main.run
+    (Cli_notify.list_targets ~channel:Cli_notify.Telegram ~config:cfg ())
+  |> check_list_error "Specify --account"
+
+let test_list_telegram_targets_propagates_lister_error () =
+  let list_telegram ~bot_token:_ =
+    Lwt.return (Error "Telegram getUpdates failed: a webhook is active")
+  in
+  let cfg =
+    config
+      ~telegram:(telegram_config [ ("main", telegram_account "bot-token-abc") ])
+      ()
+  in
+  Lwt_main.run
+    (Cli_notify.list_targets ~list_telegram ~channel:Cli_notify.Telegram
+       ~config:cfg ())
+  |> check_list_error "webhook is active"
+
+let test_list_telegram_targets_unconfigured () =
+  Lwt_main.run
+    (Cli_notify.list_targets ~channel:Cli_notify.Telegram ~config:(config ()) ())
+  |> check_list_error "Telegram is not configured"
+
+let test_list_teams_targets () =
+  let list_teams ~config:_ =
+    Lwt.return
+      (Ok
+         [
+           tm_conv "conv-1" "personal" "Alice";
+           tm_conv "conv-2" "group" "Dev Team";
+         ])
+  in
+  let cfg = config ~teams:teams_config () in
+  let result =
+    Lwt_main.run
+      (Cli_notify.list_targets ~list_teams ~channel:Cli_notify.Teams ~config:cfg
+         ())
+  in
+  match result with
+  | Ok (Cli_notify.Teams_targets convs) ->
+      Alcotest.(check int) "two conversations returned" 2 (List.length convs)
+  | _ -> Alcotest.fail "expected Teams_targets"
+
+let test_list_teams_targets_propagates_lister_error () =
+  let list_teams ~config:_ =
+    Lwt.return (Error "Teams getConversations failed (HTTP 401).")
+  in
+  let cfg = config ~teams:teams_config () in
+  Lwt_main.run
+    (Cli_notify.list_targets ~list_teams ~channel:Cli_notify.Teams ~config:cfg
+       ())
+  |> check_list_error "HTTP 401"
+
+let test_list_teams_targets_unconfigured () =
+  Lwt_main.run
+    (Cli_notify.list_targets ~channel:Cli_notify.Teams ~config:(config ()) ())
+  |> check_list_error "Teams is not configured"
+
+let test_format_telegram_targets () =
+  let output =
+    Cli_notify.format_targets ~channel:Cli_notify.Telegram
+      (Cli_notify.Telegram_targets
+         ( "main",
+           [ tg_chat "12345" "private" "Alice"; tg_chat "-1001" "group" "Devs" ]
+         ))
+  in
+  Alcotest.(check bool)
+    "shows account" true
+    (Test_helpers.string_contains output "account: main");
+  Alcotest.(check bool)
+    "shows chat id" true
+    (Test_helpers.string_contains output "12345");
+  Alcotest.(check bool)
+    "shows title" true
+    (Test_helpers.string_contains output "Alice");
+  Alcotest.(check bool)
+    "shows count and usage" true
+    (Test_helpers.string_contains output "2 chat")
+
+let test_format_telegram_targets_empty () =
+  let output =
+    Cli_notify.format_targets ~channel:Cli_notify.Telegram
+      (Cli_notify.Telegram_targets ("main", []))
+  in
+  Alcotest.(check bool)
+    "guides toward getUpdates" true
+    (Test_helpers.string_contains output "getUpdates")
+
+let test_format_teams_targets () =
+  let output =
+    Cli_notify.format_targets ~channel:Cli_notify.Teams
+      (Cli_notify.Teams_targets [ tm_conv "c1" "personal" "Alice" ])
+  in
+  Alcotest.(check bool)
+    "shows conversation id" true
+    (Test_helpers.string_contains output "c1");
+  Alcotest.(check bool)
+    "shows count and usage" true
+    (Test_helpers.string_contains output "1 conversation")
+
 let suite =
   [
     Alcotest.test_case "channel parsing" `Quick test_channel_parsing;
@@ -254,4 +431,24 @@ let suite =
       test_teams_rejects_non_markdown_parse_mode;
     Alcotest.test_case "missing connector" `Quick
       test_missing_connector_is_actionable;
+    Alcotest.test_case "list targets: Telegram main account" `Quick
+      test_list_telegram_targets_resolves_main_account;
+    Alcotest.test_case "list targets: Telegram named account" `Quick
+      test_list_telegram_targets_uses_named_account;
+    Alcotest.test_case "list targets: Telegram ambiguous account" `Quick
+      test_list_telegram_targets_requires_account_when_ambiguous;
+    Alcotest.test_case "list targets: Telegram propagates error" `Quick
+      test_list_telegram_targets_propagates_lister_error;
+    Alcotest.test_case "list targets: Telegram unconfigured" `Quick
+      test_list_telegram_targets_unconfigured;
+    Alcotest.test_case "list targets: Teams" `Quick test_list_teams_targets;
+    Alcotest.test_case "list targets: Teams propagates error" `Quick
+      test_list_teams_targets_propagates_lister_error;
+    Alcotest.test_case "list targets: Teams unconfigured" `Quick
+      test_list_teams_targets_unconfigured;
+    Alcotest.test_case "format targets: Telegram" `Quick
+      test_format_telegram_targets;
+    Alcotest.test_case "format targets: Telegram empty" `Quick
+      test_format_telegram_targets_empty;
+    Alcotest.test_case "format targets: Teams" `Quick test_format_teams_targets;
   ]

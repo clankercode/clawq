@@ -70,11 +70,12 @@ let notify_cmd =
   in
   let target =
     Arg.(
-      required
+      value
       & opt (some string) None
       & info [ "target" ] ~docv:"TARGET"
           ~doc:
-            "Destination chat ID (Telegram) or conversation ID (Teams).")
+            "Destination chat ID (Telegram) or conversation ID (Teams). \
+             Optional with --list-targets.")
   in
   let account =
     Arg.(
@@ -94,35 +95,65 @@ let notify_cmd =
             "Message parse mode. Telegram: HTML, Markdown, or MarkdownV2. \
              Teams: Markdown only.")
   in
-  let message = required_rest_args "MESSAGE" in
-  let run_notify channel target account parse_mode message =
+  let list_targets =
+    Arg.(
+      value & flag
+      & info [ "list-targets" ]
+          ~doc:
+            "List available chat/channel targets for the channel instead of \
+             sending a message. Telegram accounts: [--account NAME].")
+  in
+  let message = rest_args "MESSAGE" in
+  let run_notify channel target account parse_mode list_targets message =
     match Cli_notify.channel_of_string channel with
-    | Error message -> `Error (false, message)
+    | Error msg -> `Error (false, msg)
     | Ok channel -> (
-        let request : Cli_notify.request =
-          {
-            channel;
-            target;
-            account;
-            parse_mode;
-            message = String.concat " " message;
-          }
-        in
-        match Cli_notify.run request with
-        | Error message -> `Error (false, message)
-        | Ok () ->
-            Printf.printf "Message sent via %s to %s.\n%!"
-              (Cli_notify.channel_name channel)
-              target;
-            `Ok ())
+        if list_targets then
+          match Cli_notify.run_list_targets ?account ~channel () with
+          | Error msg -> `Error (false, msg)
+          | Ok () -> `Ok ()
+        else
+          match target with
+          | Some t when String.trim t <> "" -> (
+              let message_text = String.trim (String.concat " " message) in
+              if message_text = "" then
+                `Error
+                  ( false,
+                    "MESSAGE is required when sending a message. Use \
+                     --list-targets to discover available targets." )
+              else
+                let request : Cli_notify.request =
+                  {
+                    channel;
+                    target = t;
+                    account;
+                    parse_mode;
+                    message = message_text;
+                  }
+                in
+                match Cli_notify.run request with
+                | Error msg -> `Error (false, msg)
+                | Ok () ->
+                    Printf.printf "Message sent via %s to %s.\n%!"
+                      (Cli_notify.channel_name channel)
+                      t;
+                    `Ok ())
+          | _ ->
+              `Error
+                ( false,
+                  "--target is required when sending a message. Use \
+                   --list-targets to discover available targets." ))
   in
   Cmd.v
     (Cmd.info "notify"
        ~doc:
          "Send one outbound message through a configured Telegram or Teams \
-          connector without starting an agent turn.")
+          connector without starting an agent turn. Use --list-targets to \
+          enumerate available chat/channel targets.")
     Term.(
-      ret (const run_notify $ channel $ target $ account $ parse_mode $ message))
+      ret
+        (const run_notify $ channel $ target $ account $ parse_mode
+       $ list_targets $ message))
 
 let memory_cmd = simple "memory" "Show memory backend configuration."
 let workspace_cmd = simple "workspace" "Print the current workspace directory."

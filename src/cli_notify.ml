@@ -203,3 +203,153 @@ let run ?send_telegram ?send_teams ?(load_config = Config_loader.load_result)
                       and network access."
                      (String.capitalize_ascii (channel_name request.channel))
                      (Printexc.to_string exn)))))
+
+(* --- Target discovery (--list-targets) --- *)
+
+type telegram_lister =
+  bot_token:string -> (Telegram_api.chat_summary list, string) result Lwt.t
+
+type teams_lister =
+  config:Runtime_config.teams_config ->
+  (Teams_api.conversation_summary list, string) result Lwt.t
+
+type targets_result =
+  | Telegram_targets of string * Telegram_api.chat_summary list
+      (** (account_name, chats) *)
+  | Teams_targets of Teams_api.conversation_summary list
+
+let default_list_telegram ~bot_token = Telegram_api.list_chats ~bot_token
+let default_list_teams ~config = Teams_api.list_conversations ~config
+
+(** Resolve config/account and call the channel-specific lister. Network I/O is
+    isolated behind [list_telegram]/[list_teams] so the resolution and error
+    paths are unit-testable. *)
+let list_targets ?(list_telegram = default_list_telegram)
+    ?(list_teams = default_list_teams) ?account ~channel
+    ~(config : Runtime_config.t) () =
+  let open Lwt.Syntax in
+  match channel with
+  | Telegram -> (
+      match config.channels.telegram with
+      | None ->
+          Lwt.return
+            (Error
+               "Telegram is not configured. Configure \
+                channels.telegram.accounts before using clawq notify.")
+      | Some telegram -> (
+          match resolve_telegram_account ?account telegram with
+          | Error message -> Lwt.return (Error message)
+          | Ok (account_name, account) ->
+              if
+                not
+                  (Runtime_config.telegram_account_has_valid_credentials account)
+              then
+                Lwt.return
+                  (Error
+                     (Printf.sprintf
+                        "Telegram account %S has no valid bot token. Update \
+                         channels.telegram.accounts.%s.bot_token."
+                        account_name account_name))
+              else
+                let* result = list_telegram ~bot_token:account.bot_token in
+                Lwt.return
+                  (Result.map
+                     (fun chats -> Telegram_targets (account_name, chats))
+                     result)))
+  | Teams -> (
+      match config.channels.teams with
+      | None ->
+          Lwt.return
+            (Error
+               "Teams is not configured. Configure channels.teams credentials \
+                before using clawq notify.")
+      | Some teams ->
+          if not (Runtime_config.teams_has_valid_credentials teams) then
+            Lwt.return
+              (Error
+                 "Teams credentials are incomplete. Configure \
+                  channels.teams.app_id, app_secret, and tenant_id.")
+          else
+            let* result = list_teams ~config:teams in
+            Lwt.return (Result.map (fun convs -> Teams_targets convs) result))
+
+let format_rows rows =
+  let id_w =
+    List.fold_left (fun m (id, _, _) -> max m (String.length id)) 8 rows
+  in
+  let type_w =
+    List.fold_left
+      (fun m (_, t, _) -> max m (String.length t))
+      (String.length "TYPE") rows
+  in
+  let line (id, t, n) =
+    Printf.sprintf "  %-*s  %-*s  %s" id_w id type_w t
+      (if n = "" then "(unnamed)" else n)
+  in
+  let header = line ("ID", "TYPE", "NAME") in
+  String.concat "\n" (header :: List.map line rows)
+
+(** Render discovered targets as user-facing text. *)
+let format_targets ~channel = function
+  | Telegram_targets (account_name, []) ->
+      Printf.sprintf
+        "No recent Telegram chats found for account %S.\n\
+         Send any message to the bot first, then re-run:\n\
+        \  clawq notify --channel telegram --list-targets [--account %s]\n\
+         (Discovery uses getUpdates; it cannot see chats the bot has never \
+         received a message from.)"
+        account_name account_name
+  | Telegram_targets (account_name, chats) ->
+      let rows =
+        List.map (fun c -> (c.Telegram_api.chat_id, c.chat_type, c.title)) chats
+      in
+      Printf.sprintf
+        "Telegram targets (account: %s):\n\
+         %s\n\
+         Found %d chat(s). Send with: clawq notify --channel telegram --target \
+         <chat-id> [--account %s] ..."
+        account_name (format_rows rows) (List.length chats) account_name
+  | Teams_targets [] ->
+      "No Teams conversations found.\n\
+       The bot can only see conversations it has been added to. Mention or \
+       message the bot in a chat, then re-run:\n\
+      \  clawq notify --channel teams --list-targets"
+  | Teams_targets convs ->
+      let rows =
+        List.map
+          (fun c -> (c.Teams_api.conversation_id, c.conversation_type, c.name))
+          convs
+      in
+      Printf.sprintf
+        "Teams targets:\n\
+         %s\n\
+         Found %d conversation(s). Send with: clawq notify --channel teams \
+         --target <conversation-id> ..."
+        (format_rows rows) (List.length convs)
+
+let run_list_targets ?list_telegram ?list_teams
+    ?(load_config = Config_loader.load_result) ?account ~channel () =
+  match load_config () with
+  | Error message -> Error ("Could not load Clawq configuration: " ^ message)
+  | Ok config ->
+      Lwt_main.run
+        (Lwt.catch
+           (fun () ->
+             let open Lwt.Syntax in
+             let* result =
+               list_targets ?list_telegram ?list_teams ?account ~channel ~config
+                 ()
+             in
+             match result with
+             | Error message -> Lwt.return (Error message)
+             | Ok targets ->
+                 print_string (format_targets ~channel targets ^ "\n");
+                 Lwt.return (Ok ()))
+           (fun exn ->
+             Lwt.return
+               (Error
+                  (Printf.sprintf
+                     "%s target discovery failed: %s. Check connector \
+                      configuration and network access."
+                     (String.capitalize_ascii (channel_name channel))
+                     (Printexc.to_string exn)))))
