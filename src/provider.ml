@@ -120,6 +120,10 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
             provider_name model (List.length messages)
             (estimate_messages_tokens messages / 1000));
       fn ~config ~provider ~model ~messages ?tools ?session_key ()
+  | None when kind = OpenCodex ->
+      Lwt.fail_with
+        "OpenCodex inference is disabled in the minimal build; use the full \
+         clawq binary"
   | None -> (
       let base_url =
         match provider.base_url with
@@ -172,7 +176,7 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
       in
       let body_fields =
         match (kind, provider.prompt_cache_retention) with
-        | (OpenAICompat | OpenAICodex), Some r ->
+        | (OpenAICompat | OpenAICodex | OpenCodex), Some r ->
             body_fields @ [ ("prompt_cache_retention", `String r) ]
         | _ -> body_fields
       in
@@ -269,6 +273,10 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
             provider_name model (List.length messages)
             (estimate_messages_tokens messages / 1000));
       fn ~config ~provider ~model ~messages ?tools ?session_key ~on_chunk ()
+  | None when kind = OpenCodex ->
+      Lwt.fail_with
+        "OpenCodex inference is disabled in the minimal build; use the full \
+         clawq binary"
   | None ->
       let base_url =
         match provider.base_url with
@@ -313,7 +321,7 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
       in
       let body_fields =
         match (kind, provider.prompt_cache_retention) with
-        | (OpenAICompat | OpenAICodex), Some r ->
+        | (OpenAICompat | OpenAICodex | OpenCodex), Some r ->
             body_fields @ [ ("prompt_cache_retention", `String r) ]
         | _ -> body_fields
       in

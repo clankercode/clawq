@@ -287,6 +287,11 @@ let known_models : model_info list =
       ~supports_vision:true ~supports_thinking:true;
     model "openai-codex" "gpt-5.5" ~context_window:272000 ~supports_vision:true
       ~supports_thinking:true;
+    (* OpenCodex exposes a dynamic multi-provider catalog via /v1/models. Keep
+       only the wizard default here; discovered gpt-* and xai/grok-* routes are
+       stored in models_cache without pretending the proxy has a fixed list. *)
+    model "opencodex" "gpt-5.4" ~context_window:1050000 ~supports_vision:true
+      ~supports_thinking:true;
     (* Google Gemini *)
     {
       provider = "gemini";

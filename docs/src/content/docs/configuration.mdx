@@ -102,6 +102,7 @@ Structural changes that affect startup (enabling/disabling channels, changing ga
 | `CLAWQ_RUNNER_TOKEN` | Bearer token for remote runner authentication against the gateway's `/mcp` and `/runner/ask` endpoints. Auto-set for background tasks. |
 | `CLAWQ_MCP_URL` | MCP-over-HTTP endpoint URL (e.g. `http://127.0.0.1:8080/mcp`). Auto-set for background tasks. |
 | `CLAWQ_RUNNER_ASK_URL` | Simple REST endpoint URL for non-MCP runners to ask questions (e.g. `http://127.0.0.1:8080/runner/ask`). Auto-set for background tasks. |
+| `OPENCODEX_API_AUTH_TOKEN` | OpenCodex admission token. Must begin with `ocx_`; used after an explicit provider `api_key` and before `~/.opencodex/api-token`. |
 
 When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API keys are automatically decrypted at runtime. Encrypted values are stored with a `$ENC:` prefix.
 
@@ -136,6 +137,29 @@ An object keyed by provider name. The active provider is selected via `agent_def
 | `default_model` | No | Default model for this provider. Required for quota-based failover: when another provider is deprioritized, only providers with a `default_model` are eligible alternatives |
 | `thinking_budget_tokens` | No | Provider reasoning budget when supported |
 | `oai_thinking_style` | No | OAI-compatible reasoning tag style; defaults to `none` |
+
+#### OpenCodex LAN proxy
+
+OpenCodex is a multi-provider LAN proxy with a built-in endpoint of `http://cachy.lan:10100/v1`. Configure the provider explicitly, then select a proxy-routed model with the canonical `provider:model` format:
+
+```json
+{
+  "providers": {
+    "opencodex": {
+      "kind": "opencodex",
+      "base_url": "http://cachy.lan:10100/v1",
+      "default_model": "gpt-5.4"
+    }
+  },
+  "agent_defaults": {
+    "primary_model": "opencodex:gpt-5.4"
+  }
+}
+```
+
+Clawq resolves a valid token in this order: configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, then `~/.opencodex/api-token`. Tokens are trimmed and must start with `ocx_`; keep the token file at mode `0600`. If `cachy.lan` is unavailable, set `base_url` to `http://10.100.1.2:10100/v1`.
+
+OpenCodex always uses the OpenAI Responses API over HTTP at `<base_url>/responses`, sends the admission token as `x-opencodex-api-key`, and never uses a websocket transport. The Codex CLI settings `wire_api`, `supports_websockets`, `env_http_headers`, and `requires_openai_auth` are therefore not Clawq config fields. Run `clawq models refresh --provider opencodex` to discover the proxy's current routes, including names such as `gpt-*` and `xai/grok-*`. Inference requires the full `clawq` binary; `clawq-min` rejects this integration-only provider.
 
 #### Xiaomi MiMo providers (zero-config)
 

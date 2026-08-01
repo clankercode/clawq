@@ -2,7 +2,7 @@
 
 **Task:** P18.M2.E1.T003 — Inventory outbound network callsites  
 **Date:** 2026-06-29  
-**Last updated:** 2026-06-30  
+**Last updated:** 2026-08-02
 **Prerequisites:** P18.M2.E1.T001 (egress rules), T002 (egress evaluator), T001 (credential inventory)
 
 This document inventories every outbound network callsite in the Clawq
@@ -84,7 +84,15 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `provider_openai_codex.ml:813` | `Provider_openai_codex` | `https://chatgpt.com/backend-api/codex/responses` (Responses API) | `Authorization: Bearer {access_token}` (OAuth) | HEADER-UNREDACTED | EXISTING (host is `chatgpt.com`)
+| `provider_openai_codex.ml:869` | `Provider_openai_codex` | `https://chatgpt.com/backend-api/codex/responses` (Responses API) | `Authorization: Bearer {access_token}` (OAuth) | HEADER-REDACTED | EXISTING (host is `chatgpt.com`) |
+
+### 1.9 OpenCodex Provider
+
+| Callsite | Module | Destination | Credential | Redaction | Enforceability |
+|----------|--------|-------------|------------|-----------|----------------|
+| `provider_openai_codex.ml:850` | `Provider_openai_codex` | `{base_url}/responses` (Responses API over HTTP) | `x-opencodex-api-key: {ocx_token}` | HEADER-REDACTED | DYNAMIC |
+
+The built-in destination is `http://cachy.lan:10100/v1` with `http://10.100.1.2:10100/v1` as an alternative. Provider semantics disable websocket transport, so there is no OpenCodex WebSocket callsite.
 
 ---
 
@@ -92,8 +100,9 @@ All LLM providers use `Http_client.post_json*` or `Http_client.post_stream_with`
 
 | Callsite | Module | Destination | Credential | Redaction | Enforceability |
 |----------|--------|-------------|------------|-----------|----------------|
-| `model_discovery.ml:387` | `Model_discovery` | `{base_url}/models` | `Authorization: Bearer {api_key}` | NONE | DYNAMIC |
-| `model_discovery.ml:407` | `Model_discovery` | `{base_url}/api/tags` (Ollama) | None | N/A | DYNAMIC |
+| `model_discovery.ml:396` | `Model_discovery` | `{base_url}/models` | `Authorization: Bearer {api_key}` | HEADER-REDACTED | DYNAMIC |
+| `model_discovery.ml:396` | `Model_discovery` | OpenCodex `{base_url}/models` | `x-opencodex-api-key: {ocx_token}` | HEADER-REDACTED | DYNAMIC |
+| `model_discovery.ml:417` | `Model_discovery` | `{base_url}/api/tags` (Ollama) | None | N/A | DYNAMIC |
 
 ---
 

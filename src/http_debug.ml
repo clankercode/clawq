@@ -74,6 +74,7 @@ let sensitive_headers =
     "authorization";
     "x-api-key";
     "api-key";
+    "x-opencodex-api-key";
     "cookie";
     "set-cookie";
     "proxy-authorization";

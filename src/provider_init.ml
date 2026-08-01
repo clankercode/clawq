@@ -7,6 +7,8 @@
 let () =
   Provider.register_native_complete Provider.OpenAICodex
     Provider_openai_codex.complete;
+  Provider.register_native_complete Provider.OpenCodex
+    Provider_openai_codex.complete;
   Provider.register_native_complete Provider.Anthropic
     Provider_anthropic.complete;
   Provider.register_native_complete Provider.Ollama Provider_ollama.complete;
@@ -17,6 +19,8 @@ let () =
   Provider.register_native_stream Provider.Anthropic
     Provider_anthropic.complete_streaming;
   Provider.register_native_stream Provider.OpenAICodex
+    Provider_openai_codex.complete_streaming;
+  Provider.register_native_stream Provider.OpenCodex
     Provider_openai_codex.complete_streaming;
   Provider.register_native_stream Provider.Ollama
     Provider_ollama.complete_streaming;

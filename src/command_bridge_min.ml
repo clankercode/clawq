@@ -33,6 +33,7 @@ let cmd_doctor () =
       if not (Runtime_config.provider_has_auth p) then
         add
           (Printf.sprintf "WARNING: Provider '%s' has no configured auth" name);
+      List.iter add (Opencodex.doctor_warnings ~name p);
       List.iter add (Openai_codex_oauth.doctor_warnings ~provider_name:name p))
     cfg.providers;
   (match cfg.default_provider with

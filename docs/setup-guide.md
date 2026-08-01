@@ -195,6 +195,27 @@ Each provider in the `providers` object supports these fields:
 | `prompt_cache_retention` | Cache TTL | `"24h"` |
 | `http_timeout_s` | Per-request timeout | `120` |
 
+#### OpenCodex LAN proxy
+
+OpenCodex uses a fixed Responses-over-HTTP integration with custom admission auth:
+
+```json
+{
+  "providers": {
+    "opencodex": {
+      "kind": "opencodex",
+      "base_url": "http://cachy.lan:10100/v1",
+      "default_model": "gpt-5.4"
+    }
+  },
+  "agent_defaults": {
+    "primary_model": "opencodex:gpt-5.4"
+  }
+}
+```
+
+The IP alternative is `http://10.100.1.2:10100/v1`. Clawq resolves `ocx_` tokens from a configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, then `~/.opencodex/api-token`, trims whitespace, and sends `x-opencodex-api-key` to `/responses` and `/models`. Direct file discovery means a shell export is optional for Clawq. Requests never use websocket transport; run model refresh to import the proxy's dynamic multi-provider catalog.
+
 ### Config Reload
 
 The daemon polls the config file every 10 seconds for changes. For immediate reload:
@@ -701,6 +722,7 @@ Key environment variables:
 | `CLAWQ_MCP_URL` | MCP server URL |
 | `CLAWQ_TUNNEL_COMMAND` | Custom tunnel command |
 | `CLAWQ_TUNNEL_URL_REGEX` | Regex to extract tunnel URL from output |
+| `OPENCODEX_API_AUTH_TOKEN` | OpenCodex `ocx_` admission token; falls back to `~/.opencodex/api-token` |
 
 ### Layer 2: Encrypted Secret Store
 

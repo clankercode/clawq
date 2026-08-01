@@ -5,6 +5,7 @@ open Provider_types
 type provider_kind =
   | OpenAICompat
   | OpenAICodex
+  | OpenCodex
   | Anthropic
   | Ollama
   | Gemini
@@ -16,6 +17,7 @@ let string_contains = String_util.string_contains
 
 let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
   match p.kind with
+  | Some "opencodex" -> OpenCodex
   | Some "openai-codex" | Some "codex" -> OpenAICodex
   | Some "anthropic" -> Anthropic
   (* B617: Z.ai exposes a native anthropic-compat surface at
@@ -47,6 +49,7 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
       else if string_contains url "aiplatform.googleapis.com" then Vertex
       else if string_contains url "cohere.com" || lname = "cohere" then Cohere
       else if lname = "openai-codex" || lname = "codex" then OpenAICodex
+      else if lname = "opencodex" then OpenCodex
       else if lname = "minimax" || string_contains url "minimax" then MiniMax
       else OpenAICompat
 
@@ -96,6 +99,7 @@ let default_base_url_for name =
       | "kimi" -> "https://api.moonshot.cn/v1"
       | "moonshot" -> "https://api.moonshot.cn/v1"
       | "minimax" -> "https://api.minimax.io"
+      | "opencodex" -> Opencodex.default_base_url
       | _ -> "https://openrouter.ai/api/v1")
 
 let strip_date_suffix = Model_utils.strip_date_suffix
@@ -150,6 +154,7 @@ let model_requires_temperature_one model =
    tokens only remain usable when a refresh token is present. *)
 let provider_has_routable_auth ~name (p : Runtime_config.provider_config) =
   match detect_kind ~name p with
+  | OpenCodex -> Opencodex.valid_token p.api_key
   | OpenAICodex -> (
       match p.codex_oauth with
       | Some creds ->

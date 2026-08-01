@@ -189,6 +189,20 @@ let parse ~resolve_secret ~resolve_secrets json =
           m "Failed to parse providers config: %s" (Printexc.to_string exn));
       []
   in
+  let providers =
+    if resolve_secrets then
+      List.map
+        (fun (name, (provider : Runtime_config.provider_config)) ->
+          if Opencodex.is_provider ~name ~kind:provider.kind then
+            let api_key =
+              Opencodex.resolve_token ~configured:provider.api_key ()
+              |> Option.value ~default:""
+            in
+            (name, { provider with api_key })
+          else (name, provider))
+        providers
+    else providers
+  in
   (* B697: backfill declared xiaomi providers and synthesize absent ones when a
      key is discoverable (env vars / ~/.mimo). No-op on the resolve_secrets=false
      display/round-trip path, so synthesized providers are never persisted. *)

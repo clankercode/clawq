@@ -184,6 +184,7 @@
   test_notify
   test_onebot
   test_openai_codex_oauth
+  test_opencodex
   test_pairing
   test_perf
   test_phase3

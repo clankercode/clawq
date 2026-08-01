@@ -10,6 +10,7 @@ let xiaomi_provider_presets =
 let provider_presets =
   [
     ("openai-codex", Openai_codex_oauth.codex_base_url);
+    ("opencodex", Opencodex.default_base_url);
     ("openrouter", "https://openrouter.ai/api/v1");
     ("openai", "https://api.openai.com/v1");
     ("anthropic", "https://api.anthropic.com/v1");
@@ -19,12 +20,21 @@ let provider_presets =
   @ xiaomi_provider_presets
 
 let provider_names =
-  [ "openai-codex"; "openrouter"; "openai"; "anthropic"; "groq"; "ollama" ]
+  [
+    "openai-codex";
+    "openrouter";
+    "openai";
+    "anthropic";
+    "groq";
+    "ollama";
+    "opencodex";
+  ]
   @ Xiaomi.provider_names @ [ "custom" ]
 
 let model_presets =
   [
     Openai_codex_oauth.default_primary_model;
+    "opencodex:gpt-5.4";
     "openai-codex:gpt-5.4";
     "anthropic:claude-sonnet-4-6";
     "anthropic:claude-haiku-4-5";
@@ -120,15 +130,17 @@ let transition_from_provider_select m (si : select_input) =
             kind =
               (match name with
               | "openai-codex" -> Some "openai-codex"
+              | "opencodex" -> Some "opencodex"
               | _ -> None);
             default_model =
               (match name with
               | "openai-codex" -> Openai_codex_oauth.default_model
+              | "opencodex" -> Opencodex.default_model
               | _ -> "");
           }
     in
     let m = { m with current_provider = cp } in
-    if name = "openai-codex" then
+    if name = "openai-codex" || name = "opencodex" then
       let url = if cp.base_url <> "" then cp.base_url else preset_url name in
       goto ProviderBaseUrl
         (make_text_input ~value:url ~placeholder:"https://..." "Base URL")
@@ -180,6 +192,26 @@ let transition_from_base_url m (ti : text_input) =
         }
       in
       goto ModelSelect (make_select "Default model" model_presets) m
+  | Some "opencodex" ->
+      let providers = add_or_replace_provider m.providers cp in
+      let m =
+        {
+          m with
+          providers;
+          current_provider = empty_provider;
+          messages =
+            "OpenCodex selected - Clawq will read an ocx_ token from \
+             OPENCODEX_API_AUTH_TOKEN or ~/.opencodex/api-token and always use \
+             Responses HTTP (websockets disabled)." :: m.messages;
+        }
+      in
+      let selected =
+        Option.value ~default:0
+          (index_of
+             (Opencodex.provider_name ^ ":" ^ Opencodex.default_model)
+             model_presets)
+      in
+      goto ModelSelect (make_select_at "Default model" model_presets selected) m
   | _ -> goto ProviderTestOffer (make_confirm "Test provider connectivity?") m
 
 let transition_from_test_offer m (ci : confirm_input) =

@@ -18,6 +18,7 @@ let default_base_url_for_kind = function
   | "groq" -> "https://api.groq.com/openai/v1"
   | "openrouter" -> "https://openrouter.ai/api/v1"
   | "ollama" -> "http://localhost:11434"
+  | "opencodex" -> Opencodex.default_base_url
   | _ -> "https://api.openai.com/v1"
 
 (* B676: also skip by provider NAME so providers whose config omits `kind`
@@ -36,13 +37,22 @@ let should_skip_provider ?name (pc : Runtime_config.provider_config) =
 let is_ollama (pc : Runtime_config.provider_config) =
   match pc.kind with Some "ollama" -> true | _ -> false
 
-let get_base_url (pc : Runtime_config.provider_config) =
+let get_base_url ?name (pc : Runtime_config.provider_config) =
   match pc.base_url with
   | Some u -> u
   | None -> (
-      match pc.kind with
-      | Some k -> default_base_url_for_kind k
-      | None -> "https://api.openai.com/v1")
+      match name with
+      | Some name when Opencodex.is_provider ~name ~kind:pc.kind ->
+          Opencodex.default_base_url
+      | _ -> (
+          match pc.kind with
+          | Some k -> default_base_url_for_kind k
+          | None -> "https://api.openai.com/v1"))
+
+let models_uri ~provider_name (pc : Runtime_config.provider_config) =
+  if Opencodex.is_provider ~name:provider_name ~kind:pc.kind then
+    Opencodex.models_uri pc
+  else get_base_url ~name:provider_name pc ^ "/models"
 
 let check_ttl_hours ~db ~provider ~hours =
   let sql =
@@ -380,10 +390,17 @@ let load_codex_file_models ?(path = None) ~db () =
             (Printexc.to_string exn));
       0
 
-let fetch_openai_models ~base_url ~api_key =
+let openai_model_auth_headers ?(auth_header = "Authorization") ~api_key () =
+  let header_value =
+    if String.lowercase_ascii auth_header = "authorization" then
+      "Bearer " ^ api_key
+    else api_key
+  in
+  [ (auth_header, header_value) ]
+
+let fetch_openai_models ~auth_header ~uri ~api_key =
   let open Lwt.Syntax in
-  let uri = base_url ^ "/models" in
-  let headers = [ ("Authorization", "Bearer " ^ api_key) ] in
+  let headers = openai_model_auth_headers ~auth_header ~api_key () in
   let* status, body = Http_client.get ~uri ~headers in
   if status = 200 then
     try
@@ -440,10 +457,18 @@ let refresh_provider ~db ~provider_name
   if should_skip_provider ~name:provider_name provider_config then
     Lwt.return (Ok 0)
   else
-    let base_url = get_base_url provider_config in
+    let base_url = get_base_url ~name:provider_name provider_config in
+    let uri = models_uri ~provider_name provider_config in
     let* result =
       if is_ollama provider_config then fetch_ollama_models ~base_url
-      else fetch_openai_models ~base_url ~api_key:provider_config.api_key
+      else
+        let auth_header =
+          if
+            Opencodex.is_provider ~name:provider_name ~kind:provider_config.kind
+          then Opencodex.api_key_header
+          else "Authorization"
+        in
+        fetch_openai_models ~auth_header ~uri ~api_key:provider_config.api_key
     in
     match result with
     | Error e ->

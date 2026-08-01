@@ -4,6 +4,15 @@ let string_contains = String_util.string_contains
 let strip_provider_prefix model =
   Runtime_config.strip_model_provider_prefix model
 
+let strip_opencodex_provider_prefix model =
+  let prefix = Opencodex.provider_name ^ ":" in
+  let prefix_length = String.length prefix in
+  if
+    String.length model > prefix_length
+    && String.sub model 0 prefix_length = prefix
+  then String.sub model prefix_length (String.length model - prefix_length)
+  else model
+
 let sanitize_content_part part =
   match part with
   | `Assoc fields ->
@@ -420,8 +429,16 @@ let fixup_input_item_ordering items =
   in
   loop [] "" items
 
-let build_body ~model ~messages ?session_key
+let build_body ?provider_name ~model ~messages ?session_key
     ~(provider : Runtime_config.provider_config) tools =
+  let model =
+    if
+      Opencodex.is_provider
+        ~name:(Option.value ~default:"" provider_name)
+        ~kind:provider.kind
+    then strip_opencodex_provider_prefix model
+    else strip_provider_prefix model
+  in
   let instructions, non_system_messages = extract_instructions messages in
   let non_system_messages =
     Message_history.ensure_tool_group_integrity non_system_messages
@@ -454,7 +471,7 @@ let build_body ~model ~messages ?session_key
   in
   `Assoc
     ([
-       ("model", `String (strip_provider_prefix model));
+       ("model", `String model);
        ("input", `List input_items);
        ("instructions", `String instructions);
        ("stream", `Bool true);
@@ -787,70 +804,90 @@ let process_stream stream ~on_chunk =
        ~usage:!usage_acc ~provider_response_items_json:!response_items_json_acc
        ~thinking ())
 
-let do_request ~provider_name ~provider ~model ~messages ?tools ?session_key
-    ~on_chunk () =
+let perform_request ~uri ~headers ~error_label ~provider_name ~provider ~model
+    ~messages ?tools ?session_key ~on_chunk () =
   let open Lwt.Syntax in
-  let* auth =
-    Openai_codex_oauth.get_auth_header ~provider_name:(Some provider_name)
-      ~provider
+  let body =
+    build_body ~provider_name ~model ~messages ?session_key ~provider tools
   in
-  match auth with
-  | Error msg -> Lwt.fail_with msg
-  | Ok (access_token, account_id) ->
-      let headers =
-        [
-          ("Authorization", "Bearer " ^ access_token);
-          ("originator", "clawq");
-          ("session_id", Printf.sprintf "%d" (Openai_codex_oauth.now_ms ()));
-          ("User-Agent", "clawq/" ^ Build_info.version_dev);
-        ]
-        @
-        match account_id with
-        | Some account_id -> [ ("ChatGPT-Account-Id", account_id) ]
-        | None -> []
+  Http_client.post_stream_with ~uri ~headers ~body ~label:error_label
+    ~on_error:(fun r ->
+      let open Lwt.Syntax in
+      let* body = Http_client.collect_error_body r.stream in
+      (* Codex returns {"detail":"Bad Request"} (no further detail) for some
+         400s including context-window overflows.  Only rewrite to include
+         "context length" (which triggers is_context_exhaustion_error recovery
+         in agent.ml) when the request is large enough that context exhaustion
+         is plausible — otherwise the recovery path fires incorrectly on small
+         requests and collapses the history to empty. *)
+      let estimated_tokens =
+        List.fold_left
+          (fun acc (m : Provider.message) ->
+            let tc_args =
+              List.fold_left
+                (fun a (tc : Provider.tool_call) ->
+                  a + String.length tc.arguments)
+                0 m.tool_calls
+            in
+            acc + ((String.length m.content + tc_args + 3) / 4))
+          0 messages
       in
-      let body = build_body ~model ~messages ?session_key ~provider tools in
-      Http_client.post_stream_with ~uri:responses_uri ~headers ~body
-        ~label:"OpenAI Codex error"
-        ~on_error:(fun r ->
-          let open Lwt.Syntax in
-          let* body = Http_client.collect_error_body r.stream in
-          (* Codex returns {"detail":"Bad Request"} (no further detail) for some
-             400s including context-window overflows.  Only rewrite to include
-             "context length" (which triggers is_context_exhaustion_error recovery
-             in agent.ml) when the request is large enough that context exhaustion
-             is plausible — otherwise the recovery path fires incorrectly on small
-             requests and collapses the history to empty. *)
-          let estimated_tokens =
-            List.fold_left
-              (fun acc (m : Provider.message) ->
-                let tc_args =
-                  List.fold_left
-                    (fun a (tc : Provider.tool_call) ->
-                      a + String.length tc.arguments)
-                    0 m.tool_calls
-                in
-                acc + ((String.length m.content + tc_args + 3) / 4))
-              0 messages
-          in
-          let large_request =
-            List.length messages > 150 || estimated_tokens > 75_000
-          in
-          let msg =
-            if
-              r.status = 400
-              && string_contains body "Bad Request"
-              && large_request
-            then
-              Printf.sprintf
-                "OpenAI Codex error (HTTP %d): possible context length issue \
-                 (msgs=%d ~%dk tok; raw: %s)"
-                r.status (List.length messages) (estimated_tokens / 1000) body
-            else Printf.sprintf "OpenAI Codex error (HTTP %d): %s" r.status body
-          in
-          Lwt.fail_with msg)
-        ~on_ok:(fun stream -> process_stream stream ~on_chunk)
-        ()
+      let large_request =
+        List.length messages > 150 || estimated_tokens > 75_000
+      in
+      let msg =
+        if r.status = 400 && string_contains body "Bad Request" && large_request
+        then
+          Printf.sprintf
+            "%s (HTTP %d): possible context length issue (msgs=%d ~%dk tok; \
+             raw: %s)"
+            error_label r.status (List.length messages)
+            (estimated_tokens / 1000) body
+        else Printf.sprintf "%s (HTTP %d): %s" error_label r.status body
+      in
+      Lwt.fail_with msg)
+    ~on_ok:(fun stream -> process_stream stream ~on_chunk)
+    ()
+
+let common_headers () =
+  [
+    ("originator", "clawq");
+    ("session_id", Printf.sprintf "%d" (Openai_codex_oauth.now_ms ()));
+    ("User-Agent", "clawq/" ^ Build_info.version_dev);
+  ]
+
+let do_request ~provider_name ~(provider : Runtime_config.provider_config)
+    ~model ~messages ?tools ?session_key ~on_chunk () =
+  let open Lwt.Syntax in
+  if Opencodex.is_provider ~name:provider_name ~kind:provider.kind then
+    if not (Opencodex.valid_token provider.api_key) then
+      Lwt.fail_with (Opencodex.missing_token_error ())
+    else
+      let headers =
+        Opencodex.auth_headers provider.api_key @ common_headers ()
+      in
+      perform_request
+        ~uri:(Opencodex.responses_uri provider)
+        ~headers ~error_label:"OpenCodex error" ~provider_name ~provider ~model
+        ~messages ?tools ?session_key ~on_chunk ()
+  else
+    let* auth =
+      Openai_codex_oauth.get_auth_header ~provider_name:(Some provider_name)
+        ~provider
+    in
+    match auth with
+    | Error msg -> Lwt.fail_with msg
+    | Ok (access_token, account_id) ->
+        let headers =
+          (("Authorization", "Bearer " ^ access_token) :: common_headers ())
+          @
+          match account_id with
+          | Some account_id -> [ ("ChatGPT-Account-Id", account_id) ]
+          | None -> []
+        in
+        perform_request ~uri:responses_uri ~headers
+          ~error_label:"OpenAI Codex error" ~provider_name ~provider ~model
+          ~messages ?tools ?session_key ~on_chunk ()
 
 let complete ~(config : Runtime_config.t) ~provider ~model ~messages ?tools
     ?session_key () =

@@ -154,6 +154,25 @@ clawq auth codex-login openai-codex
 
 The login opens a browser and waits for the OAuth callback on `http://localhost:1455/auth/callback`. If the browser cannot reach the local callback, paste the full redirect URL back into the terminal when prompted.
 
+To route through the OpenCodex LAN proxy instead, use:
+
+```json
+{
+  "providers": {
+    "opencodex": {
+      "kind": "opencodex",
+      "base_url": "http://cachy.lan:10100/v1",
+      "default_model": "gpt-5.4"
+    }
+  },
+  "agent_defaults": {
+    "primary_model": "opencodex:gpt-5.4"
+  }
+}
+```
+
+Clawq reads the required `ocx_` token from a configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, or `~/.opencodex/api-token`, in that order. If `cachy.lan` does not resolve, use `http://10.100.1.2:10100/v1`. OpenCodex always uses Responses HTTP; it does not use ChatGPT OAuth or websockets.
+
 **Configuration notes:**
 
 - `allow_from`: `["*"]` allows all users. To restrict access, list specific chat IDs: `["123456789", "987654321"]`.
@@ -266,6 +285,7 @@ Open the browser UI at `http://127.0.0.1:13451/`:
 - Verify your API key is valid and has credits
 - Try a different model (e.g., `openai/gpt-3.5-turbo` for lower cost)
 - Check that `base_url` matches your provider
+- For an OpenCodex 401, verify the configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, then `~/.opencodex/api-token` contains a valid `ocx_` token. If the host cannot be resolved, use the `10.100.1.2` base URL.
 
 **Permission denied / config not found:**
 - Run `clawq onboard` to create the config directory

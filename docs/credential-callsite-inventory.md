@@ -2,7 +2,7 @@
 
 **Task:** P18.M1.E1.T001 — Inventory credential-bearing callsites  
 **Date:** 2026-06-29  
-**Last updated:** 2026-06-30  
+**Last updated:** 2026-08-02
 **Author:** Automated codebase analysis
 
 This document inventories every location in the Clawq codebase where
@@ -28,7 +28,7 @@ for a cross-cutting view of all security-relevant subsystems.
 |----------|--------------|------------|--------------|-----------|------|----------------|
 | `provider.ml:180` | `Provider` | `provider.api_key` | `Authorization: Bearer <key>` | None in request path | HIGH | MISSING |
 | `provider.ml:321` | `Provider` | `provider.api_key` | `Authorization: Bearer <key>` (streaming) | None in request path | HIGH | MISSING |
-| `model_discovery.ml:386` | `Model_discovery` | `api_key` param | `Authorization: Bearer <key>` | None | HIGH | MISSING |
+| `model_discovery.ml:396` | `Model_discovery` | `api_key` param | `Authorization: Bearer <key>` | `Http_debug` header redaction | HIGH | EXISTING |
 
 ### 1.2 Anthropic Providers
 
@@ -70,7 +70,15 @@ for a cross-cutting view of all security-relevant subsystems.
 
 | Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
 |----------|--------------|------------|--------------|-----------|------|----------------|
-| `provider_openai_codex.ml:802` | `Provider_openai_codex` | `access_token` (from OAuth) | `Authorization: Bearer <token>` | None in request path | HIGH | MISSING |
+| `provider_openai_codex.ml:869` | `Provider_openai_codex` | `access_token` (from OAuth) | `Authorization: Bearer <token>` | `Http_debug` header redaction | HIGH | EXISTING |
+
+### 1.8 OpenCodex Admission Token
+
+| Callsite | Owner Module | Credential | Header/Usage | Redaction | Risk | Enforceability |
+|----------|--------------|------------|--------------|-----------|------|----------------|
+| `opencodex.ml:36-45`, `config_loader_providers.ml:192-204` | `Opencodex`, `Config_loader_providers` | `ocx_` token from configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, or `~/.opencodex/api-token` | Trimmed, prefix-validated, and resolved in that precedence order | Never logged by resolution path | LOW | EXISTING |
+| `provider_openai_codex.ml:843-853` | `Provider_openai_codex` | resolved OpenCodex token | `x-opencodex-api-key: <token>` on `{base_url}/responses` | `Http_debug` header redaction (`http_debug.ml:72-89`) | HIGH | EXISTING |
+| `model_discovery.ml:388-400,460-467` | `Model_discovery` | resolved OpenCodex token | `x-opencodex-api-key: <token>` on `{base_url}/models` | `Http_debug` header redaction (`http_debug.ml:72-89`) | HIGH | EXISTING |
 
 ---
 

@@ -40,6 +40,7 @@ openai-codex,gpt-5.3-codex-spark,"GPT-5.3-Codex Spark",400000,,true,true,"low,me
 openai-codex,gpt-5.4,"GPT-5.4 (Codex)",1050000,,true,true,"none,low,medium,high,xhigh",2.50,15.00,https://developers.openai.com/codex/pricing,"Codex-supported GPT-5.4.",2026-06-26
 openai-codex,gpt-5.4-mini,"GPT-5.4 Mini (Codex)",1050000,,true,true,"none,low,medium,high,xhigh",0.25,2.00,https://developers.openai.com/codex/pricing,"Codex-supported GPT-5.4 mini.",2026-06-26
 openai-codex,gpt-5.5,"GPT-5.5 (Codex)",272000,86400,true,true,"none,low,medium,high,xhigh",1.75,14.00,https://developers.openai.com/codex/pricing,"Codex-supported GPT-5.5.",2026-06-26
+opencodex,gpt-5.4,"GPT-5.4 (OpenCodex)",1050000,,true,true,"none,low,medium,high,xhigh",2.50,15.00,https://developers.openai.com/api/docs/pricing/,"Wizard/default seed only; the proxy catalog is discovered dynamically from /models.",2026-08-02
 gemini,gemini-2.5-pro,"Gemini 2.5 Pro",1048576,,true,true,"budget:0-24576",1.25,10.00,https://ai.google.dev/pricing,"Long context (>200k): $2.50/$15.00",2026-03-10
 gemini,gemini-2.5-flash,"Gemini 2.5 Flash",1048576,,true,true,"budget:0-24576",0.30,2.50,https://ai.google.dev/pricing,"",2026-03-10
 gemini,gemini-2.0-flash,"Gemini 2.0 Flash",1048576,,true,false,"",0.10,0.40,https://ai.google.dev/pricing,"Deprecated; retiring Jun 2026.",2026-03-10

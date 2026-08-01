@@ -12,6 +12,7 @@ use model-specific overrides only when provider docs say a model differs.
 | `groq` |  | https://console.groq.com/docs/prompt-caching | Groq prompt caching is limited to documented supported models, so no provider-wide default is encoded. |
 | `openai` |  | https://developers.openai.com/api/docs/guides/prompt-caching | For most models, OpenAI prompt cache retention defaults depend on organization data-retention policy: non-ZDR defaults to 24h, while ZDR defaults to in-memory. No single provider default is encoded. |
 | `openai-codex` |  | https://developers.openai.com/api/docs/guides/prompt-caching | Codex catalog entries use OpenAI prompt caching, so the same policy-dependent default applies unless a model-specific override is documented. |
+| `opencodex` |  |  | OpenCodex routes heterogeneous upstream providers, so no universal proxy-wide prompt cache TTL is asserted. |
 
 ## Model Overrides
 

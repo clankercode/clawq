@@ -190,6 +190,31 @@ let test_openai_codex_skips_api_key_prompt () =
   Alcotest.check check_step "codex goes to base url" ProviderBaseUrl m.step;
   Alcotest.(check string) "provider name" "openai-codex" m.current_provider.name
 
+let test_opencodex_skips_api_key_and_selects_http_responses_default () =
+  let m = initial_model Onboard in
+  let m, _ = update (Key Enter) m in
+  let rec select_opencodex m =
+    match m.widget with
+    | Select si -> (
+        match List.nth_opt si.options si.selected with
+        | Some "opencodex" -> m
+        | _ ->
+            let m, _ = update (Key Down) m in
+            select_opencodex m)
+    | _ -> Alcotest.fail "expected provider selection"
+  in
+  let m = select_opencodex m in
+  let m, _ = update (Key Enter) m in
+  Alcotest.check check_step "OpenCodex goes to base URL" ProviderBaseUrl m.step;
+  Alcotest.(check string)
+    "default endpoint" Opencodex.default_base_url
+    (match m.widget with TextInput ti -> ti.value | _ -> "");
+  let m, _ = update (Key Enter) m in
+  Alcotest.check check_step "OpenCodex goes to model" ModelSelect m.step;
+  let m, _ = update (Key Enter) m in
+  Alcotest.(check string)
+    "OpenCodex primary model" "opencodex:gpt-5.4" m.primary_model
+
 let test_prepopulated_model_preserves_tools_enabled () =
   (* Simulate a model pre-populated from existing config with tools disabled *)
   let m = { (initial_model FullWizard) with tools_enabled = false } in
@@ -604,6 +629,8 @@ let suite =
       test_full_wizard_has_channel_menu;
     Alcotest.test_case "openai codex skips api key prompt" `Quick
       test_openai_codex_skips_api_key_prompt;
+    Alcotest.test_case "opencodex HTTP Responses preset" `Quick
+      test_opencodex_skips_api_key_and_selects_http_responses_default;
     Alcotest.test_case "prepopulated preserves tools_enabled" `Quick
       test_prepopulated_model_preserves_tools_enabled;
     Alcotest.test_case "prepopulated preserves workspace_only" `Quick

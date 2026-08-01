@@ -75,6 +75,7 @@ let known_auth_providers =
     ("openai", "OpenAI (native)");
     ("gemini", "Google Gemini (native)");
     ("openai-codex", "OpenAI Codex / ChatGPT (OAuth or key)");
+    ("opencodex", "OpenCodex LAN proxy (Responses HTTP)");
     ("zai_coding", "Z.AI coding endpoint");
     ("zai", "Z.AI general endpoint");
     ("mistral", "Mistral AI");
