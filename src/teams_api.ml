@@ -952,3 +952,75 @@ let strip_at_mentions text =
     end
   done;
   String.trim (Buffer.contents buf)
+
+type conversation_summary = {
+  conversation_id : string;
+  conversation_type : string;
+  name : string;
+}
+
+(** [list_conversations ~config] enumerates conversations the bot has joined via
+    the Bot Framework [GET {service_url}/v3/conversations] endpoint. Best-effort
+    discovery: Teams only returns conversations the bot is a member of. *)
+let list_conversations ~(config : Runtime_config.teams_config) =
+  let open Lwt.Syntax in
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None ->
+      Lwt.return
+        (Error
+           "Could not obtain a Teams OAuth token. Check channels.teams.app_id, \
+            app_secret, and tenant_id, and verify the client secret has not \
+            expired in Azure.")
+  | Some token ->
+      let uri =
+        Printf.sprintf "%s/v3/conversations" (String.trim config.service_url)
+      in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let* status, body =
+        Http_client.get_with_timeout ~timeout_s:30.0 ~uri ~headers
+      in
+      if status < 200 || status >= 300 then
+        Lwt.return
+          (Error
+             (Printf.sprintf
+                "Teams getConversations failed (HTTP %d). Check the configured \
+                 channels.teams.service_url and credentials."
+                status))
+      else
+        let json =
+          try Yojson.Safe.from_string body
+          with _ -> `Assoc [ ("conversations", `List []) ]
+        in
+        let open Yojson.Safe.Util in
+        let convs =
+          try json |> member "conversations" |> to_list with _ -> []
+        in
+        let summaries =
+          List.filter_map
+            (fun c ->
+              let id = try c |> member "id" |> to_string with _ -> "" in
+              if id = "" then None
+              else
+                let ctype =
+                  try c |> member "conversationType" |> to_string with _ -> ""
+                in
+                let ctype =
+                  if ctype = "" then
+                    match
+                      try c |> member "isGroup" |> to_bool with _ -> false
+                    with
+                    | true -> "group"
+                    | false -> "personal"
+                  else ctype
+                in
+                let name = try c |> member "name" |> to_string with _ -> "" in
+                Some { conversation_id = id; conversation_type = ctype; name })
+            convs
+        in
+        let sorted =
+          List.sort
+            (fun a b -> String.compare a.conversation_id b.conversation_id)
+            summaries
+        in
+        Lwt.return (Ok sorted)
