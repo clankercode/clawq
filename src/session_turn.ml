@@ -280,12 +280,27 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         Hooks.build_prompt_payload ~prompt:effective_message ~session_id:key
           ~cwd:cwd_base ~workspace:workspace_base ()
       in
-      (* B795: UserPromptSubmit is fire-and-forget (non-blocking) *)
-      fire_session_hook_async Hooks.UserPromptSubmit ~reason:effective_message
-        ();
-      (* B800: additional_context from UserPromptSubmit would be injected here
-         if dispatch returns it. For now, the async variant does not block.
-         Future: capture additional_context and append to runtime_context. *)
+      (* B795/B800: UserPromptSubmit hook -- block synchronously to capture
+         additional_context, then inject it into runtime_context. *)
+      let prompt_payload =
+        Hooks.build_prompt_payload ~prompt:effective_message ~session_id:key
+          ~cwd:cwd_base ~workspace:workspace_base ()
+      in
+      let* user_hook_result =
+        Lwt.catch
+          (fun () ->
+            Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks
+              ~event:Hooks.UserPromptSubmit ~session_id:key
+              ~payload:prompt_payload ~cwd:cwd_base ~workspace:workspace_base ())
+          (fun _ -> Lwt.return Hooks.empty_dispatch_result)
+      in
+      (* B800: Capture additional_context from UserPromptSubmit for later
+         injection into runtime_context (which is built below). *)
+      let user_hook_context =
+        match user_hook_result.additional_contexts with
+        | [] -> None
+        | contexts -> Some (String.concat "\n" contexts)
+      in
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
       let on_llm_call_debug =
@@ -337,6 +352,15 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
             (Session_core.runtime_context_details mgr ~agent ~key
                ~compacted_before_turn:compacted)
           ()
+      in
+      (* B800: Inject additional_context from UserPromptSubmit hook *)
+      let runtime_context =
+        match user_hook_context with
+        | Some ctx -> (
+            match runtime_context with
+            | Some existing -> Some (existing ^ "\n" ^ ctx)
+            | None -> Some ctx)
+        | None -> runtime_context
       in
       (* Grounding is deliberately runtime-only: [Agent_turn_core] injects this
          into the outgoing provider request without adding it to history.  A

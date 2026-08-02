@@ -571,7 +571,7 @@ let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
               Lwt.catch
                 (fun () ->
                   Hooks_exec.dispatch ~all_hooks:agent.hooks
-                    ~event:Hooks.PreCompact ?session_id
+                    ~event:Hooks.PreCompact ?session_id ~tool_name:"compact"
                     ~payload:precompact_payload ~cwd ~workspace ())
                 (fun exn ->
                   Logs.warn (fun m ->
@@ -615,7 +615,7 @@ let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
               Lwt.catch
                 (fun () ->
                   Hooks_exec.dispatch ~all_hooks:agent.hooks
-                    ~event:Hooks.PostCompact ?session_id
+                    ~event:Hooks.PostCompact ?session_id ~tool_name:"compact"
                     ~payload:postcompact_payload ~cwd ~workspace ())
                 (fun exn ->
                   Logs.warn (fun m ->
@@ -779,7 +779,7 @@ let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug ?session_id
               Lwt.catch
                 (fun () ->
                   Hooks_exec.dispatch ~all_hooks:hk ~event:Hooks.PostCompact
-                    ?session_id ~payload ~cwd ~workspace ()
+                    ?session_id ~tool_name:"compact" ~payload ~cwd ~workspace ()
                   |> Lwt.map (fun _ -> ()))
                 (fun exn ->
                   Logs.warn (fun m ->

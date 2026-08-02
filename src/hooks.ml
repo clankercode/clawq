@@ -295,12 +295,18 @@ let validate_all_hooks (hooks : hook_config list) =
 let matches_tool_name (matcher : string) tool_name =
   if matcher = "" || matcher = "*" then true
   else
-    (* Support pipe-separated alternatives: "Bash|Write|Edit" *)
+    (* B805: Support pipe-separated alternatives and glob-style wildcards.
+       Patterns may contain '*' as a wildcard suffix (e.g. "Bash*" matches
+       "Bash" and "Bash_output"). Exact match takes priority. *)
     let patterns = String.split_on_char '|' matcher in
     List.exists
       (fun p ->
         let p = String.trim p in
-        p = tool_name || p = "*")
+        if p = "" || p = "*" then true
+        else if String.ends_with ~suffix:"*" p then
+          let prefix = String.sub p 0 (String.length p - 1) in
+          String.starts_with ~prefix tool_name
+        else p = tool_name)
       patterns
 
 let hooks_for_event (all_hooks : hook_config list) (event : hook_event)
