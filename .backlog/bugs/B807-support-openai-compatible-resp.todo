@@ -9,10 +9,10 @@ estimate_hours: 1
 id: B807
 priority: high
 started_at: "2026-08-02T06:12:48Z"
-status: in_progress
+status: blocked
 tags: []
 title: Support OpenAI-compatible Responses API where available
-updated_at: "2026-08-02T06:12:48Z"
+updated_at: "2026-08-02T12:03:22Z"
 ---
 Many OpenAI-compatible providers now offer the Responses API (/v1/responses) alongside or instead of Chat Completions. When available, the Responses API offers better statefulness, tool use, and reasoning content handling.\n\nResearch which upstream providers support it and add routing logic to prefer Responses API when available, falling back to Chat Completions.\n\nProviders to investigate: OpenAI, OpenAI-Codex, local proxies, and any custom upstream that advertises /v1/responses.
 ## Requirements (updated)
