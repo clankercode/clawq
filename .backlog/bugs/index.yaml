@@ -1673,7 +1673,7 @@ bugs:
       file: B802-providers-no-clawq-config-prov.todo
       id: B802
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Providers: No ''clawq config provider add'' CLI subcommand'
     - complexity: medium
