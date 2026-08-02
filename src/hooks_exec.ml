@@ -268,15 +268,22 @@ let dispatch ~(all_hooks : hook_config list) ~(event : hook_event) ?session_id
         Lwt_list.map_s
           (fun (handler : hook_handler) ->
             if handler.async_flag then begin
-              (* Fire and forget *)
+              (* B788: Fire and forget with proper exception boundary *)
               Lwt.async (fun () ->
-                  let* _ =
-                    match handler.handler_type with
-                    | Command_handler ->
-                        run_command_hook handler payload_json ~env_vars
-                    | Http_handler -> run_http_hook handler payload_json
-                  in
-                  Lwt.return_unit);
+                  Lwt.catch
+                    (fun () ->
+                      let* _ =
+                        match handler.handler_type with
+                        | Command_handler ->
+                            run_command_hook handler payload_json ~env_vars
+                        | Http_handler -> run_http_hook handler payload_json
+                      in
+                      Lwt.return_unit)
+                    (fun exn ->
+                      Logs.warn (fun m ->
+                          m "Async hook '%s' error: %s" handler.command
+                            (Printexc.to_string exn));
+                      Lwt.return_unit));
               Lwt.return None
             end
             else

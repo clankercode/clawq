@@ -256,6 +256,28 @@ let reset mgr ~key =
            hashtable during Phase 1, no new session could have been created
            for this key — get_or_create_locked would have found the existing
            one. So the re-clear is safe. *)
+        (* B793: Fire SessionEnd hook before teardown (fire-and-forget) *)
+        (match Hashtbl.find_opt mgr.sessions key with
+        | Some (agent, _, _) ->
+            let cwd =
+              Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ())
+            in
+            let workspace = mgr.Session_core.config.workspace in
+            let payload =
+              Hooks.build_session_payload ~session_id:key ~cwd ~workspace ()
+            in
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks
+                      ~event:Hooks.SessionEnd ~session_id:key ~payload ~cwd
+                      ~workspace ()
+                    |> Lwt.map (fun _ -> ()))
+                  (fun exn ->
+                    Logs.warn (fun m ->
+                        m "SessionEnd hook error: %s" (Printexc.to_string exn));
+                    Lwt.return_unit))
+        | None -> ());
         let* () =
           Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
             ~label:(Printf.sprintf "sessions_lock/reset_phase2[%s]" key)

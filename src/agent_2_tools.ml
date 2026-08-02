@@ -520,18 +520,10 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
           let hook_event =
             if success then Hooks.PostToolUse else Hooks.PostToolUseFailure
           in
-          let* post_hook =
-            dispatch_tool_hook hook_event tc ~tool_input:!effective_hook_input
-              ~tool_response:(`String result) ()
-          in
-          inject_hook_contexts post_hook.additional_contexts;
-          List.iter
-            (fun err ->
-              Logs.warn (fun m ->
-                  m "%s%s hook: %s" sk_tag
-                    (Hooks.hook_event_to_string hook_event)
-                    err))
-            post_hook.errors;
+          (* B795: PostToolUse/PostToolUseFailure are fire-and-forget *)
+          dispatch_tool_hook hook_event tc ~tool_input:!effective_hook_input
+            ~tool_response:(`String result) ()
+          |> Lwt.ignore_result;
           (* B625: stamp the structured is_error flag now that we've
              classified the tool result. Downstream Anthropic-format
              converters use this directly instead of re-detecting via the

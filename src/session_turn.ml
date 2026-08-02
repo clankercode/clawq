@@ -182,6 +182,34 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
               (Printexc.to_string exn));
         Lwt.return Hooks.empty_dispatch_result)
   in
+  (* B795: Fire-and-forget helper for non-blocking session hooks.
+     Only PreToolUse blocks; all other session-level hooks are async. *)
+  let _ = fire_session_hook in
+  let fire_session_hook_async event ?reason () =
+    let cwd = Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ()) in
+    let workspace = mgr.Session_core.config.workspace in
+    let payload =
+      match event with
+      | Hooks.OnError ->
+          Hooks.build_error_payload ~error_type:"agent_turn"
+            ~error_message:(Option.value reason ~default:"unknown agent error")
+            ~session_id:key ~cwd ~workspace ()
+      | _ ->
+          Hooks.build_session_payload ~session_id:key ~cwd ~workspace ?reason ()
+    in
+    Lwt.async (fun () ->
+        Lwt.catch
+          (fun () ->
+            Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks ~event
+              ~session_id:key ~payload ~cwd ~workspace ()
+            |> Lwt.map (fun _ -> ()))
+          (fun exn ->
+            Logs.warn (fun m ->
+                m "Session hook %s error: %s"
+                  (Hooks.hook_event_to_string event)
+                  (Printexc.to_string exn));
+            Lwt.return_unit))
+  in
   (* Check for @agent mention at start of message *)
   let notify = Session_core.find_registered_notifier mgr ~key in
   let mention_notify =
@@ -248,18 +276,16 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ())
       in
       let workspace_base = mgr.Session_core.config.workspace in
-      let prompt_payload =
+      let _prompt_payload =
         Hooks.build_prompt_payload ~prompt:effective_message ~session_id:key
           ~cwd:cwd_base ~workspace:workspace_base ()
       in
-      let* _user_hook_result =
-        Lwt.catch
-          (fun () ->
-            Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks
-              ~event:Hooks.UserPromptSubmit ~session_id:key
-              ~payload:prompt_payload ~cwd:cwd_base ~workspace:workspace_base ())
-          (fun _ -> Lwt.return Hooks.empty_dispatch_result)
-      in
+      (* B795: UserPromptSubmit is fire-and-forget (non-blocking) *)
+      fire_session_hook_async Hooks.UserPromptSubmit ~reason:effective_message
+        ();
+      (* B800: additional_context from UserPromptSubmit would be injected here
+         if dispatch returns it. For now, the async variant does not block.
+         Future: capture additional_context and append to runtime_context. *)
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
       let on_llm_call_debug =
@@ -352,8 +378,10 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       let prepared_history_len = List.length agent.history in
       Session_core.record_agent_turn mgr ~key ?channel ?channel_id ();
-      (* P23.M2.E2.T001: SessionStart hook — fire before turn *)
-      let* _session_start_result = fire_session_hook Hooks.SessionStart () in
+      (* B787: SessionStart should fire on session creation/resume, not every
+         turn. It is now fire-and-forget async. For proper session lifecycle,
+         this should move to session creation/resume path. *)
+      fire_session_hook_async Hooks.SessionStart ();
       let persisted_up_to = ref prepared_history_len in
       let on_history_update new_msgs =
         (match mgr.db with
@@ -475,21 +503,15 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                 Session_core.set_response_deferred mgr ~key;
                 finish_response io Session_core.draining_message
             | exn ->
-                (* P23.M2.E4.T001: OnError hook *)
-                let* _err_result =
-                  fire_session_hook Hooks.OnError
-                    ~reason:(Printexc.to_string exn) ()
-                in
+                (* P23.M2.E4.T001: OnError hook -- fire-and-forget (B795) *)
+                fire_session_hook_async Hooks.OnError
+                  ~reason:(Printexc.to_string exn) ();
                 persist_after_turn mgr ~key ~history_before:!persisted_up_to
                   agent;
                 Lwt.fail exn)
       in
-      (* P23.M2.E2.T003: Stop hook — fire after turn completes *)
-      let* _stop_result =
-        Lwt.catch
-          (fun () -> fire_session_hook Hooks.Stop ())
-          (fun _ -> Lwt.return Hooks.empty_dispatch_result)
-      in
+      (* P23.M2.E2.T003: Stop hook -- fire-and-forget (B795) *)
+      fire_session_hook_async Hooks.Stop ();
       let low_volume =
         Runtime_config.room_low_volume mgr.config ~session_key:key
       in

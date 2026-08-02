@@ -553,7 +553,7 @@ let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
         let mid = List.length to_compact / 2 in
         let first_half = List.filteri (fun i _ -> i < mid) to_compact in
         let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
-        (* P23.M2.E3.T002: PreCompact hook *)
+        (* P23.M2.E3.T002: PreCompact hook -- fire-and-forget (B795) *)
         let cwd = Option.value agent.effective_cwd ~default:(Sys.getcwd ()) in
         let workspace = agent.config.workspace in
         let payload_session_id =
@@ -566,13 +566,19 @@ let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
           Hooks.build_session_payload ~session_id:payload_session_id ~cwd
             ~workspace ~reason:"auto" ()
         in
-        let* _precompact_result =
-          Lwt.catch
-            (fun () ->
-              Hooks_exec.dispatch ~all_hooks:agent.hooks ~event:Hooks.PreCompact
-                ?session_id ~payload:precompact_payload ~cwd ~workspace ())
-            (fun _ -> Lwt.return Hooks.empty_dispatch_result)
-        in
+        Lwt.async (fun () ->
+            let* _ =
+              Lwt.catch
+                (fun () ->
+                  Hooks_exec.dispatch ~all_hooks:agent.hooks
+                    ~event:Hooks.PreCompact ?session_id
+                    ~payload:precompact_payload ~cwd ~workspace ())
+                (fun exn ->
+                  Logs.warn (fun m ->
+                      m "PreCompact hook error: %s" (Printexc.to_string exn));
+                  Lwt.return Hooks.empty_dispatch_result)
+            in
+            Lwt.return_unit);
         let* summary1 =
           summarize_messages ?on_llm_call_debug agent first_half
         in
@@ -599,19 +605,24 @@ let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
         agent.history <-
           List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
         let post_tokens = estimate_history_tokens agent.history in
-        (* P23.M2.E3.T003: PostCompact hook *)
+        (* P23.M2.E3.T003: PostCompact hook -- fire-and-forget (B795) *)
         let postcompact_payload =
           Hooks.build_session_payload ~session_id:payload_session_id ~cwd
             ~workspace ~reason:"auto" ()
         in
-        let* _postcompact_result =
-          Lwt.catch
-            (fun () ->
-              Hooks_exec.dispatch ~all_hooks:agent.hooks
-                ~event:Hooks.PostCompact ?session_id
-                ~payload:postcompact_payload ~cwd ~workspace ())
-            (fun _ -> Lwt.return Hooks.empty_dispatch_result)
-        in
+        Lwt.async (fun () ->
+            let* _ =
+              Lwt.catch
+                (fun () ->
+                  Hooks_exec.dispatch ~all_hooks:agent.hooks
+                    ~event:Hooks.PostCompact ?session_id
+                    ~payload:postcompact_payload ~cwd ~workspace ())
+                (fun exn ->
+                  Logs.warn (fun m ->
+                      m "PostCompact hook error: %s" (Printexc.to_string exn));
+                  Lwt.return Hooks.empty_dispatch_result)
+            in
+            Lwt.return_unit);
         Lwt.return_some
           { pre_tokens = current_tokens; post_tokens; context_window = cw }
       end
