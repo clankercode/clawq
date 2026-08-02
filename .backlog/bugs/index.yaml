@@ -778,3 +778,4 @@ bugs:
     - file: B782-cli-notify-command-send-messag.todo
     - file: B783-add-opencodex-as-a-provider.todo
     - file: B784-notify-add-list-targets-flag-t.todo
+    - file: B785-notify-list-targets-should-use.todo
