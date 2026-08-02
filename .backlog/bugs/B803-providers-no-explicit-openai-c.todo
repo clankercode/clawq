@@ -1,14 +1,18 @@
 ---
+claimed_at: "2026-08-02T06:12:35Z"
+claimed_by: codex-provider-fixes
+completed_at: null
 complexity: medium
 created_at: "2026-08-02T05:22:00Z"
 depends_on: []
 estimate_hours: 1
 id: B803
 priority: high
-status: pending
+started_at: "2026-08-02T06:12:35Z"
+status: in_progress
 tags: []
 title: 'Providers: No explicit ''openai-compat'' kind string for self-documenting generic providers'
-updated_at: "2026-08-02T05:22:00Z"
+updated_at: "2026-08-02T06:12:35Z"
 ---
 
 Providers: No explicit 'openai-compat' kind string for self-documenting generic providers
