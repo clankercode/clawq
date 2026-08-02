@@ -1664,7 +1664,7 @@ bugs:
       file: B801-hooks-config-validation-not-en.todo
       id: B801
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: Config validation not enforced at load time'
     - complexity: medium
