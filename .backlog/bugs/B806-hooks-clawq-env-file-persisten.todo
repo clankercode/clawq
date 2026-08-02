@@ -9,10 +9,10 @@ estimate_hours: 1
 id: B806
 priority: high
 started_at: "2026-08-02T06:13:01Z"
-status: in_progress
+status: cancelled
 tags: []
 title: 'Hooks: CLAWQ_ENV_FILE persistence not implemented'
-updated_at: "2026-08-02T06:13:01Z"
+updated_at: "2026-08-02T12:03:03Z"
 ---
 
 Hooks: CLAWQ_ENV_FILE persistence not implemented

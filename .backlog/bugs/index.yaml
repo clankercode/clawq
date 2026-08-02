@@ -1709,7 +1709,7 @@ bugs:
       file: B806-hooks-clawq-env-file-persisten.todo
       id: B806
       priority: high
-      status: in_progress
+      status: cancelled
       tags: []
       title: 'Hooks: CLAWQ_ENV_FILE persistence not implemented'
     - complexity: medium
