@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Config file formats and CLI
       path: 01-config-file-formats-and-cli
-      status: pending
+      status: done
     - complexity: low
       depends_on: []
       description: 'Document hook system: event reference, config formats, JSON payload schema, exit code semantics, example hooks (auto-format, security block, transcript backup, task enforcement). Cross-compat notes for Claude Code and Codex.'

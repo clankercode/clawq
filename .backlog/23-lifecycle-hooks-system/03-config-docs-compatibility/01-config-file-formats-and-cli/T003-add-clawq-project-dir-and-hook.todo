@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-08-02T04:57:29Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-02T05:24:42Z"
 complexity: low
 created_at: "2026-08-02T04:23:08Z"
 depends_on: []
+duration_minutes: 27.2305908114
 estimate_hours: 1.5
 id: P23.M3.E1.T003
 priority: medium
 started_at: "2026-08-02T04:57:29Z"
-status: in_progress
+status: done
 tags: []
 title: Add CLAWQ_PROJECT_DIR and hook env var conventions
-updated_at: "2026-08-02T04:57:29Z"
+updated_at: "2026-08-02T05:24:42Z"
 ---
 Set CLAWQ_PROJECT_DIR env var for hooks (matching CLAUDE_PROJECT_DIR). Set CLAWQ_TOOL_INPUT_FILE_PATH for PostToolUse file ops. Set CLAWQ_ENV_FILE for SessionStart env persistence. Document all env vars.

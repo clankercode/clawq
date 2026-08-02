@@ -4,7 +4,7 @@ estimate_hours: 5
 id: P23.M3.E1
 locked: false
 name: Config file formats and CLI
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -30,6 +30,6 @@ tasks:
       file: T003-add-clawq-project-dir-and-hook.todo
       id: T003
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Add CLAWQ_PROJECT_DIR and hook env var conventions
