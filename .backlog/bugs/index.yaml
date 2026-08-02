@@ -780,3 +780,4 @@ bugs:
     - file: B784-notify-add-list-targets-flag-t.todo
     - file: B785-notify-list-targets-should-use.todo
     - file: B786-bg-shell-jobs-should-notify-la.todo
+    - file: B787-hooks-sessionstart-fires-on-ev.todo
