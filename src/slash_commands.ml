@@ -4,6 +4,18 @@ include Slash_commands_stats_fmt
 let handle ?(skill_names = []) text =
   let trimmed = String.trim text in
   if String.length trimmed = 0 || trimmed.[0] <> '/' then NotACommand
+  else if String.length trimmed >= 2 && trimmed.[0] = '/' && trimmed.[1] = '/'
+  then
+    (* B811: // prefix queues a deferred followup message.
+       Strip the // and optional leading whitespace/newline, then
+       route through FollowupQueue. *)
+    let msg =
+      let raw = String.sub trimmed 2 (String.length trimmed - 2) in
+      String.trim raw
+    in
+    if msg = "" then
+      Reply "Usage: send a message after // to queue it as a followup."
+    else Followup (FollowupQueue msg)
   else
     let parts =
       String.split_on_char ' ' trimmed |> List.filter (fun part -> part <> "")
