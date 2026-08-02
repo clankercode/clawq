@@ -12,7 +12,7 @@ tasks:
       file: T001-test-claude-code-hook-script-c.todo
       id: T001
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Test Claude Code hook script compatibility
     - complexity: medium
