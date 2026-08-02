@@ -207,6 +207,34 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
   in
   let pending_history_wipe = ref false in
   let interrupted = ref false in
+  let inject_hook_contexts contexts =
+    List.iter
+      (fun content ->
+        agent.history <-
+          Provider.make_message ~role:"system" ~content :: agent.history)
+      contexts
+  in
+  let dispatch_tool_hook event (tc : Provider.tool_call) ~tool_input
+      ?tool_response () =
+    let cwd = Option.value agent.effective_cwd ~default:(Sys.getcwd ()) in
+    let workspace = agent.config.workspace in
+    let payload =
+      Hooks.build_tool_payload ~tool_name:tc.function_name ~tool_input
+        ?tool_response
+        ~session_id:(Option.value session_key ~default:"")
+        ~cwd ~workspace ()
+    in
+    Lwt.catch
+      (fun () ->
+        Hooks_exec.dispatch ~all_hooks:agent.hooks ~event
+          ~tool_name:tc.function_name ~payload ~cwd ~workspace ())
+      (fun exn ->
+        Logs.warn (fun m ->
+            m "%s%s hook failed: %s" sk_tag
+              (Hooks.hook_event_to_string event)
+              (Printexc.to_string exn));
+        Lwt.return Hooks.empty_dispatch_result)
+  in
   let check_interrupt () =
     if !interrupted then true
     else
@@ -357,6 +385,11 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
             capture_active_workspace_file_state agent
           in
           let streamed_output = ref false in
+          let parsed_hook_input =
+            try Yojson.Safe.from_string tc.arguments
+            with _ -> `String tc.arguments
+          in
+          let effective_hook_input = ref parsed_hook_input in
           let t0 = Unix.gettimeofday () in
           let* result_msg, raw_result =
             match pre_validation with
@@ -369,88 +402,113 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                 let msg = resolve_tool_search agent tc in
                 Lwt.return (msg, msg.Provider.content)
             | Ok (Some ((tool : Tool.t), args)) ->
-                let* result =
-                  Lwt.catch
-                    (fun () ->
-                      let egress_rules =
-                        let scoped_rules =
-                          match session_key with
-                          | Some key ->
-                              let access =
-                                Runtime_config.resolve_effective_access
-                                  agent.config ~session_key:key ()
-                              in
-                              access.egress_rules
-                          | None -> []
-                        in
-                        Runtime_config.effective_egress_rules agent.config
-                          scoped_rules
-                      in
-                      let context =
-                        {
-                          Tool.session_key;
-                          send_progress =
-                            (if streaming then
-                               Some
-                                 (fun text ->
-                                   streamed_output := true;
-                                   emit
-                                     (Provider.ToolOutputDelta
-                                        { id = tc.id; chunk = text }))
-                             else None);
-                          interrupt_check;
-                          inject_system_messages =
-                            Some
-                              (fun msgs ->
-                                let msgs =
-                                  Skill_dedup.dedup_skill_injections
-                                    ~history:agent.history msgs
+                let* pre_hook =
+                  dispatch_tool_hook Hooks.PreToolUse tc
+                    ~tool_input:parsed_hook_input ()
+                in
+                inject_hook_contexts pre_hook.additional_contexts;
+                List.iter
+                  (fun err ->
+                    Logs.warn (fun m -> m "%sPreToolUse hook: %s" sk_tag err))
+                  pre_hook.errors;
+                if pre_hook.blocked then
+                  let reason =
+                    Option.value pre_hook.block_reason
+                      ~default:"blocked without a reason"
+                  in
+                  let result = "Error: blocked by PreToolUse hook: " ^ reason in
+                  Lwt.return
+                    ( Provider.make_tool_result ~tool_call_id:tc.id
+                        ~name:tc.function_name ~content:result,
+                      result )
+                else
+                  let args =
+                    Option.value pre_hook.updated_input ~default:args
+                  in
+                  effective_hook_input := args;
+                  let* result =
+                    Lwt.catch
+                      (fun () ->
+                        let egress_rules =
+                          let scoped_rules =
+                            match session_key with
+                            | Some key ->
+                                let access =
+                                  Runtime_config.resolve_effective_access
+                                    agent.config ~session_key:key ()
                                 in
-                                List.iter
-                                  (fun content ->
-                                    agent.history <-
-                                      Provider.make_message ~role:"system"
-                                        ~content
-                                      :: agent.history)
-                                  msgs);
-                          effective_cwd = agent.effective_cwd;
-                          request_cwd_change =
-                            Some
-                              (fun new_cwd wipe ->
-                                agent.effective_cwd <- Some new_cwd;
-                                if wipe then pending_history_wipe := true);
-                          egress_rules;
-                          snapshot_id = agent.access_snapshot_id;
-                          profile_id =
-                            (match agent.access_snapshot with
-                            | Some snap -> snap.Access_snapshot.profile_id
-                            | None -> None);
-                          egress_audit_db = db;
-                        }
-                      in
-                      match tool.invoke_stream with
-                      | Some invoke_stream when streaming ->
-                          invoke_stream ~context
-                            ~on_output_chunk:(fun chunk ->
-                              streamed_output := true;
-                              emit
-                                (Provider.ToolOutputDelta { id = tc.id; chunk }))
-                            args
-                      | _ -> tool.invoke ~context args)
-                    (fun exn ->
-                      Lwt.return
-                        ("Error invoking tool: " ^ Printexc.to_string exn))
-                in
-                let* result_for_history =
-                  Tool_postprocess.process_tool_result ~config:agent.config ~db
-                    ~session_key ~tool_name:tc.function_name
-                    ~history:agent.history ?on_llm_call_debug ~raw_result:result
-                    ()
-                in
-                Lwt.return
-                  ( Provider.make_tool_result ~tool_call_id:tc.id
-                      ~name:tc.function_name ~content:result_for_history,
-                    result )
+                                access.egress_rules
+                            | None -> []
+                          in
+                          Runtime_config.effective_egress_rules agent.config
+                            scoped_rules
+                        in
+                        let context =
+                          {
+                            Tool.session_key;
+                            send_progress =
+                              (if streaming then
+                                 Some
+                                   (fun text ->
+                                     streamed_output := true;
+                                     emit
+                                       (Provider.ToolOutputDelta
+                                          { id = tc.id; chunk = text }))
+                               else None);
+                            interrupt_check;
+                            inject_system_messages =
+                              Some
+                                (fun msgs ->
+                                  let msgs =
+                                    Skill_dedup.dedup_skill_injections
+                                      ~history:agent.history msgs
+                                  in
+                                  List.iter
+                                    (fun content ->
+                                      agent.history <-
+                                        Provider.make_message ~role:"system"
+                                          ~content
+                                        :: agent.history)
+                                    msgs);
+                            effective_cwd = agent.effective_cwd;
+                            request_cwd_change =
+                              Some
+                                (fun new_cwd wipe ->
+                                  agent.effective_cwd <- Some new_cwd;
+                                  if wipe then pending_history_wipe := true);
+                            egress_rules;
+                            snapshot_id = agent.access_snapshot_id;
+                            profile_id =
+                              (match agent.access_snapshot with
+                              | Some snap -> snap.Access_snapshot.profile_id
+                              | None -> None);
+                            egress_audit_db = db;
+                          }
+                        in
+                        match tool.invoke_stream with
+                        | Some invoke_stream when streaming ->
+                            invoke_stream ~context
+                              ~on_output_chunk:(fun chunk ->
+                                streamed_output := true;
+                                emit
+                                  (Provider.ToolOutputDelta
+                                     { id = tc.id; chunk }))
+                              args
+                        | _ -> tool.invoke ~context args)
+                      (fun exn ->
+                        Lwt.return
+                          ("Error invoking tool: " ^ Printexc.to_string exn))
+                  in
+                  let* result_for_history =
+                    Tool_postprocess.process_tool_result ~config:agent.config
+                      ~db ~session_key ~tool_name:tc.function_name
+                      ~history:agent.history ?on_llm_call_debug
+                      ~raw_result:result ()
+                  in
+                  Lwt.return
+                    ( Provider.make_tool_result ~tool_call_id:tc.id
+                        ~name:tc.function_name ~content:result_for_history,
+                      result )
           in
           let invoke_duration = Unix.gettimeofday () -. t0 in
           Logs.info (fun m ->
@@ -458,6 +516,21 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                 invoke_duration);
           let result = result_msg.Provider.content in
           let success = not (String.starts_with ~prefix:"Error:" raw_result) in
+          let hook_event =
+            if success then Hooks.PostToolUse else Hooks.PostToolUseFailure
+          in
+          let* post_hook =
+            dispatch_tool_hook hook_event tc ~tool_input:!effective_hook_input
+              ~tool_response:(`String result) ()
+          in
+          inject_hook_contexts post_hook.additional_contexts;
+          List.iter
+            (fun err ->
+              Logs.warn (fun m ->
+                  m "%s%s hook: %s" sk_tag
+                    (Hooks.hook_event_to_string hook_event)
+                    err))
+            post_hook.errors;
           (* B625: stamp the structured is_error flag now that we've
              classified the tool result. Downstream Anthropic-format
              converters use this directly instead of re-detecting via the

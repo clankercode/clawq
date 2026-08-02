@@ -158,6 +158,24 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
+  (* Hook dispatch helper for session-level events *)
+  let fire_session_hook event ?reason () =
+    let cwd = Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ()) in
+    let workspace = mgr.Session_core.config.workspace in
+    let payload =
+      Hooks.build_session_payload ~session_id:key ~cwd ~workspace ?reason ()
+    in
+    Lwt.catch
+      (fun () ->
+        Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks ~event ~payload ~cwd
+          ~workspace ())
+      (fun exn ->
+        Logs.warn (fun m ->
+            m "Session hook %s error: %s"
+              (Hooks.hook_event_to_string event)
+              (Printexc.to_string exn));
+        Lwt.return Hooks.empty_dispatch_result)
+  in
   (* Check for @agent mention at start of message *)
   let notify = Session_core.find_registered_notifier mgr ~key in
   let mention_notify =
@@ -218,6 +236,23 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       let effective_message =
         Session_core.effective_message_for_turn ~message ?channel_name
           ?channel_type ?sender_id ?sender_name ?user_group ()
+      in
+      (* P23.M2.E3.T001: UserPromptSubmit hook *)
+      let cwd_base =
+        Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ())
+      in
+      let workspace_base = mgr.Session_core.config.workspace in
+      let prompt_payload =
+        Hooks.build_prompt_payload ~prompt:effective_message ~session_id:key
+          ~cwd:cwd_base ~workspace:workspace_base ()
+      in
+      let* _user_hook_result =
+        Lwt.catch
+          (fun () ->
+            Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks
+              ~event:Hooks.UserPromptSubmit ~payload:prompt_payload
+              ~cwd:cwd_base ~workspace:workspace_base ())
+          (fun _ -> Lwt.return Hooks.empty_dispatch_result)
       in
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
@@ -311,6 +346,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       let prepared_history_len = List.length agent.history in
       Session_core.record_agent_turn mgr ~key ?channel ?channel_id ();
+      (* P23.M2.E2.T001: SessionStart hook — fire before turn *)
+      let* _session_start_result = fire_session_hook Hooks.SessionStart () in
       let persisted_up_to = ref prepared_history_len in
       let on_history_update new_msgs =
         (match mgr.db with
@@ -432,9 +469,20 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                 Session_core.set_response_deferred mgr ~key;
                 finish_response io Session_core.draining_message
             | exn ->
+                (* P23.M2.E4.T001: OnError hook *)
+                let* _err_result =
+                  fire_session_hook Hooks.OnError
+                    ~reason:(Printexc.to_string exn) ()
+                in
                 persist_after_turn mgr ~key ~history_before:!persisted_up_to
                   agent;
                 Lwt.fail exn)
+      in
+      (* P23.M2.E2.T003: Stop hook — fire after turn completes *)
+      let* _stop_result =
+        Lwt.catch
+          (fun () -> fire_session_hook Hooks.Stop ())
+          (fun _ -> Lwt.return Hooks.empty_dispatch_result)
       in
       let low_volume =
         Runtime_config.room_low_volume mgr.config ~session_key:key
