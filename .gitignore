@@ -40,3 +40,4 @@ npm-pkg/bin/
 room-agent-campaign/
 .docs-audit/
 __pycache__/
+.codebase-memory/
