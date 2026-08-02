@@ -1682,7 +1682,7 @@ bugs:
       file: B803-providers-no-explicit-openai-c.todo
       id: B803
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Providers: No explicit ''openai-compat'' kind string for self-documenting generic providers'
     - complexity: medium
