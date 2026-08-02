@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-08-02T11:24:44Z"
+depends_on: []
+estimate_hours: 1
+id: B811
+priority: high
+status: pending
+tags: []
+title: Add // prefix shortcut for queued followup messages
+updated_at: "2026-08-02T11:24:44Z"
+---
+Messages starting with // (optionally followed by space or newline) should be queued as followup messages that wait until the agent finishes its current work before being delivered. This provides a quick shortcut for steering without interrupting the active turn.
