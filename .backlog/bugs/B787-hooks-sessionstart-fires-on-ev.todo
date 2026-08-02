@@ -1,13 +1,17 @@
 ---
+claimed_at: "2026-08-02T06:13:12Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-08-02T05:19:08Z"
 depends_on: []
 estimate_hours: 1
 id: B787
 priority: high
-status: pending
+started_at: "2026-08-02T06:13:12Z"
+status: in_progress
 tags: []
 title: 'Hooks: SessionStart fires on every turn instead of session creation/resume'
-updated_at: "2026-08-02T05:19:08Z"
+updated_at: "2026-08-02T06:13:12Z"
 ---
 Reviewer finding #1: src/session_turn.ml:357 fires SessionStart on every turn. Should only fire on session creation/resume. Result is also discarded - should inject context. Fix: move to session creation/resume path and handle additional_context.
