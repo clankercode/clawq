@@ -74,16 +74,24 @@ let subagent_result_wait_timeout_seconds_for_task ~config task =
     ~config ()
 
 let subagent_depth ~db ~session_key =
-  match Background_task.find_task_id_by_session_key ~db ~session_key with
+  (* B810: Only count active (running/queued) tasks in the depth chain.
+     Old completed/failed/cancelled tasks must not inflate the depth
+     counter, or subagent spawning becomes permanently blocked. *)
+  match Background_task.find_active_task_id_by_session_key ~db ~session_key with
   | None -> 0
   | Some task_id ->
       let rec count_depth id acc =
         match Background_task.get_task ~db ~id with
         | None -> acc
         | Some task -> (
-            match task.parent_task_id with
-            | Some parent_id -> count_depth parent_id (acc + 1)
-            | None -> acc + 1)
+            if
+              (* Only follow the chain through active tasks *)
+              not (Background_task.is_active_status task.status)
+            then acc
+            else
+              match task.parent_task_id with
+              | Some parent_id -> count_depth parent_id (acc + 1)
+              | None -> acc + 1)
       in
       count_depth task_id 0
 

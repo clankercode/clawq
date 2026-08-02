@@ -753,6 +753,25 @@ let find_task_id_by_session_key ~db ~session_key =
       | Sqlite3.Rc.ROW -> Sqlite3.column stmt 0 |> sql_int
       | _ -> None)
 
+(* B810: Like find_task_id_by_session_key but only returns active tasks *)
+let find_active_task_id_by_session_key ~db ~session_key =
+  let sql =
+    "SELECT id FROM background_tasks WHERE session_key = ? AND status IN \
+     ('queued', 'running') ORDER BY id DESC LIMIT 1"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> Sqlite3.column stmt 0 |> sql_int
+      | _ -> None)
+
+let is_active_status = function
+  | Queued | Running -> true
+  | Succeeded | Failed | DirtyWorktree | Cancelled -> false
+
 let count_active_for_session ~db ~session_key =
   let sql =
     "SELECT COUNT(*) FROM background_tasks WHERE status IN ('queued', \
