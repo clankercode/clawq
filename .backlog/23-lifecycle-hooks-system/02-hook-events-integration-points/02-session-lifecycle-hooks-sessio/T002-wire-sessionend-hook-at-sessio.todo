@@ -1,15 +1,18 @@
 ---
+claimed_at: "2026-08-02T04:39:31Z"
+claimed_by: cli-user
+completed_at: "2026-08-02T04:56:28Z"
 complexity: low
 created_at: "2026-08-02T04:22:53Z"
 depends_on: []
+duration_minutes: 16.960546345466668
 estimate_hours: 1
 id: P23.M2.E2.T002
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-08-02T04:39:31Z"
+status: done
+tags: []
 title: Wire SessionEnd hook at session termination
-updated_at: "2026-08-02T04:22:53Z"
+updated_at: "2026-08-02T04:56:28Z"
 ---
 Fire SessionEnd when session ends. Non-blocking, for cleanup and logging.

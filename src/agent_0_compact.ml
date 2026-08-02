@@ -494,7 +494,7 @@ let flush_memories_before_compaction ?on_llm_call_debug ~config ~system_prompt
           !stored !forgotten);
     Lwt.return_unit
 
-let compact_history_if_needed agent ?db ?on_llm_call_debug () =
+let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let effective_max = effective_max_messages agent in
   let len = List.length agent.history in
@@ -556,18 +556,21 @@ let compact_history_if_needed agent ?db ?on_llm_call_debug () =
         (* P23.M2.E3.T002: PreCompact hook *)
         let cwd = Option.value agent.effective_cwd ~default:(Sys.getcwd ()) in
         let workspace = agent.config.workspace in
-        let precompact_payload =
-          Hooks.build_session_payload
-            ~session_id:
+        let payload_session_id =
+          Option.value session_id
+            ~default:
               (Printf.sprintf "%d messages being compacted"
                  (List.length to_compact))
-            ~cwd ~workspace ~reason:"auto" ()
+        in
+        let precompact_payload =
+          Hooks.build_session_payload ~session_id:payload_session_id ~cwd
+            ~workspace ~reason:"auto" ()
         in
         let* _precompact_result =
           Lwt.catch
             (fun () ->
               Hooks_exec.dispatch ~all_hooks:agent.hooks ~event:Hooks.PreCompact
-                ~payload:precompact_payload ~cwd ~workspace ())
+                ?session_id ~payload:precompact_payload ~cwd ~workspace ())
             (fun _ -> Lwt.return Hooks.empty_dispatch_result)
         in
         let* summary1 =
@@ -598,15 +601,15 @@ let compact_history_if_needed agent ?db ?on_llm_call_debug () =
         let post_tokens = estimate_history_tokens agent.history in
         (* P23.M2.E3.T003: PostCompact hook *)
         let postcompact_payload =
-          Hooks.build_session_payload ~session_id:"compacted" ~cwd ~workspace
-            ~reason:"auto" ()
+          Hooks.build_session_payload ~session_id:payload_session_id ~cwd
+            ~workspace ~reason:"auto" ()
         in
         let* _postcompact_result =
           Lwt.catch
             (fun () ->
               Hooks_exec.dispatch ~all_hooks:agent.hooks
-                ~event:Hooks.PostCompact ~payload:postcompact_payload ~cwd
-                ~workspace ())
+                ~event:Hooks.PostCompact ?session_id
+                ~payload:postcompact_payload ~cwd ~workspace ())
             (fun _ -> Lwt.return Hooks.empty_dispatch_result)
         in
         Lwt.return_some

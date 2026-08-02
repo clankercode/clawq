@@ -1,15 +1,18 @@
 ---
+claimed_at: "2026-08-02T04:34:24Z"
+claimed_by: cli-user
+completed_at: "2026-08-02T04:34:24Z"
 complexity: medium
 created_at: "2026-08-02T04:22:15Z"
 depends_on: []
+duration_minutes: 0.006748584983333333
 estimate_hours: 1.5
 id: P23.M1.E2.T004
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-08-02T04:34:24Z"
+status: done
+tags: []
 title: Implement HTTP hook type
-updated_at: "2026-08-02T04:22:15Z"
+updated_at: "2026-08-02T04:34:24Z"
 ---
 POST event JSON to configured URL. Headers with env var interpolation (allowedEnvVars). Non-2xx = non-blocking error (execution continues). 2xx + JSON body parsed same as command hooks. Timeout support.

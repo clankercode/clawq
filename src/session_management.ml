@@ -37,6 +37,9 @@ let update_config ?(source = "") mgr config =
       | None -> ());
       (* Re-apply room profile template fields *)
       Session_room_profile.apply_room_profile_template_fields mgr ~key agent;
+      agent.Agent.hooks <-
+        Agent.configured_hooks ~config:agent.Agent.config
+          ?cwd:agent.Agent.effective_cwd ();
       (* Recompute layered instructions from access scopes *)
       agent.Agent.instruction_items <-
         Session_room_profile.resolve_instruction_items_for_session mgr ~key;

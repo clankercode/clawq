@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Hook data model and config parsing
       path: 01-hook-data-model-and-config-par
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P23.M1.E1
@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Hook execution engine
       path: 02-hook-execution-engine
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P23.M1.E2
@@ -29,9 +29,9 @@ epics:
       locked: false
       name: Hook dispatch and matching
       path: 03-hook-dispatch-and-matching
-      status: pending
+      status: done
 estimate_hours: 24
 id: P23.M1
 locked: false
 name: Core Hook Engine
-status: pending
+status: done

@@ -1,5 +1,38 @@
 include Agent_room_budget
 
+let parse_hooks_file_at path =
+  if not (Sys.file_exists path) then []
+  else
+    try Yojson.Safe.from_file path |> Hooks.parse_hooks_file
+    with exn ->
+      Logs.warn (fun m ->
+          m "Hooks: could not load %s: %s" path (Printexc.to_string exn));
+      []
+
+let config_hooks config =
+  let serialized =
+    Hooks.parse_hooks_config_section (Runtime_config.to_json config)
+  in
+  let path = Dot_dir.config_path () in
+  if not (Sys.file_exists path) then serialized
+  else
+    try Yojson.Safe.from_file path |> Hooks.parse_hooks_config_section
+    with exn ->
+      Logs.warn (fun m ->
+          m "Hooks: could not read hooks from %s: %s" path
+            (Printexc.to_string exn));
+      serialized
+
+let configured_hooks ~config ?cwd () =
+  let project_dir = Option.value cwd ~default:(Sys.getcwd ()) in
+  let project_path = Filename.concat project_dir ".clawq/hooks.json" in
+  let profile_path = Dot_dir.sub "hooks.json" in
+  (* Higher-precedence sources run first while retaining hooks from every
+     source, matching the additive behavior of lifecycle-hook configs. *)
+  parse_hooks_file_at project_path
+  @ parse_hooks_file_at profile_path
+  @ config_hooks config
+
 let create ~config ?tool_registry ?agent_template ?cwd
     ?(instruction_items : Runtime_config.effective_instruction_item list = [])
     ?access_snapshot_id ?access_snapshot () =
@@ -52,7 +85,7 @@ let create ~config ?tool_registry ?agent_template ?cwd
     instruction_items;
     access_snapshot_id;
     access_snapshot;
-    hooks = Hooks.parse_hooks_config_section (Runtime_config.to_json config);
+    hooks = configured_hooks ~config ?cwd ();
   }
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])
@@ -95,6 +128,8 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
           ~content_parts:(Provider.Text user_message :: parts)
   in
   agent.history <- user_msg :: agent.history;
-  let* compacted = compact_history_if_needed agent ?db () in
+  let* compacted =
+    compact_history_if_needed agent ?db ?session_id:session_key ()
+  in
   trim_history agent;
   Lwt.return compacted

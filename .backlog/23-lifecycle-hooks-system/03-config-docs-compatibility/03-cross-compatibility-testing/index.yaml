@@ -12,7 +12,8 @@ tasks:
       file: T001-test-claude-code-hook-script-c.todo
       id: T001
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Test Claude Code hook script compatibility
     - complexity: medium
       depends_on: []
@@ -20,5 +21,6 @@ tasks:
       file: T002-test-codex-hook-script-compati.todo
       id: T002
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Test Codex hook script compatibility

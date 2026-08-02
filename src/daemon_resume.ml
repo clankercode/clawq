@@ -333,7 +333,7 @@ let default_resume_turn ?on_history_persisted ~(session_manager : Session.t)
   Agent.refresh_profiled_room_flag agent ?db:session_manager.db ~session_key ();
   let* compaction_info =
     Agent.compact_history_if_needed agent ?db:session_manager.db
-      ?on_llm_call_debug ()
+      ~session_id:session_key ?on_llm_call_debug ()
   in
   let compacted = Option.is_some compaction_info in
   let* () = Session.notify_compaction_if_needed ~notify compaction_info in

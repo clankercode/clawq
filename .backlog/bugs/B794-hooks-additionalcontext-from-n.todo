@@ -1,0 +1,14 @@
+---
+complexity: medium
+created_at: "2026-08-02T05:21:32Z"
+depends_on: []
+estimate_hours: 1
+id: B794
+priority: high
+status: pending
+tags: []
+title: 'Hooks: additionalContext from non-blocking hooks is discarded'
+updated_at: "2026-08-02T05:21:32Z"
+---
+
+Hooks: additionalContext from non-blocking hooks is discarded

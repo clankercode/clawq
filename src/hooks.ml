@@ -443,17 +443,35 @@ let parse_hook_json_output (stdout_text : string) =
             with _ -> None)
         in
         let decision_reason =
-          try Some (json |> member "reason" |> to_string) with _ -> None
+          try Some (json |> member "reason" |> to_string)
+          with _ -> (
+            try
+              Some
+                (json
+                |> member "hookSpecificOutput"
+                |> member "permissionDecisionReason"
+                |> to_string)
+            with _ -> None)
         in
         let additional_context =
           try Some (json |> member "additionalContext" |> to_string)
-          with _ -> None
+          with _ -> (
+            try
+              Some
+                (json
+                |> member "hookSpecificOutput"
+                |> member "additionalContext" |> to_string)
+            with _ -> None)
         in
         let updated_input =
-          try
-            let hso = json |> member "hookSpecificOutput" in
-            Some (hso |> member "updatedInput")
-          with _ -> None
+          let value =
+            let top_level = json |> member "updatedInput" in
+            if top_level <> `Null then top_level
+            else
+              try json |> member "hookSpecificOutput" |> member "updatedInput"
+              with _ -> `Null
+          in
+          if value = `Null then None else Some value
         in
         Some { decision; decision_reason; additional_context; updated_input }
       with _ -> None)

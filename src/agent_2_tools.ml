@@ -227,6 +227,7 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
     Lwt.catch
       (fun () ->
         Hooks_exec.dispatch ~all_hooks:agent.hooks ~event
+          ~session_id:(Option.value session_key ~default:"")
           ~tool_name:tc.function_name ~payload ~cwd ~workspace ())
       (fun exn ->
         Logs.warn (fun m ->

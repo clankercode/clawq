@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-clawq-hooks-json-fil.todo
       id: T001
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement .clawq/hooks.json file loading (Codex-style)
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-add-clawq-hooks-cli-commands.todo
       id: T002
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Add clawq hooks CLI commands
     - complexity: low
       depends_on: []
@@ -28,5 +30,6 @@ tasks:
       file: T003-add-clawq-project-dir-and-hook.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Add CLAWQ_PROJECT_DIR and hook env var conventions

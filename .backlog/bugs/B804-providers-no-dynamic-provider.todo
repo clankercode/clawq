@@ -1,0 +1,14 @@
+---
+complexity: medium
+created_at: "2026-08-02T05:22:00Z"
+depends_on: []
+estimate_hours: 1
+id: B804
+priority: high
+status: pending
+tags: []
+title: 'Providers: No dynamic provider registration at runtime (requires config reload)'
+updated_at: "2026-08-02T05:22:00Z"
+---
+
+Providers: No dynamic provider registration at runtime (requires config reload)

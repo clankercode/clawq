@@ -19,6 +19,7 @@
   test_bg_shell
   test_benchmark
   test_channel_formats
+  test_hooks
   test_chat_ui
   test_clawq_core
   test_cli_exit

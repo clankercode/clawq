@@ -4,7 +4,7 @@ estimate_hours: 6
 id: P23.M1.E1
 locked: false
 name: Hook data model and config parsing
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -21,7 +21,8 @@ tasks:
       file: T002-parse-hooks-from-config-json-h.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Parse hooks from config.json hooks section
     - complexity: low
       depends_on: []
@@ -29,5 +30,6 @@ tasks:
       file: T003-validate-hook-configs-at-load.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Validate hook configs at load time

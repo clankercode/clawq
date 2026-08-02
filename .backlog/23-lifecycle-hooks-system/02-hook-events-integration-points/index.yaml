@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Session lifecycle hooks (SessionStart, SessionEnd, Stop)
       path: 02-session-lifecycle-hooks-sessio
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: UserPromptSubmit fires when user sends a prompt — stdout becomes additional context. PreCompact fires before context compaction (can block). PostCompact fires after (re-inject context).
@@ -28,7 +28,7 @@ epics:
       locked: false
       name: Prompt and compaction hooks (UserPromptSubmit, PreCompact, PostCompact)
       path: 03-prompt-and-compaction-hooks-us
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Fires when an error occurs during agent turn (tool failure, provider error). Hook receives error details and can provide recovery guidance to agent.
@@ -37,9 +37,9 @@ epics:
       locked: false
       name: Error hook (OnError)
       path: 04-error-hook-onerror
-      status: pending
+      status: done
 estimate_hours: 20
 id: P23.M2
 locked: false
 name: Hook Events & Integration Points
-status: pending
+status: done

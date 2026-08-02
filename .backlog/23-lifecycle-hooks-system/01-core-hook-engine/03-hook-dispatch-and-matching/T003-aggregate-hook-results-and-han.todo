@@ -1,15 +1,18 @@
 ---
+claimed_at: "2026-08-02T04:34:25Z"
+claimed_by: cli-user
+completed_at: "2026-08-02T04:34:25Z"
 complexity: high
 created_at: "2026-08-02T04:22:27Z"
 depends_on: []
+duration_minutes: 0.0031312318666666668
 estimate_hours: 2
 id: P23.M1.E3.T003
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-08-02T04:34:25Z"
+status: done
+tags: []
 title: Aggregate hook results and handle blocking decisions
-updated_at: "2026-08-02T04:22:27Z"
+updated_at: "2026-08-02T04:34:25Z"
 ---
 When multiple hooks match, run them in sequence or parallel. If any returns block (exit 2 or decision:deny/block), stop execution and return block decision. Collect additionalContext from all hooks. For PreToolUse, support updatedInput to modify tool parameters.

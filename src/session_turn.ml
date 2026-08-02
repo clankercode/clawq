@@ -163,12 +163,18 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     let cwd = Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ()) in
     let workspace = mgr.Session_core.config.workspace in
     let payload =
-      Hooks.build_session_payload ~session_id:key ~cwd ~workspace ?reason ()
+      match event with
+      | Hooks.OnError ->
+          Hooks.build_error_payload ~error_type:"agent_turn"
+            ~error_message:(Option.value reason ~default:"unknown agent error")
+            ~session_id:key ~cwd ~workspace ()
+      | _ ->
+          Hooks.build_session_payload ~session_id:key ~cwd ~workspace ?reason ()
     in
     Lwt.catch
       (fun () ->
-        Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks ~event ~payload ~cwd
-          ~workspace ())
+        Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks ~event ~session_id:key
+          ~payload ~cwd ~workspace ())
       (fun exn ->
         Logs.warn (fun m ->
             m "Session hook %s error: %s"
@@ -250,8 +256,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         Lwt.catch
           (fun () ->
             Hooks_exec.dispatch ~all_hooks:agent.Agent.hooks
-              ~event:Hooks.UserPromptSubmit ~payload:prompt_payload
-              ~cwd:cwd_base ~workspace:workspace_base ())
+              ~event:Hooks.UserPromptSubmit ~session_id:key
+              ~payload:prompt_payload ~cwd:cwd_base ~workspace:workspace_base ())
           (fun _ -> Lwt.return Hooks.empty_dispatch_result)
       in
       let history_before = List.length agent.history in

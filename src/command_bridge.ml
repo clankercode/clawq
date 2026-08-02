@@ -51,6 +51,76 @@ let cmd_mcp () =
     ""
   end
 
+let config_json_for_hooks () =
+  let path = Dot_dir.config_path () in
+  if not (Sys.file_exists path) then Ok (Runtime_config.to_json (get_config ()))
+  else
+    try Ok (Yojson.Safe.from_file path)
+    with exn ->
+      Error
+        (Printf.sprintf "Could not parse hook configuration in %s: %s" path
+           (Printexc.to_string exn))
+
+let configured_config_hooks () =
+  match config_json_for_hooks () with
+  | Error _ as error -> error
+  | Ok json -> Ok (Hooks.parse_hooks_config_section json)
+
+let render_configured_hooks hooks =
+  let render_handler event_index entry_index handler_index
+      (handler : Hooks.hook_handler) =
+    Printf.sprintf "  [%d.%d.%d] %s %s (timeout %.0fs%s)" event_index
+      entry_index handler_index
+      (Hooks.handler_type_to_string handler.handler_type)
+      handler.command handler.timeout
+      (if handler.async_flag then ", async" else "")
+  in
+  hooks
+  |> List.mapi (fun event_index (config : Hooks.hook_config) ->
+      let entries =
+        config.entries
+        |> List.mapi (fun entry_index (entry : Hooks.hook_entry) ->
+            let matcher = Option.value entry.matcher ~default:"*" in
+            let handlers =
+              entry.hooks
+              |> List.mapi (fun handler_index handler ->
+                  render_handler (event_index + 1) (entry_index + 1)
+                    (handler_index + 1) handler)
+            in
+            (" matcher: " ^ matcher) :: handlers)
+        |> List.concat
+      in
+      Hooks.hook_event_to_string config.event :: entries)
+  |> List.concat |> String.concat "\n"
+
+let cmd_hooks args =
+  match args with
+  | [ "events" ] -> String.concat "\n" Hooks.all_hook_event_names
+  | [ "list" ] -> (
+      match configured_config_hooks () with
+      | Error message -> "Error: " ^ message
+      | Ok [] -> "No hooks configured in config.json."
+      | Ok hooks -> render_configured_hooks hooks)
+  | [ "validate" ] -> (
+      match configured_config_hooks () with
+      | Error message -> "Invalid hooks configuration:\n- " ^ message
+      | Ok hooks -> (
+          match Hooks.validate_all_hooks hooks with
+          | [] ->
+              Printf.sprintf "Hooks configuration is valid (%d event%s)."
+                (List.length hooks)
+                (if List.length hooks = 1 then "" else "s")
+          | errors ->
+              "Invalid hooks configuration:\n"
+              ^ String.concat "\n" (List.map (fun error -> "- " ^ error) errors)
+          ))
+  | _ ->
+      "Usage: clawq hooks <subcommand>\n\n\
+       Subcommands:\n\
+      \  list       List hooks configured in config.json\n\
+      \  validate   Validate hooks configured in config.json\n\
+      \  events     List supported lifecycle hook events"
+
 let cmd_runner args =
   let cfg = get_config () in
   match args with
@@ -617,6 +687,7 @@ let handle args =
   | "agent" :: _ -> cmd_agent ()
   | "status" :: _ -> cmd_status ()
   | "config" :: rest -> cmd_config rest
+  | "hooks" :: rest -> cmd_hooks rest
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: rest -> cmd_models rest

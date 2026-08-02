@@ -783,3 +783,19 @@ bugs:
     - file: B787-hooks-sessionstart-fires-on-ev.todo
     - file: B788-hooks-config-validation-not-en.todo
     - file: B789-hooks-sessionend-never-dispatc.todo
+    - file: B790-hooks-force-compact-history-by.todo
+    - file: B791-hooks-config-validation-not-en.todo
+    - file: B792-hooks-non-pretooluse-hooks-blo.todo
+    - file: B793-hooks-sessionend-never-dispatc.todo
+    - file: B794-hooks-command-executor-uses-bl.todo
+    - file: B794-hooks-additionalcontext-from-n.todo
+    - file: B795-hooks-non-pretooluse-hooks-blo.todo
+    - file: B796-hooks-command-executor-uses-bl.todo
+    - file: B797-hooks-timeout-kills-only-shell.todo
+    - file: B798-hooks-force-compact-history-by.todo
+    - file: B799-hooks-compaction-matchers-igno.todo
+    - file: B800-hooks-additionalcontext-from-n.todo
+    - file: B801-hooks-config-validation-not-en.todo
+    - file: B802-providers-no-clawq-config-prov.todo
+    - file: B803-providers-no-explicit-openai-c.todo
+    - file: B804-providers-no-dynamic-provider.todo

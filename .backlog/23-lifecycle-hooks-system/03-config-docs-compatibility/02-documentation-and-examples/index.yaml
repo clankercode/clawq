@@ -12,7 +12,8 @@ tasks:
       file: T001-write-hooks-documentation-docs.todo
       id: T001
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Write hooks documentation (docs/hooks.md)
     - complexity: low
       depends_on: []
@@ -20,5 +21,6 @@ tasks:
       file: T002-create-example-hooks-auto-form.todo
       id: T002
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Create example hooks (auto-format, security, backup)

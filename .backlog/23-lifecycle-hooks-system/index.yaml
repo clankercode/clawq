@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Core Hook Engine
       path: 01-core-hook-engine
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P23.M1
@@ -22,7 +22,7 @@ milestones:
       locked: false
       name: Hook Events & Integration Points
       path: 02-hook-events-integration-points
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P23.M1

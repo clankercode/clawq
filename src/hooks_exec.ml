@@ -10,12 +10,22 @@ open Hooks
 
 (* ---- Environment variables for hooks ---- *)
 
-let clawq_env_vars ~cwd ~workspace =
-  [
-    ("CLAWQ_PROJECT_DIR", cwd);
-    ("CLAWQ_WORKSPACE", workspace);
-    ("CLAWQ_HOOK_VERSION", "1.0");
-  ]
+let clawq_env_vars ~cwd ~workspace ?session_id ?tool_name () =
+  let vars =
+    [
+      ("CLAWQ_PROJECT_DIR", cwd);
+      ("CLAWQ_WORKSPACE", workspace);
+      ("CLAWQ_HOOK_VERSION", "1.0");
+    ]
+  in
+  let vars =
+    match session_id with
+    | Some id -> ("CLAWQ_SESSION_ID", id) :: vars
+    | None -> vars
+  in
+  match tool_name with
+  | Some name -> ("CLAWQ_TOOL_NAME", name) :: vars
+  | None -> vars
 
 (* ---- Command hook execution ---- *)
 
@@ -237,14 +247,14 @@ let run_http_hook (handler : hook_handler) (payload_json : string) =
         }
 (* ---- Dispatch: run all matching hooks for an event ---- *)
 
-let dispatch (all_hooks : hook_config list) (event : hook_event) ?tool_name
-    ~(payload : Yojson.Safe.t) ~cwd ~workspace () =
+let dispatch ~(all_hooks : hook_config list) ~(event : hook_event) ?session_id
+    ?tool_name ~(payload : Yojson.Safe.t) ~cwd ~workspace () =
   let open Lwt.Syntax in
   let matching = hooks_for_event all_hooks event ?tool_name () in
   if matching = [] then Lwt.return empty_dispatch_result
   else begin
     let payload_json = Yojson.Safe.to_string payload in
-    let env_vars = clawq_env_vars ~cwd ~workspace in
+    let env_vars = clawq_env_vars ~cwd ~workspace ?session_id ?tool_name () in
     (* Collect all handlers from matching entries *)
     let all_handlers =
       List.concat_map

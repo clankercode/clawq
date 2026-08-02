@@ -4,7 +4,7 @@ estimate_hours: 4
 id: P23.M2.E2
 locked: false
 name: Session lifecycle hooks (SessionStart, SessionEnd, Stop)
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-wire-sessionstart-hook-at-sess.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Wire SessionStart hook at session creation
     - complexity: low
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-wire-sessionend-hook-at-sessio.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Wire SessionEnd hook at session termination
     - complexity: medium
       depends_on: []
@@ -28,5 +30,6 @@ tasks:
       file: T003-wire-stop-hook-at-end-of-agent.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Wire Stop hook at end of agent response

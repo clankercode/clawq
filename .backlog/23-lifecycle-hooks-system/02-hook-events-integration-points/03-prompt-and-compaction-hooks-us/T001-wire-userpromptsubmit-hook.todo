@@ -1,15 +1,18 @@
 ---
+claimed_at: "2026-08-02T04:39:31Z"
+claimed_by: cli-user
+completed_at: "2026-08-02T04:56:28Z"
 complexity: medium
 created_at: "2026-08-02T04:22:53Z"
 depends_on: []
+duration_minutes: 16.966177223633334
 estimate_hours: 1.5
 id: P23.M2.E3.T001
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-08-02T04:39:31Z"
+status: done
+tags: []
 title: Wire UserPromptSubmit hook
-updated_at: "2026-08-02T04:22:53Z"
+updated_at: "2026-08-02T04:56:28Z"
 ---
 Fire when user submits a prompt. Hook stdout becomes additional context for that turn. Used for context injection, convention loading, skill activation.

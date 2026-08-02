@@ -1,15 +1,18 @@
 ---
+claimed_at: "2026-08-02T04:39:30Z"
+claimed_by: cli-user
+completed_at: "2026-08-02T04:56:28Z"
 complexity: medium
 created_at: "2026-08-02T04:22:52Z"
 depends_on: []
+duration_minutes: 16.974455074683334
 estimate_hours: 1.5
 id: P23.M2.E2.T001
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-08-02T04:39:30Z"
+status: done
+tags: []
 title: Wire SessionStart hook at session creation
-updated_at: "2026-08-02T04:22:52Z"
+updated_at: "2026-08-02T04:56:28Z"
 ---
 Fire SessionStart when session is created or resumed. Hook stdout becomes context. Support CLAWQ_ENV_FILE for env var persistence (matching Claude Code convention).

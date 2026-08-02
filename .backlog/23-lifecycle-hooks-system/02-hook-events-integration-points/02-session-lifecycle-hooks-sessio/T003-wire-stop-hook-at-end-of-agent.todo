@@ -1,15 +1,18 @@
 ---
+claimed_at: "2026-08-02T04:39:31Z"
+claimed_by: cli-user
+completed_at: "2026-08-02T04:56:28Z"
 complexity: medium
 created_at: "2026-08-02T04:22:53Z"
 depends_on: []
+duration_minutes: 16.963194893333334
 estimate_hours: 1.5
 id: P23.M2.E2.T003
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-08-02T04:39:31Z"
+status: done
+tags: []
 title: Wire Stop hook at end of agent response
-updated_at: "2026-08-02T04:22:53Z"
+updated_at: "2026-08-02T04:56:28Z"
 ---
 Fire Stop when agent finishes responding. Exit 2 forces agent to continue working. Used for task completion enforcement.

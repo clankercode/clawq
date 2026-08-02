@@ -530,7 +530,9 @@ let run_turn agent ~mk_io ~user_message ?db ?session_key ?interrupt_check
                grow history without bound. compact_history_if_needed checks
                token/message thresholds and compacts only when needed — cheap
                when not at the threshold. *)
-            let* mid_turn_compaction = compact_history_if_needed agent ?db () in
+            let* mid_turn_compaction =
+              compact_history_if_needed agent ?db ?session_id:session_key ()
+            in
             (match mid_turn_compaction with
             | Some _ ->
                 mark_compacted agent;

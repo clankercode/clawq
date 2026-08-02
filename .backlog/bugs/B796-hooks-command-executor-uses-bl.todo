@@ -1,0 +1,14 @@
+---
+complexity: medium
+created_at: "2026-08-02T05:21:50Z"
+depends_on: []
+estimate_hours: 1
+id: B796
+priority: high
+status: pending
+tags: []
+title: 'Hooks: Command executor uses blocking I/O that can deadlock'
+updated_at: "2026-08-02T05:21:50Z"
+---
+
+Hooks: Command executor uses blocking I/O that can deadlock

@@ -318,6 +318,7 @@ let () =
        ("chat_ui", Test_chat_ui.suite);
        ("ui_server", Test_ui_server.suite);
        ("channel_formats", Test_channel_formats.suite);
+       ("hooks", Test_hooks.suite);
        ("commands", Test_commands.suite);
        ("contracts", Test_contracts.suite);
        ("tools_help", Test_tools_help.suite);

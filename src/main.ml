@@ -188,6 +188,15 @@ let config_cmd =
       `P "clawq config tree";
     ]
 
+let hooks_cmd =
+  with_args "hooks" "Inspect and validate lifecycle hook configuration."
+    [
+      `S "SUBCOMMANDS";
+      `I ("list", "List hooks configured in config.json.");
+      `I ("validate", "Validate hooks configured in config.json.");
+      `I ("events", "List supported lifecycle hook event names.");
+    ]
+
 let phase2_cmd = simple "phase2" "Show Phase 2 feature status."
 
 let hardware_cmd =
@@ -799,6 +808,7 @@ let () =
   let cmds =
     [
       config_cmd;
+      hooks_cmd;
       agent_cmd;
       status_cmd;
       doctor_cmd;
