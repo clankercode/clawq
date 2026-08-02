@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 60
 id: P23
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -32,7 +32,7 @@ milestones:
       locked: false
       name: Config, Docs & Compatibility
       path: 03-config-docs-compatibility
-      status: pending
+      status: done
 name: Lifecycle Hooks System
-status: pending
+status: done
 weeks: 2

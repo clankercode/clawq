@@ -4,7 +4,7 @@ estimate_hours: 4
 id: P23.M3.E3
 locked: false
 name: Cross-compatibility testing
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -21,6 +21,6 @@ tasks:
       file: T002-test-codex-hook-script-compati.todo
       id: T002
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Test Codex hook script compatibility

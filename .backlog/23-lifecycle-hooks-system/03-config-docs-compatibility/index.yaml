@@ -28,9 +28,9 @@ epics:
       locked: false
       name: Cross-compatibility testing
       path: 03-cross-compatibility-testing
-      status: pending
+      status: done
 estimate_hours: 16
 id: P23.M3
 locked: false
 name: Config, Docs & Compatibility
-status: pending
+status: done

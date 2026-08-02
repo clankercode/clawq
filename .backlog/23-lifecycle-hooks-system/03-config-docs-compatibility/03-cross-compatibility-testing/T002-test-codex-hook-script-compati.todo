@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-08-02T04:57:30Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-02T05:24:43Z"
 complexity: medium
 created_at: "2026-08-02T04:23:08Z"
 depends_on: []
+duration_minutes: 27.231622427216667
 estimate_hours: 2
 id: P23.M3.E3.T002
 priority: medium
 started_at: "2026-08-02T04:57:30Z"
-status: in_progress
+status: done
 tags: []
 title: Test Codex hook script compatibility
-updated_at: "2026-08-02T04:57:30Z"
+updated_at: "2026-08-02T05:24:43Z"
 ---
 Write tests using sample Codex hook scripts. Verify .codex/hooks.json-style config loads correctly and scripts execute properly.
