@@ -630,7 +630,8 @@ let compact_history_if_needed agent ?db ?session_id ?on_llm_call_debug () =
   end
   else Lwt.return_none
 
-let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
+let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug ?session_id
+    ?hooks () =
   let open Lwt.Syntax in
   let pre_tokens = estimate_history_tokens agent.history in
   let cw = context_window_for_agent agent in
@@ -760,6 +761,32 @@ let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
       agent.history <-
         List.rev (skill_msgs @ [ summary_msg ] @ scoped_msgs @ to_keep);
       let post_tokens = estimate_history_tokens agent.history in
+      (match hooks with
+      | Some hk ->
+          let cwd = Option.value agent.effective_cwd ~default:(Sys.getcwd ()) in
+          let workspace = agent.config.workspace in
+          let sid =
+            Option.value session_id
+              ~default:
+                (Printf.sprintf "%d messages force-compacted"
+                   (List.length to_compact))
+          in
+          let payload =
+            Hooks.build_session_payload ~session_id:sid ~cwd ~workspace
+              ~reason:"force" ()
+          in
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () ->
+                  Hooks_exec.dispatch ~all_hooks:hk ~event:Hooks.PostCompact
+                    ?session_id ~payload ~cwd ~workspace ()
+                  |> Lwt.map (fun _ -> ()))
+                (fun exn ->
+                  Logs.warn (fun m ->
+                      m "PostCompact hook (force) error: %s"
+                        (Printexc.to_string exn));
+                  Lwt.return_unit))
+      | None -> ());
       Lwt.return_some { pre_tokens; post_tokens; context_window = cw }
     end
   end

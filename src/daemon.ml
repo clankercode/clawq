@@ -261,7 +261,8 @@ let run ~(config : Runtime_config.t) =
                    ~session_key ();
                  let* info =
                    Agent.force_compact_history agent ?db:session_manager.db
-                     ?on_llm_call_debug ()
+                     ?on_llm_call_debug ~session_id:session_key
+                     ~hooks:agent.Agent.hooks ()
                  in
                  match info with
                  | Some info ->
