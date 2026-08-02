@@ -1,0 +1,18 @@
+---
+complexity: medium
+created_at: "2026-08-02T11:30:34Z"
+depends_on: []
+estimate_hours: 1
+id: B812
+priority: high
+status: pending
+tags: []
+title: Add build-box (remote SSH) support to justfile
+updated_at: "2026-08-02T11:30:34Z"
+---
+Add a configurable build-box mode to the justfile. By default, builds run locally. When configured (via .env or other gitignored config file), builds should:
+1. rsync the latest code to the remote build box (x-alpha over SSH)
+2. Execute the build remotely
+3. Optionally sync artifacts back
+
+The configuration should be gitignored so secrets/hostnames don't leak. Consider a CLAWQ_BUILD_HOST or similar variable.

@@ -1742,3 +1742,4 @@ bugs:
     - file: B809-subagent-depth-limit-reached-u.todo
     - file: B810-b809-root-cause-stale-parent-t.todo
     - file: B811-add-prefix-shortcut-for-queued.todo
+    - file: B812-add-build-box-remote-ssh-suppo.todo
