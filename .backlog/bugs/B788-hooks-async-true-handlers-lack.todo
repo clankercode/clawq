@@ -1,0 +1,13 @@
+---
+complexity: low
+created_at: "2026-08-02T05:19:36Z"
+depends_on: []
+estimate_hours: 1
+id: B788
+priority: high
+status: pending
+tags: []
+title: 'Hooks: async:true handlers lack exception boundary'
+updated_at: "2026-08-02T05:19:36Z"
+---
+Reviewer finding #6: hooks_exec.ml:272 - async handlers launched with Lwt.async but no Lwt.catch wrapper. Spawn/setup exceptions hit Lwt async exception hook. Wrap entire async body in Lwt.catch.

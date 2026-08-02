@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-08-02T05:19:36Z"
+depends_on: []
+estimate_hours: 1
+id: B788
+priority: high
+status: pending
+tags: []
+title: 'Hooks: Non-PreToolUse hooks block main flow instead of fire-and-forget'
+updated_at: "2026-08-02T05:19:36Z"
+---
+Reviewer finding #3: PostToolUse, UserPromptSubmit, SessionStart, Stop, OnError, PreCompact, PostCompact all block the main flow via let* await. Only PreToolUse should await+check blocked. All others should be Lwt.async fire-and-forget. Affected: agent_2_tools.ml:523, session_turn.ml:256,358,481,490, agent_0_compact.ml:566.
