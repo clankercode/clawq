@@ -1,6 +1,7 @@
 include Provider_types
 include Provider_streaming
 include Provider_routing
+include Provider_responses
 
 let parse_openai_compat_response ?(thinking_style = NoThinking) ~model
     response_body =
@@ -130,7 +131,7 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
         | Some url -> url
         | None -> default_base_url_for provider_name
       in
-      let uri = base_url ^ "/chat/completions" in
+      let use_responses = should_use_responses ~provider_name ~provider ~kind in
       let temp_locked = model_requires_temperature_one model in
       (* B638: apply tool-group integrity before conversion. Z.ai (glm-5.1)
          strict-checks message shape and rejects with code 1214 "messages
@@ -145,116 +146,205 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
       let messages =
         messages |> inline_ensure_tool_group_integrity |> reorder_tool_groups
       in
-      let body_fields =
-        [
-          ("model", `String model);
-          ( "messages",
-            messages_to_json
-              ~require_reasoning_content:
-                (model_requires_reasoning_content model)
-              messages );
-        ]
+      (* Build body fields — common fields shared by both APIs *)
+      let messages_json =
+        messages_to_json
+          ~require_reasoning_content:(model_requires_reasoning_content model)
+          messages
       in
-      let body_fields =
-        if temp_locked then body_fields
+      let body_fields_base = [ ("model", `String model) ] in
+      let body_fields_base =
+        if temp_locked then body_fields_base
         else
-          body_fields
+          body_fields_base
           @ [ ("temperature", `Float (max 1e-8 config.default_temperature)) ]
       in
-      let body_fields =
-        match tools with
-        | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
-        | _ -> body_fields
-      in
-      let body_fields =
+      let body_fields_base =
         match config.agent_defaults.reasoning_effort with
-        | Some re -> body_fields @ [ ("reasoning_effort", `String re) ]
-        | None -> body_fields
+        | Some re -> body_fields_base @ [ ("reasoning_effort", `String re) ]
+        | None -> body_fields_base
       in
-      let body_fields =
-        body_fields @ provider_extra_body_fields ~provider_name ~provider
+      let body_fields_base =
+        body_fields_base @ provider_extra_body_fields ~provider_name ~provider
       in
-      let body_fields =
+      let body_fields_base =
         match (kind, provider.prompt_cache_retention) with
         | (OpenAICompat | OpenAICodex | OpenCodex), Some r ->
-            body_fields @ [ ("prompt_cache_retention", `String r) ]
-        | _ -> body_fields
+            body_fields_base @ [ ("prompt_cache_retention", `String r) ]
+        | _ -> body_fields_base
       in
-      let body = `Assoc body_fields |> Yojson.Safe.to_string in
-      let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
-      Logs.info (fun m ->
-          m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
-            provider_name model (List.length messages)
-            (estimate_messages_tokens messages / 1000));
-      (* B647: honor per-provider HTTP timeout when configured. Fall back
+      (* Branch: Responses API vs Chat Completions *)
+      match use_responses with
+      | Some true ->
+          (* Responses API path *)
+          let uri = base_url ^ "/responses" in
+          let body_fields =
+            body_fields_base
+            @ [ ("input", messages_json); ("store", `Bool false) ]
+          in
+          (* Convert tools to Responses format *)
+          let body_fields =
+            match tools with
+            | Some t when t <> `List [] ->
+                body_fields @ [ ("tools", convert_tools_to_responses t) ]
+            | _ -> body_fields
+          in
+          let body = `Assoc body_fields |> Yojson.Safe.to_string in
+          let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+          Logs.info (fun m ->
+              m "%s-> LLM(responses) provider=%s model=%s msgs=%d ~%dk tok"
+                sk_tag provider_name model (List.length messages)
+                (estimate_messages_tokens messages / 1000));
+          let* status, response_body =
+            match provider.http_timeout_s with
+            | Some timeout_s ->
+                Http_client.post_json_with_timeout ~timeout_s ~uri ~headers
+                  ~body
+            | None -> Http_client.post_json ~uri ~headers ~body
+          in
+          if status = 404 || status = 405 then begin
+            (* Responses API not available — cache and fall back *)
+            mark_unavailable provider_name;
+            (* Fall through to Chat Completions path below *)
+            let uri_cc = base_url ^ "/chat/completions" in
+            let body_fields_cc =
+              body_fields_base @ [ ("messages", messages_json) ]
+            in
+            let body_fields_cc =
+              match tools with
+              | Some t when t <> `List [] -> body_fields_cc @ [ ("tools", t) ]
+              | _ -> body_fields_cc
+            in
+            let body_cc = `Assoc body_fields_cc |> Yojson.Safe.to_string in
+            Logs.info (fun m ->
+                m "%s-> LLM(chat-completions-fallback) provider=%s model=%s"
+                  sk_tag provider_name model);
+            let* status_cc, response_body_cc =
+              match provider.http_timeout_s with
+              | Some timeout_s ->
+                  Http_client.post_json_with_timeout ~timeout_s ~uri:uri_cc
+                    ~headers ~body:body_cc
+              | None -> Http_client.post_json ~uri:uri_cc ~headers ~body:body_cc
+            in
+            if status_cc < 200 || status_cc >= 300 then
+              Lwt.fail_with
+                (Printf.sprintf "LLM API error (HTTP %d): %s" status_cc
+                   response_body_cc)
+            else
+              match
+                parse_openai_compat_response
+                  ~thinking_style:
+                    (thinking_style_of_provider ~provider_name provider)
+                  ~model response_body_cc
+              with
+              | Ok response -> Lwt.return response
+              | Error msg -> Lwt.fail_with msg
+          end
+          else if status < 200 || status >= 300 then
+            Lwt.fail_with
+              (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
+          else begin
+            mark_available provider_name;
+            match
+              parse_responses_api_response
+                ~thinking_style:
+                  (thinking_style_of_provider ~provider_name provider)
+                ~model response_body
+            with
+            | Ok response -> Lwt.return response
+            | Error msg -> Lwt.fail_with msg
+          end
+      | _ -> (
+          (* Chat Completions path (existing behavior, also fallback) *)
+          let uri = base_url ^ "/chat/completions" in
+          let body_fields =
+            body_fields_base @ [ ("messages", messages_json) ]
+          in
+          let body_fields =
+            match tools with
+            | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
+            | _ -> body_fields
+          in
+          let body = `Assoc body_fields |> Yojson.Safe.to_string in
+          let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+          Logs.info (fun m ->
+              m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+                provider_name model (List.length messages)
+                (estimate_messages_tokens messages / 1000));
+          (* B647: honor per-provider HTTP timeout when configured. Fall back
          to the unparameterized post_json (uses global default) when None. *)
-      let* status, response_body =
-        match provider.http_timeout_s with
-        | Some timeout_s ->
-            Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body
-        | None -> Http_client.post_json ~uri ~headers ~body
-      in
-      if status < 200 || status >= 300 then begin
-        (* B638: dump the failing request/response to a one-shot diagnostic
+          let* status, response_body =
+            match provider.http_timeout_s with
+            | Some timeout_s ->
+                Http_client.post_json_with_timeout ~timeout_s ~uri ~headers
+                  ~body
+            | None -> Http_client.post_json ~uri ~headers ~body
+          in
+          if status < 200 || status >= 300 then begin
+            (* B638: dump the failing request/response to a one-shot diagnostic
            file when ZAI_DEBUG_BODY=1, so the exact 1214-triggering body
            can be inspected. *)
-        (match Sys.getenv_opt "ZAI_DEBUG_BODY" with
-        | Some v when v <> "" && v <> "0" -> (
-            let path =
-              Printf.sprintf "/tmp/clawq-zai-debug-%d-%d.json" (Unix.getpid ())
-                (int_of_float (Unix.gettimeofday ()))
-            in
-            try
-              let oc = open_out path in
-              output_string oc
-                (Printf.sprintf
-                   "{\"provider\":%S,\"model\":%S,\"status\":%d,\"request\":%s,\"response\":%s}"
-                   provider_name model status body response_body);
-              close_out oc;
-              Logs.warn (fun m ->
-                  m "ZAI_DEBUG_BODY: wrote failing %s/%s exchange to %s"
-                    provider_name model path)
-            with _ -> ())
-        | _ -> ());
-        if status = 400 then
-          try
-            let err_json = Yojson.Safe.from_string response_body in
-            let open Yojson.Safe.Util in
-            let failed_gen =
+            (match Sys.getenv_opt "ZAI_DEBUG_BODY" with
+            | Some v when v <> "" && v <> "0" -> (
+                let path =
+                  Printf.sprintf "/tmp/clawq-zai-debug-%d-%d.json"
+                    (Unix.getpid ())
+                    (int_of_float (Unix.gettimeofday ()))
+                in
+                try
+                  let oc = open_out path in
+                  output_string oc
+                    (Printf.sprintf
+                       "{\"provider\":%S,\"model\":%S,\"status\":%d,\"request\":%s,\"response\":%s}"
+                       provider_name model status body response_body);
+                  close_out oc;
+                  Logs.warn (fun m ->
+                      m "ZAI_DEBUG_BODY: wrote failing %s/%s exchange to %s"
+                        provider_name model path)
+                with _ -> ())
+            | _ -> ());
+            if status = 400 then
               try
-                err_json |> member "error" |> member "failed_generation"
-                |> to_string
-              with _ -> ""
-            in
-            if failed_gen <> "" then
-              Lwt.return
-                (Text
-                   {
-                     content = failed_gen;
-                     model;
-                     usage = None;
-                     provider_response_items_json = None;
-                     thinking = None;
-                   })
+                let err_json = Yojson.Safe.from_string response_body in
+                let open Yojson.Safe.Util in
+                let failed_gen =
+                  try
+                    err_json |> member "error" |> member "failed_generation"
+                    |> to_string
+                  with _ -> ""
+                in
+                if failed_gen <> "" then
+                  Lwt.return
+                    (Text
+                       {
+                         content = failed_gen;
+                         model;
+                         usage = None;
+                         provider_response_items_json = None;
+                         thinking = None;
+                       })
+                else
+                  Lwt.fail_with
+                    (Printf.sprintf "LLM API error (HTTP %d): %s" status
+                       response_body)
+              with _ ->
+                Lwt.fail_with
+                  (Printf.sprintf "LLM API error (HTTP %d): %s" status
+                     response_body)
             else
               Lwt.fail_with
                 (Printf.sprintf "LLM API error (HTTP %d): %s" status
                    response_body)
-          with _ ->
-            Lwt.fail_with
-              (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
-        else
-          Lwt.fail_with
-            (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
-      end
-      else
-        match
-          parse_openai_compat_response
-            ~thinking_style:(thinking_style_of_provider ~provider_name provider)
-            ~model response_body
-        with
-        | Ok response -> Lwt.return response
-        | Error msg -> Lwt.fail_with msg)
+          end
+          else
+            match
+              parse_openai_compat_response
+                ~thinking_style:
+                  (thinking_style_of_provider ~provider_name provider)
+                ~model response_body
+            with
+            | Ok response -> Lwt.return response
+            | Error msg -> Lwt.fail_with msg))
 
 let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
     ?preferred_provider ?quota_states ~on_chunk () =
@@ -277,68 +367,98 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
       Lwt.fail_with
         "OpenCodex inference is disabled in the minimal build; use the full \
          clawq binary"
-  | None ->
+  | None -> (
       let base_url =
         match provider.base_url with
         | Some url -> url
         | None -> default_base_url_for provider_name
       in
-      let uri = base_url ^ "/chat/completions" in
+      let use_responses = should_use_responses ~provider_name ~provider ~kind in
       let temp_locked = model_requires_temperature_one model in
       (* B675: enforce both integrity and adjacency on the streaming path too. *)
       let messages =
         messages |> inline_ensure_tool_group_integrity |> reorder_tool_groups
       in
-      let body_fields =
-        [
-          ("model", `String model);
-          ( "messages",
-            messages_to_json
-              ~require_reasoning_content:
-                (model_requires_reasoning_content model)
-              messages );
-          ("stream", `Bool true);
-        ]
+      let messages_json =
+        messages_to_json
+          ~require_reasoning_content:(model_requires_reasoning_content model)
+          messages
       in
-      let body_fields =
-        if temp_locked then body_fields
+      let body_fields_base =
+        [ ("model", `String model); ("stream", `Bool true) ]
+      in
+      let body_fields_base =
+        if temp_locked then body_fields_base
         else
-          body_fields
+          body_fields_base
           @ [ ("temperature", `Float (max 1e-8 config.default_temperature)) ]
       in
-      let body_fields =
-        match tools with
-        | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
-        | _ -> body_fields
-      in
-      let body_fields =
+      let body_fields_base =
         match config.agent_defaults.reasoning_effort with
-        | Some re -> body_fields @ [ ("reasoning_effort", `String re) ]
-        | None -> body_fields
+        | Some re -> body_fields_base @ [ ("reasoning_effort", `String re) ]
+        | None -> body_fields_base
       in
-      let body_fields =
-        body_fields @ provider_extra_body_fields ~provider_name ~provider
+      let body_fields_base =
+        body_fields_base @ provider_extra_body_fields ~provider_name ~provider
       in
-      let body_fields =
+      let body_fields_base =
         match (kind, provider.prompt_cache_retention) with
         | (OpenAICompat | OpenAICodex | OpenCodex), Some r ->
-            body_fields @ [ ("prompt_cache_retention", `String r) ]
-        | _ -> body_fields
+            body_fields_base @ [ ("prompt_cache_retention", `String r) ]
+        | _ -> body_fields_base
       in
-      let body = `Assoc body_fields |> Yojson.Safe.to_string in
       let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
       Logs.info (fun m ->
-          m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+          m "%s-> LLM%s provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+            (match use_responses with
+            | Some true -> "(responses-stream)"
+            | _ -> "")
             provider_name model (List.length messages)
             (estimate_messages_tokens messages / 1000));
-      (* B658: gate body-stream reads on provider.http_timeout_s so a
-         dropped TCP / silent stall surfaces as a clear failure instead of
-         wedging the agent loop. *)
-      Http_client.post_stream_with
-        ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
-        ~label:"LLM API error"
-        ~on_ok:(fun stream ->
-          process_sse_stream
-            ~thinking_style:(thinking_style_of_provider ~provider_name provider)
-            stream ~on_chunk)
-        ()
+      match use_responses with
+      | Some true ->
+          let uri = base_url ^ "/responses" in
+          let body_fields =
+            body_fields_base
+            @ [ ("input", messages_json); ("store", `Bool false) ]
+          in
+          let body_fields =
+            match tools with
+            | Some t when t <> `List [] ->
+                body_fields @ [ ("tools", convert_tools_to_responses t) ]
+            | _ -> body_fields
+          in
+          let body = `Assoc body_fields |> Yojson.Safe.to_string in
+          (* B658: gate body-stream reads on provider.http_timeout_s *)
+          Http_client.post_stream_with
+            ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
+            ~label:"LLM API error"
+            ~on_ok:(fun stream ->
+              process_responses_sse_stream
+                ~thinking_style:
+                  (thinking_style_of_provider ~provider_name provider)
+                stream ~on_chunk)
+            ()
+      | _ ->
+          let uri = base_url ^ "/chat/completions" in
+          let body_fields =
+            body_fields_base @ [ ("messages", messages_json) ]
+          in
+          let body_fields =
+            match tools with
+            | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
+            | _ -> body_fields
+          in
+          let body = `Assoc body_fields |> Yojson.Safe.to_string in
+          (* B658: gate body-stream reads on provider.http_timeout_s so a
+             dropped TCP / silent stall surfaces as a clear failure instead of
+             wedging the agent loop. *)
+          Http_client.post_stream_with
+            ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
+            ~label:"LLM API error"
+            ~on_ok:(fun stream ->
+              process_sse_stream
+                ~thinking_style:
+                  (thinking_style_of_provider ~provider_name provider)
+                stream ~on_chunk)
+            ())

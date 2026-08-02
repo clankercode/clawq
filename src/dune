@@ -39,6 +39,7 @@
   provider_types
   provider_streaming
   provider_routing
+  provider_responses
   provider
   message_history
   agent_loop_conformance
