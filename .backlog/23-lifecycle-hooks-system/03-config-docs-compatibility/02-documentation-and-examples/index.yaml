@@ -4,7 +4,7 @@ estimate_hours: 4
 id: P23.M3.E2
 locked: false
 name: Documentation and examples
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on: []
@@ -21,6 +21,6 @@ tasks:
       file: T002-create-example-hooks-auto-form.todo
       id: T002
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Create example hooks (auto-format, security, backup)

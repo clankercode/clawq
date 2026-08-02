@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Documentation and examples
       path: 02-documentation-and-examples
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Test that Claude Code and Codex hook scripts run unchanged on clawq. Verify JSON payload shape, exit code handling, env var conventions. Write test suite with sample hooks from both ecosystems.
