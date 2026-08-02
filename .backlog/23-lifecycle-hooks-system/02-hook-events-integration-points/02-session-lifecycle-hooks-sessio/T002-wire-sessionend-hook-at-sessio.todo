@@ -1,0 +1,15 @@
+---
+complexity: low
+created_at: "2026-08-02T04:22:53Z"
+depends_on: []
+estimate_hours: 1
+id: P23.M2.E2.T002
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Wire SessionEnd hook at session termination
+updated_at: "2026-08-02T04:22:53Z"
+---
+Fire SessionEnd when session ends. Non-blocking, for cleanup and logging.

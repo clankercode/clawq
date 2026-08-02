@@ -1,0 +1,15 @@
+---
+complexity: low
+created_at: "2026-08-02T04:22:52Z"
+depends_on: []
+estimate_hours: 1
+id: P23.M2.E1.T003
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Add PostToolUseFailure for failed tool calls
+updated_at: "2026-08-02T04:22:52Z"
+---
+When a tool call fails, fire PostToolUseFailure with error details. Allows error logging and recovery hooks.

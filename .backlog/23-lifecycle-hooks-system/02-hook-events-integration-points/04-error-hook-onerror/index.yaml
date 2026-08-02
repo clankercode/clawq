@@ -1,0 +1,16 @@
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P23.M2.E4
+locked: false
+name: Error hook (OnError)
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T001-wire-onerror-hook-on-agent-tur.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Wire OnError hook on agent turn errors

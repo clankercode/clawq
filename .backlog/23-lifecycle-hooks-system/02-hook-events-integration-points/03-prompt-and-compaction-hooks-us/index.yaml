@@ -1,0 +1,32 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P23.M2.E3
+locked: false
+name: Prompt and compaction hooks (UserPromptSubmit, PreCompact, PostCompact)
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T001-wire-userpromptsubmit-hook.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Wire UserPromptSubmit hook
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T002-wire-precompact-hook-before-co.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Wire PreCompact hook before context compaction
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T003-wire-postcompact-hook-after-co.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Wire PostCompact hook after compaction

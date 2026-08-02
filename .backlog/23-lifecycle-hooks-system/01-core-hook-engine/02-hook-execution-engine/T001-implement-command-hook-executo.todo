@@ -1,0 +1,15 @@
+---
+complexity: high
+created_at: "2026-08-02T04:22:14Z"
+depends_on: []
+estimate_hours: 3
+id: P23.M1.E2.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Implement command hook executor (spawn, stdin JSON, timeout)
+updated_at: "2026-08-02T04:22:14Z"
+---
+Core executor using Lwt_process: spawn shell command, write event JSON to stdin, capture stdout/stderr, enforce timeout via Lwt_unix.timeout. Return HookResult with exit_code, stdout, stderr. Handle process cleanup on timeout (kill process group).

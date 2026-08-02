@@ -1,0 +1,24 @@
+complexity: low
+depends_on: []
+estimate_hours: 4
+id: P23.M3.E2
+locked: false
+name: Documentation and examples
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T001-write-hooks-documentation-docs.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Write hooks documentation (docs/hooks.md)
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T002-create-example-hooks-auto-form.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Create example hooks (auto-format, security, backup)

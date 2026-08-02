@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:54Z"
+depends_on: []
+estimate_hours: 1.5
+id: P23.M2.E4.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Wire OnError hook on agent turn errors
+updated_at: "2026-08-02T04:22:54Z"
+---
+Fire when an error occurs during agent turn (tool failure, provider timeout, etc.). Hook receives error type, message, and context. Non-blocking.

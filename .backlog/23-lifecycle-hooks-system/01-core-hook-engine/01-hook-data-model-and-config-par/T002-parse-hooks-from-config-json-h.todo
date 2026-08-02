@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:03Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M1.E1.T002
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Parse hooks from config.json hooks section
+updated_at: "2026-08-02T04:22:03Z"
+---
+Config loader support for top-level hooks key. Format mirrors Claude Code: {hooks: {PreToolUse: [{matcher: 'Bash', hooks: [{type: 'command', command: '...', timeout: 30}]}]}}. Also support .clawq/hooks.json file (Codex-style events at root level).

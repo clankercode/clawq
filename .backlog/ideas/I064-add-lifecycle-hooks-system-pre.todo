@@ -5,36 +5,60 @@ depends_on: []
 estimate_hours: 10
 id: I064
 priority: medium
-status: pending
+status: done
 tags:
     - idea
     - planning
 title: 'Add lifecycle hooks system (pre/post-tool, pre/post-session, etc) broadly compatible with existing coding CLIs (Claude Code hooks, Codex lifecycle events, etc). Should allow users to configure shell commands or scripts that fire at defined lifecycle points. Consider: pre_tool, post_tool, pre_session, post_session, on_error, on_compact, on_restart. Design should be extensible and align with conventions from Claude Code and Codex hook systems where applicable.'
-updated_at: "2026-08-02T04:14:55Z"
+updated_at: "2026-08-02T04:20:00Z"
 ---
 
 # Original Idea
 
 Add lifecycle hooks system (pre/post-tool, pre/post-session, etc) broadly compatible with existing coding CLIs (Claude Code hooks, Codex lifecycle events, etc). Should allow users to configure shell commands or scripts that fire at defined lifecycle points. Consider: pre_tool, post_tool, pre_session, post_session, on_error, on_compact, on_restart. Design should be extensible and align with conventions from Claude Code and Codex hook systems where applicable.
 
-## Planning Task (Equivalent of /plan-task)
-
-- Run `/plan-task I064` to decompose this idea into actionable work.
-- Confirm placement in the current backlog hierarchy before creating work items.
-
-## Ingest Plan Into backlog
-
-- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
-- Create follow-up defects with `backlog bug` when bug-style work is identified.
-- Record all created IDs below and wire dependencies.
-
 ## Created Work Items
 
-- Add created task IDs
-- Add created bug IDs (if any)
+### Phase: P23 — Lifecycle Hooks System
+
+**Milestone M1: Core Hook Engine (24h)**
+- P23.M1.E1: Hook data model and config parsing (3 tasks)
+  - T001: Define hook types (hook_event, hook_config, hook_result)
+  - T002: Parse hooks from config.json hooks section
+  - T003: Validate hook configs at load time
+- P23.M1.E2: Hook execution engine (4 tasks)
+  - T001: Command hook executor (spawn, stdin JSON, timeout)
+  - T002: Parse hook JSON output and exit codes
+  - T003: Async hook support
+  - T004: HTTP hook type
+- P23.M1.E3: Hook dispatch and matching (3 tasks)
+  - T001: Event-to-hook matching with tool matchers
+  - T002: Build JSON event payloads for each event type
+  - T003: Aggregate hook results and handle blocking decisions
+
+**Milestone M2: Hook Events & Integration Points (20h, depends on M1)**
+- P23.M2.E1: Tool lifecycle hooks — PreToolUse, PostToolUse, PostToolUseFailure
+- P23.M2.E2: Session lifecycle hooks — SessionStart, SessionEnd, Stop
+- P23.M2.E3: Prompt and compaction hooks — UserPromptSubmit, PreCompact, PostCompact
+- P23.M2.E4: Error hook — OnError
+
+**Milestone M3: Config, Docs & Compatibility (16h, depends on M1)**
+- P23.M3.E1: Config file formats (.clawq/hooks.json, config.json) and CLI commands
+- P23.M3.E2: Documentation and example hooks
+- P23.M3.E3: Cross-compatibility testing (Claude Code + Codex)
+
+## Key Design Decisions
+
+1. **Event names match Claude Code/Codex exactly**: PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SessionEnd, PreCompact, PostCompact
+2. **Exit code conventions**: 0=success, 2=block, other=error-continue (same as Claude Code)
+3. **JSON stdin payload**: Same shape as Claude Code (tool_name, tool_input, tool_response, session_id, cwd)
+4. **Config formats**: Both .clawq/hooks.json (Codex-style, root-level events) and config.json hooks section (Claude Code-style)
+5. **Hook types**: command (shell), http (POST to URL), async (fire-and-forget)
+6. **Env vars**: CLAWQ_PROJECT_DIR, CLAWQ_TOOL_INPUT_FILE_PATH, CLAWQ_ENV_FILE
 
 ## Completion Criteria
 
-- Idea has been decomposed into concrete backlog work items.
-- New items include clear acceptance criteria and dependencies.
-- This idea intake is updated with created IDs and marked done.
+- [x] Idea decomposed into concrete backlog work items (P23 with 3 milestones, 10 epics, 25 tasks)
+- [x] Items include clear acceptance criteria and dependencies
+- [x] Created IDs recorded above
+- [x] This idea intake marked done

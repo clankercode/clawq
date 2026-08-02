@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P23.M3.E3
+locked: false
+name: Cross-compatibility testing
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T001-test-claude-code-hook-script-c.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Test Claude Code hook script compatibility
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T002-test-codex-hook-script-compati.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Test Codex hook script compatibility

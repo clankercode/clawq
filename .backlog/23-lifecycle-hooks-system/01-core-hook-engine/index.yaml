@@ -1,0 +1,37 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Define OCaml types for hook events, hook configs (event name, matcher, handler type, command, timeout, async flag). Parse from JSON config (config.json hooks section + .clawq/hooks.json). Validate at config load.
+      estimate_hours: 6
+      id: E1
+      locked: false
+      name: Hook data model and config parsing
+      path: 01-hook-data-model-and-config-par
+      status: pending
+    - complexity: high
+      depends_on:
+        - P23.M1.E1
+      description: 'Core hook executor: spawn subprocess, pass JSON on stdin, capture stdout/stderr, enforce timeout, parse exit codes (0=success, 2=block, other=error-continue). Support async hooks (fire-and-forget). Support HTTP hook type (POST to URL with JSON body). Return structured HookResult.'
+      estimate_hours: 8
+      id: E2
+      locked: false
+      name: Hook execution engine
+      path: 02-hook-execution-engine
+      status: pending
+    - complexity: high
+      depends_on:
+        - P23.M1.E2
+      description: 'Hook dispatcher: match events to configured hooks by event name and optional tool-name matcher. Execute all matching hooks, aggregate results. Handle blocking decisions (PreToolUse exit 2 or JSON decision:block). Build JSON payload for each event type following Claude Code/Codex conventions (tool_name, tool_input, tool_response, session_id, etc.).'
+      estimate_hours: 6
+      id: E3
+      locked: false
+      name: Hook dispatch and matching
+      path: 03-hook-dispatch-and-matching
+      status: pending
+estimate_hours: 24
+id: P23.M1
+locked: false
+name: Core Hook Engine
+status: pending

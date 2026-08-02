@@ -257,6 +257,16 @@ phases:
       priority: high
       status: pending
       weeks: 4
+    - depends_on: []
+      description: Broadly-compatible lifecycle hooks system (PreToolUse, PostToolUse, SessionStart, Stop, UserPromptSubmit, PreCompact, PostCompact, on_error). Config via hooks section in config.json or .clawq/hooks.json. Shell command handlers with stdin JSON payload, exit code conventions matching Claude Code/Codex for cross-compatibility.
+      estimate_hours: 60
+      id: P23
+      locked: false
+      name: Lifecycle Hooks System
+      path: 23-lifecycle-hooks-system
+      priority: high
+      status: pending
+      weeks: 2
 project: Clawq
 stats:
     blocked: 0

@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:23:08Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M3.E3.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Test Claude Code hook script compatibility
+updated_at: "2026-08-02T04:23:08Z"
+---
+Write tests using sample Claude Code hook scripts (.mjs). Verify JSON payload, exit code handling, matcher behavior all work unchanged.

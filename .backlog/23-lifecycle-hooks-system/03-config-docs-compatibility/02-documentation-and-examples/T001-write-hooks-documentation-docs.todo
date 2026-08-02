@@ -1,0 +1,15 @@
+---
+complexity: low
+created_at: "2026-08-02T04:23:08Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M3.E2.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Write hooks documentation (docs/hooks.md)
+updated_at: "2026-08-02T04:23:08Z"
+---
+Full reference: events table, config formats, JSON payload schema, exit codes, env vars, example hooks, cross-compat notes.

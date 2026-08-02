@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:53Z"
+depends_on: []
+estimate_hours: 1.5
+id: P23.M2.E3.T002
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Wire PreCompact hook before context compaction
+updated_at: "2026-08-02T04:22:53Z"
+---
+Fire before compaction runs. Can block (exit 2). Used for transcript backup. Support manual/auto matcher to distinguish /compact from auto-compact.

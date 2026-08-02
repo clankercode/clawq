@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:26Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M1.E3.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Implement event-to-hook matching with tool matchers
+updated_at: "2026-08-02T04:22:26Z"
+---
+Match incoming events against configured hooks. Support regex matchers on tool_name (e.g. 'Bash|Write|Edit'). Support matchers on other fields where applicable (e.g. PreCompact matcher: manual/auto). Return list of matching hooks to execute.

@@ -1,0 +1,38 @@
+complexity: medium
+depends_on: []
+estimate_hours: 60
+id: P23
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: 'Design and implement the core lifecycle hooks engine: config parsing, hook types (command), event dispatch, exit code semantics, JSON stdin payload format. Compatible with Claude Code and Codex hook conventions.'
+      estimate_hours: 24
+      id: M1
+      locked: false
+      name: Core Hook Engine
+      path: 01-core-hook-engine
+      status: pending
+    - complexity: high
+      depends_on:
+        - P23.M1
+      description: 'Wire hook dispatch into all agent lifecycle points: PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SessionEnd, PreCompact, PostCompact, on_error. Each fires hooks with appropriate JSON context.'
+      estimate_hours: 20
+      id: M2
+      locked: false
+      name: Hook Events & Integration Points
+      path: 02-hook-events-integration-points
+      status: pending
+    - complexity: medium
+      depends_on:
+        - P23.M1
+      description: Config file format (.clawq/hooks.json and config.json hooks section), documentation, cross-compat testing with Claude Code and Codex hook scripts, CLI commands for hook management.
+      estimate_hours: 16
+      id: M3
+      locked: false
+      name: Config, Docs & Compatibility
+      path: 03-config-docs-compatibility
+      status: pending
+name: Lifecycle Hooks System
+status: pending
+weeks: 2

@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:15Z"
+depends_on: []
+estimate_hours: 1.5
+id: P23.M1.E2.T004
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Implement HTTP hook type
+updated_at: "2026-08-02T04:22:15Z"
+---
+POST event JSON to configured URL. Headers with env var interpolation (allowedEnvVars). Non-2xx = non-blocking error (execution continues). 2xx + JSON body parsed same as command hooks. Timeout support.

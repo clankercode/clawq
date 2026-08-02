@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:15Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M1.E2.T002
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Parse hook JSON output and exit codes
+updated_at: "2026-08-02T04:22:15Z"
+---
+Parse hook stdout as JSON when possible. Exit code semantics: 0=success (stdout may contain JSON with decisions/context), 2=block (stderr sent to agent), other=error (stderr shown to user, execution continues). Extract permissionDecision, additionalContext, updatedInput from JSON per Claude Code schema.

@@ -1,0 +1,36 @@
+complexity: medium
+depends_on:
+    - P23.M1
+epics:
+    - complexity: medium
+      depends_on: []
+      description: 'Support .clawq/hooks.json (Codex-style, events at root), config.json hooks section (Claude Code-style with top-level hooks key), and profile-level ~/.clawq/hooks.json. CLI: clawq hooks list/show/test/validate.'
+      estimate_hours: 5
+      id: E1
+      locked: false
+      name: Config file formats and CLI
+      path: 01-config-file-formats-and-cli
+      status: pending
+    - complexity: low
+      depends_on: []
+      description: 'Document hook system: event reference, config formats, JSON payload schema, exit code semantics, example hooks (auto-format, security block, transcript backup, task enforcement). Cross-compat notes for Claude Code and Codex.'
+      estimate_hours: 4
+      id: E2
+      locked: false
+      name: Documentation and examples
+      path: 02-documentation-and-examples
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Test that Claude Code and Codex hook scripts run unchanged on clawq. Verify JSON payload shape, exit code handling, env var conventions. Write test suite with sample hooks from both ecosystems.
+      estimate_hours: 4
+      id: E3
+      locked: false
+      name: Cross-compatibility testing
+      path: 03-cross-compatibility-testing
+      status: pending
+estimate_hours: 16
+id: P23.M3
+locked: false
+name: Config, Docs & Compatibility
+status: pending

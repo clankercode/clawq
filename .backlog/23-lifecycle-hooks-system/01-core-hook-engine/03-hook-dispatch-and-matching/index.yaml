@@ -1,0 +1,33 @@
+complexity: high
+depends_on:
+    - P23.M1.E2
+estimate_hours: 6
+id: P23.M1.E3
+locked: false
+name: Hook dispatch and matching
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T001-implement-event-to-hook-matchi.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Implement event-to-hook matching with tool matchers
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T002-build-json-event-payloads-for.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Build JSON event payloads for each hook event type
+    - complexity: high
+      depends_on: []
+      estimate_hours: 2
+      file: T003-aggregate-hook-results-and-han.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Aggregate hook results and handle blocking decisions

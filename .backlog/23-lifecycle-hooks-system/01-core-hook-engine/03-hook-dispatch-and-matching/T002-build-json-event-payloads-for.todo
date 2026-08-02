@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:26Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M1.E3.T002
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Build JSON event payloads for each hook event type
+updated_at: "2026-08-02T04:22:26Z"
+---
+Construct the JSON passed to hooks on stdin, following Claude Code/Codex conventions: {session_id, tool_name, tool_input, tool_response (for PostToolUse), prompt (for UserPromptSubmit), cwd, workspace}. Ensure payload shape is compatible with existing hook scripts.

@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:03Z"
+depends_on: []
+estimate_hours: 1.5
+id: P23.M1.E1.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Define hook types (hook_event, hook_config, hook_result)
+updated_at: "2026-08-02T04:22:03Z"
+---
+OCaml types in new src/hooks.ml: hook_event variant (PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SessionEnd, PreCompact, PostCompact, OnError), hook_config record (event, matcher, handler_type, command, timeout, async_flag), hook_result record (exit_code, stdout, stderr, json_output option).

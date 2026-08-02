@@ -1,0 +1,32 @@
+complexity: medium
+depends_on: []
+estimate_hours: 5
+id: P23.M3.E1
+locked: false
+name: Config file formats and CLI
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T001-implement-clawq-hooks-json-fil.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Implement .clawq/hooks.json file loading (Codex-style)
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T002-add-clawq-hooks-cli-commands.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Add clawq hooks CLI commands
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1.5
+      file: T003-add-clawq-project-dir-and-hook.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Add CLAWQ_PROJECT_DIR and hook env var conventions

@@ -1,0 +1,15 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:22:52Z"
+depends_on: []
+estimate_hours: 2
+id: P23.M2.E1.T002
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Wire PostToolUse after tool completion
+updated_at: "2026-08-02T04:22:52Z"
+---
+After each tool call completes successfully, fire PostToolUse with tool_name, tool_input, and tool_response. Hook stdout/additionalContext is added to agent context. Non-blocking (cannot undo execution).

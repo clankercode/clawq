@@ -1,0 +1,41 @@
+complexity: high
+depends_on:
+    - P23.M1.E1
+estimate_hours: 8
+id: P23.M1.E2
+locked: false
+name: Hook execution engine
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 3
+      file: T001-implement-command-hook-executo.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Implement command hook executor (spawn, stdin JSON, timeout)
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T002-parse-hook-json-output-and-exi.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Parse hook JSON output and exit codes
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T003-implement-async-hook-support.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Implement async hook support
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T004-implement-http-hook-type.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Implement HTTP hook type
