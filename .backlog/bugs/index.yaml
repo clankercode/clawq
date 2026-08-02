@@ -1575,7 +1575,7 @@ bugs:
       file: B787-hooks-sessionstart-fires-on-ev.todo
       id: B787
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: SessionStart fires on every turn instead of session creation/resume'
     - complexity: low
@@ -1584,7 +1584,7 @@ bugs:
       file: B788-hooks-async-true-handlers-lack.todo
       id: B788
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: async:true handlers lack exception boundary'
     - complexity: medium
@@ -1593,7 +1593,7 @@ bugs:
       file: B793-hooks-sessionend-never-dispatc.todo
       id: B793
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: SessionEnd never dispatched'
     - file: B794-hooks-compaction-matchers-igno.todo
@@ -1610,7 +1610,7 @@ bugs:
       file: B795-hooks-non-pretooluse-hooks-blo.todo
       id: B795
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: Non-PreToolUse hooks block main flow instead of fire-and-forget'
     - complexity: medium
