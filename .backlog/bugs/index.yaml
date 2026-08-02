@@ -1557,8 +1557,15 @@ bugs:
       id: B779
     - file: B780-make-teams-room-teams-personal.todo
       id: B780
-    - file: B781-service-holds-inherited-dune-t.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: B781-service-holds-inherited-dune-t.todo
       id: B781
+      priority: high
+      status: done
+      tags: []
+      title: service holds inherited dune-throttle slot fd for its lifetime (machine-wide build starvation)
     - file: B782-cli-notify-command-send-messag.todo
       id: B782
     - file: B783-add-opencodex-as-a-provider.todo
