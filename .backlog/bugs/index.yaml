@@ -1739,3 +1739,4 @@ bugs:
       status: in_progress
       tags: []
       title: Implement /queue (/q) slash command for deferred follow-up messages
+    - file: B809-subagent-depth-limit-reached-u.todo
