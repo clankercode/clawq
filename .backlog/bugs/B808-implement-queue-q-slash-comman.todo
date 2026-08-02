@@ -1,0 +1,42 @@
+---
+complexity: medium
+created_at: "2026-08-02T05:38:56Z"
+depends_on: []
+estimate_hours: 1
+id: B808
+priority: high
+status: pending
+tags: []
+title: Implement /queue (/q) slash command for deferred follow-up messages
+updated_at: "2026-08-02T05:38:56Z"
+---
+
+## Summary
+Add a /queue (alias /q) slash command that lets users queue follow-up messages which wait until the agent has completely finished its current turn before being delivered.
+
+## Requirements
+
+### Command behavior
+- /queue <message> or /q <message> — queues the message as a deferred follow-up
+- The queued message must NOT be injected mid-turn (unlike current steering behavior). It waits until the agent goes fully idle, then drains one at a time.
+- Each queued message triggers a fresh turn (not batch injection between tool calls).
+- Queue drains one message per turn — agent processes the first queued message, finishes its turn, then the next queued message starts a new turn.
+
+### Confirmation response
+- When a message is queued, immediately respond to the user with a confirmation.
+- Include a numbered list of the current queue state.
+- Each queued message truncated to 30 words with ellipsis if longer.
+
+Example confirmation response:
+```
+Queued (3):
+1. Fix the auth bug in login.ml...
+2. Run the test suite and report...
+3. Update the docs for the new...
+```
+
+### Implementation notes
+- This differs from the existing queuing mechanism (which injects between tool-call batches via inject_messages). The /queue command must set a flag (e.g. deferred_followup=true on the queued_message record) that prevents mid-turn injection.
+- The existing deferred_followup field on queued_message is already present but unused for this purpose — wire it up.
+- Drain logic: after agent goes idle (turn completes), check for deferred_followup messages, take the first one, start a new turn. Repeat until queue is empty.
+- Admin-only command (same as /bash).
