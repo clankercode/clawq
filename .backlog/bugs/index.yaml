@@ -1619,11 +1619,18 @@ bugs:
       file: B796-hooks-command-executor-uses-bl.todo
       id: B796
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: Command executor uses blocking I/O that can deadlock'
-    - file: B797-hooks-timeout-kills-only-shell.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: B797-hooks-timeout-kills-only-shell.todo
       id: B797
+      priority: high
+      status: done
+      tags: []
+      title: 'Hooks: Timeout kills only shell PID not process group'
     - complexity: medium
       depends_on: []
       estimate_hours: 1

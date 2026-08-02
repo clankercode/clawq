@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-08-02T06:12:44Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-02T07:12:13Z"
 complexity: medium
 created_at: "2026-08-02T05:21:50Z"
 depends_on: []
+duration_minutes: 59.491175895666665
 estimate_hours: 1
 id: B797
 priority: high
 started_at: "2026-08-02T06:12:44Z"
-status: in_progress
+status: done
 tags: []
 title: 'Hooks: Timeout kills only shell PID not process group'
-updated_at: "2026-08-02T06:12:44Z"
+updated_at: "2026-08-02T07:12:13Z"
 ---
 
 Hooks: Timeout kills only shell PID not process group
