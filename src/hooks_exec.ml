@@ -39,7 +39,6 @@ let run_command_hook (handler : hook_handler) (payload_json : string) ~env_vars
   let env =
     let base = Unix.environment () in
     let env_list = Array.to_list base in
-    (* Add clawq-specific vars, overriding existing *)
     let env_map = Hashtbl.create (List.length env_list + 10) in
     List.iter
       (fun entry ->
@@ -57,17 +56,17 @@ let run_command_hook (handler : hook_handler) (payload_json : string) ~env_vars
     |> Array.of_list
   in
   (* Create pipes for stdin/stdout/stderr *)
-  let stdin_r, stdin_w = Unix.pipe () in
-  let stdout_r, stdout_w = Unix.pipe () in
-  let stderr_r, stderr_w = Unix.pipe () in
-  Unix.set_close_on_exec stdin_r;
-  Unix.set_close_on_exec stdout_r;
-  Unix.set_close_on_exec stderr_r;
+  let stdin_r, stdin_w = Unix.pipe ~cloexec:true () in
+  let stdout_r, stdout_w = Unix.pipe ~cloexec:true () in
+  let stderr_r, stderr_w = Unix.pipe ~cloexec:true () in
   let pid = Lwt_unix.fork () in
   match pid with
   | 0 -> (
       (* Child process *)
       try
+        (* B797: Create new process group so timeout can kill the entire
+           group, not just the shell PID. *)
+        ignore (Unix.setsid ());
         Unix.dup2 stdin_r Unix.stdin;
         Unix.dup2 stdout_w Unix.stdout;
         Unix.dup2 stderr_w Unix.stderr;
@@ -84,62 +83,66 @@ let run_command_hook (handler : hook_handler) (payload_json : string) ~env_vars
       Unix.close stdin_r;
       Unix.close stdout_w;
       Unix.close stderr_w;
-      (* Write payload to stdin *)
-      let write_and_close () =
-        let rec write_all fd buf offset len =
-          if len > 0 then
-            let written = Unix.write fd buf offset len in
-            write_all fd buf (offset + written) (len - written)
-        in
-        let payload_bytes = Bytes.of_string payload_json in
-        (try write_all stdin_w payload_bytes 0 (Bytes.length payload_bytes)
-         with _ -> ());
-        Unix.close stdin_w
+      (* B796: Write payload to stdin using non-blocking Lwt I/O *)
+      let stdin_w_lwt = Lwt_unix.of_unix_file_descr stdin_w in
+      let* () =
+        Lwt.catch
+          (fun () ->
+            Lwt_unix.write stdin_w_lwt
+              (Bytes.unsafe_of_string payload_json)
+              0
+              (String.length payload_json)
+            |> Lwt.map ignore)
+          (fun _ -> Lwt.return_unit)
       in
-      write_and_close ();
-      (* Read stdout and stderr concurrently with timeout *)
-      let read_all fd =
+      let* () = Lwt_unix.close stdin_w_lwt in
+      (* B796: Read stdout and stderr concurrently using non-blocking Lwt I/O
+         to avoid deadlock when the child fills one pipe buffer while we are
+         blocked reading the other. *)
+      let stdout_lwt = Lwt_unix.of_unix_file_descr stdout_r in
+      let stderr_lwt = Lwt_unix.of_unix_file_descr stderr_r in
+      let read_all_lwt fd =
         let buf = Buffer.create 4096 in
         let chunk = Bytes.create 4096 in
         let rec loop () =
-          match Unix.read fd chunk 0 4096 with
-          | 0 -> ()
-          | n ->
-              Buffer.add_subbytes buf chunk 0 n;
-              loop ()
+          let* n = Lwt_unix.read fd chunk 0 4096 in
+          if n = 0 then Lwt.return_unit
+          else (
+            Buffer.add_subbytes buf chunk 0 n;
+            loop ())
         in
-        (try loop () with _ -> ());
-        Buffer.contents buf
+        let* () = Lwt.catch loop (fun _ -> Lwt.return_unit) in
+        Lwt.return (Buffer.contents buf)
       in
-      let stdout_ic = Unix.in_channel_of_descr stdout_r in
-      let stderr_ic = Unix.in_channel_of_descr stderr_r in
-      let timeout_lwt = Lwt_unix.timeout handler.timeout in
       let timed_out = ref false in
-      let* result =
-        Lwt.try_bind
-          (fun () ->
-            Lwt.pick
-              [
-                (let* () = timeout_lwt in
-                 timed_out := true;
-                 (* Kill child on timeout *)
-                 (try Unix.kill child_pid Sys.sigkill with _ -> ());
-                 Lwt.return (ref "", ref ""));
-                (let stdout_text = read_all stdout_r in
-                 let stderr_text = read_all stderr_r in
-                 Lwt.return (ref stdout_text, ref stderr_text));
-              ])
-          (fun (stdout_ref, stderr_ref) ->
-            Lwt.return (!stdout_ref, !stderr_ref))
-          (fun exn ->
-            (try Unix.kill child_pid Sys.sigkill with _ -> ());
-            Lwt.return ("", Printexc.to_string exn))
+      let forced_result = ref None in
+      (* B797: Kill entire process group on timeout, not just shell PID *)
+      let kill_group () =
+        try Unix.kill (-child_pid) Sys.sigkill
+        with _ -> (
+          ();
+          try Unix.kill child_pid Sys.sigkill with _ -> ())
       in
-      let stdout_text, stderr_text = result in
-      (try close_in stdout_ic with _ -> ());
-      (try close_in stderr_ic with _ -> ());
-      (try Unix.close stdout_r with _ -> ());
-      (try Unix.close stderr_r with _ -> ());
+      let read_both =
+        let* stdout_text = read_all_lwt stdout_lwt in
+        let* stderr_text = read_all_lwt stderr_lwt in
+        Lwt.return (Some (stdout_text, stderr_text))
+      in
+      let timeout_branch =
+        let* () = Lwt_unix.timeout handler.timeout in
+        timed_out := true;
+        kill_group ();
+        forced_result := Some ("", "");
+        Lwt.return None
+      in
+      let* result = Lwt.pick [ read_both; timeout_branch ] in
+      let stdout_text, stderr_text =
+        match result with
+        | Some (out, err) -> (out, err)
+        | None -> Option.get !forced_result
+      in
+      let* () = Lwt_unix.close stdout_lwt in
+      let* () = Lwt_unix.close stderr_lwt in
       (* Wait for child to finish *)
       let exit_code =
         try
