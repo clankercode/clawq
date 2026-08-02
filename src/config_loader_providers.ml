@@ -156,6 +156,16 @@ let parse_provider ~resolve_secret name v =
         | `Float f -> Some (int_of_float f)
         | _ -> None)
   in
+  let use_responses_api =
+    with_default
+      ("providers." ^ name ^ ".use_responses_api")
+      None
+      (fun () ->
+        match v |> member "use_responses_api" with
+        | `Bool b -> Some b
+        | `Null -> None
+        | _ -> None)
+  in
   ({
      Runtime_config.api_key;
      kind;
@@ -174,6 +184,7 @@ let parse_provider ~resolve_secret name v =
      http_timeout_s;
      max_output_tokens;
      quota_cache_ttl_s;
+     use_responses_api;
    }
     : Runtime_config.provider_config)
 

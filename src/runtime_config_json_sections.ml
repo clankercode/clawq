@@ -109,6 +109,11 @@ let provider_json (p : provider_config) : Yojson.Safe.t =
     | Some t -> fields @ [ ("quota_cache_ttl_s", `Int t) ]
     | None -> fields
   in
+  let fields =
+    match p.use_responses_api with
+    | Some b -> fields @ [ ("use_responses_api", `Bool b) ]
+    | None -> fields
+  in
   `Assoc fields
 
 (** Serialize a credential provider to JSON. The actual credential value is

@@ -34,6 +34,11 @@ type provider_config = {
       (* Per-provider quota cache TTL override in seconds. When None, falls
          back to the global quota_cache_ttl_s. Useful for rate-limited
          providers (e.g. Kimi at 1800s). *)
+  use_responses_api : bool option;
+      (* B807: When Some true, force the OpenAI Responses API (/v1/responses)
+         path. When Some false, force Chat Completions. When None (default),
+         auto-detect: try Responses API for OpenAICodex providers, fall back
+         to Chat Completions on 404 or error. *)
 }
 
 let default_provider_config : provider_config =
@@ -55,6 +60,7 @@ let default_provider_config : provider_config =
     http_timeout_s = None;
     max_output_tokens = None;
     quota_cache_ttl_s = None;
+    use_responses_api = None;
   }
 
 type agent_defaults = {
