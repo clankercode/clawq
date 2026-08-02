@@ -782,3 +782,4 @@ bugs:
     - file: B786-bg-shell-jobs-should-notify-la.todo
     - file: B787-hooks-sessionstart-fires-on-ev.todo
     - file: B788-hooks-config-validation-not-en.todo
+    - file: B789-hooks-sessionend-never-dispatc.todo
