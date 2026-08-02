@@ -1646,7 +1646,7 @@ bugs:
       file: B799-hooks-compaction-matchers-igno.todo
       id: B799
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: Compaction matchers ignored (no tool_name passed)'
     - complexity: medium
