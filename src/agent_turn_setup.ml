@@ -29,9 +29,18 @@ let configured_hooks ~config ?cwd () =
   let profile_path = Dot_dir.sub "hooks.json" in
   (* Higher-precedence sources run first while retaining hooks from every
      source, matching the additive behavior of lifecycle-hook configs. *)
-  parse_hooks_file_at project_path
-  @ parse_hooks_file_at profile_path
-  @ config_hooks config
+  let all_hooks =
+    parse_hooks_file_at project_path
+    @ parse_hooks_file_at profile_path
+    @ config_hooks config
+  in
+  (* B801: Validate hooks at load time and warn on errors. *)
+  let validation_errors = Hooks.validate_all_hooks all_hooks in
+  List.iter
+    (fun error ->
+      Logs.warn (fun m -> m "Hooks config validation error: %s" error))
+    validation_errors;
+  all_hooks
 
 let create ~config ?tool_registry ?agent_template ?cwd
     ?(instruction_items : Runtime_config.effective_instruction_item list = [])

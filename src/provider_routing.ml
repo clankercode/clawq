@@ -35,7 +35,7 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
      endpoint has broken multi-turn tool calling (xiaomi/MiMo#44); the
      Anthropic endpoint handles tool_use/tool_result blocks correctly. *)
   | Some "xiaomi" -> Anthropic
-  | Some "openai" -> OpenAICompat
+  | Some "openai" | Some "openai-compat" | Some "openai_compat" -> OpenAICompat
   | Some _ | None ->
       let key = p.api_key in
       let url = String.lowercase_ascii (Option.value ~default:"" p.base_url) in

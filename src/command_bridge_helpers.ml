@@ -489,6 +489,68 @@ let cmd_onboard () =
     ^ "\nEdit it to add your API keys and bot tokens."
   end
 
+(* B802: `clawq config provider add` — add a provider to config.json *)
+let cmd_config_provider args =
+  match args with
+  | "add" :: name :: base_url :: api_key :: rest ->
+      (* Optional kind parameter: --kind <kind> *)
+      let kind = match rest with "--kind" :: k :: _ -> Some k | _ -> None in
+      let key_path = Printf.sprintf "providers.%s.api_key" name in
+      let _ = Config_set.set_json_value key_path (`String api_key) in
+      let _ =
+        Config_set.set_json_value
+          (Printf.sprintf "providers.%s.base_url" name)
+          (`String base_url)
+      in
+      (match kind with
+      | Some k ->
+          let _ =
+            Config_set.set_json_value
+              (Printf.sprintf "providers.%s.kind" name)
+              (`String k)
+          in
+          ()
+      | None -> ());
+      Printf.sprintf "Added provider '%s' (base_url: %s, kind: %s)" name
+        base_url
+        (Option.value ~default:"auto-detect" kind)
+  | [ "add"; name; base_url ] -> (
+      let prompt = Printf.sprintf "Enter API key for '%s': " name in
+      match Tui_input.read_secret prompt with
+      | Error msg -> msg
+      | Ok api_key ->
+          let _ =
+            Config_set.set_json_value
+              (Printf.sprintf "providers.%s.api_key" name)
+              (`String api_key)
+          in
+          let _ =
+            Config_set.set_json_value
+              (Printf.sprintf "providers.%s.base_url" name)
+              (`String base_url)
+          in
+          Printf.sprintf "Added provider '%s' (base_url: %s)" name base_url)
+  | "list" :: _ -> (
+      let config = get_config () in
+      match config.Runtime_config.providers with
+      | [] -> "No providers configured."
+      | providers ->
+          let lines =
+            List.map
+              (fun (name, (p : Runtime_config.provider_config)) ->
+                Printf.sprintf "  %s: %s (kind: %s)" name
+                  (Option.value ~default:"<default>" p.base_url)
+                  (Option.value ~default:"auto-detect" p.kind))
+              providers
+          in
+          "Configured providers:\n" ^ String.concat "\n" lines)
+  | _ ->
+      "Usage: clawq config provider <subcommand>\n\n\
+       Subcommands:\n\
+      \  add NAME BASE_URL API_KEY [--kind KIND]  Add a new provider\n\
+      \  add NAME BASE_URL                        Add provider (prompt for key)\n\
+      \  list                                     List configured providers"
+
 let cmd_config args =
   match args with
   | [ "wizard" ] ->
@@ -525,6 +587,7 @@ let cmd_config args =
       | [ query ] -> Config_search.search query
       | [] -> Config_search.search ""
       | _ -> Config_search.search (String.concat " " rest))
+  | "provider" :: rest -> cmd_config_provider rest
   | _ ->
       "Usage: clawq config <subcommand>\n\n\
        Subcommands:\n\
@@ -535,7 +598,8 @@ let cmd_config args =
       \  show [SECTION]   Display current config (secrets redacted)\n\
       \  tree [SECTION]   Render config as a tree (secrets redacted)\n\
       \  tree keys        Render config tree, structure only (no values)\n\
-      \  search QUERY     Search config keys matching QUERY"
+      \  search QUERY     Search config keys matching QUERY\n\
+      \  provider ...     Add or manage LLM providers"
 
 include Command_bridge_usage
 
