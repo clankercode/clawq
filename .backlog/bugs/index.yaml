@@ -779,3 +779,4 @@ bugs:
     - file: B783-add-opencodex-as-a-provider.todo
     - file: B784-notify-add-list-targets-flag-t.todo
     - file: B785-notify-list-targets-should-use.todo
+    - file: B786-bg-shell-jobs-should-notify-la.todo

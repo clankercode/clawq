@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-08-02T03:11:59Z"
+depends_on: []
+estimate_hours: 1
+id: B786
+priority: medium
+status: pending
+tags: []
+title: BG shell jobs should notify launching agent on completion and wake if idle
+updated_at: "2026-08-02T03:11:59Z"
+---
+When a background shell job finishes, the agent that launched it is not notified. The agent must manually poll bg_shell_status. Instead, when a bg shell job completes, the system should inject a notification into the launching session (similar to how subagent completions notify the parent session). If the agent is idle, it should be woken to handle the result. This mirrors the existing background-task completion notification flow for subagents.
