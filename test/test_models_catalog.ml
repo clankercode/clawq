@@ -478,9 +478,8 @@ let test_resolve_model_name_unique_plain_resolves () =
 
 let test_resolve_model_name_legacy_normalized () =
   match
-    Models_catalog.resolve_model_name_for_set
-      ~require_configured_provider:false ~configured_providers:[]
-      "anthropic/claude-sonnet-4-6"
+    Models_catalog.resolve_model_name_for_set ~require_configured_provider:false
+      ~configured_providers:[] "anthropic/claude-sonnet-4-6"
   with
   | Error e -> Alcotest.failf "expected resolve success, got: %s" e
   | Ok resolved ->

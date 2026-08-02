@@ -1032,6 +1032,7 @@ let with_revocation (c : counters) r = { c with revocation = r }
 let with_attribution_deny (c : counters) a = { c with attribution_deny = a }
 let with_class_metrics (c : counters) m = { c with class_metrics = m }
 let with_status (c : counters) s = { c with status = s }
+
 let with_notes (c : counters) n =
   { c with notes = List.map redact_status_text n }
 
@@ -1593,7 +1594,8 @@ let of_json = function
               match List.assoc_opt "notes" fields with
               | Some (`List xs) ->
                   List.filter_map
-                    (function `String s -> Some (redact_status_text s) | _ -> None)
+                    (function
+                      | `String s -> Some (redact_status_text s) | _ -> None)
                     xs
               | _ -> [])
           | _ -> []
@@ -1691,8 +1693,7 @@ let format_diagnostics (c : counters) =
   let notes =
     match c.notes with
     | [] -> []
-    | ns ->
-        "notes:" :: List.map (fun n -> "  - " ^ redact_status_text n) ns
+    | ns -> "notes:" :: List.map (fun n -> "  - " ^ redact_status_text n) ns
   in
   let status_lines =
     match c.status with
