@@ -1,0 +1,144 @@
+
+## Research Findings (2026-08-02)
+
+### 1. Responses API Overview
+
+**Endpoint:** `POST /v1/responses` (vs `POST /v1/chat/completions`)
+
+The Responses API is OpenAI's new unified interface for agent-like applications. Key
+benefits over Chat Completions:
+
+- **Better performance:** ~3% SWE-bench improvement with reasoning models (same prompt)
+- **Lower costs:** 40-80% better cache utilization in internal tests
+- **Stateful context:** `store: true` preserves reasoning/tool context turn-to-turn;
+  `previous_response_id` chains responses without resending full history
+- **Agentic by default:** model can call multiple tools (web_search, code_interpreter,
+  function tools, MCP) within a single API request
+- **Future-proof:** new models and features designed around Responses API
+
+### 2. Key API Differences (Chat Completions → Responses)
+
+**Request body:**
+| Chat Completions | Responses API |
+|---|---|
+| `"messages": [...]` | `"input": [...]` (accepts same message array, or a plain string) |
+| `"tools": [{"type":"function","function":{"name":"...","parameters":{...}}}]` | `"tools": [{"type":"function","name":"...","parameters":{...}}]` — flattened, no nested `function` key |
+| `"response_format": {"type": "json_schema", ...}` | `"text": {"format": {"type": "json_schema", ...}}` |
+| `"choices"` with `n` param | No `n` param (single generation only) |
+| N/A | `"store": true/false` (default true — responses stored server-side) |
+| N/A | `"previous_response_id": "resp_..."` for stateful chaining |
+
+**Response body:**
+| Chat Completions | Responses API |
+|---|---|
+| `"choices": [{"message": {"role":"assistant","content":"..."}}]` | `"output": [{"type":"message","content":[{"type":"output_text","text":"..."}]}]` |
+| `"choices[0].message.tool_calls": [{"id":"...","function":{"name":"...","arguments":"..."}}]` | Tool calls appear as separate items: `{"type":"function_call","id":"...","name":"...","arguments":"..."}` in the output array |
+| `"choices[0].message.reasoning_content"` (non-standard) | `{"type":"reasoning","summary":[...]}` as a separate output item |
+| `"usage": {"prompt_tokens":N,"completion_tokens":N}` | `"usage": {"input_tokens":N,"output_tokens":N}` (renamed) |
+
+**Streaming (SSE):**
+- Chat Completions: `data: {"choices":[{"delta":{"content":"..."}}]}`
+- Responses API: Event-driven with typed events:
+  - `response.created`, `response.in_progress`, `response.output_item.added`
+  - `response.output_text.delta`, `response.output_text.done`
+  - `response.function_call_arguments.delta`
+  - `response.reasoning_summary_text.delta`
+  - `response.completed`
+
+### 3. Provider Support Matrix
+
+| Provider | `/v1/responses` | Notes |
+|---|---|---|
+| **OpenAI** | ✅ Full | Native, recommended for all new projects |
+| **Azure OpenAI** | ✅ Full | Supported via Azure Foundry |
+| **OpenRouter** | ✅ Full | Proxies to underlying providers; supports tool calling |
+| **Codex CLI** | ✅ Required | `wire_api = "chat"` deprecated; full removal early Feb 2026 |
+| **Together AI** | ❌ No | Chat Completions only |
+| **Groq** | ❌ No | Chat Completions only |
+| **DeepSeek** | ❌ No | Chat Completions only |
+| **Local proxies (litellm etc.)** | ⚠️ Variable | Depends on proxy version and upstream provider |
+| **Z.ai (GLM)** | ❌ No | Chat Completions only (confirmed by current routing) |
+
+### 4. Codex Deprecation Timeline (Critical)
+
+From [openai/codex#7782](https://github.com/openai/codex/discussions/7782):
+- Codex CLI already shows deprecation warning with `wire_api = "chat"` since v0.72.0
+- **Full removal of chat/completions support: early February 2026**
+- Custom model providers must migrate to `wire_api = "responses"` before then
+- This directly affects clawq's `openai-codex` provider kind
+
+### 5. Current clawq Architecture — Touch Points for Implementation
+
+**Request construction** (`provider.ml` lines 106-258 for `complete`, 259-345 for `complete_stream`):
+- URI hardcoded: `let uri = base_url ^ "/chat/completions"` (lines 133, 286)
+- Body uses `("messages", messages_to_json ...)` and Chat Completions tool format
+- Dispatch via `detect_kind` → `native_complete`/`native_stream` override, else fallback path
+
+**Response parsing** (`provider.ml` lines 5-99):
+- `parse_openai_compat_response` expects `choices[0].message` structure
+- Extracts `tool_calls` from `choice.tool_calls[].function.{name,arguments}`
+- Usage: `prompt_tokens`/`completion_tokens`
+
+**Streaming** (`provider_streaming.ml`):
+- `process_sse_stream` parses `delta` objects in SSE data lines
+- Expects Chat Completions streaming format
+
+**Provider config** (`runtime_config_types.ml` lines 9-37):
+- `provider_config` record has no `use_responses_api` field
+- Has `kind` field for provider detection
+- `detect_kind` in `provider_routing.ml` returns `provider_kind` enum
+
+**Provider kinds** (`provider_routing.ml` lines 5-14):
+- `OpenAICompat | OpenAICodex | OpenCodex | Anthropic | Ollama | Gemini | Vertex | Cohere | MiniMax`
+- No `OpenAIResponses` kind
+
+### 6. Implementation Plan
+
+**Phase 1 — Config & Detection:**
+1. Add `use_responses_api : bool option` to `provider_config` (default: None = auto-detect)
+2. Add per-provider availability cache (mutable Hashtbl keyed by provider name)
+3. On first request to a provider with `use_responses_api` not false:
+   - If `kind` is `OpenAICodex` or explicit `use_responses_api = true`: try Responses API
+   - If 404 or error indicating unsupported: cache as unavailable, fall back silently
+
+**Phase 2 — Request Building:**
+1. New `messages_to_responses_input` — converts messages to Responses API `input` format
+   - Message format is mostly compatible (role/content arrays accepted)
+   - Tool definitions need flattening (remove nested `function` key)
+2. URI: `base_url ^ "/responses"` instead of `"/chat/completions"`
+
+**Phase 3 — Response Parsing:**
+1. New `parse_responses_api_response` — handles `output` array of typed Items
+   - Extract `output_text` from message items
+   - Extract `function_call` items as tool calls
+   - Extract reasoning summaries
+   - Map `input_tokens`/`output_tokens` to existing usage tuple
+
+**Phase 4 — Streaming:**
+1. New `process_responses_sse_stream` — handles event-driven SSE format
+   - Map `response.output_text.delta` → text chunks
+   - Map `response.function_call_arguments.delta` → tool call accumulation
+   - Map `response.completed` → final
+
+**Phase 5 — Routing in `complete`/`complete_stream`:**
+1. Check availability cache → branch to Responses path or Chat Completions path
+2. Both paths return same `provider_response` type (transparent to caller)
+
+**Estimated effort:** 3-4 hours for non-streaming path, +2 hours for streaming.
+**Priority justification:** HIGH — Codex chat/completions removal in early Feb 2026
+makes this time-sensitive for the `OpenAICodex` provider kind.
+
+### 7. Risks & Considerations
+
+- **Tool format conversion:** clawq passes tools as pre-built JSON (`tools` param).
+  Need to detect/convert Chat Completions format (`{"type":"function","function":{...}}`)
+  to Responses format (`{"type":"function","name":"...","parameters":{...}}`).
+- **Store/statefulness:** Responses API stores responses server-side by default.
+  For clawq's stateless provider calls, should set `store: false` to avoid
+  unintended server-side state accumulation (unless using `previous_response_id`
+  for context compression — potential future optimization).
+- **Third-party compat:** Non-OpenAI providers advertising `/v1/responses` may
+  have partial or non-standard implementations. The availability cache + fallback
+  pattern handles this, but edge cases may surface.
+- **Codex OAuth path:** `openai_codex_oauth.ml` has its own request/response cycle
+  that will need parallel updates.
