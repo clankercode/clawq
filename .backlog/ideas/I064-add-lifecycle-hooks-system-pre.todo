@@ -1,0 +1,40 @@
+---
+complexity: medium
+created_at: "2026-08-02T04:14:55Z"
+depends_on: []
+estimate_hours: 10
+id: I064
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: 'Add lifecycle hooks system (pre/post-tool, pre/post-session, etc) broadly compatible with existing coding CLIs (Claude Code hooks, Codex lifecycle events, etc). Should allow users to configure shell commands or scripts that fire at defined lifecycle points. Consider: pre_tool, post_tool, pre_session, post_session, on_error, on_compact, on_restart. Design should be extensible and align with conventions from Claude Code and Codex hook systems where applicable.'
+updated_at: "2026-08-02T04:14:55Z"
+---
+
+# Original Idea
+
+Add lifecycle hooks system (pre/post-tool, pre/post-session, etc) broadly compatible with existing coding CLIs (Claude Code hooks, Codex lifecycle events, etc). Should allow users to configure shell commands or scripts that fire at defined lifecycle points. Consider: pre_tool, post_tool, pre_session, post_session, on_error, on_compact, on_restart. Design should be extensible and align with conventions from Claude Code and Codex hook systems where applicable.
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I064` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.
