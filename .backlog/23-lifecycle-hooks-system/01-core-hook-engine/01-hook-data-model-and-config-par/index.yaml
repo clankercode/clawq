@@ -12,7 +12,7 @@ tasks:
       file: T001-define-hook-types-hook-event-h.todo
       id: T001
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Define hook types (hook_event, hook_config, hook_result)
     - complexity: medium
