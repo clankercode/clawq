@@ -1717,7 +1717,7 @@ bugs:
       file: B807-support-openai-compatible-resp.todo
       id: B807
       priority: high
-      status: blocked
+      status: done
       tags: []
       title: Support OpenAI-compatible Responses API where available
     - complexity: medium
@@ -1726,7 +1726,7 @@ bugs:
       file: B807-support-openai-compatible-resp.todo
       id: B807
       priority: high
-      status: blocked
+      status: done
       tags: []
       title: Support OpenAI-compatible Responses API where available
     - complexity: medium
