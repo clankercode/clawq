@@ -414,6 +414,9 @@ include Tools_builtin_session
 
 let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     ~extra_allowed_paths ~sandbox ?session_mgr ?(spawn_background = Lwt.async)
+    ?(inject_session_message =
+      fun ~session_mgr ~session_key ~message () ->
+        inject_session_message_async ~session_mgr ~session_key ~message ())
     ?(watch_ci_after_push = watch_ci_after_push) () =
   let description =
     if workspace_only then
@@ -608,10 +611,22 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                     let command =
                       Sandbox.wrap_command sandbox original_command
                     in
+                    let on_background_complete =
+                      match (session_mgr, session_key) with
+                      | Some mgr, Some sk ->
+                          Some
+                            (fun job ->
+                              inject_session_message ~session_mgr:mgr
+                                ~session_key:sk
+                                ~message:
+                                  (background_shell_completion_message job)
+                                ())
+                      | _ -> None
+                    in
                     let run_proc cmd =
                       run_process_with_timeout ?interrupt_check ?on_output_chunk
-                        ~background ~cwd ~env ~cmd ~timeout_secs ~head_lines
-                        ~tail_lines ()
+                        ?on_background_complete ~background ~cwd ~env ~cmd
+                        ~timeout_secs ~head_lines ~tail_lines ()
                     in
                     let maybe_watch_ci_after_push result =
                       match
@@ -663,7 +678,8 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                           let cwd = Some dir in
                           let* result =
                             run_process_with_timeout ?interrupt_check
-                              ?on_output_chunk ~background ~cwd ~env
+                              ?on_output_chunk ?on_background_complete
+                              ~background ~cwd ~env
                               ~cmd:("", [| "/bin/sh"; "-c"; rest |])
                               ~timeout_secs ~head_lines ~tail_lines ()
                           in

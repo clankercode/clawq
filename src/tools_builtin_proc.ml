@@ -245,6 +245,28 @@ let inject_session_message_async ?turn_override ~(session_mgr : Session.t)
             (Printexc.to_string exn));
       Lwt.return_unit)
 
+let background_shell_completion_message (job : Bg_shell.job) =
+  let max_preview_chars = 12_000 in
+  let raw_tail = Bg_shell.tail_log job ~lines:50 in
+  let tail =
+    if String.length raw_tail <= max_preview_chars then raw_tail
+    else
+      String.sub raw_tail 0 max_preview_chars
+      ^ Printf.sprintf "\n... (truncated %d chars; use bg_shell_result)"
+          (String.length raw_tail - max_preview_chars)
+  in
+  Printf.sprintf
+    "[background shell job completed]\n\
+     Background shell job #%d finished.\n\
+     Command: %s\n\
+     Status: %s\n\n\
+     Output (last 50 lines):\n\
+     %s\n\n\
+     Use bg_shell_result with id=%d for the full output."
+    job.id job.command
+    (Bg_shell.status_string job)
+    tail job.id
+
 let watch_ci_after_push
     ?(resolve_head_sha =
       fun ~repo_path ->
@@ -522,8 +544,8 @@ let shell_command_display (cmd : string * string array) =
   | command, argv -> command ^ " " ^ String.concat " " (Array.to_list argv)
 
 let run_process_with_timeout ?interrupt_check ?on_output_chunk
-    ?(background = false) ~cwd ~env ~cmd ~timeout_secs ~head_lines ~tail_lines
-    () =
+    ?on_background_complete ?(background = false) ~cwd ~env ~cmd ~timeout_secs
+    ~head_lines ~tail_lines () =
   let open Lwt.Syntax in
   let proc =
     match cmd with
@@ -551,6 +573,26 @@ let run_process_with_timeout ?interrupt_check ?on_output_chunk
     forced_result := Some msg;
     msg
   in
+  let notify_background_job (job : Bg_shell.job) =
+    match on_background_complete with
+    | Some notify ->
+        Lwt.catch
+          (fun () -> notify job)
+          (fun exn ->
+            Logs.warn (fun m ->
+                m
+                  "Background shell completion notification failed for job %d: \
+                   %s"
+                  job.id (Printexc.to_string exn));
+            Lwt.return_unit)
+    | None -> Lwt.return_unit
+  in
+  (* Register explicit background jobs before the monitor can observe a fast
+     process exit. Interrupt-detached jobs are registered synchronously in the
+     interrupt branch before the monitor gets another scheduling turn. *)
+  let initial_background_result =
+    if background then start_background_job () else ""
+  in
   Lwt.async (fun () ->
       Lwt.catch
         (fun () ->
@@ -570,12 +612,15 @@ let run_process_with_timeout ?interrupt_check ?on_output_chunk
                 | Unix.WSIGNALED n -> 128 + n
                 | Unix.WSTOPPED n -> 128 + n
               in
-              (match !bg_job with
-              | Some job ->
-                  Bg_shell.complete job ~exit_code
-                    ~stdout:(Buffer.contents stdout_buf)
-                    ~stderr:(Buffer.contents stderr_buf)
-              | None -> ());
+              let* () =
+                match !bg_job with
+                | Some job ->
+                    Bg_shell.complete job ~exit_code
+                      ~stdout:(Buffer.contents stdout_buf)
+                      ~stderr:(Buffer.contents stderr_buf);
+                    notify_background_job job
+                | None -> Lwt.return_unit
+              in
               finish_runner
                 (Ok
                    (render_command_result ~exit_code
@@ -588,12 +633,16 @@ let run_process_with_timeout ?interrupt_check ?on_output_chunk
               | Some _ -> Lwt.return_unit
               | None -> Process_group.close proc))
         (fun exn ->
-          (match !bg_job with
-          | Some job -> Bg_shell.fail_job job ~msg:(Printexc.to_string exn)
-          | None -> ());
+          let* () =
+            match !bg_job with
+            | Some job ->
+                Bg_shell.fail_job job ~msg:(Printexc.to_string exn);
+                notify_background_job job
+            | None -> Lwt.return_unit
+          in
           finish_runner (Error exn);
           Lwt.return_unit));
-  if background then Lwt.return (start_background_job ())
+  if background then Lwt.return initial_background_result
   else
     let timeout =
       let* () = Lwt_unix.sleep timeout_secs in

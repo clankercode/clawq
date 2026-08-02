@@ -36,9 +36,11 @@ webhook-driven integrations such as GitHub and MS Teams.
   the interrupt and queued or processed it.
 
   If a <code>shell_exec</code> tool call is running when interrupted, the
-  process is moved to a background shell instead of being killed. Use
+  process is moved to a background shell instead of being killed. When it
+  finishes, Clawq notifies the launching agent and wakes the session if idle. Use
   <code>bg_shell_status</code>, <code>bg_shell_wait</code>, and
-  <code>bg_shell_result</code> tools to track it.
+  <code>bg_shell_result</code> tools for optional progress and full-output
+  inspection.
 </Callout>
 
 ## The Channel Startup Specification

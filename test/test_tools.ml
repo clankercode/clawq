@@ -2602,9 +2602,16 @@ let test_shell_exec_interrupt_moves_to_background () =
         Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
           ~workspace_only:false ()
       in
+      let mgr = Session.create ~config:Runtime_config.default () in
+      let completion = ref None in
+      let inject_session_message ~session_mgr:_ ~session_key ~message () =
+        completion := Some (session_key, message);
+        Lwt.return_unit
+      in
       let tool =
-        Tools_builtin.shell_exec ~workspace ~workspace_only:false
-          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+        Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox ~session_mgr:mgr
+          ~inject_session_message ()
       in
       let interrupted = ref None in
       let pid_file = Filename.concat workspace "child.pid" in
@@ -2665,6 +2672,15 @@ let test_shell_exec_interrupt_moves_to_background () =
         (Lwt_main.run
            (wait_tool.Tool.invoke
               (`Assoc [ ("id", `Int job_id); ("timeout_seconds", `Float 5.0) ])));
+      (match !completion with
+      | Some (session_key, message) ->
+          Alcotest.(check string)
+            "launching session notified" "web:test" session_key;
+          Alcotest.(check bool)
+            "completion notification identifies job" true
+            (Test_helpers.string_contains message
+               (Printf.sprintf "Background shell job #%d finished" job_id))
+      | None -> Alcotest.fail "expected background shell completion notice");
       let job = Bg_shell.find job_id in
       (match job with
       | Some j ->
@@ -2674,6 +2690,91 @@ let test_shell_exec_interrupt_moves_to_background () =
             (Test_helpers.string_contains log "hello")
       | None -> Alcotest.fail "bg_shell job not found");
       try Sys.remove pid_file with _ -> ())
+
+let test_shell_exec_background_completion_notifies_launching_session () =
+  with_temp_workspace (fun workspace ->
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      let mgr = Session.create ~config:Runtime_config.default () in
+      let completion = ref None in
+      let inject_session_message ~session_mgr:_ ~session_key ~message () =
+        completion := Some (session_key, message);
+        Lwt.return_unit
+      in
+      let tool =
+        Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox ~session_mgr:mgr
+          ~inject_session_message ()
+      in
+      let context =
+        { Tool.default_context with session_key = Some "telegram:42:testuser" }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context
+             (`Assoc
+                [
+                  ("command", `String "printf background-ready");
+                  ("background", `Bool true);
+                ]))
+      in
+      let job_id =
+        try
+          let re = Str.regexp {|Background shell job #\([0-9]+\)|} in
+          ignore (Str.search_forward re result 0);
+          int_of_string (Str.matched_group 1 result)
+        with _ -> Alcotest.fail "could not parse job ID"
+      in
+      let wait_tool = Tools_bg_shell.bg_shell_wait () in
+      ignore
+        (Lwt_main.run
+           (wait_tool.Tool.invoke
+              (`Assoc [ ("id", `Int job_id); ("timeout_seconds", `Float 5.0) ])));
+      (match Bg_shell.find job_id with
+      | Some { status = Bg_shell.Finished { exit_code = 0 }; _ } -> ()
+      | Some job ->
+          Alcotest.failf "expected finished immediate-exit job, got %s"
+            (Bg_shell.status_string job)
+      | None -> Alcotest.fail "expected immediate-exit background job");
+      match !completion with
+      | Some (session_key, message) ->
+          Alcotest.(check string)
+            "launching session notified" "telegram:42:testuser" session_key;
+          Alcotest.(check bool)
+            "completion notification identifies job" true
+            (Test_helpers.string_contains message
+               (Printf.sprintf "Background shell job #%d finished" job_id));
+          Alcotest.(check bool)
+            "completion notification includes output" true
+            (Test_helpers.string_contains message "background-ready");
+          Alcotest.(check bool)
+            "completion notification points to full result" true
+            (Test_helpers.string_contains message "bg_shell_result")
+      | None -> Alcotest.fail "expected background shell completion notice")
+
+let test_background_shell_completion_preview_is_bounded () =
+  let job = Bg_shell.create ~pid:0 ~command:"large output" ~cwd:None in
+  Bg_shell.complete job ~exit_code:0 ~stdout:(String.make 50_000 'x') ~stderr:"";
+  let message = Tools_builtin.background_shell_completion_message job in
+  Alcotest.(check bool)
+    "notification remains bounded" true
+    (String.length message < 13_000);
+  Alcotest.(check bool)
+    "notification marks truncation" true
+    (Test_helpers.string_contains message "truncated");
+  Alcotest.(check bool)
+    "notification retains result pointer" true
+    (Test_helpers.string_contains message "bg_shell_result")
+
+let test_background_shell_failed_completion_message () =
+  let job = Bg_shell.create ~pid:0 ~command:"broken command" ~cwd:None in
+  Bg_shell.fail_job job ~msg:"read failed";
+  let message = Tools_builtin.background_shell_completion_message job in
+  Alcotest.(check bool)
+    "failed status included" true
+    (Test_helpers.string_contains message "Failed: read failed")
 
 let test_shell_exec_background_parameter_starts_job () =
   with_temp_workspace (fun workspace ->
@@ -2964,6 +3065,40 @@ let test_inject_session_message_async_preserves_channel_context () =
        (fun (key, message, channel, channel_id) ->
          ((key, message), (channel, channel_id)))
        !captured)
+
+let test_inject_session_message_async_wakes_idle_session () =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let captured = ref None in
+  Session.set_special_command_handler mgr
+    (fun ~key ~message ~send_progress:_ ~interrupt_check:_ ->
+      captured := Some (key, message);
+      Lwt.return_some Session.autonomous_stay_idle_message);
+  Lwt_main.run
+    (Tools_builtin.inject_session_message_async ~session_mgr:mgr
+       ~session_key:"telegram:42:testuser" ~message:"shell finished" ());
+  Alcotest.(check (option (pair string string)))
+    "idle session runs completion turn"
+    (Some ("telegram:42:testuser", "shell finished"))
+    !captured
+
+let test_inject_session_message_async_queues_busy_session () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "telegram:42:testuser" in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions key (Agent.create ~config (), mutex, ref None);
+  Lwt_main.run (Lwt_mutex.lock mutex);
+  Fun.protect
+    (fun () ->
+      Lwt_main.run
+        (Tools_builtin.inject_session_message_async ~session_mgr:mgr
+           ~session_key:key ~message:"shell finished" ());
+      match Session.take_next_queued_message mgr ~key with
+      | Some queued ->
+          Alcotest.(check string)
+            "busy session retains completion" "shell finished" queued.message
+      | None -> Alcotest.fail "expected queued background-shell completion")
+    ~finally:(fun () -> Lwt_mutex.unlock mutex)
 
 let test_shell_exec_starts_ci_watch_asynchronously_after_push () =
   with_temp_workspace (fun workspace ->
@@ -4540,12 +4675,22 @@ let suite =
       test_shell_exec_interrupt_moves_to_background;
     Alcotest.test_case "shell_exec background parameter starts job" `Quick
       test_shell_exec_background_parameter_starts_job;
+    Alcotest.test_case "shell_exec background completion notifies launcher"
+      `Quick test_shell_exec_background_completion_notifies_launching_session;
+    Alcotest.test_case "background shell completion preview is bounded" `Quick
+      test_background_shell_completion_preview_is_bounded;
+    Alcotest.test_case "background shell failed completion message" `Quick
+      test_background_shell_failed_completion_message;
     Alcotest.test_case "shell_exec timeout kills descendants" `Quick
       test_shell_exec_timeout_kills_descendants;
     Alcotest.test_case "watch_ci_after_push injects failure follow-up" `Quick
       test_watch_ci_after_push_injects_failure_follow_up;
     Alcotest.test_case "inject_session_message_async preserves channel context"
       `Quick test_inject_session_message_async_preserves_channel_context;
+    Alcotest.test_case "inject_session_message_async wakes idle session" `Quick
+      test_inject_session_message_async_wakes_idle_session;
+    Alcotest.test_case "inject_session_message_async queues busy session" `Quick
+      test_inject_session_message_async_queues_busy_session;
     Alcotest.test_case "shell_exec starts CI watch asynchronously" `Quick
       test_shell_exec_starts_ci_watch_asynchronously_after_push;
     Alcotest.test_case "shell_exec cd-prefix push uses cd repo path" `Quick

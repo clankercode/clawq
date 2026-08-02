@@ -479,7 +479,7 @@ Options for `plan start`:
 - `/followup MESSAGE` — queues a non-interrupting follow-up for delivery when the session next becomes idle; if the session is idle, sends immediately
 - `/followup-append MESSAGE` — appends to the latest queued follow-up, or queues/sends a new one when none exists
 
-When `shell_exec` is interrupted, the running process is moved to a background shell instead of being killed. Use `/tools` to see `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result` for tracking background shell jobs.
+When `shell_exec` is interrupted, the running process is moved to a background shell instead of being killed. Explicit `background=true` jobs behave the same way. On completion, Clawq notifies the launching agent and wakes its session if idle. Use `/tools` to see `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result` for optional progress and full-output inspection.
 
 ## Slash Commands
 

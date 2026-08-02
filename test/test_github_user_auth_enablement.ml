@@ -433,7 +433,9 @@ let test_cli_apply_requires_planning_admin () =
     match
       E.plan_enable ~db ~admin_principal_id:"admin-p1"
         ~reason:"cli admin binding" ~audit_ref:"audit-cli-admin-binding"
-        ~evidence ~now:fixed_now ()
+        ~evidence
+        ~ttl_seconds:(365.0 *. 24.0 *. 60.0 *. 60.0)
+        ~now:fixed_now ()
     with
     | Ok plan -> plan
     | Error e -> Alcotest.fail e

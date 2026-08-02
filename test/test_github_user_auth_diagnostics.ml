@@ -427,26 +427,27 @@ let test_notes_redact_secrets () =
   let constructed_secret = "ghu_NOTE_CONSTRUCTED_SECRET_123456"
   and imported_secret = "ghu_NOTE_IMPORTED_SECRET_123456" in
   let constructed =
-    D.with_notes (D.empty_counters ~now:fixed_now ())
+    D.with_notes
+      (D.empty_counters ~now:fixed_now ())
       [ "operator note=" ^ constructed_secret ]
   in
   let imported =
     assert_ok
       (D.of_json
          (`Assoc
-           [
-             ("schema_version", `Int D.schema_version);
-             ("generated_at", `String "2026-01-01T00:00:00Z");
-             ( "notes",
-               `List [ `String ("imported note=" ^ imported_secret) ] );
-           ]))
+            [
+              ("schema_version", `Int D.schema_version);
+              ("generated_at", `String "2026-01-01T00:00:00Z");
+              ("notes", `List [ `String ("imported note=" ^ imported_secret) ]);
+            ]))
   in
   List.iter
     (fun (counters, secret) ->
       let json = Yojson.Safe.to_string (D.to_json counters) in
       let formatted = String.concat "\n" (D.format_diagnostics counters) in
       Alcotest.(check bool)
-        "notes JSON redacts secret" false (contains ~needle:secret json);
+        "notes JSON redacts secret" false
+        (contains ~needle:secret json);
       Alcotest.(check bool)
         "notes format redacts secret" false
         (contains ~needle:secret formatted))

@@ -175,6 +175,14 @@ This ensures every worktree task goes through both verification and review, rega
 
 Parent sessions receive a concise completion wake message with a bounded result preview and a pointer such as `subagents transcript 42`; full logs and transcripts are not injected into the parent context.
 
+Background shell jobs use the same wake-up principle. A job started with
+`shell_exec` and `background=true`, or moved into the background when its tool
+call is interrupted, sends its launching agent a concise terminal status and
+bounded output preview when it finishes. If that session is idle, Clawq starts
+a turn to handle the result; if it is busy, the notification is queued. Use
+`bg_shell_status`, `bg_shell_wait`, or `bg_shell_result` when manual progress or
+full output inspection is still useful.
+
 ## Automerge
 
 Automerge is **enabled by default**. When a task is queued with automerge (the default for both `delegate` and `background_task_enqueue`), clawq automatically attempts to rebase and fast-forward merge the worktree branch into the repo's main branch after the completion pass succeeds:
