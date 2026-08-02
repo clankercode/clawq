@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Tool lifecycle hooks (PreToolUse, PostToolUse)
       path: 01-tool-lifecycle-hooks-pretoolus
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: SessionStart fires when a session begins/resumes (context injection, env vars). SessionEnd fires at termination. Stop fires when agent finishes responding — can block to force continued work (exit 2).
