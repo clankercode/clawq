@@ -67,6 +67,8 @@
   agent_0_compact
   agent_1_context
   agent_memory_context
+  hooks
+  hooks_exec
   agent_2_tools
   agent_profile
   agent_provider_ledger

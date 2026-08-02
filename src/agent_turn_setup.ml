@@ -52,6 +52,7 @@ let create ~config ?tool_registry ?agent_template ?cwd
     instruction_items;
     access_snapshot_id;
     access_snapshot;
+    hooks = Hooks.parse_hooks_config_section (Runtime_config.to_json config);
   }
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])

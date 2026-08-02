@@ -41,6 +41,8 @@ type t = {
      execution don't alter in-flight access. *)
   mutable access_snapshot_id : string option;
   mutable access_snapshot : Access_snapshot.t option;
+  (* Lifecycle hooks loaded from config. Empty list = hooks disabled. *)
+  mutable hooks : Hooks.hook_config list;
 }
 
 exception Interrupted of string
