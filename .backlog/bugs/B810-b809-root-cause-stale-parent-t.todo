@@ -1,13 +1,17 @@
 ---
+claimed_at: "2026-08-02T09:07:50Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-08-02T09:07:41Z"
 depends_on: []
 estimate_hours: 1
 id: B810
 priority: high
-status: pending
+started_at: "2026-08-02T09:07:50Z"
+status: in_progress
 tags: []
 title: 'B809 root cause: stale parent_task_id chain inflates subagent depth permanently'
-updated_at: "2026-08-02T09:07:41Z"
+updated_at: "2026-08-02T09:07:50Z"
 ---
 Root cause identified: subagent_depth() walks the parent_task_id chain starting from find_task_id_by_session_key, which returns the most recent background task by id DESC regardless of status/age. For session telegram:58495225:58495225, old failed tasks (139->159->160->162) form a 4-level chain from months ago. Every new subagent spawn attempt hits depth>=4 and is rejected.\n\nFix: only count active (running/queued) tasks in the depth chain, or filter find_task_id_by_session_key to exclude completed/failed/cancelled tasks.
