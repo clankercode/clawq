@@ -290,6 +290,26 @@ let cmd_start ~config =
         match Unix.fork () with
         | 0 ->
             ignore (Unix.setsid ());
+            (* B781: Close inherited file descriptors above stderr (fd 2)
+               to prevent holding dune-throttle build slots and other
+               inherited flocks for the daemon's lifetime. *)
+            (try
+               let max_fd =
+                 try
+                   let in_ch =
+                     Unix.openfile "/proc/sys/fs/file_max" [ Unix.O_RDONLY ] 0
+                   in
+                   let buf = Bytes.create 16 in
+                   let n = Unix.read in_ch buf 0 16 in
+                   Unix.close in_ch;
+                   int_of_string (String.trim (Bytes.sub_string buf 0 n))
+                 with _ -> 1024
+               in
+               for fd = 3 to max_fd do
+                 try Unix.close (Obj.magic fd : Unix.file_descr)
+                 with Unix.Unix_error _ -> ()
+               done
+             with _ -> ());
             let log_fd =
               Unix.openfile (log_path ())
                 [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ]
