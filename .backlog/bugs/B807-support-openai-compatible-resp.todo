@@ -9,7 +9,7 @@ estimate_hours: 1
 id: B807
 priority: high
 started_at: "2026-08-02T06:12:48Z"
-status: blocked
+status: pending
 tags: []
 title: Support OpenAI-compatible Responses API where available
 updated_at: "2026-08-02T12:03:22Z"
