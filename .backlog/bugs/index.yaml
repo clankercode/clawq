@@ -1691,7 +1691,7 @@ bugs:
       file: B804-providers-no-dynamic-provider.todo
       id: B804
       priority: high
-      status: in_progress
+      status: cancelled
       tags: []
       title: 'Providers: No dynamic provider registration at runtime (requires config reload)'
     - complexity: medium

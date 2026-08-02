@@ -9,10 +9,10 @@ estimate_hours: 1
 id: B804
 priority: high
 started_at: "2026-08-02T06:12:35Z"
-status: in_progress
+status: cancelled
 tags: []
 title: 'Providers: No dynamic provider registration at runtime (requires config reload)'
-updated_at: "2026-08-02T06:12:35Z"
+updated_at: "2026-08-02T12:02:54Z"
 ---
 
 Providers: No dynamic provider registration at runtime (requires config reload)
