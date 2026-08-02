@@ -93,7 +93,7 @@ let handle ?(skill_names = []) text =
             | [ "off" ] -> Debug (SetDebug false)
             | _ ->
                 FormattedReply (fun connector -> format_debug_usage ~connector))
-        | "followup" -> (
+        | "followup" | "queue" | "q" -> (
             match args with
             | [] ->
                 FormattedReply
