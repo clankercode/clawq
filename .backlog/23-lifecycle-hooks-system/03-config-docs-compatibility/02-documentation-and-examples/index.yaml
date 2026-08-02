@@ -12,7 +12,7 @@ tasks:
       file: T001-write-hooks-documentation-docs.todo
       id: T001
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Write hooks documentation (docs/hooks.md)
     - complexity: low
