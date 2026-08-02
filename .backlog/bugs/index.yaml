@@ -800,3 +800,4 @@ bugs:
     - file: B803-providers-no-explicit-openai-c.todo
     - file: B804-providers-no-dynamic-provider.todo
     - file: B805-hooks-matchers-implemented-as.todo
+    - file: B806-hooks-clawq-env-file-persisten.todo
