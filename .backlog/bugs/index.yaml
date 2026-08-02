@@ -799,3 +799,4 @@ bugs:
     - file: B802-providers-no-clawq-config-prov.todo
     - file: B803-providers-no-explicit-openai-c.todo
     - file: B804-providers-no-dynamic-provider.todo
+    - file: B805-hooks-matchers-implemented-as.todo
