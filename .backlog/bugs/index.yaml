@@ -1655,7 +1655,7 @@ bugs:
       file: B800-hooks-additionalcontext-from-n.todo
       id: B800
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: additionalContext from non-blocking hooks is discarded'
     - complexity: medium
