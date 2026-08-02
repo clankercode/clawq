@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-08-02T06:12:54Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-02T11:49:04Z"
 complexity: medium
 created_at: "2026-08-02T05:24:48Z"
 depends_on: []
+duration_minutes: 336.17167568916665
 estimate_hours: 1
 id: B805
 priority: high
 started_at: "2026-08-02T06:12:54Z"
-status: in_progress
+status: done
 tags: []
 title: 'Hooks: Matchers implemented as exact pipe-separated literals, not regex'
-updated_at: "2026-08-02T06:12:54Z"
+updated_at: "2026-08-02T11:49:04Z"
 ---
 
 Hooks: Matchers implemented as exact pipe-separated literals, not regex

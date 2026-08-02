@@ -1700,7 +1700,7 @@ bugs:
       file: B805-hooks-matchers-implemented-as.todo
       id: B805
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: Matchers implemented as exact pipe-separated literals, not regex'
     - complexity: medium
