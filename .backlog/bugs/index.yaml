@@ -1603,14 +1603,6 @@ bugs:
       status: done
       tags: []
       title: 'Hooks: SessionEnd never dispatched'
-    - file: B794-hooks-compaction-matchers-igno.todo
-      id: B794
-    - file: B794-hooks-force-compact-history-by.todo
-      id: B794
-    - file: B794-hooks-non-pretooluse-hooks-blo.todo
-      id: B794
-    - file: B794-hooks-timeout-kills-only-shell.todo
-      id: B794
     - complexity: medium
       depends_on: []
       estimate_hours: 1
