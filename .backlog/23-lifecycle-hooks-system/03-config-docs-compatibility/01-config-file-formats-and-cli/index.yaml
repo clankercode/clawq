@@ -12,7 +12,7 @@ tasks:
       file: T001-implement-clawq-hooks-json-fil.todo
       id: T001
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Implement .clawq/hooks.json file loading (Codex-style)
     - complexity: medium

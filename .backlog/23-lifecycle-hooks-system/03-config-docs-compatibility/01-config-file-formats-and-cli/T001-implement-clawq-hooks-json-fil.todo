@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-08-02T04:57:29Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-02T05:24:42Z"
 complexity: medium
 created_at: "2026-08-02T04:23:07Z"
 depends_on: []
+duration_minutes: 27.222084518233334
 estimate_hours: 1.5
 id: P23.M3.E1.T001
 priority: medium
 started_at: "2026-08-02T04:57:29Z"
-status: in_progress
+status: done
 tags: []
 title: Implement .clawq/hooks.json file loading (Codex-style)
-updated_at: "2026-08-02T04:57:29Z"
+updated_at: "2026-08-02T05:24:42Z"
 ---
 Load hooks from project-level .clawq/hooks.json with events at root (no wrapper key). Also load profile-level ~/.clawq/hooks.json. Merge with config.json hooks section.
