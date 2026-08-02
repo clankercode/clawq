@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-08-02T04:57:29Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-08-02T05:24:42Z"
 complexity: medium
 created_at: "2026-08-02T04:23:08Z"
 depends_on: []
+duration_minutes: 27.226127907666665
 estimate_hours: 2
 id: P23.M3.E1.T002
 priority: medium
 started_at: "2026-08-02T04:57:29Z"
-status: in_progress
+status: done
 tags: []
 title: Add clawq hooks CLI commands
-updated_at: "2026-08-02T04:57:29Z"
+updated_at: "2026-08-02T05:24:42Z"
 ---
 clawq hooks list (show configured hooks), clawq hooks show <event> (detail), clawq hooks test <event> [--tool <name>] (dry-run with sample input), clawq hooks validate (config check).
