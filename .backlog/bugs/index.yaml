@@ -1736,7 +1736,7 @@ bugs:
       file: B808-implement-queue-q-slash-comman.todo
       id: B808
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Implement /queue (/q) slash command for deferred follow-up messages
     - file: B809-subagent-depth-limit-reached-u.todo
