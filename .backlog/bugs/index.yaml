@@ -1637,7 +1637,7 @@ bugs:
       file: B798-hooks-force-compact-history-by.todo
       id: B798
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Hooks: force_compact_history bypasses compact hooks'
     - complexity: medium
