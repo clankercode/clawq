@@ -1,14 +1,16 @@
 ---
+completed_at: "2026-08-02T12:19:46Z"
 complexity: medium
 created_at: "2026-08-02T11:30:34Z"
 depends_on: []
 estimate_hours: 1
 id: B812
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Add build-box (remote SSH) support to justfile
-updated_at: "2026-08-02T11:30:34Z"
+updated_at: "2026-08-02T12:19:46Z"
 ---
 Add a configurable build-box mode to the justfile. By default, builds run locally. When configured (via .env or other gitignored config file), builds should:
 1. rsync the latest code to the remote build box (x-alpha over SSH)
