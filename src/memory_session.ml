@@ -315,6 +315,33 @@ let get_session_channel ~db ~session_key =
   ignore (Sqlite3.finalize stmt);
   result
 
+let list_known_channel_ids ~db ~channel =
+  let sql =
+    "SELECT channel_id FROM session_state WHERE channel = ? AND channel_id IS \
+     NOT NULL AND channel_id <> '' GROUP BY channel_id ORDER BY \
+     MAX(last_active) DESC, channel_id"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT channel));
+      let ids = ref [] in
+      let rec collect () =
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW ->
+            (match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT id -> ids := id :: !ids
+            | _ -> ());
+            collect ()
+        | Sqlite3.Rc.DONE -> List.rev !ids
+        | rc ->
+            failwith
+              (Printf.sprintf "Failed to list known %s targets: %s" channel
+                 (Sqlite3.Rc.to_string rc))
+      in
+      collect ())
+
 let parse_channel_from_session_key key =
   match String.split_on_char ':' key with
   | channel :: _ when channel <> "" -> Some channel

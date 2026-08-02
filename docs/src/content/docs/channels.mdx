@@ -151,7 +151,9 @@ Or manually:
 - **One-shot outbound delivery** --- `clawq notify --channel telegram --target
   CHAT_ID MESSAGE...` sends directly through a configured bot without starting
   an agent turn. Use `--account NAME` for multi-account setups and optional
-  `--parse-mode HTML|Markdown|MarkdownV2` for formatted messages.
+  `--parse-mode HTML|Markdown|MarkdownV2` for formatted messages. Use
+  `--list-targets` to list chat IDs previously recorded in the local Clawq
+  database without calling `getUpdates`.
 
 ### How It Works
 
@@ -664,7 +666,9 @@ clawq channel              # confirm teams shows as configured
   CONVERSATION_ID MESSAGE...` sends through the configured Bot Framework
   credentials and service URL without starting an agent turn. The target
   cannot override the configured service URL; the optional parse mode is
-  `Markdown`.
+  `Markdown`. Use `--list-targets` to list conversation IDs previously recorded
+  in the local Clawq database without calling the Bot Framework conversations
+  endpoint.
 
 See the [Microsoft Teams bot documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots) and the [Bot Framework authentication guide](https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication) for full details.
 

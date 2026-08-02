@@ -42,6 +42,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `channel show-model NAME` | Show the current model for a channel (channel override or global default) |
 | `channel clear-model NAME` | Clear a channel's model override so it inherits the global default |
 | `notify --channel telegram\|teams --target TARGET [--account NAME] [--parse-mode MODE] MESSAGE...` | Send one outbound connector message without starting an agent turn |
+| `notify --channel telegram\|teams --list-targets [--account NAME]` | List locally known target IDs from SQLite without calling connector APIs |
 | `config wizard` | Interactive TUI wizard for all settings |
 | `config set KEY VALUE` | Set a config value by dot-path |
 | `config get KEY` | Read a config value by dot-path |
@@ -1200,6 +1201,8 @@ connector. It does not start an agent turn or require the daemon to be running.
 ```bash
 clawq notify --channel telegram --target CHAT_ID [--account NAME] [--parse-mode HTML|Markdown|MarkdownV2] MESSAGE...
 clawq notify --channel teams --target CONVERSATION_ID [--parse-mode Markdown] MESSAGE...
+clawq notify --channel telegram --list-targets [--account NAME]
+clawq notify --channel teams --list-targets
 ```
 
 Telegram uses the named account, the `main` account, or the sole configured
@@ -1208,6 +1211,13 @@ and `service_url`; the target is a conversation ID and cannot override the
 configured service URL. Success prints the target and connector. Invalid
 configuration, unsupported parse modes, and delivery failures exit nonzero
 with an actionable error.
+
+`--list-targets` reads distinct Telegram chat IDs or Teams conversation IDs
+previously recorded in the local SQLite `session_state` table. It makes no
+Telegram `getUpdates` or Bot Framework list-conversations request, so it works
+without conflicting with a running daemon or webhook. Only targets previously
+seen by this Clawq database are listed. Telegram target history is not
+account-scoped; `--account` affects the suggested follow-up send command.
 
 ### Voice Transcription (All Channels)
 

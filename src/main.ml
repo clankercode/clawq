@@ -100,8 +100,8 @@ let notify_cmd =
       value & flag
       & info [ "list-targets" ]
           ~doc:
-            "List available chat/channel targets for the channel instead of \
-             sending a message. Telegram accounts: [--account NAME].")
+            "List chat/channel targets recorded in the local Clawq database \
+             instead of sending a message. No connector API request is made.")
   in
   let message = rest_args "MESSAGE" in
   let run_notify channel target account parse_mode list_targets message =
@@ -149,7 +149,7 @@ let notify_cmd =
        ~doc:
          "Send one outbound message through a configured Telegram or Teams \
           connector without starting an agent turn. Use --list-targets to \
-          enumerate available chat/channel targets.")
+          enumerate locally known chat/channel targets.")
     Term.(
       ret
         (const run_notify $ channel $ target $ account $ parse_mode

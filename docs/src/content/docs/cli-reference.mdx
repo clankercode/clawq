@@ -64,6 +64,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq channel show-model NAME` | Show the current model for a channel (channel override or global default) |
 | `clawq channel clear-model NAME` | Clear a channel's model override to inherit from global default |
 | `clawq notify --channel telegram\|teams --target TARGET [--account NAME] [--parse-mode MODE] MESSAGE...` | Send one connector message without starting an agent turn |
+| `clawq notify --channel telegram\|teams --list-targets [--account NAME]` | List target IDs previously recorded in the local Clawq database |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
 | `clawq cron` | Manage cron jobs for scheduled agent messages |
 | `clawq debug html-preview` | Preview HTML rendering |
@@ -284,7 +285,14 @@ Markdown. `--account` selects a Telegram account when needed.
 ```bash
 clawq notify --channel telegram --target 123456789 --parse-mode HTML '<b>Deploy complete</b>'
 clawq notify --channel teams --target 'conversation-id' 'Deploy complete'
+clawq notify --channel telegram --list-targets
+clawq notify --channel teams --list-targets
 ```
+
+`--list-targets` reads locally known Telegram chat IDs or Teams conversation
+IDs from Clawq's SQLite session state. It does not call Telegram or Bot
+Framework discovery APIs, and lists only targets the local daemon has
+previously seen. Telegram target history is not account-scoped.
 
 ### Background coding runs
 

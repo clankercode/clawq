@@ -231,12 +231,6 @@ let test_missing_connector_is_actionable () =
 
 (* --- --list-targets discovery --- *)
 
-let tg_chat id chat_type title : Telegram_api.chat_summary =
-  { Telegram_api.chat_id = id; chat_type; title }
-
-let tm_conv id conv_type name : Teams_api.conversation_summary =
-  { Teams_api.conversation_id = id; conversation_type = conv_type; name }
-
 let check_list_error expected = function
   | Ok _ -> Alcotest.failf "expected error containing %S, got success" expected
   | Error message ->
@@ -244,160 +238,105 @@ let check_list_error expected = function
         "actionable error" true
         (Test_helpers.string_contains message expected)
 
-let test_list_telegram_targets_resolves_main_account () =
-  let called_token = ref "" in
-  let list_telegram ~bot_token =
-    called_token := bot_token;
-    Lwt.return
-      (Ok [ tg_chat "123" "private" "Alice"; tg_chat "-100" "group" "Devs" ])
-  in
-  let cfg =
-    config
-      ~telegram:
-        (telegram_config
-           [
-             ("other", telegram_account "other-token");
-             ("main", telegram_account "main-token");
-           ])
-      ()
-  in
-  let result =
-    Lwt_main.run
-      (Cli_notify.list_targets ~list_telegram ~channel:Cli_notify.Telegram
-         ~config:cfg ())
-  in
-  (match result with
-  | Ok (Cli_notify.Telegram_targets ("main", chats)) ->
-      Alcotest.(check int) "two chats returned" 2 (List.length chats)
-  | _ -> Alcotest.fail "expected Telegram_targets for main account");
-  Alcotest.(check string) "used main account token" "main-token" !called_token
+let with_target_db f =
+  let path = Filename.temp_file "clawq-notify-targets" ".db" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () ->
+      let db = Memory.init ~db_path:path () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () -> f path db))
 
-let test_list_telegram_targets_uses_named_account () =
-  let called_token = ref "" in
-  let list_telegram ~bot_token =
-    called_token := bot_token;
-    Lwt.return (Ok [ tg_chat "9" "private" "Bob" ])
-  in
-  let cfg =
-    config
-      ~telegram:
-        (telegram_config
-           [
-             ("work", telegram_account "work-token");
-             ("home", telegram_account "home-token");
-           ])
-      ()
-  in
-  let result =
-    Lwt_main.run
-      (Cli_notify.list_targets ~list_telegram ~account:"home"
-         ~channel:Cli_notify.Telegram ~config:cfg ())
-  in
-  (match result with
-  | Ok (Cli_notify.Telegram_targets ("home", _)) -> ()
-  | _ -> Alcotest.fail "expected Telegram_targets for home account");
-  Alcotest.(check string) "used home account token" "home-token" !called_token
+let config_with_db_path path =
+  {
+    Runtime_config.default with
+    memory = { Runtime_config.default.memory with db_path = path };
+  }
 
-let test_list_telegram_targets_requires_account_when_ambiguous () =
-  let cfg =
-    config
-      ~telegram:
-        (telegram_config
-           [ ("work", telegram_account "w"); ("home", telegram_account "h") ])
-      ()
+let record_target db ~session_key ~channel ~channel_id =
+  Memory.upsert_session_state ~db ~session_key ~turn:"user" ~channel ~channel_id
+    ()
+
+let test_list_telegram_targets_uses_local_db () =
+  with_target_db (fun path db ->
+      record_target db ~session_key:"telegram:1" ~channel:"telegram"
+        ~channel_id:"123";
+      record_target db ~session_key:"telegram:2" ~channel:"telegram"
+        ~channel_id:"-100";
+      record_target db ~session_key:"teams:ignored" ~channel:"teams"
+        ~channel_id:"https://service|conv";
+      let result =
+        Lwt_main.run
+          (Cli_notify.list_targets ~account:"home" ~channel:Cli_notify.Telegram
+             ~config:(config_with_db_path path) ())
+      in
+      match result with
+      | Ok (Cli_notify.Telegram_targets (Some "home", chat_ids)) ->
+          Alcotest.(check (list string))
+            "local Telegram chat IDs" [ "-100"; "123" ] chat_ids
+      | _ -> Alcotest.fail "expected locally known Telegram targets")
+
+let test_list_teams_targets_uses_local_db_and_decodes_ids () =
+  with_target_db (fun path db ->
+      record_target db ~session_key:"teams:1" ~channel:"teams"
+        ~channel_id:"https://service-one.example/|conv-1";
+      record_target db ~session_key:"teams:2" ~channel:"teams"
+        ~channel_id:"https://service-two.example/|conv-1";
+      record_target db ~session_key:"teams:3" ~channel:"teams"
+        ~channel_id:"legacy-conversation";
+      let result =
+        Lwt_main.run
+          (Cli_notify.list_targets ~channel:Cli_notify.Teams
+             ~config:(config_with_db_path path) ())
+      in
+      match result with
+      | Ok (Cli_notify.Teams_targets conversation_ids) ->
+          Alcotest.(check (list string))
+            "decoded and deduplicated Teams conversation IDs"
+            [ "conv-1"; "legacy-conversation" ]
+            conversation_ids
+      | _ -> Alcotest.fail "expected locally known Teams targets")
+
+let test_list_targets_propagates_local_db_error () =
+  let list_local_targets ~config:_ ~channel:_ =
+    Error "SQLite permission denied"
   in
   Lwt_main.run
-    (Cli_notify.list_targets ~channel:Cli_notify.Telegram ~config:cfg ())
-  |> check_list_error "Specify --account"
-
-let test_list_telegram_targets_propagates_lister_error () =
-  let list_telegram ~bot_token:_ =
-    Lwt.return (Error "Telegram getUpdates failed: a webhook is active")
-  in
-  let cfg =
-    config
-      ~telegram:(telegram_config [ ("main", telegram_account "bot-token-abc") ])
-      ()
-  in
-  Lwt_main.run
-    (Cli_notify.list_targets ~list_telegram ~channel:Cli_notify.Telegram
-       ~config:cfg ())
-  |> check_list_error "webhook is active"
-
-let test_list_telegram_targets_unconfigured () =
-  Lwt_main.run
-    (Cli_notify.list_targets ~channel:Cli_notify.Telegram ~config:(config ()) ())
-  |> check_list_error "Telegram is not configured"
-
-let test_list_teams_targets () =
-  let list_teams ~config:_ =
-    Lwt.return
-      (Ok
-         [
-           tm_conv "conv-1" "personal" "Alice";
-           tm_conv "conv-2" "group" "Dev Team";
-         ])
-  in
-  let cfg = config ~teams:teams_config () in
-  let result =
-    Lwt_main.run
-      (Cli_notify.list_targets ~list_teams ~channel:Cli_notify.Teams ~config:cfg
-         ())
-  in
-  match result with
-  | Ok (Cli_notify.Teams_targets convs) ->
-      Alcotest.(check int) "two conversations returned" 2 (List.length convs)
-  | _ -> Alcotest.fail "expected Teams_targets"
-
-let test_list_teams_targets_propagates_lister_error () =
-  let list_teams ~config:_ =
-    Lwt.return (Error "Teams getConversations failed (HTTP 401).")
-  in
-  let cfg = config ~teams:teams_config () in
-  Lwt_main.run
-    (Cli_notify.list_targets ~list_teams ~channel:Cli_notify.Teams ~config:cfg
-       ())
-  |> check_list_error "HTTP 401"
-
-let test_list_teams_targets_unconfigured () =
-  Lwt_main.run
-    (Cli_notify.list_targets ~channel:Cli_notify.Teams ~config:(config ()) ())
-  |> check_list_error "Teams is not configured"
+    (Cli_notify.list_targets ~list_local_targets ~channel:Cli_notify.Teams
+       ~config:(config ()) ())
+  |> check_list_error "SQLite permission denied"
 
 let test_format_telegram_targets () =
   let output =
     Cli_notify.format_targets ~channel:Cli_notify.Telegram
-      (Cli_notify.Telegram_targets
-         ( "main",
-           [ tg_chat "12345" "private" "Alice"; tg_chat "-1001" "group" "Devs" ]
-         ))
+      (Cli_notify.Telegram_targets (Some "main", [ "12345"; "-1001" ]))
   in
   Alcotest.(check bool)
-    "shows account" true
-    (Test_helpers.string_contains output "account: main");
+    "shows local source" true
+    (Test_helpers.string_contains output "local history");
   Alcotest.(check bool)
     "shows chat id" true
     (Test_helpers.string_contains output "12345");
   Alcotest.(check bool)
-    "shows title" true
-    (Test_helpers.string_contains output "Alice");
-  Alcotest.(check bool)
     "shows count and usage" true
-    (Test_helpers.string_contains output "2 chat")
+    (Test_helpers.string_contains output "2 chat"
+    && Test_helpers.string_contains output "--account main")
 
 let test_format_telegram_targets_empty () =
   let output =
     Cli_notify.format_targets ~channel:Cli_notify.Telegram
-      (Cli_notify.Telegram_targets ("main", []))
+      (Cli_notify.Telegram_targets (None, []))
   in
   Alcotest.(check bool)
-    "guides toward getUpdates" true
-    (Test_helpers.string_contains output "getUpdates")
+    "describes local history" true
+    (Test_helpers.string_contains output "locally known"
+    && Test_helpers.string_contains output "local Clawq database")
 
 let test_format_teams_targets () =
   let output =
     Cli_notify.format_targets ~channel:Cli_notify.Teams
-      (Cli_notify.Teams_targets [ tm_conv "c1" "personal" "Alice" ])
+      (Cli_notify.Teams_targets [ "c1" ])
   in
   Alcotest.(check bool)
     "shows conversation id" true
@@ -431,21 +370,12 @@ let suite =
       test_teams_rejects_non_markdown_parse_mode;
     Alcotest.test_case "missing connector" `Quick
       test_missing_connector_is_actionable;
-    Alcotest.test_case "list targets: Telegram main account" `Quick
-      test_list_telegram_targets_resolves_main_account;
-    Alcotest.test_case "list targets: Telegram named account" `Quick
-      test_list_telegram_targets_uses_named_account;
-    Alcotest.test_case "list targets: Telegram ambiguous account" `Quick
-      test_list_telegram_targets_requires_account_when_ambiguous;
-    Alcotest.test_case "list targets: Telegram propagates error" `Quick
-      test_list_telegram_targets_propagates_lister_error;
-    Alcotest.test_case "list targets: Telegram unconfigured" `Quick
-      test_list_telegram_targets_unconfigured;
-    Alcotest.test_case "list targets: Teams" `Quick test_list_teams_targets;
-    Alcotest.test_case "list targets: Teams propagates error" `Quick
-      test_list_teams_targets_propagates_lister_error;
-    Alcotest.test_case "list targets: Teams unconfigured" `Quick
-      test_list_teams_targets_unconfigured;
+    Alcotest.test_case "list targets: Telegram local DB" `Quick
+      test_list_telegram_targets_uses_local_db;
+    Alcotest.test_case "list targets: Teams local DB" `Quick
+      test_list_teams_targets_uses_local_db_and_decodes_ids;
+    Alcotest.test_case "list targets: local DB error" `Quick
+      test_list_targets_propagates_local_db_error;
     Alcotest.test_case "format targets: Telegram" `Quick
       test_format_telegram_targets;
     Alcotest.test_case "format targets: Telegram empty" `Quick

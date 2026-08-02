@@ -144,12 +144,13 @@ account; use `--account` when multiple non-`main` accounts exist. Teams uses
 the configured Bot Framework credentials and service URL and supports Markdown
 messages.
 
-`--list-targets` enumerates available chat/channel targets instead of sending a
-message. Telegram discovery uses `getUpdates` and lists recent chats the bot has
-interacted with (it cannot see chats that have never messaged the bot); a webhook
-or a running agent daemon's long-poll will conflict with `getUpdates`, so stop the
-agent or remove the webhook first. Teams discovery lists conversations the bot has
-been added to via the Bot Framework API.
+`--list-targets` enumerates locally known chat/channel targets from Clawq's
+SQLite `session_state` instead of sending a message or calling a connector API.
+It lists Telegram chat IDs and Teams conversation IDs previously recorded by the
+local Clawq daemon, so a target appears only after the daemon has received a
+message from it. Telegram target history is not account-scoped; `--account`
+selects the account shown in the follow-up send command, not which local IDs are
+listed.
 
 ### `clawq memory`
 
