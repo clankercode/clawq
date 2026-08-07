@@ -1728,8 +1728,15 @@ bugs:
     - file: B813-subagent-depth-limit-should-er.todo
     - file: B814-bash-tool-upgrade-cd-prefix-wa.todo
       id: B814
-    - file: B815-hooks-config-validation-not-en.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: B815-hooks-config-validation-not-en.todo
       id: B815
+      priority: high
+      status: pending
+      tags: []
+      title: 'Hooks: Config validation not enforced at load time'
     - file: B816-autonomous-checkins-often-narrate.todo
       id: B816
     - file: B817-auto-checkin-prompt-should-not-me.todo

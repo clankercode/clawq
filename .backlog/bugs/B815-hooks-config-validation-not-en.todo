@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-08-02T05:21:32Z"
 depends_on: []
 estimate_hours: 1
 id: B815
 priority: high
+started_at: null
 status: pending
 tags: []
 title: 'Hooks: Config validation not enforced at load time'
@@ -12,3 +14,11 @@ updated_at: "2026-08-02T05:21:32Z"
 ---
 
 Hooks: Config validation not enforced at load time
+
+Closed as a duplicate of B801 ("Hooks: Config validation not enforced at load
+time"), which is done. Both were filed 2026-08-02 within 18 seconds of each
+other (05:21:32 and 05:21:50) by a batch whose ID allocator restarted at B001 —
+this file carried the duplicate id B001 until it was renumbered to B815.
+
+B801's fix is live: src/agent_turn_setup.ml runs Hooks.validate_all_hooks over
+project/profile/config hook sources at load time and logs each validation error.
