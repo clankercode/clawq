@@ -1,10 +1,14 @@
-id: B405
-title: Auto check-in prompt should not mention STAY_IDLE
-status: open
+---
+complexity: medium
+created_at: "2026-03-13T00:00:00Z"
+depends_on: []
+estimate_hours: 1
+id: B817
 priority: high
-created_at: 2026-03-13
-labels: [autonomy, prompts, behavior]
-
+status: pending
+tags: [autonomy, prompts, behavior]
+title: 'Auto check-in prompt should not mention STAY_IDLE'
+---
 ## Summary
 The automatic autonomous check-in prompt still explicitly tells the agent to reply `STAY_IDLE` when no work remains. Recent live behavior shows that merely mentioning this token in the check-in prompt distorts behavior: the agent fixates on the branch, narrates around it, or terminates too eagerly. We still want `STAY_IDLE` to remain a valid hidden response for runtime handling, but we do not want to advertise it in the prompt shown to the agent.
 

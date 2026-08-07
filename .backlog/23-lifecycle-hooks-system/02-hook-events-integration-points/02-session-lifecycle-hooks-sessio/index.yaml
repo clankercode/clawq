@@ -4,6 +4,12 @@ estimate_hours: 4
 id: P23.M2.E2
 locked: false
 name: Session lifecycle hooks (SessionStart, SessionEnd, Stop)
+stats:
+    blocked: 0
+    done: 3
+    in_progress: 0
+    pending: 0
+    total: 3
 status: done
 tasks:
     - complexity: medium

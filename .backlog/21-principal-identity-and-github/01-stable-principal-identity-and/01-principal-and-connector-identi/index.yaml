@@ -6,9 +6,9 @@ locked: false
 name: Principal and Connector Identity Foundation
 stats:
     blocked: 0
-    done: 0
+    done: 12
     in_progress: 0
-    pending: 12
+    pending: 0
     total: 12
 status: pending
 tasks:

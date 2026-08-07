@@ -50,9 +50,9 @@ milestones:
 name: GitHub Item Room Routing and Collaboration
 stats:
     blocked: 0
-    done: 0
+    done: 53
     in_progress: 0
-    pending: 53
+    pending: 0
     total_tasks: 53
 status: pending
 weeks: 14

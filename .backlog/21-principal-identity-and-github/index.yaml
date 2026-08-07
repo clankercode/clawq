@@ -43,9 +43,9 @@ milestones:
 name: Principal Identity and GitHub User Attribution
 stats:
     blocked: 0
-    done: 0
+    done: 70
     in_progress: 0
-    pending: 70
+    pending: 0
     total_tasks: 70
 status: done
 weeks: 10

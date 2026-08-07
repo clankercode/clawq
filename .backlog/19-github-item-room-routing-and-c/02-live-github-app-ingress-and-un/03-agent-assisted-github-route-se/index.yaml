@@ -8,9 +8,9 @@ locked: false
 name: Agent-Assisted GitHub Route Setup
 stats:
     blocked: 0
-    done: 0
+    done: 5
     in_progress: 0
-    pending: 5
+    pending: 0
     total: 5
 status: done
 tasks:

@@ -34,5 +34,11 @@ milestones:
       path: 03-config-docs-compatibility
       status: done
 name: Lifecycle Hooks System
+stats:
+    blocked: 0
+    done: 27
+    in_progress: 0
+    pending: 0
+    total_tasks: 27
 status: done
 weeks: 2

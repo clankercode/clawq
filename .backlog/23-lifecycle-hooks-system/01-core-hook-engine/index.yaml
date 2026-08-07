@@ -34,4 +34,10 @@ estimate_hours: 24
 id: P23.M1
 locked: false
 name: Core Hook Engine
+stats:
+    blocked: 0
+    done: 10
+    in_progress: 0
+    pending: 0
+    total_tasks: 10
 status: done

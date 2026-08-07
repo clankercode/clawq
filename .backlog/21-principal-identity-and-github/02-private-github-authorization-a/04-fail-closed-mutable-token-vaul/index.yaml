@@ -6,9 +6,9 @@ locked: false
 name: Fail-Closed Mutable Token Vault
 stats:
     blocked: 0
-    done: 0
+    done: 8
     in_progress: 0
-    pending: 8
+    pending: 0
     total: 8
 status: done
 tasks:

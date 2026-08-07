@@ -33,4 +33,10 @@ estimate_hours: 16
 id: P23.M3
 locked: false
 name: Config, Docs & Compatibility
+stats:
+    blocked: 0
+    done: 7
+    in_progress: 0
+    pending: 0
+    total_tasks: 7
 status: done

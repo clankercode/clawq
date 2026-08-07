@@ -6,9 +6,9 @@ locked: false
 name: Attribution Policy and Authorization Resolution
 stats:
     blocked: 0
-    done: 0
+    done: 7
     in_progress: 0
-    pending: 7
+    pending: 0
     total: 7
 status: done
 tasks:

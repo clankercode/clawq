@@ -29,9 +29,9 @@ milestones:
 name: Advanced GitHub Routing and Setup Reuse
 stats:
     blocked: 0
-    done: 0
+    done: 13
     in_progress: 0
-    pending: 13
+    pending: 0
     total_tasks: 13
 status: done
 weeks: 5

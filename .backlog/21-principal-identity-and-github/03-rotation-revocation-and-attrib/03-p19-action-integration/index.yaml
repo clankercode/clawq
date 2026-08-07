@@ -6,9 +6,9 @@ locked: false
 name: P19 Action Integration
 stats:
     blocked: 0
-    done: 0
+    done: 9
     in_progress: 0
-    pending: 9
+    pending: 0
     total: 9
 status: done
 tasks:

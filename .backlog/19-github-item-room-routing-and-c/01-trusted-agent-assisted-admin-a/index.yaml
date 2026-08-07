@@ -36,8 +36,8 @@ locked: false
 name: Trusted Agent-Assisted Admin and Room Tool Scope
 stats:
     blocked: 0
-    done: 0
+    done: 13
     in_progress: 0
-    pending: 13
+    pending: 0
     total_tasks: 13
 status: done

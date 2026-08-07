@@ -1,6 +1,4 @@
 bugs:
-    - file: B001-hooks-config-validation-not-en.todo
-      id: B001
     - file: B001-task-add-slash-command-support.todo
       id: B001
     - file: B002-task-commands-like-clawq-agent.todo
@@ -803,16 +801,10 @@ bugs:
       id: B402
     - file: B403-zai-websearch-mcp-error.todo
       id: B403
-    - file: B404-autonomous-checkins-often-narrate.todo
-      id: B404
     - file: B404-github-webhook-runtime-can-run.todo
       id: B404
-    - file: B405-auto-checkin-prompt-should-not-mention-stay-idle.todo
-      id: B405
     - file: B405-deproiritization-failover-must.todo
       id: B405
-    - file: B406-auto-checkin-should-point-agent-at-task-tree.todo
-      id: B406
     - file: B406-for-cloudflare-tunnel-and-othe.todo
       id: B406
     - file: B407-clawq-channel-shows-discord-an.todo
@@ -1723,15 +1715,6 @@ bugs:
     - complexity: medium
       depends_on: []
       estimate_hours: 1
-      file: B807-support-openai-compatible-resp.todo
-      id: B807
-      priority: high
-      status: done
-      tags: []
-      title: Support OpenAI-compatible Responses API where available
-    - complexity: medium
-      depends_on: []
-      estimate_hours: 1
       file: B808-implement-queue-q-slash-comman.todo
       id: B808
       priority: high
@@ -1743,3 +1726,13 @@ bugs:
     - file: B811-add-prefix-shortcut-for-queued.todo
     - file: B812-add-build-box-remote-ssh-suppo.todo
     - file: B813-subagent-depth-limit-should-er.todo
+    - file: B814-bash-tool-upgrade-cd-prefix-wa.todo
+      id: B814
+    - file: B815-hooks-config-validation-not-en.todo
+      id: B815
+    - file: B816-autonomous-checkins-often-narrate.todo
+      id: B816
+    - file: B817-auto-checkin-prompt-should-not-me.todo
+      id: B817
+    - file: B818-auto-checkin-should-point-agent.todo
+      id: B818

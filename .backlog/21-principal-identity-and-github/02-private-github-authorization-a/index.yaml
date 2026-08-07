@@ -43,8 +43,8 @@ locked: false
 name: Private GitHub Authorization and Token Vault
 stats:
     blocked: 0
-    done: 0
+    done: 18
     in_progress: 0
-    pending: 18
+    pending: 0
     total_tasks: 18
 status: pending

@@ -4,6 +4,12 @@ estimate_hours: 6
 id: P23.M1.E1
 locked: false
 name: Hook data model and config parsing
+stats:
+    blocked: 0
+    done: 3
+    in_progress: 0
+    pending: 0
+    total: 3
 status: done
 tasks:
     - complexity: medium

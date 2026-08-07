@@ -34,8 +34,8 @@ locked: false
 name: Stable Principal Identity and Account Binding
 stats:
     blocked: 0
-    done: 0
+    done: 22
     in_progress: 0
-    pending: 22
+    pending: 0
     total_tasks: 22
 status: done

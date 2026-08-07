@@ -1,33 +1,19 @@
 critical_path:
-    - P19.M1.E1.T001
-    - P19.M1.E1.T002
-    - P19.M2.E1.T001
-    - P19.M2.E1.T002
-    - P19.M2.E1.T003
-    - P19.M2.E1.T004
-    - P19.M2.E2.T001
-    - P19.M2.E2.T002
-    - P19.M2.E2.T003
-    - P19.M3.E1.T001
-    - P19.M3.E1.T002
-    - P19.M3.E2.T001
-    - P19.M3.E2.T002
-    - P19.M3.E2.T004
-    - P19.M4.E1.T001
-    - P19.M4.E1.T002
-    - P19.M4.E1.T003
-    - P19.M4.E2.T001
-    - P19.M4.E2.T007
-    - P19.M4.E2.T002
-    - P19.M4.E2.T004
-    - P21.M3.E2.T001
-    - P21.M3.E2.T004
-    - P21.M3.E2.T005
-    - P21.M3.E3.T003
-    - P21.M3.E3.T004
-    - I063
+    - P22.M1.E1.T001
+    - P22.M1.E1.T005
+    - P22.M1.E1.T002
+    - P22.M1.E1.T006
+    - P22.M1.E1.T003
+    - P22.M2.E1.T004
+    - P22.M2.E1.T001
+    - P22.M2.E1.T002
+    - P22.M3.E1.T001
+    - P22.M3.E1.T002
+    - P22.M3.E1.T003
+    - P22.M3.E1.T005
+    - P22.M3.E1.T006
 description: A formally verified fully autonomous AI assistant.
-next_available: P21.M1.E1.T001
+next_available: P22.M1.E1.T001
 phases:
     - depends_on: []
       description: 'Features identified via nullclaw comparison and doc review. Organized by effort tier: quick wins, high impact, ecosystem expansion, and formalization.'
@@ -270,8 +256,8 @@ phases:
 project: Clawq
 stats:
     blocked: 0
-    done: 1229
+    done: 1423
     in_progress: 20
-    pending: 179
-    total_tasks: 1429
+    pending: 48
+    total_tasks: 1494
 timeline_weeks: 0

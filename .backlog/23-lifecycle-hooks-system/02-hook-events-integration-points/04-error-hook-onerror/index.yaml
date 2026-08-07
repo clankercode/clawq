@@ -4,6 +4,12 @@ estimate_hours: 3
 id: P23.M2.E4
 locked: false
 name: Error hook (OnError)
+stats:
+    blocked: 0
+    done: 1
+    in_progress: 0
+    pending: 0
+    total: 1
 status: done
 tasks:
     - complexity: medium

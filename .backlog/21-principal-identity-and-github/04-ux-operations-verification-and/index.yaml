@@ -34,8 +34,8 @@ locked: false
 name: UX Operations Verification and Security Contract
 stats:
     blocked: 0
-    done: 0
+    done: 10
     in_progress: 0
-    pending: 10
+    pending: 0
     total_tasks: 10
 status: done

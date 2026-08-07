@@ -34,8 +34,8 @@ locked: false
 name: Rotation Revocation and Attributed Actions
 stats:
     blocked: 0
-    done: 0
+    done: 20
     in_progress: 0
-    pending: 20
+    pending: 0
     total_tasks: 20
 status: done

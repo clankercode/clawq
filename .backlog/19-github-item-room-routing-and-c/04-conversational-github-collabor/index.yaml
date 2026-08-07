@@ -40,8 +40,8 @@ locked: false
 name: Conversational GitHub Collaboration and Live Pilot
 stats:
     blocked: 0
-    done: 0
+    done: 14
     in_progress: 0
-    pending: 14
+    pending: 0
     total_tasks: 14
 status: done

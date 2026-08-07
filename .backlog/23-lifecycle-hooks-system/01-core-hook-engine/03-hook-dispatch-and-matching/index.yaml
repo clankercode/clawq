@@ -5,6 +5,12 @@ estimate_hours: 6
 id: P23.M1.E3
 locked: false
 name: Hook dispatch and matching
+stats:
+    blocked: 0
+    done: 3
+    in_progress: 0
+    pending: 0
+    total: 3
 status: done
 tasks:
     - complexity: medium

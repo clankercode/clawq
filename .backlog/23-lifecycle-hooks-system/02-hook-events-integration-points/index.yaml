@@ -42,4 +42,10 @@ estimate_hours: 20
 id: P23.M2
 locked: false
 name: Hook Events & Integration Points
+stats:
+    blocked: 0
+    done: 10
+    in_progress: 0
+    pending: 0
+    total_tasks: 10
 status: done
