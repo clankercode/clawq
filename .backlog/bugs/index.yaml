@@ -1734,7 +1734,7 @@ bugs:
       file: B815-hooks-config-validation-not-en.todo
       id: B815
       priority: high
-      status: pending
+      status: cancelled
       tags: []
       title: 'Hooks: Config validation not enforced at load time'
     - file: B816-autonomous-checkins-often-narrate.todo

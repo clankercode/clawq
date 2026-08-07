@@ -6,11 +6,12 @@ depends_on: []
 estimate_hours: 1
 id: B815
 priority: high
+reason: duplicate of B801 (done)
 started_at: null
-status: pending
+status: cancelled
 tags: []
 title: 'Hooks: Config validation not enforced at load time'
-updated_at: "2026-08-02T05:21:32Z"
+updated_at: "2026-08-07T08:12:11Z"
 ---
 
 Hooks: Config validation not enforced at load time
