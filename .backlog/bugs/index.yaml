@@ -1745,7 +1745,7 @@ bugs:
       file: B817-auto-checkin-prompt-should-not-me.todo
       id: B817
       priority: high
-      status: pending
+      status: done
       tags: []
       title: Auto check-in prompt should not mention STAY_IDLE
     - file: B818-auto-checkin-should-point-agent.todo
