@@ -1,13 +1,16 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-03-13T00:00:00Z"
 depends_on: []
 estimate_hours: 1
 id: B817
 priority: high
+started_at: null
 status: pending
-tags: [autonomy, prompts, behavior]
-title: 'Auto check-in prompt should not mention STAY_IDLE'
+tags: []
+title: Auto check-in prompt should not mention STAY_IDLE
+updated_at: null
 ---
 ## Summary
 The automatic autonomous check-in prompt still explicitly tells the agent to reply `STAY_IDLE` when no work remains. Recent live behavior shows that merely mentioning this token in the check-in prompt distorts behavior: the agent fixates on the branch, narrates around it, or terminates too eagerly. We still want `STAY_IDLE` to remain a valid hidden response for runtime handling, but we do not want to advertise it in the prompt shown to the agent.
@@ -20,3 +23,19 @@ Add a protective source comment above the prompt definitions explaining that `ST
 - A source comment is added immediately above the relevant prompt definitions warning future edits not to re-add the token to the visible prompt text.
 - Tests that currently assert the old visible prompt wording are updated accordingly.
 - Restart-resume wording is kept distinct unless separately intended.
+
+Resolved by commit 8b9d6710 (2026-03-13, "fix(B405): hide STAY_IDLE from auto
+check-in prompts"), which added this bug file and its fix in the same commit —
+so the bug was never marked done. It then stayed invisible to bl until
+2026-08-07 because its frontmatter had no `---` fences and used an invalid
+`status: open`, so the loader skipped it.
+
+Verified against current code (src/session_activity.ml):
+- autonomous_continuation_prompt is "Autonomous session check-in: continue
+  working if more remains." — no STAY_IDLE.
+- keepalive_nudge_prompt likewise; test_keepalive.ml asserts
+  "nudge prompt hides STAY_IDLE".
+- STAY_IDLE remains a valid hidden response via autonomous_stay_idle_message.
+- The protective source comment sits immediately above the prompt definitions.
+- Restart-resume wording is kept distinct (Daemon.resume_turn_prompt), and
+  test_daemon.ml asserts it differs from the continuation prompt.
