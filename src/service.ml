@@ -200,6 +200,38 @@ let build_env ~set_vars ~unset_vars =
 
 let daemon_start_argv ~executable = [| executable; "service"; "start" |]
 
+(** Re-exec the daemonized child in internal nofork mode, so the fresh process
+    re-initialises Lwt's notification eventfd against the cleaned-up fd table.
+    The fork-side fd cleanup closes the eventfd created at module initialisation
+    (before the fork); its stale fd number would otherwise be reused by later
+    opens (e.g. the memory DB) and the Lwt event loop would spin at 100% CPU
+    polling a permanently-readable fd.
+
+    Returns true only when [execve] was stubbed (tests) and actually returned;
+    with the real [Unix.execve] a successful call never returns. *)
+let reexec_daemonized ?(execve = Unix.execve) () =
+  let executable = Restart_exec.executable () in
+  match Restart_exec.validate_and_fix executable with
+  | Error msg ->
+      Logs.err (fun m ->
+          m "Daemon re-exec aborted: %s; falling back to clean shutdown" msg);
+      false
+  | Ok executable -> (
+      try
+        ignore
+          (execve executable
+             (daemon_start_argv ~executable)
+             (build_env
+                ~set_vars:[ (internal_nofork_env, "1") ]
+                ~unset_vars:[ nofork_env; Restart_notify.env_key ]));
+        true
+      with Unix.Unix_error (err, func, arg) ->
+        Logs.err (fun m ->
+            m "execve failed for %s: %s(%s)%s; falling back to clean shutdown"
+              executable (Unix.error_message err) func
+              (if arg <> "" then ": " ^ arg else ""));
+        false)
+
 let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
   match exit_intent with
   | Daemon.Shutdown -> ()
@@ -322,6 +354,12 @@ let cmd_start ~config =
             Unix.dup2 null_fd Unix.stdin;
             Unix.close null_fd;
             write_pid (Unix.getpid ());
+            (* Only reached when execve is stubbed (tests) or failed: with the
+               real Unix.execve a successful re-exec replaces this process. *)
+            if not (reexec_daemonized ()) then begin
+              remove_pid ();
+              exit 1
+            end;
             let result =
               try Lwt_main.run (Daemon.run ~config) with
               | Lwt_util.Deadlock_timeout label ->

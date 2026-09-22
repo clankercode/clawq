@@ -82,6 +82,43 @@ let test_handle_daemon_exit_shutdown_skips_exec () =
     Daemon.Shutdown;
   Alcotest.(check bool) "no exec on shutdown" false !called
 
+let test_reexec_daemonized_sets_internal_nofork_and_service_argv () =
+  let called = ref None in
+  Service.reexec_daemonized
+    ~execve:(fun path argv env ->
+      called := Some (path, Array.to_list argv, env))
+    ()
+  |> ignore;
+  Alcotest.(check bool)
+    "re-exec uses service start argv" true
+    (match !called with
+    | Some (path, argv, _) ->
+        argv = [ Restart_exec.executable (); "service"; "start" ]
+        && path = Restart_exec.executable ()
+    | None -> false);
+  Alcotest.(check bool)
+    "internal nofork set in re-exec env" true
+    (match !called with
+    | Some (_, _, env) -> env_contains env "CLAWQ_DAEMON_INTERNAL_NOFORK=1"
+    | None -> false);
+  Alcotest.(check bool)
+    "public nofork removed from re-exec env" true
+    (match !called with
+    | Some (_, _, env) -> env_lacks_key env "CLAWQ_DAEMON_NOFORK"
+    | None -> false)
+
+let test_reexec_daemonized_prefers_reexec_env () =
+  with_env Restart_exec.reexec_path_env (Some "/tmp/clawq-fresh") (fun () ->
+      let called = ref None in
+      Service.reexec_daemonized
+        ~execve:(fun path argv _ -> called := Some (path, Array.to_list argv))
+        ()
+      |> ignore;
+      Alcotest.(check (option (pair string (list string))))
+        "re-exec uses fresh path"
+        (Some ("/tmp/clawq-fresh", [ "/tmp/clawq-fresh"; "service"; "start" ]))
+        !called)
+
 let test_run_nofork_start_reexecs_without_public_env () =
   Unix.putenv "CLAWQ_DAEMON_NOFORK" "1";
   Unix.putenv "CLAWQ_DAEMON_INTERNAL_NOFORK" "";
@@ -779,6 +816,10 @@ let suite =
       test_handle_daemon_exit_restart_prefers_reexec_env;
     Alcotest.test_case "handle daemon exit shutdown skips exec" `Quick
       test_handle_daemon_exit_shutdown_skips_exec;
+    Alcotest.test_case "reexec daemonized sets internal nofork and service argv"
+      `Quick test_reexec_daemonized_sets_internal_nofork_and_service_argv;
+    Alcotest.test_case "reexec daemonized prefers reexec env" `Quick
+      test_reexec_daemonized_prefers_reexec_env;
     Alcotest.test_case "run nofork start reexecs without public env" `Quick
       test_run_nofork_start_reexecs_without_public_env;
     Alcotest.test_case "run nofork start runs daemon in internal mode" `Quick
