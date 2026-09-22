@@ -100,8 +100,29 @@ let test_identical_authz_across_surfaces () =
     (Result.is_error
        (Tool_discovery.inspect_tool ~catalog:cat ~identity:"bash"))
 
+let repo_root () =
+  let rec find_from dir =
+    let has_file name = Sys.file_exists (Filename.concat dir name) in
+    if has_file "dune-project" && has_file "src" && has_file "docs" then
+      Some dir
+    else
+      let parent = Filename.dirname dir in
+      if parent = dir then None else find_from parent
+  in
+  match find_from (Sys.getcwd ()) with
+  | Some dir -> dir
+  | None ->
+      let exe =
+        if Filename.is_relative Sys.executable_name then
+          Filename.concat (Sys.getcwd ()) Sys.executable_name
+        else Sys.executable_name
+      in
+      find_from (Filename.dirname exe) |> Option.value ~default:(Sys.getcwd ())
+
 let test_docs_exist_and_disclaim_filter_map () =
-  let path = "docs/tool-scope-authorization.md" in
+  let path =
+    Filename.concat (repo_root ()) "docs/tool-scope-authorization.md"
+  in
   Alcotest.(check bool) "docs exist" true (Sys.file_exists path);
   let ic = open_in path in
   let content = really_input_string ic (in_channel_length ic) in
