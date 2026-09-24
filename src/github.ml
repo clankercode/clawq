@@ -1653,13 +1653,54 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                               | Some notifier ->
                                   let* () = notifier text in
                                   Lwt.return ""
-                              | None ->
-                                  Logs.debug (fun m ->
-                                      m
-                                        "GitHub PR dispatch: no notifier for \
-                                         room %s"
-                                        room_id);
-                                  Lwt.return "")
+                              | None -> (
+                                  (* No session-registered notifier for this
+                                     room (e.g. Teams room with no recent
+                                     inbound message after a restart). Fall
+                                     back to config-driven proactive delivery
+                                     via Restart_notify, same as heartbeat
+                                     routing. *)
+                                  match
+                                    Restart_notify.parse_channel_from_key
+                                      room_id
+                                  with
+                                  | Some (channel, channel_id)
+                                    when channel = "teams" -> (
+                                      match config with
+                                      | Some cfg -> (
+                                          let* result =
+                                            Daemon_resume
+                                            .dispatch_resumed_message
+                                              ~senders:
+                                                Daemon_resume
+                                                .default_resume_senders
+                                              ~config:cfg ~channel ~channel_id
+                                              ~text ()
+                                          in
+                                          match result with
+                                          | Ok () -> Lwt.return ""
+                                          | Error err ->
+                                              Logs.warn (fun m ->
+                                                  m
+                                                    "GitHub PR dispatch: \
+                                                     fallback send failed for \
+                                                     %s: %s"
+                                                    room_id err);
+                                              Lwt.return "")
+                                      | None ->
+                                          Logs.debug (fun m ->
+                                              m
+                                                "GitHub PR dispatch: no config \
+                                                 for fallback send to %s"
+                                                room_id);
+                                          Lwt.return "")
+                                  | _ ->
+                                      Logs.debug (fun m ->
+                                          m
+                                            "GitHub PR dispatch: no notifier \
+                                             for room %s"
+                                            room_id);
+                                      Lwt.return ""))
                             ()
                       | None -> Lwt.return 0
                     in
