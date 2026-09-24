@@ -1644,6 +1644,12 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                           Github_pr_dispatch.dispatch_to_subscriptions ~db
                             ~event ~delivery_id
                             ~snapshot_id:egress_audit.snapshot_id
+                            ?quiet_start:
+                              (if repo_config.respect_quiet_hours then None
+                               else Some 0)
+                            ?quiet_end:
+                              (if repo_config.respect_quiet_hours then None
+                               else Some 0)
                             ~send_message:(fun ~room_id ~text () ->
                               (* Try to find a notifier for this room *)
                               match
@@ -1849,6 +1855,10 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
               | Some db ->
                   Github_pr_dispatch.dispatch_to_subscriptions ~db ~event
                     ~delivery_id ~snapshot_id:egress_audit.snapshot_id
+                    ?quiet_start:
+                      (if repo_config.respect_quiet_hours then None else Some 0)
+                    ?quiet_end:
+                      (if repo_config.respect_quiet_hours then None else Some 0)
                     ~send_message:(fun ~room_id ~text () ->
                       (* Try to find a notifier for this room *)
                       match

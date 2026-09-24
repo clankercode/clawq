@@ -250,6 +250,10 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
                 let include_pr_files =
                   try r |> member "include_pr_files" |> to_bool with _ -> true
                 in
+                let respect_quiet_hours =
+                  try r |> member "respect_quiet_hours" |> to_bool
+                  with _ -> false
+                in
                 let local_repo_path =
                   try
                     match r |> member "local_repo_path" |> to_string with
@@ -265,6 +269,7 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
                    allow_users;
                    react_to;
                    include_pr_files;
+                   respect_quiet_hours;
                    local_repo_path;
                  }
                   : Runtime_config.github_repo_config))

@@ -249,6 +249,7 @@ let build_full_multi_repo () =
         allow_users = [ "*" ];
         react_to = [];
         include_pr_files = true;
+        respect_quiet_hours = false;
         local_repo_path = None;
       };
       {
@@ -259,6 +260,7 @@ let build_full_multi_repo () =
         allow_users = [ "alice" ];
         react_to = [ "pull_request" ];
         include_pr_files = false;
+        respect_quiet_hours = false;
         local_repo_path = None;
       };
     ]

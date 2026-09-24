@@ -259,9 +259,14 @@ let github_json (g : github_config) : Yojson.Safe.t =
                 ("include_pr_files", `Bool r.include_pr_files);
               ]
              @
-             match r.agent_name with
-             | Some n -> [ ("agent_name", `String n) ]
-             | None -> []))
+             if r.respect_quiet_hours then
+               [ ("respect_quiet_hours", `Bool true) ]
+             else
+               []
+               @
+               match r.agent_name with
+               | Some n -> [ ("agent_name", `String n) ]
+               | None -> []))
          g.repos)
   in
   `Assoc

@@ -580,6 +580,7 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
           allow_users = [ "nobody" ];
           react_to = [];
           include_pr_files = true;
+          respect_quiet_hours = false;
           local_repo_path = None;
         }
       in
@@ -1181,6 +1182,7 @@ let make_webhook_env ~secret ~body ~allow_users =
       allow_users;
       react_to = [];
       include_pr_files = false;
+      respect_quiet_hours = false;
       local_repo_path = None;
     }
   in
@@ -1430,6 +1432,7 @@ let handle_webhook_dedup_delivery_id () =
                 allow_users = [ "bob" ];
                 react_to = [];
                 include_pr_files = false;
+                respect_quiet_hours = false;
                 local_repo_path = None;
               }
             in

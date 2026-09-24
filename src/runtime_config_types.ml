@@ -168,6 +168,10 @@ type github_repo_config = {
   allow_users : string list;
   react_to : string list;
   include_pr_files : bool;
+  respect_quiet_hours : bool;
+      (** When true, PR-feed notifications honour global quiet hours
+          (github_pr_policy defaults 23-08). Default false: feed stays live
+          around the clock; muting is the user's client-side job. *)
   local_repo_path : string option;
       (** B772: local checkout of this repository on the worker, used for
           code-changing work items (worktree base + policy file source). *)
