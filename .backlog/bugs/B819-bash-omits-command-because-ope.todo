@@ -1,17 +1,53 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-09-24T16:10:27Z"
 depends_on: []
 estimate_hours: 1
 id: B819
 priority: high
+started_at: null
 status: pending
-tags:
-    - providers
-    - tools
-    - bash
+tags: []
 title: bash omits command because OpenAI and Anthropic never enable strict tool use
 updated_at: "2026-09-24T16:10:27Z"
 ---
 
 bash omits command because OpenAI and Anthropic never enable strict tool use
+
+## Symptom
+Models call the bash tool without the required `command` parameter. The user-visible error is:
+
+Error: missing required parameter 'command' for tool bash. Required parameters: command (string). Example: bash(command="...")
+
+Frequency varies by model and by OpenAI vs Anthropic flavor. The schema already contains `"required": ["command"]`. That array is copied onto the wire. OpenAI and Anthropic treat `required` as a hint unless the tool is in strict mode. Clawq never sets `strict: true`, and the bash schema is not strict-compatible (optional fields are absent from `required`, and the live catalog payload has no `additionalProperties: false`).
+
+## Decision
+Strict mode is the enforcement mechanism. Apply it only to `bash` (allowlist), in the flavor converters that build the request, not in `Tool_catalog.to_openai_json`. Gemini, Ollama, and Cohere keep today's schema.
+
+Normalize bash for strict:
+- `strict: true` on the tool
+- `command` stays a non-null string and is required
+- `cwd`, `timeout`, `background`, `head`, `tail` become null unions and are listed in `required` (OpenAI strict requires every property to be required; invoke already treats null as unset)
+- `additionalProperties: false` on that object
+
+Budget guard: at most 20 strict tools and 16 null-union parameters per request. Overflow stays non-strict. Initial allowlist is only `bash` (5 unions).
+
+400 fallback ships in this ticket. A model that rejects strict must not fail the turn. On an HTTP 400 whose body indicates strict/schema rejection, retry that request once without strict and cache the negative per provider+model, same pattern as the Responses availability cache. Do not retry a successful strict request.
+
+Do not rename `bash` or `shell_exec`.
+
+## Lane
+Serial with the transport-honesty bug. Both edit `provider_anthropic.ml` and the Responses tool flattener. This ticket lands first. The transport ticket depends on this one. Do not parallelize.
+
+Fallback is in this ticket, not a third ticket, so master never has strict-without-fallback.
+
+## Acceptance
+- OpenAI Chat Completions payload for bash has `function.strict: true`, normalized parameters, and `additionalProperties: false`.
+- Responses payload preserves `strict: true` and the normalized parameters.
+- Anthropic payload has top-level `strict: true` and the same schema as `input_schema`.
+- A non-allowlisted tool is unchanged, including its original `required` array.
+- Gemini/Ollama/Cohere conversion does not receive `strict: true`.
+- Exceeding the union or tool budget leaves the overflow non-strict.
+- HTTP 400 strict rejection retries once without strict and caches the negative. A later request for that provider+model omits strict.
+- Tests cover the wire shapes and the fallback cache. `make test` passes.
