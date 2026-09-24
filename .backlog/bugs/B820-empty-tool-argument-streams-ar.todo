@@ -1,4 +1,5 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-09-24T16:10:53Z"
 depends_on:
@@ -6,13 +7,39 @@ depends_on:
 estimate_hours: 1
 id: B820
 priority: high
+started_at: null
 status: pending
-tags:
-    - providers
-    - tools
-    - bash
+tags: []
 title: empty tool argument streams are reported as a missing bash command
 updated_at: "2026-09-24T16:10:53Z"
 ---
 
 empty tool argument streams are reported as a missing bash command
+
+## Symptom
+The missing-command error is also manufactured by our parsers.
+
+- `provider_anthropic.ml` finalize replaces an empty argument buffer with `"{}"`.
+- `provider_minimax.ml` does the same.
+- Responses streaming (`provider_openai_codex.ml` `output_item.added` / `output_item.done`) stores the call id and name and ignores `item.arguments`. If the provider sends the full arguments only on those events, the buffer stays empty.
+- Validation then reports that the model forgot `command`, and B622 asks the model to re-emit the same call.
+
+## Decision
+An empty or dropped argument stream is a transport failure, not a schema miss.
+
+- Do not rewrite `""` to `"{}"`.
+- Keep arguments that arrived on Anthropic `content_block.input` (already partially handled) and on Responses `item.arguments` for `output_item.added` and `output_item.done`.
+- When the final argument string is empty, return an error that says the argument stream was empty and includes the tool name. Do not use the missing-required-parameter text, so the model is not told to re-emit the same shape.
+- MiniMax gets the same empty-buffer treatment as Anthropic.
+
+## Lane
+Depends on B819. Same files (`provider_anthropic.ml`, Responses flattener). Serial, after B819 is merged. Do not parallelize.
+
+## Acceptance
+- Anthropic stream finalize of a tool_use block with no input and no input_json_delta does not produce `"{}"`.
+- The resulting tool call is a transport error, not `missing required parameter 'command'`.
+- A content_block_start that embeds a non-empty `input` object still preserves it.
+- Responses `output_item.done` / `output_item.added` with `item.arguments` seeds the argument buffer.
+- A later empty completed item does not wipe a buffer that already holds valid JSON.
+- MiniMax empty stream follows the same rule.
+- Tests cover these cases. `make test` passes.
