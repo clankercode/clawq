@@ -483,10 +483,7 @@ let process_anthropic_sse_stream ~model stream ~on_chunk =
   let tool_calls =
     List.map
       (fun (_, id, name, args_buf) ->
-        let arguments =
-          let raw = Buffer.contents args_buf in
-          if raw = "" then "{}" else raw
-        in
+        let arguments = Buffer.contents args_buf in
         { Provider.id; function_name = name; arguments })
       !tool_calls_acc
   in

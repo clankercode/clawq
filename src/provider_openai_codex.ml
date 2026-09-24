@@ -682,11 +682,21 @@ let process_stream stream ~on_chunk =
           with _ -> ( try item |> member "id" |> to_string with _ -> "")
         in
         let name = try item |> member "name" |> to_string with _ -> "" in
-        let args_buf =
-          match Hashtbl.find_opt tool_buffers idx with
-          | Some (_, _, buf) -> buf
-          | None -> Buffer.create 128
+        let incoming_args =
+          try item |> member "arguments" |> to_string with _ -> ""
         in
+        let call_id, name, args_buf =
+          match Hashtbl.find_opt tool_buffers idx with
+          | Some (existing_id, existing_name, buf) ->
+              let call_id = if call_id = "" then existing_id else call_id in
+              let name = if name = "" then existing_name else name in
+              (call_id, name, buf)
+          | None -> (call_id, name, Buffer.create 128)
+        in
+        (* Seed from item.arguments when the buffer is empty. An empty done
+           event must not wipe arguments already accumulated from deltas. *)
+        if incoming_args <> "" && Buffer.length args_buf = 0 then
+          Buffer.add_string args_buf incoming_args;
         Hashtbl.replace tool_buffers idx (call_id, name, args_buf);
         Lwt.return_unit
       end

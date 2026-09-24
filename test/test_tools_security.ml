@@ -1576,6 +1576,20 @@ let test_register_all_with_db_registers_memory_and_bg_tools () =
         (Tool_registry.find registry2 name = None))
     [ "memory_store"; "subagent"; "subagent_result"; "history_search" ]
 
+let test_b820_empty_argument_stream_is_transport_error () =
+  let tc =
+    { Provider.id = "call_empty"; function_name = "bash"; arguments = "" }
+  in
+  match Agent_2_tools.parse_tool_arguments tc with
+  | Ok _ -> Alcotest.fail "empty argument stream must not parse"
+  | Error msg ->
+      Alcotest.(check bool)
+        "transport wording" true
+        (Test_helpers.string_contains msg "argument stream was empty");
+      Alcotest.(check bool)
+        "not a missing-parameter retry" false
+        (Test_helpers.string_contains msg "missing required parameter")
+
 let suite =
   [
     Alcotest.test_case "path traversal rejected" `Quick
@@ -1677,6 +1691,8 @@ let suite =
       `Quick test_register_all_with_db_registers_memory_and_bg_tools;
     Alcotest.test_case "shell_exec rejects missing command" `Quick
       test_shell_exec_rejects_missing_command;
+    Alcotest.test_case "B820: empty argument stream is a transport error" `Quick
+      test_b820_empty_argument_stream_is_transport_error;
     Alcotest.test_case "shell_exec rejects null command" `Quick
       test_shell_exec_rejects_null_command;
     Alcotest.test_case "validate_required_params catches missing" `Quick

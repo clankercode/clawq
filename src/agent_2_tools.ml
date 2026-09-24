@@ -98,15 +98,27 @@ let log_raw_tool_call_failure sk_tag ?raw_tool_calls_json
         tc.function_name tc.id reason
         (raw_tool_call_data_for_log ?raw_tool_calls_json tc))
 
+let empty_argument_stream (tc : Provider.tool_call) =
+  let raw = String.trim tc.arguments in
+  raw = "" || raw = "null"
+
+let empty_argument_stream_error (tc : Provider.tool_call) =
+  Printf.sprintf
+    "Error: tool '%s' argument stream was empty. The provider did not deliver \
+     tool arguments. This is a transport failure, not a missing parameter."
+    tc.function_name
+
 let parse_tool_arguments (tc : Provider.tool_call) =
-  try Ok (Yojson.Safe.from_string tc.arguments)
-  with _ ->
-    Error
-      (Printf.sprintf
-         "Error: Tool call '%s' failed to parse arguments as JSON (raw: %s). \
-          Re-emit this tool call with a valid JSON object matching the tool \
-          schema."
-         tc.function_name tc.arguments)
+  if empty_argument_stream tc then Error (empty_argument_stream_error tc)
+  else
+    try Ok (Yojson.Safe.from_string tc.arguments)
+    with _ ->
+      Error
+        (Printf.sprintf
+           "Error: Tool call '%s' failed to parse arguments as JSON (raw: %s). \
+            Re-emit this tool call with a valid JSON object matching the tool \
+            schema."
+           tc.function_name tc.arguments)
 
 let missing_required_key (tool : Tool.t) missing =
   let sorted = List.sort String.compare missing in

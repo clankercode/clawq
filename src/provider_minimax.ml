@@ -470,19 +470,14 @@ let process_sse_event ~(state : stream_state)
 let finalize_stream_tool_calls (state : stream_state) =
   List.map
     (fun (_, id, name, args_buf) ->
-      let raw_args = Buffer.contents args_buf in
-      let arguments =
-        if raw_args = "" then begin
-          Logs.warn (fun m ->
-              m
-                "MiniMax stream produced tool_use '%s' (id=%s) with NO \
-                 input_json_delta events — falling back to \"{}\". Set \
-                 MINIMAX_DEBUG_SSE=1 to capture the raw SSE for diagnosis."
-                name id);
-          "{}"
-        end
-        else raw_args
-      in
+      let arguments = Buffer.contents args_buf in
+      if arguments = "" then
+        Logs.warn (fun m ->
+            m
+              "MiniMax stream produced tool_use '%s' (id=%s) with an empty \
+               argument stream. Set MINIMAX_DEBUG_SSE=1 to capture the raw SSE \
+               for diagnosis."
+              name id);
       { Provider.id; function_name = name; arguments })
     state.tool_calls_acc
 

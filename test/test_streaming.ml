@@ -527,6 +527,51 @@ let test_codex_stream_no_duplicate_tool_calls () =
       Alcotest.fail
         (Printf.sprintf "Expected ToolCalls but got Text: %s" content)
 
+let test_b820_output_item_done_seeds_arguments () =
+  let sse json = "data: " ^ Yojson.Safe.to_string json ^ "\n\n" in
+  let chunks =
+    [
+      sse
+        (`Assoc
+           [
+             ("type", `String "response.output_item.done");
+             ("output_index", `Int 0);
+             ( "item",
+               `Assoc
+                 [
+                   ("type", `String "function_call");
+                   ("call_id", `String "call_seed");
+                   ("name", `String "bash");
+                   ("arguments", `String {|{"command":"pwd"}|});
+                 ] );
+           ]);
+      sse
+        (`Assoc
+           [
+             ("type", `String "response.output_item.done");
+             ("output_index", `Int 0);
+             ( "item",
+               `Assoc
+                 [
+                   ("type", `String "function_call");
+                   ("call_id", `String "call_seed");
+                   ("name", `String "bash");
+                   ("arguments", `String "");
+                 ] );
+           ]);
+    ]
+  in
+  let result =
+    Lwt_main.run
+      (Provider_openai_codex.process_stream (Lwt_stream.of_list chunks)
+         ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls = [ tc ]; _ } ->
+      Alcotest.(check string)
+        "seeded arguments survive empty done" {|{"command":"pwd"}|} tc.arguments
+  | _ -> Alcotest.fail "expected one tool call"
+
 let test_codex_stream_backfill_only_missing () =
   (* Test that response.completed only backfills tool calls that were NOT
      already populated by streaming deltas. *)
@@ -1040,6 +1085,8 @@ let suite =
       test_select_provider_honors_explicit_no_auth_provider;
     Alcotest.test_case "codex stream no duplicate tool calls" `Quick
       test_codex_stream_no_duplicate_tool_calls;
+    Alcotest.test_case "B820: output_item.done seeds arguments" `Quick
+      test_b820_output_item_done_seeds_arguments;
     Alcotest.test_case "codex stream backfill only missing" `Quick
       test_codex_stream_backfill_only_missing;
     Alcotest.test_case "codex stream accepts final arguments done" `Quick

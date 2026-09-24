@@ -1140,7 +1140,8 @@ let test_b640_sse_text_delta_accumulates () =
     "text accumulated" "Hello world"
     (Buffer.contents state.Provider_minimax.content_acc)
 
-(* B640: empty-args fallback path warns and substitutes "{}". *)
+(* B820: an empty argument buffer stays empty. The agent reports a transport
+   failure instead of a missing-parameter retry. *)
 let test_b640_sse_preserves_raw_tool_events () =
   let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
   let on_chunk _ = Lwt.return_unit in
@@ -1161,7 +1162,7 @@ let test_b640_sse_preserves_raw_tool_events () =
         && Test_helpers.string_contains raw "file_read")
   | None -> Alcotest.fail "expected raw stream tool event payload"
 
-let test_b640_sse_empty_args_falls_back_to_curlies () =
+let test_b820_sse_empty_args_stay_empty () =
   let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
   let on_chunk _ = Lwt.return_unit in
   let feed event_type data_str =
@@ -1176,7 +1177,7 @@ let test_b640_sse_empty_args_falls_back_to_curlies () =
   let tcs = Provider_minimax.finalize_stream_tool_calls state in
   Alcotest.(check int) "one tool call" 1 (List.length tcs);
   Alcotest.(check string)
-    "empty args -> {}" "{}" (List.hd tcs).Provider.arguments
+    "empty args stay empty" "" (List.hd tcs).Provider.arguments
 
 (* User-requested integration test: send the same tool-call prompt to
    MiniMax-M2.7-highspeed through two paths and compare:
@@ -1709,7 +1710,7 @@ let suite =
     Alcotest.test_case "B640: SSE preserves raw tool events" `Quick
       test_b640_sse_preserves_raw_tool_events;
     Alcotest.test_case "B640: SSE empty args falls back to '{}'" `Quick
-      test_b640_sse_empty_args_falls_back_to_curlies;
+      test_b820_sse_empty_args_stay_empty;
     Alcotest.test_case
       "live tool call anthropic vs openai (MiniMax-M2.7-highspeed)" `Slow
       test_live_tool_call_anthropic_vs_openai_minimax_m27;

@@ -509,6 +509,48 @@ let test_parse_ignores_thinking_blocks () =
 
 let sse event data = Printf.sprintf "event: %s\ndata: %s\n\n" event data
 
+let test_b820_empty_argument_stream_stays_empty () =
+  let sse_body =
+    String.concat ""
+      [
+        sse "content_block_start"
+          {|{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_empty","name":"bash"}}|};
+        sse "content_block_stop" {|{"type":"content_block_stop","index":0}|};
+        sse "message_stop" {|{"type":"message_stop"}|};
+      ]
+  in
+  let result =
+    Lwt_main.run
+      (Provider_anthropic.process_anthropic_sse_stream ~model:"claude"
+         (Lwt_stream.of_list [ sse_body ]) ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls = [ tc ]; _ } ->
+      Alcotest.(check string) "name" "bash" tc.function_name;
+      Alcotest.(check string) "arguments stay empty" "" tc.arguments
+  | _ -> Alcotest.fail "expected one tool call"
+
+let test_b820_embedded_input_is_preserved () =
+  let sse_body =
+    String.concat ""
+      [
+        sse "content_block_start"
+          {|{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_in","name":"bash","input":{"command":"pwd"}}}|};
+        sse "content_block_stop" {|{"type":"content_block_stop","index":0}|};
+        sse "message_stop" {|{"type":"message_stop"}|};
+      ]
+  in
+  let result =
+    Lwt_main.run
+      (Provider_anthropic.process_anthropic_sse_stream ~model:"claude"
+         (Lwt_stream.of_list [ sse_body ]) ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls = [ tc ]; _ } ->
+      Alcotest.(check string)
+        "embedded input preserved" {|{"command":"pwd"}|} tc.arguments
+  | _ -> Alcotest.fail "expected one tool call"
+
 let test_stream_accepts_object_partial_json () =
   let sse_body =
     String.concat ""
@@ -602,4 +644,8 @@ let suite =
       test_parse_ignores_thinking_blocks;
     Alcotest.test_case "B727: stream accepts object partial_json" `Quick
       test_stream_accepts_object_partial_json;
+    Alcotest.test_case "B820: empty argument stream stays empty" `Quick
+      test_b820_empty_argument_stream_stays_empty;
+    Alcotest.test_case "B820: embedded input is preserved" `Quick
+      test_b820_embedded_input_is_preserved;
   ]
