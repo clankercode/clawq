@@ -1750,3 +1750,4 @@ bugs:
       title: Auto check-in prompt should not mention STAY_IDLE
     - file: B818-auto-checkin-should-point-agent.todo
       id: B818
+    - file: B819-bash-omits-command-because-ope.todo
