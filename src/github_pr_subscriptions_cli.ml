@@ -226,9 +226,12 @@ let cmd_subscriptions_with_db ~db args =
                   Printf.sprintf "Route %s is not a PR subscription route." id))
       | "add" :: room_id :: repo :: pr_number_str :: rest -> (
           match int_of_string_opt pr_number_str with
-          | None | Some 0 -> "Error: PR number must be a positive integer."
+          | None ->
+              "Error: PR number must be a positive integer (or 0 for a \
+               repo-wide feed)."
           | Some pr_number when pr_number < 0 ->
-              "Error: PR number must be a positive integer."
+              "Error: PR number must be a positive integer (or 0 for a \
+               repo-wide feed)."
           | Some pr_number -> (
               let profile_name =
                 match rest with
@@ -277,9 +280,12 @@ let cmd_subscriptions_with_db ~db args =
               ))
       | [ "remove"; room_id; repo; pr_number_str ] -> (
           match int_of_string_opt pr_number_str with
-          | None | Some 0 -> "Error: PR number must be a positive integer."
+          | None ->
+              "Error: PR number must be a positive integer (or 0 for a \
+               repo-wide feed)."
           | Some pr_number when pr_number < 0 ->
-              "Error: PR number must be a positive integer."
+              "Error: PR number must be a positive integer (or 0 for a \
+               repo-wide feed)."
           | Some pr_number -> (
               match find_active_item_route ~db ~room_id ~repo ~pr_number with
               | Error error -> "Error: " ^ error
@@ -300,7 +306,8 @@ let cmd_subscriptions_with_db ~db args =
            writes):\n\
           \  list [--room ROOM | --repo REPO]   List subscriptions\n\
           \  show ID                             Show subscription route details\n\
-          \  add ROOM REPO PR# [--profile P]     Add an Item route\n\
+          \  add ROOM REPO PR# [--profile P]     Add an Item route (PR# 0 = \
+           repo-wide feed)\n\
           \      [--on-open true|false] [--on-close true|false]\n\
           \      [--on-comment true|false] [--on-review true|false]\n\
           \      [--on-status true|false] [--on-merge true|false]\n\

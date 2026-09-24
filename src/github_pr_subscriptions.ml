@@ -354,12 +354,13 @@ let find_by_repo ~db ~repo =
   List.rev !subs
 
 (** [find_by_repo_pr ~db ~repo ~pr_number] returns all subscriptions for a
-    specific PR across all rooms. *)
+    specific PR across all rooms. A subscription with [pr_number = 0] acts as a
+    repo-wide wildcard and matches every PR in the repository. *)
 let find_by_repo_pr ~db ~repo ~pr_number =
   let sql =
     Printf.sprintf
-      "SELECT %s FROM github_pr_subscriptions WHERE repo = ? AND pr_number = ? \
-       ORDER BY room_id"
+      "SELECT %s FROM github_pr_subscriptions WHERE repo = ? AND (pr_number = \
+       ? OR pr_number = 0) ORDER BY room_id"
       select_columns
   in
   let stmt = Sqlite3.prepare db sql in

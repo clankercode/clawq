@@ -222,7 +222,8 @@ let selector_of_json (j : Yojson.Safe.t) : (selector, string) result =
       | Error e -> Error e
       | Ok kind ->
           if String.trim repo = "" then Error "item selector missing repo"
-          else if number <= 0 then Error "item selector number must be positive"
+          else if number < 0 then
+            Error "item selector number must be positive (or 0 for repo-wide)"
           else Ok (Item { repo_full_name = repo; kind; number }))
   | `String "repo" -> (
       match member "repo" j with

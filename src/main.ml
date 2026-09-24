@@ -697,7 +697,9 @@ let subscriptions_cmd =
         ( "list [--room ROOM | --repo REPO]",
           "List all subscriptions, optionally filtered." );
       `I ("show ID", "Show details of a specific subscription.");
-      `I ("add ROOM REPO PR# [--profile P]", "Add a subscription for a PR.");
+      `I
+        ( "add ROOM REPO PR# [--profile P]",
+          "Add a subscription for a PR. Use PR# 0 for a repo-wide feed." );
       `I ("disable ID", "Disable a subscription.");
       `I ("enable ID", "Enable a subscription.");
       `I ("remove ID", "Remove a subscription.");
