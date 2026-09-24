@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-09-24T17:05:31Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-09-24T17:23:42Z"
 complexity: medium
 created_at: "2026-09-24T16:10:53Z"
 depends_on:
     - B819
+duration_minutes: 18.196330653216666
 estimate_hours: 1
 id: B820
 priority: high
 started_at: "2026-09-24T17:05:31Z"
-status: in_progress
+status: done
 tags: []
 title: empty tool argument streams are reported as a missing bash command
-updated_at: "2026-09-24T17:05:31Z"
+updated_at: "2026-09-24T17:23:42Z"
 ---
 
 empty tool argument streams are reported as a missing bash command
