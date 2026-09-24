@@ -1,0 +1,18 @@
+---
+complexity: medium
+created_at: "2026-09-24T16:10:53Z"
+depends_on:
+    - B819
+estimate_hours: 1
+id: B820
+priority: high
+status: pending
+tags:
+    - providers
+    - tools
+    - bash
+title: empty tool argument streams are reported as a missing bash command
+updated_at: "2026-09-24T16:10:53Z"
+---
+
+empty tool argument streams are reported as a missing bash command
