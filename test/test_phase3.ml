@@ -952,7 +952,7 @@ let test_stuck_detector_uses_structured_tool_error () =
   | Stuck_detector.Clear | Stuck_detector.Suspicious _ ->
       Alcotest.fail "expected definite stuck signal for structured tool errors"
 
-let test_malformed_tool_arguments_do_not_invoke () =
+let test_rejected_tool_arguments ~arguments ~needle () =
   let registry = Tool_registry.create () in
   let invoked = ref false in
   let tool =
@@ -979,7 +979,7 @@ let test_malformed_tool_arguments_do_not_invoke () =
   Tool_registry.register registry tool;
   let agent = Agent.create ~config:default_config ~tool_registry:registry () in
   let call =
-    { Provider.id = "bad_args"; function_name = "needs_json"; arguments = "" }
+    { Provider.id = "bad_args"; function_name = "needs_json"; arguments }
   in
   Lwt_main.run
     (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
@@ -989,10 +989,17 @@ let test_malformed_tool_arguments_do_not_invoke () =
   | result :: _ ->
       Alcotest.(check bool) "marked error" true result.is_error;
       Alcotest.(check bool)
-        "parse error surfaced" true
-        (Test_helpers.string_contains result.content
-           "failed to parse arguments as JSON")
+        "rejection surfaced" true
+        (Test_helpers.string_contains result.content needle)
   | [] -> Alcotest.fail "expected error result in history"
+
+let test_empty_argument_stream_does_not_invoke () =
+  test_rejected_tool_arguments ~arguments:"" ~needle:"argument stream was empty"
+    ()
+
+let test_malformed_tool_arguments_do_not_invoke () =
+  test_rejected_tool_arguments ~arguments:"{"
+    ~needle:"failed to parse arguments as JSON" ()
 
 let suite =
   [
@@ -1038,6 +1045,8 @@ let suite =
       test_execute_tool_search_special_case;
     Alcotest.test_case "stuck detector uses structured tool errors" `Quick
       test_stuck_detector_uses_structured_tool_error;
+    Alcotest.test_case "B820: empty argument stream does not invoke" `Quick
+      test_empty_argument_stream_does_not_invoke;
     Alcotest.test_case "malformed tool args do not invoke" `Quick
       test_malformed_tool_arguments_do_not_invoke;
   ]
