@@ -353,9 +353,26 @@ let test_strict_rejection_and_cache () =
        "Invalid schema for function bash: strict mode requires \
         additionalProperties");
   Alcotest.(check bool)
+    "model does not support strict tools" true
+    (Tool_strict.is_strict_rejection
+       "claude-sonnet-4-20250514 does not support strict tools");
+  Alcotest.(check bool)
+    "unknown strict parameter" true
+    (Tool_strict.is_strict_rejection
+       "Unknown parameter: 'tools[0].function.strict'");
+  Alcotest.(check bool)
+    "strict tools rejected with image content" true
+    (Tool_strict.is_strict_rejection
+       "Invalid tools: strict function tools are not supported with image \
+        message content types");
+  Alcotest.(check bool)
     "unrelated 400 is not a rejection" false
     (Tool_strict.is_strict_rejection
        {|{"error":{"message":"messages parameter is illegal"}}|});
+  Alcotest.(check bool)
+    "strict mentioned only as an echoed field is not a rejection" false
+    (Tool_strict.is_strict_rejection
+       {|{"error":{"message":"messages parameter is illegal","strict":true}}|});
   let key =
     Tool_strict.cache_key ~provider_name:"anthropic" ~base_url:None
       ~model:"claude-test"

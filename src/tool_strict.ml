@@ -20,14 +20,24 @@ let mark_unsupported key = Hashtbl.replace rejected key ()
 let reset_cache () = Hashtbl.clear rejected
 let contains_ci hay needle = String_util.contains_ci hay needle
 
+let mentions_strict_unsupported body =
+  contains_ci body "strict"
+  && (contains_ci body "not support"
+     || contains_ci body "unsupported"
+     || contains_ci body "unknown parameter"
+     || contains_ci body "unrecognized")
+
 let is_strict_rejection body =
   contains_ci body "additionalproperties"
   || contains_ci body "additional_properties"
   || contains_ci body "invalid schema for function"
   || contains_ci body "schema is too complex"
   || contains_ci body "too complex for compilation"
-  || contains_ci body "not supported in strict"
-  || contains_ci body "not supported with strict"
+  || contains_ci body "does not support strict"
+  || contains_ci body "do not support strict"
+  || contains_ci body "doesn't support strict"
+  || contains_ci body "strict function tools are not supported"
+  || mentions_strict_unsupported body
   || (contains_ci body "strict" && contains_ci body "schema")
   || (contains_ci body "strict" && contains_ci body "parallel")
   || contains_ci body "strict"
