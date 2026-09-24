@@ -3,10 +3,17 @@
 let anthropic_version = "2023-06-01"
 let messages_to_anthropic_json = Provider.messages_to_anthropic_json
 
-let tools_to_anthropic_json tools =
+let tools_to_anthropic_json ?(strict = true) tools =
   (* Convert OpenAI-format tools JSON to Anthropic function declarations.
      OpenAI: [{type:"function", function:{name,description,parameters:{type,properties,required}}}]
-     Anthropic: [{name, description, input_schema:{type,properties,required}}] *)
+     Anthropic: [{name, description, input_schema:{type,properties,required}}]
+     B819: strict-capable requests normalize the bash allowlist first and copy
+     function.strict onto the Anthropic tool. ~strict:false is the 400 retry. *)
+  let tools =
+    match tools with
+    | None -> None
+    | Some t -> Some (Tool_strict.prepare_openai_tools ~enable:strict t)
+  in
   match tools with
   | None -> None
   | Some (`List ts) ->
@@ -26,13 +33,21 @@ let tools_to_anthropic_json tools =
                   `Assoc
                     [ ("type", `String "object"); ("properties", `Assoc []) ]
               in
-              Some
-                (`Assoc
-                   [
-                     ("name", `String name);
-                     ("description", `String description);
-                     ("input_schema", parameters);
-                   ])
+              let strict_flag =
+                try fn |> member "strict" |> to_bool with _ -> false
+              in
+              let fields =
+                [
+                  ("name", `String name);
+                  ("description", `String description);
+                  ("input_schema", parameters);
+                ]
+              in
+              let fields =
+                if strict_flag then fields @ [ ("strict", `Bool true) ]
+                else fields
+              in
+              Some (`Assoc fields)
             with _ -> None)
           ts
       in
@@ -186,39 +201,60 @@ let complete ~(config : Runtime_config.t)
       body_fields @ [ ("system", `String system_prompt) ]
     else body_fields
   in
-  let body_fields =
-    match tools_to_anthropic_json tools with
-    | Some t -> body_fields @ [ ("tools", t) ]
-    | None -> body_fields
+  let strict_key =
+    Tool_strict.cache_key
+      ~provider_name:(Option.value ~default:"anthropic" provider.kind)
+      ~base_url:provider.base_url ~model
   in
-  let body_fields =
-    match provider.thinking_budget_tokens with
-    | Some budget when budget > 0 ->
-        body_fields
-        @ [
-            ( "thinking",
-              `Assoc
-                [ ("type", `String "enabled"); ("budget_tokens", `Int budget) ]
-            );
-          ]
-    | _ -> body_fields
-  in
-  let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers = auth_headers provider in
-  Logs.info (fun m ->
-      m "Anthropic request to %s model=%s msgs=%d" uri model
-        (List.length messages));
   let timeout_s = Option.value ~default:180.0 provider.http_timeout_s in
-  let* status, response_body =
-    Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body
+  let rec attempt ~strict =
+    let body_fields =
+      match tools_to_anthropic_json ~strict tools with
+      | Some t -> body_fields @ [ ("tools", t) ]
+      | None -> body_fields
+    in
+    let body_fields =
+      match provider.thinking_budget_tokens with
+      | Some budget when budget > 0 ->
+          body_fields
+          @ [
+              ( "thinking",
+                `Assoc
+                  [
+                    ("type", `String "enabled"); ("budget_tokens", `Int budget);
+                  ] );
+            ]
+      | _ -> body_fields
+    in
+    let body = `Assoc body_fields |> Yojson.Safe.to_string in
+    Logs.info (fun m ->
+        m "Anthropic request to %s model=%s msgs=%d strict=%b" uri model
+          (List.length messages) strict);
+    let* status, response_body =
+      Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body
+    in
+    if
+      strict
+      && Tool_strict.should_retry_without_strict ~request_body:body ~status
+           ~response_body
+    then (
+      Tool_strict.mark_unsupported strict_key;
+      Logs.warn (fun m ->
+          m
+            "B819: Anthropic model %s rejected strict tools; retrying once \
+             without strict"
+            model);
+      attempt ~strict:false)
+    else if status < 200 || status >= 300 then
+      Lwt.fail_with
+        (Printf.sprintf "Anthropic API error (HTTP %d): %s" status response_body)
+    else
+      match parse_anthropic_response response_body model with
+      | Ok resp -> Lwt.return resp
+      | Error msg -> Lwt.fail_with msg
   in
-  if status < 200 || status >= 300 then
-    Lwt.fail_with
-      (Printf.sprintf "Anthropic API error (HTTP %d): %s" status response_body)
-  else
-    match parse_anthropic_response response_body model with
-    | Ok resp -> Lwt.return resp
-    | Error msg -> Lwt.fail_with msg
+  attempt ~strict:(Tool_strict.supported strict_key)
 
 let argument_fragment_of_json = function
   | `String s -> s
@@ -497,30 +533,57 @@ let complete_streaming ~(config : Runtime_config.t)
       body_fields @ [ ("system", `String system_prompt) ]
     else body_fields
   in
-  let body_fields =
-    match tools_to_anthropic_json tools with
-    | Some t -> body_fields @ [ ("tools", t) ]
-    | None -> body_fields
+  let strict_key =
+    Tool_strict.cache_key
+      ~provider_name:(Option.value ~default:"anthropic" provider.kind)
+      ~base_url:provider.base_url ~model
   in
-  let body_fields =
-    match provider.thinking_budget_tokens with
-    | Some budget when budget > 0 ->
-        body_fields
-        @ [
-            ( "thinking",
-              `Assoc
-                [ ("type", `String "enabled"); ("budget_tokens", `Int budget) ]
-            );
-          ]
-    | _ -> body_fields
-  in
-  let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers = auth_headers provider in
-  Logs.info (fun m ->
-      m "Anthropic stream request to %s model=%s msgs=%d" uri model
-        (List.length messages));
-  (* B658: idle timeout from provider.http_timeout_s. *)
-  Http_client.post_stream_with ?stream_idle_timeout_s:provider.http_timeout_s
-    ~uri ~headers ~body ~label:"Anthropic API error"
-    ~on_ok:(fun stream -> process_anthropic_sse_stream ~model stream ~on_chunk)
-    ()
+  let rec attempt ~strict =
+    let body_fields =
+      match tools_to_anthropic_json ~strict tools with
+      | Some t -> body_fields @ [ ("tools", t) ]
+      | None -> body_fields
+    in
+    let body_fields =
+      match provider.thinking_budget_tokens with
+      | Some budget when budget > 0 ->
+          body_fields
+          @ [
+              ( "thinking",
+                `Assoc
+                  [
+                    ("type", `String "enabled"); ("budget_tokens", `Int budget);
+                  ] );
+            ]
+      | _ -> body_fields
+    in
+    let body = `Assoc body_fields |> Yojson.Safe.to_string in
+    Logs.info (fun m ->
+        m "Anthropic stream request to %s model=%s msgs=%d strict=%b" uri model
+          (List.length messages) strict);
+    (* B658: idle timeout from provider.http_timeout_s. *)
+    Http_client.post_stream_with ?stream_idle_timeout_s:provider.http_timeout_s
+      ~uri ~headers ~body ~label:"Anthropic API error"
+      ~on_error:(fun r ->
+        let* err = Http_client.collect_error_body r.stream in
+        if
+          strict
+          && Tool_strict.should_retry_without_strict ~request_body:body
+               ~status:r.status ~response_body:err
+        then (
+          Tool_strict.mark_unsupported strict_key;
+          Logs.warn (fun m ->
+              m
+                "B819: Anthropic stream model %s rejected strict tools; \
+                 retrying once without strict"
+                model);
+          attempt ~strict:false)
+        else
+          Lwt.fail_with
+            (Printf.sprintf "Anthropic API error (HTTP %d): %s" r.status err))
+      ~on_ok:(fun stream ->
+        process_anthropic_sse_stream ~model stream ~on_chunk)
+      ()
+  in
+  attempt ~strict:(Tool_strict.supported strict_key)

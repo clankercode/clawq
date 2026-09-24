@@ -216,6 +216,181 @@ let test_tools_required_params_preserved () =
         required
   | _ -> Alcotest.fail "expected Some with 1 tool"
 
+let bash_tool () =
+  `Assoc
+    [
+      ("type", `String "function");
+      ( "function",
+        `Assoc
+          [
+            ("name", `String "bash");
+            ("description", `String "Run a command");
+            ( "parameters",
+              `Assoc
+                [
+                  ("type", `String "object");
+                  ( "properties",
+                    `Assoc
+                      [
+                        ( "command",
+                          `Assoc
+                            [
+                              ("type", `String "string");
+                              ("description", `String "The command");
+                            ] );
+                        ( "cwd",
+                          `Assoc
+                            [
+                              ("type", `String "string");
+                              ("description", `String "Working directory");
+                            ] );
+                        ( "timeout",
+                          `Assoc
+                            [
+                              ("type", `String "number");
+                              ("description", `String "Timeout");
+                            ] );
+                      ] );
+                  ("required", `List [ `String "command" ]);
+                ] );
+          ] );
+    ]
+
+let test_bash_strict_anthropic_wire () =
+  match
+    Provider_anthropic.tools_to_anthropic_json (Some (`List [ bash_tool () ]))
+  with
+  | Some (`List [ converted ]) ->
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "strict true" true
+        (converted |> member "strict" |> to_bool);
+      let schema = converted |> member "input_schema" in
+      Alcotest.(check bool)
+        "additionalProperties false" false
+        (schema |> member "additionalProperties" |> to_bool);
+      let required =
+        schema |> member "required" |> to_list |> List.map to_string
+      in
+      Alcotest.(check (list string))
+        "all properties required"
+        [ "command"; "cwd"; "timeout" ]
+        required;
+      let command_type =
+        schema |> member "properties" |> member "command" |> member "type"
+      in
+      Alcotest.(check string)
+        "command stays string" "string"
+        (Yojson.Safe.Util.to_string command_type);
+      let cwd_type =
+        schema |> member "properties" |> member "cwd" |> member "type"
+        |> to_list |> List.map to_string
+      in
+      Alcotest.(check (list string))
+        "cwd is null union" [ "string"; "null" ] cwd_type
+  | _ -> Alcotest.fail "expected one converted bash tool"
+
+let test_non_bash_tool_is_not_strict () =
+  match
+    Provider_anthropic.tools_to_anthropic_json
+      (Some
+         (`List
+            [
+              `Assoc
+                [
+                  ("type", `String "function");
+                  ( "function",
+                    `Assoc
+                      [
+                        ("name", `String "memory_recall");
+                        ("description", `String "Recall");
+                        ( "parameters",
+                          `Assoc
+                            [
+                              ("type", `String "object");
+                              ("properties", `Assoc []);
+                              ("required", `List [ `String "query" ]);
+                            ] );
+                      ] );
+                ];
+            ]))
+  with
+  | Some (`List [ converted ]) ->
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "no strict flag" false
+        (try converted |> member "strict" |> to_bool with _ -> false);
+      let required =
+        converted |> member "input_schema" |> member "required" |> to_list
+        |> List.map to_string
+      in
+      Alcotest.(check (list string)) "required unchanged" [ "query" ] required
+  | _ -> Alcotest.fail "expected one tool"
+
+let test_strict_disabled_leaves_bash_unchanged () =
+  match
+    Provider_anthropic.tools_to_anthropic_json ~strict:false
+      (Some (`List [ bash_tool () ]))
+  with
+  | Some (`List [ converted ]) ->
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "strict omitted" false
+        (try converted |> member "strict" |> to_bool with _ -> false);
+      let required =
+        converted |> member "input_schema" |> member "required" |> to_list
+        |> List.map to_string
+      in
+      Alcotest.(check (list string))
+        "required stays command only" [ "command" ] required
+  | _ -> Alcotest.fail "expected one tool"
+
+let test_strict_rejection_and_cache () =
+  Tool_strict.reset_cache ();
+  Alcotest.(check bool)
+    "schema+strict is a rejection" true
+    (Tool_strict.is_strict_rejection
+       "Invalid schema for function bash: strict mode requires \
+        additionalProperties");
+  Alcotest.(check bool)
+    "unrelated 400 is not a rejection" false
+    (Tool_strict.is_strict_rejection
+       {|{"error":{"message":"messages parameter is illegal"}}|});
+  let key =
+    Tool_strict.cache_key ~provider_name:"anthropic" ~base_url:None
+      ~model:"claude-test"
+  in
+  Alcotest.(check bool)
+    "supported before cache" true
+    (Tool_strict.supported key);
+  Tool_strict.mark_unsupported key;
+  Alcotest.(check bool)
+    "unsupported after cache" false
+    (Tool_strict.supported key);
+  Alcotest.(check bool)
+    "retry only when the request sent strict and the body rejects it" true
+    (Tool_strict.should_retry_without_strict
+       ~request_body:{|{"tools":[{"strict":true}]}|} ~status:400
+       ~response_body:"Invalid schema for function bash");
+  Alcotest.(check bool)
+    "no retry when request omitted strict" false
+    (Tool_strict.should_retry_without_strict
+       ~request_body:{|{"tools":[{"name":"bash"}]}|} ~status:400
+       ~response_body:"Invalid schema for function bash");
+  Tool_strict.reset_cache ()
+
+let test_union_budget_leaves_overflow_nonstrict () =
+  let tools = `List [ bash_tool () ] in
+  let prepared = Tool_strict.prepare_openai_tools ~max_unions:0 tools in
+  match prepared with
+  | `List [ tool ] ->
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "budget overflow skips strict" false
+        (try tool |> member "function" |> member "strict" |> to_bool
+         with _ -> false)
+  | _ -> Alcotest.fail "expected one tool"
+
 (* --- parse_anthropic_response tests --- *)
 
 let test_parse_text_response () =
@@ -384,6 +559,16 @@ let suite =
     Alcotest.test_case "tools valid" `Quick test_tools_valid;
     Alcotest.test_case "tools required params preserved" `Quick
       test_tools_required_params_preserved;
+    Alcotest.test_case "B819: bash anthropic wire is strict" `Quick
+      test_bash_strict_anthropic_wire;
+    Alcotest.test_case "B819: non-bash tool stays non-strict" `Quick
+      test_non_bash_tool_is_not_strict;
+    Alcotest.test_case "B819: strict:false leaves bash unchanged" `Quick
+      test_strict_disabled_leaves_bash_unchanged;
+    Alcotest.test_case "B819: strict rejection cache" `Quick
+      test_strict_rejection_and_cache;
+    Alcotest.test_case "B819: union budget skips strict" `Quick
+      test_union_budget_leaves_overflow_nonstrict;
     Alcotest.test_case "parse text response" `Quick test_parse_text_response;
     Alcotest.test_case
       "B608: parse_response normalizes cached to total prompt tokens" `Quick

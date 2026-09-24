@@ -235,7 +235,13 @@ let messages_to_input messages =
       | None -> acc)
     [] messages
 
-let tools_to_responses_tools = function
+let tools_to_responses_tools ?(strict = true) tools =
+  let tools =
+    match tools with
+    | None -> None
+    | Some t -> Some (Tool_strict.prepare_openai_tools ~enable:strict t)
+  in
+  match tools with
   | None -> `List []
   | Some (`List tools) ->
       let mapped =
@@ -249,14 +255,20 @@ let tools_to_responses_tools = function
                       | Some v -> v
                       | None -> `Null
                     in
-                    Some
-                      (`Assoc
-                         [
-                           ("type", `String "function");
-                           ("name", required "name");
-                           ("description", required "description");
-                           ("parameters", required "parameters");
-                         ])
+                    let base =
+                      [
+                        ("type", `String "function");
+                        ("name", required "name");
+                        ("description", required "description");
+                        ("parameters", required "parameters");
+                      ]
+                    in
+                    let base =
+                      match List.assoc_opt "strict" fn_fields with
+                      | Some strict_flag -> base @ [ ("strict", strict_flag) ]
+                      | None -> base
+                    in
+                    Some (`Assoc base)
                 | _ -> None)
             | _ -> None)
           tools
@@ -454,7 +466,7 @@ let fixup_input_item_ordering items =
   in
   loop [] "" items
 
-let build_body ?provider_name ~model ~messages ?session_key
+let build_body ?provider_name ~model ~messages ?session_key ?(strict = true)
     ~(provider : Runtime_config.provider_config) tools =
   let model, service_tier =
     if
@@ -509,7 +521,7 @@ let build_body ?provider_name ~model ~messages ?session_key
     @ (match service_tier with
       | Some tier -> [ ("service_tier", `String tier) ]
       | None -> [])
-    @ (match tools_to_responses_tools tools with
+    @ (match tools_to_responses_tools ~strict tools with
       | `List [] -> []
       | mapped -> [ ("tools", mapped) ])
     @ (match provider.prompt_cache_retention with
@@ -834,50 +846,67 @@ let process_stream stream ~on_chunk =
        ~usage:!usage_acc ~provider_response_items_json:!response_items_json_acc
        ~thinking ())
 
-let perform_request ~uri ~headers ~error_label ~provider_name ~provider ~model
-    ~messages ?tools ?session_key ~on_chunk () =
+let perform_request ~uri ~headers ~error_label ~provider_name
+    ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
+    ?session_key ~on_chunk () =
   let open Lwt.Syntax in
-  let body =
-    build_body ~provider_name ~model ~messages ?session_key ~provider tools
+  let strict_key =
+    Tool_strict.cache_key ~provider_name ~base_url:provider.base_url ~model
   in
-  Http_client.post_stream_with ~uri ~headers ~body ~label:error_label
-    ~on_error:(fun r ->
-      let open Lwt.Syntax in
-      let* body = Http_client.collect_error_body r.stream in
-      (* Codex returns {"detail":"Bad Request"} (no further detail) for some
-         400s including context-window overflows.  Only rewrite to include
-         "context length" (which triggers is_context_exhaustion_error recovery
-         in agent.ml) when the request is large enough that context exhaustion
-         is plausible — otherwise the recovery path fires incorrectly on small
-         requests and collapses the history to empty. *)
-      let estimated_tokens =
-        List.fold_left
-          (fun acc (m : Provider.message) ->
-            let tc_args =
-              List.fold_left
-                (fun a (tc : Provider.tool_call) ->
-                  a + String.length tc.arguments)
-                0 m.tool_calls
-            in
-            acc + ((String.length m.content + tc_args + 3) / 4))
-          0 messages
-      in
-      let large_request =
-        List.length messages > 150 || estimated_tokens > 75_000
-      in
-      let msg =
-        if r.status = 400 && string_contains body "Bad Request" && large_request
-        then
-          Printf.sprintf
-            "%s (HTTP %d): possible context length issue (msgs=%d ~%dk tok; \
-             raw: %s)"
-            error_label r.status (List.length messages)
-            (estimated_tokens / 1000) body
-        else Printf.sprintf "%s (HTTP %d): %s" error_label r.status body
-      in
-      Lwt.fail_with msg)
-    ~on_ok:(fun stream -> process_stream stream ~on_chunk)
-    ()
+  let format_error ~status ~body =
+    (* Codex returns {"detail":"Bad Request"} (no further detail) for some
+       400s including context-window overflows.  Only rewrite to include
+       "context length" (which triggers is_context_exhaustion_error recovery
+       in agent.ml) when the request is large enough that context exhaustion
+       is plausible — otherwise the recovery path fires incorrectly on small
+       requests and collapses the history to empty. *)
+    let estimated_tokens =
+      List.fold_left
+        (fun acc (m : Provider.message) ->
+          let tc_args =
+            List.fold_left
+              (fun a (tc : Provider.tool_call) ->
+                a + String.length tc.arguments)
+              0 m.tool_calls
+          in
+          acc + ((String.length m.content + tc_args + 3) / 4))
+        0 messages
+    in
+    let large_request =
+      List.length messages > 150 || estimated_tokens > 75_000
+    in
+    if status = 400 && string_contains body "Bad Request" && large_request then
+      Printf.sprintf
+        "%s (HTTP %d): possible context length issue (msgs=%d ~%dk tok; raw: \
+         %s)"
+        error_label status (List.length messages) (estimated_tokens / 1000) body
+    else Printf.sprintf "%s (HTTP %d): %s" error_label status body
+  in
+  let rec go ~strict =
+    let body =
+      build_body ~provider_name ~model ~messages ?session_key ~provider ~strict
+        tools
+    in
+    Http_client.post_stream_with ~uri ~headers ~body ~label:error_label
+      ~on_error:(fun r ->
+        let* err_body = Http_client.collect_error_body r.stream in
+        if
+          strict
+          && Tool_strict.should_retry_without_strict ~request_body:body
+               ~status:r.status ~response_body:err_body
+        then (
+          Tool_strict.mark_unsupported strict_key;
+          Logs.warn (fun m ->
+              m
+                "B819: %s/%s rejected strict tools; retrying once without \
+                 strict"
+                provider_name model);
+          go ~strict:false)
+        else Lwt.fail_with (format_error ~status:r.status ~body:err_body))
+      ~on_ok:(fun stream -> process_stream stream ~on_chunk)
+      ()
+  in
+  go ~strict:(Tool_strict.supported strict_key)
 
 let common_headers () =
   [

@@ -4323,10 +4323,21 @@ let test_tool_schemas_roundtrip_openai_and_anthropic () =
       let input_schema = anthropic |> member "input_schema" in
       let original_required = extract_required t.parameters_schema in
       let converted_required = extract_required input_schema in
+      let expected_required =
+        if t.name = "bash" then
+          [ "command"; "cwd"; "timeout"; "background"; "head"; "tail" ]
+        else original_required
+      in
       Alcotest.(check (list string))
         (Printf.sprintf
-           "tool %s: anthropic input_schema.required matches original" t.name)
-        original_required converted_required;
+           "tool %s: anthropic input_schema.required matches strict wire" t.name)
+        expected_required converted_required;
+      let strict =
+        try anthropic |> member "strict" |> to_bool with _ -> false
+      in
+      Alcotest.(check bool)
+        (Printf.sprintf "tool %s strict flag" t.name)
+        (t.name = "bash") strict;
       let original_props = extract_properties_keys t.parameters_schema in
       let converted_props = extract_properties_keys input_schema in
       Alcotest.(check (list string))

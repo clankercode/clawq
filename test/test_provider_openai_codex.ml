@@ -414,8 +414,92 @@ let test_force_compress_history_fallback_nonempty () =
     "history non-empty after fallback" true
     (agent.Agent.history <> [])
 
+let test_responses_tools_strict_bash () =
+  let tool =
+    `Assoc
+      [
+        ("type", `String "function");
+        ( "function",
+          `Assoc
+            [
+              ("name", `String "bash");
+              ("description", `String "Run a command");
+              ( "parameters",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ( "properties",
+                      `Assoc
+                        [
+                          ("command", `Assoc [ ("type", `String "string") ]);
+                          ("cwd", `Assoc [ ("type", `String "string") ]);
+                        ] );
+                    ("required", `List [ `String "command" ]);
+                  ] );
+            ] );
+      ]
+  in
+  match
+    Provider_openai_codex.tools_to_responses_tools (Some (`List [ tool ]))
+  with
+  | `List [ converted ] ->
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "strict copied" true
+        (converted |> member "strict" |> to_bool);
+      let required =
+        converted |> member "parameters" |> member "required" |> to_list
+        |> List.map to_string
+      in
+      Alcotest.(check (list string))
+        "command and cwd required" [ "command"; "cwd" ] required
+  | _ -> Alcotest.fail "expected one responses tool"
+
+let test_provider_responses_converter_keeps_prepared_strict () =
+  let tool =
+    `Assoc
+      [
+        ("type", `String "function");
+        ( "function",
+          `Assoc
+            [
+              ("name", `String "bash");
+              ("description", `String "Run a command");
+              ( "parameters",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ( "properties",
+                      `Assoc
+                        [
+                          ("command", `Assoc [ ("type", `String "string") ]);
+                          ("cwd", `Assoc [ ("type", `String "string") ]);
+                        ] );
+                    ("required", `List [ `String "command" ]);
+                  ] );
+            ] );
+      ]
+  in
+  let prepared = Tool_strict.prepare_openai_tools (`List [ tool ]) in
+  match Provider.convert_tools_to_responses prepared with
+  | `List [ converted ] ->
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "chat responses converter keeps strict" true
+        (converted |> member "strict" |> to_bool);
+      Alcotest.(check bool)
+        "additionalProperties false" false
+        (converted |> member "parameters"
+        |> member "additionalProperties"
+        |> to_bool)
+  | _ -> Alcotest.fail "expected one converted tool"
+
 let suite =
   [
+    Alcotest.test_case "B819: responses tools strict bash" `Quick
+      test_responses_tools_strict_bash;
+    Alcotest.test_case "B819: chat responses converter keeps strict" `Quick
+      test_provider_responses_converter_keeps_prepared_strict;
     Alcotest.test_case "strip_provider_prefix slash" `Quick
       test_strip_provider_prefix_slash;
     Alcotest.test_case "strip_provider_prefix colon" `Quick

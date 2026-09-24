@@ -123,6 +123,47 @@ let with_llmp_base_url ~provider_name
       }
   | None -> provider
 
+let post_json_with_provider_timeout ~provider ~uri ~headers ~body =
+  match provider.Runtime_config.http_timeout_s with
+  | Some timeout_s ->
+      Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body
+  | None -> Http_client.post_json ~uri ~headers ~body
+
+let strict_cache_key ~provider_name ~(provider : Runtime_config.provider_config)
+    ~model =
+  Tool_strict.cache_key ~provider_name ~base_url:provider.base_url ~model
+
+(* B819: rebuild the JSON body with or without strict tools, and retry once
+   when the provider rejects the strict schema. *)
+let post_json_strict ~provider_name ~provider ~model ~uri ~headers ~build_body
+    () =
+  let open Lwt.Syntax in
+  let key = strict_cache_key ~provider_name ~provider ~model in
+  let rec go ~enable =
+    let body = build_body ~enable in
+    let* status, response_body =
+      post_json_with_provider_timeout ~provider ~uri ~headers ~body
+    in
+    if
+      enable
+      && Tool_strict.should_retry_without_strict ~request_body:body ~status
+           ~response_body
+    then (
+      Tool_strict.mark_unsupported key;
+      Logs.warn (fun m ->
+          m "B819: %s/%s rejected strict tools; retrying once without strict"
+            provider_name model);
+      go ~enable:false)
+    else Lwt.return (status, response_body, body)
+  in
+  go ~enable:(Tool_strict.supported key)
+
+let openai_tools_field ~enable tools =
+  match tools with
+  | Some t when t <> `List [] ->
+      [ ("tools", Tool_strict.prepare_openai_tools ~enable t) ]
+  | _ -> []
+
 let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
     ?preferred_provider ?quota_states () =
   let open Lwt.Syntax in
@@ -207,25 +248,28 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
             body_fields_base
             @ [ ("input", messages_json); ("store", `Bool false) ]
           in
-          (* Convert tools to Responses format *)
-          let body_fields =
-            match tools with
-            | Some t when t <> `List [] ->
-                body_fields @ [ ("tools", convert_tools_to_responses t) ]
-            | _ -> body_fields
-          in
-          let body = `Assoc body_fields |> Yojson.Safe.to_string in
           let headers = bearer_headers ~provider_name provider in
           Logs.info (fun m ->
               m "%s-> LLM(responses) provider=%s model=%s msgs=%d ~%dk tok"
                 sk_tag provider_name model (List.length messages)
                 (estimate_messages_tokens messages / 1000));
-          let* status, response_body =
-            match provider.http_timeout_s with
-            | Some timeout_s ->
-                Http_client.post_json_with_timeout ~timeout_s ~uri ~headers
-                  ~body
-            | None -> Http_client.post_json ~uri ~headers ~body
+          let* status, response_body, _request_body =
+            post_json_strict ~provider_name ~provider ~model ~uri ~headers
+              ~build_body:(fun ~enable ->
+                let prepared =
+                  match tools with
+                  | Some t when t <> `List [] ->
+                      Some (Tool_strict.prepare_openai_tools ~enable t)
+                  | _ -> None
+                in
+                let body_fields =
+                  match prepared with
+                  | Some t when t <> `List [] ->
+                      body_fields @ [ ("tools", convert_tools_to_responses t) ]
+                  | _ -> body_fields
+                in
+                `Assoc body_fields |> Yojson.Safe.to_string)
+              ()
           in
           if status = 404 || status = 405 then begin
             (* Responses API not available — cache and fall back *)
@@ -235,21 +279,18 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
             let body_fields_cc =
               body_fields_base @ [ ("messages", messages_json) ]
             in
-            let body_fields_cc =
-              match tools with
-              | Some t when t <> `List [] -> body_fields_cc @ [ ("tools", t) ]
-              | _ -> body_fields_cc
-            in
-            let body_cc = `Assoc body_fields_cc |> Yojson.Safe.to_string in
             Logs.info (fun m ->
                 m "%s-> LLM(chat-completions-fallback) provider=%s model=%s"
                   sk_tag provider_name model);
-            let* status_cc, response_body_cc =
-              match provider.http_timeout_s with
-              | Some timeout_s ->
-                  Http_client.post_json_with_timeout ~timeout_s ~uri:uri_cc
-                    ~headers ~body:body_cc
-              | None -> Http_client.post_json ~uri:uri_cc ~headers ~body:body_cc
+            let* status_cc, response_body_cc, _request_body =
+              post_json_strict ~provider_name ~provider ~model ~uri:uri_cc
+                ~headers
+                ~build_body:(fun ~enable ->
+                  let body_fields_cc =
+                    body_fields_cc @ openai_tools_field ~enable tools
+                  in
+                  `Assoc body_fields_cc |> Yojson.Safe.to_string)
+                ()
             in
             if status_cc < 200 || status_cc >= 300 then
               Lwt.fail_with
@@ -285,12 +326,6 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
           let body_fields =
             body_fields_base @ [ ("messages", messages_json) ]
           in
-          let body_fields =
-            match tools with
-            | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
-            | _ -> body_fields
-          in
-          let body = `Assoc body_fields |> Yojson.Safe.to_string in
           let headers = bearer_headers ~provider_name provider in
           Logs.info (fun m ->
               m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
@@ -298,12 +333,14 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
                 (estimate_messages_tokens messages / 1000));
           (* B647: honor per-provider HTTP timeout when configured. Fall back
          to the unparameterized post_json (uses global default) when None. *)
-          let* status, response_body =
-            match provider.http_timeout_s with
-            | Some timeout_s ->
-                Http_client.post_json_with_timeout ~timeout_s ~uri ~headers
-                  ~body
-            | None -> Http_client.post_json ~uri ~headers ~body
+          let* status, response_body, body =
+            post_json_strict ~provider_name ~provider ~model ~uri ~headers
+              ~build_body:(fun ~enable ->
+                let body_fields =
+                  body_fields @ openai_tools_field ~enable tools
+                in
+                `Assoc body_fields |> Yojson.Safe.to_string)
+              ()
           in
           if status < 200 || status >= 300 then begin
             (* B638: dump the failing request/response to a one-shot diagnostic
@@ -446,6 +483,34 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
             | _ -> "")
             provider_name model (List.length messages)
             (estimate_messages_tokens messages / 1000));
+      let strict_key = strict_cache_key ~provider_name ~provider ~model in
+      let post_stream ~uri ~build_body ~on_ok =
+        let rec go ~enable =
+          let body = build_body ~enable in
+          Http_client.post_stream_with
+            ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
+            ~label:"LLM API error"
+            ~on_error:(fun r ->
+              let* err = Http_client.collect_error_body r.stream in
+              if
+                enable
+                && Tool_strict.should_retry_without_strict ~request_body:body
+                     ~status:r.status ~response_body:err
+              then (
+                Tool_strict.mark_unsupported strict_key;
+                Logs.warn (fun m ->
+                    m
+                      "B819: %s/%s rejected strict tools; retrying stream once \
+                       without strict"
+                      provider_name model);
+                go ~enable:false)
+              else
+                Lwt.fail_with
+                  (Printf.sprintf "LLM API error (HTTP %d): %s" r.status err))
+            ~on_ok ()
+        in
+        go ~enable:(Tool_strict.supported strict_key)
+      in
       match use_responses with
       | Some true ->
           let uri = base_url ^ "/responses" in
@@ -453,43 +518,41 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
             body_fields_base
             @ [ ("input", messages_json); ("store", `Bool false) ]
           in
-          let body_fields =
-            match tools with
-            | Some t when t <> `List [] ->
-                body_fields @ [ ("tools", convert_tools_to_responses t) ]
-            | _ -> body_fields
-          in
-          let body = `Assoc body_fields |> Yojson.Safe.to_string in
           (* B658: gate body-stream reads on provider.http_timeout_s *)
-          Http_client.post_stream_with
-            ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
-            ~label:"LLM API error"
+          post_stream ~uri
+            ~build_body:(fun ~enable ->
+              let prepared =
+                match tools with
+                | Some t when t <> `List [] ->
+                    Some (Tool_strict.prepare_openai_tools ~enable t)
+                | _ -> None
+              in
+              let body_fields =
+                match prepared with
+                | Some t when t <> `List [] ->
+                    body_fields @ [ ("tools", convert_tools_to_responses t) ]
+                | _ -> body_fields
+              in
+              `Assoc body_fields |> Yojson.Safe.to_string)
             ~on_ok:(fun stream ->
               process_responses_sse_stream
                 ~thinking_style:
                   (thinking_style_of_provider ~provider_name provider)
                 stream ~on_chunk)
-            ()
       | _ ->
           let uri = base_url ^ "/chat/completions" in
           let body_fields =
             body_fields_base @ [ ("messages", messages_json) ]
           in
-          let body_fields =
-            match tools with
-            | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
-            | _ -> body_fields
-          in
-          let body = `Assoc body_fields |> Yojson.Safe.to_string in
           (* B658: gate body-stream reads on provider.http_timeout_s so a
              dropped TCP / silent stall surfaces as a clear failure instead of
              wedging the agent loop. *)
-          Http_client.post_stream_with
-            ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
-            ~label:"LLM API error"
+          post_stream ~uri
+            ~build_body:(fun ~enable ->
+              `Assoc (body_fields @ openai_tools_field ~enable tools)
+              |> Yojson.Safe.to_string)
             ~on_ok:(fun stream ->
               process_sse_stream
                 ~thinking_style:
                   (thinking_style_of_provider ~provider_name provider)
-                stream ~on_chunk)
-            ())
+                stream ~on_chunk))
