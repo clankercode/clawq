@@ -117,14 +117,16 @@ For ChatGPT/Codex subscription auth instead of an API key, add a provider like t
     "openai-codex": {
       "kind": "openai-codex",
       "base_url": "https://chatgpt.com/backend-api/codex",
-      "default_model": "openai-codex:gpt-5.4"
+      "default_model": "openai-codex:gpt-6-luna"
     }
   },
   "agent_defaults": {
-    "primary_model": "openai-codex:gpt-5.4"
+    "primary_model": "openai-codex:gpt-6-luna"
   }
 }
 ```
+
+LLMP is the dual-API gateway at `https://omni-dyn-00.amaroolabs.com`. Add `llmp` (OpenAI base `/v1`, `Authorization: Bearer`) and `llmp_anthropic` (origin with no `/v1`, `x-api-key` only). Leave `api_key` empty when `~/.clawq/llmp-api.key` is present. Catalog ids look like `llmp:gpt-6-luna--fast`.
 
 `clawq auth codex-login openai-codex` opens a browser and waits for the OAuth callback on `http://localhost:1455/auth/callback`. If the browser cannot reach the local callback, paste the full redirect URL back into the terminal when prompted.
 
@@ -410,4 +412,4 @@ make fv-all
   binary and publishes `@clawq/clawq` from release tags; source builds remain
   the contributor/development path.
 
-When delegation quality matters, prefer `gpt-5.4` for Codex background work. Use `gpt-5.3-codex` when you specifically want the Codex-tuned path or need to mirror Codex OAuth defaults more closely.
+When delegation quality matters, prefer `gpt-6-luna` for Codex background work. ChatGPT Codex accounts reject `gpt-5.3-codex` and `gpt-5.4`. The OAuth default is `openai-codex:gpt-6-luna`, sent with the fast service tier.

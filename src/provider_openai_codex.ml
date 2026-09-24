@@ -4,6 +4,31 @@ let string_contains = String_util.string_contains
 let strip_provider_prefix model =
   Runtime_config.strip_model_provider_prefix model
 
+let fast_suffix = "--fast"
+
+let strip_fast_suffix model =
+  let n = String.length model in
+  let sn = String.length fast_suffix in
+  if n > sn && String.sub model (n - sn) sn = fast_suffix then
+    (String.sub model 0 (n - sn), true)
+  else (model, false)
+
+(* ChatGPT Codex subscriptions retired these ids. Quota failover used to send
+   the stored provider default verbatim, so rewrite them onto the current
+   account default. Fast is a service tier, not part of the model slug. *)
+let chatgpt_account_model model =
+  let bare, requested_fast = strip_fast_suffix (strip_provider_prefix model) in
+  let model =
+    match bare with
+    | "gpt-5.3-codex" | "gpt-5.4" | "gpt-5.4-mini" -> "gpt-6-luna"
+    | other -> other
+  in
+  let fast = requested_fast || model = "gpt-6-luna" in
+  if model <> bare then
+    Logs.warn (fun m ->
+        m "Codex ChatGPT accounts reject %s; sending %s instead" bare model);
+  (model, fast)
+
 let strip_opencodex_provider_prefix model =
   let prefix = Opencodex.provider_name ^ ":" in
   let prefix_length = String.length prefix in
@@ -431,13 +456,15 @@ let fixup_input_item_ordering items =
 
 let build_body ?provider_name ~model ~messages ?session_key
     ~(provider : Runtime_config.provider_config) tools =
-  let model =
+  let model, service_tier =
     if
       Opencodex.is_provider
         ~name:(Option.value ~default:"" provider_name)
         ~kind:provider.kind
-    then strip_opencodex_provider_prefix model
-    else strip_provider_prefix model
+    then (strip_opencodex_provider_prefix model, None)
+    else
+      let model, fast = chatgpt_account_model model in
+      (model, if fast then Some "fast" else None)
   in
   let instructions, non_system_messages = extract_instructions messages in
   let non_system_messages =
@@ -479,6 +506,9 @@ let build_body ?provider_name ~model ~messages ?session_key
        ("parallel_tool_calls", `Bool true);
        ("include", `List [ `String "reasoning.encrypted_content" ]);
      ]
+    @ (match service_tier with
+      | Some tier -> [ ("service_tier", `String tier) ]
+      | None -> [])
     @ (match tools_to_responses_tools tools with
       | `List [] -> []
       | mapped -> [ ("tools", mapped) ])

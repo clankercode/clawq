@@ -239,14 +239,14 @@ let test_chat_stream_model_set_bare_match_persists_canonical () =
   in
   let session_manager = Session.create ~config ~db () in
   let response =
-    chat_stream_response ~session_manager "/model set gpt-5.4-mini"
+    chat_stream_response ~session_manager "/model set gpt-5-codex"
   in
   Alcotest.(check bool)
     "response reports full provider:model" true
     (Test_helpers.string_contains response
-       "Model set to: openai-codex:gpt-5.4-mini");
+       "Model set to: openai-codex:gpt-5-codex");
   Alcotest.(check (option string))
-    "persists canonical model" (Some "openai-codex:gpt-5.4-mini")
+    "persists canonical model" (Some "openai-codex:gpt-5-codex")
     (Memory.get_session_model_override ~db ~session_key:"web:s")
 
 let with_temp_clawq_home_for_model_test f =

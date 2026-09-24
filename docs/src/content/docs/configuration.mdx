@@ -103,6 +103,7 @@ Structural changes that affect startup (enabling/disabling channels, changing ga
 | `CLAWQ_MCP_URL` | MCP-over-HTTP endpoint URL (e.g. `http://127.0.0.1:8080/mcp`). Auto-set for background tasks. |
 | `CLAWQ_RUNNER_ASK_URL` | Simple REST endpoint URL for non-MCP runners to ask questions (e.g. `http://127.0.0.1:8080/runner/ask`). Auto-set for background tasks. |
 | `OPENCODEX_API_AUTH_TOKEN` | OpenCodex admission token. Must begin with `ocx_`; used after an explicit provider `api_key` and before `~/.opencodex/api-token`. |
+| `LLMP_API_KEY` | LLMP consumer key. Used after a configured `api_key` and `~/.clawq/llmp-api.key`, and before the `llmp-api-key` command. |
 
 When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API keys are automatically decrypted at runtime. Encrypted values are stored with a `$ENC:` prefix.
 
@@ -160,6 +161,29 @@ OpenCodex is a multi-provider LAN proxy with a built-in endpoint of `http://cach
 Clawq resolves a valid token in this order: configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, then `~/.opencodex/api-token`. Tokens are trimmed and must start with `ocx_`; keep the token file at mode `0600`. If `cachy.lan` is unavailable, set `base_url` to `http://10.100.1.2:10100/v1`.
 
 OpenCodex always uses the OpenAI Responses API over HTTP at `<base_url>/responses`, sends the admission token as `x-opencodex-api-key`, and never uses a websocket transport. The Codex CLI settings `wire_api`, `supports_websockets`, `env_http_headers`, and `requires_openai_auth` are therefore not Clawq config fields. Run `clawq models refresh --provider opencodex` to discover the proxy's current routes, including names such as `gpt-*` and `xai/grok-*`. Inference requires the full `clawq` binary; `clawq-min` rejects this integration-only provider.
+
+#### LLMP gateway
+
+LLMP exposes the same consumer key on an OpenAI-compatible API and an Anthropic-compatible API. Catalog entries use the `llmp:` prefix (`llmp:gpt-6-luna--fast`, `llmp:xai/grok-4.7`). Image, video, muse, and sam ids are not chat models.
+
+```json
+{
+  "providers": {
+    "llmp": {
+      "kind": "llmp",
+      "base_url": "https://omni-dyn-00.amaroolabs.com/v1",
+      "default_model": "gpt-6-luna--fast"
+    },
+    "llmp_anthropic": {
+      "kind": "llmp_anthropic",
+      "base_url": "https://omni-dyn-00.amaroolabs.com",
+      "default_model": "gpt-6-luna--fast"
+    }
+  }
+}
+```
+
+Key lookup is the configured `api_key`, then `$CLAWQ_HOME/llmp-api.key` (default `~/.clawq/llmp-api.key`), then `LLMP_API_KEY`, then the first line of `llmp-api-key`. OpenAI calls send only `Authorization: Bearer`. Anthropic calls send only `x-api-key` and `anthropic-version`. The Anthropic base must be the origin without `/v1`, because Clawq appends `/v1/messages`. On the mesh, the same paths are `http://10.42.0.8:24584/v1` (`llmp_mesh`) and `http://10.42.0.8:24584` (`llmp_mesh_anthropic`).
 
 #### Xiaomi MiMo providers (zero-config)
 
@@ -646,7 +670,7 @@ The daemon reads `HEARTBEAT.md` from the workspace root on each tick.
 |-------|---------|-------------|
 | `ec_enabled` | `false` (true for `-dev` builds) | Enable the error correction watcher |
 | `scan_interval_s` | `30.0` | Seconds between daemon log scans |
-| `primary_models` | `["anthropic:claude-opus-4-6", "openai-codex:gpt-5.4"]` | Models for diagnosis |
+| `primary_models` | `["anthropic:claude-opus-4-6", "openai-codex:gpt-6-luna"]` | Models for diagnosis |
 | `fallback_models` | `["zai_coding:glm-5", "kimi_coding:kimi-for-code"]` | Fallback models |
 | `cooldown_s` | `300.0` | Cooldown between EC runs |
 | `max_errors_per_batch` | `10` | Max errors per scan batch |

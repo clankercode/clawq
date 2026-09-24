@@ -137,7 +137,7 @@ let test_to_plain_list () =
     "shows openai model" true
     (Test_helpers.string_contains list "openai:gpt-5.4");
   let has_anthropic_cache_ttl =
-    Test_helpers.string_contains list "anthropic:claude-sonnet-4-6"
+    Test_helpers.string_contains list "anthropic:claude-opus-4-6"
     && Test_helpers.string_contains list "cache 5m"
   in
   Alcotest.(check bool) "shows cache ttl" true has_anthropic_cache_ttl
@@ -151,7 +151,7 @@ let test_to_json () =
     List.find
       (fun entry ->
         entry |> member "provider" |> to_string = "anthropic"
-        && entry |> member "id" |> to_string = "claude-sonnet-4-6")
+        && entry |> member "id" |> to_string = "claude-opus-4-6")
       list
   in
   Alcotest.(check int)
@@ -287,6 +287,12 @@ let test_new_codex_entries_resolve () =
       "gpt-5.4";
       "gpt-5.4-mini";
       "gpt-5.5";
+      "gpt-5.6-luna";
+      "gpt-5.6-sol";
+      "gpt-5.6-terra";
+      "gpt-6-luna";
+      "gpt-6-sol";
+      "gpt-6-astra";
     ]
 
 let test_minimax_current_and_legacy_flags () =

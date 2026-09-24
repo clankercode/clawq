@@ -19,20 +19,24 @@ let default_base_url_for_kind = function
   | "openrouter" -> "https://openrouter.ai/api/v1"
   | "ollama" -> "http://localhost:11434"
   | "opencodex" -> Opencodex.default_base_url
+  | "llmp" -> Llmp.default_base_url
+  | "llmp_anthropic" -> Llmp.anthropic_base_url
+  | "llmp_mesh" -> Llmp.mesh_base_url
+  | "llmp_mesh_anthropic" -> Llmp.mesh_anthropic_base_url
   | _ -> "https://api.openai.com/v1"
 
 (* B676: also skip by provider NAME so providers whose config omits `kind`
    (e.g. kimi_coding, kimi, zai_coding) don't trigger spurious HTTP 401s
    against an /v1/models endpoint they don't support. *)
 let should_skip_provider ?name (pc : Runtime_config.provider_config) =
-  match pc.kind with
-  | Some k -> List.mem k skip_kinds
-  | None -> (
-      pc.api_key = ""
-      ||
-      match name with
-      | Some n -> List.mem (String.lowercase_ascii n) skip_kinds
-      | None -> false)
+  let named = Option.value ~default:"" name in
+  if Llmp.is_provider ~name:named pc then
+    not (Llmp.has_routable_auth (Llmp.resolve_api_key pc.api_key))
+  else
+    match pc.kind with
+    | Some k -> List.mem k skip_kinds
+    | None ->
+        pc.api_key = "" || List.mem (String.lowercase_ascii named) skip_kinds
 
 let is_ollama (pc : Runtime_config.provider_config) =
   match pc.kind with Some "ollama" -> true | _ -> false
@@ -44,6 +48,7 @@ let get_base_url ?name (pc : Runtime_config.provider_config) =
       match name with
       | Some name when Opencodex.is_provider ~name ~kind:pc.kind ->
           Opencodex.default_base_url
+      | Some name when Llmp.is_provider ~name pc -> Llmp.base_url_for ~name pc
       | _ -> (
           match pc.kind with
           | Some k -> default_base_url_for_kind k
@@ -52,6 +57,8 @@ let get_base_url ?name (pc : Runtime_config.provider_config) =
 let models_uri ~provider_name (pc : Runtime_config.provider_config) =
   if Opencodex.is_provider ~name:provider_name ~kind:pc.kind then
     Opencodex.models_uri pc
+  else if Llmp.is_provider ~name:provider_name pc then
+    Llmp.models_uri ~name:provider_name pc
   else get_base_url ~name:provider_name pc ^ "/models"
 
 let check_ttl_hours ~db ~provider ~hours =
@@ -468,7 +475,12 @@ let refresh_provider ~db ~provider_name
           then Opencodex.api_key_header
           else "Authorization"
         in
-        fetch_openai_models ~auth_header ~uri ~api_key:provider_config.api_key
+        let api_key =
+          if Llmp.is_provider ~name:provider_name provider_config then
+            Llmp.resolve_api_key provider_config.api_key
+          else provider_config.api_key
+        in
+        fetch_openai_models ~auth_header ~uri ~api_key
     in
     match result with
     | Error e ->

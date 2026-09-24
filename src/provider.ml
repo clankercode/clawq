@@ -104,13 +104,38 @@ let parse_openai_compat_response ?(thinking_style = NoThinking) ~model
                  thinking = thinking_text;
                })
 
+let bearer_headers ~provider_name (provider : Runtime_config.provider_config) =
+  let api_key =
+    if Llmp.is_openai_provider ~name:provider_name provider then
+      Llmp.resolve_api_key provider.api_key
+    else provider.api_key
+  in
+  [ ("Authorization", "Bearer " ^ api_key) ]
+
+let with_llmp_base_url ~provider_name
+    (provider : Runtime_config.provider_config) =
+  match provider.base_url with
+  | Some _ -> provider
+  | None when Llmp.is_provider ~name:provider_name provider ->
+      {
+        provider with
+        base_url = Some (Llmp.base_url_for ~name:provider_name provider);
+      }
+  | None -> provider
+
 let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
     ?preferred_provider ?quota_states () =
   let open Lwt.Syntax in
   let provider_name, provider, model =
     select_provider ~config ?preferred_provider ?quota_states ()
   in
+  let provider = with_llmp_base_url ~provider_name provider in
   let model = normalize_model_casing ~provider_name model in
+  let model =
+    if Llmp.is_provider ~name:provider_name provider then
+      Llmp.api_model_id model
+    else model
+  in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   (* Dispatch to native handler if registered *)
@@ -190,7 +215,7 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
             | _ -> body_fields
           in
           let body = `Assoc body_fields |> Yojson.Safe.to_string in
-          let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+          let headers = bearer_headers ~provider_name provider in
           Logs.info (fun m ->
               m "%s-> LLM(responses) provider=%s model=%s msgs=%d ~%dk tok"
                 sk_tag provider_name model (List.length messages)
@@ -266,7 +291,7 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
             | _ -> body_fields
           in
           let body = `Assoc body_fields |> Yojson.Safe.to_string in
-          let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+          let headers = bearer_headers ~provider_name provider in
           Logs.info (fun m ->
               m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
                 provider_name model (List.length messages)
@@ -352,7 +377,13 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
   let provider_name, provider, model =
     select_provider ~config ?preferred_provider ?quota_states ()
   in
+  let provider = with_llmp_base_url ~provider_name provider in
   let model = normalize_model_casing ~provider_name model in
+  let model =
+    if Llmp.is_provider ~name:provider_name provider then
+      Llmp.api_model_id model
+    else model
+  in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   (* Dispatch to native stream handler if registered *)
@@ -407,7 +438,7 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
             body_fields_base @ [ ("prompt_cache_retention", `String r) ]
         | _ -> body_fields_base
       in
-      let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+      let headers = bearer_headers ~provider_name provider in
       Logs.info (fun m ->
           m "%s-> LLM%s provider=%s model=%s msgs=%d ~%dk tok" sk_tag
             (match use_responses with

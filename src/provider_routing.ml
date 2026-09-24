@@ -40,7 +40,12 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
       let key = p.api_key in
       let url = String.lowercase_ascii (Option.value ~default:"" p.base_url) in
       let lname = String.lowercase_ascii name in
-      if String.length key >= 7 && String.sub key 0 7 = "sk-ant-" then Anthropic
+      (* LLMP name/kind wins over URL heuristics: the Anthropic origin has no
+         /v1 suffix and would otherwise look like a generic OpenAI base. *)
+      if Llmp.is_anthropic_provider ~name p then Anthropic
+      else if Llmp.is_openai_provider ~name p then OpenAICompat
+      else if String.length key >= 7 && String.sub key 0 7 = "sk-ant-" then
+        Anthropic
       else if String.length key >= 6 && String.sub key 0 6 = "AIzaSy" then
         Gemini
       else if
@@ -100,6 +105,11 @@ let default_base_url_for name =
       | "moonshot" -> "https://api.moonshot.cn/v1"
       | "minimax" -> "https://api.minimax.io"
       | "opencodex" -> Opencodex.default_base_url
+      | name when name = Llmp.provider_name -> Llmp.default_base_url
+      | name when name = Llmp.anthropic_provider_name -> Llmp.anthropic_base_url
+      | name when name = Llmp.mesh_provider_name -> Llmp.mesh_base_url
+      | name when name = Llmp.mesh_anthropic_provider_name ->
+          Llmp.mesh_anthropic_base_url
       | _ -> "https://openrouter.ai/api/v1")
 
 let strip_date_suffix = Model_utils.strip_date_suffix
@@ -125,6 +135,12 @@ let codex_associated_models =
     "gpt-5.4-mini";
     "gpt-5.4-pro";
     "gpt-5.5";
+    "gpt-5.6-luna";
+    "gpt-5.6-sol";
+    "gpt-5.6-terra";
+    "gpt-6-luna";
+    "gpt-6-sol";
+    "gpt-6-astra";
   ]
 
 let is_codex_associated_model norm =
@@ -155,6 +171,8 @@ let model_requires_temperature_one model =
 let provider_has_routable_auth ~name (p : Runtime_config.provider_config) =
   match detect_kind ~name p with
   | OpenCodex -> Opencodex.valid_token p.api_key
+  | _ when Llmp.is_provider ~name p ->
+      Llmp.has_routable_auth (Llmp.resolve_api_key p.api_key)
   | OpenAICodex -> (
       match p.codex_oauth with
       | Some creds ->

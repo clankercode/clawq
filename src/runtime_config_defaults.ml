@@ -9,7 +9,7 @@ let default_error_watcher_config : error_watcher_config =
   {
     enabled = n >= 4 && String.sub v (n - 4) 4 = "-dev";
     scan_interval_s = 30.0;
-    primary_models = [ "anthropic:claude-opus-4-6"; "openai-codex:gpt-5.4" ];
+    primary_models = [ "anthropic:claude-opus-4-6"; "openai-codex:gpt-6-luna" ];
     fallback_models = [ "zai_coding:glm-5"; "kimi_coding:kimi-for-coding" ];
     cooldown_s = 300.0;
     max_errors_per_batch = 10;
@@ -35,7 +35,7 @@ let default_debate_config : debate_config =
     enabled = true;
     default_models =
       [
-        "openai-codex:gpt-5.4";
+        "openai-codex:gpt-6-luna";
         "zai_coding:glm-5";
         "kimi_coding:kimi-for-coding";
       ];
@@ -141,7 +141,7 @@ let default =
     model_context_limits = [];
     agent_defaults =
       {
-        primary_model = "openai-codex:gpt-5.4";
+        primary_model = "openai-codex:gpt-6-luna";
         subagent_default_model = None;
         system_prompt = "";
         max_tool_iterations = 10;

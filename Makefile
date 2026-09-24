@@ -233,6 +233,12 @@ test-run:
 	$(call check_dune_lock,_build)
 	dune exec test/test_main.exe -- $(ARGS)
 
+# One exact suite, no docker and no skip walk. Prefer this over a substring
+# regex: `tools` also matches room_memory_tools, tools_help, and the rest.
+test-suite:
+	$(call check_dune_lock,_build)
+	dune exec test/test_main.exe -- test '^$(SUITE)$$' $(CASES)
+
 COVERAGE_SWITCH := clawq-coverage
 COVERAGE_UNSUPPORTED := bisect_ppx is currently incompatible with this repo's OCaml 5.1/Cmdliner 2 toolchain; coverage targets are disabled until a compatible release is available.
 

@@ -152,8 +152,8 @@ let runner_alias_table : (string * (runner * string)) list =
   [
     ("opus", (Claude, "claude-opus-4-6"));
     ("sonnet", (Claude, "claude-sonnet-4-6"));
-    ("haiku", (Claude, "claude-haiku-4-5"));
-    ("gpt-5", (Codex, "gpt-5.4"));
+    ("gpt-5", (Codex, "gpt-6-luna"));
+    ("gpt-6-luna", (Codex, "gpt-6-luna"));
     ("gpt-5.4", (Codex, "gpt-5.4"));
     ("codex-spark", (Codex, "gpt-5.3-codex-spark"));
     ("glm-5", (Opencode, "zai-coding-plan:glm-5"));

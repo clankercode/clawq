@@ -49,6 +49,9 @@ let post_setup_instructions =
     gemini         https://aistudio.google.com/apikey
     mistral        https://console.mistral.ai/api-keys
     groq           https://console.groq.com/keys
+    llmp           OpenAI base https://omni-dyn-00.amaroolabs.com/v1
+                   key file ~/.clawq/llmp-api.key, or $LLMP_API_KEY, or `llmp-api-key`
+    llmp_anthropic same key; base https://omni-dyn-00.amaroolabs.com (no /v1)
     openrouter     https://openrouter.ai/keys
 
   After adding a provider, set it as your default model:

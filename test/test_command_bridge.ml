@@ -3523,7 +3523,7 @@ let test_models_set_default_accepts_known_plain () =
          live validation safety net (B600). *)
       let result =
         Command_bridge.handle
-          [ "models"; "set-default"; "claude-sonnet-4-6"; "--skip-validation" ]
+          [ "models"; "set-default"; "claude-opus-4-6"; "--skip-validation" ]
       in
       Alcotest.(check bool)
         "confirms set" true
@@ -3531,7 +3531,7 @@ let test_models_set_default_accepts_known_plain () =
       Alcotest.(check bool)
         "shows full provider:model canonical" true
         (Test_helpers.string_contains result
-           "Default model set to: anthropic:claude-sonnet-4-6");
+           "Default model set to: anthropic:claude-opus-4-6");
       Alcotest.(check bool)
         "shows previous model + rollback" true
         (Test_helpers.string_contains result "Current model:"

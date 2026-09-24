@@ -213,7 +213,7 @@ let test_opencodex_skips_api_key_and_selects_http_responses_default () =
   Alcotest.check check_step "OpenCodex goes to model" ModelSelect m.step;
   let m, _ = update (Key Enter) m in
   Alcotest.(check string)
-    "OpenCodex primary model" "opencodex:gpt-5.4" m.primary_model
+    "OpenCodex primary model" "opencodex:gpt-6-luna" m.primary_model
 
 let test_prepopulated_model_preserves_tools_enabled () =
   (* Simulate a model pre-populated from existing config with tools disabled *)

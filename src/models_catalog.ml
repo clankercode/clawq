@@ -128,7 +128,7 @@ let known_models : model_info list =
       supports_vision = true;
       supports_tools = true;
       supports_thinking = true;
-      deprecated = false;
+      deprecated = true;
       unavailable = false;
     };
     {
@@ -161,7 +161,7 @@ let known_models : model_info list =
       supports_vision = true;
       supports_tools = true;
       supports_thinking = true;
-      deprecated = false;
+      deprecated = true;
       unavailable = false;
     };
     {
@@ -194,7 +194,7 @@ let known_models : model_info list =
       supports_vision = true;
       supports_tools = true;
       supports_thinking = false;
-      deprecated = false;
+      deprecated = true;
       unavailable = false;
     };
     {
@@ -227,7 +227,7 @@ let known_models : model_info list =
       supports_vision = true;
       supports_tools = true;
       supports_thinking = false;
-      deprecated = false;
+      deprecated = true;
       unavailable = false;
     };
     (* OpenAI *)
@@ -280,17 +280,114 @@ let known_models : model_info list =
     model "openai-codex" "gpt-5.3-codex-spark" ~context_window:128000
       ~supports_thinking:true;
     model "openai-codex" "gpt-5.3-codex" ~context_window:272000
-      ~supports_vision:true ~supports_thinking:true;
+      ~supports_vision:true ~supports_thinking:true ~deprecated:true;
     model "openai-codex" "gpt-5.4" ~context_window:1050000 ~supports_vision:true
-      ~supports_thinking:true;
+      ~supports_thinking:true ~deprecated:true;
     model "openai-codex" "gpt-5.4-mini" ~context_window:400000
-      ~supports_vision:true ~supports_thinking:true;
+      ~supports_vision:true ~supports_thinking:true ~deprecated:true;
     model "openai-codex" "gpt-5.5" ~context_window:272000 ~supports_vision:true
       ~supports_thinking:true;
+    model "openai-codex" "gpt-5.6-luna" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-5.6-sol" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-5.6-terra" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-6-luna" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-6-sol" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "openai-codex" "gpt-6-astra" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
     (* OpenCodex exposes a dynamic multi-provider catalog via /v1/models. Keep
        only the wizard default here; discovered gpt-* and xai/grok-* routes are
        stored in models_cache without pretending the proxy has a fixed list. *)
-    model "opencodex" "gpt-5.4" ~context_window:1050000 ~supports_vision:true
+    model "opencodex" "gpt-6-luna" ~context_window:272000 ~supports_vision:true
+      ~supports_thinking:true;
+    (* LLMP *)
+    model "llmp" "MiniMax-M2.5" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "MiniMax-M2.5-highspeed" ~context_window:204800
+      ~supports_thinking:true;
+    model "llmp" "MiniMax-M2.7" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "MiniMax-M2.7-highspeed" ~context_window:204800
+      ~supports_thinking:true;
+    model "llmp" "MiniMax-M3" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "glm-5.2" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "glm-5.3" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "glm-5.3-flash" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "glm-5.3-flashx" ~context_window:204800 ~supports_thinking:true;
+    model "llmp" "gpt-5.5" ~context_window:272000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-5.6-luna" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-5.6-luna--fast" ~context_window:340000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "gpt-5.6-sol" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-5.6-sol--fast" ~context_window:340000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "gpt-5.6-terra" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-5.6-terra--fast" ~context_window:340000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "gpt-6-astra" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-6-astra--fast" ~context_window:340000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "gpt-6-luna" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-6-luna--fast" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-6-sol" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-6-sol--fast" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-daybreak-blue-latest" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "gpt-daybreak-blue-latest--fast" ~context_window:272000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "grok-4.5" ~context_window:256000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "grok-4.6" ~context_window:256000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "grok-4.7" ~context_window:256000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "grok-imagine-image" ~context_window:8192 ~supports_tools:false;
+    model "llmp" "grok-imagine-image-2.0" ~context_window:8192
+      ~supports_tools:false;
+    model "llmp" "grok-imagine-image-quality" ~context_window:8192
+      ~supports_tools:false;
+    model "llmp" "grok-imagine-video" ~context_window:8192 ~supports_tools:false;
+    model "llmp" "grok-imagine-video-1.5" ~context_window:8192
+      ~supports_tools:false;
+    model "llmp" "k3" ~context_window:131072;
+    model "llmp" "k3-256k" ~context_window:256000;
+    model "llmp" "kimi-for-coding" ~context_window:262144
+      ~supports_thinking:true;
+    model "llmp" "kimi-for-coding-highspeed" ~context_window:262144
+      ~supports_thinking:true;
+    model "llmp" "mercury-2" ~context_window:128000;
+    model "llmp" "mercury-2.5" ~context_window:128000;
+    model "llmp" "muse-image-1.0" ~context_window:8192 ~supports_tools:false;
+    model "llmp" "muse-spark-1.3" ~context_window:8192 ~supports_tools:false;
+    model "llmp" "muse-spark-1.3-contributor" ~context_window:8192
+      ~supports_tools:false;
+    model "llmp" "muse-voice-transcribe-1.0" ~context_window:8192
+      ~supports_tools:false;
+    model "llmp" "sam-3.1" ~context_window:8192 ~supports_tools:false;
+    model "llmp" "xai/grok-4.6" ~context_window:350000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "xai/grok-4.6--fast" ~context_window:350000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "xai/grok-4.7" ~context_window:350000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "xai/grok-4.7-build-fast" ~context_window:350000
+      ~supports_vision:true ~supports_thinking:true;
+    model "llmp" "x-grok47" ~context_window:256000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "x-grok45" ~context_window:256000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "x-grok46" ~context_window:256000 ~supports_vision:true
       ~supports_thinking:true;
     (* Google Gemini *)
     {

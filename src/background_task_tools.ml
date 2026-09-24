@@ -188,7 +188,7 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
           with _ -> None
         in
         (* B487: accept either a bare runner name OR an alias like "opus",
-           "glm-5", "haiku". Aliases also supply a default model override
+           "glm-5". Aliases also supply a default model override
            when the caller didn't explicitly set one. *)
         let resolved_runner, alias_model =
           match Background_task.runner_and_model_of_string runner_s with
@@ -203,7 +203,7 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
             Lwt.return
               "Error: runner must be 'codex', 'claude', 'kimi', 'gemini', \
                'opencode', 'cursor', 'local', or a known alias (e.g. 'opus', \
-               'sonnet', 'haiku', 'gpt-5.4', 'codex-spark', 'glm-5', \
+               'sonnet', 'gpt-6-luna', 'gpt-5.4', 'codex-spark', 'glm-5', \
                'glm-5.1', 'kimi-coding'). Use 'local' with agent_name for \
                in-process agent execution."
         | Some Background_task.Claude
@@ -523,7 +523,7 @@ let delegate_tool_with_notify ?(check_available = true) ?config ~db
       "Delegate a coding task to a background subagent (Codex, Claude, Kimi, \
        Gemini, Opencode, or Cursor) that runs in its own git worktree. Use \
        when asked to spawn subagents, use workers, or run tasks with a \
-       specific model (e.g. 'use haiku to ...', 'delegate to sonnet'). \
+       specific model (e.g. 'delegate to sonnet', 'use gpt-6-luna'). \
        Auto-selects runner and repo by default.";
     parameters_schema =
       `Assoc
@@ -663,8 +663,8 @@ let delegate_tool_with_notify ?(check_available = true) ?config ~db
                       Some
                         "runner must be 'auto', 'codex', 'claude', 'kimi', \
                          'gemini', 'opencode', 'cursor', or a known alias \
-                         (opus, sonnet, haiku, gpt-5.4, codex-spark, glm-5, \
-                         glm-5.1, kimi-coding)" ))
+                         (opus, sonnet, gpt-6-luna, gpt-5.4, codex-spark, \
+                         glm-5, glm-5.1, kimi-coding)" ))
           with _ -> (None, None, None)
         in
         let repo_path =

@@ -3751,8 +3751,11 @@ let test_runner_alias_resolution () =
   in
   check_alias "opus" "claude" "claude-opus-4-6";
   check_alias "Sonnet" "claude" "claude-sonnet-4-6";
-  check_alias "  HAIKU  " "claude" "claude-haiku-4-5";
+  check_alias "gpt-6-luna" "codex" "gpt-6-luna";
   check_alias "gpt-5.4" "codex" "gpt-5.4";
+  Alcotest.(check bool)
+    "haiku alias removed" true
+    (Background_task.runner_and_model_of_string "haiku" = None);
   check_alias "codex-spark" "codex" "gpt-5.3-codex-spark";
   check_alias "glm-5" "opencode" "zai-coding-plan:glm-5";
   check_alias "glm-5.1" "opencode" "zai-coding-plan:glm-5.1";

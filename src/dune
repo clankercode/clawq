@@ -15,6 +15,7 @@
   phase2
   runtime_config_types
   opencodex
+  llmp
   runtime_config_models
   runtime_config_defaults
   egress_evaluator

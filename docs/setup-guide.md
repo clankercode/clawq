@@ -104,7 +104,7 @@ Clawq uses a single JSON configuration file located at `~/.clawq/config.json` (o
 
   // Agent defaults
   "agent_defaults": {
-    "primary_model": "openai-codex:gpt-5.4",
+    "primary_model": "openai-codex:gpt-6-luna",
     "max_tool_iterations": 10,
     "autonomous_continuation_delay": 90.0,
     "tool_status_mode": "consolidated"
@@ -176,7 +176,8 @@ The canonical format for model identifiers is `provider:model` (with a colon):
 ```
 openai:gpt-5.4
 anthropic:claude-opus-4-6
-openai-codex:gpt-5.4
+openai-codex:gpt-6-luna
+llmp:gpt-6-luna--fast
 ```
 
 Legacy `provider/model` (slash) and bare `model` formats are accepted but deprecated and produce warnings.
@@ -215,6 +216,29 @@ OpenCodex uses a fixed Responses-over-HTTP integration with custom admission aut
 ```
 
 The IP alternative is `http://10.100.1.2:10100/v1`. Clawq resolves `ocx_` tokens from a configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, then `~/.opencodex/api-token`, trims whitespace, and sends `x-opencodex-api-key` to `/responses` and `/models`. Direct file discovery means a shell export is optional for Clawq. Requests never use websocket transport; run model refresh to import the proxy's dynamic multi-provider catalog.
+
+#### LLMP gateway
+
+LLMP (`llm-api-passthrough`) is one consumer key on two API flavours. Catalog ids live under `llmp:` (for example `llmp:gpt-6-luna--fast`, `llmp:xai/grok-4.7`). Image, video, muse, and sam ids are non-chat.
+
+```json
+{
+  "providers": {
+    "llmp": {
+      "kind": "llmp",
+      "base_url": "https://omni-dyn-00.amaroolabs.com/v1",
+      "default_model": "gpt-6-luna--fast"
+    },
+    "llmp_anthropic": {
+      "kind": "llmp_anthropic",
+      "base_url": "https://omni-dyn-00.amaroolabs.com",
+      "default_model": "gpt-6-luna--fast"
+    }
+  }
+}
+```
+
+Leave `api_key` empty to use `~/.clawq/llmp-api.key` (`$CLAWQ_HOME/llmp-api.key`), then `$LLMP_API_KEY`, then the first line of `llmp-api-key`. Do not put the consumer key in `config.json` when the file is present. OpenAI requests send only `Authorization: Bearer`. Anthropic requests send only `x-api-key` plus `anthropic-version`. The Anthropic base is the origin with no `/v1`, because Clawq appends `/v1/messages`. Mesh equivalents are `http://10.42.0.8:24584/v1` (`llmp_mesh`) and `http://10.42.0.8:24584` (`llmp_mesh_anthropic`).
 
 ### Config Reload
 

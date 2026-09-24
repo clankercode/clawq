@@ -469,7 +469,7 @@ let cmd_onboard () =
     }
   },
   "agent_defaults": {
-    "primary_model": "openai-codex:gpt-5.4"
+    "primary_model": "openai-codex:gpt-6-luna"
   },
   "security": {
     "workspace_only": true,

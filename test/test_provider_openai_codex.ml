@@ -13,6 +13,61 @@ let test_strip_provider_prefix_no_sep () =
     "no separator" "codex-mini-latest"
     (Provider_openai_codex.strip_provider_prefix "codex-mini-latest")
 
+let request_body ?provider_name ?kind model =
+  let provider =
+    match kind with
+    | None -> Runtime_config.default_provider_config
+    | Some kind ->
+        { Runtime_config.default_provider_config with kind = Some kind }
+  in
+  Provider_openai_codex.build_body ?provider_name ~model ~messages:[] ~provider
+    None
+  |> Yojson.Safe.from_string
+
+let request_model ?provider_name ?kind model =
+  request_body ?provider_name ?kind model
+  |> Yojson.Safe.Util.member "model"
+  |> Yojson.Safe.Util.to_string
+
+let request_tier ?provider_name ?kind model =
+  match
+    request_body ?provider_name ?kind model
+    |> Yojson.Safe.Util.member "service_tier"
+  with
+  | `String tier -> Some tier
+  | `Null -> None
+  | _ -> Alcotest.fail "service_tier has unexpected type"
+
+let test_chatgpt_account_rewrites_deprecated_codex_model () =
+  Alcotest.(check string)
+    "slash default rewritten" "gpt-6-luna"
+    (request_model "openai-codex/gpt-5.3-codex");
+  Alcotest.(check string)
+    "colon default rewritten" "gpt-6-luna"
+    (request_model "openai-codex:gpt-5.4");
+  Alcotest.(check string)
+    "mini rewritten" "gpt-6-luna"
+    (request_model "gpt-5.4-mini");
+  Alcotest.(check string)
+    "fast suffix is a tier" "gpt-6-luna"
+    (request_model "gpt-6-luna--fast");
+  Alcotest.(check (option string))
+    "luna requests fast tier" (Some "fast")
+    (request_tier "openai-codex:gpt-6-luna");
+  Alcotest.(check (option string))
+    "older models stay on standard tier" None (request_tier "gpt-5.5");
+  Alcotest.(check string)
+    "spark unchanged" "gpt-5.3-codex-spark"
+    (request_model "gpt-5.3-codex-spark");
+  Alcotest.(check string)
+    "opencodex keeps upstream id" "gpt-5.3-codex"
+    (request_model ~provider_name:"opencodex" ~kind:"opencodex"
+       "opencodex:gpt-5.3-codex");
+  Alcotest.(check (option string))
+    "opencodex does not force fast tier" None
+    (request_tier ~provider_name:"opencodex" ~kind:"opencodex"
+       "opencodex:gpt-6-luna")
+
 let test_validate_codex_input_items_orphaned_output () =
   (* function_call_output with no matching function_call is dropped *)
   let items =
@@ -367,6 +422,8 @@ let suite =
       test_strip_provider_prefix_colon;
     Alcotest.test_case "strip_provider_prefix no separator" `Quick
       test_strip_provider_prefix_no_sep;
+    Alcotest.test_case "ChatGPT Codex rewrites deprecated gpt-5.3-codex" `Quick
+      test_chatgpt_account_rewrites_deprecated_codex_model;
     Alcotest.test_case "validate_codex_input_items orphaned output" `Quick
       test_validate_codex_input_items_orphaned_output;
     Alcotest.test_case "validate_codex_input_items orphaned call" `Quick

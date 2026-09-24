@@ -138,6 +138,23 @@ let parse_anthropic_response body model =
   with exn ->
     Error ("Failed to parse Anthropic response: " ^ Printexc.to_string exn)
 
+(* LLMP rejects mixed auth flavours with 400 ambiguous_authentication. *)
+let auth_headers (provider : Runtime_config.provider_config) =
+  if Llmp.is_anthropic_config provider then
+    [
+      ("x-api-key", Llmp.resolve_api_key provider.api_key);
+      ("anthropic-version", anthropic_version);
+    ]
+  else
+    [
+      ("x-api-key", provider.api_key);
+      (* B713: MiMo's Anthropic-compat endpoint expects "api-key" rather than
+         the standard Anthropic "x-api-key" header.  Sending both is harmless
+         for real Anthropic and covers MiMo transparently. *)
+      ("api-key", provider.api_key);
+      ("anthropic-version", anthropic_version);
+    ]
+
 let complete ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
     ?session_key:_ () =
@@ -187,16 +204,7 @@ let complete ~(config : Runtime_config.t)
     | _ -> body_fields
   in
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
-  let headers =
-    [
-      ("x-api-key", provider.api_key);
-      (* B713: MiMo's Anthropic-compat endpoint expects "api-key" rather than
-         the standard Anthropic "x-api-key" header.  Sending both is harmless
-         for real Anthropic and covers MiMo transparently. *)
-      ("api-key", provider.api_key);
-      ("anthropic-version", anthropic_version);
-    ]
-  in
+  let headers = auth_headers provider in
   Logs.info (fun m ->
       m "Anthropic request to %s model=%s msgs=%d" uri model
         (List.length messages));
@@ -507,13 +515,7 @@ let complete_streaming ~(config : Runtime_config.t)
     | _ -> body_fields
   in
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
-  let headers =
-    [
-      ("x-api-key", provider.api_key);
-      ("api-key", provider.api_key);
-      ("anthropic-version", anthropic_version);
-    ]
-  in
+  let headers = auth_headers provider in
   Logs.info (fun m ->
       m "Anthropic stream request to %s model=%s msgs=%d" uri model
         (List.length messages));

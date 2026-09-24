@@ -4069,16 +4069,16 @@ let test_models_tool_set_canonicalizes_unique_plain_with_skip_validation () =
          (`Assoc
             [
               ("action", `String "set");
-              ("model", `String "claude-sonnet-4-6");
+              ("model", `String "claude-opus-4-6");
               ("skip_validation", `Bool true);
             ]))
   in
   Alcotest.(check bool)
     "set accepts unique bare model" true
     (Test_helpers.string_contains result
-       "Model set to: anthropic:claude-sonnet-4-6");
+       "Model set to: anthropic:claude-opus-4-6");
   Alcotest.(check string)
-    "stores canonical model" "anthropic:claude-sonnet-4-6"
+    "stores canonical model" "anthropic:claude-opus-4-6"
     (Session.get_session_effective_model mgr ~key:session_key)
 
 let test_models_tool_set_rejects_plain_catalog_deprecated_cached_model () =

@@ -305,7 +305,7 @@ let test_model_set_bare_match_persists_canonical () =
          ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
            sent := text :: !sent;
            Lwt.return_unit)
-         (slack_slash_event "/model set gpt-5.4-mini"))
+         (slack_slash_event "/model set gpt-5-codex"))
   in
   Alcotest.(check string) "returns ok" "ok" result;
   Alcotest.(check bool)
@@ -313,10 +313,10 @@ let test_model_set_bare_match_persists_canonical () =
     (List.exists
        (fun text ->
          Test_helpers.string_contains text
-           "Model set to: openai-codex:gpt-5.4-mini")
+           "Model set to: openai-codex:gpt-5-codex")
        !sent);
   Alcotest.(check (option string))
-    "persists canonical session model" (Some "openai-codex:gpt-5.4-mini")
+    "persists canonical session model" (Some "openai-codex:gpt-5-codex")
     (Memory.get_session_model_override ~db ~session_key:"slack:C123:U456")
 
 let test_model_set_force_ambiguous_preserves_session_model () =

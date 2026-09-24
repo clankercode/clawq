@@ -10,8 +10,11 @@ let client_id = "app_EMoamEEZ73f0CkXaXp7hrann"
 let scopes = "openid profile email offline_access"
 let codex_base_url = "https://chatgpt.com/backend-api/codex"
 let default_provider_name = "openai-codex"
-let default_model = "openai-codex/gpt-5.3-codex"
-let default_primary_model = "openai-codex:gpt-5.3-codex"
+
+(* ChatGPT Codex accounts retired gpt-5.3-codex and gpt-5.4. Fast is a
+   service tier on gpt-6-luna, not a separate model slug. *)
+let default_model = "openai-codex:gpt-6-luna"
+let default_primary_model = "openai-codex:gpt-6-luna"
 
 type token_bundle = Runtime_config.codex_oauth_config
 

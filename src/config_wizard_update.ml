@@ -15,6 +15,8 @@ let provider_presets =
     ("openai", "https://api.openai.com/v1");
     ("anthropic", "https://api.anthropic.com/v1");
     ("groq", "https://api.groq.com/openai/v1");
+    ("llmp", "https://omni-dyn-00.amaroolabs.com/v1");
+    ("llmp_anthropic", "https://omni-dyn-00.amaroolabs.com");
     ("ollama", "http://localhost:11434/v1");
   ]
   @ xiaomi_provider_presets
@@ -28,16 +30,16 @@ let provider_names =
     "groq";
     "ollama";
     "opencodex";
+    "llmp";
+    "llmp_anthropic";
   ]
   @ Xiaomi.provider_names @ [ "custom" ]
 
 let model_presets =
   [
     Openai_codex_oauth.default_primary_model;
-    "opencodex:gpt-5.4";
-    "openai-codex:gpt-5.4";
-    "anthropic:claude-sonnet-4-6";
-    "anthropic:claude-haiku-4-5";
+    "opencodex:gpt-6-luna";
+    "llmp:gpt-6-luna--fast";
     "groq:llama-3.3-70b";
     "openai:o3-mini";
     "custom";
@@ -131,11 +133,15 @@ let transition_from_provider_select m (si : select_input) =
               (match name with
               | "openai-codex" -> Some "openai-codex"
               | "opencodex" -> Some "opencodex"
+              | "llmp" -> Some Llmp.provider_name
+              | "llmp_anthropic" -> Some Llmp.anthropic_provider_name
               | _ -> None);
             default_model =
               (match name with
               | "openai-codex" -> Openai_codex_oauth.default_model
               | "opencodex" -> Opencodex.default_model
+              | "llmp" -> "llmp:gpt-6-luna--fast"
+              | "llmp_anthropic" -> "llmp_anthropic:gpt-6-luna--fast"
               | _ -> "");
           }
     in
@@ -150,9 +156,13 @@ let transition_from_provider_select m (si : select_input) =
         (make_text_input ~placeholder:"provider-name" "Provider name")
         m
     else
+      let placeholder =
+        if name = Llmp.provider_name || name = Llmp.anthropic_provider_name then
+          "optional; ~/.clawq/llmp-api.key"
+        else "sk-..."
+      in
       goto ProviderApiKey
-        (make_text_input ~secret:true ~value:cp.api_key ~placeholder:"sk-..."
-           "API key")
+        (make_text_input ~secret:true ~value:cp.api_key ~placeholder "API key")
         m
 
 let transition_from_api_key m (ti : text_input) =
@@ -162,7 +172,13 @@ let transition_from_api_key m (ti : text_input) =
     else { cp with api_key = ti.value }
   in
   let m = { m with current_provider = cp } in
-  if cp.api_key = "" && cp.name <> "custom" then
+  let llmp_key_optional =
+    cp.name = Llmp.provider_name
+    || cp.name = Llmp.anthropic_provider_name
+    || cp.name = Llmp.mesh_provider_name
+    || cp.name = Llmp.mesh_anthropic_provider_name
+  in
+  if cp.api_key = "" && cp.name <> "custom" && not llmp_key_optional then
     (* They entered the name for custom, now ask for key *)
     goto ProviderApiKey
       (make_text_input ~secret:true ~placeholder:"sk-..." "API key")

@@ -126,7 +126,7 @@ let test_debug_header_redacted () =
   | _ -> Alcotest.fail "expected one redacted header"
 
 let test_catalog_default () =
-  match Models_catalog.find_by_full_name "opencodex:gpt-5.4" with
+  match Models_catalog.find_by_full_name "opencodex:gpt-6-luna" with
   | Some model ->
       Alcotest.(check string)
         "catalog provider" "opencodex" model.Models_catalog.provider

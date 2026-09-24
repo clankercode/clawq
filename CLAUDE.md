@@ -47,7 +47,8 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 ## Running a Single Test (Important)
 
 - List all: `make test-run ARGS="list"`
-- By suite regex: `make test-run ARGS="test <SUITE_REGEX>"`
+- By exact suite: `make test-suite SUITE=command_bridge` (optional `CASES=20`)
+- By suite regex: `make test-run ARGS="test <SUITE_REGEX>"` — anchor it (`^name$$`). A substring such as `tools` runs every suite whose name contains that text.
 - By case index: `make test-run ARGS="test command_bridge 20"`
 - Multiple indices/ranges: `make test-run ARGS="test scheduler 0,3,8-10"`
 - The test binary subcommand is `test` (not a direct suite name). Regex applies to suite names; case selection is numeric indexes.
@@ -109,7 +110,7 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 
 ## Model Format Convention
 
-- Canonical format: `provider:model` (colon), e.g. `openai:gpt-5.4`. Default: `"openai-codex:gpt-5.4"`.
+- Canonical format: `provider:model` (colon), e.g. `openai:gpt-5.4`. Default: `"openai-codex:gpt-6-luna"`.
 - Legacy `provider/model` (slash) and bare `model` are accepted but deprecated; warnings shown at config load/status/set.
 - `models set-default` auto-normalizes to canonical. See `src/pmodel.ml` for parsing API.
 

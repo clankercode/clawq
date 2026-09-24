@@ -28,412 +28,448 @@ let check_config_not_modified () =
       | Some t -> string_of_float t
       | None -> "absent")
 
+let all_suites =
+  [
+    ("ambient_policy", Test_ambient_policy.suite);
+    ("clawq_core", Test_clawq_core.suite);
+    ("agent_loop_conformance", Test_agent_loop_conformance.suite);
+    ("agent_scoped_memory", Test_agent_scoped_memory.suite);
+    ("room_memory_tools", Test_room_memory_tools.suite);
+    ("cli_exit", Test_cli_exit.suite);
+    ("command_bridge", Test_command_bridge.suite);
+    ("phase3", Test_phase3.suite);
+    ("postmortem", Test_postmortem.suite);
+    ("scheduler", Test_scheduler.suite);
+    ("cron_room_preflight", Test_cron_room_preflight.suite);
+    ("background_task", Test_background_task.suite);
+    ("subagent_context", Test_subagent_context.suite);
+    ("bg_shell", Test_bg_shell.suite);
+    ("migrate", Test_migrate.suite);
+    ("audit", Test_audit.suite);
+    ("daemon", Test_daemon.suite);
+    ("daemon_logging", Test_daemon_logging.suite);
+    ("service", Test_service.suite);
+    ("restart", Test_restart.suite);
+    ("room_session", Test_room_session.suite);
+    ("room_origin", Test_room_origin.suite);
+    ("room_workspace", Test_room_workspace.suite);
+    ("room_activity_ledger", Test_room_activity_ledger.suite);
+    ("room_audit_export", Test_room_audit_export.suite);
+    ("room_github_backlinks", Test_room_github_backlinks.suite);
+    ("room_progress_checklist", Test_room_progress_checklist.suite);
+    ("room_session_record", Test_room_session_record.suite);
+    ("slack_progress_checklist", Test_slack_progress_checklist.suite);
+    ("teams_progress_card", Test_teams_progress_card.suite);
+    ("room_ux_smoke", Test_room_ux_smoke.suite);
+    ("teams_delivery_lifecycle", Test_teams_delivery_lifecycle.suite);
+    ("teams_delivery_regression", Test_teams_delivery_regression.suite);
+    ("teams_what_can_do", Test_teams_what_can_do.suite);
+    ("setup_room_wizard", Test_setup_room_wizard.suite);
+    ("setup_room_wizard_validate", Test_setup_room_wizard_validate.suite);
+    ("room_agent_setup_plan", Test_room_agent_setup_plan.suite);
+    ("room_agent_setup_apply", Test_room_agent_setup_apply.suite);
+    ("setup_framework_contract", Test_setup_framework_contract.suite);
+    ("url_sanitize", Test_url_sanitize.suite);
+    ("room_stale_query", Test_room_stale_query.suite);
+    ("room_watcher_decision", Test_room_watcher_decision.suite);
+    ("room_ambient_delivery", Test_room_ambient_delivery.suite);
+    ("ambient_inspection", Test_ambient_inspection.suite);
+    ("room_progress", Test_room_progress.suite);
+    ("session", Test_session.suite);
+    ("session_observer", Test_session_observer.suite);
+    ("session_persistence", Test_session_persistence.suite);
+    ("update_tool", Test_update_tool.suite);
+    ("update_pkg_manager", Test_update_pkg_manager.suite);
+    ("skills", Test_skills.suite);
+    ("skills_cmd_inject", Test_skills_cmd_inject.suite);
+    ("memory_search", Test_memory_search.suite);
+    ("memory_ledger", Test_memory_ledger.suite);
+    ("history_search", Test_history_search.suite);
+    ("streaming", Test_streaming.suite);
+    ("stream_visibility", Test_stream_visibility.suite);
+    ("connector_tool_calls", Test_connector_tool_calls.suite);
+    ("notify", Test_notify.suite);
+    ("http_server", Test_http_server.suite);
+    ("config_loader", Test_config_loader.suite);
+    ("egress_rules", Test_egress_rules.suite);
+    ("egress_evaluator", Test_egress_evaluator.suite);
+    ("egress_audit", Test_egress_audit.suite);
+    ("egress_deny_mode", Test_egress_deny_mode.suite);
+    ("egress_decision_redaction", Test_egress_decision_redaction.suite);
+    ("credential_handles", Test_credential_handles.suite);
+    ("credential_lease", Test_credential_lease.suite);
+    ("builtin_credential_lease", Test_builtin_credential_lease.suite);
+    ("prompt_builder", Test_prompt_builder.suite);
+    ("vector", Test_vector.suite);
+    ("secret_store", Test_secret_store.suite);
+    ("scope_resolver", Test_scope_resolver.suite);
+    ("invariant_conformance", Test_invariant_conformance.suite);
+    ("access_snapshot", Test_access_snapshot.suite);
+    ("access_explanation", Test_access_explanation.suite);
+    ("setup_plan", Test_setup_plan.suite);
+    ("setup_plan_apply", Test_setup_plan_apply.suite);
+    ("setup_plan_consent", Test_setup_plan_consent.suite);
+    ("setup_plan_bundle", Test_setup_plan_bundle.suite);
+    ("principal_identity", Test_principal_identity.suite);
+    ("principal_identity_store", Test_principal_identity_store.suite);
+    ("principal_bootstrap", Test_principal_bootstrap.suite);
+    ("principal_resolve", Test_principal_resolve.suite);
+    ("principal_link_protocol", Test_principal_link_protocol.suite);
+    ("principal_link_exec", Test_principal_link_exec.suite);
+    ("principal_merge", Test_principal_merge.suite);
+    ("github_account_binding", Test_github_account_binding.suite);
+    ( "github_account_ownership_policy",
+      Test_github_account_ownership_policy.suite );
+    ("github_account_preference", Test_github_account_preference.suite);
+    ( "github_eligible_account_resolve",
+      Test_github_eligible_account_resolve.suite );
+    ("github_account_admin_surface", Test_github_account_admin_surface.suite);
+    ("github_account_cli", Test_github_account_cli.suite);
+    ("github_user_auth_enablement", Test_github_user_auth_enablement.suite);
+    ("principal_unlink_split", Test_principal_unlink_split.suite);
+    ("actor_snapshot", Test_actor_snapshot.suite);
+    ("principal_legacy_migrate", Test_principal_legacy_migrate.suite);
+    ( "principal_isolation_attribution",
+      Test_principal_isolation_attribution.suite );
+    ("teams_principal", Test_teams_principal_ingress.suite);
+    ("slack_principal", Test_slack_principal_ingress.suite);
+    ("discord_principal", Test_discord_principal_ingress.suite);
+    ("telegram_principal", Test_telegram_principal_ingress.suite);
+    ("github_app_setup_tx", Test_github_app_setup_tx.suite);
+    ("github_app_setup_callback", Test_github_app_setup_callback.suite);
+    ("github_app_setup_resume", Test_github_app_setup_resume.suite);
+    ("github_route_runtime", Test_github_route_runtime.suite);
+    ("github_app_installation_scope", Test_github_app_installation_scope.suite);
+    ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);
+    ("github_event_envelope", Test_github_event_envelope.suite);
+    ("github_route_filter", Test_github_route_filter.suite);
+    ("github_filter_enrichment", Test_github_filter_enrichment.suite);
+    ("github_route_filter_eval", Test_github_route_filter_eval.suite);
+    ("github_route_filter_preview", Test_github_route_filter_preview.suite);
+    ("github_route_store", Test_github_route_store.suite);
+    ("github_route_match", Test_github_route_match.suite);
+    ("github_route_match_advanced", Test_github_route_match_advanced.suite);
+    ("github_route_match_fixtures", Test_github_route_match_fixtures.suite);
+    ("github_route_transfer", Test_github_route_transfer.suite);
+    ("github_route_migrate", Test_github_route_migrate.suite);
+    ("github_route_admin", Test_github_route_admin.suite);
+    ("github_route_apply", Test_github_route_apply.suite);
+    ("github_route_ops", Test_github_route_ops.suite);
+    ("github_route_diagnostics", Test_github_route_diagnostics.suite);
+    ("github_route_upgrade_validate", Test_github_route_upgrade_validate.suite);
+    ("github_route_docs", Test_github_route_docs.suite);
+    ("github_p19_docs", Test_github_p19_docs.suite);
+    ("github_room_event_journal", Test_github_room_event_journal.suite);
+    ("github_item_projection", Test_github_item_projection.suite);
+    ("github_comment_mode", Test_github_comment_mode.suite);
+    ("github_event_history_index", Test_github_event_history_index.suite);
+    ("github_delivery_intent", Test_github_delivery_intent.suite);
+    ("github_delivery_outbox", Test_github_delivery_outbox.suite);
+    ("github_delivery_reconcile", Test_github_delivery_reconcile.suite);
+    ("github_delivery_ops", Test_github_delivery_ops.suite);
+    ("github_teams_card_render", Test_github_teams_card_render.suite);
+    ("github_plain_delivery", Test_github_plain_delivery_render.suite);
+    ("github_item_context", Test_github_item_context_resolve.suite);
+    ("github_collab_grounding", Test_github_collab_grounding.suite);
+    ("github_collab_actions", Test_github_collab_actions.suite);
+    ("github_collab_attribution", Test_github_collab_attribution.suite);
+    ("github_pr_review_actions", Test_github_pr_review_actions.suite);
+    ("github_pr_review_attribution", Test_github_pr_review_attribution.suite);
+    ("github_code_change", Test_github_code_change_action.suite);
+    ("github_code_change_attribution", Test_github_code_change_attribution.suite);
+    ("github_room_background", Test_github_room_background_work.suite);
+    ("github_merge_action", Test_github_merge_action.suite);
+    ("github_merge_attribution", Test_github_merge_attribution.suite);
+    ("github_issue_actions", Test_github_issue_actions.suite);
+    ("github_issue_attribution", Test_github_issue_attribution.suite);
+    ("github_workflow_dispatch", Test_github_workflow_dispatch.suite);
+    ( "github_workflow_dispatch_attribution",
+      Test_github_workflow_dispatch_attribution.suite );
+    ("github_action_workflow", Test_github_action_workflow.suite);
+    ( "github_action_actor_attribution",
+      Test_github_action_actor_attribution.suite );
+    ( "github_durable_job_actor_attribution",
+      Test_github_durable_job_actor_attribution.suite );
+    ("github_delayed_attribution", Test_github_delayed_attribution.suite);
+    ("github_action_reconcile", Test_github_action_reconcile.suite);
+    ("github_p19_integration", Test_github_p19_integration.suite);
+    ("github_p21_integration", Test_github_p21_integration.suite);
+    ("github_p21_security", Test_github_p21_security.suite);
+    ("github_p21_pilot_dryrun", Test_github_p21_pilot_dryrun.suite);
+    ("github_p21_docs", Test_github_p21_docs.suite);
+    ("github_p21_adr_glossary", Test_github_p21_adr_glossary.suite);
+    ("github_p21_operator_docs", Test_github_p21_operator_docs.suite);
+    ("github_room_tools", Test_github_room_tools.suite);
+    ("github_auth_selection", Test_github_auth_selection.suite);
+    ("github_attribution_policy", Test_github_attribution_policy.suite);
+    ("github_attribution_fallback", Test_github_attribution_fallback.suite);
+    ("github_attribution_authorize", Test_github_attribution_authorize.suite);
+    ( "github_attribution_dispatch_lease",
+      Test_github_attribution_dispatch_lease.suite );
+    ("github_attribution_audit", Test_github_attribution_audit.suite);
+    ("github_attribution_rollout", Test_github_attribution_rollout.suite);
+    ("github_app_pat_compat", Test_github_app_pat_compat.suite);
+    ("github_user_auth_readiness", Test_github_user_auth_readiness.suite);
+    ("github_user_auth_tx", Test_github_user_auth_tx.suite);
+    ("github_user_auth_delivery", Test_github_user_auth_delivery.suite);
+    ("github_user_auth_pkce", Test_github_user_auth_pkce.suite);
+    ("github_user_auth_pkce_callback", Test_github_user_auth_pkce_callback.suite);
+    ("github_user_auth_device", Test_github_user_auth_device.suite);
+    ("github_user_auth_device_poll", Test_github_user_auth_device_poll.suite);
+    ("github_user_auth_activate", Test_github_user_auth_activate.suite);
+    ( "github_user_auth_revocation_webhook",
+      Test_github_user_auth_revocation_webhook.suite );
+    ("github_user_auth_invalidate", Test_github_user_auth_invalidate.suite);
+    ("github_user_auth_diagnostics", Test_github_user_auth_diagnostics.suite);
+    ("github_user_token", Test_github_user_token_store.suite);
+    ("github_user_token_master_key", Test_github_user_token_master_key.suite);
+    ("github_user_token_vault", Test_github_user_token_vault.suite);
+    ("github_user_token_lease", Test_github_user_token_lease.suite);
+    ("github_user_token_cas", Test_github_user_token_cas.suite);
+    ("github_user_token_refresh", Test_github_user_token_refresh.suite);
+    ("github_user_token_rewrap", Test_github_user_token_rewrap.suite);
+    ( "github_user_token_vault_recovery",
+      Test_github_user_token_vault_recovery.suite );
+    ( "github_user_token_vault_security",
+      Test_github_user_token_vault_security.suite );
+    ("tool_authz", Test_tool_authz.suite);
+    ("tool_catalog", Test_tool_catalog.suite);
+    ("tool_discovery", Test_tool_discovery.suite);
+    ("tool_discovery_adapters", Test_tool_discovery_adapters.suite);
+    ("mcp_catalog", Test_mcp_catalog.suite);
+    ("mcp_room_scope", Test_mcp_room_scope.suite);
+    ("mcp_registry_publish", Test_mcp_registry_publish.suite);
+    ("tool_scope_conformance", Test_tool_scope_conformance.suite);
+    ("openai_codex_oauth", Test_openai_codex_oauth.suite);
+    ("provider_openai_codex", Test_provider_openai_codex.suite);
+    ("tools_security", Test_tools_security.suite);
+    ("mcp", Test_mcp.suite);
+    ("mcp_credential_lease", Test_mcp.credential_lease_suite);
+    ("runner_integration", Test_runner_integration.suite);
+    ("runner_relay", Test_runner_relay.suite);
+    ("session_host", Test_session_host.suite);
+    ("session_host_tmux", Test_session_host_tmux.suite);
+    ("github_work_item", Test_github_work_item.suite);
+    ("runner_isolation", Test_runner_isolation.suite);
+    ("repo_execution_policy", Test_repo_execution_policy.suite);
+    ("github_trigger", Test_github_trigger.suite);
+    ("work_item_lease", Test_work_item_lease.suite);
+    ("worker_readiness", Test_worker_readiness.suite);
+    ("resilience", Test_resilience.suite);
+    ("perf", Test_perf.suite);
+    ("memory_retention", Test_memory_retention.suite);
+    ("memory_isolation", Test_memory_isolation.suite);
+    ("landlock", Test_landlock.suite);
+    ("rate_limiter", Test_rate_limiter.suite);
+    ("slack", Test_slack.suite);
+    ("slack_profiles", Test_slack.test_suite_with_profiles);
+    ("slack_private_policy", Test_slack.private_channel_policy_suite);
+    ("discord", Test_discord.suite);
+    ("attachment_download", Test_attachment_download.suite);
+    ("group_chat_filter", Test_group_chat_filter.suite);
+    ("dot_dir", Test_dot_dir.suite);
+    ("discord_gateway", Test_discord_gateway.suite);
+    ("slack_socket", Test_slack_socket.suite);
+    ("slash_commands", Test_slash_commands.suite);
+    ("provider", Test_provider.suite);
+    ("profile_policy", Test_profile_policy.suite);
+    ("room_policy", Test_room_policy.suite);
+    ("invocation_restrict", Test_invocation_restrict.suite);
+    ("provider_quota", Test_provider_quota.suite);
+    ("totp", Test_totp.suite);
+    ("cost_tracker", Test_cost_tracker.suite);
+    ("request_stats", Test_request_stats.suite);
+    ("debate", Test_debate.suite);
+    ("agent_router", Test_agent_router.suite);
+    ("agent_template", Test_agent_template.suite);
+    ("signal", Test_signal.suite);
+    ("http_client", Test_http_client.suite);
+    ("http_debug", Test_http_debug.suite);
+    ("policy_http_client", Test_policy_http_client.suite);
+    ("matrix", Test_matrix.suite);
+    ("irc", Test_irc.suite);
+    ("email", Test_email.suite);
+    ("whatsapp", Test_whatsapp.suite);
+    ("nostr", Test_nostr.suite);
+    ("mattermost", Test_mattermost.suite);
+    ("lark", Test_lark.suite);
+    ("line", Test_line.suite);
+    ("dingtalk", Test_dingtalk.suite);
+    ("onebot", Test_onebot.suite);
+    ("imessage", Test_imessage.suite);
+    ("sandbox", Test_sandbox.suite);
+    ("provider_anthropic", Test_provider_anthropic.suite);
+    ("provider_minimax", Test_provider_minimax.suite);
+    ("wasm", Test_wasm.suite);
+    ("tunnels", Test_tunnels.suite);
+    ("tunnel_manager", Test_tunnel_manager.suite);
+    ("pairing", Test_pairing.suite);
+    ("memory", Test_memory.suite);
+    ("memory_archive", Test_memory_archive.suite);
+    ("room_profile_reconcile", Test_room_profile_reconcile.suite);
+    ("room_budget", Test_room_budget.suite);
+    ("room_request_classifier", Test_room_request_classifier.suite);
+    ("chat_ui", Test_chat_ui.suite);
+    ("ui_server", Test_ui_server.suite);
+    ("channel_formats", Test_channel_formats.suite);
+    ("hooks", Test_hooks.suite);
+    ("commands", Test_commands.suite);
+    ("contracts", Test_contracts.suite);
+    ("tools_help", Test_tools_help.suite);
+    ("tools", Test_tools.suite);
+    ("telegram_dedupe", Test_telegram_dedupe.suite);
+    ("config_set", Test_config_set.suite);
+    ("config_show", Test_config_show.suite);
+    ("config_tree", Test_config_tree.suite);
+    ("config_search", Test_config_search.suite);
+    ("config_wizard", Test_config_wizard.suite);
+    ("status_message", Test_status_message.suite);
+    ("format_adapter", Test_format_adapter.suite);
+    ("reaction_tracker", Test_reaction_tracker.suite);
+    ("telegram_format", Test_telegram_format.suite);
+    ("telegram_status", Test_telegram_status.suite);
+    ("telegram_typing", Test_telegram_typing.suite);
+    ("typing_indicator", Test_typing_indicator.suite);
+    ("telegram_reactions", Test_telegram_reactions.suite);
+    ("compaction_flush", Test_compaction_flush.suite);
+    ("b710_pre_switch_compact", Test_b710.suite);
+    ("task_tree", Test_task_tree.suite);
+    ("plan_pipeline", Test_plan_pipeline.suite);
+    ("structured_pipeline", Test_structured_pipeline.suite);
+    ("benchmark", Test_benchmark.suite);
+    ("models_catalog", Test_models_catalog.suite);
+    ("opencodex", Test_opencodex.suite);
+    ("llmp", Test_llmp.suite);
+    ("xiaomi", Test_xiaomi.suite);
+    ("provider_xiaomi", Test_provider_xiaomi.suite);
+    ("native_subagents_e2e", Test_native_subagents_e2e.suite);
+    ("model_discovery", Test_model_discovery.suite);
+    ("model_preferences", Test_model_preferences.suite);
+    ("session_keepalive", Test_keepalive.suite);
+    ("completions", Test_completions.suite);
+    ("session_model_override", Test_session_model_override.suite);
+    ("model_validation", Test_model_validation.suite);
+    ("summarizer", Test_summarizer.suite);
+    ("ask_user_question", Test_ask_user_question.suite);
+    ("question_presenter", Test_question_presenter.suite);
+  ]
+  @ [ ("setup_github", Test_setup_github.suite) ]
+  @ [ ("setup_discord", Test_setup_discord.suite) ]
+  @ [ ("setup_slack", Test_setup_slack.suite) ]
+  @ [ ("setup_teams", Test_setup_teams.suite) ]
+  @ [ ("teams", Test_teams.suite) ]
+  @ [ ("setup_telegram", Test_setup_telegram.suite) ]
+  @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
+  @ [ ("setup_summarizer", Test_setup_summarizer.suite) ]
+  @ [ ("setup_tui", Test_setup_tui.suite) ]
+  @ [ ("setup_provider", Test_setup_provider.suite) ]
+  @ [ ("setup_web_search", Test_setup_web_search.suite) ]
+  @ [ ("setup_voice", Test_setup_voice.suite) ]
+  @ [ ("setup_cron", Test_setup_cron.suite) ]
+  @ [ ("setup_imessage", Test_setup_imessage.suite) ]
+  @ [ ("setup_security", Test_setup_security.suite) ]
+  @ [ ("setup_gateway", Test_setup_gateway.suite) ]
+  @ [ ("setup_totp", Test_setup_totp.suite) ]
+  @ [ ("setup_line", Test_setup_line.suite) ]
+  @ [ ("setup_whatsapp", Test_setup_whatsapp.suite) ]
+  @ [ ("setup_mattermost", Test_setup_mattermost.suite) ]
+  @ [ ("setup_dingtalk", Test_setup_dingtalk.suite) ]
+  @ [ ("setup_signal_channel", Test_setup_signal_channel.suite) ]
+  @ [ ("setup_matrix", Test_setup_matrix.suite) ]
+  @ [ ("setup_irc", Test_setup_irc.suite) ]
+  @ [ ("setup_email", Test_setup_email.suite) ]
+  @ [ ("setup_nostr", Test_setup_nostr.suite) ]
+  @ [ ("setup_lark", Test_setup_lark.suite) ]
+  @ [ ("setup_onebot", Test_setup_onebot.suite) ]
+  @ [ ("setup_notify", Test_setup_notify.suite) ]
+  @ [ ("setup_error_watcher", Test_setup_error_watcher.suite) ]
+  @ [ ("setup_observer", Test_setup_observer.suite) ]
+  @ [ ("setup_zai_mcp", Test_setup_zai_mcp.suite) ]
+  @ [ ("setup_memory", Test_setup_memory.suite) ]
+  @ [ ("setup_prompt", Test_setup_prompt.suite) ]
+  @ [ ("setup_resilience", Test_setup_resilience.suite) ]
+  @ [ ("setup_heartbeat", Test_setup_heartbeat.suite) ]
+  @ [ ("log_rotation", Test_log_rotation.suite) ]
+  @ [ ("worktree_merge", Test_worktree_merge.suite) ]
+  @ [ ("table_format", Test_table_format.tests) ]
+  @ [ ("markdown_util", Test_markdown_util.suite) ]
+  @ [ ("error_watcher", Test_error_watcher.suite) ]
+  @ [ ("connector_capabilities", Test_connector_capabilities.tests) ]
+  @ [ ("connector_history", Test_connector_history.tests) ]
+  @ [ ("status_update", Test_status_update.tests) ]
+  @ [ ("content_dsl", Test_content_dsl.tests) ]
+  @ [ ("workspace_version", Test_workspace_version.suite) ]
+  @ [ ("acp", Test_acp.suite) ]
+  @ [ ("admin", Test_admin.suite) ]
+  @ [ ("voice_transcription", Test_voice_transcription.suite) ]
+  @ [ ("pair_coding", Test_pair_coding.suite) ]
+  @ [ ("webhook_handler", Test_webhook_handler.suite) ]
+  @ [ ("browser", Test_browser.suite) ]
+  @ [ ("rig", Test_rig.suite) ]
+  @ [ ("held_items", Test_held_items.suite) ]
+  @ [ ("repo_manager", Test_repo_manager.suite) ]
+  @ Test_github.suites
+  @ [
+      ("github_ci_summary", Test_github_normalized.ci_summary_suite);
+      ("github_review_summary", Test_github_normalized.review_summary_suite);
+      ("github_mergeability", Test_github_normalized.mergeability_suite);
+      ("github_parse_review", Test_github_normalized.parse_review_suite);
+    ]
+  @ [ ("github_app_config", Test_github_app_config.suite) ]
+  @ [ ("github_app_token", Test_github_app_token.suite) ]
+  @ [ ("github_pr_subscriptions", Test_github_pr_subscriptions.suite) ]
+  @ [ ("github_pr_dispatch", Test_github_pr_dispatch.suite) ]
+  @ [ ("github_pr_policy", Test_github_pr_policy.suite) ]
+  @ [ ("github_review_run", Test_github_review_run.suite) ]
+  @ [ ("workflow_run_trigger", Test_workflow_run_trigger.suite) ]
+  @ [ ("github_pr_lifecycle_leak", Test_github_pr_lifecycle_leak.suite) ]
+  @ [ ("github_backlink_self_loop", Test_github_backlink_self_loop.suite) ]
+  @ [
+      ("minimal_reload", Test_minimal_reload.suite);
+      ( "config_isolation",
+        [
+          Alcotest.test_case "real config.json not modified by tests" `Quick
+            check_config_not_modified;
+        ] );
+    ]
+
+(* Alcotest still walks every registered suite and prints a skip line for each
+   non-match. A broad filter such as "tools" therefore spends minutes printing
+   skips before it runs the cases that actually matched. Drop non-matching
+   suites before run so a focused invocation only pays for those suites. *)
+let is_flag s = s <> "" && s.[0] = '-'
+
+let suite_name_filter () =
+  match Array.to_list Sys.argv with
+  | _ :: "test" :: rest -> (
+      match List.filter (fun s -> not (is_flag s)) rest with
+      | re :: _ -> Some re
+      | [] -> None)
+  | _ -> None
+
+let filter_suites suites =
+  match suite_name_filter () with
+  | None -> suites
+  | Some re -> (
+      match
+        try Some (Str.regexp re) with Failure _ | Invalid_argument _ -> None
+      with
+      | None -> suites
+      | Some rx ->
+          let matched =
+            List.filter
+              (fun (name, _) ->
+                try
+                  ignore (Str.search_forward rx name 0);
+                  true
+                with Not_found -> false)
+              suites
+          in
+          if matched = [] then (
+            Printf.eprintf "No test suite matches %S\n%!" re;
+            exit 2);
+          matched)
+
 let () =
   Unix.putenv Service.test_disable_live_signal_restart_env "1";
-  Alcotest.run "clawq"
-    ([
-       ("ambient_policy", Test_ambient_policy.suite);
-       ("clawq_core", Test_clawq_core.suite);
-       ("agent_loop_conformance", Test_agent_loop_conformance.suite);
-       ("agent_scoped_memory", Test_agent_scoped_memory.suite);
-       ("room_memory_tools", Test_room_memory_tools.suite);
-       ("cli_exit", Test_cli_exit.suite);
-       ("command_bridge", Test_command_bridge.suite);
-       ("phase3", Test_phase3.suite);
-       ("postmortem", Test_postmortem.suite);
-       ("scheduler", Test_scheduler.suite);
-       ("cron_room_preflight", Test_cron_room_preflight.suite);
-       ("background_task", Test_background_task.suite);
-       ("subagent_context", Test_subagent_context.suite);
-       ("bg_shell", Test_bg_shell.suite);
-       ("migrate", Test_migrate.suite);
-       ("audit", Test_audit.suite);
-       ("daemon", Test_daemon.suite);
-       ("daemon_logging", Test_daemon_logging.suite);
-       ("service", Test_service.suite);
-       ("restart", Test_restart.suite);
-       ("room_session", Test_room_session.suite);
-       ("room_origin", Test_room_origin.suite);
-       ("room_workspace", Test_room_workspace.suite);
-       ("room_activity_ledger", Test_room_activity_ledger.suite);
-       ("room_audit_export", Test_room_audit_export.suite);
-       ("room_github_backlinks", Test_room_github_backlinks.suite);
-       ("room_progress_checklist", Test_room_progress_checklist.suite);
-       ("room_session_record", Test_room_session_record.suite);
-       ("slack_progress_checklist", Test_slack_progress_checklist.suite);
-       ("teams_progress_card", Test_teams_progress_card.suite);
-       ("room_ux_smoke", Test_room_ux_smoke.suite);
-       ("teams_delivery_lifecycle", Test_teams_delivery_lifecycle.suite);
-       ("teams_delivery_regression", Test_teams_delivery_regression.suite);
-       ("teams_what_can_do", Test_teams_what_can_do.suite);
-       ("setup_room_wizard", Test_setup_room_wizard.suite);
-       ("setup_room_wizard_validate", Test_setup_room_wizard_validate.suite);
-       ("room_agent_setup_plan", Test_room_agent_setup_plan.suite);
-       ("room_agent_setup_apply", Test_room_agent_setup_apply.suite);
-       ("setup_framework_contract", Test_setup_framework_contract.suite);
-       ("url_sanitize", Test_url_sanitize.suite);
-       ("room_stale_query", Test_room_stale_query.suite);
-       ("room_watcher_decision", Test_room_watcher_decision.suite);
-       ("room_ambient_delivery", Test_room_ambient_delivery.suite);
-       ("ambient_inspection", Test_ambient_inspection.suite);
-       ("room_progress", Test_room_progress.suite);
-       ("session", Test_session.suite);
-       ("session_observer", Test_session_observer.suite);
-       ("session_persistence", Test_session_persistence.suite);
-       ("update_tool", Test_update_tool.suite);
-       ("update_pkg_manager", Test_update_pkg_manager.suite);
-       ("skills", Test_skills.suite);
-       ("skills_cmd_inject", Test_skills_cmd_inject.suite);
-       ("memory_search", Test_memory_search.suite);
-       ("memory_ledger", Test_memory_ledger.suite);
-       ("history_search", Test_history_search.suite);
-       ("streaming", Test_streaming.suite);
-       ("stream_visibility", Test_stream_visibility.suite);
-       ("connector_tool_calls", Test_connector_tool_calls.suite);
-       ("notify", Test_notify.suite);
-       ("http_server", Test_http_server.suite);
-       ("config_loader", Test_config_loader.suite);
-       ("egress_rules", Test_egress_rules.suite);
-       ("egress_evaluator", Test_egress_evaluator.suite);
-       ("egress_audit", Test_egress_audit.suite);
-       ("egress_deny_mode", Test_egress_deny_mode.suite);
-       ("egress_decision_redaction", Test_egress_decision_redaction.suite);
-       ("credential_handles", Test_credential_handles.suite);
-       ("credential_lease", Test_credential_lease.suite);
-       ("builtin_credential_lease", Test_builtin_credential_lease.suite);
-       ("prompt_builder", Test_prompt_builder.suite);
-       ("vector", Test_vector.suite);
-       ("secret_store", Test_secret_store.suite);
-       ("scope_resolver", Test_scope_resolver.suite);
-       ("invariant_conformance", Test_invariant_conformance.suite);
-       ("access_snapshot", Test_access_snapshot.suite);
-       ("access_explanation", Test_access_explanation.suite);
-       ("setup_plan", Test_setup_plan.suite);
-       ("setup_plan_apply", Test_setup_plan_apply.suite);
-       ("setup_plan_consent", Test_setup_plan_consent.suite);
-       ("setup_plan_bundle", Test_setup_plan_bundle.suite);
-       ("principal_identity", Test_principal_identity.suite);
-       ("principal_identity_store", Test_principal_identity_store.suite);
-       ("principal_bootstrap", Test_principal_bootstrap.suite);
-       ("principal_resolve", Test_principal_resolve.suite);
-       ("principal_link_protocol", Test_principal_link_protocol.suite);
-       ("principal_link_exec", Test_principal_link_exec.suite);
-       ("principal_merge", Test_principal_merge.suite);
-       ("github_account_binding", Test_github_account_binding.suite);
-       ( "github_account_ownership_policy",
-         Test_github_account_ownership_policy.suite );
-       ("github_account_preference", Test_github_account_preference.suite);
-       ( "github_eligible_account_resolve",
-         Test_github_eligible_account_resolve.suite );
-       ("github_account_admin_surface", Test_github_account_admin_surface.suite);
-       ("github_account_cli", Test_github_account_cli.suite);
-       ("github_user_auth_enablement", Test_github_user_auth_enablement.suite);
-       ("principal_unlink_split", Test_principal_unlink_split.suite);
-       ("actor_snapshot", Test_actor_snapshot.suite);
-       ("principal_legacy_migrate", Test_principal_legacy_migrate.suite);
-       ( "principal_isolation_attribution",
-         Test_principal_isolation_attribution.suite );
-       ("teams_principal", Test_teams_principal_ingress.suite);
-       ("slack_principal", Test_slack_principal_ingress.suite);
-       ("discord_principal", Test_discord_principal_ingress.suite);
-       ("telegram_principal", Test_telegram_principal_ingress.suite);
-       ("github_app_setup_tx", Test_github_app_setup_tx.suite);
-       ("github_app_setup_callback", Test_github_app_setup_callback.suite);
-       ("github_app_setup_resume", Test_github_app_setup_resume.suite);
-       ("github_route_runtime", Test_github_route_runtime.suite);
-       ( "github_app_installation_scope",
-         Test_github_app_installation_scope.suite );
-       ("github_app_webhook_ingress", Test_github_app_webhook_ingress.suite);
-       ("github_event_envelope", Test_github_event_envelope.suite);
-       ("github_route_filter", Test_github_route_filter.suite);
-       ("github_filter_enrichment", Test_github_filter_enrichment.suite);
-       ("github_route_filter_eval", Test_github_route_filter_eval.suite);
-       ("github_route_filter_preview", Test_github_route_filter_preview.suite);
-       ("github_route_store", Test_github_route_store.suite);
-       ("github_route_match", Test_github_route_match.suite);
-       ("github_route_match_advanced", Test_github_route_match_advanced.suite);
-       ("github_route_match_fixtures", Test_github_route_match_fixtures.suite);
-       ("github_route_transfer", Test_github_route_transfer.suite);
-       ("github_route_migrate", Test_github_route_migrate.suite);
-       ("github_route_admin", Test_github_route_admin.suite);
-       ("github_route_apply", Test_github_route_apply.suite);
-       ("github_route_ops", Test_github_route_ops.suite);
-       ("github_route_diagnostics", Test_github_route_diagnostics.suite);
-       ( "github_route_upgrade_validate",
-         Test_github_route_upgrade_validate.suite );
-       ("github_route_docs", Test_github_route_docs.suite);
-       ("github_p19_docs", Test_github_p19_docs.suite);
-       ("github_room_event_journal", Test_github_room_event_journal.suite);
-       ("github_item_projection", Test_github_item_projection.suite);
-       ("github_comment_mode", Test_github_comment_mode.suite);
-       ("github_event_history_index", Test_github_event_history_index.suite);
-       ("github_delivery_intent", Test_github_delivery_intent.suite);
-       ("github_delivery_outbox", Test_github_delivery_outbox.suite);
-       ("github_delivery_reconcile", Test_github_delivery_reconcile.suite);
-       ("github_delivery_ops", Test_github_delivery_ops.suite);
-       ("github_teams_card_render", Test_github_teams_card_render.suite);
-       ("github_plain_delivery", Test_github_plain_delivery_render.suite);
-       ("github_item_context", Test_github_item_context_resolve.suite);
-       ("github_collab_grounding", Test_github_collab_grounding.suite);
-       ("github_collab_actions", Test_github_collab_actions.suite);
-       ("github_collab_attribution", Test_github_collab_attribution.suite);
-       ("github_pr_review_actions", Test_github_pr_review_actions.suite);
-       ("github_pr_review_attribution", Test_github_pr_review_attribution.suite);
-       ("github_code_change", Test_github_code_change_action.suite);
-       ( "github_code_change_attribution",
-         Test_github_code_change_attribution.suite );
-       ("github_room_background", Test_github_room_background_work.suite);
-       ("github_merge_action", Test_github_merge_action.suite);
-       ("github_merge_attribution", Test_github_merge_attribution.suite);
-       ("github_issue_actions", Test_github_issue_actions.suite);
-       ("github_issue_attribution", Test_github_issue_attribution.suite);
-       ("github_workflow_dispatch", Test_github_workflow_dispatch.suite);
-       ( "github_workflow_dispatch_attribution",
-         Test_github_workflow_dispatch_attribution.suite );
-       ("github_action_workflow", Test_github_action_workflow.suite);
-       ( "github_action_actor_attribution",
-         Test_github_action_actor_attribution.suite );
-       ( "github_durable_job_actor_attribution",
-         Test_github_durable_job_actor_attribution.suite );
-       ("github_delayed_attribution", Test_github_delayed_attribution.suite);
-       ("github_action_reconcile", Test_github_action_reconcile.suite);
-       ("github_p19_integration", Test_github_p19_integration.suite);
-       ("github_p21_integration", Test_github_p21_integration.suite);
-       ("github_p21_security", Test_github_p21_security.suite);
-       ("github_p21_pilot_dryrun", Test_github_p21_pilot_dryrun.suite);
-       ("github_p21_docs", Test_github_p21_docs.suite);
-       ("github_p21_adr_glossary", Test_github_p21_adr_glossary.suite);
-       ("github_p21_operator_docs", Test_github_p21_operator_docs.suite);
-       ("github_room_tools", Test_github_room_tools.suite);
-       ("github_auth_selection", Test_github_auth_selection.suite);
-       ("github_attribution_policy", Test_github_attribution_policy.suite);
-       ("github_attribution_fallback", Test_github_attribution_fallback.suite);
-       ("github_attribution_authorize", Test_github_attribution_authorize.suite);
-       ( "github_attribution_dispatch_lease",
-         Test_github_attribution_dispatch_lease.suite );
-       ("github_attribution_audit", Test_github_attribution_audit.suite);
-       ("github_attribution_rollout", Test_github_attribution_rollout.suite);
-       ("github_app_pat_compat", Test_github_app_pat_compat.suite);
-       ("github_user_auth_readiness", Test_github_user_auth_readiness.suite);
-       ("github_user_auth_tx", Test_github_user_auth_tx.suite);
-       ("github_user_auth_delivery", Test_github_user_auth_delivery.suite);
-       ("github_user_auth_pkce", Test_github_user_auth_pkce.suite);
-       ( "github_user_auth_pkce_callback",
-         Test_github_user_auth_pkce_callback.suite );
-       ("github_user_auth_device", Test_github_user_auth_device.suite);
-       ("github_user_auth_device_poll", Test_github_user_auth_device_poll.suite);
-       ("github_user_auth_activate", Test_github_user_auth_activate.suite);
-       ( "github_user_auth_revocation_webhook",
-         Test_github_user_auth_revocation_webhook.suite );
-       ("github_user_auth_invalidate", Test_github_user_auth_invalidate.suite);
-       ("github_user_auth_diagnostics", Test_github_user_auth_diagnostics.suite);
-       ("github_user_token", Test_github_user_token_store.suite);
-       ("github_user_token_master_key", Test_github_user_token_master_key.suite);
-       ("github_user_token_vault", Test_github_user_token_vault.suite);
-       ("github_user_token_lease", Test_github_user_token_lease.suite);
-       ("github_user_token_cas", Test_github_user_token_cas.suite);
-       ("github_user_token_refresh", Test_github_user_token_refresh.suite);
-       ("github_user_token_rewrap", Test_github_user_token_rewrap.suite);
-       ( "github_user_token_vault_recovery",
-         Test_github_user_token_vault_recovery.suite );
-       ( "github_user_token_vault_security",
-         Test_github_user_token_vault_security.suite );
-       ("tool_authz", Test_tool_authz.suite);
-       ("tool_catalog", Test_tool_catalog.suite);
-       ("tool_discovery", Test_tool_discovery.suite);
-       ("tool_discovery_adapters", Test_tool_discovery_adapters.suite);
-       ("mcp_catalog", Test_mcp_catalog.suite);
-       ("mcp_room_scope", Test_mcp_room_scope.suite);
-       ("mcp_registry_publish", Test_mcp_registry_publish.suite);
-       ("tool_scope_conformance", Test_tool_scope_conformance.suite);
-       ("openai_codex_oauth", Test_openai_codex_oauth.suite);
-       ("provider_openai_codex", Test_provider_openai_codex.suite);
-       ("tools_security", Test_tools_security.suite);
-       ("mcp", Test_mcp.suite);
-       ("mcp_credential_lease", Test_mcp.credential_lease_suite);
-       ("runner_integration", Test_runner_integration.suite);
-       ("runner_relay", Test_runner_relay.suite);
-       ("session_host", Test_session_host.suite);
-       ("session_host_tmux", Test_session_host_tmux.suite);
-       ("github_work_item", Test_github_work_item.suite);
-       ("runner_isolation", Test_runner_isolation.suite);
-       ("repo_execution_policy", Test_repo_execution_policy.suite);
-       ("github_trigger", Test_github_trigger.suite);
-       ("work_item_lease", Test_work_item_lease.suite);
-       ("worker_readiness", Test_worker_readiness.suite);
-       ("resilience", Test_resilience.suite);
-       ("perf", Test_perf.suite);
-       ("memory_retention", Test_memory_retention.suite);
-       ("memory_isolation", Test_memory_isolation.suite);
-       ("landlock", Test_landlock.suite);
-       ("rate_limiter", Test_rate_limiter.suite);
-       ("slack", Test_slack.suite);
-       ("slack_profiles", Test_slack.test_suite_with_profiles);
-       ("slack_private_policy", Test_slack.private_channel_policy_suite);
-       ("discord", Test_discord.suite);
-       ("attachment_download", Test_attachment_download.suite);
-       ("group_chat_filter", Test_group_chat_filter.suite);
-       ("dot_dir", Test_dot_dir.suite);
-       ("discord_gateway", Test_discord_gateway.suite);
-       ("slack_socket", Test_slack_socket.suite);
-       ("slash_commands", Test_slash_commands.suite);
-       ("provider", Test_provider.suite);
-       ("profile_policy", Test_profile_policy.suite);
-       ("room_policy", Test_room_policy.suite);
-       ("invocation_restrict", Test_invocation_restrict.suite);
-       ("provider_quota", Test_provider_quota.suite);
-       ("totp", Test_totp.suite);
-       ("cost_tracker", Test_cost_tracker.suite);
-       ("request_stats", Test_request_stats.suite);
-       ("debate", Test_debate.suite);
-       ("agent_router", Test_agent_router.suite);
-       ("agent_template", Test_agent_template.suite);
-       ("signal", Test_signal.suite);
-       ("http_client", Test_http_client.suite);
-       ("http_debug", Test_http_debug.suite);
-       ("policy_http_client", Test_policy_http_client.suite);
-       ("matrix", Test_matrix.suite);
-       ("irc", Test_irc.suite);
-       ("email", Test_email.suite);
-       ("whatsapp", Test_whatsapp.suite);
-       ("nostr", Test_nostr.suite);
-       ("mattermost", Test_mattermost.suite);
-       ("lark", Test_lark.suite);
-       ("line", Test_line.suite);
-       ("dingtalk", Test_dingtalk.suite);
-       ("onebot", Test_onebot.suite);
-       ("imessage", Test_imessage.suite);
-       ("sandbox", Test_sandbox.suite);
-       ("provider_anthropic", Test_provider_anthropic.suite);
-       ("provider_minimax", Test_provider_minimax.suite);
-       ("wasm", Test_wasm.suite);
-       ("tunnels", Test_tunnels.suite);
-       ("tunnel_manager", Test_tunnel_manager.suite);
-       ("pairing", Test_pairing.suite);
-       ("memory", Test_memory.suite);
-       ("memory_archive", Test_memory_archive.suite);
-       ("room_profile_reconcile", Test_room_profile_reconcile.suite);
-       ("room_budget", Test_room_budget.suite);
-       ("room_request_classifier", Test_room_request_classifier.suite);
-       ("chat_ui", Test_chat_ui.suite);
-       ("ui_server", Test_ui_server.suite);
-       ("channel_formats", Test_channel_formats.suite);
-       ("hooks", Test_hooks.suite);
-       ("commands", Test_commands.suite);
-       ("contracts", Test_contracts.suite);
-       ("tools_help", Test_tools_help.suite);
-       ("tools", Test_tools.suite);
-       ("telegram_dedupe", Test_telegram_dedupe.suite);
-       ("config_set", Test_config_set.suite);
-       ("config_show", Test_config_show.suite);
-       ("config_tree", Test_config_tree.suite);
-       ("config_search", Test_config_search.suite);
-       ("config_wizard", Test_config_wizard.suite);
-       ("status_message", Test_status_message.suite);
-       ("format_adapter", Test_format_adapter.suite);
-       ("reaction_tracker", Test_reaction_tracker.suite);
-       ("telegram_format", Test_telegram_format.suite);
-       ("telegram_status", Test_telegram_status.suite);
-       ("telegram_typing", Test_telegram_typing.suite);
-       ("typing_indicator", Test_typing_indicator.suite);
-       ("telegram_reactions", Test_telegram_reactions.suite);
-       ("compaction_flush", Test_compaction_flush.suite);
-       ("b710_pre_switch_compact", Test_b710.suite);
-       ("task_tree", Test_task_tree.suite);
-       ("plan_pipeline", Test_plan_pipeline.suite);
-       ("structured_pipeline", Test_structured_pipeline.suite);
-       ("benchmark", Test_benchmark.suite);
-       ("models_catalog", Test_models_catalog.suite);
-       ("opencodex", Test_opencodex.suite);
-       ("xiaomi", Test_xiaomi.suite);
-       ("provider_xiaomi", Test_provider_xiaomi.suite);
-       ("native_subagents_e2e", Test_native_subagents_e2e.suite);
-       ("model_discovery", Test_model_discovery.suite);
-       ("model_preferences", Test_model_preferences.suite);
-       ("session_keepalive", Test_keepalive.suite);
-       ("completions", Test_completions.suite);
-       ("session_model_override", Test_session_model_override.suite);
-       ("model_validation", Test_model_validation.suite);
-       ("summarizer", Test_summarizer.suite);
-       ("ask_user_question", Test_ask_user_question.suite);
-       ("question_presenter", Test_question_presenter.suite);
-     ]
-    @ [ ("setup_github", Test_setup_github.suite) ]
-    @ [ ("setup_discord", Test_setup_discord.suite) ]
-    @ [ ("setup_slack", Test_setup_slack.suite) ]
-    @ [ ("setup_teams", Test_setup_teams.suite) ]
-    @ [ ("teams", Test_teams.suite) ]
-    @ [ ("setup_telegram", Test_setup_telegram.suite) ]
-    @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
-    @ [ ("setup_summarizer", Test_setup_summarizer.suite) ]
-    @ [ ("setup_tui", Test_setup_tui.suite) ]
-    @ [ ("setup_provider", Test_setup_provider.suite) ]
-    @ [ ("setup_web_search", Test_setup_web_search.suite) ]
-    @ [ ("setup_voice", Test_setup_voice.suite) ]
-    @ [ ("setup_cron", Test_setup_cron.suite) ]
-    @ [ ("setup_imessage", Test_setup_imessage.suite) ]
-    @ [ ("setup_security", Test_setup_security.suite) ]
-    @ [ ("setup_gateway", Test_setup_gateway.suite) ]
-    @ [ ("setup_totp", Test_setup_totp.suite) ]
-    @ [ ("setup_line", Test_setup_line.suite) ]
-    @ [ ("setup_whatsapp", Test_setup_whatsapp.suite) ]
-    @ [ ("setup_mattermost", Test_setup_mattermost.suite) ]
-    @ [ ("setup_dingtalk", Test_setup_dingtalk.suite) ]
-    @ [ ("setup_signal_channel", Test_setup_signal_channel.suite) ]
-    @ [ ("setup_matrix", Test_setup_matrix.suite) ]
-    @ [ ("setup_irc", Test_setup_irc.suite) ]
-    @ [ ("setup_email", Test_setup_email.suite) ]
-    @ [ ("setup_nostr", Test_setup_nostr.suite) ]
-    @ [ ("setup_lark", Test_setup_lark.suite) ]
-    @ [ ("setup_onebot", Test_setup_onebot.suite) ]
-    @ [ ("setup_notify", Test_setup_notify.suite) ]
-    @ [ ("setup_error_watcher", Test_setup_error_watcher.suite) ]
-    @ [ ("setup_observer", Test_setup_observer.suite) ]
-    @ [ ("setup_zai_mcp", Test_setup_zai_mcp.suite) ]
-    @ [ ("setup_memory", Test_setup_memory.suite) ]
-    @ [ ("setup_prompt", Test_setup_prompt.suite) ]
-    @ [ ("setup_resilience", Test_setup_resilience.suite) ]
-    @ [ ("setup_heartbeat", Test_setup_heartbeat.suite) ]
-    @ [ ("log_rotation", Test_log_rotation.suite) ]
-    @ [ ("worktree_merge", Test_worktree_merge.suite) ]
-    @ [ ("table_format", Test_table_format.tests) ]
-    @ [ ("markdown_util", Test_markdown_util.suite) ]
-    @ [ ("error_watcher", Test_error_watcher.suite) ]
-    @ [ ("connector_capabilities", Test_connector_capabilities.tests) ]
-    @ [ ("connector_history", Test_connector_history.tests) ]
-    @ [ ("status_update", Test_status_update.tests) ]
-    @ [ ("content_dsl", Test_content_dsl.tests) ]
-    @ [ ("workspace_version", Test_workspace_version.suite) ]
-    @ [ ("acp", Test_acp.suite) ]
-    @ [ ("admin", Test_admin.suite) ]
-    @ [ ("voice_transcription", Test_voice_transcription.suite) ]
-    @ [ ("pair_coding", Test_pair_coding.suite) ]
-    @ [ ("webhook_handler", Test_webhook_handler.suite) ]
-    @ [ ("browser", Test_browser.suite) ]
-    @ [ ("rig", Test_rig.suite) ]
-    @ [ ("held_items", Test_held_items.suite) ]
-    @ [ ("repo_manager", Test_repo_manager.suite) ]
-    @ Test_github.suites
-    @ [
-        ("github_ci_summary", Test_github_normalized.ci_summary_suite);
-        ("github_review_summary", Test_github_normalized.review_summary_suite);
-        ("github_mergeability", Test_github_normalized.mergeability_suite);
-        ("github_parse_review", Test_github_normalized.parse_review_suite);
-      ]
-    @ [ ("github_app_config", Test_github_app_config.suite) ]
-    @ [ ("github_app_token", Test_github_app_token.suite) ]
-    @ [ ("github_pr_subscriptions", Test_github_pr_subscriptions.suite) ]
-    @ [ ("github_pr_dispatch", Test_github_pr_dispatch.suite) ]
-    @ [ ("github_pr_policy", Test_github_pr_policy.suite) ]
-    @ [ ("github_review_run", Test_github_review_run.suite) ]
-    @ [ ("workflow_run_trigger", Test_workflow_run_trigger.suite) ]
-    @ [ ("github_pr_lifecycle_leak", Test_github_pr_lifecycle_leak.suite) ]
-    @ [ ("github_backlink_self_loop", Test_github_backlink_self_loop.suite) ]
-    @ [
-        ("minimal_reload", Test_minimal_reload.suite);
-        ( "config_isolation",
-          [
-            Alcotest.test_case "real config.json not modified by tests" `Quick
-              check_config_not_modified;
-          ] );
-      ])
+  Alcotest.run "clawq" (filter_suites all_suites)
