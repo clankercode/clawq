@@ -46,3 +46,5 @@ Depends on B819. Same files (`provider_anthropic.ml`, Responses flattener). Seri
 - A later empty completed item does not wipe a buffer that already holds valid JSON.
 - MiniMax empty stream follows the same rule.
 - Tests cover these cases. `make test` passes.
+
+Review follow-up: phase3 still expected a JSON parse error for arguments="". Updated that case to the transport message and kept invalid JSON ("{") on the parse-error path. Cases 28 and 29 pass.
