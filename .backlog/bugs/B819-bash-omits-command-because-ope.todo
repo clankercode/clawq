@@ -54,3 +54,5 @@ Fallback is in this ticket, not a third ticket, so master never has strict-witho
 - Exceeding the union or tool budget leaves the overflow non-strict.
 - HTTP 400 strict rejection retries once without strict and caches the negative. A later request for that provider+model omits strict.
 - Tests cover the wire shapes and the fallback cache. `make test` passes.
+
+Review follow-up (after done): the first strict-rejection matcher missed real 400 bodies ("does not support strict tools", "Unknown parameter: tools[0].function.strict", image-content strict ban). Fixed in 7b99f423. Retry still requires the request body to contain "strict":true, so an echoed strict field alone does not cache a false negative.
