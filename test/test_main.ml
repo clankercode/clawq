@@ -420,6 +420,7 @@ let all_suites =
   @ [ ("github_pr_subscriptions", Test_github_pr_subscriptions.suite) ]
   @ [ ("github_pr_dispatch", Test_github_pr_dispatch.suite) ]
   @ [ ("github_pr_policy", Test_github_pr_policy.suite) ]
+  @ [ ("github_notify_batch", Test_github_notify_batch.suite) ]
   @ [ ("github_review_run", Test_github_review_run.suite) ]
   @ [ ("workflow_run_trigger", Test_workflow_run_trigger.suite) ]
   @ [ ("github_pr_lifecycle_leak", Test_github_pr_lifecycle_leak.suite) ]

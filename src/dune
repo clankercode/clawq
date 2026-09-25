@@ -356,6 +356,8 @@
   github_pr_policy
   github_review_run
   github_work_item
+  github_notify_batch
+  github_webhooks_cli
   repo_execution_policy
   work_item_lease
   workflow_run_trigger
@@ -529,6 +531,7 @@
   github_app_webhook_ingress
   github_user_auth_revocation_webhook
   github_pr_dispatch
+  github_notify_flush
   github_api
   github_app_token
   tunnel_manager
@@ -640,6 +643,8 @@
   lwt.unix
   cohttp-lwt-unix
   conduit-lwt-unix
+  tls
+  tls-lwt
   logs
   logs.fmt
   fmt

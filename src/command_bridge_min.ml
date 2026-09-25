@@ -694,6 +694,8 @@ let handle args =
   | "agent" :: _ -> unsupported "agent"
   | "transcribe" :: _ -> unsupported "transcribe"
   | "mcp" :: _ -> unsupported "mcp"
+  | "github" :: "webhooks" :: rest ->
+      Github_webhooks_cli.cmd ~db:(get_db ()) ("webhooks" :: rest)
   | "github" :: "account" :: rest -> Github_account_cli_min.cmd rest
   | "github" :: "user-auth" :: rest ->
       Github_user_auth_enablement_cli_min.cmd ("user-auth" :: rest)

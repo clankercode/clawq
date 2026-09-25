@@ -70,6 +70,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq debug html-preview` | Preview HTML rendering |
 | `clawq debug http on\|off\|status\|clear\|tail` | Manage HTTP debug logging |
 | `clawq doctor` | Check configuration for common issues |
+| `clawq github webhooks clear-queue [N]` | Drop unsent GitHub notification messages. Default keep is 55; `0` drops the whole queue. Persisted webhook payloads are not deleted. |
 | `clawq github route inspect ROUTE_ID` | Inspect a persisted GitHub Item/Repo/Org route (full build) |
 | `clawq github route list ROOM` | List GitHub routes for a Room (full build) |
 | `clawq github route preview ROOM --envelope-json JSON` | Read-only filter explain for a safe normalized GitHub envelope |

@@ -653,6 +653,19 @@ clawq github route remove ROUTE_ID [--revision REV]
 clawq github route apply PLAN_ID DIGEST [--room ROOM]
 ```
 
+### `clawq github webhooks clear-queue` (full and minimal builds)
+
+Drop GitHub notification messages that are queued but not sent yet. Persisted
+webhook payloads are left in place. The optional count is how many of the
+newest queued messages to leave. Omitting it keeps 55. `0` drops the whole
+unsent queue.
+
+```
+clawq github webhooks clear-queue
+clawq github webhooks clear-queue 0
+clawq github webhooks clear-queue 55
+```
+
 `--filter-json` accepts only the typed `Github_route_filter` schema. Advanced
 `pr`/`issue` predicates require `"schema_version": 1`; use either direct
 fields or the exclusive `advanced` wrapper, never raw predicate JSON.

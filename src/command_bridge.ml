@@ -737,6 +737,10 @@ let handle args =
   | "held-items" :: rest -> cmd_held_items rest
   | "subscriptions" :: rest ->
       Github_pr_subscriptions_cli.cmd_subscriptions rest
+  | "github" :: "webhooks" :: rest ->
+      Github_webhooks_cli.cmd
+        ~db:(Command_bridge_helpers.get_db ())
+        ("webhooks" :: rest)
   | "github" :: "account" :: rest -> Github_account_cli.cmd ("account" :: rest)
   | "github" :: "user-auth" :: rest ->
       Github_user_auth_enablement_cli.cmd ("user-auth" :: rest)

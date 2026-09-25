@@ -10,7 +10,10 @@ mkdir -p npm-pkg/bin
 make build-opt-speed
 
 echo "==> Copying binary..."
+chmod u+w "$NPM_BIN" 2>/dev/null || true
+rm -f "$NPM_BIN"
 cp "$CLAWQ_BIN" "$NPM_BIN"
+chmod u+w "$NPM_BIN"
 
 echo "==> Extracting debug symbols..."
 objcopy --only-keep-debug "$NPM_BIN" "$NPM_DEBUG"

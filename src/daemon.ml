@@ -788,6 +788,9 @@ let run ~(config : Runtime_config.t) =
     run_pending_session_resume_stage ~session_manager ~config ()
   in
   let* _replay_summary = run_durable_replay_stage ~session_manager ~config () in
+  (match db with
+  | Some db -> Github_notify_flush.start ~session_manager ~config ~db
+  | None -> ());
   (* Replay any pending questions that survived a restart *)
   (match !ask_fn_ref with
   | Some ask_fn -> replay_pending_questions ~session_manager ~ask_fn ()

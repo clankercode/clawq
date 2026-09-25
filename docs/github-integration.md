@@ -293,7 +293,10 @@ clawq subscriptions remove my-room owner/repo 123
 4. All subscriptions matching `(repo, pr_number)` are loaded.
 5. Each subscription is checked against notification preferences and policy
    gates.
-6. If allowed, a formatted notification is sent to the subscribed room.
+6. If allowed, the formatted notification is queued for that room. The daemon
+   holds each room's queue for 20 seconds, then sends one message of up to 10
+   texts joined by a horizontal rule. The queue is stored in
+   `github_notify_queue` and is flushed after a restart unless trimmed.
 
 ### Deduplication
 
