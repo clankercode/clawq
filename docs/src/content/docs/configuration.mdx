@@ -592,6 +592,24 @@ Controls behavior of the `ask_user_question` tool, which lets the agent ask clar
 
 **Live reconfiguration:** The daemon watches for tunnel config changes on SIGHUP and via file-change polling (every 10 seconds). When tunnel settings change, the daemon automatically stops the old tunnel and starts a new one — no daemon restart required. Use `clawq tunnel apply` to trigger reconciliation explicitly, or `clawq tunnel restart` to force a stop-and-restart even without config changes.
 
+### tools
+
+```json
+{
+  "tools": {
+    "bash": {
+      "allow_cd_prefix": false
+    }
+  }
+}
+```
+
+Behavior tuning for built-in agent tools.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `bash.allow_cd_prefix` | `false` | When `false`, bash commands starting with `cd <dir> &&` are rejected with an error instructing the agent to pass `cwd="<dir>"` and drop the `cd` prefix. Set to `true` to execute such commands with a warning instead (legacy behavior) |
+
 ### Model Format
 
 The canonical format for model references is `provider:model` (colon separator). Examples: `openai:gpt-5.4`, `anthropic:claude-sonnet-4-6`, `groq:llama-4-scout-17b-16e`.

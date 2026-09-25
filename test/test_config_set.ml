@@ -80,6 +80,10 @@ let test_validate_path () =
   Alcotest.(check bool)
     "security.rate_limit.burst_multiplier" true
     (valid [ "security"; "rate_limit"; "burst_multiplier" ] schema);
+  (* B814: bash cd-prefix override is a settable leaf *)
+  Alcotest.(check bool)
+    "tools.bash.allow_cd_prefix" true
+    (valid [ "tools"; "bash"; "allow_cd_prefix" ] schema);
   (* Dynamic provider key *)
   Alcotest.(check bool)
     "providers.openai.api_key" true
@@ -141,7 +145,12 @@ let test_validate_set_path () =
     (valid [ "providers"; "openai" ] schema);
   Alcotest.(check bool)
     "codex oauth section not settable" false
-    (valid [ "providers"; "openai"; "codex_oauth" ] schema)
+    (valid [ "providers"; "openai"; "codex_oauth" ] schema);
+  Alcotest.(check bool)
+    "tools.bash.allow_cd_prefix settable" true
+    (valid [ "tools"; "bash"; "allow_cd_prefix" ] schema);
+  Alcotest.(check bool)
+    "tools section not settable" false (valid [ "tools" ] schema)
 
 (* B700: model names contain dots, so split_path keeps the suffix after
    model_context_limits as one literal key. *)

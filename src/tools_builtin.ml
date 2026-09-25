@@ -656,8 +656,9 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   let workspace = Runtime_config.effective_workspace config in
   let extra_allowed_paths = config.security.extra_allowed_paths in
   Tool_registry.register registry
-    (shell_exec ~workspace ~workspace_only
-       ~allowed_commands:default_shell_allowlist ~extra_allowed_paths ~sandbox);
+    (shell_exec_with_hooks ~workspace ~workspace_only
+       ~allowed_commands:default_shell_allowlist ~extra_allowed_paths ~sandbox
+       ~allow_cd_prefix:config.tools.bash.allow_cd_prefix ());
   Tool_registry.register_alias registry ~alias:"shell_exec" ~real_name:"bash";
   Tool_registry.register registry
     (file_read ~workspace ~workspace_only ~extra_allowed_paths);

@@ -21,6 +21,8 @@ let default_error_watcher_config : error_watcher_config =
 let default_interactive_config : interactive_config =
   { enable_question_notes = true }
 
+let default_tools_config : tools_config = { bash = { allow_cd_prefix = false } }
+
 let default_postmortem_config : postmortem_config =
   {
     enabled = true;
@@ -288,6 +290,7 @@ let default =
     summarizer = default_summarizer_config;
     log = default_log_config;
     interactive = default_interactive_config;
+    tools = default_tools_config;
     error_watcher = default_error_watcher_config;
     connector_history =
       {

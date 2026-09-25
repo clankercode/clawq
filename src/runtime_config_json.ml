@@ -423,6 +423,19 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
       ]
   in
   let fields =
+    fields
+    @ [
+        ( "tools",
+          `Assoc
+            [
+              ( "bash",
+                `Assoc
+                  [ ("allow_cd_prefix", `Bool cfg.tools.bash.allow_cd_prefix) ]
+              );
+            ] );
+      ]
+  in
+  let fields =
     match cfg.voice with
     | None -> fields
     | Some v ->

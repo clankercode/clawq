@@ -2894,7 +2894,8 @@ let test_extract_cd_prefix () =
     "just cd no &&" None
     (Tools_builtin.extract_cd_prefix "cd /tmp")
 
-let test_shell_exec_cd_prefix_suggests_cwd_parameter () =
+(* B814: leading `cd <dir> &&` with no explicit cwd is a hard error. *)
+let test_shell_exec_cd_prefix_rejected_by_default () =
   with_temp_workspace (fun workspace ->
       let subdir = Filename.concat workspace "subdir" in
       Unix.mkdir subdir 0o755;
@@ -2905,6 +2906,43 @@ let test_shell_exec_cd_prefix_suggests_cwd_parameter () =
       let tool =
         Tools_builtin.shell_exec ~workspace ~workspace_only:false
           ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let marker = Filename.concat subdir "ran.txt" in
+      let command = Printf.sprintf "cd %s && touch ran.txt" subdir in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("command", `String command) ]))
+      in
+      Alcotest.(check bool)
+        "rejects cd prefix with error" true
+        (Test_helpers.string_contains result "Error:");
+      Alcotest.(check bool)
+        "error instructs cwd parameter" true
+        (Test_helpers.string_contains result
+           (Printf.sprintf "cwd=\"%s\"" subdir));
+      Alcotest.(check bool)
+        "error instructs removing cd prefix" true
+        (Test_helpers.string_contains result
+           (Printf.sprintf "remove the `cd %s && ` prefix" subdir));
+      Alcotest.(check bool)
+        "error mentions config override" true
+        (Test_helpers.string_contains result "tools.bash.allow_cd_prefix");
+      Alcotest.(check bool)
+        "command not executed" false (Sys.file_exists marker);
+      Unix.rmdir subdir)
+
+let test_shell_exec_cd_prefix_allowed_with_flag_warns_and_runs () =
+  with_temp_workspace (fun workspace ->
+      let subdir = Filename.concat workspace "subdir" in
+      Unix.mkdir subdir 0o755;
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+          ~allow_cd_prefix:true ()
       in
       let command = Printf.sprintf "cd %s && pwd" subdir in
       let result =
@@ -2921,6 +2959,55 @@ let test_shell_exec_cd_prefix_suggests_cwd_parameter () =
         "still runs from subdir" true
         (Test_helpers.string_contains result subdir);
       Unix.rmdir subdir)
+
+let test_shell_exec_cd_prefix_with_explicit_cwd_runs () =
+  with_temp_workspace (fun workspace ->
+      let subdir = Filename.concat workspace "subdir" in
+      Unix.mkdir subdir 0o755;
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let command = Printf.sprintf "cd %s && pwd" subdir in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("command", `String command); ("cwd", `String subdir) ]))
+      in
+      Alcotest.(check bool)
+        "runs with explicit cwd" true
+        (Test_helpers.string_contains result "exit_code: 0");
+      Alcotest.(check bool)
+        "no cd prefix rejection" false
+        (Test_helpers.string_contains result "Error:");
+      Alcotest.(check bool)
+        "no cd prefix warning" false
+        (Test_helpers.string_contains result "Warning:");
+      Unix.rmdir subdir)
+
+let test_shell_exec_without_cd_prefix_unaffected () =
+  with_temp_workspace (fun workspace ->
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let result =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("command", `String "pwd") ]))
+      in
+      Alcotest.(check bool)
+        "plain command runs" true
+        (Test_helpers.string_contains result "exit_code: 0");
+      Alcotest.(check bool)
+        "no cd prefix error" false
+        (Test_helpers.string_contains result "Error:"))
 
 let test_shell_exec_injects_session_id_env () =
   with_temp_workspace (fun workspace ->
@@ -3264,7 +3351,7 @@ let test_shell_exec_cd_prefix_push_uses_cd_repo_path () =
           let tool =
             Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
               ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
-              ~session_mgr:mgr
+              ~allow_cd_prefix:true ~session_mgr:mgr
               ~spawn_background:(fun promise -> spawned := Some promise)
               ~watch_ci_after_push:(fun
                   ?resolve_head_sha:_
@@ -3324,8 +3411,9 @@ let test_shell_exec_cd_prefix_optimization () =
           ~workspace_only:false ()
       in
       let tool =
-        Tools_builtin.shell_exec ~workspace ~workspace_only:false
+        Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
           ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+          ~allow_cd_prefix:true ()
       in
       let command = Printf.sprintf "cd %s && pwd" subdir in
       let result =
@@ -4708,10 +4796,16 @@ let suite =
       test_shell_exec_cd_prefix_push_uses_cd_repo_path;
     Alcotest.test_case "extract_cd_prefix parses cd path && cmd" `Quick
       test_extract_cd_prefix;
+    Alcotest.test_case "shell_exec cd prefix rejected by default" `Quick
+      test_shell_exec_cd_prefix_rejected_by_default;
+    Alcotest.test_case "shell_exec cd prefix allowed with flag warns and runs"
+      `Quick test_shell_exec_cd_prefix_allowed_with_flag_warns_and_runs;
+    Alcotest.test_case "shell_exec cd prefix with explicit cwd runs" `Quick
+      test_shell_exec_cd_prefix_with_explicit_cwd_runs;
+    Alcotest.test_case "shell_exec without cd prefix unaffected" `Quick
+      test_shell_exec_without_cd_prefix_unaffected;
     Alcotest.test_case "shell_exec cd prefix optimization sets cwd" `Quick
       test_shell_exec_cd_prefix_optimization;
-    Alcotest.test_case "shell_exec cd prefix suggests cwd parameter" `Quick
-      test_shell_exec_cd_prefix_suggests_cwd_parameter;
     Alcotest.test_case "shell_exec injects CLAWQ_SESSION_ID env" `Quick
       test_shell_exec_injects_session_id_env;
     Alcotest.test_case "shell_exec user bin PATH" `Quick

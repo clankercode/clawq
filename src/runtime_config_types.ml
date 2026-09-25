@@ -535,6 +535,15 @@ type zai_mcp_config = {
 
 type interactive_config = { enable_question_notes : bool }
 
+type tools_bash_config = {
+  allow_cd_prefix : bool;
+      (** B814: when true, the bash tool accepts a leading `cd <dir> &&` prefix
+          and runs it with a warning (legacy behavior). Default false: such
+          commands are rejected with guidance to pass cwd instead. *)
+}
+
+type tools_config = { bash : tools_bash_config }
+
 type error_watcher_config = {
   enabled : bool;
   scan_interval_s : float;
@@ -963,6 +972,7 @@ type t = {
   summarizer : summarizer_config;
   log : log_config;
   interactive : interactive_config;
+  tools : tools_config;
   error_watcher : error_watcher_config;
   connector_history : connector_history_config;
   browser : browser_config;
