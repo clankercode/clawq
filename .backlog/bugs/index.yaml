@@ -1732,7 +1732,7 @@ bugs:
       file: B814-bash-tool-upgrade-cd-prefix-wa.todo
       id: B814
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: 'Bash tool: upgrade cd-prefix warning to error (with config override)'
     - complexity: medium
