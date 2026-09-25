@@ -180,6 +180,118 @@ let test_model_override_applied_on_session_load () =
     "model override applied when session loaded from DB"
     "anthropic:claude-sonnet-4-6" effective
 
+let remove_file_db path =
+  (try Sys.remove path with Sys_error _ -> ());
+  (try Sys.remove (path ^ "-wal") with Sys_error _ -> ());
+  try Sys.remove (path ^ "-shm") with Sys_error _ -> ()
+
+(* B822: full daemon-restart simulation over a file-backed DB. Instance 1 sets
+   the session model and closes the DB (daemon exit); instance 2 opens the same
+   DB file, get_or_creates the session, and must observe the stored override. *)
+let test_model_override_survives_file_db_restart () =
+  let path = Filename.temp_file "clawq_b822_restart" ".db" in
+  Fun.protect
+    ~finally:(fun () -> remove_file_db path)
+    (fun () ->
+      let config = make_config () in
+      let key = "telegram:123:456" in
+      (* Daemon instance 1 *)
+      let db1 = Memory.init ~db_path:path () in
+      let mgr1 = Session.create ~config ~db:db1 () in
+      ignore
+        (Lwt_main.run
+           (Session.set_session_model_with_compact mgr1 ~key
+              ~model:"anthropic:claude-sonnet-4-6"));
+      ignore (Sqlite3.db_close db1);
+      (* Daemon instance 2: same DB file, fresh manager (the restart) *)
+      let db2 = Memory.init ~db_path:path () in
+      let mgr2 = Session.create ~config ~db:db2 () in
+      ignore (Lwt_main.run (Session.runtime_context_block mgr2 ~key));
+      let effective = Session.get_session_effective_model mgr2 ~key in
+      ignore (Sqlite3.db_close db2);
+      Alcotest.(check string)
+        "model override survives daemon restart (file DB)"
+        "anthropic:claude-sonnet-4-6" effective)
+
+(* B822: restart + config reload (SIGHUP / config set / Teams rollout) with a
+   CHANGED global default. The reload must not clobber the session override on
+   the loaded agent, and the override must still win over the new global. *)
+let test_model_override_survives_config_reload_after_restart () =
+  let path = Filename.temp_file "clawq_b822_reload" ".db" in
+  Fun.protect
+    ~finally:(fun () -> remove_file_db path)
+    (fun () ->
+      let key = "telegram:123:456" in
+      let db1 = Memory.init ~db_path:path () in
+      let mgr1 = Session.create ~config:(make_config ()) ~db:db1 () in
+      ignore
+        (Lwt_main.run
+           (Session.set_session_model_with_compact mgr1 ~key
+              ~model:"anthropic:claude-sonnet-4-6"));
+      ignore (Sqlite3.db_close db1);
+      (* Restart: fresh manager over the same DB, session loaded from DB *)
+      let db2 = Memory.init ~db_path:path () in
+      let mgr2 = Session.create ~config:(make_config ()) ~db:db2 () in
+      ignore (Lwt_main.run (Session.runtime_context_block mgr2 ~key));
+      (* Config reload with a changed global primary_model *)
+      let reloaded =
+        {
+          (make_config ()) with
+          agent_defaults =
+            {
+              (make_config ()).agent_defaults with
+              primary_model = "openai:gpt-4o";
+            };
+        }
+      in
+      Session.update_config ~source:"test_reload" mgr2 reloaded;
+      let effective = Session.get_session_effective_model mgr2 ~key in
+      ignore (Sqlite3.db_close db2);
+      Alcotest.(check string)
+        "override survives config reload after restart"
+        "anthropic:claude-sonnet-4-6" effective)
+
+(* B822: set-session-model paths must use the same sanitized key the session
+   table and tier-1 DB lookup use. Session.turn/get_or_create sanitize keys
+   ('/' -> '_'), but the turn closure (and therefore the models tool's
+   Tool.session_key) carries the raw key for keys like github:owner/repo:pr:N.
+   A set with that raw key must still reach the session that turns actually
+   use, both immediately and after a restart. *)
+let test_model_override_set_uses_sanitized_key () =
+  let path = Filename.temp_file "clawq_b822_sanitize" ".db" in
+  Fun.protect
+    ~finally:(fun () -> remove_file_db path)
+    (fun () ->
+      let config = make_config () in
+      (* Raw key as github webhooks build it (Github_webhook.session_key);
+         Session.turn sanitizes it to the turn_key below. *)
+      let raw_key = "github:octocat/hello-world:pr:7" in
+      let turn_key = "github:octocat_hello-world:pr:7" in
+      let db1 = Memory.init ~db_path:path () in
+      let mgr1 = Session.create ~config ~db:db1 () in
+      (* A turn loads the session under the sanitized key *)
+      ignore (Lwt_main.run (Session.runtime_context_block mgr1 ~key:raw_key));
+      (* The models tool calls set with its raw Tool.session_key mid-turn *)
+      ignore
+        (Lwt_main.run
+           (Session.set_session_model_with_compact mgr1 ~key:raw_key
+              ~model:"anthropic:claude-sonnet-4-6"));
+      (* The running session (what the LLM uses) must see the override *)
+      Alcotest.(check string)
+        "override applies to running session despite raw key"
+        "anthropic:claude-sonnet-4-6"
+        (Session.get_session_effective_model mgr1 ~key:turn_key);
+      ignore (Sqlite3.db_close db1);
+      (* Restart: turns re-load the session under the sanitized key *)
+      let db2 = Memory.init ~db_path:path () in
+      let mgr2 = Session.create ~config ~db:db2 () in
+      ignore (Lwt_main.run (Session.runtime_context_block mgr2 ~key:raw_key));
+      let effective = Session.get_session_effective_model mgr2 ~key:turn_key in
+      ignore (Sqlite3.db_close db2);
+      Alcotest.(check string)
+        "override applies through sanitized turn key after restart"
+        "anthropic:claude-sonnet-4-6" effective)
+
 let make_config_with_room_profile ?(global_model = "openai:gpt-5.4")
     ?(channel_default = (None : string option))
     ?(room_profiles : Runtime_config.room_profile list = [])
@@ -1400,6 +1512,12 @@ let suite =
       test_model_override_persisted_to_db;
     Alcotest.test_case "model override applied on session load" `Quick
       test_model_override_applied_on_session_load;
+    Alcotest.test_case "model override survives file DB restart" `Quick
+      test_model_override_survives_file_db_restart;
+    Alcotest.test_case "override survives config reload after restart" `Quick
+      test_model_override_survives_config_reload_after_restart;
+    Alcotest.test_case "model override set uses sanitized key" `Quick
+      test_model_override_set_uses_sanitized_key;
     Alcotest.test_case "clear_session_model_override clears DB" `Quick
       test_clear_session_model_override;
     Alcotest.test_case "clear_session_model_override noop when absent" `Quick

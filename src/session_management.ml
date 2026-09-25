@@ -47,7 +47,13 @@ let update_config ?(source = "") mgr config =
       persist_session_workspace_state mgr ~key agent)
     (Hashtbl.to_seq mgr.sessions |> List.of_seq)
 
+(* B822: model-override keys must match the sanitized keys the session table
+   and get_or_create_locked use. Callers inside a turn (e.g. the models tool)
+   receive the raw session key, which can contain '/' (github:owner/repo:pr:N);
+   an unsanitized write would never be found by the sanitized tier-1 lookup,
+   silently resetting the session to the default model after restart. *)
 let set_session_model mgr ~key ~model =
+  let key = sanitize_session_key key in
   (match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) ->
       let cfg = agent.Agent.config in
@@ -64,6 +70,7 @@ let set_session_model mgr ~key ~model =
    happened, [None] otherwise. *)
 let set_session_model_with_compact mgr ~key ~model =
   let open Lwt.Syntax in
+  let key = sanitize_session_key key in
   let apply_model agent =
     let cfg = agent.Agent.config in
     let agent_defaults = { cfg.agent_defaults with primary_model = model } in
@@ -110,11 +117,13 @@ let set_session_model_with_compact mgr ~key ~model =
       Lwt.return_none
 
 let get_session_model_override mgr ~key =
+  let key = sanitize_session_key key in
   match mgr.db with
   | Some db -> Memory.get_session_model_override ~db ~session_key:key
   | None -> None
 
 let get_session_effective_model mgr ~key =
+  let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) -> agent.Agent.config.agent_defaults.primary_model
   | None -> (
@@ -159,6 +168,7 @@ let get_session_effective_cwd mgr ~key =
   | None -> None
 
 let clear_session_model mgr ~key =
+  let key = sanitize_session_key key in
   (* Clear DB override first so Session_room_profile.resolve_model_for_session
      sees the correct fallback chain (room profile > channel default > global). *)
   (match mgr.db with
