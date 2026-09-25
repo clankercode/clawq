@@ -15,3 +15,6 @@ title: 'Bash tool: upgrade cd-prefix warning to error (with config override)'
 updated_at: "2026-09-25T06:35:32Z"
 ---
 When the bash tool is called with a command starting with 'cd <dir> &&', we currently emit a warning but still execute. This should be upgraded to a hard error that refuses to run the command.\n\nRequirements:\n- Reject commands starting with 'cd ' with an error message\n- The error must instruct the agent what to do: pass cwd="<dir>" and remove the cd prefix\n- Add a config entry (e.g. tool.bash.allow_cd_prefix: bool, default false) to allow turning this off\n- All tool errors should include actionable instructions for the agent to fix the issue
+
+
+[Decision 2026-09-25, coordinator] Error condition mirrors today's warning condition: a leading `cd <dir> &&` prefix detected by extract_cd_prefix while no explicit cwd was passed. allow_cd_prefix=false (default) -> hard error instructing cwd="<dir>" + remove cd prefix; allow_cd_prefix=true -> today's exact behavior (cwd optimization + warning). Compound commands whose leading token isn't the cd-prefix pattern are untouched.
