@@ -224,6 +224,37 @@ Each subscription has fine-grained preference toggles for event types:
 
 Unknown event types default to `true` (always notify).
 
+### Agent Tool: `github_feed_settings`
+
+In-room agents can read and change these toggles themselves with the
+`github_feed_settings` tool (registered with the other room-scoped GitHub
+tools; no daemon restart or admin CLI needed):
+
+- **Scope**: the calling room only. The room is taken from the turn's access
+  snapshot, never from tool arguments, so one room can never see or change
+  another room's feed.
+- **`action: "list"`**: returns this room's subscription rows with their
+  `notification_preferences`, plus the room's GitHub route rows with their
+  `filter_json` (`include_events`/`exclude_events`). Route filters are
+  read-only here — subscription dispatch does not consult them; manage routes
+  with `clawq github route ...`.
+- **`action: "set"`**: updates `notification_preferences` for this room's
+  subscriptions. Optional `repo` (`owner/repo`) narrows to one repository;
+  optional `pr` (requires `repo`, `0` = the repo-wide row) narrows to a single
+  row. Omit both to update every subscription in the room.
+- **Event families**: booleans `on_open`, `on_close`, `on_merge`,
+  `on_comment`, `on_review`, `on_status`, or `enable`/`disable` lists of
+  family tokens: `open`, `close`, `merge`, `comment`, `review`, `status`.
+  CI aliases `check_run`, `check_suite`, `workflow_run`, and `ci` all map to
+  `status`. Example: `{"action":"set","repo":"amaroo/app","disable":["check_run"]}`
+  answers "stop sending me check_run events for amaroo".
+- **Immediate effect**: dispatch loads preferences from the database for every
+  delivered event, so changes apply to the next webhook without a restart, and
+  remain visible via `clawq subscriptions list`/`show`.
+- **Granularity limit**: preferences are family-level booleans; "only failed
+  CI" conclusion-level filtering is not representable and needs a follow-up
+  extension.
+
 ### Admin CLI
 
 All subscription commands require the `CLAWQ_ADMIN=1` environment variable.
@@ -292,7 +323,9 @@ clawq subscriptions remove my-room owner/repo 123
 3. The dispatch module extracts `repo` and `pr_number` from the event.
 4. All subscriptions matching `(repo, pr_number)` are loaded.
 5. Each subscription is checked against notification preferences and policy
-   gates.
+   gates. Preferences are loaded fresh from the database for every event, so
+   `github_feed_settings` (or CLI) updates take effect immediately — no daemon
+   restart is needed.
 6. If allowed, the formatted notification is queued for that room. The daemon
    holds each room's queue for 20 seconds, then sends one message of up to 10
    texts joined by a horizontal rule. The queue is stored in

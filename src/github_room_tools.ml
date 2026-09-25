@@ -6,7 +6,13 @@ module Auth = Github_auth_selection
 module E = Github_event_envelope
 module Scope = Github_app_installation_scope
 
-type tool_name = Get_item | Search_items | Get_status | List_room_items
+type tool_name =
+  | Get_item
+  | Search_items
+  | Get_status
+  | List_room_items
+  | Feed_settings
+
 type tool_request = { room_id : string; name : tool_name; args : Yojson.Safe.t }
 
 type tool_result =
@@ -19,6 +25,7 @@ let tool_name_to_string = function
   | Search_items -> "github_room_search_items"
   | Get_status -> "github_room_get_status"
   | List_room_items -> "github_room_list_items"
+  | Feed_settings -> Github_feed_settings_tool.name
 
 (** {1 JSON helpers} *)
 
@@ -219,6 +226,25 @@ let string_prop desc =
 let int_prop desc =
   `Assoc [ ("type", `String "integer"); ("description", `String desc) ]
 
+let bool_prop desc =
+  `Assoc [ ("type", `String "boolean"); ("description", `String desc) ]
+
+let enum_prop desc values =
+  `Assoc
+    [
+      ("type", `String "string");
+      ("enum", `List (List.map (fun v -> `String v) values));
+      ("description", `String desc);
+    ]
+
+let string_array_prop ?values desc =
+  `Assoc
+    ([ ("type", `String "array"); ("description", `String desc) ]
+    @
+    match values with
+    | None -> []
+    | Some vs -> [ ("items", enum_prop "event family token" vs) ])
+
 let openai_tool ~name ~description ~parameters : Yojson.Safe.t =
   `Assoc
     [
@@ -289,7 +315,90 @@ let tool_definitions () : Yojson.Safe.t list =
            ~properties:
              [ ("limit", int_prop "Max items to return (default: all)") ]
            ~required:[]);
+    openai_tool
+      ~name:(tool_name_to_string Feed_settings)
+      ~description:
+        "List or update event-type notification filters for THIS Room's GitHub \
+         feed subscriptions. Scope is the calling Room only. action=list shows \
+         subscription rows with their on_* preferences plus read-only route \
+         filters. action=set updates preferences (optionally for one repo, or \
+         one repo+PR row); changes apply immediately to newly delivered \
+         events, with no restart needed."
+      ~parameters:
+        (schema_object
+           ~properties:
+             [
+               ( "action",
+                 enum_prop
+                   "\"list\" to inspect this Room's feed settings, \"set\" to \
+                    update them"
+                   [ "list"; "set" ] );
+               ( "repo",
+                 string_prop
+                   "owner/repo to scope \"set\" (omit = every repo this Room \
+                    subscribes to)" );
+               ( "pr",
+                 int_prop
+                   "single subscription row PR number (requires repo; 0 = the \
+                    repo-wide row)" );
+               ("on_open", bool_prop "notify on opened/reopened");
+               ("on_close", bool_prop "notify on closed");
+               ("on_merge", bool_prop "notify on merged");
+               ("on_comment", bool_prop "notify on comments");
+               ("on_review", bool_prop "notify on reviews");
+               ( "on_status",
+                 bool_prop
+                   "notify on CI/status (status, check_run, check_suite, \
+                    workflow_run)" );
+               ( "disable",
+                 string_array_prop
+                   ~values:
+                     [
+                       "open";
+                       "close";
+                       "merge";
+                       "comment";
+                       "review";
+                       "status";
+                       "check_run";
+                       "check_suite";
+                       "workflow_run";
+                       "ci";
+                     ]
+                   "event families to turn OFF (aliases check_run, \
+                    check_suite, workflow_run and ci all mean status)" );
+               ( "enable",
+                 string_array_prop
+                   ~values:
+                     [
+                       "open";
+                       "close";
+                       "merge";
+                       "comment";
+                       "review";
+                       "status";
+                       "check_run";
+                       "check_suite";
+                       "workflow_run";
+                       "ci";
+                     ]
+                   "event families to turn ON (aliases check_run, check_suite, \
+                    workflow_run and ci all mean status)" );
+             ]
+           ~required:[ "action" ]);
   ]
+
+(** {1 Feed settings (B821)}
+
+    Event-type filtering for this Room's GitHub feed lives in
+    [Github_feed_settings_tool]; the Room comes from the turn's access snapshot,
+    never from tool arguments. Route [filter_json] values are surfaced read-only
+    alongside the mutable subscription preferences. *)
+
+let dispatch_feed_settings ~db ~room_id ~args () : tool_result =
+  match Github_feed_settings_tool.dispatch ~db ~room_id ~args with
+  | Result.Ok json -> Ok_json json
+  | Result.Error message -> Error message
 
 (** {1 Dispatch} *)
 
@@ -420,32 +529,35 @@ let dispatch_list ~db ~room_id ~args ?auth ?installation () : tool_result =
              ("items", `List (List.map projection_to_json filtered));
            ])
 
+let dispatch_named ~db ~room_id ~args ?auth ?installation name : tool_result =
+  match name with
+  | Get_item -> dispatch_get_item ~db ~room_id ~args ?auth ?installation ()
+  | Get_status -> dispatch_get_status ~db ~room_id ~args ?auth ?installation ()
+  | Search_items -> dispatch_search ~db ~room_id ~args ?auth ?installation ()
+  | List_room_items -> dispatch_list ~db ~room_id ~args ?auth ?installation ()
+  | Feed_settings -> dispatch_feed_settings ~db ~room_id ~args ()
+
 let dispatch ~db ~request ?auth ?installation () : tool_result =
   match require_nonempty_room request.room_id with
   | Result.Error msg -> Error msg
   | Result.Ok room_id -> (
-      match deny_if_room_empty ~db ~room_id with
-      | Some r -> r
-      | None -> (
-          match request.name with
-          | Get_item ->
-              dispatch_get_item ~db ~room_id ~args:request.args ?auth
-                ?installation ()
-          | Get_status ->
-              dispatch_get_status ~db ~room_id ~args:request.args ?auth
-                ?installation ()
-          | Search_items ->
-              dispatch_search ~db ~room_id ~args:request.args ?auth
-                ?installation ()
-          | List_room_items ->
-              dispatch_list ~db ~room_id ~args:request.args ?auth ?installation
-                ()))
+      (* Feed settings keys off subscription/route rows, not journal or
+         projections, so the empty-Room read gate must not apply. *)
+      match request.name with
+      | Feed_settings ->
+          dispatch_feed_settings ~db ~room_id ~args:request.args ()
+      | _ -> (
+          match deny_if_room_empty ~db ~room_id with
+          | Some r -> r
+          | None ->
+              dispatch_named ~db ~room_id ~args:request.args ?auth ?installation
+                request.name))
 
 (** The catalog alone conveys no authority. Runtime invocation reloads the
     immutable access snapshot for this turn and obtains the Room only from it.
 *)
 let runtime_tool_names =
-  [ Get_item; Search_items; Get_status; List_room_items ]
+  [ Get_item; Search_items; Get_status; List_room_items; Feed_settings ]
   |> List.map tool_name_to_string
 
 let runtime_auth ~(config : Runtime_config.t) =
@@ -534,6 +646,7 @@ let tool_name_of_string = function
   | "github_room_search_items" -> Some Search_items
   | "github_room_get_status" -> Some Get_status
   | "github_room_list_items" -> Some List_room_items
+  | "github_feed_settings" -> Some Feed_settings
   | _ -> None
 
 let string_of_result = function
