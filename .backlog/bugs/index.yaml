@@ -1726,8 +1726,15 @@ bugs:
     - file: B811-add-prefix-shortcut-for-queued.todo
     - file: B812-add-build-box-remote-ssh-suppo.todo
     - file: B813-subagent-depth-limit-should-er.todo
-    - file: B814-bash-tool-upgrade-cd-prefix-wa.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: B814-bash-tool-upgrade-cd-prefix-wa.todo
       id: B814
+      priority: high
+      status: in_progress
+      tags: []
+      title: 'Bash tool: upgrade cd-prefix warning to error (with config override)'
     - complexity: medium
       depends_on: []
       estimate_hours: 1
