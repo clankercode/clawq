@@ -1753,3 +1753,4 @@ bugs:
     - file: B819-bash-omits-command-because-ope.todo
     - file: B820-empty-tool-argument-streams-ar.todo
     - file: B821-github-feed-per-room-channel-e.todo
+    - file: B822-models-set-does-not-persist-ac.todo
