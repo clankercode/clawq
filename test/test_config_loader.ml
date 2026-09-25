@@ -295,6 +295,37 @@ let test_parse_model_context_limits () =
     [ ("openai-codex/gpt-5.4", 272000); ("custom/model-x", 64000) ]
     cfg.model_context_limits
 
+(* B814: tools.bash.allow_cd_prefix gates the bash cd-prefix hard error. *)
+let test_parse_tools_bash_allow_cd_prefix () =
+  let parse s = Config_loader.parse_config (Yojson.Safe.from_string s) in
+  Alcotest.(check bool)
+    "default is false" false Runtime_config.default.tools.bash.allow_cd_prefix;
+  Alcotest.(check bool)
+    "true parsed" true
+    (parse {|{"tools": {"bash": {"allow_cd_prefix": true}}}|}).tools.bash
+      .allow_cd_prefix;
+  Alcotest.(check bool)
+    "missing section defaults to false" false
+    (parse {|{"workspace": "/tmp"}|}).tools.bash.allow_cd_prefix;
+  Alcotest.(check bool)
+    "non-bool value defaults to false" false
+    (parse {|{"tools": {"bash": {"allow_cd_prefix": "yes"}}}|}).tools.bash
+      .allow_cd_prefix
+
+let test_to_json_serializes_tools_bash_allow_cd_prefix () =
+  let cfg =
+    {
+      Runtime_config.default with
+      tools = { bash = { allow_cd_prefix = true } };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "serialized" true
+    (json |> member "tools" |> member "bash" |> member "allow_cd_prefix"
+   = `Bool true)
+
 let test_to_json_omits_empty_providers () =
   let json = Runtime_config.to_json Runtime_config.default in
   let open Yojson.Safe.Util in
@@ -1954,6 +1985,10 @@ let suite =
       test_default_compaction_threshold_is_80;
     Alcotest.test_case "parse model context limits" `Quick
       test_parse_model_context_limits;
+    Alcotest.test_case "parse tools.bash.allow_cd_prefix" `Quick
+      test_parse_tools_bash_allow_cd_prefix;
+    Alcotest.test_case "to_json serializes tools.bash.allow_cd_prefix" `Quick
+      test_to_json_serializes_tools_bash_allow_cd_prefix;
     Alcotest.test_case "to_json omits empty providers" `Quick
       test_to_json_omits_empty_providers;
     Alcotest.test_case "to_json omits empty model context limits" `Quick

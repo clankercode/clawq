@@ -428,6 +428,7 @@ let config_schema =
           ] );
       ("log", O [ ("max_size_mb", L); ("max_files", L); ("debug_http", L) ]);
       ("interactive", O [ ("enable_question_notes", L) ]);
+      ("tools", O [ ("bash", O [ ("allow_cd_prefix", L) ]) ]);
       ( "connector_history",
         O
           [

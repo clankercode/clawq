@@ -340,6 +340,17 @@ let extract_cd_prefix_dir_for_warning command =
     find_amp 3
   else None
 
+(* B814: actionable rejection message when a leading `cd <dir> &&` prefix is
+   disallowed (tools.bash.allow_cd_prefix = false, the default). *)
+let cd_prefix_rejection_error ~dir =
+  Printf.sprintf
+    "Error: command starts with `cd %s &&` and was not executed. Pass \
+     cwd=\"%s\" in the bash tool call and remove the `cd %s && ` prefix from \
+     the command. Example: bash(command=\"make build\", cwd=\"%s\"). To run \
+     cd-prefixed commands with a warning instead, set config \
+     tools.bash.allow_cd_prefix=true."
+    dir dir dir dir
+
 let resolve_shell_cwd ~workspace ~workspace_only ~extra_allowed_paths cwd_arg =
   let cwd_arg = String.trim cwd_arg in
   if cwd_arg = "" then Error "Error: cwd must not be empty"
@@ -413,7 +424,8 @@ include Tools_builtin_proc
 include Tools_builtin_session
 
 let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
-    ~extra_allowed_paths ~sandbox ?session_mgr ?(spawn_background = Lwt.async)
+    ~extra_allowed_paths ~sandbox ?(allow_cd_prefix = false) ?session_mgr
+    ?(spawn_background = Lwt.async)
     ?(inject_session_message =
       fun ~session_mgr ~session_key ~message () ->
         inject_session_message_async ~session_mgr ~session_key ~message ())
@@ -455,6 +467,16 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
           | `Null -> None
           | json -> Some (to_string json)
         with _ -> Some ""
+      in
+      (* B814: reject a leading `cd <dir> &&` prefix when no explicit cwd was
+         passed (same condition as the legacy warning) unless
+         tools.bash.allow_cd_prefix is enabled. *)
+      let rejected_cd_prefix_dir =
+        if allow_cd_prefix then None
+        else
+          match cwd_arg with
+          | None -> extract_cd_prefix_dir_for_warning command
+          | Some _ -> None
       in
       let timeout_secs =
         try
@@ -498,6 +520,10 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                      "Error: command '%s' is not in the allowlist. Allowed: %s"
                      (extract_command command)
                      (String.concat ", " allowed_commands))
+              else if Option.is_some rejected_cd_prefix_dir then
+                Lwt.return
+                  (cd_prefix_rejection_error
+                     ~dir:(Option.get rejected_cd_prefix_dir))
               else
                 let open Lwt.Syntax in
                 let cwd_result =

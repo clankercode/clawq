@@ -365,6 +365,7 @@ clawq config set security.rate_limit.burst_multiplier 1.5
 clawq config set security.audit_retention.max_age_days 90
 clawq config set security.audit_retention.max_entries 100000
 clawq config set security.audit_retention.export_before_purge false
+clawq config set tools.bash.allow_cd_prefix false
 clawq config set gateway.host "127.0.0.1"
 clawq config set gateway.port 13451
 clawq config set gateway.require_pairing true
@@ -468,6 +469,8 @@ Use `/model set-force <name>` to bypass model name validation when setting custo
 **security.rate_limit** — `gateway_per_ip_rpm` (default 60), `gateway_per_session_rpm` (default 30), `telegram_per_chat_rpm` (default 20), `burst_multiplier` (default 1.5).
 
 **security.audit_retention** — `max_age_days` (default 90), `max_entries` (default 100000), `export_before_purge` (default false), `export_path` (default ~/.clawq/audit_exports).
+
+**tools.bash** — `allow_cd_prefix` (default false; when false, bash commands starting with `cd <dir> &&` are rejected with an error telling the agent to pass `cwd="<dir>"` and drop the `cd` prefix; set true to execute such commands with a warning instead).
 
 **gateway** — `host` (default 127.0.0.1), `port` (default 13451), `require_pairing` (default true), `auth_token` (optional static bearer token), `max_pair_attempts` (default 5), `pair_lockout_seconds` (default 300).
 
@@ -653,7 +656,7 @@ Agent dispatch surfaces:
 - Commands are executed via `Lwt_process.shell`, so normal `/bin/sh -c`-style shell semantics apply.
 - Shell builtins and compound syntax generally work here.
 - Optional `cwd` still works here and can be used to make worktree-targeting explicit instead of relying on persistent shell state.
-- Commands starting with `cd <dir> &&` still run, but clawq warns the LLM to pass `cwd="<dir>"` and remove the `cd` prefix.
+- Commands starting with `cd <dir> &&` are rejected with an error (B814): the LLM must pass `cwd="<dir>"` and remove the `cd` prefix from `command`. Setting `tools.bash.allow_cd_prefix=true` restores the legacy behavior (execute with a warning).
 - Optional `head` and `tail` still apply to the final returned `stdout`/`stderr` text here, and omitted full streams are saved under `~/.clawq/tool-output/`.
 - Filesystem isolation is not applied in this mode; shell sees the host filesystem like the file tools do.
 - Egress rules still do not inspect arbitrary shell command network access in this mode.

@@ -510,6 +510,16 @@ let parse_config ?(resolve_secrets = true) json =
          in
          ({ enable_question_notes } : Runtime_config.interactive_config)
        with _ -> Runtime_config.default_interactive_config);
+    tools =
+      (try
+         let t = json |> member "tools" in
+         let b = t |> member "bash" in
+         let allow_cd_prefix =
+           try b |> member "allow_cd_prefix" |> to_bool
+           with _ -> Runtime_config.default_tools_config.bash.allow_cd_prefix
+         in
+         ({ bash = { allow_cd_prefix } } : Runtime_config.tools_config)
+       with _ -> Runtime_config.default_tools_config);
     error_watcher =
       (try
          let ew = json |> member "error_watcher" in
