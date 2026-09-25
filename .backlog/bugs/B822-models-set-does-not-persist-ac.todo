@@ -1,17 +1,18 @@
 ---
+claimed_at: "2026-09-25T06:35:34Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-09-25T00:52:19Z"
 depends_on: []
 estimate_hours: 1
 id: B822
 priority: high
-status: pending
-tags:
-    - models
-    - sessions
-    - daemon
+started_at: "2026-09-25T06:35:34Z"
+status: in_progress
+tags: []
 title: models set does not persist across daemon restarts
-updated_at: "2026-09-25T00:52:19Z"
+updated_at: "2026-09-25T06:35:34Z"
 ---
 # B819: models set does not persist across daemon restarts; add durable session/room model persistence
 
