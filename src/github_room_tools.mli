@@ -7,7 +7,13 @@
 
     Canonical contract: docs/plans/2026-07-12-github-item-room-routing.md. *)
 
-type tool_name = Get_item | Search_items | Get_status | List_room_items
+type tool_name =
+  | Get_item
+  | Search_items
+  | Get_status
+  | List_room_items
+  | Feed_settings
+
 type tool_request = { room_id : string; name : tool_name; args : Yojson.Safe.t }
 
 type tool_result =
@@ -19,7 +25,7 @@ val tool_name_to_string : tool_name -> string
 (** Canonical catalog tool names. *)
 
 val tool_definitions : unit -> Yojson.Safe.t list
-(** OpenAI-style tool schemas for the four tools; secret-free. *)
+(** OpenAI-style tool schemas for the tools; secret-free. *)
 
 val dispatch :
   db:Sqlite3.db ->
@@ -31,7 +37,9 @@ val dispatch :
 (** [Get_item]: require [item_key] in room projections/journal. [Search_items]:
     query over room projections (title/state/labels). [Get_status]: projection
     status fields. [List_room_items]: list projections. Deny if room has no
-    access / empty, or auth rejects the repository. *)
+    access / empty, or auth rejects the repository. [Feed_settings]: list or
+    update this Room's subscription notification preferences (route filters
+    read-only); scoped to the requesting Room's subscription/route rows. *)
 
 val runtime_tool_names : string list
 

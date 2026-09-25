@@ -250,6 +250,7 @@
   github_workflow_dispatch_attribution
   github_action_actor_attribution
   github_action_reconcile
+  github_feed_settings_tool
   github_room_tools
   github_auth_selection
   github_attribution_policy
