@@ -28,3 +28,6 @@ Options:
 - Or auto-create/update a room profile binding when the user sets a model.
 
 Workaround in place: room profile "telegram-admin" pinned for the Telegram DM.
+
+
+[Decision 2026-09-25, coordinator] Persistence layer exists (session_state.model_override, Memory.set_session_model_override) and session-create reads it via resolve_model_for_session tier1, but the reset was still observed after signal-restart. Root-cause empirically: write a restart-simulation regression test first (Session manager A over file DB, set model, new manager B over same DB, get_or_create, assert effective model). If that passes, hunt the leak (Session.turn ~model overrides, pending-session resume path, key sanitization) with the same test style. Deliverable: failing-then-passing test + fix at the actual leak. Live DB confirms overrides persist (telegram:58495225:58495225 = zai_coding:glm-5.3-flash).
