@@ -30,3 +30,5 @@ Acceptance criteria:
 
 
 [Decision 2026-09-25, coordinator] New agent tool github_feed_settings in Github_room_tools (registered via runtime_tools, picked up by daemon_util + tools_builtin registration automatically). Actions: list + set. Scope = calling room only. set operates on (a) route filter_json include/exclude_events for this room's routes and (b) subscription notification_preferences where the event family maps to the six flags. Acceptance #4 (CI terminal-state granularity) only if the existing Github_route_filter schema already supports conclusion-level predicates; otherwise ship family-level filters and append a follow-up note here instead of inventing a schema extension.
+
+<follow-up: CI conclusion granularity ('notify only on failed workflow/check') is not representable in the boolean notification_preferences; needs a prefs/filter extension (e.g. conclusion allowlist on the status family or migrating the room feed gate onto github_routes filter_json) — tracked as follow-up, intentionally out of scope for this fix>
