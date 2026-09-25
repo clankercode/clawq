@@ -27,3 +27,6 @@ Acceptance criteria:
 3. Per-destination scoping: settings apply to the room/channel that asks, not repo-global.
 4. CI-style filtering should support terminal-state granularity (e.g. notify only on workflow/check failures) — see related workflow-level CI filtering idea.
 5. Docs updated; error messages follow src/CLAUDE.md actionable-error rules.
+
+
+[Decision 2026-09-25, coordinator] New agent tool github_feed_settings in Github_room_tools (registered via runtime_tools, picked up by daemon_util + tools_builtin registration automatically). Actions: list + set. Scope = calling room only. set operates on (a) route filter_json include/exclude_events for this room's routes and (b) subscription notification_preferences where the event family maps to the six flags. Acceptance #4 (CI terminal-state granularity) only if the existing Github_route_filter schema already supports conclusion-level predicates; otherwise ship family-level filters and append a follow-up note here instead of inventing a schema extension.
