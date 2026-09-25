@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-09-25T06:35:33Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-09-25T08:27:56Z"
 complexity: medium
 created_at: "2026-09-25T00:23:39Z"
 depends_on: []
+duration_minutes: 112.39037867878334
 estimate_hours: 1
 id: B821
 priority: high
 started_at: "2026-09-25T06:35:33Z"
-status: in_progress
+status: done
 tags: []
 title: 'github feed: per-room/channel event filtering for subscription notifications (agent-configurable)'
-updated_at: "2026-09-25T06:35:33Z"
+updated_at: "2026-09-25T08:27:56Z"
 ---
 Event-type filtering for GitHub feed subscriptions should live in clawq (not just GitHub webhook config), be scoped per room/channel (destination), and be agent-configurable: a user should be able to tell clawq in the alerts channel itself ("stop sending me check_run events for amaroo") and the agent updates the subscription/route settings via a tool.
 
