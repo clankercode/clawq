@@ -1,0 +1,29 @@
+---
+complexity: medium
+created_at: "2026-09-25T00:23:39Z"
+depends_on: []
+estimate_hours: 1
+id: B821
+priority: high
+status: pending
+tags:
+    - github
+    - feed
+    - subscriptions
+    - agent-tools
+title: 'github feed: per-room/channel event filtering for subscription notifications (agent-configurable)'
+updated_at: "2026-09-25T00:23:39Z"
+---
+Event-type filtering for GitHub feed subscriptions should live in clawq (not just GitHub webhook config), be scoped per room/channel (destination), and be agent-configurable: a user should be able to tell clawq in the alerts channel itself ("stop sending me check_run events for amaroo") and the agent updates the subscription/route settings via a tool.
+
+Current state:
+- Per-subscription preference flags exist (on_open/on_close/on_comment/on_review/on_status/on_merge in github_pr_subscriptions.notification_preferences, via `clawq subscriptions add --on-*`), but there is no agent-facing tool to read or mutate them.
+- Newer github_routes have filter_json (include_events/exclude_events) but no agent tooling either.
+- Legacy compat: `clawq subscriptions` CLI works over routes but is admin-CLI-only.
+
+Acceptance criteria:
+1. A tool (e.g. github_feed_settings) lets an in-room agent list and update event-type filters for its room's GitHub subscriptions/routes.
+2. Updates take effect immediately (no daemon restart) and are visible via existing list/show commands.
+3. Per-destination scoping: settings apply to the room/channel that asks, not repo-global.
+4. CI-style filtering should support terminal-state granularity (e.g. notify only on workflow/check failures) — see related workflow-level CI filtering idea.
+5. Docs updated; error messages follow src/CLAUDE.md actionable-error rules.

@@ -1752,3 +1752,4 @@ bugs:
       id: B818
     - file: B819-bash-omits-command-because-ope.todo
     - file: B820-empty-tool-argument-streams-ar.todo
+    - file: B821-github-feed-per-room-channel-e.todo
