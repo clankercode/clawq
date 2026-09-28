@@ -821,7 +821,7 @@ let run ~(config : Runtime_config.t) =
   (* Error Correction watcher process *)
   if config.error_watcher.enabled then begin
     Logs.info (fun m -> m "Starting Error Correction watcher process");
-    (try Error_watcher.start_ec_process ec_state
+    (try Error_watcher.start_ec_process ~source:"daemon_start" ec_state
      with exn ->
        Logs.err (fun m ->
            m "Failed to start EC process: %s" (Printexc.to_string exn)));

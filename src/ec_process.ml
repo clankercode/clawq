@@ -33,32 +33,73 @@ let release_lock fd =
   try Unix.close fd with _ -> ()
 
 (* B823: decide whether the current lock holder may be replaced and, when so,
-   terminate it. Refuses when the holder belongs to the current healthy
-   daemon; takes over when the holder's daemon is hung (stale heartbeat),
-   orphaned (its parent daemon is gone), or dead. *)
+   terminate it. B828: EC children never write the shared daemon heartbeat, so
+   a fresh daemon heartbeat must not vouch for the holder. Holder health is
+   judged from the holder pid itself (zombie-aware liveness): a live holder is
+   healthy and refused; a dead, zombie, or orphaned holder may be replaced. *)
 let resolve_lock_takeover ?(orphaned : bool option) () : (string, string) result
     =
+  let log msg = Printf.eprintf "EC process: %s\n%!" msg in
   let holder_pid =
     match Daemon_liveness.read_holder_pid (Error_watcher.lock_file_path ()) with
     | Some pid -> Some pid
     | None -> Error_watcher.read_pid_file ()
   in
+  let alive pid = Daemon_liveness.process_alive pid in
   let orphaned =
     match orphaned with
     | Some o -> o
     | None -> (
         match holder_pid with
-        | Some pid when Daemon_liveness.process_alive pid -> (
-            (* /proc unavailable (non-Linux): assume not orphaned and let the
-               heartbeat decide rather than killing a healthy daemon's EC. *)
+        | Some pid when alive pid -> (
+            (* /proc unavailable (non-Linux): assume not orphaned and keep the
+               live holder rather than killing a healthy sibling. *)
             match Daemon_liveness.proc_parent_pid pid with
             | Some ppid -> ppid <> Unix.getppid ()
             | None -> false)
         | _ -> false)
   in
-  Daemon_liveness.takeover_holder ~holder_pid ~orphaned
-    ~log:(fun msg -> Printf.eprintf "EC process: %s\n%!" msg)
-    ()
+  let decision =
+    match holder_pid with
+    | None ->
+        Daemon_liveness.Takeover "no holder pid recorded (stale lock/pid state)"
+    | Some pid ->
+        if not (alive pid) then
+          Daemon_liveness.Takeover (Printf.sprintf "holder pid %d is gone" pid)
+        else if orphaned then
+          Daemon_liveness.Takeover
+            (Printf.sprintf
+               "holder pid %d no longer belongs to a live daemon (orphaned EC)"
+               pid)
+        else
+          Daemon_liveness.Refuse
+            (Printf.sprintf
+               "holder pid %d is healthy (EC process alive); a healthy EC is \
+                running, refusing takeover. Use `clawq service restart` to \
+                restart it intentionally"
+               pid)
+  in
+  match (decision, holder_pid) with
+  | Daemon_liveness.Refuse msg, _ -> Error msg
+  | Daemon_liveness.Takeover reason, holder -> (
+      let note = Printf.sprintf "takeover: %s" reason in
+      log note;
+      match holder with
+      | None -> Ok note
+      | Some pid -> (
+          if not (alive pid) then Ok note
+          else
+            match Daemon_liveness.kill_holder pid with
+            | Ok how ->
+                let full = Printf.sprintf "%s; %s" note how in
+                log full;
+                Ok full
+            | Error err ->
+                let full =
+                  Printf.sprintf "takeover aborted: %s; %s" reason err
+                in
+                log full;
+                Error full))
 
 (* --- Daemon log scanner --- *)
 type log_scan_state = { mutable offset : int; mutable inode : int }

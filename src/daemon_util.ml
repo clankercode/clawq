@@ -1069,7 +1069,7 @@ let apply_ec_watcher_toggle ~(new_config : Runtime_config.t)
     ~(ec_state : Error_watcher.ec_state) =
   if new_config.error_watcher.enabled && ec_state.pid = None then begin
     Logs.info (fun m -> m "EC watcher enabled, starting");
-    try Error_watcher.start_ec_process ec_state
+    try Error_watcher.start_ec_process ~source:"config_reload" ec_state
     with exn ->
       Logs.err (fun m ->
           m "Failed to start EC process: %s" (Printexc.to_string exn))

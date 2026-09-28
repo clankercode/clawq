@@ -739,6 +739,191 @@ let test_ec_run_no_args () =
     "shows usage" true
     (String_util.contains result "Usage:")
 
+(* --- B828: zombie-aware EC lifecycle --- *)
+
+let sleep_bin = "/bin/sleep"
+let sleep_available () = Sys.file_exists sleep_bin
+
+(* Fork+exec a live child the test owns; short-lived per test-guideline rules.
+   setsid mirrors Process_group spawns so the child is its own process-group
+   leader, like a real EC child. *)
+let spawn_live_child seconds =
+  match Unix.fork () with
+  | 0 -> (
+      try
+        ignore (Unix.setsid ());
+        Unix.execv sleep_bin [| "sleep"; string_of_int seconds |]
+      with _ -> Unix._exit 127)
+  | pid -> pid
+
+(* Fork a child that exits immediately and is never reaped: the test process
+   now owns a real zombie whose /proc state is "Z". setsid first so group
+   probes behave as they do for real EC children. *)
+let spawn_zombie () =
+  match Unix.fork () with
+  | 0 ->
+      ignore (Unix.setsid ());
+      Unix._exit 0
+  | pid -> pid
+
+let wait_until_zombie ?(timeout = 5.0) pid =
+  let deadline = Unix.gettimeofday () +. timeout in
+  let rec loop () =
+    match Daemon_liveness.proc_state pid with
+    | Some "Z" -> true
+    | _ ->
+        if Unix.gettimeofday () >= deadline then false
+        else (
+          Unix.sleepf 0.02;
+          loop ())
+  in
+  loop ()
+
+let reap_child pid =
+  try
+    let rec loop () =
+      match Unix.waitpid [ Unix.WNOHANG ] pid with
+      | 0, _ ->
+          Unix.sleepf 0.02;
+          loop ()
+      | _, _ -> ()
+      | exception Unix.Unix_error (Unix.ECHILD, _, _) -> ()
+    in
+    loop ()
+  with _ -> ()
+
+let kill_and_reap pid =
+  (try Unix.kill pid Sys.sigkill with _ -> ());
+  reap_child pid
+
+let test_process_alive_zombie_is_dead () =
+  let zombie = spawn_zombie () in
+  Fun.protect
+    ~finally:(fun () -> reap_child zombie)
+    (fun () ->
+      Alcotest.(check bool)
+        "child reached zombie state" true (wait_until_zombie zombie);
+      (* sanity: the zombie still answers the old group probe — the bug *)
+      Alcotest.(check bool)
+        "sanity: zombie answers kill(-pid, 0)" true
+        (try
+           Unix.kill (-zombie) 0;
+           true
+         with Unix.Unix_error _ -> false);
+      Alcotest.(check bool)
+        "zombie reads as dead" false
+        (Error_watcher.process_alive zombie))
+
+let test_check_health_zombie_triggers_respawn () =
+  if not (sleep_available ()) then Alcotest.skip ();
+  Test_helpers.with_temp_home (fun _home ->
+      ignore (Dot_dir.ensure ());
+      let zombie = spawn_zombie () in
+      let replacement = ref None in
+      Fun.protect
+        ~finally:(fun () ->
+          reap_child zombie;
+          match !replacement with Some p -> kill_and_reap p | None -> ())
+        (fun () ->
+          Alcotest.(check bool)
+            "zombie present before health tick" true (wait_until_zombie zombie);
+          let state =
+            Error_watcher.create_state
+              ~spawn_child:(fun () ->
+                let p = spawn_live_child 30 in
+                replacement := Some p;
+                p)
+              ()
+          in
+          state.pid <- Some zombie;
+          Alcotest.(check bool)
+            "health tick reports the watcher as up" true
+            (Error_watcher.check_ec_health state);
+          Alcotest.(check bool)
+            "respawned instead of healthy-on-zombie" true
+            (state.healthy && state.pid <> Some zombie);
+          Alcotest.(check (option int))
+            "state tracks the replacement pid" !replacement state.pid;
+          Alcotest.(check bool)
+            "zombie reaped by the health tick" true
+            (Daemon_liveness.proc_state zombie = None)))
+
+let test_check_health_reaps_exited_child () =
+  if not (sleep_available ()) then Alcotest.skip ();
+  Test_helpers.with_temp_home (fun _home ->
+      ignore (Dot_dir.ensure ());
+      let exited = ref None in
+      let replacement = ref None in
+      Fun.protect
+        ~finally:(fun () ->
+          (match !exited with Some p -> reap_child p | None -> ());
+          match !replacement with Some p -> kill_and_reap p | None -> ())
+        (fun () ->
+          let state =
+            Error_watcher.create_state
+              ~spawn_child:(fun () ->
+                match !exited with
+                | None ->
+                    let p = spawn_live_child 0 in
+                    exited := Some p;
+                    p
+                | Some _ ->
+                    let p = spawn_live_child 30 in
+                    replacement := Some p;
+                    p)
+              ()
+          in
+          Error_watcher.start_ec_process ~source:"test" state;
+          match !exited with
+          | Some pid ->
+              Alcotest.(check bool)
+                "exited child lingers as a zombie pre-tick" true
+                (wait_until_zombie pid);
+              Alcotest.(check bool)
+                "health tick runs" true
+                (Error_watcher.check_ec_health state);
+              Alcotest.(check bool)
+                "zombie gone after one health tick" true
+                (Daemon_liveness.proc_state pid = None);
+              Alcotest.(check bool)
+                "reaped pid cannot be waited again (no zombie left)" true
+                (match Unix.waitpid [ Unix.WNOHANG ] pid with
+                | _ -> false
+                | exception Unix.Unix_error (Unix.ECHILD, _, _) -> true)
+          | None -> Alcotest.fail "spawn hook never ran"))
+
+let test_start_ec_process_double_spawn_guard () =
+  if not (sleep_available ()) then Alcotest.skip ();
+  Test_helpers.with_temp_home (fun _home ->
+      ignore (Dot_dir.ensure ());
+      let holder = ref None in
+      let spawns = ref 0 in
+      Fun.protect
+        ~finally:(fun () ->
+          match !holder with Some p -> kill_and_reap p | None -> ())
+        (fun () ->
+          let state =
+            Error_watcher.create_state
+              ~spawn_child:(fun () ->
+                incr spawns;
+                let p = spawn_live_child 30 in
+                holder := Some p;
+                p)
+              ()
+          in
+          Error_watcher.start_ec_process ~source:"test_first" state;
+          Error_watcher.start_ec_process ~source:"test_second" state;
+          Alcotest.(check int)
+            "second spawn skipped while holder is live" 1 !spawns;
+          Alcotest.(check (option int))
+            "state still tracks the first holder" !holder state.pid;
+          match !holder with
+          | Some p ->
+              Alcotest.(check bool)
+                "healthy first holder not killed" true
+                (Error_watcher.process_alive p)
+          | None -> Alcotest.fail "spawn hook never ran"))
+
 let suite =
   [
     Alcotest.test_case "strip_ansi basic" `Quick test_strip_ansi_basic;
@@ -796,4 +981,13 @@ let suite =
     Alcotest.test_case "watcher reports empty" `Quick test_watcher_reports_empty;
     Alcotest.test_case "watcher usage" `Quick test_watcher_usage;
     Alcotest.test_case "ec-run no args" `Quick test_ec_run_no_args;
+    (* B828: zombie-aware EC lifecycle *)
+    Alcotest.test_case "process_alive zombie is dead" `Quick
+      test_process_alive_zombie_is_dead;
+    Alcotest.test_case "check_health zombie triggers respawn" `Quick
+      test_check_health_zombie_triggers_respawn;
+    Alcotest.test_case "check_health reaps exited child" `Quick
+      test_check_health_reaps_exited_child;
+    Alcotest.test_case "start_ec_process double spawn guard" `Quick
+      test_start_ec_process_double_spawn_guard;
   ]
