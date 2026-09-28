@@ -412,6 +412,7 @@ let all_suites =
   @ [ ("held_items", Test_held_items.suite) ]
   @ [ ("repo_manager", Test_repo_manager.suite) ]
   @ Test_github.suites
+  @ [ ("github_api_auth_dedup", Test_github_api_auth_dedup.suite) ]
   @ [
       ("github_ci_summary", Test_github_normalized.ci_summary_suite);
       ("github_review_summary", Test_github_normalized.review_summary_suite);

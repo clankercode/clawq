@@ -441,6 +441,78 @@ let edit_comment ~(app_token : Github_app_token.t option) ~auth
                   repo comment_id status));
       Lwt.return_unit
 
+(* B827: 401/403 responses are permanent auth failures (expired or revoked
+   token). Repeated dispatches against a broken credential used to WARN once
+   per dispatch (1166x/day observed), so auth-status warns are deduped per
+   (repo, status) per 10-minute window with a suppressed count, and the last
+   auth failure per key is kept in memory for health surfacing. *)
+
+type auth_failure_summary = {
+  repo_full_name : string;
+  status : int;
+  last_seen_at : float; (* unix time of the most recent failure *)
+  total : int; (* failures recorded since daemon start *)
+}
+
+let auth_failure_window_s = 600.0
+
+type auth_failure_state = {
+  mutable last_seen_at : float;
+  mutable last_warned_at : float;
+  mutable suppressed_since_warn : int;
+  mutable total : int;
+}
+
+let auth_failures : (string * int, auth_failure_state) Hashtbl.t =
+  Hashtbl.create 16
+
+(* Injectable clock so tests exercise the 10-minute window without sleeping. *)
+let auth_failure_clock = ref Unix.gettimeofday
+let set_auth_failure_clock_for_tests clock = auth_failure_clock := clock
+let reset_auth_failures_for_tests () = Hashtbl.reset auth_failures
+let is_auth_failure_status status = status = 401 || status = 403
+
+type auth_warn_decision =
+  | Warn_first
+  | Warn_resumed of int (* warnings suppressed since the previous WARN *)
+  | Suppress
+
+let record_auth_failure ~repo_full_name ~status () =
+  let now = !auth_failure_clock () in
+  match Hashtbl.find_opt auth_failures (repo_full_name, status) with
+  | None ->
+      Hashtbl.replace auth_failures (repo_full_name, status)
+        {
+          last_seen_at = now;
+          last_warned_at = now;
+          suppressed_since_warn = 0;
+          total = 1;
+        };
+      Warn_first
+  | Some st ->
+      st.total <- st.total + 1;
+      st.last_seen_at <- now;
+      if now -. st.last_warned_at >= auth_failure_window_s then (
+        let suppressed = st.suppressed_since_warn in
+        st.suppressed_since_warn <- 0;
+        st.last_warned_at <- now;
+        Warn_resumed suppressed)
+      else (
+        st.suppressed_since_warn <- st.suppressed_since_warn + 1;
+        Suppress)
+
+let last_auth_failures () =
+  Hashtbl.fold
+    (fun (repo_full_name, status) st acc ->
+      {
+        repo_full_name;
+        status;
+        last_seen_at = st.last_seen_at;
+        total = st.total;
+      }
+      :: acc)
+    auth_failures []
+
 let get_pr_files ~(app_token : Github_app_token.t option) ~auth
     ?(resolve_headers = (None : resolve_headers_fn option))
     ?(egress_rules = ([] : Runtime_config_types.egress_rule list))
@@ -477,7 +549,26 @@ let get_pr_files ~(app_token : Github_app_token.t option) ~auth
                     (Policy_http_client.policy_error_to_string err));
               Lwt.return (List.rev acc)
           | Ok (status, body) ->
-              if status <> 200 then begin
+              if is_auth_failure_status status then begin
+                (* B827: permanent auth failure — stop paging for this call and
+                   dedup the warn per (repo, status) per 10-minute window. The
+                   dispatch continues without file data. *)
+                (match record_auth_failure ~repo_full_name ~status () with
+                | Warn_first ->
+                    Logs.warn (fun m ->
+                        m "GitHub API get_pr_files %s/%s#%d page=%d returned %d"
+                          owner repo pull_number page status)
+                | Warn_resumed suppressed ->
+                    Logs.warn (fun m ->
+                        m
+                          "GitHub API get_pr_files %s/%s#%d page=%d returned \
+                           %d (%d similar warnings suppressed since the last \
+                           warning)"
+                          owner repo pull_number page status suppressed)
+                | Suppress -> ());
+                Lwt.return (List.rev acc)
+              end
+              else if status <> 200 then begin
                 Logs.warn (fun m ->
                     m "GitHub API get_pr_files %s/%s#%d page=%d returned %d"
                       owner repo pull_number page status);
