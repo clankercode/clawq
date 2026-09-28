@@ -1,18 +1,18 @@
 ---
+claimed_at: "2026-09-28T01:52:02Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-09-28T01:51:17Z"
 depends_on: []
 estimate_hours: 1
 id: B825
 priority: high
-status: pending
-tags:
-    - telegram
-    - polling
-    - network
-    - logging
+started_at: "2026-09-28T01:52:02Z"
+status: in_progress
+tags: []
 title: 'telegram getUpdates stalls surface as ERROR spam: HTTP timeout after 45.0s ~65 per day'
-updated_at: "2026-09-28T01:51:17Z"
+updated_at: "2026-09-28T01:52:02Z"
 ---
 Observed in daemon.log: 65x ERROR "Telegram poll error for 'default': Failure(\"HTTP timeout in get_with_timeout after 45.0s\")" plus 1x End_of_file, spread across the whole day (roughly every 10-45 min while the daemon was otherwise healthy).
 
