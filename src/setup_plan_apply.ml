@@ -56,7 +56,7 @@ let string_of_outcome = function
 let init_schema db =
   (* Wait for a competing short-lived writer so a rejected/successful apply can
      still durably record its audit rather than silently losing the record. *)
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   let plans_sql =
     {|CREATE TABLE IF NOT EXISTS setup_plans (
       id TEXT PRIMARY KEY NOT NULL,

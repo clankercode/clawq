@@ -326,7 +326,7 @@ let cmd args =
     try Unix.mkdir (Filename.dirname db_path) 0o700
     with Unix.Unix_error _ -> ()
   in
-  let db = Sqlite3.db_open db_path in
+  let db = Sql_util.open_db db_path in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.db_close db))
     (fun () ->

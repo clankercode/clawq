@@ -742,7 +742,7 @@ let exec_schema db sql =
            (Sqlite3.Rc.to_string rc) sql)
 
 let ensure_schema db =
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   let table_sql =
     {|CREATE TABLE IF NOT EXISTS github_attribution_audit (
       id TEXT PRIMARY KEY NOT NULL,

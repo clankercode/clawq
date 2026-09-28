@@ -12,16 +12,24 @@ let join_bodies bodies = String.concat separator bodies
 let should_flush ~now ~last_sent ~oldest ~window_s =
   now -. oldest >= window_s && now -. last_sent >= window_s
 
+let exec_schema db sql =
+  Sql_util.exec_schema ~label:"github_notify_batch schema error" db sql
+
+let exec_with_params ?label db sql params =
+  (* Hot queue path: retry transient lock errors instead of dropping the
+     notification or killing the flush loop. *)
+  Sql_util.retry_busy (fun () -> Sql_util.exec_with_params ?label db sql params)
+
 let ensure_schema db =
-  ignore (Sqlite3.busy_timeout db 5_000);
-  Sql_util.exec_exn ~label:"github_notify_batch schema error" db
+  Sql_util.set_busy_timeout db;
+  exec_schema db
     "CREATE TABLE IF NOT EXISTS github_notify_queue (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \  room_id TEXT NOT NULL,\n\
     \  body TEXT NOT NULL,\n\
     \  created_at TEXT NOT NULL\n\
      )";
-  Sql_util.exec_exn ~label:"github_notify_batch schema error" db
+  exec_schema db
     "CREATE INDEX IF NOT EXISTS idx_github_notify_queue_room ON \
      github_notify_queue (room_id, id)"
 
@@ -31,7 +39,7 @@ let enqueue ~db ~room_id ~body =
   else begin
     ensure_schema db;
     let created = Printf.sprintf "%.6f" (Unix.gettimeofday ()) in
-    Sql_util.exec_with_params ~label:"github_notify_batch enqueue" db
+    exec_with_params ~label:"github_notify_batch enqueue" db
       "INSERT INTO github_notify_queue (room_id, body, created_at) VALUES (?, \
        ?, ?)"
       [
@@ -79,7 +87,7 @@ let delete_ids ~db ids =
     ensure_schema db;
     List.iter
       (fun id ->
-        Sql_util.exec_with_params ~label:"github_notify_batch delete" db
+        exec_with_params ~label:"github_notify_batch delete" db
           "DELETE FROM github_notify_queue WHERE id = ?"
           [ Sqlite3.Data.INT (Int64.of_int id) ])
       ids

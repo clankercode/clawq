@@ -97,14 +97,9 @@ let task_of_stmt stmt : task =
   }
 
 let init_schema db =
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
+  (* Schema statements are idempotent, so they retry on BUSY instead of failing
+     whatever daemon/CLI path is bootstrapping the task tables. *)
+  let exec sql = Sql_util.exec_schema db sql in
   exec
     "CREATE TABLE IF NOT EXISTS background_tasks (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\

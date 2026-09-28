@@ -1471,9 +1471,11 @@ let reconcile_verified_ingress ~db ~event_type ~body ~delivery_id
     (* Durable reconciliation failure never re-dispatches a verified event.
        The correlation remains open for a later verified delivery or operator
        inspection. *)
-    Logs.err (fun m ->
-        m "GitHub: verified delivery %s reconciliation failed: %s" delivery_id
-          (Printexc.to_string exn))
+    let error = Printexc.to_string exn in
+    Log_dedup.err
+      ~key:("github verified delivery reconciliation failed: " ^ error)
+      (Printf.sprintf "GitHub: verified delivery %s reconciliation failed: %s"
+         delivery_id error)
 
 let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
     ~(github_config : Runtime_config.github_config)

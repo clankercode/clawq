@@ -1,6 +1,10 @@
 let schema_version = 46
 let exec_exn db sql = Sql_util.exec_exn db sql
 
+(* ec_reports is (re)created from the EC scan cycle while the daemon is also
+   writing, so its schema init retries on BUSY instead of failing the cycle. *)
+let exec_schema db sql = Sql_util.exec_schema db sql
+
 let query_single_int db sql =
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -254,7 +258,7 @@ let init_pending_questions_schema db =
     \   )"
 
 let init_ec_reports_schema db =
-  exec_exn db
+  exec_schema db
     "CREATE TABLE IF NOT EXISTS ec_reports (\n\
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     timestamp TEXT NOT NULL DEFAULT (datetime('now')),\n\

@@ -7,11 +7,11 @@ type event = {
   metadata : Yojson.Safe.t;
 }
 
-let exec_exn db sql =
-  Sql_util.exec_exn ~label:"room_activity_ledger schema error" db sql
+let exec_schema db sql =
+  Sql_util.exec_schema ~label:"room_activity_ledger schema error" db sql
 
 let init_schema db =
-  exec_exn db
+  exec_schema db
     "CREATE TABLE IF NOT EXISTS room_activity_ledger (\n\
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     room_id TEXT NOT NULL,\n\
@@ -21,13 +21,13 @@ let init_schema db =
     \     metadata TEXT NOT NULL DEFAULT '{}',\n\
     \     UNIQUE(room_id, event_type, timestamp)\n\
     \   )";
-  exec_exn db
+  exec_schema db
     "CREATE INDEX IF NOT EXISTS idx_room_activity_ledger_room_time ON \
      room_activity_ledger(room_id, timestamp)";
-  exec_exn db
+  exec_schema db
     "CREATE INDEX IF NOT EXISTS idx_room_activity_ledger_type_time ON \
      room_activity_ledger(event_type, timestamp)";
-  exec_exn db
+  exec_schema db
     "CREATE INDEX IF NOT EXISTS idx_room_activity_ledger_time ON \
      room_activity_ledger(timestamp)"
 
@@ -96,29 +96,33 @@ let select_one ~db ~room_id ~event_type ~timestamp =
                (Sqlite3.Rc.to_string rc)))
 
 let append ~db ~room_id ~event_type ~timestamp ~actor ~metadata =
-  let sql =
-    "INSERT OR IGNORE INTO room_activity_ledger (room_id, event_type, \
-     timestamp, actor, metadata) VALUES (?, ?, ?, ?, ?)"
-  in
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      bind_params stmt
-        [
-          Sqlite3.Data.TEXT room_id;
-          Sqlite3.Data.TEXT event_type;
-          Sqlite3.Data.TEXT timestamp;
-          Sqlite3.Data.TEXT actor;
-          Sqlite3.Data.TEXT (Yojson.Safe.to_string metadata);
-        ];
-      match Sqlite3.step stmt with
-      | Sqlite3.Rc.DONE -> ()
-      | rc ->
-          failwith
-            (Printf.sprintf "room_activity_ledger append failed: %s"
-               (Sqlite3.Rc.to_string rc)));
-  select_one ~db ~room_id ~event_type ~timestamp
+  (* Hot append path: a concurrent writer on the shared database must not fail
+     the webhook/connector delivery that is being recorded. Retried as a whole
+     so the read-back sees the row the insert wrote. *)
+  Sql_util.retry_busy (fun () ->
+      let sql =
+        "INSERT OR IGNORE INTO room_activity_ledger (room_id, event_type, \
+         timestamp, actor, metadata) VALUES (?, ?, ?, ?, ?)"
+      in
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          bind_params stmt
+            [
+              Sqlite3.Data.TEXT room_id;
+              Sqlite3.Data.TEXT event_type;
+              Sqlite3.Data.TEXT timestamp;
+              Sqlite3.Data.TEXT actor;
+              Sqlite3.Data.TEXT (Yojson.Safe.to_string metadata);
+            ];
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              failwith
+                (Printf.sprintf "room_activity_ledger append failed: %s"
+                   (Sqlite3.Rc.to_string rc)));
+      select_one ~db ~room_id ~event_type ~timestamp)
 
 let append_now ~db ~room_id ~event_type ~actor ~metadata =
   append ~db ~room_id ~event_type ~timestamp:(timestamp_now ()) ~actor ~metadata

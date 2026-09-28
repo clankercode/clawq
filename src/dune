@@ -59,6 +59,7 @@
   workspace_version
   string_util
   sql_util
+  log_dedup
   time_util
   path_util
   skill_dedup

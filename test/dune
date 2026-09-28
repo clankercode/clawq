@@ -157,6 +157,7 @@
   test_github_backlink_self_loop
   test_group_chat_filter
   test_helpers
+  test_sqlite_resilience
   test_history_search
   test_http_server
   test_imessage

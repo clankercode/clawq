@@ -118,9 +118,10 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
                     in
                     Lwt.return_unit)
                   (fun exn ->
-                    Logs.err (fun m ->
-                        m "GitHub webhook handler error: %s"
-                          (Printexc.to_string exn));
+                    let error = Printexc.to_string exn in
+                    Log_dedup.err
+                      ~key:("github webhook handler error: " ^ error)
+                      (Printf.sprintf "GitHub webhook handler error: %s" error);
                     Lwt.return_unit));
             let* resp =
               Cohttp_lwt_unix.Server.respond_string ~status:`OK
@@ -412,9 +413,10 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
                     Teams.handle_webhook ~config:tc ~session_manager
                       ?event_limiter:teams_event_limiter ~auth_header body_str)
                   (fun exn ->
-                    Logs.err (fun m ->
-                        m "Teams webhook handler error: %s"
-                          (Printexc.to_string exn));
+                    let error = Printexc.to_string exn in
+                    Log_dedup.err
+                      ~key:("teams webhook handler error: " ^ error)
+                      (Printf.sprintf "Teams webhook handler error: %s" error);
                     Lwt.return_unit));
             let* resp =
               Cohttp_lwt_unix.Server.respond_string ~status:`Accepted

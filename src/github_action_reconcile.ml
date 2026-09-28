@@ -52,19 +52,16 @@ let generate_id ?(now = Unix.gettimeofday ()) () =
   let rand = Random.int 1_000_000 in
   Printf.sprintf "ghacorr_%d_%06d" ts rand
 
+(* Schema init must survive a concurrent writer: each statement is idempotent
+   (CREATE ... IF NOT EXISTS / additive ALTER), so retrying on BUSY is safe. *)
 let exec_schema db sql =
-  match Sqlite3.exec db sql with
-  | Sqlite3.Rc.OK -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "github_action_reconcile schema error: %s (sql: %s)"
-           (Sqlite3.Rc.to_string rc) sql)
+  Sql_util.exec_schema ~label:"github_action_reconcile schema error" db sql
 
 let try_alter db sql =
   match Sqlite3.exec db sql with Sqlite3.Rc.OK -> () | _ -> ()
 
 let ensure_schema db =
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   let table_sql =
     {|CREATE TABLE IF NOT EXISTS github_action_correlations (
       id TEXT PRIMARY KEY NOT NULL,
