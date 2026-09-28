@@ -39,6 +39,7 @@
   test_contracts
   test_cost_tracker
   test_daemon
+  test_daemon_liveness
   test_daemon_logging
   test_debate
   test_dingtalk

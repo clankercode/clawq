@@ -115,9 +115,13 @@ let write_pid_meta pid =
   match proc_start_ticks pid with
   | None -> ()
   | Some ticks ->
-      let oc = open_out (pid_meta_path ()) in
-      output_string oc ticks;
-      close_out oc
+      let path = pid_meta_path () in
+      let tmp = path ^ ".new" in
+      let oc = open_out tmp in
+      Fun.protect
+        ~finally:(fun () -> close_out_noerr oc)
+        (fun () -> output_string oc ticks);
+      Sys.rename tmp path
 
 let pid_identity_ok pid =
   match read_pid_meta () with
@@ -149,9 +153,14 @@ let read_pid () =
 
 let write_pid pid =
   ensure_dir (clawq_dir ());
-  let oc = open_out (pid_path ()) in
-  output_string oc (string_of_int pid);
-  close_out oc;
+  (* B823: atomic rewrite so a reader never sees a torn/empty pid file *)
+  let path = pid_path () in
+  let tmp = path ^ ".new" in
+  let oc = open_out tmp in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc (string_of_int pid));
+  Sys.rename tmp path;
   write_pid_meta pid
 
 let remove_pid () =
@@ -162,6 +171,28 @@ let remove_pid () =
 
 let singleton_lock_path () = Filename.concat (clawq_dir ()) "daemon.lock"
 
+let read_lock_holder_pid () =
+  Daemon_liveness.read_holder_pid (singleton_lock_path ())
+
+(* B823: record the holder pid through the already-locked fd so a failed
+   acquirer can read it back. The content is advisory only — the flock on this
+   same fd is the actual lock; never rewrite the file via rename (that would
+   swap the inode under the lock). *)
+let record_lock_holder fd =
+  try
+    ignore (Unix.lseek fd 0 Unix.SEEK_SET);
+    Unix.ftruncate fd 0;
+    let s = Printf.sprintf "%d\n" (Unix.getpid ()) in
+    let rec write_off off =
+      if off < String.length s then
+        match Unix.write_substring fd s off (String.length s - off) with
+        | 0 -> ()
+        | n -> write_off (off + n)
+      else ()
+    in
+    write_off 0
+  with _ -> ()
+
 let acquire_singleton_lock () =
   ensure_dir (clawq_dir ());
   let fd =
@@ -169,6 +200,7 @@ let acquire_singleton_lock () =
   in
   try
     Unix.lockf fd Unix.F_TLOCK 0;
+    record_lock_holder fd;
     Some fd
   with Unix.Unix_error _ ->
     (try Unix.close fd with _ -> ());
@@ -179,6 +211,53 @@ let release_singleton_lock = function
   | Some fd -> (
       (try Unix.lockf fd Unix.F_ULOCK 0 with _ -> ());
       try Unix.close fd with _ -> ())
+
+(* B823: persistent takeover record in daemon.log so operators can audit when
+   and why a holder was replaced. *)
+let append_daemon_log line =
+  try
+    ensure_dir (clawq_dir ());
+    let oc = open_out_gen [ Open_append; Open_creat ] 0o644 (log_path ()) in
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () ->
+        Printf.fprintf oc "[%s] %s\n"
+          (Daemon_liveness.iso_utc (Unix.gettimeofday ()))
+          line)
+  with _ -> ()
+
+(* B823: when a `service start` finds a live daemon pid, replace it only if the
+   heartbeat proves it is hung (stale/missing). Also cleans up the holder's EC
+   child so the replacement daemon's EC process can take its lock. *)
+let takeover_unresponsive_daemon ~(pid : int) () : (string, string) result =
+  let log msg =
+    Logs.warn (fun m -> m "%s" msg);
+    append_daemon_log msg
+  in
+  match
+    Daemon_liveness.takeover_holder ~holder_pid:(Some pid) ~orphaned:false ~log
+      ()
+  with
+  | Error refusal -> Error refusal
+  | Ok note ->
+      let ec_note =
+        match Error_watcher.read_pid_file () with
+        | Some ec_pid
+          when ec_pid <> pid
+               && Daemon_liveness.process_alive ec_pid
+               && proc_cmdline_contains ~needle:"ec-run" ec_pid ->
+            let suffix =
+              match Daemon_liveness.kill_holder ec_pid with
+              | Ok _how -> "cleaned up"
+              | Error err -> "cleanup failed: " ^ err
+            in
+            Printf.sprintf "; EC process pid %d %s" ec_pid suffix
+        | _ -> ""
+      in
+      remove_pid ();
+      let full = note ^ ec_note in
+      if ec_note <> "" then append_daemon_log full;
+      Ok full
 
 let nofork_env = "CLAWQ_DAEMON_NOFORK"
 let internal_nofork_env = "CLAWQ_DAEMON_INTERNAL_NOFORK"
@@ -313,9 +392,22 @@ let cmd_start ~config =
     || Sys.getenv_opt internal_nofork_env = Some "1"
   then run_nofork_start ~config ()
   else
-    match read_pid () with
-    | Some pid -> Printf.sprintf "Daemon already running (pid %d)" pid
-    | None -> (
+    (* B823: a live holder pid only blocks the start when its heartbeat proves
+       it is healthy; a hung (stale heartbeat) or dead holder is replaced. *)
+    let gate =
+      match read_pid () with
+      | None -> Ok ""
+      | Some pid -> (
+          match takeover_unresponsive_daemon ~pid () with
+          | Error refusal ->
+              Error
+                (Printf.sprintf "Daemon already running (pid %d): %s" pid
+                   refusal)
+          | Ok note -> Ok note)
+    in
+    match gate with
+    | Error msg -> msg
+    | Ok takeover_note -> (
         ensure_dir (clawq_dir ());
         let logs_dir = clawq_dir () in
         ensure_dir logs_dir;
@@ -386,7 +478,8 @@ let cmd_start ~config =
             in
             match wait_for_ready 30 with
             | Some daemon_pid ->
-                Printf.sprintf "Daemon started (pid %d)" daemon_pid
+                (if takeover_note = "" then "" else takeover_note ^ "\n")
+                ^ Printf.sprintf "Daemon started (pid %d)" daemon_pid
             | None ->
                 Printf.sprintf "Daemon failed to become ready. Check logs at %s"
                   (log_path ())))
@@ -498,6 +591,33 @@ let autostart_status ?(detect_platform = detect_platform)
       else "  autostart: not installed (run: clawq service install)"
   | Other _ -> "  autostart: not available on this platform"
 
+(* B823: heartbeat-based verdict for the daemon pid reported by cmd_status. *)
+let heartbeat_status_line () =
+  let threshold_s = Daemon_liveness.stale_threshold_s () in
+  let age = Daemon_liveness.heartbeat_age () in
+  match read_pid () with
+  | None -> "  heartbeat: no daemon"
+  | Some pid -> (
+      match
+        Daemon_liveness.classify_holder ~threshold_s ~holder_alive:true
+          ~heartbeat_age_s:age
+      with
+      | NoDaemon -> "  heartbeat: no daemon"
+      | Healthy a ->
+          Printf.sprintf "  heartbeat: %.0fs old — verdict: healthy (pid %d)" a
+            pid
+      | Stale a ->
+          Printf.sprintf
+            "  heartbeat: %.0fs old (stale threshold %.0fs) — verdict: stale \
+             (pid %d): daemon appears hung; `clawq service start` will take \
+             over"
+            a threshold_s pid
+      | NoHeartbeat ->
+          Printf.sprintf
+            "  heartbeat: file missing — verdict: stale (pid %d wrote no \
+             heartbeat; daemon predates B823?)"
+            pid)
+
 let cmd_status ?(detect_platform = detect_platform)
     ?(run_command = run_command_default) () =
   let lines = ref [] in
@@ -510,6 +630,16 @@ let cmd_status ?(detect_platform = detect_platform)
       match Daemon_status.daemon_uptime_line pid with
       | Some line -> add line
       | None -> ()));
+  add (heartbeat_status_line ());
+  (match read_lock_holder_pid () with
+  | Some pid ->
+      add
+        (Printf.sprintf "  lock holder: pid %d (%s)" pid
+           (singleton_lock_path ()))
+  | None ->
+      add
+        (Printf.sprintf "  lock holder: none recorded (%s)"
+           (singleton_lock_path ())));
   add (autostart_status ~detect_platform ~run_command ());
   let state_path = Filename.concat (clawq_dir ()) "daemon_state.json" in
   if Sys.file_exists state_path then begin

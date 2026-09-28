@@ -227,6 +227,112 @@ let write_file path contents =
     ~finally:(fun () -> close_out oc)
     (fun () -> output_string oc contents)
 
+(* --- B823 daemon takeover e2e helpers --- *)
+
+let with_home home f =
+  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
+  let old_clawq_home = Sys.getenv_opt Dot_dir.env_var in
+  Unix.putenv "HOME" home;
+  (match old_clawq_home with
+  | Some _ -> Unix.putenv Dot_dir.env_var ""
+  | None -> ());
+  Fun.protect
+    (fun () -> f ())
+    ~finally:(fun () ->
+      (match old_home with
+      | Some v -> Unix.putenv "HOME" v
+      | None -> Unix.putenv "HOME" "");
+      match old_clawq_home with
+      | Some v -> Unix.putenv Dot_dir.env_var v
+      | None -> Unix.putenv Dot_dir.env_var "")
+
+let spawn_fake_holder seconds =
+  match Unix.fork () with
+  | 0 -> (
+      try Unix.execv "/bin/sleep" [| "sleep"; string_of_int seconds |]
+      with _ -> exit 127)
+  | pid -> pid
+
+let reap pid =
+  try
+    let rec loop () =
+      match Unix.waitpid [ Unix.WNOHANG ] pid with
+      | 0, _ ->
+          Unix.sleepf 0.05;
+          loop ()
+      | _, _ -> ()
+      | exception Unix.Unix_error (Unix.ECHILD, _, _) -> ()
+    in
+    loop ()
+  with _ -> ()
+
+let holder_dead pid =
+  if Daemon_liveness.process_alive pid then (
+    (try Unix.kill pid Sys.sigkill with _ -> ());
+    reap pid;
+    false)
+  else (
+    reap pid;
+    true)
+
+(* Stage a fake holder as the recorded daemon: daemon.pid + daemon.pid.meta
+   (identity via /proc start ticks) plus a heartbeat of the given age. *)
+let stage_fake_holder ~clawq_dir ~pid ~heartbeat_age_s =
+  let oc = open_out (Filename.concat clawq_dir "daemon.pid") in
+  Printf.fprintf oc "%d\n" pid;
+  close_out oc;
+  (match Daemon_status.proc_start_ticks pid with
+  | Some ticks ->
+      let oc = open_out (Filename.concat clawq_dir "daemon.pid.meta") in
+      output_string oc ticks;
+      close_out oc
+  | None -> ());
+  with_home (Filename.dirname clawq_dir) (fun () ->
+      let ts = Unix.gettimeofday () -. heartbeat_age_s in
+      Daemon_liveness.write_heartbeat ~now:ts ())
+
+let write_takeover_config ~config_path ~provider_port ~gateway_port ~auth_token
+    ~db_path =
+  write_file config_path
+    (Yojson.Safe.to_string
+       (`Assoc
+          [
+            ("default_provider", `String "fake");
+            ( "providers",
+              `Assoc
+                [
+                  ( "fake",
+                    `Assoc
+                      [
+                        ("api_key", `String "test-key");
+                        ( "base_url",
+                          `String
+                            (Printf.sprintf "http://127.0.0.1:%d" provider_port)
+                        );
+                        ("default_model", `String "fake-model");
+                      ] );
+                ] );
+            ( "agent_defaults",
+              `Assoc
+                [
+                  ("primary_model", `String "fake-model");
+                  ("system_prompt", `String "");
+                  ("max_tool_iterations", `Int 1);
+                  ("tool_search_enabled", `Bool false);
+                ] );
+            ( "gateway",
+              `Assoc
+                [
+                  ("host", `String "127.0.0.1");
+                  ("port", `Int gateway_port);
+                  ("require_pairing", `Bool false);
+                  ("auth_token", `String auth_token);
+                ] );
+            ("memory", `Assoc [ ("db_path", `String db_path) ]);
+            ("prompt", `Assoc [ ("dynamic_enabled", `Bool false) ]);
+            ("security", `Assoc [ ("tools_enabled", `Bool false) ]);
+          ]))
+
 let test_service_signal_restart_preserves_history () =
   let provider_port = Test_helpers.free_port () in
   let gateway_port = Test_helpers.free_port () in
@@ -365,8 +471,120 @@ let test_service_signal_restart_preserves_history () =
         (Test_helpers.string_contains second_response "users=2"
         && Test_helpers.string_contains second_response "hello restart"))
 
+let setup_takeover_home () =
+  let provider_port = Test_helpers.free_port () in
+  let gateway_port = Test_helpers.free_port () in
+  let auth_token = "takeover-test-token" in
+  let temp_root = Filename.temp_file "clawq_takeover" "" in
+  Sys.remove temp_root;
+  Unix.mkdir temp_root 0o755;
+  let home = Filename.concat temp_root "home" in
+  Unix.mkdir home 0o755;
+  let clawq_dir = Filename.concat home ".clawq" in
+  Unix.mkdir clawq_dir 0o755;
+  let db_path = Filename.concat clawq_dir "memory.sqlite3" in
+  write_takeover_config
+    ~config_path:(Filename.concat clawq_dir "config.json")
+    ~provider_port ~gateway_port ~auth_token ~db_path;
+  (temp_root, home, clawq_dir, gateway_port, auth_token)
+
+(* B823 AC1: a hung holder (stale heartbeat, live pid) is replaced by
+   `service start` and the takeover is reported. *)
+let test_service_start_takes_over_hung_holder () =
+  let temp_root, home, clawq_dir, gateway_port, _auth_token =
+    setup_takeover_home ()
+  in
+  let holder = spawn_fake_holder 60 in
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (run_main_command ~home [ "service"; "stop" ]);
+      ignore (holder_dead holder);
+      Test_helpers.rm_tree temp_root)
+    (fun () ->
+      stage_fake_holder ~clawq_dir ~pid:holder ~heartbeat_age_s:400.0;
+      let code, out, err = run_main_command ~home [ "service"; "start" ] in
+      Alcotest.(check int) "service start exit" 0 code;
+      Alcotest.(check bool)
+        "start output reports takeover" true
+        (Test_helpers.string_contains (out ^ err) "takeover");
+      wait_for_health ~port:gateway_port;
+      let new_pid = read_pid_file home in
+      Alcotest.(check bool)
+        "daemon.pid reflects replacement, not hung holder" true
+        (new_pid <> holder);
+      Alcotest.(check bool) "hung holder was killed" true (holder_dead holder);
+      with_home home (fun () ->
+          let fresh =
+            match Daemon_liveness.heartbeat_age () with
+            | Some age -> age < Daemon_liveness.stale_threshold_s ()
+            | None -> false
+          in
+          Alcotest.(check bool)
+            "replacement daemon writes fresh heartbeat" true fresh))
+
+(* B823 AC2: a healthy holder (fresh heartbeat) is never killed; start
+   refuses with an actionable message. *)
+let test_service_start_refuses_healthy_holder () =
+  let temp_root, home, clawq_dir, _gateway_port, _auth_token =
+    setup_takeover_home ()
+  in
+  let holder = spawn_fake_holder 60 in
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (holder_dead holder);
+      Test_helpers.rm_tree temp_root)
+    (fun () ->
+      stage_fake_holder ~clawq_dir ~pid:holder ~heartbeat_age_s:0.0;
+      let code, out, err = run_main_command ~home [ "service"; "start" ] in
+      Alcotest.(check int) "service start exit" 0 code;
+      let combined = out ^ err in
+      Alcotest.(check bool)
+        "start reports already running" true
+        (Test_helpers.string_contains combined "already running");
+      Alcotest.(check bool)
+        "refusal says the daemon is healthy" true
+        (Test_helpers.string_contains combined "healthy");
+      Alcotest.(check bool)
+        "no replacement daemon was started" false
+        (Test_helpers.string_contains combined "Daemon started");
+      Alcotest.(check bool)
+        "healthy holder still alive" true
+        (Daemon_liveness.process_alive holder);
+      Alcotest.(check int)
+        "daemon.pid still points at healthy holder" holder (read_pid_file home))
+
+(* B823 AC3: a dead holder (pid gone, pid file left) needs no manual cleanup;
+   `service start` proceeds on its own. *)
+let test_service_start_dead_holder_needs_no_cleanup () =
+  let temp_root, home, clawq_dir, gateway_port, _auth_token =
+    setup_takeover_home ()
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (run_main_command ~home [ "service"; "stop" ]);
+      Test_helpers.rm_tree temp_root)
+    (fun () ->
+      let dead = spawn_fake_holder 0 in
+      reap dead;
+      stage_fake_holder ~clawq_dir ~pid:dead ~heartbeat_age_s:400.0;
+      let code, out, err = run_main_command ~home [ "service"; "start" ] in
+      Alcotest.(check int) "service start exit" 0 code;
+      Alcotest.(check bool)
+        "start proceeded past dead holder" true
+        (Test_helpers.string_contains (out ^ err) "Daemon started");
+      wait_for_health ~port:gateway_port;
+      Alcotest.(check bool)
+        "daemon.pid rewritten by new instance" true
+        (read_pid_file home <> dead))
+
 let suite =
   [
     Alcotest.test_case "service signal restart preserves history" `Slow
       test_service_signal_restart_preserves_history;
+    Alcotest.test_case "service start takes over hung daemon holder" `Slow
+      test_service_start_takes_over_hung_holder;
+    Alcotest.test_case "service start refuses healthy daemon holder" `Slow
+      test_service_start_refuses_healthy_holder;
+    Alcotest.test_case "service start dead holder needs no cleanup" `Slow
+      test_service_start_dead_holder_needs_no_cleanup;
   ]

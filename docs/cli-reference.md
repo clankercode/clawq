@@ -224,9 +224,9 @@ clawq agent                                      Start the daemon
 Manage the Clawq system service.
 
 ```
-clawq service start                              Start the service
+clawq service start                              Start the service (takes over a hung daemon whose heartbeat is stale)
 clawq service stop                               Stop the service
-clawq service status                             Show service status
+clawq service status                             Show service status (lock holder, heartbeat age, verdict)
 clawq service restart                            Restart the service
 clawq service signal-restart                     Send SIGUSR1 for graceful restart
 clawq service install                            Install system service (systemd/launchd)
@@ -234,6 +234,11 @@ clawq service uninstall                          Uninstall system service
 clawq service systemd-unit                       Generate systemd unit file
 clawq service launchd-plist                      Generate launchd plist file
 ```
+
+The daemon writes a liveness heartbeat (`~/.clawq/heartbeat`, ≤30 s interval).
+`service start` refuses to replace a daemon with a fresh heartbeat, but
+replaces a hung one (stale heartbeat) or cleans up a dead holder — see
+[daemon-recovery.md](daemon-recovery.md).
 
 ### `clawq update`
 

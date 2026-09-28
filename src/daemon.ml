@@ -8,6 +8,10 @@ let apply_runtime_config_reload =
 
 let run ~(config : Runtime_config.t) =
   Daemon_logging.install ();
+  (* B823: liveness heartbeat. Written from this event loop on <=30s ticks; a
+     blocked loop stops the writes, which is the hang signal `service start`
+     and `service status` use for takeover/staleness decisions. *)
+  let _stop_heartbeat = Daemon_liveness.start_heartbeat_loop () in
   let current_config = ref config in
   let open Lwt.Syntax in
   if (not config.gateway.require_pairing) && config.gateway.auth_token = None

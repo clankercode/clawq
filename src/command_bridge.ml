@@ -181,11 +181,39 @@ let cmd_agent ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
     ?(execv = Unix.execv) ?(acquire_lock = Service.acquire_singleton_lock)
     ?(release_lock = Service.release_singleton_lock) () =
   let cfg = get_config () in
-  match acquire_lock () with
+  let rec acquire_with_takeover () =
+    match acquire_lock () with
+    | Some fd -> Some fd
+    | None -> (
+        (* B823: the lock is held — replace the holder only when its heartbeat
+           proves it is hung or its pid is gone. *)
+        let holder_pid =
+          match Service.read_lock_holder_pid () with
+          | Some pid -> Some pid
+          | None -> Daemon_status.read_current_daemon_pid ()
+        in
+        match
+          Daemon_liveness.takeover_holder ~holder_pid ~orphaned:false
+            ~log:(fun msg ->
+              Logs.warn (fun m -> m "%s" msg);
+              Service.append_daemon_log msg)
+            ()
+        with
+        | Error refusal ->
+            Logs.warn (fun m -> m "daemon lock takeover refused: %s" refusal);
+            None
+        | Ok _note -> acquire_lock ())
+  in
+  match acquire_with_takeover () with
   | None ->
-      "Another clawq agent instance already holds the daemon lock. Refusing to \
-       start a second live agent."
+      "Another clawq agent instance already holds the daemon lock and could \
+       not be taken over (it is healthy, or its holder pid is unknown). \
+       Refusing to start a second live agent. Check `clawq service status`; \
+       stop the running daemon with `clawq service stop` if you really want \
+       this instance replaced."
   | Some lock_fd -> (
+      (* B823: daemon.pid must reflect the live instance on every start *)
+      Service.write_pid (Unix.getpid ());
       let result =
         try run_daemon ~config:cfg with
         | Failure msg ->
@@ -204,8 +232,10 @@ let cmd_agent ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
       match result with
       | Daemon.Shutdown ->
           release_lock (Some lock_fd);
+          Service.remove_pid ();
           "Daemon stopped."
       | Daemon.Restart ->
+          (* execv keeps this pid, so daemon.pid written above stays accurate *)
           let executable = Restart_exec.executable () in
           execv executable (agent_argv ~executable);
           "Daemon restart requested.")

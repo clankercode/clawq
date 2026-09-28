@@ -12,9 +12,17 @@ let shutdown_requested = ref false
 (* --- Lock file (flock) --- *)
 let acquire_lock () =
   let path = Error_watcher.lock_file_path () in
-  let fd = Unix.openfile path [ Unix.O_WRONLY; Unix.O_CREAT ] 0o644 in
+  let fd = Unix.openfile path [ Unix.O_RDWR; Unix.O_CREAT ] 0o644 in
   try
     Unix.lockf fd Unix.F_TLOCK 0;
+    (* B823: record the holder pid through the locked fd so a failed acquirer
+       can read it back; never rewrite via rename (inode swap under lock). *)
+    (try
+       ignore (Unix.lseek fd 0 Unix.SEEK_SET);
+       Unix.ftruncate fd 0;
+       let s = Printf.sprintf "%d\n" (Unix.getpid ()) in
+       ignore (Unix.write_substring fd s 0 (String.length s))
+     with _ -> ());
     Some fd
   with Unix.Unix_error _ ->
     Unix.close fd;
@@ -23,6 +31,34 @@ let acquire_lock () =
 let release_lock fd =
   (try Unix.lockf fd Unix.F_ULOCK 0 with _ -> ());
   try Unix.close fd with _ -> ()
+
+(* B823: decide whether the current lock holder may be replaced and, when so,
+   terminate it. Refuses when the holder belongs to the current healthy
+   daemon; takes over when the holder's daemon is hung (stale heartbeat),
+   orphaned (its parent daemon is gone), or dead. *)
+let resolve_lock_takeover ?(orphaned : bool option) () : (string, string) result
+    =
+  let holder_pid =
+    match Daemon_liveness.read_holder_pid (Error_watcher.lock_file_path ()) with
+    | Some pid -> Some pid
+    | None -> Error_watcher.read_pid_file ()
+  in
+  let orphaned =
+    match orphaned with
+    | Some o -> o
+    | None -> (
+        match holder_pid with
+        | Some pid when Daemon_liveness.process_alive pid -> (
+            (* /proc unavailable (non-Linux): assume not orphaned and let the
+               heartbeat decide rather than killing a healthy daemon's EC. *)
+            match Daemon_liveness.proc_parent_pid pid with
+            | Some ppid -> ppid <> Unix.getppid ()
+            | None -> false)
+        | _ -> false)
+  in
+  Daemon_liveness.takeover_holder ~holder_pid ~orphaned
+    ~log:(fun msg -> Printf.eprintf "EC process: %s\n%!" msg)
+    ()
 
 (* --- Daemon log scanner --- *)
 type log_scan_state = { mutable offset : int; mutable inode : int }
@@ -329,13 +365,26 @@ let run_daemon_mode () =
   (* Own DB connection *)
   let db_path = Dot_dir.db_path () in
   let db = Memory.init ~db_path () in
-  (* Acquire lock *)
+  (* Acquire lock (B823: take over a hung/dead holder instead of giving up) *)
   let lock_fd =
     match acquire_lock () with
     | Some fd -> fd
-    | None ->
-        Printf.eprintf "EC process: another instance is already running\n";
-        exit 1
+    | None -> (
+        match resolve_lock_takeover () with
+        | Error refusal ->
+            Printf.eprintf
+              "EC process: lock held by a healthy instance, refusing to start: \
+               %s\n"
+              refusal;
+            exit 1
+        | Ok note -> (
+            Printf.eprintf "EC process: %s; retrying lock acquisition\n%!" note;
+            match acquire_lock () with
+            | Some fd -> fd
+            | None ->
+                Printf.eprintf
+                  "EC process: lock still held after takeover (%s)\n" note;
+                exit 1))
   in
   (* Write PID file *)
   Error_watcher.write_pid_file (Unix.getpid ());
