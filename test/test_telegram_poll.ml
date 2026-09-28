@@ -26,9 +26,15 @@ let with_captured_logs f =
     }
   in
   let prev = Logs.reporter () in
+  let prev_level = Logs.level () in
+  (* The default level (Warning) drops INFO lines; the B636 cancel path logs
+     at INFO, so capture at DEBUG and restore afterwards. *)
+  Logs.set_level (Some Logs.Debug);
   Logs.set_reporter reporter;
   Fun.protect
-    ~finally:(fun () -> Logs.set_reporter prev)
+    ~finally:(fun () ->
+      Logs.set_reporter prev;
+      Logs.set_level prev_level)
     (fun () ->
       let result = f () in
       (result, List.rev !messages))
@@ -178,16 +184,37 @@ let test_clean_poll_resets_the_dedup_chain () =
     | (_, latest) :: _ -> String_util.contains latest "[seen 1x]"
     | [] -> false)
 
+(* A cancellation arriving during the retry must take the B636 INFO path,
+   not log a poll error. *)
+let test_cancelled_retry_logs_info_not_poll_error () =
+  let fake attempt =
+    match attempt with 1 -> `Timeout | 2 -> `Failure Lwt.Canceled | _ -> `Stop
+  in
+  let (), attempts, logs = run_fake_poll ~fake ~clock_step:60.0 () in
+  Alcotest.(check int) "timeout then cancelled retry then stop" 3 attempts;
+  Alcotest.(check int)
+    "no poll error logged" 0
+    (List.length (poll_error_lines logs));
+  Alcotest.(check int)
+    "cancel logged at INFO" 1
+    (List.length
+       (List.filter
+          (fun (level, msg) ->
+            level = Logs.Info
+            && String_util.contains msg "Telegram poll cancelled")
+          logs))
+
 let test_poll_request_keeps_timeout_margin_and_uri_params () =
   (* B825 decision 3: the HTTP budget must stay timeout+15s and the timeout
      handed to Telegram must match what the poll loop asks for. *)
+  let timeout = Telegram_poll.poll_timeout_s in
   Alcotest.(check (float 0.001))
     "request timeout keeps the +15s margin" 45.0
-    (Telegram.poll_request_timeout_s ~timeout:30);
-  let uri = Telegram.get_updates_uri ~bot_token:"tok" ~offset:7 ~timeout:30 in
+    (Telegram.poll_request_timeout_s ~timeout);
+  let uri = Telegram.get_updates_uri ~bot_token:"tok" ~offset:7 ~timeout in
   Alcotest.(check bool)
-    "uri asks telegram for a 30s long poll" true
-    (String_util.contains uri "timeout=30");
+    "uri asks telegram for the poll long-poll timeout" true
+    (String_util.contains uri (Printf.sprintf "timeout=%d" timeout));
   Alcotest.(check bool)
     "uri resumes from the poll offset" true
     (String_util.contains uri "offset=7")
@@ -206,6 +233,8 @@ let suite =
       test_poll_loop_survives_indefinite_timeout_stream;
     Alcotest.test_case "clean poll resets the dedup chain" `Quick
       test_clean_poll_resets_the_dedup_chain;
+    Alcotest.test_case "cancelled retry logs INFO not a poll error" `Quick
+      test_cancelled_retry_logs_info_not_poll_error;
     Alcotest.test_case "poll request keeps timeout margin and uri params" `Quick
       test_poll_request_keeps_timeout_margin_and_uri_params;
   ]

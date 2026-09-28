@@ -149,14 +149,10 @@ let log_poll_error ~name ~(state : poll_error_dedup) ~now msg =
    failures are surfaced unchanged; the retry reports its own failure so a
    shutdown cancellation still takes the B636 INFO path. *)
 let get_updates_with_retry ~get_updates ~offset =
-  let open Lwt.Syntax in
   Lwt.catch
     (fun () -> get_updates ~offset)
     (fun exn ->
-      if is_timeout_poll_error (Printexc.to_string exn) then
-        Lwt.catch
-          (fun () -> get_updates ~offset)
-          (fun retry_exn -> Lwt.fail retry_exn)
+      if is_timeout_poll_error (Printexc.to_string exn) then get_updates ~offset
       else Lwt.fail exn)
 
 let poll_account ~bot_token
