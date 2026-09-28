@@ -1,17 +1,18 @@
 ---
+claimed_at: "2026-09-28T01:52:02Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-09-28T01:51:17Z"
 depends_on: []
 estimate_hours: 1
 id: B826
 priority: high
-status: pending
-tags:
-    - telegram
-    - messaging
-    - formatting
+started_at: "2026-09-28T01:52:02Z"
+status: in_progress
+tags: []
 title: telegram editMessageText fails MESSAGE_TOO_LONG when status edits exceed 4096 chars
-updated_at: "2026-09-28T01:51:17Z"
+updated_at: "2026-09-28T01:52:02Z"
 ---
 Observed in daemon.log: 35x WARN "Telegram editMessageText failed (HTTP 400, chat_id=<id>, message_id=11001): {\"ok\":false,\"error_code\":400,\"description\":\"Bad Request: MESSAGE_TOO_LONG\"}". Long agent status/edit updates exceed Telegram's 4096-char message limit and the edit is dropped.
 
