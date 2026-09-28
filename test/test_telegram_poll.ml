@@ -33,9 +33,12 @@ let with_captured_logs f =
       let result = f () in
       (result, List.rev !messages))
 
+(* Only count WARN/ERROR poll-error lines; suppressed repeats log at DEBUG. *)
 let poll_error_lines logs =
   List.filter
-    (fun (_level, msg) -> String_util.contains msg "Telegram poll error")
+    (fun (level, msg) ->
+      (level = Logs.Warning || level = Logs.Error)
+      && String_util.contains msg "Telegram poll error")
     logs
 
 let lines_at_level level logs = List.filter (fun (lvl, _) -> lvl = level) logs
@@ -154,6 +157,27 @@ let test_poll_loop_survives_indefinite_timeout_stream () =
     "timeout stream produces no ERROR" 0
     (List.length (lines_at_level Logs.Error (poll_error_lines logs)))
 
+(* A clean poll breaks the chain: the next timeout must be logged, not
+   suppressed as a repeat of the earlier one. *)
+let test_clean_poll_resets_the_dedup_chain () =
+  let fake attempt =
+    match attempt with
+    | 1 | 2 -> `Timeout (* poll 1: logs [seen 1x] *)
+    | 3 -> `Ok (* poll 2: clean poll resets the chain *)
+    | 4 | 5 -> `Timeout (* poll 3: must log again, not suppress *)
+    | _ -> `Stop
+  in
+  let (), attempts, logs = run_fake_poll ~fake ~clock_step:10.0 () in
+  Alcotest.(check int) "scripted attempts" 6 attempts;
+  let warns = lines_at_level Logs.Warning (poll_error_lines logs) in
+  Alcotest.(check int)
+    "timeout after a clean poll is logged" 2 (List.length warns);
+  Alcotest.(check bool)
+    "second timeout starts a fresh count" true
+    (match List.rev warns with
+    | (_, latest) :: _ -> String_util.contains latest "[seen 1x]"
+    | [] -> false)
+
 let test_poll_request_keeps_timeout_margin_and_uri_params () =
   (* B825 decision 3: the HTTP budget must stay timeout+15s and the timeout
      handed to Telegram must match what the poll loop asks for. *)
@@ -180,6 +204,8 @@ let suite =
       `Quick test_non_timeout_errors_are_not_retried_and_stay_error;
     Alcotest.test_case "poll loop survives an indefinite timeout stream" `Quick
       test_poll_loop_survives_indefinite_timeout_stream;
+    Alcotest.test_case "clean poll resets the dedup chain" `Quick
+      test_clean_poll_resets_the_dedup_chain;
     Alcotest.test_case "poll request keeps timeout margin and uri params" `Quick
       test_poll_request_keeps_timeout_margin_and_uri_params;
   ]

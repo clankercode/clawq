@@ -1,16 +1,27 @@
 (* B826: Telegram rejects message text above this length with
    MESSAGE_TOO_LONG. editMessageText cannot fall back to chunking (it rewrites
    one existing message), so over-long payloads are truncated to the limit with
-   a visible marker instead of being dropped. *)
+   a visible marker instead of being dropped. The cap is in bytes, like the
+   existing chunking, which is conservative: 4096 bytes is never more than
+   4096 Telegram-counted characters. *)
 let message_limit = 4096
-let truncation_marker = "\n[truncated]"
+
+(* No MarkdownV2- or HTML-special characters, so the marker survives every
+   parse mode (MarkdownV2 rejects unescaped [ ] . * _ ( ) ...). *)
+let truncation_marker = "\n… truncated"
+
+(* Longest markup run the cut is willing to back out of. Entities and the tags
+   we emit are far shorter; without a cap, a lone '&' or '<' in plain text
+   (e.g. "a && b") would throw away the whole payload. *)
+let markup_backoff_limit = 64
 
 (* Back [cut] off so it does not split an HTML entity (e.g. &amp;) or leave an
    open tag (e.g. <bod...). The nearest closer (';' or '>') means the previous
    construct already ended and the cut is safe. *)
 let markup_safe_cut text cut =
+  let limit = max (cut - markup_backoff_limit) 0 in
   let rec back i =
-    if i < 0 then cut
+    if i < limit then cut
     else
       match text.[i] with ';' | '>' -> cut | '&' | '<' -> i | _ -> back (i - 1)
   in

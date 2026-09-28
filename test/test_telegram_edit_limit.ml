@@ -113,6 +113,19 @@ let test_truncate_cuts_outside_html_entities () =
     "kept prefix keeps the payload head" true
     (String.starts_with ~prefix:(String.make 4075 'a') kept)
 
+(* A stray '&' in plain text must not make the cut throw the payload away:
+   the markup back-off is bounded. *)
+let test_truncate_backoff_is_bounded_for_stray_markup () =
+  let text = "a && b\n" ^ String.make 5000 'x' in
+  let truncated = Telegram_format.truncate_to_message_limit text in
+  let kept = strip_marker truncated in
+  Alcotest.(check bool)
+    "still within the limit" true
+    (String.length truncated <= Telegram_format.message_limit);
+  Alcotest.(check bool)
+    "nearly the whole budget is kept" true
+    (String.length kept > Telegram_format.message_limit - 128)
+
 let test_truncate_cuts_on_codepoint_boundaries () =
   let alpha = "\xCE\xB1" in
   let text = String.concat "" (List.init 2400 (fun _ -> alpha)) in
@@ -177,6 +190,8 @@ let suite =
       test_truncate_cuts_outside_html_entities;
     Alcotest.test_case "truncate cuts on codepoint boundaries" `Quick
       test_truncate_cuts_on_codepoint_boundaries;
+    Alcotest.test_case "truncate backoff is bounded for stray markup" `Quick
+      test_truncate_backoff_is_bounded_for_stray_markup;
     Alcotest.test_case "editMessageText truncates overlong payload" `Quick
       test_edit_message_truncates_overlong_payload;
     Alcotest.test_case "sendMessage short payload is unchanged" `Quick

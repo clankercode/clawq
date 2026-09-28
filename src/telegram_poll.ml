@@ -100,6 +100,11 @@ type poll_error_dedup = {
 let create_poll_error_dedup () =
   { message = ""; last_logged_at = neg_infinity; occurrences_since_log = 0 }
 
+(* A clean poll breaks the chain of consecutive identical errors. *)
+let reset_poll_error_dedup (state : poll_error_dedup) =
+  state.message <- "";
+  state.occurrences_since_log <- 0
+
 type poll_error_log = Log_error | Log_warn of int | Suppress of int
 
 (* Decide how one poll error should be logged. Clock-injected so the dedup
@@ -141,7 +146,8 @@ let log_poll_error ~name ~(state : poll_error_dedup) ~now msg =
 
 (* Single immediate fresh retry for timeout-class getUpdates failures: a
    stalled request usually succeeds on the next one. Cancellations and other
-   failures are surfaced unchanged, reporting the first failure. *)
+   failures are surfaced unchanged; the retry reports its own failure so a
+   shutdown cancellation still takes the B636 INFO path. *)
 let get_updates_with_retry ~get_updates ~offset =
   let open Lwt.Syntax in
   Lwt.catch
@@ -150,7 +156,7 @@ let get_updates_with_retry ~get_updates ~offset =
       if is_timeout_poll_error (Printexc.to_string exn) then
         Lwt.catch
           (fun () -> get_updates ~offset)
-          (fun _retry_exn -> Lwt.fail exn)
+          (fun retry_exn -> Lwt.fail retry_exn)
       else Lwt.fail exn)
 
 let poll_account ~bot_token
@@ -193,7 +199,12 @@ let poll_account ~bot_token
           [
             (let* r =
                Lwt.catch
-                 (fun () -> get_updates_with_retry ~get_updates ~offset:!offset)
+                 (fun () ->
+                   let* result =
+                     get_updates_with_retry ~get_updates ~offset:!offset
+                   in
+                   reset_poll_error_dedup error_dedup;
+                   Lwt.return result)
                  (fun exn ->
                    let msg = Printexc.to_string exn in
                    let is_cancel =
