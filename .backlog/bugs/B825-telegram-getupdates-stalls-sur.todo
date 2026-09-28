@@ -1,0 +1,32 @@
+---
+complexity: medium
+created_at: "2026-09-28T01:51:17Z"
+depends_on: []
+estimate_hours: 1
+id: B825
+priority: high
+status: pending
+tags:
+    - telegram
+    - polling
+    - network
+    - logging
+title: 'telegram getUpdates stalls surface as ERROR spam: HTTP timeout after 45.0s ~65 per day'
+updated_at: "2026-09-28T01:51:17Z"
+---
+Observed in daemon.log: 65x ERROR "Telegram poll error for 'default': Failure(\"HTTP timeout in get_with_timeout after 45.0s\")" plus 1x End_of_file, spread across the whole day (roughly every 10-45 min while the daemon was otherwise healthy).
+
+Code: src/telegram_poll.ml:123 calls Telegram.get_updates ~timeout:30; src/telegram_api.ml:52-61 sets request_timeout_s = timeout + 15 = 45s and uses Http_client.get_with_timeout. Telegram's getUpdates long-poll with timeout=30 should respond by ~30s, so a 45s HTTP timeout firing means the request genuinely stalled (connection reuse / pooled cohttp connection gone stale, or network path). Related stall symptoms elsewhere: "failed to fetch PR files: End_of_file" (32x), 180s post_json timeout.
+
+Decisions (already made):
+- Root cause may be external (stale pooled connections); fix what we control:
+  1. Retry getUpdates immediately (single bounded retry, fresh request) on HTTP timeout before surfacing an error.
+  2. Dedup consecutive identical poll errors: log at most one line per 5-minute window per connector, at WARN, with a count; keep ERROR for non-timeout failures (auth, 409, 5xx storms).
+  3. Verify the timeout+15 margin is actually applied on the poll path and that timeout param sent to Telegram matches what the poll loop asks for.
+- Do not silence real failures: 409 conflict / webhook-active / auth errors must still surface exactly as today.
+
+Acceptance criteria:
+1. Simulated consecutive timeouts (mock/fake API returning timeout failure) produce exactly one deduped WARN line per window, not one ERROR per poll.
+2. Poll loop survives indefinite timeout streams (no crash, no uncaught exception) and keeps retrying.
+3. Single retry on timeout before logging is implemented and unit-tested.
+4. make test green; fmt-check clean.
