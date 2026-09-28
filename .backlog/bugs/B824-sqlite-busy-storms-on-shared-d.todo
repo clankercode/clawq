@@ -36,3 +36,5 @@ Acceptance criteria:
 3. Contention test: connection A holds an exclusive write; connection B schema-init + append succeeds after A commits (no BUSY exception escapes).
 4. Schema-init BUSY retries with backoff and eventually succeeds under transient lock; webhook reconciliation no longer fails on BUSY.
 5. make test green; fmt-check clean.
+
+Lane plan: parallel with B823/B825+B826/B827. B823 owns src/ec_process.ml lock/start code — cover ec scan connection via central Memory.init instead of editing ec_process.ml.
