@@ -318,6 +318,8 @@ let all_suites =
     ("tools_help", Test_tools_help.suite);
     ("tools", Test_tools.suite);
     ("telegram_dedupe", Test_telegram_dedupe.suite);
+    ("telegram_poll", Test_telegram_poll.suite);
+    ("telegram_edit_limit", Test_telegram_edit_limit.suite);
     ("config_set", Test_config_set.suite);
     ("config_show", Test_config_show.suite);
     ("config_tree", Test_config_tree.suite);

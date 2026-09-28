@@ -569,7 +569,11 @@ Telegram uses long polling (`telegram_poll.ml`) to receive updates:
 3. Advance the offset to acknowledge processed updates.
 4. Repeat with configurable timeout.
 
-The polling loop handles reconnection and backoff automatically.
+The polling loop handles reconnection and backoff automatically. A timed-out
+`getUpdates` is retried once immediately before an error is surfaced, and
+repeated identical timeout errors are logged as a single WARN line per
+5-minute window (with an occurrence count) instead of one ERROR per poll
+(B825). Auth, 409 conflict, and webhook errors are always surfaced.
 
 ### Message Handling
 
@@ -885,7 +889,9 @@ ledger API (`Teams_delivery_lifecycle.query_by_tracking_id`) for that.
 - Ensure the callback_data matches the registered callback ID.
 
 **Polling stops:**
-- The polling loop handles reconnection automatically.
+- The polling loop handles reconnection automatically; a timed-out
+  `getUpdates` is retried once, and repeated identical timeout errors are
+  deduplicated to one WARN line per 5 minutes (B825).
 - Check logs for API errors or rate limiting.
 
 ---

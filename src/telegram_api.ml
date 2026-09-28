@@ -49,14 +49,21 @@ let delete_webhook ~bot_token =
           (redact_token bot_token));
   Lwt.return_unit
 
+(* B825: the HTTP budget for a long poll must stay strictly above the
+   long-poll timeout handed to Telegram, and the URI must ask Telegram for
+   exactly the timeout the poll loop wants. Both live here so the margin is
+   unit-testable. *)
+let poll_request_timeout_s ~timeout = float_of_int (timeout + 15)
+
+let get_updates_uri ~bot_token ~offset ~timeout =
+  Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
+    !api_base bot_token offset timeout
+    "%5B%22message%22%2C%22callback_query%22%2C%22poll_answer%22%5D"
+
 let get_updates ~bot_token ~offset ~timeout =
   let open Lwt.Syntax in
-  let request_timeout_s = float_of_int (timeout + 15) in
-  let uri =
-    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
-      !api_base bot_token offset timeout
-      "%5B%22message%22%2C%22callback_query%22%2C%22poll_answer%22%5D"
-  in
+  let request_timeout_s = poll_request_timeout_s ~timeout in
+  let uri = get_updates_uri ~bot_token ~offset ~timeout in
   let* status, body =
     Http_client.get_with_timeout ~timeout_s:request_timeout_s ~uri ~headers:[]
   in
@@ -385,7 +392,7 @@ let list_chats ~bot_token =
     in
     Lwt.return (Ok sorted)
 
-let telegram_max_message_len = 4096
+let telegram_max_message_len = Telegram_format.message_limit
 
 let telegram_delegate_prompt ~user_prompt =
   String.concat "\n"
@@ -548,6 +555,9 @@ let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
   if is_outbound_rate_limited chat_id then Lwt.return "0"
   else
     with_outbound_lock ~chat_id (fun () ->
+        (* B826: chunked callers already stay within the limit, so this only
+           bites on direct sends of unbounded text. *)
+        let text = Telegram_format.truncate_to_message_limit text in
         let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
         let base_fields =
           [
@@ -706,6 +716,9 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
   else
     let open Lwt.Syntax in
     with_outbound_lock ~chat_id (fun () ->
+        (* B826: edits cannot fall back to chunking, so over-long status
+           rewrites are truncated instead of failing MESSAGE_TOO_LONG. *)
+        let text = Telegram_format.truncate_to_message_limit text in
         let uri = Printf.sprintf "%s%s/editMessageText" !api_base bot_token in
         let base_fields =
           [

@@ -11,7 +11,10 @@
 - **Streaming**: Not native; simulated by repeated `editMessageText` calls
 - **Parse modes**: `HTML`, `MarkdownV2`, `Markdown` (legacy)
 - **Reactions**: `setMessageReaction` API for emoji reactions on messages
-- **Message limits**: ~4096 characters per message
+- **Message limits**: ~4096 characters per message; longer `editMessageText` /
+  `sendMessage` payloads are truncated to 4096 at a UTF-8/entity-safe boundary
+  with a visible "truncated" marker, since an edit cannot fall back to
+  chunking (B826)
 - **Delete**: `deleteMessage` API
 - **Current impl**: `make_status_notifier` returns a `Status_message.notifier` with `send`/`edit`/`delete` (`src/telegram_api.ml:691-733`). Factory registered in `session_core.status_message_factories` per session key.
 

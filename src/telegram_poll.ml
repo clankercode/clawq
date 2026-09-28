@@ -82,14 +82,90 @@ let buffer_or_dispatch_update ~bot_token
           ?run_update_command ?chat_limiter pending.generation;
         Lwt.return_unit
 
-let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
+(* B825: getUpdates long-poll stalls (a pooled connection gone stale or a dead
+   network path) surface as repeated identical timeout errors. Timeout-class
+   failures get one immediate fresh retry; consecutive identical timeout
+   errors are then deduped to one WARN line per window with an occurrence
+   count. Every other failure still logs at ERROR, unchanged. *)
+let poll_timeout_s = 30
+let poll_error_dedup_window_s = 300.0
+let is_timeout_poll_error msg = String_util.contains_ci msg "timeout"
+
+type poll_error_dedup = {
+  mutable message : string;
+  mutable last_logged_at : float;
+  mutable occurrences_since_log : int;
+}
+
+let create_poll_error_dedup () =
+  { message = ""; last_logged_at = neg_infinity; occurrences_since_log = 0 }
+
+(* A clean poll breaks the chain of consecutive identical errors. *)
+let reset_poll_error_dedup (state : poll_error_dedup) =
+  state.message <- "";
+  state.occurrences_since_log <- 0
+
+type poll_error_log = Log_error | Log_warn of int | Suppress of int
+
+(* Decide how one poll error should be logged. Clock-injected so the dedup
+   window is unit-testable without real time. *)
+let classify_poll_error ~window_s ~now (state : poll_error_dedup) msg =
+  if not (is_timeout_poll_error msg) then begin
+    (* A different failure class breaks the dedup chain. *)
+    state.message <- "";
+    state.occurrences_since_log <- 0;
+    Log_error
+  end
+  else begin
+    state.occurrences_since_log <- state.occurrences_since_log + 1;
+    let same_message = state.message = msg in
+    let window_open = now -. state.last_logged_at < window_s in
+    if same_message && window_open then Suppress state.occurrences_since_log
+    else begin
+      let count = state.occurrences_since_log in
+      state.message <- msg;
+      state.last_logged_at <- now;
+      state.occurrences_since_log <- 0;
+      Log_warn count
+    end
+  end
+
+let log_poll_error ~name ~(state : poll_error_dedup) ~now msg =
+  match
+    classify_poll_error ~window_s:poll_error_dedup_window_s ~now state msg
+  with
+  | Log_error ->
+      Logs.err (fun m -> m "Telegram poll error for '%s': %s" name msg)
+  | Log_warn count ->
+      Logs.warn (fun m ->
+          m "Telegram poll error for '%s': %s [seen %dx]" name msg count)
+  | Suppress n ->
+      Logs.debug (fun m ->
+          m "Telegram poll error for '%s': %s [suppressed, %d in window]" name
+            msg n)
+
+(* Single immediate fresh retry for timeout-class getUpdates failures: a
+   stalled request usually succeeds on the next one. Cancellations and other
+   failures are surfaced unchanged; the retry reports its own failure so a
+   shutdown cancellation still takes the B636 INFO path. *)
+let get_updates_with_retry ~get_updates ~offset =
+  Lwt.catch
+    (fun () -> get_updates ~offset)
+    (fun exn ->
+      if is_timeout_poll_error (Printexc.to_string exn) then get_updates ~offset
+      else Lwt.fail exn)
+
+let poll_account ~bot_token
+    ?(get_updates = Telegram.get_updates ~bot_token ~timeout:poll_timeout_s)
+    ?(set_my_commands = fun () -> Telegram.set_my_commands ~bot_token)
+    ?(clock = Unix.gettimeofday) ?(sleep = Lwt_unix.sleep)
+    ~(account : Runtime_config.telegram_account) ~name
     ~(session_mgr : Session.t) ?run_update_command ?chat_limiter ~stop () =
   let open Lwt.Syntax in
   Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
+  let error_dedup = create_poll_error_dedup () in
   let* () =
-    Lwt.catch
-      (fun () -> Telegram.set_my_commands ~bot_token)
-      (fun exn ->
+    Lwt.catch set_my_commands (fun exn ->
         Logs.warn (fun m ->
             m "Telegram: setMyCommands failed for '%s': %s" name
               (Printexc.to_string exn));
@@ -113,32 +189,22 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
         Logs.info (fun m ->
             m "Telegram polling stable, suppressing routine poll logs for '%s'"
               name);
-      let poll_start = Unix.gettimeofday () in
+      let poll_start = clock () in
       let* poll_result_opt =
         Lwt.pick
           [
             (let* r =
                Lwt.catch
                  (fun () ->
-                   Telegram.get_updates ~bot_token ~offset:!offset ~timeout:30)
+                   let* result =
+                     get_updates_with_retry ~get_updates ~offset:!offset
+                   in
+                   reset_poll_error_dedup error_dedup;
+                   Lwt.return result)
                  (fun exn ->
                    let msg = Printexc.to_string exn in
-                   let contains_substr s sub =
-                     let ls = String.length s in
-                     let lb = String.length sub in
-                     if lb = 0 then true
-                     else if lb > ls then false
-                     else
-                       let limit = ls - lb in
-                       let rec loop i =
-                         if i > limit then false
-                         else if String.sub s i lb = sub then true
-                         else loop (i + 1)
-                       in
-                       loop 0
-                   in
                    let is_cancel =
-                     exn = Lwt.Canceled || contains_substr msg "Canceled"
+                     exn = Lwt.Canceled || String_util.contains msg "Canceled"
                    in
                    (* B636: shutdown / mid-poll cancellation is normal;
                       log at INFO so real errors are not drowned out. *)
@@ -149,11 +215,9 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                             stop-signal): %s"
                            name msg)
                    else
-                     Logs.err (fun m ->
-                         m "Telegram poll error for '%s': %s" name msg);
-                   let* () =
-                     if is_cancel then Lwt.return_unit else Lwt_unix.sleep 5.0
-                   in
+                     (* B825: dedup consecutive identical timeout errors. *)
+                     log_poll_error ~name ~state:error_dedup ~now:(clock ()) msg;
+                   let* () = if is_cancel then Lwt.return_unit else sleep 5.0 in
                    Lwt.return (Telegram.Updates (0, [])))
              in
              Lwt.return (Some r));
@@ -180,7 +244,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                        long-polling"
                       name);
                 let* () = Telegram.delete_webhook ~bot_token in
-                let* () = Lwt_unix.sleep 2.0 in
+                let* () = sleep 2.0 in
                 Lwt.return (0, [])
             | Telegram.Poll_error Telegram.Conflict_duplicate_poller ->
                 Logs.warn (fun m ->
@@ -188,11 +252,11 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                       "Telegram: another poller is active for '%s', backing \
                        off %.0fs"
                       name !conflict_backoff);
-                let* () = Lwt_unix.sleep !conflict_backoff in
+                let* () = sleep !conflict_backoff in
                 conflict_backoff := Float.min (!conflict_backoff *. 2.0) 60.0;
                 Lwt.return (0, [])
             | Telegram.Poll_error (Telegram.Other_error _) ->
-                let* () = Lwt_unix.sleep 5.0 in
+                let* () = sleep 5.0 in
                 Lwt.return (0, [])
           in
           if max_uid + 1 > !offset then offset := max_uid + 1;
@@ -225,9 +289,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
               updates
           in
           (if !poll_count <= 3 || !poll_count mod 100 = 0 then
-             let poll_elapsed_ms =
-               (Unix.gettimeofday () -. poll_start) *. 1000.0
-             in
+             let poll_elapsed_ms = (clock () -. poll_start) *. 1000.0 in
              Logs.info (fun m ->
                  m
                    "Telegram poll #%d for '%s': %.0fms elapsed, %d update(s) \
