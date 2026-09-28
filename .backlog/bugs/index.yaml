@@ -1765,3 +1765,4 @@ bugs:
     - file: B824-sqlite-busy-storms-on-shared-d.todo
     - file: B825-telegram-getupdates-stalls-sur.todo
     - file: B826-telegram-editmessagetext-fails.todo
+    - file: B827-github-get-pr-files-401s-spam.todo
