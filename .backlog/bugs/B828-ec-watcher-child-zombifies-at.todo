@@ -1,16 +1,16 @@
 ---
+claimed_at: "2026-09-28T04:39:47Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-09-28T04:39:47Z"
 depends_on: []
 estimate_hours: 1
 id: B828
 priority: high
-status: pending
-tags:
-    - daemon
-    - ec-watcher
-    - zombie
-    - recovery
+started_at: "2026-09-28T04:39:47Z"
+status: in_progress
+tags: []
 title: 'EC watcher child zombifies at daemon start: zombie blocks respawn, no child reap, stale pid file, EC lock health misreads daemon heartbeat'
 updated_at: "2026-09-28T04:39:47Z"
 ---
