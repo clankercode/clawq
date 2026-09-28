@@ -1766,3 +1766,4 @@ bugs:
     - file: B825-telegram-getupdates-stalls-sur.todo
     - file: B826-telegram-editmessagetext-fails.todo
     - file: B827-github-get-pr-files-401s-spam.todo
+    - file: B828-ec-watcher-child-zombifies-at.todo

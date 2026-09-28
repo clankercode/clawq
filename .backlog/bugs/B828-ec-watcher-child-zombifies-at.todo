@@ -1,0 +1,46 @@
+---
+complexity: medium
+created_at: "2026-09-28T04:39:47Z"
+depends_on: []
+estimate_hours: 1
+id: B828
+priority: high
+status: pending
+tags:
+    - daemon
+    - ec-watcher
+    - zombie
+    - recovery
+title: 'EC watcher child zombifies at daemon start: zombie blocks respawn, no child reap, stale pid file, EC lock health misreads daemon heartbeat'
+updated_at: "2026-09-28T04:39:47Z"
+---
+Discovered live while validating B823 takeover after this batch merged (2026-09-28 14:35):
+
+Sequence observed on real service start (daemon pid 1879329, build d8c437ee):
+1. daemon.log 14:35:28.521 "Starting Error Correction watcher process" + 14:35:28.529 "EC process started (pid=1881794)" — ONE spawn logged.
+2. ec_process.log line 12796 (new): "EC process: lock held by a healthy instance, refusing to start: holder pid 1881794 is healthy (heartbeat 7s old, threshold 300s)" — a SECOND ec-run spawn (source not yet identified: config-watch EC toggle path, graceful_handoff, or a retry) refused against the first child's lock and exited.
+3. The first child 1881794 then exited silently (no error in ec_process.log, no "Stopping EC process") and is now a DEFUNCT zombie child of the daemon.
+4. ec_process.pid is stale (still 1881794).
+
+Net result: EC watcher is DOWN and stays down:
+- src/error_watcher.ml check_ec_health uses process_alive = Unix.kill (-pid) 0, which SUCCEEDS for zombies, so the periodic health check sees the zombie as alive and never respawns.
+- Nothing reaps EC children: the zombie stays forever (no waitpid/SIGCHLD handling on this spawn path; Process_group.start_to_file's file_pid is not waited).
+- The B823 takeover refusal semantics for the EC lock read the DAEMON heartbeat (shared ~/.clawq/heartbeat), but EC children never write heartbeats, so any live-daemon moment makes an EC-lock holder look healthy even when the holder pid is a dying/zombie sibling EC. Holder health for the EC lock should be judged from the holder pid itself (zombie-aware liveness, e.g. reuse Daemon_liveness.process_alive which already treats state Z as dead), not from the daemon heartbeat.
+- Pre-existing-ness note: the zombie-blocks-respawn flaw predates B823 (any unreaped crashed EC blocked respawns before); the B823 takeover interaction is new.
+
+Also seen during the same window: the 3-day-old hung orphan EC (ppid 1, pid 1448200) was never reclaimed by takeover because the lock/pid records pointed at the newer spawn; it had to be killed manually. Takeover should consider ALL clawq ec-run processes or at least not be defeated by a stale pid file pointing at a fresh sibling.
+
+Decisions (already made):
+- error_watcher.process_alive must treat zombies as dead (reuse Daemon_liveness.process_alive / proc state Z check; keep the process-group semantics for live checks).
+- The daemon must reap EC children: waitpid (WNOHANG poll in the health check is acceptable) or an explicit reaper so no zombie accumulates.
+- After reap/death detection, check_ec_health respawns as it already intends.
+- The EC-lock takeover health check must judge the holder pid directly (zombie-aware), not via the shared daemon heartbeat.
+- Identify and close the double-spawn at startup (log the spawner in start_ec_process or guard with state.pid Some -> skip) so a second spawn cannot race the first.
+
+Acceptance criteria:
+1. Unit test: check_ec_health with a zombie child (simulated state pid whose /proc state is Z or via injected alive check) triggers respawn, not healthy.
+2. Unit/integration test: spawning+exiting EC child leaves no zombie after one health-check tick (reap works).
+3. Integration test: daemon start produces exactly ONE ec-run spawn (double-spawn guard), and a second manual spawn attempt refuses/does not kill the healthy first (existing behavior preserved).
+4. EC-lock takeover decision uses holder-pid liveness (zombie-aware), unit-tested with a fake holder state Z -> Takeover.
+5. Live validation: after fix, service restart yields a live (non-zombie) ec-run child, heartbeat continues, ec_process.pid accurate.
+6. make test green; fmt-check clean.
