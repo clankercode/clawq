@@ -40,6 +40,7 @@ set dotenv-load := true
 _build-box-sync:
     @if [ -n "$CLAWQ_BUILD_BOX_HOST" ]; then \
         echo "Syncing to $CLAWQ_BUILD_BOX_HOST:${CLAWQ_BUILD_BOX_REMOTE_DIR:-~/src/clawq}..."; \
+        ssh "$CLAWQ_BUILD_BOX_HOST" "mkdir -p ${CLAWQ_BUILD_BOX_REMOTE_DIR:-~/src/clawq}"; \
         rsync -az --delete \
             --exclude '_build/' --exclude '.git/' --exclude '.worktrees/' \
             --exclude '_build_opt_*/' --exclude 'node_modules/' \
