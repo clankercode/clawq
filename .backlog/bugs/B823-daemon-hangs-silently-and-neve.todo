@@ -1,18 +1,18 @@
 ---
+claimed_at: "2026-09-28T01:52:01Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-09-28T01:50:46Z"
 depends_on: []
 estimate_hours: 1
 id: B823
 priority: high
-status: pending
-tags:
-    - daemon
-    - reliability
-    - recovery
-    - lock
+started_at: "2026-09-28T01:52:01Z"
+status: in_progress
+tags: []
 title: 'daemon hangs silently and never recovers: stale lock blocks restart, no heartbeat or takeover'
-updated_at: "2026-09-28T01:50:46Z"
+updated_at: "2026-09-28T01:52:01Z"
 ---
 Observed: daemon pid 1448200 (build f3024616, started 2026-09-25 10:15) went totally silent at 18:01 the same day, mid Telegram turn (last entries: tool grep completed, then incoming webhooks, then nothing). 3+ days later the process is still alive: state S, 9 threads, ~22s total CPU, wchan hrtimer_nanosleep. All connectors dead (no telegram polls, no webhook lines), UI listener refuses connections (observer.log stuck_check_error ECONNREFUSED from 17:47 onward), daemon.log receives nothing.
 
