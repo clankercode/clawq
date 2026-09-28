@@ -18,3 +18,5 @@ Add a configurable build-box mode to the justfile. By default, builds run locall
 3. Optionally sync artifacts back
 
 The configuration should be gitignored so secrets/hostnames don't leak. Consider a CLAWQ_BUILD_HOST or similar variable.
+
+Buildbox recipes fixed and validated on x-p35 (commits b3e248e1, 7893b48f-parent chain; see 'justfile:' commits): the B812 passthrough never worked ($$ expanded to shell PID; $${VAR:-x} mangled; .env unloaded without dotenv-load; make test requires docker). Now: dotenv-load + real env vars, containerless quick suite, mkdir -p + git seed on sync. Missing .git flipped 3 session tests (project-doc git-root detection); worktree .git FILE needed --exclude '.git' without trailing slash. x-p35 provisioned: clawq-5.1 switch, 98 deps, NO pins needed (dune 3.23.1 + tls 2.1.3 build clean — the x-alpha dune/tls pins are box-specific, not repo requirements). Validation: just test-remote = 7,671 tests 0 failures; worktree-isolated remote dir = 7,670 tests 0 failures. Subagent lanes now use this path (skills updated: bl-fix-many, subagent-defaults).
