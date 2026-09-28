@@ -1,18 +1,18 @@
 ---
+claimed_at: "2026-09-28T01:52:02Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-09-28T01:51:32Z"
 depends_on: []
 estimate_hours: 1
 id: B827
 priority: high
-status: pending
-tags:
-    - github
-    - api
-    - logging
-    - auth
+started_at: "2026-09-28T01:52:02Z"
+status: in_progress
+tags: []
 title: 'github get_pr_files 401s spam the log 1166x/day: no dedup, no stop-paging, no health surfacing'
-updated_at: "2026-09-28T01:51:32Z"
+updated_at: "2026-09-28T01:52:02Z"
 ---
 Observed in daemon.log: 1166x WARN "GitHub API get_pr_files AmarooHQ/amaroo#<n> page=1 returned 401" in a single day. The app/installation token for this repo was rejected (expired/revoked), yet every PR dispatch kept calling get_pr_files and logging the 401. PR file lists were silently missing from notifications all day and nothing aggregated the failure into a single actionable signal.
 
