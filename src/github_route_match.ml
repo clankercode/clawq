@@ -171,7 +171,7 @@ let resolve ~db ~destination ~envelope () =
               else Matched { route; specificity }))
 
 let ensure_schema db =
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   let sqls =
     [
       {|CREATE TABLE IF NOT EXISTS github_route_accepts (

@@ -276,7 +276,7 @@ let generate_receipt_id ?(now = Unix.gettimeofday ()) () =
   Printf.sprintf "ghrev_%d_%06d" ts rand
 
 let ensure_schema db =
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   I.ensure_schema db;
   B.ensure_schema db;
   V.ensure_schema db;

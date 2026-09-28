@@ -53,6 +53,7 @@ let all_suites =
     ("room_session", Test_room_session.suite);
     ("room_origin", Test_room_origin.suite);
     ("room_workspace", Test_room_workspace.suite);
+    ("sqlite_resilience", Test_sqlite_resilience.suite);
     ("room_activity_ledger", Test_room_activity_ledger.suite);
     ("room_audit_export", Test_room_audit_export.suite);
     ("room_github_backlinks", Test_room_github_backlinks.suite);

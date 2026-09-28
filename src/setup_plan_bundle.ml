@@ -30,7 +30,7 @@ type detach_result =
 let owner_setup = "setup"
 
 let init_schema db =
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   let sql =
     {|CREATE TABLE IF NOT EXISTS setup_owned_bundle_links (
       id TEXT PRIMARY KEY NOT NULL,

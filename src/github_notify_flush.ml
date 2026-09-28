@@ -75,6 +75,29 @@ let flush_room ~db ~session_manager ~config ~last_sent ~now room_id =
               Lwt.return_unit))
   | Some _ -> Lwt.return_unit
 
+(* One pass over the rooms with pending batches. Every database or send error
+   is absorbed here: the flush loop runs for the life of the daemon, so a
+   transient BUSY must not kill the async thread (the uncaught BUSY observed in
+   daemon.log killed the previous instance's notify flush). *)
+let flush_tick ~db ~session_manager ~config ~last_sent () =
+  let open Lwt.Syntax in
+  Lwt.catch
+    (fun () ->
+      let now = Unix.gettimeofday () in
+      let rooms = Github_notify_batch.pending_rooms ~db in
+      Lwt_list.iter_s
+        (flush_room ~db ~session_manager ~config ~last_sent ~now)
+        rooms)
+    (fun exn ->
+      (try Github_notify_batch.ensure_schema db with _ -> ());
+      let error = Printexc.to_string exn in
+      (* The tick runs every second; without dedup a sustained lock storm would
+         log one warn line per tick. *)
+      Log_dedup.warn
+        ~key:("github notify batch flush tick failed: " ^ error)
+        (Printf.sprintf "GitHub notify batch: flush tick failed: %s" error);
+      Lwt.return_unit)
+
 let start ~session_manager ~(config : Runtime_config.t) ~db =
   if !started then ()
   else begin
@@ -89,21 +112,7 @@ let start ~session_manager ~(config : Runtime_config.t) ~db =
         let rec loop () =
           let open Lwt.Syntax in
           let* () = Lwt_unix.sleep 1.0 in
-          let* () =
-            Lwt.catch
-              (fun () ->
-                let now = Unix.gettimeofday () in
-                let rooms = Github_notify_batch.pending_rooms ~db in
-                Lwt_list.iter_s
-                  (flush_room ~db ~session_manager ~config ~last_sent ~now)
-                  rooms)
-              (fun exn ->
-                (try Github_notify_batch.ensure_schema db with _ -> ());
-                Logs.warn (fun m ->
-                    m "GitHub notify batch: flush tick failed: %s"
-                      (Printexc.to_string exn));
-                Lwt.return_unit)
-          in
+          let* () = flush_tick ~db ~session_manager ~config ~last_sent () in
           loop ()
         in
         loop ())

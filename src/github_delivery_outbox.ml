@@ -83,7 +83,7 @@ let try_alter db sql =
   match Sqlite3.exec db sql with Sqlite3.Rc.OK -> () | _ -> ()
 
 let ensure_schema db =
-  Sqlite3.busy_timeout db 5_000;
+  Sql_util.set_busy_timeout db;
   let table_sql =
     {|CREATE TABLE IF NOT EXISTS github_delivery_outbox (
       id TEXT PRIMARY KEY NOT NULL,

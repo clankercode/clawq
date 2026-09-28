@@ -2,8 +2,17 @@ open Memory_types
 open Memory_0_schema
 
 let init ~db_path ?(search_enabled = false) () =
-  let db = Sqlite3.db_open db_path in
-  ignore (Sqlite3.exec db "PRAGMA busy_timeout = 5000");
+  let db = Sql_util.open_db db_path in
+  (* WAL lets readers run while a writer commits. The daemon, CLI commands and
+     the EC process share this file, so the default rollback journal turns any
+     write into a process-wide reader block. WAL is stored in the file header:
+     the first init converts the database and every later connection (including
+     ones opened outside this function) inherits it. *)
+  (match Sql_util.enable_wal db with
+  | "wal" | "memory" -> ()
+  | mode ->
+      Logs.warn (fun m ->
+          m "memory: journal_mode stayed %s; WAL not enabled" mode));
   (* Enforce declared FOREIGN KEY constraints (incl. room_profile_bindings -> room_profiles
      ON DELETE CASCADE). SQLite defaults FK enforcement OFF per-connection. *)
   ignore (Sqlite3.exec db "PRAGMA foreign_keys = ON");

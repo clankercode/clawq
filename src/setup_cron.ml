@@ -307,7 +307,7 @@ let run () =
   | Error e -> e
   | Ok () ->
       let db_path = Dot_dir.db_path () in
-      let db = Sqlite3.db_open db_path in
+      let db = Sql_util.open_db db_path in
       Fun.protect
         ~finally:(fun () -> ignore (Sqlite3.db_close db))
         (fun () ->
