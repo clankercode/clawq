@@ -1,0 +1,40 @@
+---
+complexity: medium
+created_at: "2026-09-28T01:50:46Z"
+depends_on: []
+estimate_hours: 1
+id: B823
+priority: high
+status: pending
+tags:
+    - daemon
+    - reliability
+    - recovery
+    - lock
+title: 'daemon hangs silently and never recovers: stale lock blocks restart, no heartbeat or takeover'
+updated_at: "2026-09-28T01:50:46Z"
+---
+Observed: daemon pid 1448200 (build f3024616, started 2026-09-25 10:15) went totally silent at 18:01 the same day, mid Telegram turn (last entries: tool grep completed, then incoming webhooks, then nothing). 3+ days later the process is still alive: state S, 9 threads, ~22s total CPU, wchan hrtimer_nanosleep. All connectors dead (no telegram polls, no webhook lines), UI listener refuses connections (observer.log stuck_check_error ECONNREFUSED from 17:47 onward), daemon.log receives nothing.
+
+Recovery is impossible without manual kill:
+- ec_process.ml:337 acquire_lock failure -> "EC process: another instance is already running" + exit 1. Later `service start` attempts just gave up (ec_process.log shows repeated "another instance is already running").
+- ~/.clawq/daemon.pid still holds the PREVIOUS instance pid (1390324) while the live pid was 1448200 -> pid file is stale/incorrect across restarts.
+- B652 watchdog announced "pausing after 2 consecutive Definite stuck detections" and did nothing; nothing escalates a hung (alive-but-dead) daemon.
+- No systemd/cron supervision exists; `clawq service start` is the only restart path and it refuses.
+
+Root cause of the hang itself was not identifiable from logs (the instance predates the github_notify_batch BUSY fix; an uncaught async exception from that schema init killed loops in the prior instance at 10:09). This ticket guarantees detection + recovery for ANY hang, whatever the cause.
+
+Decisions (already made, do not re-litigate):
+- Heartbeat: the daemon writes ~/.clawq/heartbeat (atomic write: unix ts + iso time) every <=30s from the main daemon loop. A fully blocked event loop stops the heartbeat, which is exactly the hang signal.
+- Takeover: when acquire_lock fails, read holder pid (lock/pid file); if the heartbeat file is stale beyond a threshold (default 300s, configurable) OR the pid is gone, SIGTERM the holder, wait <=10s, SIGKILL if needed, take the lock, and log the takeover. If the heartbeat is fresh, refuse with a clear actionable message (a healthy daemon is running).
+- daemon.pid (and ec_process.pid) must be rewritten atomically on every start and reflect the live instance.
+- `clawq service status` reports: lock holder pid, heartbeat age, verdict (healthy / stale / no daemon).
+
+Acceptance criteria:
+1. A hung holder (stale heartbeat, live pid) is detected and replaced by `service start`; takeover logged.
+2. A healthy holder (fresh heartbeat) is never killed; start refuses with actionable message.
+3. Dead-holder case (pid gone, lock file left) takes the lock without manual cleanup.
+4. daemon.pid/ec_process.pid accurate after every restart (regression: stale 1390324 observed).
+5. `clawq service status` prints heartbeat age + verdict; testable via unit test of the pure decision function.
+6. Tests: unit test staleness/takeover decision; integration test spawning a fake holder (e.g. a sleep process holding the lock with an old heartbeat file) then verifying takeover.
+7. Docs updated (docs/daemon or similar) describing heartbeat + takeover behavior.

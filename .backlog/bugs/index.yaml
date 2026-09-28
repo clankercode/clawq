@@ -1761,3 +1761,4 @@ bugs:
     - file: B820-empty-tool-argument-streams-ar.todo
     - file: B821-github-feed-per-room-channel-e.todo
     - file: B822-models-set-does-not-persist-ac.todo
+    - file: B823-daemon-hangs-silently-and-neve.todo
