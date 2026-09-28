@@ -369,6 +369,7 @@
   room_budget
   room_request_classifier
   room_session_record
+  daemon_liveness
   daemon_status
   benchmark
   debate
