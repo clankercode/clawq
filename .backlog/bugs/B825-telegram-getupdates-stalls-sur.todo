@@ -30,3 +30,5 @@ Acceptance criteria:
 2. Poll loop survives indefinite timeout streams (no crash, no uncaught exception) and keeps retrying.
 3. Single retry on timeout before logging is implemented and unit-tested.
 4. make test green; fmt-check clean.
+
+Lane plan: B825 worked serially with B826 in one worktree (both touch telegram files: telegram_api.ml/telegram_poll.ml vs edit path). Parallel lanes: B823 (ec_process/daemon), B824 (memory/ledgers — told to avoid ec_process.ml), B827 (github_api.ml).
