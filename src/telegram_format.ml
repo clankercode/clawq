@@ -1,3 +1,33 @@
+(* B826: Telegram rejects message text above this length with
+   MESSAGE_TOO_LONG. editMessageText cannot fall back to chunking (it rewrites
+   one existing message), so over-long payloads are truncated to the limit with
+   a visible marker instead of being dropped. *)
+let message_limit = 4096
+let truncation_marker = "\n[truncated]"
+
+(* Back [cut] off so it does not split an HTML entity (e.g. &amp;) or leave an
+   open tag (e.g. <bod...). The nearest closer (';' or '>') means the previous
+   construct already ended and the cut is safe. *)
+let markup_safe_cut text cut =
+  let rec back i =
+    if i < 0 then cut
+    else
+      match text.[i] with ';' | '>' -> cut | '&' | '<' -> i | _ -> back (i - 1)
+  in
+  back (cut - 1)
+
+let truncate_to_message_limit ?(max_len = message_limit) text =
+  if String.length text <= max_len then text
+  else
+    let cut =
+      let budget = max_len - String.length truncation_marker in
+      let cut = markup_safe_cut text (max budget 0) in
+      (* Never split a multi-byte UTF-8 codepoint. *)
+      let cut = Channel_util.utf8_safe_offset text cut in
+      max cut 0
+    in
+    String.sub text 0 cut ^ truncation_marker
+
 let mdv2_special_chars = "_*[]()~`>#+-=|{}.!\\"
 
 let escape_mdv2 text =
