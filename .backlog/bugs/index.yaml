@@ -1762,3 +1762,4 @@ bugs:
     - file: B821-github-feed-per-room-channel-e.todo
     - file: B822-models-set-does-not-persist-ac.todo
     - file: B823-daemon-hangs-silently-and-neve.todo
+    - file: B824-sqlite-busy-storms-on-shared-d.todo

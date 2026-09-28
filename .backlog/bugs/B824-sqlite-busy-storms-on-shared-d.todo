@@ -1,0 +1,38 @@
+---
+complexity: medium
+created_at: "2026-09-28T01:50:59Z"
+depends_on: []
+estimate_hours: 1
+id: B824
+priority: high
+status: pending
+tags:
+    - sqlite
+    - reliability
+    - db
+    - webhooks
+title: 'sqlite BUSY storms on shared db: no WAL journal mode, missing busy_timeout on several connections, BUSY kills loops'
+updated_at: "2026-09-28T01:50:59Z"
+---
+Observed in daemon.log (2026-09-24/25):
+- 10x ERROR "GitHub: verified delivery <id> reconciliation failed: Failure(\"github_action_reconcile schema error: BUSY (sql: CREATE TABLE IF NOT EXISTS github_action_correlations ...\")" — despite Sqlite3.busy_timeout db 5_000 at src/github_action_reconcile.ml:67, contention exceeded the 5s wait during heavy writes (memory.db is 406MB with many writers).
+- ERROR "GitHub webhook handler error: Failure(\"room_activity_ledger append failed: BUSY\")" — src/room_activity_ledger.ml has NO busy_timeout at all.
+- ERROR Uncaught async exception: Failure("github_notify_batch schema error: BUSY ...") at 10:09 (pre-7be2bf96 build) — an uncaught BUSY killed the notify flush loop in the previous instance.
+- ec_process.log: "EC scan cycle error: Failure(\"SQLite error: BUSY (sql: CREATE TABLE IF NOT EXISTS ec_reports ...\")" — ec_process opens its own DB connection (src/ec_process.ml run_daemon_mode) without busy_timeout.
+- Related WARN spam under load: "GitHub: failed to fetch PR files: End_of_file" (32x), 180s timeouts — secondary.
+
+Code audit: busy_timeout is set ad-hoc in ~10 modules (github_action_reconcile, github_notify_batch, memory_core, etc.) but NOT in room_activity_ledger.ml, agent_provider_ledger.ml, background_task_db.ml, or the ec_process own connection. No module sets journal_mode; the shared DB runs in default rollback journal mode, so any reader blocks writers process-wide and multi-process access (daemon + CLI + observer) collides constantly.
+
+Decisions (already made):
+- Enable WAL (PRAGMA journal_mode=WAL) once at the central DB init choke point (memory_core / Memory.init) so every connection inherits it; keep busy_timeout there.
+- Add busy_timeout (5_000) to every connection that opens the DB, preferring one shared helper over scattered calls.
+- Add a small retry-with-backoff wrapper for BUSY on schema-init paths (CREATE TABLE IF NOT EXISTS) and hot append paths (room_activity_ledger append, notify batch ops, ec_reports schema) — schema init must never fail a webhook reconciliation.
+- Verify on current master that the github_notify_batch flush loop catches all exceptions (the 10:09 uncaught exception was on a pre-fix build); add a regression test if missing.
+- Repeated identical BUSY errors should be deduped in logs (once per window), not spam per delivery.
+
+Acceptance criteria:
+1. WAL mode active on the shared DB after daemon start (verified via PRAGMA in test).
+2. room_activity_ledger append / agent_provider_ledger / background_task_db / ec_process connections all have busy_timeout set (test opens them under contention).
+3. Contention test: connection A holds an exclusive write; connection B schema-init + append succeeds after A commits (no BUSY exception escapes).
+4. Schema-init BUSY retries with backoff and eventually succeeds under transient lock; webhook reconciliation no longer fails on BUSY.
+5. make test green; fmt-check clean.
