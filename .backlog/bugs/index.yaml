@@ -1764,3 +1764,4 @@ bugs:
     - file: B823-daemon-hangs-silently-and-neve.todo
     - file: B824-sqlite-busy-storms-on-shared-d.todo
     - file: B825-telegram-getupdates-stalls-sur.todo
+    - file: B826-telegram-editmessagetext-fails.todo

@@ -1,0 +1,27 @@
+---
+complexity: medium
+created_at: "2026-09-28T01:51:17Z"
+depends_on: []
+estimate_hours: 1
+id: B826
+priority: high
+status: pending
+tags:
+    - telegram
+    - messaging
+    - formatting
+title: telegram editMessageText fails MESSAGE_TOO_LONG when status edits exceed 4096 chars
+updated_at: "2026-09-28T01:51:17Z"
+---
+Observed in daemon.log: 35x WARN "Telegram editMessageText failed (HTTP 400, chat_id=<id>, message_id=11001): {\"ok\":false,\"error_code\":400,\"description\":\"Bad Request: MESSAGE_TOO_LONG\"}". Long agent status/edit updates exceed Telegram's 4096-char message limit and the edit is dropped.
+
+Decisions (already made):
+- Pre-truncate the editMessageText payload to the 4096 limit at a safe boundary (prefer reusing any existing split/truncate helpers in src/telegram_format.ml), appending a short ellipsis marker when truncated.
+- Apply the same guard on the sendMessage path only if it is not already guarded (audit; sendMessage already appears to split - verify and leave alone if so).
+- Keep HTML entity escaping intact when truncating (do not cut inside an entity/tag if avoidable; a conservative codepoint-boundary cut plus marker is acceptable).
+
+Acceptance criteria:
+1. Unit test: an edit payload > 4096 chars is truncated to <= 4096 and still sends (mock transport sees no MESSAGE_TOO_LONG).
+2. Truncation marker present so the user knows content was cut.
+3. sendMessage behavior unchanged if already safe (regression test if touched).
+4. make test green; fmt-check clean.
