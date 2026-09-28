@@ -290,6 +290,7 @@
   test_streaming
   test_task_tree
   test_telegram_dedupe
+  test_telegram_poll
   test_telegram_format
   test_telegram_reactions
   test_telegram_status

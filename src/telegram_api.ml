@@ -49,14 +49,21 @@ let delete_webhook ~bot_token =
           (redact_token bot_token));
   Lwt.return_unit
 
+(* B825: the HTTP budget for a long poll must stay strictly above the
+   long-poll timeout handed to Telegram, and the URI must ask Telegram for
+   exactly the timeout the poll loop wants. Both live here so the margin is
+   unit-testable. *)
+let poll_request_timeout_s ~timeout = float_of_int (timeout + 15)
+
+let get_updates_uri ~bot_token ~offset ~timeout =
+  Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
+    !api_base bot_token offset timeout
+    "%5B%22message%22%2C%22callback_query%22%2C%22poll_answer%22%5D"
+
 let get_updates ~bot_token ~offset ~timeout =
   let open Lwt.Syntax in
-  let request_timeout_s = float_of_int (timeout + 15) in
-  let uri =
-    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
-      !api_base bot_token offset timeout
-      "%5B%22message%22%2C%22callback_query%22%2C%22poll_answer%22%5D"
-  in
+  let request_timeout_s = poll_request_timeout_s ~timeout in
+  let uri = get_updates_uri ~bot_token ~offset ~timeout in
   let* status, body =
     Http_client.get_with_timeout ~timeout_s:request_timeout_s ~uri ~headers:[]
   in
