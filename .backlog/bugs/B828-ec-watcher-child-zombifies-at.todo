@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-09-28T04:39:47Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-09-28T05:17:00Z"
 complexity: medium
 created_at: "2026-09-28T04:39:47Z"
 depends_on: []
+duration_minutes: 37.22182342078333
 estimate_hours: 1
 id: B828
 priority: high
 started_at: "2026-09-28T04:39:47Z"
-status: in_progress
+status: done
 tags: []
 title: 'EC watcher child zombifies at daemon start: zombie blocks respawn, no child reap, stale pid file, EC lock health misreads daemon heartbeat'
-updated_at: "2026-09-28T04:39:47Z"
+updated_at: "2026-09-28T05:17:00Z"
 ---
 Discovered live while validating B823 takeover after this batch merged (2026-09-28 14:35):
 
