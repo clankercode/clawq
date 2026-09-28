@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-09-28T01:52:02Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-09-28T03:57:11Z"
 complexity: medium
 created_at: "2026-09-28T01:50:59Z"
 depends_on: []
+duration_minutes: 125.16522883498334
 estimate_hours: 1
 id: B824
 priority: high
 started_at: "2026-09-28T01:52:02Z"
-status: in_progress
+status: done
 tags: []
 title: 'sqlite BUSY storms on shared db: no WAL journal mode, missing busy_timeout on several connections, BUSY kills loops'
-updated_at: "2026-09-28T01:52:02Z"
+updated_at: "2026-09-28T03:57:11Z"
 ---
 Observed in daemon.log (2026-09-24/25):
 - 10x ERROR "GitHub: verified delivery <id> reconciliation failed: Failure(\"github_action_reconcile schema error: BUSY (sql: CREATE TABLE IF NOT EXISTS github_action_correlations ...\")" — despite Sqlite3.busy_timeout db 5_000 at src/github_action_reconcile.ml:67, contention exceeded the 5s wait during heavy writes (memory.db is 406MB with many writers).
