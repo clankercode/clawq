@@ -53,8 +53,14 @@ Takeover is wired into:
   (`~/.clawq/daemon.lock`) is held. The lock file records the holder pid so the
   decision never depends on `daemon.pid` being fresh.
 - the Error Correction watcher process (`clawq ec-run --daemon-mode`) — its own
-  lock (`~/.clawq/ec_process.lock`) follows the same rules; a healthy daemon's
-  EC process is never killed, an orphaned or hung-daemon EC process is.
+  lock (`~/.clawq/ec_process.lock`) is judged from the **holder pid itself**
+  (zombie-aware liveness), not the daemon heartbeat: EC children never write
+  heartbeats, so a fresh daemon heartbeat cannot vouch for a dying EC sibling.
+  A live holder is never killed; a dead, zombie (crashed, unreaped), or
+  orphaned holder is replaced. The daemon also reaps exited EC children
+  (`waitpid` in the periodic health check) so a crash cannot linger as a
+  zombie that blocks respawn, and a duplicate start is skipped while the
+  recorded holder is alive (the spawn log line names the spawner).
 
 Every takeover is logged to `~/.clawq/daemon.log` (and stderr) with a line
 containing `takeover:` plus the reason, e.g.

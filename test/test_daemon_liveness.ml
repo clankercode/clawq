@@ -382,30 +382,69 @@ let test_service_takeover_refuses_healthy_holder () =
             "healthy holder still alive" true
             (Daemon_liveness.process_alive holder)))
 
-let test_ec_takeover_stale_holder () =
+(* B828: EC children never write the shared daemon heartbeat, so a stale
+   daemon heartbeat must not make a live EC holder replaceable. Holder health
+   comes from the holder pid itself. *)
+let test_ec_takeover_refuses_live_holder_despite_stale_heartbeat () =
   if not (sleep_available ()) then Alcotest.skip ();
   Test_helpers.with_temp_home (fun _home ->
       ignore (Dot_dir.ensure ());
       let holder = spawn_fake_holder 30 in
       Fun.protect
-        ~finally:(fun () -> reap holder)
+        ~finally:(fun () ->
+          (try Unix.kill holder Sys.sigkill with _ -> ());
+          reap holder)
         (fun () ->
-          (* holder pid recorded in the ec lock + pid file *)
           let lock_path = Error_watcher.lock_file_path () in
           let oc = open_out lock_path in
           Printf.fprintf oc "%d\n" holder;
           close_out oc;
-          Error_watcher.write_pid_file holder;
           let old = Unix.gettimeofday () -. 500.0 in
           Daemon_liveness.write_heartbeat ~now:old ();
-          (match Ec_process.resolve_lock_takeover () with
+          (match Ec_process.resolve_lock_takeover ~orphaned:false () with
+          | Error refusal ->
+              Alcotest.(check bool)
+                "refusal rests on holder pid health" true
+                (Test_helpers.string_contains refusal "healthy")
+          | Ok note -> Alcotest.failf "expected refusal, got takeover: %s" note);
+          Alcotest.(check bool)
+            "live holder untouched" true
+            (Daemon_liveness.process_alive holder)))
+
+(* B828: a crashed, unreaped EC holder is a zombie; the next ec-run must read
+   it as dead and take over the lock instead of refusing. *)
+let test_ec_takeover_zombie_holder () =
+  Test_helpers.with_temp_home (fun _home ->
+      ignore (Dot_dir.ensure ());
+      let zombie = match Unix.fork () with 0 -> Unix._exit 0 | pid -> pid in
+      Fun.protect
+        ~finally:(fun () -> reap zombie)
+        (fun () ->
+          let deadline = Unix.gettimeofday () +. 5.0 in
+          let rec wait_zombie () =
+            match Daemon_liveness.proc_state zombie with
+            | Some "Z" -> true
+            | _ ->
+                if Unix.gettimeofday () >= deadline then false
+                else (
+                  Unix.sleepf 0.02;
+                  wait_zombie ())
+          in
+          Alcotest.(check bool)
+            "holder reached zombie state" true (wait_zombie ());
+          let lock_path = Error_watcher.lock_file_path () in
+          let oc = open_out lock_path in
+          Printf.fprintf oc "%d\n" zombie;
+          close_out oc;
+          Error_watcher.write_pid_file zombie;
+          match Ec_process.resolve_lock_takeover () with
           | Ok note ->
               Alcotest.(check bool)
-                "ec takeover note mentions holder" true
-                (Test_helpers.string_contains note (string_of_int holder))
-          | Error e -> Alcotest.failf "expected ec takeover, got refusal: %s" e);
-          Alcotest.(check bool)
-            "ec holder process is dead" true (wait_until_dead holder)))
+                "zombie holder yields takeover" true
+                (Test_helpers.string_contains note (string_of_int zombie))
+          | Error e ->
+              Alcotest.failf
+                "expected takeover of zombie holder, got refusal: %s" e))
 
 let test_ec_takeover_refuses_healthy_holder () =
   if not (sleep_available ()) then Alcotest.skip ();
@@ -575,8 +614,10 @@ let suite =
       test_service_takeover_kills_hung_holder;
     Alcotest.test_case "service takeover refuses healthy holder" `Quick
       test_service_takeover_refuses_healthy_holder;
-    Alcotest.test_case "ec takeover stale holder" `Quick
-      test_ec_takeover_stale_holder;
+    Alcotest.test_case "ec takeover refuses live holder despite stale heartbeat"
+      `Quick test_ec_takeover_refuses_live_holder_despite_stale_heartbeat;
+    Alcotest.test_case "ec takeover zombie holder" `Quick
+      test_ec_takeover_zombie_holder;
     Alcotest.test_case "ec takeover refuses healthy holder" `Quick
       test_ec_takeover_refuses_healthy_holder;
     Alcotest.test_case "ec takeover dead holder cleans up" `Quick

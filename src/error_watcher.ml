@@ -130,9 +130,27 @@ let error_entry_of_json (j : Yojson.Safe.t) : error_entry =
 
 (* --- Lifecycle management --- *)
 
-type ec_state = { mutable pid : int option; mutable healthy : bool }
+type ec_state = {
+  mutable pid : int option;
+  mutable healthy : bool;
+  (* B828: injectable spawn hook so health-check unit tests do not exec the
+     real binary; defaults to spawning [clawq ec-run --daemon-mode]. *)
+  mutable spawn_child : unit -> int;
+}
 
-let create_state () = { pid = None; healthy = false }
+let ec_log_path () = Dot_dir.sub "ec_process.log"
+
+let default_spawn_ec () =
+  let exe = try Sys.executable_name with _ -> "clawq" in
+  let env = Unix.environment () in
+  let proc =
+    Process_group.start_to_file ~env ~log_path:(ec_log_path ())
+      (Exec [| exe; "ec-run"; "--daemon-mode" |])
+  in
+  proc.file_pid
+
+let create_state ?(spawn_child = default_spawn_ec) () =
+  { pid = None; healthy = false; spawn_child }
 
 let read_pid_file () =
   let path = pid_file_path () in
@@ -163,31 +181,65 @@ let remove_pid_file () =
   let tmp = path ^ ".new" in
   try Sys.remove tmp with _ -> ()
 
+(* B828: EC children are direct children of the daemon, so an exited child
+   stays a zombie until we waitpid it. WNOHANG poll: returns the exit status
+   when a child was reaped; [None] when still running or not our child
+   (ECHILD, e.g. a pid read from the pid file after a daemon restart). *)
+let reap_ec_child pid : Unix.process_status option =
+  match Unix.waitpid [ Unix.WNOHANG ] pid with
+  | p, status when p = pid -> Some status
+  | _ -> None
+  | exception Unix.Unix_error _ -> None
+
+let exit_status_string = function
+  | Unix.WEXITED code -> Printf.sprintf "exit code %d" code
+  | Unix.WSIGNALED sig_num -> Printf.sprintf "killed by signal %d" sig_num
+  | Unix.WSTOPPED sig_num -> Printf.sprintf "stopped by signal %d" sig_num
+
 let process_alive pid =
-  (* Check the process group (negative pid) to match background_task's
-     convention where child processes run in their own process group via
-     setsid. This avoids false negatives when the leader exits but a child
-     is still alive. *)
-  try
-    Unix.kill (-pid) 0;
-    true
-  with Unix.Unix_error _ -> false
+  (* B828: the old [Unix.kill (-pid) 0] probe succeeds for unreaped zombies,
+     which made a crashed EC read as alive and blocked respawn. With /proc
+     available, the leader's own state is the verdict: only a live leader runs
+     the watcher, so a zombie leader is dead even though the group probe still
+     answers for it. This also covers the fork→setsid window where the child
+     is not yet its own group leader. When /proc is unreadable (non-Linux, or
+     the leader was already reaped) keep the process-group probe to match
+     background_task's convention and avoid false negatives while a descendant
+     of the group is still alive. *)
+  match Daemon_liveness.proc_state pid with
+  | Some state -> state <> "Z"
+  | None -> (
+      try
+        Unix.kill (-pid) 0;
+        true
+      with Unix.Unix_error _ -> false)
 
-let ec_log_path () = Dot_dir.sub "ec_process.log"
-
-let start_ec_process state =
-  let exe = try Sys.executable_name with _ -> "clawq" in
-  let env = Unix.environment () in
-  let log_path = ec_log_path () in
-  let proc =
-    Process_group.start_to_file ~env ~log_path
-      (Exec [| exe; "ec-run"; "--daemon-mode" |])
-  in
-  let pid = proc.file_pid in
-  write_pid_file pid;
-  state.pid <- Some pid;
-  state.healthy <- true;
-  Logs.info (fun m -> m "EC process started (pid=%d)" pid)
+let start_ec_process ?(source = "unidentified") state =
+  (* B828 double-spawn guard: while the recorded holder is alive, skip so a
+     config-watch, handoff, or retry path cannot race the startup spawn. *)
+  match state.pid with
+  | Some pid when process_alive pid ->
+      Logs.info (fun m ->
+          m "EC process already running (pid=%d); skipping spawn from %s" pid
+            source)
+  | _ ->
+      let pid =
+        match state.pid with
+        | Some old -> (
+            (* reap the dead child so it cannot linger as a zombie *)
+            match reap_ec_child old with
+            | Some status ->
+                Logs.info (fun m ->
+                    m "EC process (pid=%d) exited with %s" old
+                      (exit_status_string status));
+                state.spawn_child ()
+            | None -> state.spawn_child ())
+        | None -> state.spawn_child ()
+      in
+      write_pid_file pid;
+      state.pid <- Some pid;
+      state.healthy <- true;
+      Logs.info (fun m -> m "EC process started (pid=%d, source=%s)" pid source)
 
 let kill_ec_process state =
   let pid =
@@ -203,7 +255,9 @@ let kill_ec_process state =
       let deadline = Unix.gettimeofday () +. 2.0 in
       while process_alive p && Unix.gettimeofday () < deadline do
         Unix.sleepf 0.05
-      done
+      done;
+      (* B828: reap our child so no zombie remains *)
+      ignore (reap_ec_child p)
   | None -> ());
   remove_pid_file ();
   state.pid <- None;
@@ -227,6 +281,8 @@ let stop_ec_process ?(timeout_s = 30.0) state =
           in
           let* () = wait () in
           if process_alive pid then Process_group.signal_group pid Sys.sigkill;
+          (* B828: reap our child so no zombie remains *)
+          ignore (reap_ec_child pid);
           remove_pid_file ();
           state.pid <- None;
           state.healthy <- false;
@@ -246,6 +302,8 @@ let stop_ec_process ?(timeout_s = 30.0) state =
       in
       let* () = wait () in
       if process_alive pid then Process_group.signal_group pid Sys.sigkill;
+      (* B828: reap our child so no zombie remains *)
+      ignore (reap_ec_child pid);
       remove_pid_file ();
       state.pid <- None;
       state.healthy <- false;
@@ -256,25 +314,41 @@ let check_ec_health state =
   | None ->
       state.healthy <- false;
       false
-  | Some pid ->
-      if process_alive pid then begin
-        state.healthy <- true;
-        true
-      end
-      else begin
-        Logs.warn (fun m ->
-            m "EC process (pid=%d) appears crashed, restarting" pid);
-        remove_pid_file ();
-        state.pid <- None;
-        state.healthy <- false;
-        start_ec_process state;
-        true
-      end
+  | Some pid -> (
+      (* B828: reap a dead child every tick so no zombie accumulates; the reap
+         result is also the authoritative death signal for our own children. *)
+      match reap_ec_child pid with
+      | Some status ->
+          Logs.warn (fun m ->
+              m "EC process (pid=%d) exited with %s, restarting" pid
+                (exit_status_string status));
+          remove_pid_file ();
+          state.pid <- None;
+          state.healthy <- false;
+          start_ec_process ~source:"health_check_respawn" state;
+          true
+      | None ->
+          if process_alive pid then begin
+            state.healthy <- true;
+            true
+          end
+          else begin
+            Logs.warn (fun m ->
+                m "EC process (pid=%d) appears crashed, restarting" pid);
+            remove_pid_file ();
+            state.pid <- None;
+            state.healthy <- false;
+            start_ec_process ~source:"health_check_respawn" state;
+            true
+          end)
 
 let graceful_handoff state =
   let open Lwt.Syntax in
   let old_pid = state.pid in
-  start_ec_process state;
+  (* B828: clear the slot so the double-spawn guard does not skip the
+     replacement spawn; the old holder is retired below. *)
+  state.pid <- None;
+  start_ec_process ~source:"graceful_handoff" state;
   match old_pid with
   | None -> Lwt.return_unit
   | Some old ->
@@ -295,9 +369,13 @@ let graceful_handoff state =
                 old);
           Process_group.signal_group old Sys.sigterm
         end;
+        (* B828: reap the retired child so it does not linger as a zombie *)
+        ignore (reap_ec_child old);
         Lwt.return_unit
       end
-      else Lwt.return_unit
+      else (
+        ignore (reap_ec_child old);
+        Lwt.return_unit)
 
 let run_health_check_loop ?(interval_s = 30.0) ~shutdown state =
   let open Lwt.Syntax in
