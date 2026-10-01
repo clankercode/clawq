@@ -449,18 +449,25 @@ let github_hook_snapshot_cleanup () =
       close_out oc;
       let old = Unix.gettimeofday () -. (49. *. 3600.) in
       Unix.utimes stale old old;
+      (* B830: retention cleanup is an explicit sweep (hourly in the daemon),
+         no longer a side effect of preparing an event. *)
+      Github_hooks.cleanup_delivery_snapshots ();
+      Alcotest.(check bool) "stale deleted" false (Sys.file_exists stale);
       let prepared =
         Github_hooks.prepare_event ~event_name:"workflow_job"
           ~headers:
             (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "cleanup-test") ])
           ~raw_body:workflow_job_failed_json
       in
-      Alcotest.(check bool) "stale deleted" false (Sys.file_exists stale);
       Alcotest.(check bool)
-        "new snapshot exists" true
-        (match prepared.snapshot_path with
-        | Some path -> Sys.file_exists path
-        | None -> false))
+        "no snapshot before filters" true
+        (prepared.snapshot_path = None);
+      let attached = Github_hooks.attach_delivery_snapshot ~prepared in
+      match attached.snapshot_path with
+      | Some path ->
+          Alcotest.(check bool)
+            "snapshot written on attach" true (Sys.file_exists path)
+      | None -> Alcotest.fail "expected snapshot path")
 
 let github_hook_context_normalizes_pr_flag_and_workflow_fields () =
   let pr_payload =

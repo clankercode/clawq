@@ -438,6 +438,20 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
       ]
   in
   let fields =
+    if cfg.webhooks <> Runtime_config_defaults.default_webhooks_config then
+      fields
+      @ [
+          ( "webhooks",
+            `Assoc
+              [
+                ("max_concurrent", `Int cfg.webhooks.max_concurrent);
+                ("max_queue", `Int cfg.webhooks.max_queue);
+                ("max_body_bytes", `Int cfg.webhooks.max_body_bytes);
+              ] );
+        ]
+    else fields
+  in
+  let fields =
     match cfg.voice with
     | None -> fields
     | Some v ->

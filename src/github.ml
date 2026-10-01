@@ -185,14 +185,25 @@ let fetch_pr_files ~(repo_config : Runtime_config.github_repo_config)
     else
       Lwt.catch
         (fun () ->
-          let* _ok =
+          let* ok =
             Rate_limiter.check_and_consume api_limiter
               ~key:(Printf.sprintf "github:%s/%s" owner repo)
           in
-          Github_api.get_pr_files
-            ~app_token:(Github_app_token.resolve_app_token ())
-            ~auth:github_config.auth ~resolve_headers ~egress_rules
-            ~egress_audit ~owner ~repo ~pull_number:pr_n ())
+          (* B830: honor the limiter — skip the API call when out of tokens
+             instead of issuing it anyway. A later event triggers a fresh
+             fetch; an empty file list only degrades this one dispatch. *)
+          if not ok then begin
+            Log_dedup.info ~key:"github pr files fetch rate limited"
+              (Printf.sprintf
+                 "GitHub: rate limited, skipping PR file fetch for %s/%s" owner
+                 repo);
+            Lwt.return []
+          end
+          else
+            Github_api.get_pr_files
+              ~app_token:(Github_app_token.resolve_app_token ())
+              ~auth:github_config.auth ~resolve_headers ~egress_rules
+              ~egress_audit ~owner ~repo ~pull_number:pr_n ())
         (fun exn ->
           Logs.warn (fun m ->
               m "GitHub: failed to fetch PR files: %s" (Printexc.to_string exn));
@@ -1434,12 +1445,17 @@ let launch_triggered_review_runs ~(db : Sqlite3.db) ~(config : Runtime_config.t)
         | _ -> Lwt.return 0
 
 let reconcile_verified_ingress ~db ~event_type ~body ~delivery_id
-    ~installation_id =
+    ~installation_id ~(payload : Yojson.Safe.t option) =
   try
-    let payload = Yojson.Safe.from_string body in
+    let payload_json =
+      (* B830: reuse the single parse from Github_hooks.prepare_event. *)
+      match payload with
+      | Some p -> p
+      | None -> Yojson.Safe.from_string body
+    in
     match
       Github_event_envelope.normalize ~delivery_id ?installation_id
-        ~event:event_type ~payload ()
+        ~event:event_type ~payload:payload_json ()
     with
     | Github_event_envelope.Ok_envelope envelope ->
         let results =
@@ -1523,6 +1539,8 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
       else if not (is_event_allowed ~repo_config ~event_type) then
         Lwt.return (Ok "filtered")
       else
+        (* B830: filters passed — persist the delivery snapshot only now. *)
+        let prepared = Github_hooks.attach_delivery_snapshot ~prepared in
         (* Create an access snapshot for credential scoping. The snapshot
            captures which credential handles are allowed by the current access
            policy. GitHub API calls resolve credentials through this snapshot,
@@ -1606,6 +1624,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
             | Some db ->
                 reconcile_verified_ingress ~db ~event_type ~body ~delivery_id
                   ~installation_id:prepared.installation_id
+                  ~payload:prepared.payload_json
             | None -> ()
           in
           if prepared.is_user_generated then
@@ -1617,7 +1636,10 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
               Lwt.return (Ok "user not allowed")
             end
             else
-              let event = Github_webhook.parse_event ~event_type ~body in
+              let event =
+                Github_webhook.parse_event_opt ~event_type ~body
+                  prepared.payload_json
+              in
               (* Bot self-loop protection: skip comments containing our reply marker *)
               let body_text = comment_body_of_event event in
               if Option.is_some body_text && is_bot_reply (Option.get body_text)
@@ -1796,7 +1818,10 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                             else Lwt.return (Ok "no /clawq command")))
           else
             (* Non-user-generated events (check_run, workflow_run, etc.) *)
-            let event = Github_webhook.parse_event ~event_type ~body in
+            let event =
+              Github_webhook.parse_event_opt ~event_type ~body
+                prepared.payload_json
+            in
             (* Dispatch to subscribed rooms/threads *)
             let* _dispatched =
               match Session.get_db session_manager with

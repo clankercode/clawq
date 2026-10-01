@@ -60,3 +60,9 @@ let warn ~key message =
   match emit global ~now:(now ()) ~key message with
   | Some line -> Logs.warn (fun m -> m "%s" line)
   | None -> ()
+
+(** [info ~key message] logs [message] at info level, deduplicated on [key]. *)
+let info ~key message =
+  match emit global ~now:(now ()) ~key message with
+  | Some line -> Logs.info (fun m -> m "%s" line)
+  | None -> ()

@@ -424,365 +424,359 @@ let verify_signature ~secret ~body ~signature_header =
     in
     Eqaf.equal expected signature_header
 
+(* B830: [parse_event_of_json] is the shared parsing core so a delivery
+   parses its JSON once; [parse_event] keeps the historical string API and
+   [parse_event_opt] prefers a payload parsed by Github_hooks.prepare_event. *)
+let parse_event_of_json ~event_type (json : Yojson.Safe.t) =
+  let open Yojson.Safe.Util in
+  let repo_json = json |> member "repository" in
+  let owner =
+    try repo_json |> member "owner" |> member "login" |> to_string
+    with _ -> ""
+  in
+  let repo = try repo_json |> member "name" |> to_string with _ -> "" in
+  match event_type with
+  | "pull_request" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "opened" | "edited" | "reopened" | "synchronize" | "ready_for_review"
+      | "closed" | "review_requested" | "review_request_removed" ->
+          let pr = json |> member "pull_request" in
+          let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
+          let pr_title = try pr |> member "title" |> to_string with _ -> "" in
+          let pr_body = try pr |> member "body" |> to_string with _ -> "" in
+          let pr_author =
+            try pr |> member "user" |> member "login" |> to_string
+            with _ -> ""
+          in
+          let base_branch =
+            try pr |> member "base" |> member "ref" |> to_string with _ -> ""
+          in
+          let head_branch =
+            try pr |> member "head" |> member "ref" |> to_string with _ -> ""
+          in
+          let html_url =
+            try pr |> member "html_url" |> to_string with _ -> ""
+          in
+          PullRequest
+            {
+              action;
+              owner;
+              repo;
+              pr_number;
+              pr_title;
+              pr_body;
+              pr_author;
+              base_branch;
+              head_branch;
+              html_url;
+            }
+      | _ -> Ignored)
+  | "issues" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "assigned" | "labeled" ->
+          let issue = json |> member "issue" in
+          let get_str node key =
+            try node |> member key |> to_string with _ -> ""
+          in
+          IssueAssigned
+            {
+              owner;
+              repo;
+              issue_number =
+                (try issue |> member "number" |> to_int with _ -> 0);
+              issue_title = get_str issue "title";
+              issue_body = get_str issue "body";
+              assignee =
+                (if action = "assigned" then
+                   try json |> member "assignee" |> member "login" |> to_string
+                   with _ -> ""
+                 else "");
+              actor =
+                (try json |> member "sender" |> member "login" |> to_string
+                 with _ -> "");
+              label =
+                (if action = "labeled" then
+                   try
+                     Some (json |> member "label" |> member "name" |> to_string)
+                   with _ -> None
+                 else None);
+              html_url = get_str issue "html_url";
+            }
+      | _ -> Ignored)
+  | "issue_comment" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "created" ->
+          let issue = json |> member "issue" in
+          let issue_number =
+            try issue |> member "number" |> to_int with _ -> 0
+          in
+          let is_pr =
+            try
+              ignore (issue |> member "pull_request");
+              true
+            with _ -> false
+          in
+          let is_pr = is_pr && issue |> member "pull_request" <> `Null in
+          let issue_title =
+            try issue |> member "title" |> to_string with _ -> ""
+          in
+          let comment = json |> member "comment" in
+          let comment_id = try comment |> member "id" |> to_int with _ -> 0 in
+          let comment_author =
+            try comment |> member "user" |> member "login" |> to_string
+            with _ -> ""
+          in
+          let comment_body =
+            try comment |> member "body" |> to_string with _ -> ""
+          in
+          let html_url =
+            try comment |> member "html_url" |> to_string with _ -> ""
+          in
+          IssueComment
+            {
+              owner;
+              repo;
+              issue_number;
+              is_pr;
+              comment_id;
+              comment_author;
+              comment_body;
+              issue_title;
+              html_url;
+            }
+      | _ -> Ignored)
+  | "pull_request_review_comment" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "created" ->
+          let comment = json |> member "comment" in
+          let pr = json |> member "pull_request" in
+          let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
+          let comment_id = try comment |> member "id" |> to_int with _ -> 0 in
+          let comment_author =
+            try comment |> member "user" |> member "login" |> to_string
+            with _ -> ""
+          in
+          let comment_body =
+            try comment |> member "body" |> to_string with _ -> ""
+          in
+          let in_reply_to_id =
+            try Some (comment |> member "in_reply_to_id" |> to_int)
+            with _ -> None
+          in
+          let diff_hunk =
+            try comment |> member "diff_hunk" |> to_string with _ -> ""
+          in
+          let file_path =
+            try comment |> member "path" |> to_string with _ -> ""
+          in
+          let pr_title = try pr |> member "title" |> to_string with _ -> "" in
+          let html_url =
+            try comment |> member "html_url" |> to_string with _ -> ""
+          in
+          let head_sha =
+            try pr |> member "head" |> member "sha" |> to_string with _ -> ""
+          in
+          PrReviewComment
+            {
+              owner;
+              repo;
+              pr_number;
+              comment_id;
+              comment_author;
+              comment_body;
+              in_reply_to_id;
+              diff_hunk;
+              file_path;
+              pr_title;
+              html_url;
+              head_sha;
+            }
+      | _ -> Ignored)
+  | "pull_request_review" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "submitted" | "edited" ->
+          let review = json |> member "review" in
+          let pr = json |> member "pull_request" in
+          let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
+          let review_id = try review |> member "id" |> to_int with _ -> 0 in
+          let review_author =
+            try review |> member "user" |> member "login" |> to_string
+            with _ -> ""
+          in
+          let state =
+            try review |> member "state" |> to_string with _ -> ""
+          in
+          let body = try review |> member "body" |> to_string with _ -> "" in
+          let html_url =
+            try review |> member "html_url" |> to_string with _ -> ""
+          in
+          let head_sha =
+            try pr |> member "head" |> member "sha" |> to_string with _ -> ""
+          in
+          PullRequestReview
+            {
+              owner;
+              repo;
+              pr_number;
+              review_id;
+              review_author;
+              state;
+              body;
+              html_url;
+              head_sha;
+            }
+      | _ -> Ignored)
+  | "check_run" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "completed" | "created" | "requested_action" ->
+          let check_run = json |> member "check_run" in
+          let name =
+            try check_run |> member "name" |> to_string with _ -> ""
+          in
+          let status =
+            try check_run |> member "status" |> to_string with _ -> ""
+          in
+          let conclusion =
+            try check_run |> member "conclusion" |> to_string with _ -> ""
+          in
+          let html_url =
+            try check_run |> member "html_url" |> to_string with _ -> ""
+          in
+          let pr_number =
+            try
+              Some
+                (check_run |> member "pull_requests" |> to_list |> List.hd
+               |> member "number" |> to_int)
+            with _ -> None
+          in
+          let head_sha =
+            try check_run |> member "head_sha" |> to_string with _ -> ""
+          in
+          let actor =
+            try json |> member "sender" |> member "login" |> to_string
+            with _ -> ""
+          in
+          let details_url =
+            try check_run |> member "details_url" |> to_string with _ -> ""
+          in
+          CheckRun
+            {
+              owner;
+              repo;
+              name;
+              status;
+              conclusion;
+              pr_number;
+              html_url;
+              head_sha;
+              actor;
+              details_url;
+            }
+      | _ -> Ignored)
+  | "check_suite" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "completed" | "requested" | "rerequested" ->
+          let check_suite = json |> member "check_suite" in
+          let status =
+            try check_suite |> member "status" |> to_string with _ -> ""
+          in
+          let conclusion =
+            try check_suite |> member "conclusion" |> to_string with _ -> ""
+          in
+          let html_url =
+            try check_suite |> member "html_url" |> to_string with _ -> ""
+          in
+          let pr_number =
+            try
+              Some
+                (check_suite |> member "pull_requests" |> to_list |> List.hd
+               |> member "number" |> to_int)
+            with _ -> None
+          in
+          let head_sha =
+            try check_suite |> member "head_sha" |> to_string with _ -> ""
+          in
+          let actor =
+            try json |> member "sender" |> member "login" |> to_string
+            with _ -> ""
+          in
+          CheckSuite
+            {
+              owner;
+              repo;
+              status;
+              conclusion;
+              pr_number;
+              html_url;
+              head_sha;
+              actor;
+            }
+      | _ -> Ignored)
+  | "workflow_run" -> (
+      let action = try json |> member "action" |> to_string with _ -> "" in
+      match action with
+      | "completed" | "requested" | "in_progress" ->
+          let workflow_run = json |> member "workflow_run" in
+          let name =
+            try workflow_run |> member "name" |> to_string with _ -> ""
+          in
+          let status =
+            try workflow_run |> member "status" |> to_string with _ -> ""
+          in
+          let conclusion =
+            try workflow_run |> member "conclusion" |> to_string with _ -> ""
+          in
+          let html_url =
+            try workflow_run |> member "html_url" |> to_string with _ -> ""
+          in
+          let pr_number =
+            try
+              Some
+                (workflow_run |> member "pull_requests" |> to_list |> List.hd
+               |> member "number" |> to_int)
+            with _ -> None
+          in
+          let head_sha =
+            try workflow_run |> member "head_sha" |> to_string with _ -> ""
+          in
+          let actor =
+            try workflow_run |> member "actor" |> member "login" |> to_string
+            with _ -> (
+              try json |> member "sender" |> member "login" |> to_string
+              with _ -> "")
+          in
+          WorkflowRun
+            {
+              owner;
+              repo;
+              name;
+              status;
+              conclusion;
+              pr_number;
+              html_url;
+              head_sha;
+              actor;
+            }
+      | _ -> Ignored)
+  | _ -> Ignored
+
 let parse_event ~event_type ~body =
   try
     let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    let repo_json = json |> member "repository" in
-    let owner =
-      try repo_json |> member "owner" |> member "login" |> to_string
-      with _ -> ""
-    in
-    let repo = try repo_json |> member "name" |> to_string with _ -> "" in
-    match event_type with
-    | "pull_request" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "opened" | "edited" | "reopened" | "synchronize" | "ready_for_review"
-        | "closed" | "review_requested" | "review_request_removed" ->
-            let pr = json |> member "pull_request" in
-            let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
-            let pr_title =
-              try pr |> member "title" |> to_string with _ -> ""
-            in
-            let pr_body = try pr |> member "body" |> to_string with _ -> "" in
-            let pr_author =
-              try pr |> member "user" |> member "login" |> to_string
-              with _ -> ""
-            in
-            let base_branch =
-              try pr |> member "base" |> member "ref" |> to_string
-              with _ -> ""
-            in
-            let head_branch =
-              try pr |> member "head" |> member "ref" |> to_string
-              with _ -> ""
-            in
-            let html_url =
-              try pr |> member "html_url" |> to_string with _ -> ""
-            in
-            PullRequest
-              {
-                action;
-                owner;
-                repo;
-                pr_number;
-                pr_title;
-                pr_body;
-                pr_author;
-                base_branch;
-                head_branch;
-                html_url;
-              }
-        | _ -> Ignored)
-    | "issues" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "assigned" | "labeled" ->
-            let issue = json |> member "issue" in
-            let get_str node key =
-              try node |> member key |> to_string with _ -> ""
-            in
-            IssueAssigned
-              {
-                owner;
-                repo;
-                issue_number =
-                  (try issue |> member "number" |> to_int with _ -> 0);
-                issue_title = get_str issue "title";
-                issue_body = get_str issue "body";
-                assignee =
-                  (if action = "assigned" then
-                     try
-                       json |> member "assignee" |> member "login" |> to_string
-                     with _ -> ""
-                   else "");
-                actor =
-                  (try json |> member "sender" |> member "login" |> to_string
-                   with _ -> "");
-                label =
-                  (if action = "labeled" then
-                     try
-                       Some
-                         (json |> member "label" |> member "name" |> to_string)
-                     with _ -> None
-                   else None);
-                html_url = get_str issue "html_url";
-              }
-        | _ -> Ignored)
-    | "issue_comment" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "created" ->
-            let issue = json |> member "issue" in
-            let issue_number =
-              try issue |> member "number" |> to_int with _ -> 0
-            in
-            let is_pr =
-              try
-                ignore (issue |> member "pull_request");
-                true
-              with _ -> false
-            in
-            let is_pr = is_pr && issue |> member "pull_request" <> `Null in
-            let issue_title =
-              try issue |> member "title" |> to_string with _ -> ""
-            in
-            let comment = json |> member "comment" in
-            let comment_id =
-              try comment |> member "id" |> to_int with _ -> 0
-            in
-            let comment_author =
-              try comment |> member "user" |> member "login" |> to_string
-              with _ -> ""
-            in
-            let comment_body =
-              try comment |> member "body" |> to_string with _ -> ""
-            in
-            let html_url =
-              try comment |> member "html_url" |> to_string with _ -> ""
-            in
-            IssueComment
-              {
-                owner;
-                repo;
-                issue_number;
-                is_pr;
-                comment_id;
-                comment_author;
-                comment_body;
-                issue_title;
-                html_url;
-              }
-        | _ -> Ignored)
-    | "pull_request_review_comment" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "created" ->
-            let comment = json |> member "comment" in
-            let pr = json |> member "pull_request" in
-            let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
-            let comment_id =
-              try comment |> member "id" |> to_int with _ -> 0
-            in
-            let comment_author =
-              try comment |> member "user" |> member "login" |> to_string
-              with _ -> ""
-            in
-            let comment_body =
-              try comment |> member "body" |> to_string with _ -> ""
-            in
-            let in_reply_to_id =
-              try Some (comment |> member "in_reply_to_id" |> to_int)
-              with _ -> None
-            in
-            let diff_hunk =
-              try comment |> member "diff_hunk" |> to_string with _ -> ""
-            in
-            let file_path =
-              try comment |> member "path" |> to_string with _ -> ""
-            in
-            let pr_title =
-              try pr |> member "title" |> to_string with _ -> ""
-            in
-            let html_url =
-              try comment |> member "html_url" |> to_string with _ -> ""
-            in
-            let head_sha =
-              try pr |> member "head" |> member "sha" |> to_string
-              with _ -> ""
-            in
-            PrReviewComment
-              {
-                owner;
-                repo;
-                pr_number;
-                comment_id;
-                comment_author;
-                comment_body;
-                in_reply_to_id;
-                diff_hunk;
-                file_path;
-                pr_title;
-                html_url;
-                head_sha;
-              }
-        | _ -> Ignored)
-    | "pull_request_review" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "submitted" | "edited" ->
-            let review = json |> member "review" in
-            let pr = json |> member "pull_request" in
-            let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
-            let review_id = try review |> member "id" |> to_int with _ -> 0 in
-            let review_author =
-              try review |> member "user" |> member "login" |> to_string
-              with _ -> ""
-            in
-            let state =
-              try review |> member "state" |> to_string with _ -> ""
-            in
-            let body =
-              try review |> member "body" |> to_string with _ -> ""
-            in
-            let html_url =
-              try review |> member "html_url" |> to_string with _ -> ""
-            in
-            let head_sha =
-              try pr |> member "head" |> member "sha" |> to_string
-              with _ -> ""
-            in
-            PullRequestReview
-              {
-                owner;
-                repo;
-                pr_number;
-                review_id;
-                review_author;
-                state;
-                body;
-                html_url;
-                head_sha;
-              }
-        | _ -> Ignored)
-    | "check_run" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "completed" | "created" | "requested_action" ->
-            let check_run = json |> member "check_run" in
-            let name =
-              try check_run |> member "name" |> to_string with _ -> ""
-            in
-            let status =
-              try check_run |> member "status" |> to_string with _ -> ""
-            in
-            let conclusion =
-              try check_run |> member "conclusion" |> to_string with _ -> ""
-            in
-            let html_url =
-              try check_run |> member "html_url" |> to_string with _ -> ""
-            in
-            let pr_number =
-              try
-                Some
-                  (check_run |> member "pull_requests" |> to_list |> List.hd
-                 |> member "number" |> to_int)
-              with _ -> None
-            in
-            let head_sha =
-              try check_run |> member "head_sha" |> to_string with _ -> ""
-            in
-            let actor =
-              try json |> member "sender" |> member "login" |> to_string
-              with _ -> ""
-            in
-            let details_url =
-              try check_run |> member "details_url" |> to_string with _ -> ""
-            in
-            CheckRun
-              {
-                owner;
-                repo;
-                name;
-                status;
-                conclusion;
-                pr_number;
-                html_url;
-                head_sha;
-                actor;
-                details_url;
-              }
-        | _ -> Ignored)
-    | "check_suite" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "completed" | "requested" | "rerequested" ->
-            let check_suite = json |> member "check_suite" in
-            let status =
-              try check_suite |> member "status" |> to_string with _ -> ""
-            in
-            let conclusion =
-              try check_suite |> member "conclusion" |> to_string with _ -> ""
-            in
-            let html_url =
-              try check_suite |> member "html_url" |> to_string with _ -> ""
-            in
-            let pr_number =
-              try
-                Some
-                  (check_suite |> member "pull_requests" |> to_list |> List.hd
-                 |> member "number" |> to_int)
-              with _ -> None
-            in
-            let head_sha =
-              try check_suite |> member "head_sha" |> to_string with _ -> ""
-            in
-            let actor =
-              try json |> member "sender" |> member "login" |> to_string
-              with _ -> ""
-            in
-            CheckSuite
-              {
-                owner;
-                repo;
-                status;
-                conclusion;
-                pr_number;
-                html_url;
-                head_sha;
-                actor;
-              }
-        | _ -> Ignored)
-    | "workflow_run" -> (
-        let action = try json |> member "action" |> to_string with _ -> "" in
-        match action with
-        | "completed" | "requested" | "in_progress" ->
-            let workflow_run = json |> member "workflow_run" in
-            let name =
-              try workflow_run |> member "name" |> to_string with _ -> ""
-            in
-            let status =
-              try workflow_run |> member "status" |> to_string with _ -> ""
-            in
-            let conclusion =
-              try workflow_run |> member "conclusion" |> to_string
-              with _ -> ""
-            in
-            let html_url =
-              try workflow_run |> member "html_url" |> to_string with _ -> ""
-            in
-            let pr_number =
-              try
-                Some
-                  (workflow_run |> member "pull_requests" |> to_list |> List.hd
-                 |> member "number" |> to_int)
-              with _ -> None
-            in
-            let head_sha =
-              try workflow_run |> member "head_sha" |> to_string with _ -> ""
-            in
-            let actor =
-              try workflow_run |> member "actor" |> member "login" |> to_string
-              with _ -> (
-                try json |> member "sender" |> member "login" |> to_string
-                with _ -> "")
-            in
-            WorkflowRun
-              {
-                owner;
-                repo;
-                name;
-                status;
-                conclusion;
-                pr_number;
-                html_url;
-                head_sha;
-                actor;
-              }
-        | _ -> Ignored)
-    | _ -> Ignored
+    parse_event_of_json ~event_type json
   with _ -> Ignored
+
+let parse_event_opt ~event_type ~body (payload_json : Yojson.Safe.t option) =
+  match payload_json with
+  | Some j -> ( try parse_event_of_json ~event_type j with _ -> Ignored)
+  | None -> parse_event ~event_type ~body
 
 let session_key event =
   match event with

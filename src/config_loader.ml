@@ -520,6 +520,24 @@ let parse_config ?(resolve_secrets = true) json =
          in
          ({ bash = { allow_cd_prefix } } : Runtime_config.tools_config)
        with _ -> Runtime_config.default_tools_config);
+    webhooks =
+      (try
+         let w = json |> member "webhooks" in
+         let def = Runtime_config.default_webhooks_config in
+         let max_concurrent =
+           try w |> member "max_concurrent" |> to_int
+           with _ -> def.max_concurrent
+         in
+         let max_queue =
+           try w |> member "max_queue" |> to_int with _ -> def.max_queue
+         in
+         let max_body_bytes =
+           try w |> member "max_body_bytes" |> to_int
+           with _ -> def.max_body_bytes
+         in
+         ({ max_concurrent; max_queue; max_body_bytes }
+           : Runtime_config.webhooks_config)
+       with _ -> Runtime_config.default_webhooks_config);
     error_watcher =
       (try
          let ew = json |> member "error_watcher" in

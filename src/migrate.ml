@@ -189,6 +189,7 @@ let convert (json : Yojson.Safe.t) =
       log = default.log;
       interactive = default.interactive;
       tools = default.tools;
+      webhooks = default.webhooks;
       error_watcher = default.error_watcher;
       connector_history = default.connector_history;
       browser = default.browser;

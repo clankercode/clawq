@@ -366,6 +366,9 @@ clawq config set security.audit_retention.max_age_days 90
 clawq config set security.audit_retention.max_entries 100000
 clawq config set security.audit_retention.export_before_purge false
 clawq config set tools.bash.allow_cd_prefix false
+clawq config set webhooks.max_concurrent 4
+clawq config set webhooks.max_queue 1000
+clawq config set webhooks.max_body_bytes 1048576
 clawq config set gateway.host "127.0.0.1"
 clawq config set gateway.port 13451
 clawq config set gateway.require_pairing true
@@ -471,6 +474,8 @@ Use `/model set-force <name>` to bypass model name validation when setting custo
 **security.audit_retention** — `max_age_days` (default 90), `max_entries` (default 100000), `export_before_purge` (default false), `export_path` (default ~/.clawq/audit_exports).
 
 **tools.bash** — `allow_cd_prefix` (default false; when false, bash commands starting with `cd <dir> &&` are rejected with an error telling the agent to pass `cwd="<dir>"` and drop the `cd` prefix; set true to execute such commands with a warning instead).
+
+**webhooks** — `max_concurrent` (default 4; GitHub webhook worker-pool size), `max_queue` (default 1000; overflow drops the oldest queued delivery), `max_body_bytes` (default 1048576; larger GitHub webhook `Content-Length` is rejected with 413; 0 disables the cap).
 
 **gateway** — `host` (default 127.0.0.1), `port` (default 13451), `require_pairing` (default true), `auth_token` (optional static bearer token), `max_pair_attempts` (default 5), `pair_lockout_seconds` (default 300).
 
