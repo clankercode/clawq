@@ -1,0 +1,32 @@
+---
+complexity: medium
+created_at: "2026-10-01T14:57:19Z"
+depends_on: []
+estimate_hours: 1
+id: B830
+priority: high
+status: pending
+tags:
+    - daemon
+    - memory
+    - optimization
+    - oom
+    - reliability
+title: 'daemon memory usage: watch, analyze, optimize until 2 clean weeks (OOM kill 2026-10-01)'
+updated_at: "2026-10-01T14:57:19Z"
+---
+Context: 2026-10-01 07:14 AEST the daemon (then up 2.5 days) was OOM-killed mid-webhook-flood (516 webhooks in final 4 min + concurrent briefing LLM turn; system load ~16, 30G zram in use). No supervisor existed (B829). User mandate: watch memory, analyze usage, implement optimizations (pre-authorized: code changes + daemon restarts), loop until 2 consecutive clean weeks.
+
+Baseline 2026-10-02 00:53 (fresh daemon, 2h22m uptime): RSS 61MB / PSS 55MB / private-dirty 53MB (OCaml heap), swap 11.5MB, 7 threads, 14 fds. Daemon env has NO OCAMLRUNPARAM (default GC: space_overhead=120 -> heap may float ~2.2x live data). memory.db now 540MB (was 406MB in Sept - grew 33%).
+
+Watch infrastructure:
+- ~/.cache/clawq-memwatch/watch.sh (60s sampler -> mem.csv; events: RSS_CROSS 512M/1G/2G/4G/8G ladder, GROWTH >100MB/4min, DEAD) run under a persistent Monitor (re-armed on 10h caps).
+- Daily scheduled review task (durable, 1d): trend analysis, daemon health, OOM journal check, bl append one-liner to this ticket, schedule re-creation near 7d expiry.
+- Success criterion: no OOM/kill/leak-class growth for 14 consecutive days (clock started 2026-10-02, target 2026-10-16; resets on any incident).
+
+Optimization candidates to evaluate (audit pending):
+- GC tuning for the daemon process (space_overhead 80, possibly minor heap + capping policy) set via Gc in daemon init so all start paths inherit.
+- Webhook flood guardrail: cap concurrent/in-flight webhook processing (B829 noted this).
+- memory.db growth (540MB): retention/pruning of old rows; sqlite page cache per connection audit (many modules open connections).
+- Session-state retention in long-lived daemon (200+ message histories observed in observer logs).
+- Acceptance: each optimization lands with tests (x-p35 remote suite), fmt clean, review loop, daemon restart, and measurably moves RSS/flood-spike numbers; B830 notes get a dated one-liner daily.
