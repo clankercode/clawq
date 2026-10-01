@@ -405,6 +405,19 @@ let test_systemd_unit_output () =
   Alcotest.(check bool)
     "has Restart=on-failure" true
     (Test_helpers.string_contains output "Restart=on-failure");
+  (* B830 memory guardrails *)
+  Alcotest.(check bool)
+    "has GC environment override" true
+    (Test_helpers.string_contains output "Environment=OCAMLRUNPARAM=o=60");
+  Alcotest.(check bool)
+    "has MemoryHigh guardrail" true
+    (Test_helpers.string_contains output "MemoryHigh=1G");
+  Alcotest.(check bool)
+    "has MemoryMax guardrail" true
+    (Test_helpers.string_contains output "MemoryMax=1536M");
+  Alcotest.(check bool)
+    "has OOMPolicy=stop" true
+    (Test_helpers.string_contains output "OOMPolicy=stop");
   Alcotest.(check bool)
     "has install instructions" true
     (Test_helpers.string_contains output "systemctl --user enable")

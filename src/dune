@@ -470,6 +470,7 @@
   daemon_logging
   daemon_questions
   daemon_startup
+  gc_init
   daemon_heartbeat
   daemon_background_loops
   daemon_runtime_loops

@@ -387,6 +387,9 @@ let run_nofork_start ?(execve = Unix.execve)
   end
 
 let cmd_start ~config =
+  (* B830: tune GC in every launch branch; Daemon.run re-applies it in the
+     daemonized child after the re-exec. *)
+  Gc_init.apply ();
   if
     Sys.getenv_opt nofork_env = Some "1"
     || Sys.getenv_opt internal_nofork_env = Some "1"
@@ -707,6 +710,13 @@ ExecReload=%s service signal-restart
 Restart=on-failure
 RestartSec=5
 WatchdogSec=120
+# B830 memory guardrails: GC headroom matches Gc_init (o=60), MemoryHigh makes
+# the kernel reclaim from clawq first under pressure, MemoryMax bounds a leak
+# to a SIGKILL that Restart=on-failure turns into a clean unit restart.
+Environment=OCAMLRUNPARAM=o=60
+MemoryHigh=1G
+MemoryMax=1536M
+OOMPolicy=stop
 
 [Install]
 WantedBy=default.target|}
