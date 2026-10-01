@@ -1,0 +1,30 @@
+---
+complexity: medium
+created_at: "2026-10-01T12:34:01Z"
+depends_on: []
+estimate_hours: 1
+id: B829
+priority: high
+status: pending
+tags:
+    - daemon
+    - supervision
+    - oom
+    - reliability
+title: 'daemon has no supervisor: OOM-killed daemon stayed dead 15h with webhooks silently undelivered'
+updated_at: "2026-10-01T12:34:01Z"
+---
+Incident 2026-10-01: the daemon (pid 2492906, build 3dd3d4ce, started 2026-09-28) was killed at 07:14:47 AEST mid-webhook-flood (516 webhooks in the final 4 minutes, concurrent with the 07:05 briefing cron turn). Kill signature: last daemon.log line complete, stderr dup2'd into daemon.log shows no OCaml fatal, no coredump, no shutdown lines — external SIGKILL class. No OOM/kill journal evidence survives: journald storage is volatile on this host and journald restarted at 09:01:30 wiping the window; dmesg is restricted; auditd inactive. earlyoom is running (-n: no dmesg); kernel OOM killer or earlyoom during the morning's memory pressure (load ~16, 30G zram in use) is the most probable killer.
+
+Impact: GitHub webhook deliveries and all connectors silently stopped for ~15h. The orphaned EC child kept running (looked 'alive' to naive checks) while nothing served. B823's takeover only acts when someone explicitly runs service start; nothing restarts a dead daemon on its own.
+
+Decisions:
+- Add a supervisor for the daemon (systemd --user unit with Restart=on-failure, or an in-clawq babysitter) so an OOM/kill leads to restart within seconds, and the B823 stale-lock takeover lets the replacement win the lock cleanly.
+- The heartbeat file already gives perfect liveness signal for any external watchdog; the unit/Watcher just needs to act on it.
+- Document the earlyoom interaction: the daemon is a plausible OOM victim during webhook floods; consider memory guardrails (cap in-flight webhook processing) as follow-up if RSS spikes are confirmed.
+
+Acceptance criteria:
+1. `clawq service enable` (or install command) installs a systemd --user unit (or documented equivalent) with Restart=on-failure and after=network-online.
+2. Kill -9 the daemon in a test; it is back within 30s, lock/pid/heartbeat consistent, EC respawned per B828.
+3. Webhook listener accepts deliveries immediately after restart (curl smoke test).
+4. Docs updated (service supervision section).

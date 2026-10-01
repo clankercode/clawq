@@ -1767,3 +1767,4 @@ bugs:
     - file: B826-telegram-editmessagetext-fails.todo
     - file: B827-github-get-pr-files-401s-spam.todo
     - file: B828-ec-watcher-child-zombifies-at.todo
+    - file: B829-daemon-has-no-supervisor-oom-k.todo
