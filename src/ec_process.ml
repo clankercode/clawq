@@ -151,7 +151,8 @@ let scan_daemon_log ~(config : Runtime_config.t) ~scan_state ~seen =
                              entry)
                    then begin
                      entries := entry :: !entries;
-                     seen := Error_watcher.update_seen ~seen:!seen entry
+                     seen :=
+                       Error_watcher.update_seen ~cooldown_s ~seen:!seen entry
                    end
                | _ -> ()
              done
@@ -212,7 +213,7 @@ let scan_session_errors ~db ~last_scan_time ~(config : Runtime_config.t) ~seen =
           in
           if not (Error_watcher.is_duplicate ~cooldown_s ~seen:!seen entry) then begin
             entries := entry :: !entries;
-            seen := Error_watcher.update_seen ~seen:!seen entry
+            seen := Error_watcher.update_seen ~cooldown_s ~seen:!seen entry
           end
         end
       done;
@@ -292,7 +293,7 @@ let scan_background_task_failures ~db ~last_scan_time
         in
         if not (Error_watcher.is_duplicate ~cooldown_s ~seen:!seen entry) then begin
           entries := entry :: !entries;
-          seen := Error_watcher.update_seen ~seen:!seen entry
+          seen := Error_watcher.update_seen ~cooldown_s ~seen:!seen entry
         end
       done;
       (List.rev !entries, !seen))

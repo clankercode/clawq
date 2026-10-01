@@ -98,7 +98,7 @@ let test_dedup () =
   Alcotest.(check bool)
     "first is not dup" false
     (Error_watcher.is_duplicate ~cooldown_s:300.0 ~seen entry);
-  let seen = Error_watcher.update_seen ~seen entry in
+  let seen = Error_watcher.update_seen ~cooldown_s:300.0 ~seen entry in
   Alcotest.(check bool)
     "second is dup" true
     (Error_watcher.is_duplicate ~cooldown_s:300.0 ~seen entry)
@@ -246,7 +246,10 @@ let test_scan_daemon_log () =
                             ~seen:!seen entry)
                      then begin
                        entries := entry :: !entries;
-                       seen := Error_watcher.update_seen ~seen:!seen entry
+                       seen :=
+                         Error_watcher.update_seen
+                           ~cooldown_s:config.error_watcher.cooldown_s
+                           ~seen:!seen entry
                      end
                  | _ -> ()
                done
@@ -924,6 +927,110 @@ let test_start_ec_process_double_spawn_guard () =
                 (Error_watcher.process_alive p)
           | None -> Alcotest.fail "spawn hook never ran"))
 
+(* --- B830: bounded seen list (fake clock) --- *)
+
+let make_seen_entry msg : Error_watcher.error_entry =
+  {
+    source = DaemonLog;
+    session_key = None;
+    level = "ERROR";
+    message = msg;
+    timestamp = "10:00:00.000";
+    raw_line = "";
+  }
+
+(* Advanceable fake clock so cooldown expiry is exercised without sleeping. *)
+let with_fake_seen_clock f =
+  let t = ref 1_000_000.0 in
+  Error_watcher.set_seen_clock_for_tests (fun () -> !t);
+  Fun.protect
+    ~finally:(fun () ->
+      Error_watcher.set_seen_clock_for_tests Unix.gettimeofday)
+    (fun () -> f t)
+
+let test_update_seen_prunes_expired_entries () =
+  with_fake_seen_clock (fun t ->
+      let seen =
+        Error_watcher.update_seen ~cooldown_s:300.0 ~seen:[]
+          (make_seen_entry "recent failure")
+      in
+      t := !t +. 300.0;
+      let seen =
+        Error_watcher.update_seen ~cooldown_s:300.0 ~seen
+          (make_seen_entry "another failure")
+      in
+      Alcotest.(check bool)
+        "entry exactly at cooldown age pruned" true
+        (List.assoc_opt "recent failure" seen = None);
+      Alcotest.(check int) "only the fresh key remains" 1 (List.length seen))
+
+let test_update_seen_keeps_entries_within_cooldown () =
+  with_fake_seen_clock (fun t ->
+      let seen =
+        Error_watcher.update_seen ~cooldown_s:300.0 ~seen:[]
+          (make_seen_entry "still warm")
+      in
+      t := !t +. 100.0;
+      let seen =
+        Error_watcher.update_seen ~cooldown_s:300.0 ~seen
+          (make_seen_entry "newer failure")
+      in
+      Alcotest.(check int) "both keys kept" 2 (List.length seen);
+      Alcotest.(check bool)
+        "warm key still deduped" true
+        (Error_watcher.is_duplicate ~cooldown_s:300.0 ~seen
+           (make_seen_entry "still warm")))
+
+let test_is_duplicate_expires_after_cooldown () =
+  with_fake_seen_clock (fun t ->
+      let entry = make_seen_entry "repeats every so often" in
+      let seen = Error_watcher.update_seen ~cooldown_s:300.0 ~seen:[] entry in
+      Alcotest.(check bool)
+        "dup within cooldown" true
+        (Error_watcher.is_duplicate ~cooldown_s:300.0 ~seen entry);
+      t := !t +. 300.0;
+      Alcotest.(check bool)
+        "not dup at cooldown boundary" false
+        (Error_watcher.is_duplicate ~cooldown_s:300.0 ~seen entry);
+      t := !t +. 1.0;
+      Alcotest.(check bool)
+        "not dup after cooldown" false
+        (Error_watcher.is_duplicate ~cooldown_s:300.0 ~seen entry))
+
+(* normalize_first_line maps digits to '#', so distinct keys must vary in
+   letters; 3 base-26 chars give 17576 distinct keys. *)
+let distinct_key i =
+  let c n = Char.chr (Char.code 'a' + n) in
+  String.init 3 (fun j ->
+      match j with
+      | 0 -> c (i / 676 mod 26)
+      | 1 -> c (i / 26 mod 26)
+      | _ -> c (i mod 26))
+
+let test_update_seen_caps_at_1000_fifo () =
+  with_fake_seen_clock (fun _t ->
+      let rec fill i seen =
+        if i > Error_watcher.seen_max_entries then seen
+        else
+          let seen =
+            Error_watcher.update_seen ~cooldown_s:300.0 ~seen
+              (make_seen_entry ("storm failure " ^ distinct_key i))
+          in
+          fill (i + 1) seen
+      in
+      let seen = fill 0 [] in
+      Alcotest.(check int)
+        "capped at max" Error_watcher.seen_max_entries (List.length seen);
+      Alcotest.(check bool)
+        "oldest key evicted (FIFO)" true
+        (List.assoc_opt ("storm failure " ^ distinct_key 0) seen = None);
+      Alcotest.(check bool)
+        "newest key kept" true
+        (List.assoc_opt
+           ("storm failure " ^ distinct_key Error_watcher.seen_max_entries)
+           seen
+        <> None))
+
 let suite =
   [
     Alcotest.test_case "strip_ansi basic" `Quick test_strip_ansi_basic;
@@ -939,6 +1046,15 @@ let suite =
     Alcotest.test_case "classify transient" `Quick test_classify_transient;
     Alcotest.test_case "classify actionable" `Quick test_classify_actionable;
     Alcotest.test_case "dedup within cooldown" `Quick test_dedup;
+    (* B830: bounded seen list (fake clock) *)
+    Alcotest.test_case "update_seen prunes expired entries" `Quick
+      test_update_seen_prunes_expired_entries;
+    Alcotest.test_case "update_seen keeps entries within cooldown" `Quick
+      test_update_seen_keeps_entries_within_cooldown;
+    Alcotest.test_case "is_duplicate expires after cooldown" `Quick
+      test_is_duplicate_expires_after_cooldown;
+    Alcotest.test_case "update_seen caps at 1000 fifo" `Quick
+      test_update_seen_caps_at_1000_fifo;
     Alcotest.test_case "dev build detection" `Quick test_dev_build_detection;
     Alcotest.test_case "json round-trip" `Quick test_json_round_trip;
     Alcotest.test_case "log rotation offset reset" `Quick
