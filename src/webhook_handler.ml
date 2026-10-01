@@ -308,9 +308,10 @@ let cleanup_delivery_snapshots ~dir
         m "Webhook handler: failed scanning delivery snapshots in %s: %s" dir
           (Printexc.to_string exn))
 
+(* B830: retention cleanup no longer runs per delivery — the daemon's hourly
+   maintenance loop calls [cleanup_delivery_snapshots] instead. *)
 let write_delivery_snapshot ~dir ~delivery_id ~raw_body =
   Workspace_scaffold.ensure_dir dir;
-  cleanup_delivery_snapshots ~dir ();
   let stamp = int_of_float (Unix.gettimeofday ()) in
   let base =
     Printf.sprintf "%d-%s.json" stamp (sanitize_filename_component delivery_id)

@@ -408,6 +408,8 @@ let all_suites =
   @ [ ("voice_transcription", Test_voice_transcription.suite) ]
   @ [ ("pair_coding", Test_pair_coding.suite) ]
   @ [ ("webhook_handler", Test_webhook_handler.suite) ]
+  @ [ ("webhook_ingest_pool", Test_webhook_ingest_pool.suite) ]
+  @ [ ("webhook_bounding", Test_webhook_bounding.suite) ]
   @ [ ("browser", Test_browser.suite) ]
   @ [ ("rig", Test_rig.suite) ]
   @ [ ("held_items", Test_held_items.suite) ]

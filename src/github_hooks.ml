@@ -212,9 +212,11 @@ let ensure_hook_dirs () =
 
 (* ---- Delivery snapshots (delegates to Webhook_handler) ---- *)
 
+(* B830: hourly retention sweep — tolerate a missing dir so the daemon does
+   not create hook directories when GitHub is not configured. *)
 let cleanup_delivery_snapshots () =
-  ensure_hook_dirs ();
-  Webhook_handler.cleanup_delivery_snapshots ~dir:(deliveries_dir ()) ()
+  let dir = deliveries_dir () in
+  if Sys.file_exists dir then Webhook_handler.cleanup_delivery_snapshots ~dir ()
 
 let write_delivery_snapshot ~delivery_id ~raw_body =
   ensure_hook_dirs ();
@@ -227,7 +229,10 @@ let prepare_event ~event_name ~headers ~raw_body =
   let delivery_id =
     Cohttp.Header.get headers "x-github-delivery" |> Option.value ~default:""
   in
-  let snapshot_path = write_delivery_snapshot ~delivery_id ~raw_body in
+  (* B830: no snapshot here — deliveries that fail the repo/event filters
+     must not touch disk. [attach_delivery_snapshot] persists it (and fills
+     context payload_path) once the filters pass. *)
+  let snapshot_path = None in
   let payload_json =
     try Some (Yojson.Safe.from_string raw_body) with _ -> None
   in
@@ -253,6 +258,26 @@ let prepare_event ~event_name ~headers ~raw_body =
     is_user_generated = is_user_generated_event event_name;
     installation_id;
   }
+
+(* B830: persist the delivery snapshot for a filter-passing event and thread
+   the real path back through the context JSON. Idempotent. *)
+let attach_delivery_snapshot ~prepared =
+  match prepared.snapshot_path with
+  | Some _ -> prepared
+  | None ->
+      let snapshot_path =
+        write_delivery_snapshot ~delivery_id:prepared.delivery_id
+          ~raw_body:prepared.raw_body
+      in
+      let context_json =
+        match prepared.payload_json with
+        | Some payload ->
+            Some
+              (build_context_json ~event_name:prepared.event_name
+                 ~delivery_id:prepared.delivery_id ~snapshot_path ~payload)
+        | None -> prepared.context_json
+      in
+      { prepared with snapshot_path; context_json }
 
 (* ---- Hook loading (uses generic frontmatter parser) ---- *)
 

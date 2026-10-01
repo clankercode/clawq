@@ -103,6 +103,8 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
                   ~max_age_days:cur_config.connector_history.max_age_days
                   ~max_messages:cur_config.connector_history.max_messages;
               Memory.cleanup_teams_dedup ~db ~max_age_days:30;
+              (* B830: webhook delivery snapshot retention (was per-delivery) *)
+              Github_hooks.cleanup_delivery_snapshots ();
               let purged =
                 Summary_store.purge_older_than ~db
                   ~max_age_days:cur_config.summarizer.max_age_days

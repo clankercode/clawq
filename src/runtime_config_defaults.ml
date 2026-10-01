@@ -23,6 +23,10 @@ let default_interactive_config : interactive_config =
 
 let default_tools_config : tools_config = { bash = { allow_cd_prefix = false } }
 
+(* B830: bound the GitHub webhook ingest path (worker pool, queue, body cap). *)
+let default_webhooks_config : webhooks_config =
+  { max_concurrent = 4; max_queue = 1000; max_body_bytes = 1048576 }
+
 let default_postmortem_config : postmortem_config =
   {
     enabled = true;
@@ -291,6 +295,7 @@ let default =
     log = default_log_config;
     interactive = default_interactive_config;
     tools = default_tools_config;
+    webhooks = default_webhooks_config;
     error_watcher = default_error_watcher_config;
     connector_history =
       {

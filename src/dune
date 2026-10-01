@@ -445,6 +445,7 @@
   http_server_0_util
   github_app_setup_ingress
   http_server_webhooks
+  webhook_ingest_pool
   http_server_workers
   worker_client
   worker_readiness

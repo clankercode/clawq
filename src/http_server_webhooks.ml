@@ -58,78 +58,121 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
           m "Incoming webhook: github path=%s event=%s ip=%s" path
             event_type_hdr
             (Http_server_0_util.client_ip req));
-      let* body_str = Cohttp_lwt.Body.to_string body in
-      match Http_server_0_util.lookup_github_repo path gc with
-      | Http_server_0_util.Missing_github_repo ->
+      (* B830: reject oversized bodies before buffering. Live config wins over
+         the start-up snapshot so runtime config changes take effect. *)
+      let webhooks_cfg =
+        (Session.get_config session_manager).Runtime_config.webhooks
+      in
+      let content_length =
+        Option.bind
+          (Cohttp.Header.get (Cohttp.Request.headers req) "content-length")
+          int_of_string_opt
+      in
+      match content_length with
+      | Some len
+        when webhooks_cfg.max_body_bytes > 0
+             && len > webhooks_cfg.max_body_bytes ->
+          Log_dedup.warn ~key:"github webhook body too large"
+            (Printf.sprintf
+               "GitHub webhook rejected: Content-Length %d exceeds \
+                webhooks.max_body_bytes %d"
+               len webhooks_cfg.max_body_bytes);
+          let* _ = Cohttp_lwt.Body.drain_body body in
           let* resp =
-            Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
-              ~headers:Http_server_0_util.json_headers
-              ~body:{|{"error":"not found"}|} ()
-          in
-          Lwt.return (Some resp)
-      | Http_server_0_util.Ambiguous_github_repo ->
-          Logs.err (fun m ->
-              m
-                "Incoming webhook: github path=%s matched multiple repos; \
-                 webhook_path values must be unique"
-                path);
-          let* resp =
-            Cohttp_lwt_unix.Server.respond_string ~status:`Conflict
+            Cohttp_lwt_unix.Server.respond_string
+              ~status:`Request_entity_too_large
               ~headers:Http_server_0_util.json_headers
               ~body:
-                {|{"error":"github webhook path is ambiguous; make webhook_path values unique"}|}
+                {|{"error":"payload too large; raise webhooks.max_body_bytes if legitimate"}|}
               ()
           in
           Lwt.return (Some resp)
-      | Http_server_0_util.Found_github_repo repo_config ->
-          let event_type =
-            match
-              Cohttp.Header.get (Cohttp.Request.headers req) "x-github-event"
-            with
-            | Some v -> v
-            | None -> ""
-          in
-          let req_headers = Cohttp.Request.headers req in
-          let api_limiter = Option.get github_api_limiter in
-          let sig_header =
-            Cohttp.Header.get req_headers "x-hub-signature-256"
-            |> Option.value ~default:""
-          in
-          if
-            not
-              (Github_webhook.verify_signature
-                 ~secret:repo_config.webhook_secret ~body:body_str
-                 ~signature_header:sig_header)
-          then
-            let* resp =
-              Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
-                ~headers:Http_server_0_util.json_headers
-                ~body:{|{"error":"invalid signature"}|} ()
-            in
-            Lwt.return (Some resp)
-          else begin
-            Lwt.async (fun () ->
-                Lwt.catch
-                  (fun () ->
-                    let* _result =
-                      Github.handle_webhook ~repo_config ~github_config:gc
-                        ?config ~session_manager ~api_limiter ~event_type
-                        ~body:body_str ~headers:req_headers
-                    in
-                    Lwt.return_unit)
-                  (fun exn ->
-                    let error = Printexc.to_string exn in
-                    Log_dedup.err
-                      ~key:("github webhook handler error: " ^ error)
-                      (Printf.sprintf "GitHub webhook handler error: %s" error);
-                    Lwt.return_unit));
-            let* resp =
-              Cohttp_lwt_unix.Server.respond_string ~status:`OK
-                ~headers:Http_server_0_util.json_headers
-                ~body:{|{"status":"accepted"}|} ()
-            in
-            Lwt.return (Some resp)
-          end)
+      | _ -> (
+          let* body_str = Cohttp_lwt.Body.to_string body in
+          match Http_server_0_util.lookup_github_repo path gc with
+          | Http_server_0_util.Missing_github_repo ->
+              let* resp =
+                Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+                  ~headers:Http_server_0_util.json_headers
+                  ~body:{|{"error":"not found"}|} ()
+              in
+              Lwt.return (Some resp)
+          | Http_server_0_util.Ambiguous_github_repo ->
+              Logs.err (fun m ->
+                  m
+                    "Incoming webhook: github path=%s matched multiple repos; \
+                     webhook_path values must be unique"
+                    path);
+              let* resp =
+                Cohttp_lwt_unix.Server.respond_string ~status:`Conflict
+                  ~headers:Http_server_0_util.json_headers
+                  ~body:
+                    {|{"error":"github webhook path is ambiguous; make webhook_path values unique"}|}
+                  ()
+              in
+              Lwt.return (Some resp)
+          | Http_server_0_util.Found_github_repo repo_config ->
+              let event_type =
+                match
+                  Cohttp.Header.get
+                    (Cohttp.Request.headers req)
+                    "x-github-event"
+                with
+                | Some v -> v
+                | None -> ""
+              in
+              let req_headers = Cohttp.Request.headers req in
+              let api_limiter = Option.get github_api_limiter in
+              let sig_header =
+                Cohttp.Header.get req_headers "x-hub-signature-256"
+                |> Option.value ~default:""
+              in
+              if
+                not
+                  (Github_webhook.verify_signature
+                     ~secret:repo_config.webhook_secret ~body:body_str
+                     ~signature_header:sig_header)
+              then
+                let* resp =
+                  Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+                    ~headers:Http_server_0_util.json_headers
+                    ~body:{|{"error":"invalid signature"}|} ()
+                in
+                Lwt.return (Some resp)
+              else begin
+                (* B830: ACK now, process in the bounded ingest pool. Overflow
+                   drops the oldest queued delivery (lost; manual redelivery
+                   via the GitHub UI/API if needed). *)
+                let* () =
+                  Webhook_ingest_pool.configure_global
+                    ~workers:webhooks_cfg.max_concurrent
+                    ~max_queue:webhooks_cfg.max_queue
+                in
+                let* () =
+                  Webhook_ingest_pool.enqueue_global (fun () ->
+                      Lwt.catch
+                        (fun () ->
+                          let* _result =
+                            Github.handle_webhook ~repo_config ~github_config:gc
+                              ?config ~session_manager ~api_limiter ~event_type
+                              ~body:body_str ~headers:req_headers
+                          in
+                          Lwt.return_unit)
+                        (fun exn ->
+                          let error = Printexc.to_string exn in
+                          Log_dedup.err
+                            ~key:("github webhook handler error: " ^ error)
+                            (Printf.sprintf "GitHub webhook handler error: %s"
+                               error);
+                          Lwt.return_unit))
+                in
+                let* resp =
+                  Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                    ~headers:Http_server_0_util.json_headers
+                    ~body:{|{"status":"accepted"}|} ()
+                in
+                Lwt.return (Some resp)
+              end))
   | meth, path
     when match web_channel with
          | Some (wc : Web_channel.t) ->

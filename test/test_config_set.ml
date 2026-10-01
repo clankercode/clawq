@@ -84,6 +84,16 @@ let test_validate_path () =
   Alcotest.(check bool)
     "tools.bash.allow_cd_prefix" true
     (valid [ "tools"; "bash"; "allow_cd_prefix" ] schema);
+  (* B830: webhook ingest bounds are settable leaves *)
+  Alcotest.(check bool)
+    "webhooks.max_concurrent" true
+    (valid [ "webhooks"; "max_concurrent" ] schema);
+  Alcotest.(check bool)
+    "webhooks.max_queue" true
+    (valid [ "webhooks"; "max_queue" ] schema);
+  Alcotest.(check bool)
+    "webhooks.max_body_bytes" true
+    (valid [ "webhooks"; "max_body_bytes" ] schema);
   (* Dynamic provider key *)
   Alcotest.(check bool)
     "providers.openai.api_key" true
@@ -150,7 +160,13 @@ let test_validate_set_path () =
     "tools.bash.allow_cd_prefix settable" true
     (valid [ "tools"; "bash"; "allow_cd_prefix" ] schema);
   Alcotest.(check bool)
-    "tools section not settable" false (valid [ "tools" ] schema)
+    "tools section not settable" false (valid [ "tools" ] schema);
+  Alcotest.(check bool)
+    "webhooks.max_concurrent settable" true
+    (valid [ "webhooks"; "max_concurrent" ] schema);
+  Alcotest.(check bool)
+    "webhooks section not settable" false
+    (valid [ "webhooks" ] schema)
 
 (* B700: model names contain dots, so split_path keeps the suffix after
    model_context_limits as one literal key. *)

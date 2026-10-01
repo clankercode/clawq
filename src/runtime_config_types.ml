@@ -544,6 +544,18 @@ type tools_bash_config = {
 
 type tools_config = { bash : tools_bash_config }
 
+type webhooks_config = {
+  max_concurrent : int;
+      (** B830: worker-pool size bounding concurrent GitHub webhook processing.
+      *)
+  max_queue : int;
+      (** B830: ingest queue bound; overflow drops the oldest delivery. 0 means
+          unbounded. *)
+  max_body_bytes : int;
+      (** B830: reject GitHub webhook bodies whose Content-Length exceeds this.
+          0 means unlimited. *)
+}
+
 type error_watcher_config = {
   enabled : bool;
   scan_interval_s : float;
@@ -973,6 +985,7 @@ type t = {
   log : log_config;
   interactive : interactive_config;
   tools : tools_config;
+  webhooks : webhooks_config;
   error_watcher : error_watcher_config;
   connector_history : connector_history_config;
   browser : browser_config;
