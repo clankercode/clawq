@@ -49,6 +49,7 @@ let all_suites =
     ("daemon", Test_daemon.suite);
     ("daemon_liveness", Test_daemon_liveness.suite);
     ("daemon_logging", Test_daemon_logging.suite);
+    ("db_maintenance", Test_db_maintenance.suite);
     ("service", Test_service.suite);
     ("restart", Test_restart.suite);
     ("room_session", Test_room_session.suite);

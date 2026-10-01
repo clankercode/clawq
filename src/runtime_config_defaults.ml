@@ -72,6 +72,22 @@ let default_summarizer_config : summarizer_config =
     envelope_template = None;
   }
 
+(* B830: retention defaults for the shared memory.db high-write tables. The
+   journal/deliveries windows stay above the 48h audit + reconciliation floor;
+   0 in user config disables a purge. *)
+let default_db_retention_config : db_retention_config =
+  {
+    github_room_event_journal_days = 7;
+    github_app_webhook_deliveries_days = 7;
+    request_stats_days = 30;
+    egress_audit_days = 7;
+    github_action_correlations_days = 7;
+    github_delivery_outbox_days = 7;
+    room_activity_ledger_days = 30;
+    vacuum_enabled = true;
+    vacuum_min_mb = 200;
+  }
+
 let default_workspace_files =
   [
     "AGENTS.md";
@@ -299,6 +315,7 @@ let default =
         max_messages = 50;
         max_age_days = 7;
       };
+    db_retention = default_db_retention_config;
     browser = default_browser_config;
     test = { show_skills = false };
     debate = default_debate_config;

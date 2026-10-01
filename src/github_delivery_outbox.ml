@@ -113,7 +113,14 @@ let ensure_schema db =
       ON github_delivery_outbox(status, dead_lettered_at)
       WHERE status = 'dead_letter'|}
   in
-  List.iter (exec_schema db) [ table_sql; idx_due; idx_room; idx_dead ];
+  (* B830: retention purge deletes terminal rows (dead_letter / superseded) by
+     created_at age; the retry window is 24h so age-by-creation is safe. *)
+  let idx_terminal_created =
+    {|CREATE INDEX IF NOT EXISTS idx_github_delivery_outbox_terminal_created
+      ON github_delivery_outbox(status, created_at)|}
+  in
+  List.iter (exec_schema db)
+    [ table_sql; idx_due; idx_room; idx_dead; idx_terminal_created ];
   (* Migrate pre-P21 rows that predate attribution columns. *)
   try_alter db
     "ALTER TABLE github_delivery_outbox ADD COLUMN actor_snapshot_json TEXT";
@@ -820,3 +827,34 @@ let oldest_pending_created_at ~db ?room_id () =
         in
         ignore (Sqlite3.finalize stmt);
         result
+
+(* B830: retention purge. Deletes only terminal rows (dead_letter /
+   superseded) whose created_at is strictly older than [days] whole days
+   before [now]. The retry window is default_max_age_seconds (24h), so a
+   terminal row is far past retry when it crosses a multi-day cutoff; open
+   rows (pending / in_flight) and succeeded rows are kept. [days <= 0] is a
+   no-op. *)
+let purge_terminal_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  ensure_schema db;
+  if days <= 0 then Ok 0
+  else
+    let cutoff =
+      Time_util.iso8601_utc ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    let sql =
+      {|DELETE FROM github_delivery_outbox
+        WHERE status IN ('dead_letter', 'superseded') AND created_at < ?|}
+    in
+    try
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT cutoff));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+          | rc ->
+              Error
+                (Printf.sprintf "outbox terminal purge failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+    with exn -> Error (Printexc.to_string exn)

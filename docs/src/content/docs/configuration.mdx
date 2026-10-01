@@ -379,6 +379,42 @@ ambient-history capture path is implemented.
 Use `/inject_connector_history [N]` or the `inject_connector_history` tool from a
 Teams or Discord group session to load recent captured messages into context.
 
+### db_retention
+
+Retention windows for the shared SQLite database (`memory.db`). The daemon's
+hourly maintenance tick deletes rows older than each table's window; a nightly
+`VACUUM` (02:00-05:00 local, at most once per 24h) reclaims disk space when the
+database file exceeds `vacuum_min_mb`. Set any window to `0` to disable that
+table's purge.
+
+```json
+{
+  "db_retention": {
+    "github_room_event_journal_days": 7,
+    "github_app_webhook_deliveries_days": 7,
+    "request_stats_days": 30,
+    "egress_audit_days": 7,
+    "github_action_correlations_days": 7,
+    "github_delivery_outbox_days": 7,
+    "room_activity_ledger_days": 30,
+    "vacuum_enabled": true,
+    "vacuum_min_mb": 200
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `github_room_event_journal_days` | `7` | Days to keep routed GitHub event envelopes (audit/reconciliation needs >= 48h) |
+| `github_app_webhook_deliveries_days` | `7` | Days to keep the GitHub App webhook delivery dedup ledger |
+| `request_stats_days` | `30` | Days to keep per-request LLM usage/cost rows |
+| `egress_audit_days` | `7` | Days to keep egress policy audit events |
+| `github_action_correlations_days` | `7` | Days to keep closed action correlations (open ones are never purged) |
+| `github_delivery_outbox_days` | `7` | Days to keep terminal outbox rows (dead_letter/superseded; pending retries are never purged) |
+| `room_activity_ledger_days` | `30` | Days to keep room activity ledger events |
+| `vacuum_enabled` | `true` | Enable the nightly size-gated `VACUUM` |
+| `vacuum_min_mb` | `200` | Only `VACUUM` when the database file is larger than this many MB |
+
 ### security
 
 ```json

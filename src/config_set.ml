@@ -437,6 +437,19 @@ let config_schema =
             ("max_messages", L);
             ("max_age_days", L);
           ] );
+      ( "db_retention",
+        O
+          [
+            ("github_room_event_journal_days", L);
+            ("github_app_webhook_deliveries_days", L);
+            ("request_stats_days", L);
+            ("egress_audit_days", L);
+            ("github_action_correlations_days", L);
+            ("github_delivery_outbox_days", L);
+            ("room_activity_ledger_days", L);
+            ("vacuum_enabled", L);
+            ("vacuum_min_mb", L);
+          ] );
       ( "error_watcher",
         O
           [

@@ -65,5 +65,10 @@ val get_by_delivery :
   item_key:string ->
   (journal_entry option, string) result
 
+val purge_older_than :
+  db:Sqlite3.db -> days:int -> ?now:float -> unit -> (int, string) result
+(** B830 retention: delete rows with [created_at] strictly older than [days]
+    days before [now]. [days <= 0] is a no-op returning [Ok 0]. *)
+
 val format_hidden_event_message : Github_event_envelope.t -> string
 (** Short hidden event body for session transcript (no secrets/bodies). *)

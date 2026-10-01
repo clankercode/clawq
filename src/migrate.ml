@@ -191,6 +191,7 @@ let convert (json : Yojson.Safe.t) =
       tools = default.tools;
       error_watcher = default.error_watcher;
       connector_history = default.connector_history;
+      db_retention = default.db_retention;
       browser = default.browser;
       test = default.test;
       debate = default.debate;

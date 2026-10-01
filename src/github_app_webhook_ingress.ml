@@ -408,3 +408,30 @@ let verify_and_accept ~db ~webhook_secret ?(expected_path = default_path)
                               action;
                               payload;
                             })))
+
+(* B830: retention purge for the delivery-id dedup ledger. Rows are only needed
+   for idempotency across redeliveries, so anything older than the window can
+   go; idx_github_app_webhook_deliveries_received serves the cutoff. *)
+let purge_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  ensure_schema db;
+  if days <= 0 then Ok 0
+  else
+    let cutoff =
+      Time_util.iso8601_utc ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    let sql =
+      {|DELETE FROM github_app_webhook_deliveries WHERE received_at < ?|}
+    in
+    try
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT cutoff));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+          | rc ->
+              Error
+                (Printf.sprintf "webhook deliveries purge failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+    with exn -> Error (Printexc.to_string exn)

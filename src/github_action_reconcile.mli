@@ -250,3 +250,9 @@ val reconcile_verified_ingress :
 (** Reconcile one signature- and installation-verified delivery against each
     room with an open correlation. This never dispatches work; individual room
     matching remains fail-closed in [reconcile_webhook]. *)
+
+val purge_closed_older_than :
+  db:Sqlite3.db -> days:int -> ?now:float -> unit -> (int, string) result
+(** B830 retention: delete terminal (status = 'closed') correlations whose
+    [closed_at] is strictly older than [days] days before [now]. Open
+    correlations are never purged; [days <= 0] is a no-op returning [Ok 0]. *)

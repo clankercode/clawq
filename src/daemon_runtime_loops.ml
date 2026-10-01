@@ -56,6 +56,7 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
           let last_memory_cleanup = ref (Unix.gettimeofday ()) in
           let last_lease_sweep = ref 0.0 in
           let last_retention_run = ref 0.0 in
+          let db_vacuum_state = Db_maintenance.create_vacuum_state () in
           let rec loop () =
             let open Lwt.Syntax in
             let tick_config = Session.get_config session_manager in
@@ -108,7 +109,14 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
                   ~max_age_days:cur_config.summarizer.max_age_days
               in
               if purged > 0 then
-                Logs.info (fun m -> m "Purged %d expired summaries" purged)
+                Logs.info (fun m -> m "Purged %d expired summaries" purged);
+              (* B830d: retention sweep for the append-only high-write tables
+                 plus the size-gated nightly VACUUM (windows/vacuum knobs live
+                 in the db_retention config block). *)
+              Db_maintenance.retention_tick ~db ~config:cur_config ();
+              ignore
+                (Db_maintenance.maybe_vacuum ~db ~config:cur_config
+                   ~state:db_vacuum_state ())
             end;
             if
               cur_config.security.audit_enabled

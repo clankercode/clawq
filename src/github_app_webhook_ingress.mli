@@ -84,3 +84,8 @@ val record_ack : db:Sqlite3.db -> delivery_id:string -> (unit, string) result
 
 val was_seen : db:Sqlite3.db -> delivery_id:string -> bool
 val reject_reason_to_string : reject_reason -> string
+
+val purge_older_than :
+  db:Sqlite3.db -> days:int -> ?now:float -> unit -> (int, string) result
+(** B830 retention: delete deliveries with [received_at] strictly older than
+    [days] days before [now]. [days <= 0] is a no-op returning [Ok 0]. *)

@@ -117,3 +117,9 @@ val count_status :
 val oldest_pending_created_at :
   db:Sqlite3.db -> ?room_id:string -> unit -> (string option, string) result
 (** [created_at] of the oldest Pending row, if any. *)
+
+val purge_terminal_older_than :
+  db:Sqlite3.db -> days:int -> ?now:float -> unit -> (int, string) result
+(** B830 retention: delete terminal rows (status [Dead_letter] or [Superseded])
+    with [created_at] strictly older than [days] days before [now]. Open retries
+    are never purged; [days <= 0] is a no-op returning [Ok 0]. *)

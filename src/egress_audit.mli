@@ -72,3 +72,8 @@ val event_to_json : event -> Yojson.Safe.t
 val delete_before : db:Sqlite3.db -> before_timestamp:string -> int
 (** Delete audit events older than the given timestamp. Returns the number of
     deleted rows. *)
+
+val purge_older_than : db:Sqlite3.db -> days:int -> ?now:float -> unit -> int
+(** B830 retention: delete events with [timestamp] strictly older than [days]
+    days before [now] via {!delete_before}. [days <= 0] is a no-op returning 0.
+*)

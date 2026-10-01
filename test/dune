@@ -41,6 +41,7 @@
   test_daemon
   test_daemon_liveness
   test_daemon_logging
+  test_db_maintenance
   test_debate
   test_dingtalk
   test_dot_dir

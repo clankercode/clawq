@@ -599,6 +599,44 @@ let parse_config ?(resolve_secrets = true) json =
          ({ enabled; persist_to_db; max_messages; max_age_days }
            : Runtime_config.connector_history_config)
        with _ -> Runtime_config.default.connector_history);
+    db_retention =
+      (try
+         let dr = json |> member "db_retention" in
+         let def = Runtime_config.default.db_retention in
+         let day_field name default =
+           try dr |> member name |> to_int with _ -> default
+         in
+         let int_field name default =
+           try dr |> member name |> to_int with _ -> default
+         in
+         let bool_field name default =
+           try dr |> member name |> to_bool with _ -> default
+         in
+         ({
+            github_room_event_journal_days =
+              day_field "github_room_event_journal_days"
+                def.github_room_event_journal_days;
+            github_app_webhook_deliveries_days =
+              day_field "github_app_webhook_deliveries_days"
+                def.github_app_webhook_deliveries_days;
+            request_stats_days =
+              day_field "request_stats_days" def.request_stats_days;
+            egress_audit_days =
+              day_field "egress_audit_days" def.egress_audit_days;
+            github_action_correlations_days =
+              day_field "github_action_correlations_days"
+                def.github_action_correlations_days;
+            github_delivery_outbox_days =
+              day_field "github_delivery_outbox_days"
+                def.github_delivery_outbox_days;
+            room_activity_ledger_days =
+              day_field "room_activity_ledger_days"
+                def.room_activity_ledger_days;
+            vacuum_enabled = bool_field "vacuum_enabled" def.vacuum_enabled;
+            vacuum_min_mb = int_field "vacuum_min_mb" def.vacuum_min_mb;
+          }
+           : Runtime_config.db_retention_config)
+       with _ -> Runtime_config.default.db_retention);
     browser =
       (try
          let b = json |> member "browser" in

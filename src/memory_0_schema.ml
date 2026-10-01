@@ -211,6 +211,11 @@ let init_request_stats_schema db =
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_request_stats_model ON \
      request_stats(model, requested_at)";
+  (* B830: age-based retention purge scans on requested_at alone; the
+     model/profile composite indexes cannot serve that predicate. *)
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_request_stats_requested_at ON \
+     request_stats(requested_at)";
   try
     exec_exn db
       "CREATE INDEX IF NOT EXISTS idx_request_stats_profile_time ON \

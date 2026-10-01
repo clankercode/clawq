@@ -657,3 +657,27 @@ let format_tokens n =
   if n >= 1_000_000 then Printf.sprintf "%.1fM" (float_of_int n /. 1_000_000.0)
   else if n >= 1_000 then Printf.sprintf "%.1fK" (float_of_int n /. 1_000.0)
   else string_of_int n
+
+(* B830: retention purge. [requested_at] is stored as SQL datetime
+   ("YYYY-MM-DD HH:MM:SS", the column DEFAULT), so the cutoff must use the
+   same shape or the lexicographic comparison breaks. *)
+let purge_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  if days <= 0 then Ok 0
+  else
+    let cutoff =
+      Time_util.sql_datetime_utc ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    let sql = "DELETE FROM request_stats WHERE requested_at < ?" in
+    try
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT cutoff));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+          | rc ->
+              Error
+                (Printf.sprintf "request_stats purge failed: %s"
+                   (Sqlite3.Rc.to_string rc)))
+    with exn -> Error (Printexc.to_string exn)
