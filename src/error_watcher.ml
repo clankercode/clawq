@@ -74,18 +74,37 @@ let normalize_first_line s =
         trimmed;
       Buffer.contents buf
 
+(* B830: injectable clock so tests exercise the cooldown window without
+   sleeping (same pattern as auth_failure_clock in github_api.ml). *)
+let seen_clock = ref Unix.gettimeofday
+let set_seen_clock_for_tests clock = seen_clock := clock
+
+(* B830: hard cap on dedup keys, mirroring Lru_dedup sizing (email/nostr). *)
+let seen_max_entries = 1000
+
 let is_duplicate ~cooldown_s ~seen entry =
   let key = normalize_first_line entry.message in
   match List.assoc_opt key seen with
-  | Some last_time ->
-      let now = Unix.gettimeofday () in
-      now -. last_time < cooldown_s
+  | Some last_time -> !seen_clock () -. last_time < cooldown_s
   | None -> false
 
-let update_seen ~seen entry =
+(* B830: drop entries older than the cooldown — they can no longer affect
+   dedup decisions — then cap the list, evicting the least recently updated
+   (tail of the newest-first list), so error storms cannot grow it forever. *)
+let update_seen ~cooldown_s ~seen entry =
   let key = normalize_first_line entry.message in
-  let now = Unix.gettimeofday () in
-  (key, now) :: List.filter (fun (k, _) -> k <> key) seen
+  let now = !seen_clock () in
+  let fresh =
+    (key, now)
+    :: List.filter
+         (fun (k, last_time) -> k <> key && now -. last_time < cooldown_s)
+         seen
+  in
+  let rec keep n = function
+    | x :: rest when n > 0 -> x :: keep (n - 1) rest
+    | _ -> []
+  in
+  keep seen_max_entries fresh
 
 let is_dev_build () =
   let v = Build_info.version_dev in
