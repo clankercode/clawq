@@ -401,6 +401,8 @@ let run_scan_cycle ~db ~config ~log_scan_state ~seen =
 
 (* --- Entry point --- *)
 let run_daemon_mode () =
+  (* B830: keep the EC child's major heap close to live data. *)
+  Gc_init.apply ~log_line:(Printf.eprintf "EC process: %s\n%!") ();
   (* Load config *)
   let config = Config_loader.load () in
   (* Own DB connection *)

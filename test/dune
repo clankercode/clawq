@@ -44,6 +44,7 @@
   test_debate
   test_dingtalk
   test_dot_dir
+  test_gc_init
   test_discord
   test_discord_gateway
   test_egress_rules

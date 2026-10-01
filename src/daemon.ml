@@ -8,6 +8,9 @@ let apply_runtime_config_reload =
 
 let run ~(config : Runtime_config.t) =
   Daemon_logging.install ();
+  (* B830: shrink major-heap headroom so burst peaks do not become permanent
+     RSS (OCaml 5.1 never decommits major chunks). *)
+  Gc_init.apply ();
   (* B823: liveness heartbeat. Written from this event loop on <=30s ticks; a
      blocked loop stops the writes, which is the hang signal `service start`
      and `service status` use for takeover/staleness decisions. *)
