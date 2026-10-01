@@ -449,3 +449,17 @@ let record_github_update_denied ~db ~room_id ~delivery_id ~repo ~pr_number
   let actor = Option.value ~default:"github" connector in
   append_now ~db ~room_id ~event_type:"github_update_denied" ~actor
     ~metadata:(`Assoc fields)
+
+(* B830: retention window wrapper around the existing [delete_before] purge so
+   the daemon's hourly sweep can enforce a configurable ledger window (the
+   manual CLI path in command_bridge_room_ledger stays as-is). [days <= 0]
+   disables it. *)
+let purge_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  if days <= 0 then 0
+  else begin
+    init_schema db;
+    let cutoff =
+      Time_util.iso8601_utc_micros ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    delete_before ~db ~before_timestamp:cutoff
+  end

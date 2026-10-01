@@ -603,6 +603,23 @@ type connector_history_config = {
   max_age_days : int;
 }
 
+(* B830: retention windows for the shared memory.db high-write tables. Each
+   field is a whole-day window; 0 disables that table's purge. *)
+type db_retention_config = {
+  github_room_event_journal_days : int;
+  github_app_webhook_deliveries_days : int;
+  request_stats_days : int;
+  egress_audit_days : int;
+  github_action_correlations_days : int;
+      (* Closed correlations only; open rows are never purged. *)
+  github_delivery_outbox_days : int;
+      (* Terminal rows only (dead_letter/superseded); open retries are kept. *)
+  room_activity_ledger_days : int;
+  vacuum_enabled : bool;
+  vacuum_min_mb : int;
+      (* Nightly VACUUM runs only when the db file exceeds this size. *)
+}
+
 type browser_config = {
   agent_model : Pmodel.t;
   chromium_path : string option;
@@ -992,6 +1009,7 @@ type t = {
   webhooks : webhooks_config;
   error_watcher : error_watcher_config;
   connector_history : connector_history_config;
+  db_retention : db_retention_config;
   browser : browser_config;
   test : test_config;
   debate : debate_config;

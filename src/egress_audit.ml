@@ -295,3 +295,16 @@ let delete_before ~db ~before_timestamp =
           failwith
             (Printf.sprintf "egress_audit retention cleanup failed: %s"
                (Sqlite3.Rc.to_string rc)))
+
+(* B830: retention window wrapper around the existing [delete_before] purge.
+   The daemon's hourly sweep calls this so egress_audit rows stop accumulating
+   forever; [days <= 0] disables it. *)
+let purge_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  if days <= 0 then 0
+  else begin
+    init_schema db;
+    let cutoff =
+      Time_util.iso8601_utc_micros ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    delete_before ~db ~before_timestamp:cutoff
+  end

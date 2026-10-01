@@ -67,6 +67,12 @@ let ensure_schema db =
     {|CREATE INDEX IF NOT EXISTS idx_github_room_event_journal_room_item_created
       ON github_room_event_journal(room_id, item_key, created_at, id)|}
   in
+  (* B830: retention purge deletes on created_at without a room filter, so it
+     needs a standalone timestamp index. *)
+  let idx_created =
+    {|CREATE INDEX IF NOT EXISTS idx_github_room_event_journal_created
+      ON github_room_event_journal(created_at)|}
+  in
   List.iter (exec_schema db)
     [
       table_sql;
@@ -76,6 +82,7 @@ let ensure_schema db =
       idx_item;
       idx_room_created;
       idx_room_item_created;
+      idx_created;
     ]
 
 let text_col stmt i =
@@ -399,3 +406,29 @@ let list_recent ~db ~room_id ?item_key ?before ?limit () =
     let result = fold_entries ~db stmt ~err_label:"list_recent" in
     ignore (Sqlite3.finalize stmt);
     result
+
+(* B830: retention purge. Deletes journal rows strictly older than [days]
+   whole days before [now]; [days <= 0] is a no-op (retention disabled). The
+   dedicated idx_github_room_event_journal_created index serves the cutoff
+   predicate. *)
+let purge_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  ensure_schema db;
+  if days <= 0 then Ok 0
+  else
+    let cutoff =
+      Time_util.iso8601_utc ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    let sql = {|DELETE FROM github_room_event_journal WHERE created_at < ?|} in
+    try
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT cutoff));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+          | rc ->
+              Error
+                (Printf.sprintf "journal purge failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+    with exn -> Error (Printexc.to_string exn)

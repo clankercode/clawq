@@ -133,6 +133,12 @@ let ensure_schema db =
       ON github_action_correlations(job_id)
       WHERE job_id IS NOT NULL|}
   in
+  (* B830: retention purge deletes closed rows by closed_at; open rows are
+     never touched. *)
+  let idx_closed =
+    {|CREATE INDEX IF NOT EXISTS idx_github_action_correlations_closed
+      ON github_action_correlations(status, closed_at)|}
+  in
   List.iter (exec_schema db)
     [
       table_sql;
@@ -144,6 +150,7 @@ let ensure_schema db =
       idx_snapshot;
       idx_attr_receipt;
       idx_job;
+      idx_closed;
     ];
   (* Additive migration for DBs created before P21.M1.E3.T006 / P21.M3.E3.T005. *)
   try_alter db
@@ -1168,3 +1175,31 @@ let reconcile_verified_ingress ~db ~envelope ?(now = Unix.gettimeofday ()) () =
       List.rev !room_ids
       |> List.map (fun room_id ->
           (room_id, reconcile_webhook ~db ~room_id ~envelope ~now ())))
+
+(* B830: retention purge. Deletes only terminal (status = 'closed')
+   correlations whose closed_at is strictly older than [days] whole days
+   before [now]; open correlations are always kept. [days <= 0] is a no-op. *)
+let purge_closed_older_than ~db ~days ?(now = Unix.gettimeofday ()) () =
+  ensure_schema db;
+  if days <= 0 then Ok 0
+  else
+    let cutoff =
+      Time_util.iso8601_utc ~t:(now -. (float_of_int days *. 86_400.)) ()
+    in
+    let sql =
+      {|DELETE FROM github_action_correlations
+        WHERE status = 'closed' AND closed_at < ?|}
+    in
+    try
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT cutoff) : Sqlite3.Rc.t);
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> Ok (Sqlite3.changes db)
+          | rc ->
+              Error
+                (Printf.sprintf "correlations purge failed: %s (%s)"
+                   (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)))
+    with exn -> Error (Printexc.to_string exn)

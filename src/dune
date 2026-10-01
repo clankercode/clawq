@@ -475,6 +475,7 @@
   daemon_heartbeat
   daemon_background_loops
   daemon_runtime_loops
+  db_maintenance
   github_app_setup_runtime
   ambient_daemon
   daemon

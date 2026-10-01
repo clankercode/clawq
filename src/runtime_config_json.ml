@@ -551,6 +551,24 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
               ("max_messages", `Int ch.max_messages);
               ("max_age_days", `Int ch.max_age_days);
             ] );
+        ( "db_retention",
+          `Assoc
+            [
+              ( "github_room_event_journal_days",
+                `Int cfg.db_retention.github_room_event_journal_days );
+              ( "github_app_webhook_deliveries_days",
+                `Int cfg.db_retention.github_app_webhook_deliveries_days );
+              ("request_stats_days", `Int cfg.db_retention.request_stats_days);
+              ("egress_audit_days", `Int cfg.db_retention.egress_audit_days);
+              ( "github_action_correlations_days",
+                `Int cfg.db_retention.github_action_correlations_days );
+              ( "github_delivery_outbox_days",
+                `Int cfg.db_retention.github_delivery_outbox_days );
+              ( "room_activity_ledger_days",
+                `Int cfg.db_retention.room_activity_ledger_days );
+              ("vacuum_enabled", `Bool cfg.db_retention.vacuum_enabled);
+              ("vacuum_min_mb", `Int cfg.db_retention.vacuum_min_mb);
+            ] );
         ("test", `Assoc [ ("show_skills", `Bool cfg.test.show_skills) ]);
         ( "debate",
           `Assoc
