@@ -127,6 +127,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
     observer_last_checked = Hashtbl.create 8;
+    last_active = Hashtbl.create 16;
     postmortem_circuit_breakers = Hashtbl.create 8;
     pending_questions = Hashtbl.create 8;
     question_callbacks = Hashtbl.create 16;
@@ -555,6 +556,13 @@ let resolve_agent_template_for_key mgr ~key =
     in
     if agent_name = "default" then None else Agent_template.resolve agent_name
 
+(* B830: last-interaction timestamp feeding idle-session eviction. Stamped at
+   session creation and at turn mutex acquire/release; only ever mutated under
+   sessions_lock (get_or_create_locked) or by the thread holding the session
+   mutex. *)
+let mark_session_active mgr ~key =
+  Hashtbl.replace mgr.last_active key (Unix.gettimeofday ())
+
 let get_or_create_locked mgr ~key =
   let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
@@ -626,6 +634,7 @@ let get_or_create_locked mgr ~key =
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
       Hashtbl.replace mgr.sessions key triple;
+      mark_session_active mgr ~key;
       triple
 
 let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
@@ -686,9 +695,11 @@ let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
         acquire_current_session ()
   in
   let* agent, mutex, interrupt = acquire_current_session () in
+  mark_session_active mgr ~key;
   Lwt.finalize
     (fun () -> f agent interrupt)
     (fun () ->
+      mark_session_active mgr ~key;
       Lwt_mutex.unlock mutex;
       Lwt.return_unit)
 
@@ -708,11 +719,13 @@ let try_session_lock mgr ~key f =
   if Lwt_mutex.is_locked mutex then Lwt.return_none
   else
     let* () = Lwt_mutex.lock mutex in
+    mark_session_active mgr ~key;
     Lwt.finalize
       (fun () ->
         let* result = f agent interrupt in
         Lwt.return_some result)
       (fun () ->
+        mark_session_active mgr ~key;
         Lwt_mutex.unlock mutex;
         Lwt.return_unit)
 
@@ -742,9 +755,11 @@ let with_session_lock_unless_draining mgr ~key ~on_draining f =
                "session_mutex/with_session_lock_unless_draining[%s]" key)
           mutex
       in
+      mark_session_active mgr ~key;
       Lwt.finalize
         (fun () -> f agent interrupt)
         (fun () ->
+          mark_session_active mgr ~key;
           Lwt_mutex.unlock mutex;
           Lwt.return_unit)
 
@@ -760,6 +775,78 @@ let interrupt_check_if_present mgr ~key () =
   match Hashtbl.find_opt mgr.sessions key with
   | Some (_, _, interrupt) -> !interrupt
   | None -> None
+
+(* B830: idle-session eviction. Drops sessions whose last interaction is older
+   than [idle_threshold_s] (<= 0 disables) together with their side-table rows,
+   so idle Agent histories stop accumulating in the daemon heap. Correctness
+   relies on lazy reload: get_or_create_locked rebuilds the session identically
+   from the DB on next touch. Never evicts a session that may still be in use:
+   live activity, a pending question, queued messages, or a locked per-session
+   mutex (in-flight turn) all pin it. Sessions without a recorded timestamp
+   (inserted outside get_or_create_locked, e.g. pair-coding) are kept. The DB
+   is never touched — eviction only releases in-memory state. *)
+let evict_idle_sessions ?(now = Unix.gettimeofday ()) mgr ~idle_threshold_s () =
+  if idle_threshold_s <= 0.0 then Lwt.return 0
+  else
+    let evictable (_, mutex, _) key =
+      let active_scopes =
+        match Hashtbl.find_opt mgr.live_activity key with
+        | Some state -> state.active_scopes
+        | None -> 0
+      in
+      let has_queued =
+        match Hashtbl.find_opt mgr.queued_messages key with
+        | Some msgs -> msgs <> []
+        | None -> false
+      in
+      active_scopes = 0 && (not has_queued)
+      && (not (Hashtbl.mem mgr.pending_questions key))
+      && not (Lwt_mutex.is_locked mutex)
+    in
+    let drop_session key =
+      Hashtbl.remove mgr.deferred_responses key;
+      Hashtbl.remove mgr.continuation_checks key;
+      Hashtbl.remove mgr.observer_last_checked key;
+      (match Hashtbl.find_opt mgr.session_callbacks key with
+      | Some cb_ids ->
+          List.iter
+            (fun cb_id -> Hashtbl.remove mgr.question_callbacks cb_id)
+            cb_ids
+      | None -> ());
+      Hashtbl.remove mgr.session_callbacks key;
+      Hashtbl.remove mgr.live_activity key;
+      Hashtbl.remove mgr.last_active key;
+      let root = root_postmortem_session_key key in
+      Hashtbl.filter_map_inplace
+        (fun (rk, _) v -> if rk = root then None else Some v)
+        mgr.postmortem_circuit_breakers;
+      unregister_channel_notifier mgr ~key;
+      unregister_rich_notifier mgr ~key;
+      Hashtbl.remove mgr.sessions key
+    in
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+      ~label:"sessions_lock/evict_idle_sessions" mgr.sessions_lock (fun () ->
+        let to_evict =
+          Hashtbl.fold
+            (fun key triple acc ->
+              match Hashtbl.find_opt mgr.last_active key with
+              | Some last
+                when now -. last >= idle_threshold_s && evictable triple key ->
+                  key :: acc
+              | _ -> acc)
+            mgr.sessions []
+        in
+        List.iter drop_session to_evict;
+        (* Drop last_active rows orphaned by removal paths that bypass
+           drop_session (e.g. pair-coding's direct Hashtbl.remove). *)
+        let orphaned =
+          Hashtbl.fold
+            (fun key _ acc ->
+              if not (Hashtbl.mem mgr.sessions key) then key :: acc else acc)
+            mgr.last_active []
+        in
+        List.iter (fun key -> Hashtbl.remove mgr.last_active key) orphaned;
+        Lwt.return (List.length to_evict))
 
 include Session_context
 include Session_persistence

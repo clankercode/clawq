@@ -304,6 +304,7 @@ let config_schema =
             ("max_message_age_days", L);
             ("pre_compaction_flush", L);
             ("task_tree_purge_after_days", L);
+            ("session_idle_eviction_s", L);
           ] );
       ( "security",
         O

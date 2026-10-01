@@ -161,6 +161,8 @@ let to_json ~default_quota_cache_ttl_s ~(default_log_config : log_config)
                ("pre_compaction_flush", `Bool cfg.memory.pre_compaction_flush);
                ( "task_tree_purge_after_days",
                  `Int cfg.memory.task_tree_purge_after_days );
+               ( "session_idle_eviction_s",
+                 `Int cfg.memory.session_idle_eviction_s );
              ]
             @ (if cfg.memory.db_path <> "" then
                  [ ("db_path", `String cfg.memory.db_path) ]

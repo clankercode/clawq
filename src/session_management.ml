@@ -233,6 +233,7 @@ let reset mgr ~key =
         Hashtbl.remove mgr.queued_messages key;
         Hashtbl.remove mgr.continuation_checks key;
         Hashtbl.remove mgr.observer_last_checked key;
+        Hashtbl.remove mgr.last_active key;
         (* Clean up question callbacks for the session being reset *)
         (match Hashtbl.find_opt mgr.session_callbacks key with
         | Some cb_ids ->

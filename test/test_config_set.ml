@@ -84,6 +84,10 @@ let test_validate_path () =
   Alcotest.(check bool)
     "tools.bash.allow_cd_prefix" true
     (valid [ "tools"; "bash"; "allow_cd_prefix" ] schema);
+  (* B830: idle-session eviction threshold is a settable leaf *)
+  Alcotest.(check bool)
+    "memory.session_idle_eviction_s" true
+    (valid [ "memory"; "session_idle_eviction_s" ] schema);
   (* Dynamic provider key *)
   Alcotest.(check bool)
     "providers.openai.api_key" true

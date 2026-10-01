@@ -316,6 +316,7 @@
   test_keepalive
   test_completions
   test_session_model_override
+  test_session_eviction
   test_model_validation
   test_native_subagents_e2e
   test_setup_github

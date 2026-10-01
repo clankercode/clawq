@@ -69,6 +69,21 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
             let now = Unix.gettimeofday () in
             let cur_config = Session.get_config session_manager in
             let* () = Ambient_daemon.tick ~db ~config:cur_config () in
+            (* B830: drop sessions idle past memory.session_idle_eviction_s
+               (default 30min; 0 disables). They reload from the DB on next
+               touch, so no interaction state is lost. *)
+            let* evicted_sessions =
+              Session.evict_idle_sessions ~now session_manager
+                ~idle_threshold_s:
+                  (float_of_int cur_config.memory.session_idle_eviction_s)
+                ()
+            in
+            if evicted_sessions > 0 then
+              Logs.info (fun m ->
+                  m
+                    "Idle-session eviction dropped %d session(s) (threshold \
+                     %ds)"
+                    evicted_sessions cur_config.memory.session_idle_eviction_s);
             (* B774: reclaim expired remote-worker leases and publish results
                completed by remote workers (both idempotent). *)
             (match cur_config.channels.github with

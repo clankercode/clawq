@@ -257,6 +257,10 @@ let parse_memory ~(default : Runtime_config.t) json :
       try m |> member "task_tree_purge_after_days" |> to_int
       with _ -> default.memory.task_tree_purge_after_days
     in
+    let session_idle_eviction_s =
+      try m |> member "session_idle_eviction_s" |> to_int
+      with _ -> default.memory.session_idle_eviction_s
+    in
     {
       Runtime_config.backend;
       search_enabled;
@@ -270,6 +274,7 @@ let parse_memory ~(default : Runtime_config.t) json :
       max_message_age_days;
       pre_compaction_flush;
       task_tree_purge_after_days;
+      session_idle_eviction_s;
     }
   with _ -> default.memory
 

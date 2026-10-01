@@ -81,6 +81,7 @@ let all_suites =
     ("session", Test_session.suite);
     ("session_observer", Test_session_observer.suite);
     ("session_persistence", Test_session_persistence.suite);
+    ("session_eviction", Test_session_eviction.suite);
     ("update_tool", Test_update_tool.suite);
     ("update_pkg_manager", Test_update_pkg_manager.suite);
     ("skills", Test_skills.suite);

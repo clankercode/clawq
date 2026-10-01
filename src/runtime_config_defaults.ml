@@ -219,6 +219,7 @@ let default =
         max_message_age_days = 30;
         pre_compaction_flush = true;
         task_tree_purge_after_days = -1;
+        session_idle_eviction_s = 1800;
       };
     security =
       {
