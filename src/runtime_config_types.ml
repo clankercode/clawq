@@ -400,6 +400,10 @@ type memory_config = {
   task_tree_purge_after_days : int;
       (** Hard-purge soft-deleted task_tree rows after this many days. Set to <=
           0 to disable auto-purge (default: -1). *)
+  session_idle_eviction_s : int;
+      (** B830: evict daemon sessions idle longer than this many seconds from
+          the in-memory session table; the session (and its history) reloads
+          from the DB on next touch. 0 disables eviction. Default 1800. *)
 }
 
 type rate_limit_config = {

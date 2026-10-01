@@ -69,6 +69,11 @@ type t = {
   mutable special_command_handler : special_command_handler option;
   observer_last_checked : (string, int) Hashtbl.t;
       (** Maps session_key -> history length at last observer check *)
+  last_active : (string, float) Hashtbl.t;
+      (** B830: session_key -> Unix.gettimeofday () at last interaction (session
+          creation, turn mutex acquire/release). Idle sessions past
+          memory.session_idle_eviction_s are evicted by the daemon scheduler
+          tick and lazily re-created from the DB on next touch. *)
   postmortem_circuit_breakers : (string * string, unit) Hashtbl.t;
       (** B612: keyed by (root_session_key, normalized_pattern). Distinct stuck
           patterns in the same root session each get a chance at a postmortem
