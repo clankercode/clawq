@@ -37,3 +37,5 @@ DEPLOYED 2026-10-02 02:34 AEST: all five lanes merged to master (30b2b9cc; final
 2026-10-03 rss=36MB max=49MB verdict=ok (pid 619744 day1 post-deploy: slope -8.8MB/d, swap 7MB, no OOM/kill events; db 533MB)
 
 2026-10-04 rss=55MB max=58MB verdict=ok (up 1d22h; slope +5.9MB/d, oscillates 48-58MB with load; swap 16-22MB; no OOM/kill)
+
+2026-10-04 correction: last-24h max is 67MB@00:25 (52 samples >60MB; earlier one-liner's 58MB missed it between 30-min samples). Still <512MB, slope +5.9MB/d, verdict unchanged ok
