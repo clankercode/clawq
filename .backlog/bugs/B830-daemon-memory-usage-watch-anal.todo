@@ -35,3 +35,5 @@ Audit complete (2026-10-02). Root-cause chain for 61MB-fresh → OOM-2.5-days: (
 DEPLOYED 2026-10-02 02:34 AEST: all five lanes merged to master (30b2b9cc; final gate fmt clean + 7,717 tests x-p35). Daemon restarted pid 619744 build 30b2b9cc: GC tuning live in daemon+EC (space_overhead=60 source=code), session eviction active (memory.session_idle_eviction_s=1800), webhook pool+body-cap+single-parse live, hourly retention sweep active (first sweep 1h post-boot; first vacuum in 02:00-05:00 window when db>200MB — expect the 540MB db to shrink overnight), EC seen bounded. Synthetic burst: 200x100KB unsigned pings in 0.2s -> all fast-rejected 403, RSS 23.9->33.2MB (+9MB held), real webhooks flowing normally seconds later, zero errors/drops. Fresh RSS 24-33MB (was 61MB at same age pre-fix). Follow-up filed: B831 raw/sanitized github key duality. 2-week clean clock running: started 2026-10-02, target 2026-10-16.
 
 2026-10-03 rss=36MB max=49MB verdict=ok (pid 619744 day1 post-deploy: slope -8.8MB/d, swap 7MB, no OOM/kill events; db 533MB)
+
+2026-10-04 rss=55MB max=58MB verdict=ok (up 1d22h; slope +5.9MB/d, oscillates 48-58MB with load; swap 16-22MB; no OOM/kill)
