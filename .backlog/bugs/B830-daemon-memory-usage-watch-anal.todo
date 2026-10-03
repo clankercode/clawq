@@ -39,3 +39,5 @@ DEPLOYED 2026-10-02 02:34 AEST: all five lanes merged to master (30b2b9cc; final
 2026-10-04 rss=55MB max=58MB verdict=ok (up 1d22h; slope +5.9MB/d, oscillates 48-58MB with load; swap 16-22MB; no OOM/kill)
 
 2026-10-04 correction: last-24h max is 67MB@00:25 (52 samples >60MB; earlier one-liner's 58MB missed it between 30-min samples). Still <512MB, slope +5.9MB/d, verdict unchanged ok
+
+Parent note 2026-10-04: zero eviction log lines after 2 days is expected under current traffic (sessions never idle 30min; eviction logs only when it fires — wiring verified at daemon_runtime_loops.ml:73-82). Day2 watch item stands: if day3 RSS ratchets +20MB again, escalate to heap-composition analysis (what retains: sessions vs caches vs heap chunks) before threshold-chasing. Pre-fix comparison: OOM at 2.5 days; post-fix peak 67MB at 2 days.
