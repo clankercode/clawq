@@ -13,6 +13,31 @@ let active_session_count mgr =
     (fun _key state acc -> if state.active_scopes > 0 then acc + 1 else acc)
     mgr.live_activity 0
 
+(* B830: in-memory session gauges for the hourly mem_stats log line. Shares
+   the idle/eviction classification with evict_idle_sessions, so [evictable]
+   is exactly what an eviction pass would drop. Threshold <= 0 mirrors the
+   eviction disable semantics (nothing classified idle). Lock-free: the fold
+   is synchronous and never yields, so Lwt's cooperative loop cannot
+   interleave a mutation. *)
+let memory_snapshot ?(now = Unix.gettimeofday ()) mgr ~idle_threshold_s () =
+  Hashtbl.fold
+    (fun key ((agent, _, _) as triple) (acc : memory_snapshot) ->
+      let is_idle =
+        idle_threshold_s > 0.0 && session_is_idle mgr ~now ~idle_threshold_s key
+      in
+      let is_evictable =
+        is_idle && session_passes_eviction_guards mgr ~key triple
+      in
+      {
+        acc with
+        idle = (acc.idle + if is_idle then 1 else 0);
+        evictable = (acc.evictable + if is_evictable then 1 else 0);
+        total_msgs = acc.total_msgs + List.length agent.Agent.history;
+      })
+    mgr.sessions
+    { live_sessions = 0; idle = 0; evictable = 0; total_msgs = 0 }
+  |> fun acc -> { acc with live_sessions = Hashtbl.length mgr.sessions }
+
 let update_config ?(source = "") mgr config =
   let old_model = mgr.config.Runtime_config.agent_defaults.primary_model in
   let new_model = config.Runtime_config.agent_defaults.primary_model in

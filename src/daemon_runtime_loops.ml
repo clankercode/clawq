@@ -133,7 +133,16 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
               Db_maintenance.retention_tick ~db ~config:cur_config ();
               ignore
                 (Db_maintenance.maybe_vacuum ~db ~config:cur_config
-                   ~state:db_vacuum_state ())
+                   ~state:db_vacuum_state ());
+              (* B830: hourly memory instrumentation — attribute the RSS
+                 floor ratchet (session histories vs heap size vs RSS). *)
+              Mem_stats.log_mem_stats
+                ~sessions:
+                  (Session.memory_snapshot session_manager
+                     ~idle_threshold_s:
+                       (float_of_int cur_config.memory.session_idle_eviction_s)
+                     ())
+                ()
             end;
             if
               cur_config.security.audit_enabled

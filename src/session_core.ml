@@ -776,6 +776,42 @@ let interrupt_check_if_present mgr ~key () =
   | Some (_, _, interrupt) -> !interrupt
   | None -> None
 
+(* B830: shared idle/eviction classification — single source of truth for
+   evict_idle_sessions and Session.memory_snapshot, so the mem_stats
+   evictable count is exactly what an eviction pass would drop. *)
+let session_passes_eviction_guards mgr ~key (_, mutex, _) =
+  let active_scopes =
+    match Hashtbl.find_opt mgr.live_activity key with
+    | Some state -> state.active_scopes
+    | None -> 0
+  in
+  let has_queued =
+    match Hashtbl.find_opt mgr.queued_messages key with
+    | Some msgs -> msgs <> []
+    | None -> false
+  in
+  active_scopes = 0 && (not has_queued)
+  && (not (Hashtbl.mem mgr.pending_questions key))
+  && not (Lwt_mutex.is_locked mutex)
+
+(* No recorded timestamp means inserted outside get_or_create_locked (e.g.
+   pair-coding); unknown age is treated as fresh. *)
+let session_is_idle mgr ~now ~idle_threshold_s key =
+  match Hashtbl.find_opt mgr.last_active key with
+  | Some last -> now -. last >= idle_threshold_s
+  | None -> false
+
+(* B830: in-memory session gauges for the hourly mem_stats log line. Field is
+   [live_sessions], not [sessions]: a [sessions] label here would shadow the
+   manager record's [t.sessions] field (include order makes the later label
+   win) and break every [mgr.sessions] access downstream. *)
+type memory_snapshot = {
+  live_sessions : int;  (** live rows in [mgr.sessions] *)
+  idle : int;  (** idle past the eviction threshold *)
+  evictable : int;  (** idle and passing every eviction guard *)
+  total_msgs : int;  (** sum of in-memory per-session message counts *)
+}
+
 (* B830: idle-session eviction. Drops sessions whose last interaction is older
    than [idle_threshold_s] (<= 0 disables) together with their side-table rows,
    so idle Agent histories stop accumulating in the daemon heap. Correctness
@@ -788,21 +824,6 @@ let interrupt_check_if_present mgr ~key () =
 let evict_idle_sessions ?(now = Unix.gettimeofday ()) mgr ~idle_threshold_s () =
   if idle_threshold_s <= 0.0 then Lwt.return 0
   else
-    let evictable (_, mutex, _) key =
-      let active_scopes =
-        match Hashtbl.find_opt mgr.live_activity key with
-        | Some state -> state.active_scopes
-        | None -> 0
-      in
-      let has_queued =
-        match Hashtbl.find_opt mgr.queued_messages key with
-        | Some msgs -> msgs <> []
-        | None -> false
-      in
-      active_scopes = 0 && (not has_queued)
-      && (not (Hashtbl.mem mgr.pending_questions key))
-      && not (Lwt_mutex.is_locked mutex)
-    in
     let drop_session key =
       Hashtbl.remove mgr.deferred_responses key;
       Hashtbl.remove mgr.continuation_checks key;
@@ -829,11 +850,11 @@ let evict_idle_sessions ?(now = Unix.gettimeofday ()) mgr ~idle_threshold_s () =
         let to_evict =
           Hashtbl.fold
             (fun key triple acc ->
-              match Hashtbl.find_opt mgr.last_active key with
-              | Some last
-                when now -. last >= idle_threshold_s && evictable triple key ->
-                  key :: acc
-              | _ -> acc)
+              if
+                session_is_idle mgr ~now ~idle_threshold_s key
+                && session_passes_eviction_guards mgr ~key triple
+              then key :: acc
+              else acc)
             mgr.sessions []
         in
         List.iter drop_session to_evict;
