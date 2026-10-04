@@ -51,6 +51,7 @@ let all_suites =
     ("daemon_logging", Test_daemon_logging.suite);
     ("db_maintenance", Test_db_maintenance.suite);
     ("gc_init", Test_gc_init.suite);
+    ("mem_stats", Test_mem_stats.suite);
     ("service", Test_service.suite);
     ("restart", Test_restart.suite);
     ("room_session", Test_room_session.suite);

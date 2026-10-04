@@ -34,4 +34,7 @@ let apply
   log_line
     (Printf.sprintf
        "GC tuning: space_overhead=%d (source=%s) minor_heap=%d words" effective
-       source (Gc.get ()).Gc.minor_heap_size)
+       source (Gc.get ()).Gc.minor_heap_size);
+  (* B830: boot baseline mem_stats line (no session gauges yet) right after
+     the tuning line, so every daemon boot records its starting RSS/GC floor. *)
+  Mem_stats.log_baseline_once ()
