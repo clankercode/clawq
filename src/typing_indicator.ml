@@ -10,6 +10,9 @@ type typing_watcher = { refresh : unit -> unit }
 
 let typing_watchers : (string, typing_watcher) Hashtbl.t = Hashtbl.create 64
 
+(* B830: registry size for mem_stats attribution. *)
+let watcher_count () = Hashtbl.length typing_watchers
+
 let rec typing_loop_live_activity ~current_activity ~wait_for_change
     ~wait_for_refresh ~send_action ~interval ~idle_timeout () =
   let open Lwt.Syntax in

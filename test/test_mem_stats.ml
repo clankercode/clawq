@@ -53,6 +53,30 @@ let test_promoted_words_rendered_as_words () =
     "fractional word deltas render as integers" true
     (Test_helpers.string_contains line "gc_promoted_words=1235")
 
+let test_counters_appended_after_rss () =
+  let line =
+    Mem_stats.format_line ~ts:"t" ~stat:fixed_stat ~promoted_delta:0.0 ~rss_kb:1
+      ~sessions:None
+      ~counters:[ ("cost_sessions", 2); ("typing_watchers", 3) ]
+      ()
+  in
+  Alcotest.(check bool)
+    "counters render as trailing key=value pairs" true
+    (Test_helpers.string_contains line
+       "rss_kb=1 cost_sessions=2 typing_watchers=3");
+  Alcotest.(check bool) "single line" true (not (String.contains line '\n'))
+
+let test_counters_default_keeps_stable_format () =
+  let line =
+    Mem_stats.format_line ~ts:"t" ~stat:fixed_stat ~promoted_delta:0.0 ~rss_kb:1
+      ~sessions:None ()
+  in
+  Alcotest.(check string)
+    "no counters leaves the line byte-identical"
+    "mem_stats ts=t gc_live_words=111 gc_heap_words=222 gc_major_blocks=33 \
+     gc_heap_chunks=4 gc_compactions=5 gc_promoted_words=0 rss_kb=1"
+    line
+
 let test_snapshot_line_tracks_promoted_counter () =
   (* snapshot_line diffs against the previous emission's cumulative
      promoted_words; the module ref must equal the counter at call time.
@@ -203,6 +227,10 @@ let suite =
       test_baseline_line_omits_session_fields;
     Alcotest.test_case "promoted words rendered as words" `Quick
       test_promoted_words_rendered_as_words;
+    Alcotest.test_case "registry counters appended after rss_kb" `Quick
+      test_counters_appended_after_rss;
+    Alcotest.test_case "counters default keeps stable format" `Quick
+      test_counters_default_keeps_stable_format;
     Alcotest.test_case "snapshot_line tracks promoted counter" `Quick
       test_snapshot_line_tracks_promoted_counter;
     Alcotest.test_case "VmRSS parsed from status fixture" `Quick

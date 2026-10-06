@@ -50,6 +50,9 @@ let cleanup_expired (tokens : tokens) =
   in
   List.iter (Hashtbl.remove tokens) to_remove
 
+(* B830: registry size for mem_stats attribution. *)
+let token_count (tokens : tokens) = Hashtbl.length tokens
+
 (* Check if IP is a loopback address.
    SECURITY: "unknown" is NOT treated as loopback. When no reverse proxy is
    configured (no X-Forwarded-For header), client_ip returns "unknown" and

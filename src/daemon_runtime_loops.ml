@@ -135,13 +135,24 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
                 (Db_maintenance.maybe_vacuum ~db ~config:cur_config
                    ~state:db_vacuum_state ());
               (* B830: hourly memory instrumentation — attribute the RSS
-                 floor ratchet (session histories vs heap size vs RSS). *)
+                 floor ratchet (session histories vs heap size vs RSS).
+                 B830g: registry counters separate never-evicted module
+                 hashtbls from the sessions=0 live-words growth. *)
               Mem_stats.log_mem_stats
                 ~sessions:
                   (Session.memory_snapshot session_manager
                      ~idle_threshold_s:
                        (float_of_int cur_config.memory.session_idle_eviction_s)
                      ())
+                ~counters:
+                  [
+                    ("cost_sessions", Cost_tracker.session_count ());
+                    ("typing_watchers", Typing_indicator.watcher_count ());
+                    ( "runner_tokens",
+                      match runner_tokens with
+                      | None -> 0
+                      | Some rt -> Runner_relay.token_count rt );
+                  ]
                 ()
             end;
             if

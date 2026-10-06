@@ -388,3 +388,6 @@ let get_session_cost ~session_id =
   | None -> 0.0
 
 let get_session_stats ~session_id = Hashtbl.find_opt sessions session_id
+
+(* B830: registry size for mem_stats attribution (entries are never evicted). *)
+let session_count () = Hashtbl.length sessions
