@@ -12,6 +12,9 @@ let dedup = Channel_util.Lru_dedup.create 500
     edit-in-place delivery. Key format: [room_id:repo:ci_kind:ci_key]. *)
 let ci_msg_ids : (string, string) Hashtbl.t = Hashtbl.create 32
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length ci_msg_ids
+
 (** [ci_notification_key ~room_id ~repo ~pr_number ~event] computes a stable key
     for tracking CI notification message IDs. Uses room_id, repo, pr_number, and
     CI-specific identifiers (name + head_sha) to group related status updates.

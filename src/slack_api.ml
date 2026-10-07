@@ -104,6 +104,9 @@ let is_allowed ~(config : Runtime_config.slack_config) ~channel_id ~user_id =
 let _channel_privacy_cache : (string * (bool * float)) list ref = ref []
 let _channel_privacy_cache_ttl_s = 300.0
 
+(* B830i: entry counts for the hourly mem_stats registry census. *)
+let channel_privacy_cache_count () = List.length !_channel_privacy_cache
+
 let _channel_privacy_cache_lookup channel_id =
   match List.assoc_opt channel_id !_channel_privacy_cache with
   | Some (is_private, ts) ->
@@ -356,6 +359,7 @@ let remove_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
   Lwt.return_unit
 
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
+let rate_limit_warning_count () = Hashtbl.length _rate_limit_warnings
 
 (* Tracks message timestamps whose reactions should be kept in sync per session key *)
 let reactions : string Reaction_tracker.t = Reaction_tracker.create ()

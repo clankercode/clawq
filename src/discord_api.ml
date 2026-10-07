@@ -106,6 +106,9 @@ type route_bucket = { mutable remaining : int; mutable reset_at : float }
 
 let route_buckets : (string, route_bucket) Hashtbl.t = Hashtbl.create 32
 
+(* B830i: entry counts for the hourly mem_stats registry census. *)
+let route_bucket_count () = Hashtbl.length route_buckets
+
 (* Per-route mutexes so that rate-limit waits and 429 backoffs on one route
    serialize that route's bucket consumption without blocking other routes.
    A single global mutex would let a rate-limited channel stall all channels.
@@ -120,8 +123,10 @@ let route_mutex_for route =
       Hashtbl.replace route_mutexes route m;
       m
 
+let route_mutex_count () = Hashtbl.length route_mutexes
 let global_rate_limit : float ref = ref 0.0
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 32
+let rate_limit_warning_count () = Hashtbl.length _rate_limit_warnings
 
 let wait_for_rate_limit ~route =
   let open Lwt.Syntax in

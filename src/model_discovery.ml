@@ -452,6 +452,9 @@ let fetch_ollama_models ~base_url =
    the warning. *)
 let warned_failures : (string, string) Hashtbl.t = Hashtbl.create 8
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length warned_failures
+
 let error_signature err =
   (* Group HTTP-status failures so different request_ids don't bypass dedup. *)
   match String.index_opt err ':' with

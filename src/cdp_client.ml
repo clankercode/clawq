@@ -725,6 +725,9 @@ let list_tabs t =
 
 let pool : (string, t) Hashtbl.t = Hashtbl.create 4
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length pool
+
 let get_or_launch ?configured_path ~session_key () =
   let open Lwt.Syntax in
   match Hashtbl.find_opt pool session_key with

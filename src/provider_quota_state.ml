@@ -31,6 +31,9 @@ let cache : (string, provider_quota) Hashtbl.t = Hashtbl.create 8
 let cache_ttl_s = ref 300.0
 let set_cache_ttl s = cache_ttl_s := float_of_int s
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length cache
+
 (* Optional DB handle for persistent quota cache across process invocations. *)
 let db_handle : Sqlite3.db option ref = ref None
 let loaded_from_db = ref false

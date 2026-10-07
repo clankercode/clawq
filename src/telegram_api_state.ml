@@ -37,10 +37,14 @@ let pending_poll_answers : poll_answer Queue.t = Queue.create ()
 let callback_routing : (string, string * string * float) Hashtbl.t =
   Hashtbl.create 64
 
+let callback_routing_count () = Hashtbl.length callback_routing
+
 (* poll_id -> (session_key, chat_id, bot_token, options, created_at) *)
 let poll_routing :
     (string, string * string * string * string list * float) Hashtbl.t =
   Hashtbl.create 16
+
+let poll_routing_count () = Hashtbl.length poll_routing
 
 type pending_text_update = {
   mutable update : update;
@@ -58,6 +62,7 @@ type tool_result_detail_entry = {
 let tool_result_details : (string, tool_result_detail_entry) Hashtbl.t =
   Hashtbl.create 64
 
+let tool_result_details_count () = Hashtbl.length tool_result_details
 let tool_result_details_order : string Queue.t = Queue.create ()
 
 (* Tracks the highest message_id seen per chat_id — updated on every
@@ -68,8 +73,13 @@ let tool_result_details_order : string Queue.t = Queue.create ()
 let latest_chat_msg_id : (string, int) Hashtbl.t = Hashtbl.create 64
 let recently_seen_updates : (string, float) Hashtbl.t = Hashtbl.create 256
 
+(* B830i: entry counts for the hourly mem_stats registry census. *)
+let latest_chat_msg_id_count () = Hashtbl.length latest_chat_msg_id
+let recently_seen_update_count () = Hashtbl.length recently_seen_updates
+
 (* Per-chat mutex for outbound message serialization - prevents reordering *)
 let outbound_mutexes : (string, Lwt_mutex.t) Hashtbl.t = Hashtbl.create 64
+let outbound_mutex_count () = Hashtbl.length outbound_mutexes
 
 let get_outbound_mutex chat_id =
   match Hashtbl.find_opt outbound_mutexes chat_id with
@@ -92,6 +102,7 @@ let with_outbound_lock ~chat_id f =
 
 (* Per-chat 429 rate-limit cooldown: chat_id -> Unix time at which sends resume *)
 let outbound_rate_limited_until : (string, float) Hashtbl.t = Hashtbl.create 16
+let outbound_rate_limited_count () = Hashtbl.length outbound_rate_limited_until
 
 let is_outbound_rate_limited chat_id =
   match Hashtbl.find_opt outbound_rate_limited_until chat_id with

@@ -7,6 +7,9 @@
    and marks the run incomplete_delivery if it was not. *)
 let delivered_this_turn : (string, bool) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length delivered_this_turn
+
 let record_delivery ~session_key =
   match session_key with
   | Some key -> Hashtbl.replace delivered_this_turn key true

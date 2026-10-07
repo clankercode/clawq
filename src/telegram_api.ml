@@ -1076,6 +1076,9 @@ let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =
 (* TOTP pairing state: chat_id -> expiry timestamp *)
 let _paired_sessions : (string, float) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry counts for the hourly mem_stats registry census. *)
+let paired_session_count () = Hashtbl.length _paired_sessions
+
 let is_totp_paired ~chat_id ~now =
   match Hashtbl.find_opt _paired_sessions chat_id with
   | Some expiry -> now < expiry
@@ -1095,6 +1098,7 @@ let cleanup_expired_sessions () =
   List.iter (Hashtbl.remove _paired_sessions) expired
 
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
+let rate_limit_warning_count () = Hashtbl.length _rate_limit_warnings
 
 let handle_pair_command ~bot_token ~(account : Runtime_config.telegram_account)
     ~chat_id ~code =

@@ -56,6 +56,9 @@ let parse_utc_datetime s =
    (newest first, capped at max). *)
 let buffers : (string, entry list) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length buffers
+
 let record ?db ~persist ~key ?room_id ?connector_type ~channel_type ~max
     ~sender_name ~sender_id ~text ?metadata_json ?timestamp () =
   let timestamp =

@@ -12,6 +12,9 @@ let max_union_params = 16
 let default_allowlist = [ "bash" ]
 let rejected : (string, unit) Hashtbl.t = Hashtbl.create 8
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length rejected
+
 let cache_key ~provider_name ~(base_url : string option) ~model =
   provider_name ^ "\n" ^ Option.value ~default:"" base_url ^ "\n" ^ model
 

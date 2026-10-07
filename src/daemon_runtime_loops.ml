@@ -115,6 +115,8 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
                  floor ratchet (session histories vs heap size vs RSS).
                  B830g: registry counters separate never-evicted module
                  hashtbls from the sessions=0 live-words growth.
+                 B830i: full census of module-level mutable global
+                 registries (tbl_<name>=<n>, sorted).
                  B830h: emitted BEFORE the retention sweep below so the
                  line measures the steady-state floor, not post-sweep
                  debris. *)
@@ -133,6 +135,7 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
                       | None -> 0
                       | Some rt -> Runner_relay.token_count rt );
                   ]
+                ~registry_counters:(Mem_stats_registry.counters ())
                 ();
               Memory.cleanup_all ~db ~max_messages:mem.max_messages_per_session
                 ~max_age_days:mem.max_message_age_days;

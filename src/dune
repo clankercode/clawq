@@ -473,6 +473,7 @@
   daemon_startup
   gc_init
   mem_stats
+  mem_stats_registry
   heap_census
   daemon_heartbeat
   daemon_background_loops

@@ -15,6 +15,9 @@ type job = {
 let next_id = ref 1
 let jobs : (int, job) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length jobs
+
 let bg_shells_dir () =
   let dir = Filename.concat (Dot_dir.path ()) "bg-shells" in
   (try if not (Sys.file_exists dir) then Sys.mkdir dir 0o755 with _ -> ());

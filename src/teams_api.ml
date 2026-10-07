@@ -23,6 +23,9 @@ type rate_limit_decision = Allowed | Rate_limited of { should_warn : bool }
 
 let rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry counts for the hourly mem_stats registry census. *)
+let rate_limit_warning_count () = Hashtbl.length rate_limit_warnings
+
 let check_incoming_rate_limit ?event_limiter ~limiter_key () =
   let open Lwt.Syntax in
   let* rate_ok =
@@ -160,6 +163,7 @@ let dedup_seen_persistent ~db ~conversation_id ~activity_id =
 (* --- Teams Bot Framework outbound rate limiting --- *)
 
 let conv_last_request : (string, float) Hashtbl.t = Hashtbl.create 32
+let conv_last_request_count () = Hashtbl.length conv_last_request
 
 let throttle_for_conversation ~conversation_id =
   let now = Unix.gettimeofday () in

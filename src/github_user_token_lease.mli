@@ -218,6 +218,10 @@ val discard_all : unit -> int
 val live_count : unit -> int
 (** Process-local count of non-revoked registered leases (tests/ops). *)
 
+val registry_count : unit -> int
+(** Total registered leases including revoked-but-retained entries (B830i
+    mem_stats census); {!live_count} counts only non-revoked. *)
+
 (** {1 Export / introspection (always redacted)} *)
 
 val to_json : lease -> Yojson.Safe.t

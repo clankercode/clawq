@@ -9,6 +9,9 @@ let sender_protocols : (string, string) Hashtbl.t = Hashtbl.create 16
    domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
    protect with a mutex. *)
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length sender_protocols
+
 let is_allowed ~(config : Runtime_config.nostr_config) ~pubkey =
   Channel_util.is_allowed ~allowlist:config.allow_from pubkey
 
