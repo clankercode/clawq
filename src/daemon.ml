@@ -749,6 +749,10 @@ let run ~(config : Runtime_config.t) =
                 apply_ec_watcher_toggle ~new_config ~ec_state;
                 Logs.info (fun m -> m "Config reloaded successfully")))
   in
+  (* B830: SIGUSR2-triggered Gc.Memprof heap census (heap_census.ml); the
+     handler only sets an atomic flag, the resident Lwt poll loop starts the
+     sampling window. *)
+  let () = Heap_census.install_sigusr2_trigger () in
   let slack_socket_enabled =
     match config.channels.slack with
     | Some sc
