@@ -304,6 +304,27 @@ let poll_trigger ?(start = fun () -> start_window ()) () : bool =
   end
   else false
 
+(* B830j: on runtimes without Gc.Memprof (OCaml 5.1), SIGUSR2 runs a
+   full-major probe instead of a no-op: quick_stat before/after Gc.full_major
+   + Gc.compact tells the B830 review whether a rising gc_live_words slope is
+   true retention or the known 5.x floating-garbage/counter inflation (the
+   OCaml 5 docs note live_words counts words not yet known collectable). *)
+let full_major_probe () =
+  let before = Gc.quick_stat () in
+  Gc.full_major ();
+  let after_full = Gc.quick_stat () in
+  Gc.compact ();
+  let after_compact = Gc.quick_stat () in
+  Logs.info (fun m ->
+      m
+        "mem_census_full_major_probe live_words %d->%d->%d live_blocks \
+         %d->%d->%d heap_words %d->%d->%d compactions=%d"
+        before.Gc.live_words after_full.Gc.live_words
+        after_compact.Gc.live_words before.Gc.live_blocks
+        after_full.Gc.live_blocks after_compact.Gc.live_blocks
+        before.Gc.heap_words after_full.Gc.heap_words
+        after_compact.Gc.heap_words after_compact.Gc.compactions)
+
 let install_sigusr2_trigger () =
   let available = memprof_available () in
   Logs.info (fun m ->
@@ -318,8 +339,17 @@ let install_sigusr2_trigger () =
     let* () =
       Lwt.catch
         (fun () ->
-          if poll_trigger () then
-            (* Detached window timer: end the census and log the report. *)
+          let started =
+            if available then poll_trigger ()
+            else
+              poll_trigger
+                ~start:(fun () ->
+                  full_major_probe ();
+                  true)
+                ()
+          in
+          (* Detached window timer: end the census and log the report. *)
+          if started && available then
             Lwt.async (fun () ->
                 let* () = Lwt_unix.sleep window_s in
                 ignore (stop_and_report ());
