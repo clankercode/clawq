@@ -66,6 +66,8 @@ type denial =
 (** Process-local live leases. Short critical sections; no cross-domain lock. *)
 let registry : (string, lease) Hashtbl.t = Hashtbl.create 64
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length registry
 let register (l : lease) = Hashtbl.replace registry l.handle l
 let find_registered handle = Hashtbl.find_opt registry handle
 

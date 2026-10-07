@@ -82,6 +82,10 @@ type stream_fn =
 let native_complete : (provider_kind * complete_fn) list ref = ref []
 let native_stream : (provider_kind * stream_fn) list ref = ref []
 
+(* B830i: entry counts for the hourly mem_stats registry census. *)
+let native_complete_count () = List.length !native_complete
+let native_stream_count () = List.length !native_stream
+
 let register_native_complete kind fn =
   native_complete := (kind, fn) :: !native_complete
 

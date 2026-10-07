@@ -640,6 +640,9 @@ let expire_job ~db ~name =
    duplicate LLM sessions for the same job. *)
 let in_flight_jobs : (string, unit) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length in_flight_jobs
+
 let tick ~db ~session_mgr
     ?(deliver :
        (channel:string ->

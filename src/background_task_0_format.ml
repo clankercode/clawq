@@ -414,6 +414,9 @@ type local_task_state = { cancelled : bool ref }
 let running : (int, local_task_state) Hashtbl.t = Hashtbl.create 16
 let is_tracked_locally id = Hashtbl.mem running id
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length running
+
 let diagnose_health ?(now = Unix.gettimeofday ())
     ?(pid_alive = fun pid -> Process_group.group_alive pid)
     ?(is_local_tracked = is_tracked_locally) (task : task) =

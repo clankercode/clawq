@@ -11,6 +11,9 @@ type entry = {
 
 let store : (string, entry) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length store
+
 (* Set by the daemon when the tunnel URL is known or from gateway config. *)
 let public_base_url : string option ref = ref None
 

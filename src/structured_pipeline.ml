@@ -226,6 +226,9 @@ let load_pipeline path =
 let builtins : (unit -> pipeline_def) list ref = ref []
 let register_builtin f = builtins := f :: !builtins
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let builtin_count () = List.length !builtins
+
 let builtin_research_report =
   Structured_pipeline_builtins.builtin_research_report
 

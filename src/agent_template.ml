@@ -372,6 +372,9 @@ let init_cache ?workspace_dir () =
 (* Builtins ref — set by agent_template_builtins.ml *)
 let builtins_ref : t list ref = ref []
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = List.length !builtins_ref
+
 let available_templates () =
   let user_templates =
     match !global_cache with

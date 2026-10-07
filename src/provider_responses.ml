@@ -9,6 +9,9 @@ open Provider_streaming
    available). Providers not in the table have not been probed yet. *)
 let responses_available : (string, bool) Hashtbl.t = Hashtbl.create 8
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length responses_available
+
 let mark_available name =
   Logs.info (fun m -> m "B807: Responses API available for %s" name);
   Hashtbl.replace responses_available name true

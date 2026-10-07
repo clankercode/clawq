@@ -44,6 +44,9 @@ let select_file_upload_delivery ~file_consent_cards ~team_id ~is_group =
 
 let pending_consents : (string, pending_consent) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length pending_consents
+
 let generate_consent_id () =
   Mirage_crypto_rng_unix.use_default ();
   let bytes = Mirage_crypto_rng.generate 16 in

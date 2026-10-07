@@ -68,8 +68,18 @@ let format_counters (counters : (string * int) list) =
   String.concat ""
     (List.map (fun (k, v) -> Printf.sprintf " %s=%d" k v) counters)
 
+(* B830i: module-level mutable global registries (Mem_stats_registry.counters)
+   rendered as `tbl_<name>=<n>` pairs after the B830g counters, sorted by name
+   so consecutive hourly lines diff stably. *)
+let format_registry_counters (counters : (string * int) list) =
+  String.concat ""
+    (List.map
+       (fun (k, v) -> Printf.sprintf " tbl_%s=%d" k v)
+       (List.sort (fun (a, _) (b, _) -> compare a b) counters))
+
 let format_line ~ts ~(stat : Gc.stat) ~promoted_delta ~rss_kb
-    ~(sessions : Session.memory_snapshot option) ?(counters = []) () =
+    ~(sessions : Session.memory_snapshot option) ?(counters = [])
+    ?(registry_counters = []) () =
   let session_fields =
     match sessions with
     | Some s ->
@@ -82,23 +92,25 @@ let format_line ~ts ~(stat : Gc.stat) ~promoted_delta ~rss_kb
      gc_heap_chunks=%d gc_compactions=%d gc_promoted_words=%.0f rss_kb=%d%s"
     ts session_fields stat.Gc.live_words stat.Gc.heap_words stat.Gc.live_blocks
     stat.Gc.heap_chunks stat.Gc.compactions promoted_delta rss_kb
-    (format_counters counters)
+    (format_counters counters ^ format_registry_counters registry_counters)
 
 (* promoted_words is cumulative; each line reports the delta since the
    previous emission (first line: since process start). *)
 let last_promoted_words = ref 0.0
 
 let snapshot_line ~(sessions : Session.memory_snapshot option) ?(counters = [])
-    () =
+    ?(registry_counters = []) () =
   let stat = Gc.quick_stat () in
   let promoted_delta = stat.Gc.promoted_words -. !last_promoted_words in
   last_promoted_words := stat.Gc.promoted_words;
   format_line ~ts:(Time_util.iso8601_utc ()) ~stat ~promoted_delta
-    ~rss_kb:(vm_rss_kb ()) ~sessions ~counters ()
+    ~rss_kb:(vm_rss_kb ()) ~sessions ~counters ~registry_counters ()
 
-let log_mem_stats ~(sessions : Session.memory_snapshot) ?(counters = []) () =
+let log_mem_stats ~(sessions : Session.memory_snapshot) ?(counters = [])
+    ?(registry_counters = []) () =
   Logs.info (fun m ->
-      m "%s" (snapshot_line ~sessions:(Some sessions) ~counters ()))
+      m "%s"
+        (snapshot_line ~sessions:(Some sessions) ~counters ~registry_counters ()))
 
 let baseline_logged = ref false
 

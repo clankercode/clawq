@@ -8,6 +8,9 @@ type merge_result =
 
 let repo_mutexes : (string, Lwt_mutex.t) Hashtbl.t = Hashtbl.create 8
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length repo_mutexes
+
 let repo_mutex repo_path =
   match Hashtbl.find_opt repo_mutexes repo_path with
   | Some m -> m

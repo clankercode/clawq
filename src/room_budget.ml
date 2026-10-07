@@ -326,6 +326,9 @@ let with_profile_budget_reservation ~db ~profile_id ~estimated_tokens
     within the same budget period. *)
 let soft_warned : (int * string, unit) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length soft_warned
+
 let soft_budget_warning_message (state : state) =
   Printf.sprintf
     "[budget warning] room profile %d usage at %d tokens (%.2f%% of %d limit), \

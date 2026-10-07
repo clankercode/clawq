@@ -15,6 +15,9 @@ open Background_task_0_format
     edit-in-place delivery. *)
 let progress_msg_ids : (int, string) Hashtbl.t = Hashtbl.create 16
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length progress_msg_ids
+
 (** Clear the tracked progress message ID for a task. Call when the task reaches
     a terminal state and no further updates are expected. *)
 let clear_progress_msg_id ~task_id = Hashtbl.remove progress_msg_ids task_id

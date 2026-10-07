@@ -5,6 +5,9 @@ type otc_entry = { code : string; expires_at : float }
 let otc_table : (string, otc_entry) Hashtbl.t = Hashtbl.create 16
 let otc_ttl_seconds = 300.0
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length otc_table
+
 let trust_description_admin =
   "This user's account is registered as an administrator."
 

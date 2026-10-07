@@ -1,5 +1,6 @@
 (* B830: mem_stats instrumentation tests — stable log-line format, session
-   classification shared with eviction, VmRSS parsing. *)
+   classification shared with eviction, VmRSS parsing. B830i: module-level
+   registry census (Mem_stats_registry) and its tbl_ rendering. *)
 
 let fixed_stat =
   {
@@ -76,6 +77,145 @@ let test_counters_default_keeps_stable_format () =
     "mem_stats ts=t gc_live_words=111 gc_heap_words=222 gc_major_blocks=33 \
      gc_heap_chunks=4 gc_compactions=5 gc_promoted_words=0 rss_kb=1"
     line
+
+let test_registry_counters_sorted_after_counters () =
+  let line =
+    Mem_stats.format_line ~ts:"t" ~stat:fixed_stat ~promoted_delta:0.0 ~rss_kb:1
+      ~sessions:None
+      ~counters:[ ("cost_sessions", 2) ]
+      ~registry_counters:[ ("zz_last", 9); ("aa_first", 1) ]
+      ()
+  in
+  Alcotest.(check string)
+    "registry counters sorted and tbl_-prefixed after counters"
+    "mem_stats ts=t gc_live_words=111 gc_heap_words=222 gc_major_blocks=33 \
+     gc_heap_chunks=4 gc_compactions=5 gc_promoted_words=0 rss_kb=1 \
+     cost_sessions=2 tbl_aa_first=1 tbl_zz_last=9"
+    line;
+  Alcotest.(check bool) "single line" true (not (String.contains line '\n'))
+
+(* --- Registry census (B830i) --- *)
+
+let expected_registry_names =
+  [
+    "agent_builtins";
+    "bg_shell_jobs";
+    "bg_task_running";
+    "budget_soft_warned";
+    "cdp_pool";
+    "ci_msg_ids";
+    "connector_buffers";
+    "discord_rate_warnings";
+    "discord_route_buckets";
+    "discord_route_mutexes";
+    "in_flight_jobs";
+    "model_warned_failures";
+    "nostr_protocols";
+    "otc_entries";
+    "pair_sessions";
+    "pipeline_builtins";
+    "progress_msg_ids";
+    "provider_complete_fns";
+    "provider_stream_fns";
+    "quota_cache";
+    "repo_mutexes";
+    "responses_available";
+    "session_hosts";
+    "slack_privacy_cache";
+    "slack_rate_warnings";
+    "strict_rejected";
+    "teams_conv_last_req";
+    "teams_pending_consents";
+    "teams_rate_warnings";
+    "temp_downloads";
+    "tg_callback_routing";
+    "tg_latest_msg_ids";
+    "tg_out_mutexes";
+    "tg_out_rate_limited";
+    "tg_paired_sessions";
+    "tg_poll_routing";
+    "tg_rate_warnings";
+    "tg_seen_updates";
+    "tg_tool_details";
+    "token_leases";
+    "turn_delivered";
+  ]
+
+let census_count key = List.assoc key (Mem_stats_registry.counters ())
+
+let test_registry_census_names_stable () =
+  let names = List.map fst (Mem_stats_registry.counters ()) in
+  Alcotest.(check (list string))
+    "census covers exactly the expected registries" expected_registry_names
+    (List.sort compare names);
+  Alcotest.(check bool)
+    "census names unique" true
+    (List.length names = List.length (List.sort_uniq compare names))
+
+let test_registry_census_fixture_counts () =
+  (* Fixture-sized tables across Hashtbl and list-ref registries. Delta
+     assertions keep the test independent of other suites' global state. *)
+  let before_soft = census_count "budget_soft_warned" in
+  Hashtbl.replace Room_budget.soft_warned (990001, "b830i") ();
+  Hashtbl.replace Room_budget.soft_warned (990002, "b830i") ();
+  Alcotest.(check int)
+    "hashtbl registry counts fixture entries" (before_soft + 2)
+    (census_count "budget_soft_warned");
+  let before_strict = census_count "strict_rejected" in
+  Tool_strict.mark_unsupported "b830i-fixture";
+  Alcotest.(check int)
+    "dedup registry counts fixture entry" (before_strict + 1)
+    (census_count "strict_rejected");
+  let privacy_before = !Slack_api._channel_privacy_cache in
+  Slack_api._channel_privacy_cache :=
+    privacy_before @ [ ("b830i-c1", (true, 0.0)); ("b830i-c2", (false, 0.0)) ];
+  Alcotest.(check int)
+    "list-ref registry counts fixture entries"
+    (List.length privacy_before + 2)
+    (census_count "slack_privacy_cache");
+  Slack_api._channel_privacy_cache := privacy_before;
+  let before_otc = census_count "otc_entries" in
+  Hashtbl.replace Admin.otc_table "b830i-otc"
+    Admin.{ code = "b830i-otc"; expires_at = 0.0 };
+  Alcotest.(check int)
+    "otc registry counts fixture entry" (before_otc + 1)
+    (census_count "otc_entries");
+  Hashtbl.remove Admin.otc_table "b830i-otc";
+  let before_paired = census_count "tg_paired_sessions" in
+  Telegram_api.pair_session ~chat_id:"b830i-fixture-chat" ~ttl_hours:1;
+  Alcotest.(check int)
+    "underscore-named registry counts fixture entry" (before_paired + 1)
+    (census_count "tg_paired_sessions");
+  let before_temp = census_count "temp_downloads" in
+  let token =
+    Temp_downloads.add ~content:"b830i" ~content_type:"text/plain"
+      ~filename:"b830i.txt" ~ttl_s:(-1.0)
+  in
+  Alcotest.(check int)
+    "temp download store counts fixture entry" (before_temp + 1)
+    (census_count "temp_downloads");
+  Alcotest.(check bool)
+    "expired fixture entry reads back None" true
+    (Temp_downloads.get token = None);
+  Alcotest.(check int)
+    "expired fixture entry no longer counted" before_temp
+    (census_count "temp_downloads")
+
+let test_registry_census_line_contains_all_keys () =
+  let line =
+    Mem_stats.format_line ~ts:"t" ~stat:fixed_stat ~promoted_delta:0.0 ~rss_kb:1
+      ~sessions:None
+      ~registry_counters:(Mem_stats_registry.counters ())
+      ()
+  in
+  List.iter
+    (fun (name, _) ->
+      Alcotest.(check bool)
+        ("line contains tbl_" ^ name ^ "=")
+        true
+        (Test_helpers.string_contains line (" tbl_" ^ name ^ "=")))
+    (Mem_stats_registry.counters ());
+  Alcotest.(check bool) "single line" true (not (String.contains line '\n'))
 
 let test_snapshot_line_tracks_promoted_counter () =
   (* snapshot_line diffs against the previous emission's cumulative
@@ -231,6 +371,14 @@ let suite =
       test_counters_appended_after_rss;
     Alcotest.test_case "counters default keeps stable format" `Quick
       test_counters_default_keeps_stable_format;
+    Alcotest.test_case "registry counters sorted after counters" `Quick
+      test_registry_counters_sorted_after_counters;
+    Alcotest.test_case "registry census covers exactly the expected registries"
+      `Quick test_registry_census_names_stable;
+    Alcotest.test_case "registry census counts fixture-sized tables" `Quick
+      test_registry_census_fixture_counts;
+    Alcotest.test_case "registry census line contains all keys" `Quick
+      test_registry_census_line_contains_all_keys;
     Alcotest.test_case "snapshot_line tracks promoted counter" `Quick
       test_snapshot_line_tracks_promoted_counter;
     Alcotest.test_case "VmRSS parsed from status fixture" `Quick

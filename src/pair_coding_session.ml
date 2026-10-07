@@ -20,6 +20,9 @@ type pair_session_info = {
 (* Global registry of active pair sessions *)
 let active_sessions : (string, pair_session_info) Hashtbl.t = Hashtbl.create 4
 
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length active_sessions
+
 let register_agent_in_session mgr ~key agent =
   let mutex = Lwt_mutex.create () in
   let interrupt = ref None in

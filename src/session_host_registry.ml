@@ -3,6 +3,9 @@
    register fake hosts and must restore the table via [with_host]. *)
 
 let table : (string, Session_host.t) Hashtbl.t = Hashtbl.create 4
+
+(* B830i: entry count for the hourly mem_stats registry census. *)
+let registry_count () = Hashtbl.length table
 let register (host : Session_host.t) = Hashtbl.replace table host.kind host
 let () = register Session_host_direct.host
 let () = register Session_host_herdr.host
