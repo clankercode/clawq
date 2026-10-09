@@ -48,6 +48,7 @@ let all_suites =
     ("audit", Test_audit.suite);
     ("daemon", Test_daemon.suite);
     ("daemon_liveness", Test_daemon_liveness.suite);
+    ("b830k_loop_wait", Test_b830k_loop_wait.suite);
     ("daemon_logging", Test_daemon_logging.suite);
     ("db_maintenance", Test_db_maintenance.suite);
     ("gc_init", Test_gc_init.suite);

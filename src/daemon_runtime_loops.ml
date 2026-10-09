@@ -4,6 +4,15 @@ let current_max_concurrent_native_agents (current_config : Runtime_config.t ref)
     =
   !current_config.agent_defaults.max_concurrent_native_agents
 
+(* B830k: wakeup wait for the background-task poll loop. Must remain
+   [Lwt.pick]: with [Lwt.choose] the losing condition waiter is never
+   cancelled and stays on the condition's waiter list forever — one ~49-word
+   waiter per 5s tick ≈ 35K words/hour retained (the B830 hourly live-words
+   leak; lifetime contract regression-tested in test_b830k_loop_wait). *)
+let wait_for_enqueue_or_tick ?(tick_s = 5.0) (cond : unit Lwt_condition.t) () :
+    unit Lwt.t =
+  Lwt.pick [ Lwt_condition.wait cond; Lwt_unix.sleep tick_s ]
+
 let notify_finished ~session_manager ~config ~db =
   Daemon_util.notify_background_task_finished ~session_manager ~config ~db
 
@@ -319,11 +328,7 @@ let start_background_task_loop ~db ~(config : Runtime_config.t)
                 ()
             in
             let* () =
-              Lwt.choose
-                [
-                  Lwt_condition.wait Background_task_db.enqueue_condition;
-                  Lwt_unix.sleep 5.0;
-                ]
+              wait_for_enqueue_or_tick Background_task_db.enqueue_condition ()
             in
             loop ()
           in
