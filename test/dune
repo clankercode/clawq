@@ -40,6 +40,7 @@
   test_cost_tracker
   test_daemon
   test_daemon_liveness
+  test_b830k_loop_wait
   test_daemon_logging
   test_db_maintenance
   test_debate
