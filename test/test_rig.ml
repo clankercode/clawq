@@ -67,6 +67,19 @@ let test_prompt_install_fallbacks () =
         "contains python fallback" true
         (has "Python" prompt || has "rss_fetch.py" prompt)
 
+let test_prompt_rss_invocation () =
+  match Rig.prompt_for ~name:"briefing" ~action:`Install with
+  | Error _ -> Alcotest.fail "Expected Ok"
+  | Ok prompt ->
+      Alcotest.(check bool)
+        "documents sfeed_update" true
+        (has "sfeed_update" prompt);
+      Alcotest.(check bool)
+        "documents sfeed_plain" true (has "sfeed_plain" prompt);
+      Alcotest.(check bool)
+        "documents baseurl failure" true
+        (has "baseurl incorrect or too long" prompt)
+
 let test_prompt_remove () =
   match Rig.prompt_for ~name:"briefing" ~action:`Remove with
   | Error _ -> Alcotest.fail "Expected Ok"
@@ -181,6 +194,8 @@ let suite =
     Alcotest.test_case "install prompt content" `Quick test_prompt_install;
     Alcotest.test_case "install prompt fallbacks" `Quick
       test_prompt_install_fallbacks;
+    Alcotest.test_case "install prompt RSS invocation" `Quick
+      test_prompt_rss_invocation;
     Alcotest.test_case "remove prompt references cron jobs" `Quick
       test_prompt_remove;
     Alcotest.test_case "adjust prompt references memory" `Quick

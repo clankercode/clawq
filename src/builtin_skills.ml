@@ -442,7 +442,7 @@ Daily briefing plan:
 
 ## Step 3: Fetch RSS headlines
 
-Use bash to run the configured RSS tool against `<feeds_file>`. Extract the top 5 most notable headlines. If the command fails, record the failure and continue (the briefing still has value with topics + weather).
+Use bash to run the configured RSS tool against `<feeds_file>`. For the default `sfeed` tool, do not pass `<feeds_file>` as a positional argument: `sfeed` treats that argument as a feed URL and emits `baseurl incorrect or too long` for a file path. Instead, run `sfeed_update` (which reads `~/.sfeed/sfeedrc`) and read the resulting feeds with `sfeed_plain ~/.sfeed/feeds/*`. If `<feeds_file>` is configured but `~/.sfeed/sfeedrc` is absent, fall back to feeding each URL from `<feeds_file>` to the tool using its documented interface. Extract the top 5 most notable headlines. If the command fails, record the failure and continue (the briefing still has value with topics + weather).
 
 ## Step 4: Sequential web_search for topics
 

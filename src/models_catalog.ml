@@ -342,6 +342,10 @@ let known_models : model_info list =
       ~supports_thinking:true;
     model "llmp" "gpt-6-sol--fast" ~context_window:340000 ~supports_vision:true
       ~supports_thinking:true;
+    model "llmp" "gpt-6.1-sol" ~context_window:340000 ~supports_vision:true
+      ~supports_thinking:true;
+    model "llmp" "gpt-6.1-sol--fast" ~context_window:340000
+      ~supports_vision:true ~supports_thinking:true;
     model "llmp" "gpt-daybreak-blue-latest" ~context_window:272000
       ~supports_vision:true ~supports_thinking:true;
     model "llmp" "gpt-daybreak-blue-latest--fast" ~context_window:272000

@@ -7,6 +7,8 @@ a daily news/weather/topic briefing delivered to the user's preferred channel.
 Try to install `sfeed` (a minimal POSIX RSS/Atom fetcher):
 - Use bash to detect the package manager (pacman, apt, brew, nix, etc.)
 - Install sfeed via the package manager
+- Configure/read sfeed through its normal setup: `sfeed_update` reads `~/.sfeed/sfeedrc`, and `sfeed_plain ~/.sfeed/feeds/*` reads the fetched feeds.
+- Do **not** run `sfeed ~/.clawq/briefing_feeds.txt`: sfeed interprets that path as a feed URL and reports `baseurl incorrect or too long`.
 - If sfeed is unavailable, try these fallbacks in order:
   1. `newsboat` (widely packaged)
   2. Write a minimal Python RSS fetcher script to ~/.clawq/rss_fetch.py:

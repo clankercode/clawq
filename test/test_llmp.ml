@@ -125,13 +125,19 @@ let test_auth_headers () =
 
 let test_catalog_models () =
   let models = Models_catalog.by_provider "llmp" in
-  Alcotest.(check int) "catalog size" 50 (List.length models);
+  Alcotest.(check int) "catalog size" 52 (List.length models);
   List.iter
     (fun name ->
       Alcotest.(check bool)
         name true
         (Option.is_some (Models_catalog.find_by_full_name name)))
-    [ "llmp:gpt-6-luna--fast"; "llmp:xai/grok-4.7"; "llmp:grok-imagine-image" ];
+    [
+      "llmp:gpt-6-luna--fast";
+      "llmp:gpt-6.1-sol";
+      "llmp:gpt-6.1-sol--fast";
+      "llmp:xai/grok-4.7";
+      "llmp:grok-imagine-image";
+    ];
   match Models_catalog.find_by_full_name "llmp:grok-imagine-image" with
   | None -> Alcotest.fail "missing image model"
   | Some m ->
