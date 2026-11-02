@@ -678,6 +678,11 @@ the human and bot memberships, private/shared-room policy and current settings.
 History is bounded and labeled as untrusted content; Slack retention or scope
 limits can leave it incomplete.
 
+Direct-message metadata is validated against the actual human peer rather than
+public-channel-only fields. DMs count as private conversations for the configured
+private policy: under the default policy, explicitly include the `D...` identifier
+in `allow_private_channels` as well as satisfying the user/channel allowlists.
+
 Progress, completion and resumed/background delivery stay in the originating
 thread. Use the matching **Stop this task** button to cancel queued or active
 work. Active cancellation is cooperative. Native stops require a stream owned
@@ -685,6 +690,13 @@ by that run; an empty-stream native stop cannot safely select a run, so use its
 public button. Old controls cannot cancel a successor. See
 [Native agent threads and task controls](connector-reference.md#native-agent-threads-and-task-controls)
 for limits and the supported APIs.
+
+Long tasks refresh native processing and rotate their owned stream every nine
+minutes. Queued follow-ups are freshly authorized when execution starts,
+including after restart. Requests without original verified requester metadata
+remain retained with a failure; thread history and the last owner cannot supply
+that authority. Answers to pending questions and authorized text interrupts are
+handled before ordinary follow-ups enter the queue.
 
 ### Private Channels
 
