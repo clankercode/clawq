@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T08:15:16Z"
 complexity: medium
 created_at: "2026-10-01T12:34:01Z"
 depends_on: []
+duration_minutes: 115.6489109115
 estimate_hours: 1
 id: B829
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: 'daemon has no supervisor: OOM-killed daemon stayed dead 15h with webhooks silently undelivered'
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T08:15:16Z"
 ---
 Incident 2026-10-01: the daemon (pid 2492906, build 3dd3d4ce, started 2026-09-28) was killed at 07:14:47 AEST mid-webhook-flood (516 webhooks in the final 4 minutes, concurrent with the 07:05 briefing cron turn). Kill signature: last daemon.log line complete, stderr dup2'd into daemon.log shows no OCaml fatal, no coredump, no shutdown lines — external SIGKILL class. No OOM/kill journal evidence survives: journald storage is volatile on this host and journald restarted at 09:01:30 wiping the window; dmesg is restricted; auditd inactive. earlyoom is running (-n: no dmesg); kernel OOM killer or earlyoom during the morning's memory pressure (load ~16, 30G zram in use) is the most probable killer.
 
@@ -30,3 +31,5 @@ Acceptance criteria:
 4. Docs updated (service supervision section).
 
 Decision (2026-11-02 batch): independent service lane. Verified systemd template already has Restart=on-failure but cmd_install ignores systemctl errors and leaves existing daemons unmanaged; WatchdogSec lacks an evident notification contract. Complete production supervision/adoption semantics and verify SIGKILL recovery using an isolated scratch daemon, never kill the user daemon for testing. Serialize build/test commands centrally.
+
+Completed: commits8c5fd720+b4e7c204+6db13bc1 merged as e9f75757 after independent scoped PASS of logging/EC, actual ownership, bounded application readiness and transient PID-publication race. Linux unit Type=exec/Restart=on-failure/RestartSec=5/control-group; install explicitly adopts manual daemon, lifecycle failures nonzero, daemon.log/rotation/EC preserved, no sd_notify watchdog. Real x-p35 scratch-unit SIGKILL recovery6.141s with new EC and matching lock/PID/heartbeat/signed webhookHTTP200; controlled500ms publication install/start/restart passed. Coordinator combined quick7801/62.274s and remote fulltree fmtPASS. Stable production install/adoption remains an operator deployment action; scratch tests did not change real user daemon.

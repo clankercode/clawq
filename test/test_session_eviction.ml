@@ -276,11 +276,8 @@ let with_native_provider f =
 let test_evicted_session_reloads_with_identical_history () =
   with_native_provider (fun config requests ->
       let mgr, db = make_manager ~config () in
-      (* Slash-free key: github is the one connector that passes raw
-         owner/repo keys into turns, whose DB persistence is keyed raw while
-         in-memory session tables key sanitized — a pre-existing duality
-         unrelated to eviction. Use the sanitized form (what every other
-         connector passes) to test the eviction reload contract. *)
+      (* Canonical-key coverage; raw GitHub turn/restart/eviction regressions
+         live in test_session_key_canonicalization.ml. *)
       let key = "github:owner_repo:pr:9" in
       let response1 =
         Lwt_main.run (Session.turn mgr ~key ~message:"first" ())

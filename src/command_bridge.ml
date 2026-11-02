@@ -360,6 +360,7 @@ let cmd_service args =
   | [ "start" ] ->
       let cfg = get_config () in
       Service.cmd_start ~config:cfg
+  | [ "run" ] -> Service.cmd_run ~config:(get_config ()) ()
   | [ "stop" ] -> Service.cmd_stop ()
   | [ "status" ] | [] -> Service.cmd_status ()
   | [ "signal-restart" ] -> Service.cmd_signal_restart ()
@@ -372,7 +373,7 @@ let cmd_service args =
   | [ "uninstall" ] -> Service.cmd_uninstall ()
   | _ ->
       "Usage: clawq service \
-       <start|stop|status|signal-restart|restart|install|uninstall|systemd-unit|launchd-plist>"
+       <start|run|stop|status|signal-restart|restart|install|uninstall|systemd-unit|launchd-plist>"
 
 let parse_update_args args =
   match args with

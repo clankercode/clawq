@@ -641,6 +641,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     {
                       before_turn =
                         (fun queued_msg_id ->
+                          Slack_huddle_context.before_queued ~key queued_msg_id;
                           let* () =
                             match queued_msg_id with
                             | Some msg_ts ->
@@ -669,6 +670,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                           Lwt.return_unit);
                       after_turn =
                         (fun queued_msg_id ->
+                          Slack_huddle_context.clear ();
                           match queued_msg_id with
                           | Some msg_ts ->
                               set_reaction_on_single msg_ts
@@ -689,6 +691,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                   in
                   let response_sent = ref false in
                   let before_drain response =
+                    Slack_huddle_context.clear ();
                     if Session.should_suppress_response response then
                       Lwt.return_unit
                     else
@@ -840,13 +843,19 @@ let handle_event ~(config : Runtime_config.slack_config)
                                 Lwt.return ([], [], placeholder)
                             in
                             let* response =
-                              Session.turn_stream session_manager ~key ~message
-                                ~content_parts ~attachments:att_list
-                                ~skill_injections ~channel_name:channel_id
-                                ~channel_type:"group" ~sender_id:user_id
-                                ~user_group ~channel:"slack" ~channel_id
-                                ~message_id:ts ~on_drain_progress ~before_drain
-                                ~on_chunk ()
+                              Slack_huddle_context.with_request ~session_manager
+                                ~key ~channel_id ~user_id ~message_id:ts
+                                (fun () ->
+                                  Session.turn_stream session_manager ~key
+                                    ~message ~content_parts
+                                    ~attachments:att_list ~skill_injections
+                                    ~channel_name:channel_id
+                                    ~channel_type:"group" ~sender_id:user_id
+                                    ~user_group ~channel:"slack" ~channel_id
+                                    ~message_id:ts ~on_drain_progress
+                                    ~before_drain
+                                    ~snapshot_work_type:
+                                      Access_snapshot.Room_turn ~on_chunk ())
                             in
                             Lwt.return (Ok response))
                           (fun exn ->

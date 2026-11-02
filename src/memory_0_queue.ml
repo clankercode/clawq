@@ -72,36 +72,40 @@ let queue_enqueue ~db ~session_key ~source ~payload_json =
             (Printf.sprintf "queue_enqueue failed: %s" (Sqlite3.Rc.to_string rc)))
 
 let queue_claim ~db ~session_key =
-  (* Atomic claim: UPDATE with subquery eliminates TOCTOU race *)
-  let update_sql =
-    "UPDATE inbound_queue SET state = 'claimed', claimed_at = datetime('now') \
-     WHERE id = (SELECT id FROM inbound_queue WHERE session_key = ? AND state \
-     = 'pending' ORDER BY id ASC LIMIT 1) AND state = 'pending'"
-  in
-  let update_stmt = Sqlite3.prepare db update_sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize update_stmt))
-    (fun () ->
-      ignore (Sqlite3.bind update_stmt 1 (Sqlite3.Data.TEXT session_key));
-      match Sqlite3.step update_stmt with
-      | Sqlite3.Rc.DONE when Sqlite3.changes db > 0 ->
-          (* Fetch the claimed row *)
-          let select_sql =
-            "SELECT id, session_key, source, state, payload_json, \
-             attempt_count, last_error, claimed_at, created_at FROM \
-             inbound_queue WHERE session_key = ? AND state = 'claimed' ORDER \
-             BY id DESC LIMIT 1"
-          in
-          let select_stmt = Sqlite3.prepare db select_sql in
-          Fun.protect
-            ~finally:(fun () -> ignore (Sqlite3.finalize select_stmt))
-            (fun () ->
-              ignore
-                (Sqlite3.bind select_stmt 1 (Sqlite3.Data.TEXT session_key));
-              match Sqlite3.step select_stmt with
-              | Sqlite3.Rc.ROW -> Claim_ok (queue_row_of_stmt select_stmt)
-              | _ -> Claim_empty)
-      | _ -> Claim_empty)
+  if Memory_session_keys.blocked_legacy_github_key ~db session_key then
+    Claim_empty
+  else
+    (* Atomic claim: UPDATE with subquery eliminates TOCTOU race *)
+    let update_sql =
+      "UPDATE inbound_queue SET state = 'claimed', claimed_at = \
+       datetime('now') WHERE id = (SELECT id FROM inbound_queue WHERE \
+       session_key = ? AND state = 'pending' ORDER BY id ASC LIMIT 1) AND \
+       state = 'pending'"
+    in
+    let update_stmt = Sqlite3.prepare db update_sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize update_stmt))
+      (fun () ->
+        ignore (Sqlite3.bind update_stmt 1 (Sqlite3.Data.TEXT session_key));
+        match Sqlite3.step update_stmt with
+        | Sqlite3.Rc.DONE when Sqlite3.changes db > 0 ->
+            (* Fetch the claimed row *)
+            let select_sql =
+              "SELECT id, session_key, source, state, payload_json, \
+               attempt_count, last_error, claimed_at, created_at FROM \
+               inbound_queue WHERE session_key = ? AND state = 'claimed' ORDER \
+               BY id DESC LIMIT 1"
+            in
+            let select_stmt = Sqlite3.prepare db select_sql in
+            Fun.protect
+              ~finally:(fun () -> ignore (Sqlite3.finalize select_stmt))
+              (fun () ->
+                ignore
+                  (Sqlite3.bind select_stmt 1 (Sqlite3.Data.TEXT session_key));
+                match Sqlite3.step select_stmt with
+                | Sqlite3.Rc.ROW -> Claim_ok (queue_row_of_stmt select_stmt)
+                | _ -> Claim_empty)
+        | _ -> Claim_empty)
 
 let queue_release ~db ~queue_id =
   let sql =
@@ -242,7 +246,9 @@ let queue_list_pending_sessions ~db =
         | Sqlite3.Data.TEXT s -> keys := s :: !keys
         | _ -> ()
       done;
-      List.rev !keys)
+      List.rev !keys
+      |> List.filter (fun key ->
+          not (Memory_session_keys.blocked_legacy_github_key ~db key)))
 
 let queue_clear ~db ~session_key =
   let sql = "DELETE FROM inbound_queue WHERE session_key = ?" in

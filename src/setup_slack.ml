@@ -58,6 +58,12 @@ let post_setup_instructions ~events_path ~socket_mode ~gateway_port ~tunnel_url
        - groups:history
        - im:history
        - mpim:history
+       For optional huddle discovery/content tools, also add:
+       - channels:read
+       - groups:read
+       - users:read
+       - files:read
+       Huddle reads require bot and requesting-user channel membership.
     6. Install the app to your workspace
     7. Copy the "Bot User OAuth Token" (xoxb-...) into this wizard
 %s%s|}

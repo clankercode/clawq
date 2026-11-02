@@ -343,7 +343,7 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
     ~(session_manager : Session.t) ~api_limiter ~owner ~repo ~author event
     ~user_message ~preamble =
   let open Lwt.Syntax in
-  let key = Github_webhook.session_key event in
+  let key = Session.sanitize_session_key (Github_webhook.session_key event) in
   let full_message = preamble ^ "\n\n" ^ user_message in
   let gh_channel_name = "github:" ^ owner ^ "/" ^ repo in
   (* Acknowledge with eyes reaction *)

@@ -282,6 +282,8 @@
   test_tool_scope_conformance
   test_service
   test_session
+  test_session_key_canonicalization
+  test_legacy_session_keys
   test_session_observer
   test_session_persistence
   test_signal
@@ -291,6 +293,9 @@
   test_skills
   test_skills_cmd_inject
   test_slack
+  test_slack_huddles
+  test_slack_huddle_fix1
+  test_slack_huddle_fixtures
   test_slack_socket
   test_slash_commands
   test_status_message

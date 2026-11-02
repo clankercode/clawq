@@ -1,21 +1,26 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T08:43:43Z"
 complexity: medium
 created_at: "2026-10-01T16:38:01Z"
 depends_on: []
+duration_minutes: 144.08913867678334
 estimate_hours: 1
 id: B831
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: github sessions pass raw owner/repo keys to Session.turn — history restores under sanitized key, losing context across restarts
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T08:43:43Z"
 ---
 Found during B830 session-eviction work (Lane A report 2026-10-02): github passes raw owner/repo keys into Session.turn in some paths, so turn persistence writes DB rows under the raw key while the in-memory session table and load_restorable_history use the sanitized key (slash->underscore). Those github sessions lose history restore across daemon restarts today (and across eviction reloads). Pre-existing duality; eviction neither fixes nor worsens it (eviction relies on the same lazy reload every other connector uses correctly). Root-cause mirror of B822 (which fixed the model-override APIs); fix belongs in session_turn.ml/github.ml key normalization at the turn boundary. Repro: github webhook comment on a PR -> restart daemon -> session context gone despite DB rows under the raw key. Lane A's test suite used the sanitized key form; a regression test for raw-key turns should accompany the fix.
 
 Decision (2026-11-02 batch): session lane after B816/B818 to avoid test_session overlap. Verified turn boundary propagates raw keys while session loading sanitizes. Canonicalize at buffered/streaming/try-turn boundaries consistently and add raw owner/repo persistence/reload regression coverage, considering already persisted legacy raw-key history.
 
 Decision (source design review2026-11-02): canonicalize before turn closures (run_session_turn/try_turn) and align GitHub notifier registration plus resume/drain bypasses. Legacy raw-key history recovery must be unambiguous and only fill an absent canonical history; canonical history takes precedence, preserve conflicting originals and avoid blind merges across slash/underscore collisions. Source-grounded design receipt supplied to session implementer; regressions will cover buffered/streaming/nonblocking turns and restart/eviction restore.
+
+Independent review2026-11-02 found and reproduced two blockers in candidate db1d8535 before merge: P1 legacy promotion assumes all rows are FTS-indexed, so enabling search after stored history can make Session.create abort with CORRUPT; P2 persisted background-task completions can bypass legacy holds and retain raw notifier/response identity. Both accepted for scoped fix with deterministic production-path regressions, atomic recovery and preserved held branches. Original worker resumed; candidate remains unmerged until independent rereview. All builds/tests/formatter wrappers now x-p35 only per explicit user direction.
+
+Completed: db1d8535 plus fix1a8e0253 merged after fresh independent review and scoped PASS. Buffered/streaming/nonblocking turns, notifiers, persisted completion callbacks and legacy GitHub history now use canonical identity; unambiguous legacy data promotes transactionally, conflicting branches remain held. Partial/late-enabled FTS and held background completions covered by regressions. Lane quick7784 plus minimal/optimized/format passed remotely; coordinator exact combined master gate passed7831 tests in64.395s and make fmt-check on x-p35 (gate-B831-merged.log). No real database was modified for validation; production deployment not performed.

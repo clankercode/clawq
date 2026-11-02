@@ -126,7 +126,11 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq service` | Manage the clawq system service (start/stop/restart/install/uninstall/systemd-unit) |
 | `clawq service systemd-unit` | Print a systemd unit file for user-level daemon management |
 | `clawq service launchd-plist` | Print a launchd plist file for macOS daemon management |
-| `clawq service install` | Install and enable service autostart (systemd on Linux, launchd on macOS) |
+| `clawq service install` | On Linux, install, enable, start, and adopt an existing daemon into systemd supervision; on macOS, install a launchd plist |
+| `clawq service run` | Run in the foreground with the daemon singleton lock and PID lifecycle, for a process supervisor |
+| `clawq service start` | Start through the installed unit and wait for application readiness; a manual owner requires explicit adoption |
+| `clawq service stop` | Stop the actual daemon owner; a managed stop prevents automatic restart |
+| `clawq service restart` | Restart through systemd and wait for application readiness; return nonzero on startup failure or manual-owner conflict |
 | `clawq service uninstall` | Stop and remove the autostart service configuration |
 | `clawq session` | Inspect and control agent sessions |
 | `clawq session list [--include-postmortem]` | List active sessions with state, channel, and pending queue counts. Postmortem sessions (`__postmortem_*`) are hidden by default; pass `--include-postmortem` to show them. |

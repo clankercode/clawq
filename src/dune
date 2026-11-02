@@ -129,6 +129,7 @@
   memory_types
   memory_scoped
   memory_core
+  memory_session_keys
   memory_session
   memory_search
   room_profile_reconcile
@@ -526,6 +527,9 @@
   cli_notify
   connector_dispatch
   slack_api
+  slack_huddle_context
+  slack_huddles
+  slack_huddle_tools
   slack
   discord_api
   discord

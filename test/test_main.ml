@@ -83,6 +83,8 @@ let all_suites =
     ("ambient_inspection", Test_ambient_inspection.suite);
     ("room_progress", Test_room_progress.suite);
     ("session", Test_session.suite);
+    ("session_key_canonicalization", Test_session_key_canonicalization.suite);
+    ("legacy_session_keys", Test_legacy_session_keys.suite);
     ("session_observer", Test_session_observer.suite);
     ("session_persistence", Test_session_persistence.suite);
     ("session_eviction", Test_session_eviction.suite);
@@ -270,6 +272,8 @@ let all_suites =
     ("landlock", Test_landlock.suite);
     ("rate_limiter", Test_rate_limiter.suite);
     ("slack", Test_slack.suite);
+    ("slack_huddles", Test_slack_huddles.suite);
+    ("slack_huddle_fix1", Test_slack_huddle_fix1.suite);
     ("slack_profiles", Test_slack.test_suite_with_profiles);
     ("slack_private_policy", Test_slack.private_channel_policy_suite);
     ("discord", Test_discord.suite);
