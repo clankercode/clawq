@@ -32,11 +32,18 @@ Room agents use typed session keys with a known suffix:
 
 | Key Shape | Purpose |
 |-----------|---------|
-| `slack:C456:U789` | Personal (DM) session |
+| `slack:C456:U789` | Legacy channel/user session |
+| `slack:C456:thread:T123:A123:123.456` | Native Slack message run and follow-ups in one root thread |
 | `slack:C456:room` | Shared room session for channel `C456` |
 | `__room_child_thread:slack:profile:C456:thread_id:msg_id` | Thread-bound work session |
 | `__room_child_fallback:slack:profile:C456` | Thread session fallback (no thread ID available) |
 | `__room_routine:<profile_id>:<routine_id>` | Scheduled routine session |
+
+Native Slack thread sessions retain `C456` as the authorization room and
+inherit its room-profile model, instructions, tool policy and CWD. Explicit
+thread bindings take precedence. The durable key also preserves the root for
+resumed/background replies; stored routing metadata does not grant caller
+authority. See [Slack](/channels#slack) for setup and task stop controls.
 
 Teams keys use the format `teams:<team_id>:<conversation_id>` with automatic
 kind detection: `@thread.v2` suffixes are recognized as threads, and

@@ -584,7 +584,10 @@ Teams conversation IDs follow specific formats:
 
 ## 6. Slack Setup
 
-Slack is supported as a baseline connector with reactions, native threads, and ambient history capture.
+Slack supports reactions, native threads, ambient history capture, authorized
+thread context and task progress. Native agent status requires Slack's current
+`agent_view` experience; ordinary threaded progress and task stop buttons remain
+the fallback when the native API is unavailable.
 
 ### Step 1: Create a Slack App
 
@@ -605,6 +608,10 @@ Under **OAuth & Permissions**, add these Bot Token Scopes:
 - `im:history`
 - `im:read`
 - `im:write`
+- `mpim:history`
+- `mpim:read`
+- `users:read`
+- `assistant:write`
 - `reactions:write`
 - `files:write`
 
@@ -621,6 +628,18 @@ Under **Event Subscriptions**, subscribe to:
 - `message.channels`
 - `message.groups`
 - `message.im`
+- `agent_session_stopped`
+- `app_home_opened`
+- `app_context_changed`
+
+For the current agent experience, declare
+`features.agent_view.agent_description` in the app manifest. Enable
+**Interactivity** for run-specific **Stop this task** buttons. Socket Mode
+delivers interactive envelopes; HTTP uses the same signed Request URL as
+Events API callbacks. Native status and rename require `chat:write`; context
+events require `assistant:write`. Reinstall the app after changing scopes.
+Legacy `assistant_view` events are not implemented. Standalone browsing context
+does not grant access or select a thread for execution.
 
 ### Step 5: Install to Workspace
 
@@ -643,6 +662,29 @@ Under **Install App**, click **Install to Workspace** and note the **Bot User OA
   }
 }
 ```
+
+Socket Mode requires valid bot and app tokens; its signing secret is optional.
+HTTP Events and Interactivity require a valid bot token and signing secret.
+For HTTP, set `socket_mode` to `false` and configure both Slack Request URLs to
+the public HTTPS `events_path` endpoint. Removing the bot token disables thread
+execution, huddle reads and fallback sends.
+
+### Thread tasks and stopping work
+
+Each root thread has its own stable conversation; authorized follow-ups share
+its history. Channel profile bindings supply the model, instructions, tool
+policy and CWD unless that thread has an explicit binding. Context reads verify
+the human and bot memberships, private/shared-room policy and current settings.
+History is bounded and labeled as untrusted content; Slack retention or scope
+limits can leave it incomplete.
+
+Progress, completion and resumed/background delivery stay in the originating
+thread. Use the matching **Stop this task** button to cancel queued or active
+work. Active cancellation is cooperative. Native stops require a stream owned
+by that run; an empty-stream native stop cannot safely select a run, so use its
+public button. Old controls cannot cancel a successor. See
+[Native agent threads and task controls](connector-reference.md#native-agent-threads-and-task-controls)
+for limits and the supported APIs.
 
 ### Private Channels
 
@@ -681,17 +723,21 @@ Refusals are logged to the room activity ledger under `private_channel_refused`.
 | Delete messages | Yes |
 | Reactions | Yes |
 | Typing indicator | No |
-| Status updates | No |
+| Status updates | Thread progress; native task status when supported |
 | File sending | No |
 | Adaptive Cards | No |
-| Buttons | No |
-| Thread replies | Thread-like |
+| Generic room-card buttons | No |
+| Task stop buttons | Yes, scoped to the initiating human and run |
+| Thread replies | Native |
 | Rich questions | No |
 | Max message length | 4,000 chars |
 
 ### Teams vs Slack Comparison
 
-When both connectors are configured, the wizard displays a capability comparison:
+When choosing a connector, distinguish general room cards from Slack's
+run-specific controls. Slack provides threaded task progress and stop buttons;
+Teams provides the broader Adaptive Card and rich-question interface. A wizard
+capability summary describes the general room-card surface:
 
 ```
 === Teams vs Slack Capability Comparison ===
@@ -702,11 +748,12 @@ When both connectors are configured, the wizard displays a capability comparison
   Delete messages         Yes             Yes
   Reactions               No              Yes
   Typing indicator        Yes             No
-  Status updates          Yes             No
+  Status updates          Yes             Thread progress
   File sending            Yes             No
   Adaptive Cards          Yes             No
-  Buttons                 Yes             No
-  Thread replies          Native          Thread-like
+  Generic card buttons    Yes             No
+  Task stop buttons       Yes             Yes
+  Thread replies          Native          Native
   Rich questions          Yes             No
   Max message length      28672           4000
 ```

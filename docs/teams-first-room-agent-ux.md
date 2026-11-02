@@ -65,10 +65,20 @@ as plain mrkdwn text (no Adaptive Cards).
 | Typing indicator  | No    | Yes   |
 | Status messages   | Yes   | Yes   |
 | Adaptive Cards    | No    | Yes   |
-| Buttons           | No    | Yes   |
+| Generic card buttons | No | Yes   |
+| Task stop buttons | Yes, run-specific | Yes |
 | Thread replies    | Native | Thread-like |
 | History capture   | Ambient | Ambient |
 | Max message length| 4000  | 28672 |
+
+Slack task runs additionally use the current `agent_view` native processing
+status where supported, with a run-specific public Stop button and ordinary
+thread progress as fallback. Follow-ups share the root thread's session and
+inherit its channel profile unless an explicit thread binding overrides it.
+Stale controls cannot cancel a successor; native stops with an empty stream
+list require the public button. See
+[Native agent threads and task controls](connector-reference.md#native-agent-threads-and-task-controls)
+for setup, authorization, cancellation and restart limits.
 
 ### Progress Rendering
 

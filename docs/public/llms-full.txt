@@ -1327,6 +1327,8 @@ disconnected. Connection transitions are logged; persisted health is in
 6. Set Slack Event Subscription URL to `https://your-domain/slack/events`
 7. `clawq agent` to start
 
+For native task UX in either transport, declare `features.agent_view.agent_description`, subscribe to `app_mention`, `message.channels`, `message.groups`, `message.im`, `agent_session_stopped`, `app_home_opened` and `app_context_changed`, and enable Interactivity. Socket Mode carries interactive envelopes; HTTP uses the same signed `/slack/events` Request URL for Interactivity. Required scopes include `chat:write`, `app_mentions:read`, `users:read`, `assistant:write` and the applicable conversation metadata/history scopes. Reinstall after scope changes. Native feature availability and empty-stream stop limits are described under Slack Baseline and in `docs/connector-reference.md`.
+
 ### Setting up MS Teams
 0. Start clawq with a tunnel first to get a public HTTPS URL: `clawq config set tunnel.enabled true && clawq agent`
 1. Register an app in Azure Active Directory; note Application (client) ID → app_id, Directory (tenant) ID → tenant_id
