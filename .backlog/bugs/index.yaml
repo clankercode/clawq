@@ -1771,3 +1771,4 @@ bugs:
     - file: B830-daemon-memory-usage-watch-anal.todo
     - file: B831-github-sessions-pass-raw-owner.todo
     - file: B832-slack-tools-cannot-inspect-hud.todo
+    - file: B833-slack-agent-lacks-native-task.todo
