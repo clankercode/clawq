@@ -839,7 +839,7 @@ let systemd_main_pid run_command =
   | Some pid when pid >= 0 -> pid
   | _ -> failwith ("Cannot determine systemd MainPID: " ^ output)
 
-let live_daemon_owner () =
+let live_daemon_owner ?starting_pid () =
   let live = function
     | Some pid when Daemon_liveness.process_alive pid -> Some pid
     | _ -> None
@@ -848,6 +848,10 @@ let live_daemon_owner () =
   let lock = live (read_lock_holder_pid ()) in
   match (pid, lock) with
   | None, None -> None
+  | None, Some holder when holder > 0 && starting_pid = Some holder ->
+      (* Only the readiness poll may wait for its manager-owned lock holder
+         to publish PID/metadata. Ordinary lifecycle preflight stays strict. *)
+      None
   | Some pid, None -> Some pid
   | Some pid, Some holder when pid = holder -> Some pid
   | _ ->
@@ -928,7 +932,8 @@ let wait_for_systemd ?(timeout_s = 10.) ?(clock = Unix.gettimeofday)
     let main_pid = systemd_main_pid run_command in
     let ready =
       match
-        (live_daemon_owner (), Daemon_liveness.heartbeat_age ~now:(clock ()) ())
+        ( live_daemon_owner ~starting_pid:main_pid (),
+          Daemon_liveness.heartbeat_age ~now:(clock ()) () )
       with
       | Some pid, Some age ->
           pid = main_pid

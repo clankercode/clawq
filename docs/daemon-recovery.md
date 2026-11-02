@@ -57,6 +57,11 @@ application readiness, rather than treating successful exec as a ready daemon.
 Each new foreground instance clears previous heartbeat/runtime state before
 startup. Readiness requires the manager PID, verified daemon PID, lock,
 fresh heartbeat, runtime gateway state, and that PID's own listening socket.
+The new manager-owned process can record its lock before publishing PID and
+identity metadata. The readiness wait treats that exact MainPID/lock match as
+pending within the same deadline. It still requires complete publication for
+success; foreign/mismatched owners and normal lifecycle preflight remain
+closed to incomplete ownership.
 A listener from another process cannot make an occupied-port startup pass.
 Startup rejection, an inactive/failed/retrying unit, or a readiness timeout
 returns a nonzero CLI status with manager state and the latest daemon error.
@@ -92,6 +97,7 @@ On the x-p35 build box, after building the candidate binary:
 
 ```sh
 python3 test/service_supervision_integration.py --binary _build/default/src/main.exe
+python3 test/service_supervision_integration.py --binary _build/default/src/main.exe --publication-pause-ms 500
 ```
 
 This opt-in regression uses a unique `clawq-b829-*.service`, empty scratch
@@ -104,8 +110,12 @@ reload, managed restart/stop/start/uninstall, and command failures. The review
 regressions additionally verify daemon-generated file logs consumed by the
 real EC scanner with empty diagnosis model lists, manual ownership after unit
 installation, and nonzero invalid-config/occupied-gateway start and restart.
-It removes
-the scratch unit on exit and retains scratch logs if a check fails. Batch
+The optional publication-pause mode compiles a scratch-only preload helper
+that delays the real `daemon.pid.new` open by 500 ms, after lock acquisition.
+It verifies successful install/start/restart through that interval, with trace
+markers for the same healthy MainPID and no forged application records.
+It removes the scratch unit/helper on success and retains scratch logs if a
+check fails. Batch
 build/test invocations must run through the coordinator's global gate.
 
 ## Heartbeat

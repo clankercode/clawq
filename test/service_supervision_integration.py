@@ -52,9 +52,56 @@ def alive(pid):
         return False
 
 
+PUBLICATION_PAUSE_SOURCE = r"""
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+static void trace(const char *stage) {
+    const char *path = getenv("B829_PID_PAUSE_TRACE");
+    if (!path) return;
+    int fd = syscall(SYS_openat, AT_FDCWD, path, O_WRONLY|O_CREAT|O_APPEND, 0600);
+    if (fd >= 0) { dprintf(fd, "%ld %s\n", (long)getpid(), stage); close(fd); }
+}
+static void pause_pid(const char *path) {
+    size_t n = strlen(path);
+    const char *suffix = "/daemon.pid.new";
+    size_t m = strlen(suffix);
+    if (n >= m && strcmp(path + n - m, suffix) == 0) {
+        trace("begin");
+        usleep(500000);
+        trace("end");
+    }
+}
+int open(const char *path, int flags, ...) {
+    static int (*original)(const char *, int, ...) = 0;
+    if (!original) original = dlsym(RTLD_NEXT, "open");
+    mode_t mode = 0;
+    if (flags & O_CREAT) { va_list ap; va_start(ap, flags); mode = va_arg(ap, int); va_end(ap); }
+    pause_pid(path);
+    return original(path, flags, mode);
+}
+int open64(const char *path, int flags, ...) {
+    static int (*original)(const char *, int, ...) = 0;
+    if (!original) original = dlsym(RTLD_NEXT, "open64");
+    mode_t mode = 0;
+    if (flags & O_CREAT) { va_list ap; va_start(ap, flags); mode = va_arg(ap, int); va_end(ap); }
+    pause_pid(path);
+    return original(path, flags, mode);
+}
+"""
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--publication-pause-ms", type=int, choices=(0, 500), default=0,
+                        help="Pause the real scratch daemon before PID publication using a test-only preload")
     args = parser.parse_args()
     assert socket.gethostname() == "x-p35", "This regression runs only on x-p35"
     real_systemctl = shutil.which("systemctl")
@@ -98,10 +145,31 @@ def main():
     unset_keys = [line.split("=", 1)[0] for line in manager_env.splitlines()
                   if "=" in line and line.split("=", 1)[0] not in
                   {"HOME", "PATH", "CLAWQ_HOME", "OCAMLRUNPARAM"}]
+    if args.publication_pause_ms:
+        unset_keys = [key for key in unset_keys if key not in {"LD_PRELOAD", "B829_PID_PAUSE_TRACE"}]
     home_quoted = json.dumps("HOME=" + str(scratch)).replace("%", "%%")
     isolation = ("\n[Service]\nEnvironment=" + home_quoted
                  + "\nEnvironment=PATH=/usr/bin:/bin\nUnsetEnvironment="
                  + " ".join(unset_keys) + "\n")
+    pause_dir = None
+    pause_trace = None
+    if args.publication_pause_ms:
+        # LD_PRELOAD splits paths on whitespace: keep this helper outside the
+        # fixture's deliberately awkward executable/data paths. No app records
+        # are forged; the hook delays only the real daemon.pid.new open.
+        pause_dir = Path(tempfile.mkdtemp(prefix="clawq-b829-publication-", dir="/tmp"))
+        pause_source = pause_dir / "pause.c"
+        pause_library = pause_dir / "pause.so"
+        pause_trace = pause_dir / "trace"
+        pause_source.write_text(PUBLICATION_PAUSE_SOURCE)
+        try:
+            run(["cc", "-shared", "-fPIC", "-o", str(pause_library), str(pause_source), "-ldl"])
+        except BaseException:
+            shutil.rmtree(pause_dir)
+            shutil.rmtree(scratch)
+            raise
+        for value in ("LD_PRELOAD=" + str(pause_library), "B829_PID_PAUSE_TRACE=" + str(pause_trace)):
+            isolation += "Environment=" + json.dumps(value).replace("%", "%%") + "\n"
     generated = scratch / ".config/systemd/user/clawq.service"
     shim = f'''#!/usr/bin/python3
 import os, pathlib, subprocess, sys
@@ -238,6 +306,24 @@ sys.exit(subprocess.call([real] + args))
         cli("start")
         ready(expected=int(property_value("MainPID")))
 
+    def controlled_publication_cases():
+        for action in ("install", "start", "restart"):
+            if action == "start":
+                cli("stop")
+            before = len(pause_trace.read_text().splitlines())
+            started_at = time.monotonic()
+            result = cli(action)
+            elapsed = time.monotonic() - started_at
+            pid = int(property_value("MainPID"))
+            current = wait_for("controlled publication daemon and EC startup", lambda: ready(expected=pid))
+            assert current[0] == pid and elapsed >= 0.5, (action, elapsed)
+            markers = pause_trace.read_text().splitlines()[before:]
+            assert f"{pid} begin" in markers and f"{pid} end" in markers, markers
+            assert f"{pid} begin" in markers[:markers.index(f"{pid} end")]
+            assert result.returncode == 0
+            print(f"PASS controlled 500ms publication pause {action}: exit=0 elapsed={elapsed:.3f}s "
+                  f"MainPID={pid} EC={current[1]}; real PID/metadata/locks/heartbeat and signed HTTP200", flush=True)
+
     try:
         with (scratch / "manual.log").open("w") as output:
             manual = subprocess.Popen([str(binary), "service", "run"], env=client_env,
@@ -316,6 +402,8 @@ sys.exit(subprocess.call([real] + args))
         print("PASS installed inactive unit stop terminates actual manual daemon and EC", flush=True)
         cli("start")
         wait_for("managed start", lambda: ready(expected=int(property_value("MainPID"))))
+        if pause_trace is not None:
+            controlled_publication_cases()
         startup_failure_cases()
         cli("uninstall")
         assert not generated.exists() and not unit_path.exists()
@@ -325,6 +413,8 @@ sys.exit(subprocess.call([real] + args))
         assert "injected user bus failure" in failure.stdout, failure.stdout
         print("PASS uninstall and actionable nonzero install failure", flush=True)
         print("PASS B829: original 7 scenario groups plus 5 review regression groups; isolated scratch state only", flush=True)
+        if pause_trace is not None:
+            print("PASS B829 round2: controlled publication pause on install/start/restart", flush=True)
     except BaseException:
         print(ctl("status", "--no-pager", check=False).stdout, flush=True)
         for name in ("daemon.log", "ec_process.log"):
@@ -348,8 +438,12 @@ sys.exit(subprocess.call([real] + args))
         # Keep scratch evidence on failure; successful runs remove all fixtures.
         if not sys.exc_info()[0]:
             shutil.rmtree(scratch)
+            if pause_dir is not None:
+                shutil.rmtree(pause_dir)
         else:
             print(f"Scratch evidence retained at {scratch}", flush=True)
+            if pause_dir is not None:
+                print(f"Publication helper evidence retained at {pause_dir}", flush=True)
 
 
 if __name__ == "__main__":

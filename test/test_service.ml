@@ -1228,8 +1228,102 @@ let test_listening_socket_parser () =
             row "0A" "1F90" "123"; row "01" "1F90" "124"; row "0A" "1F91" "125";
           ]))
 
+let with_lock_only_startup f =
+  Test_helpers.with_temp_home (fun _ ->
+      let lock = Service.acquire_singleton_lock () in
+      Fun.protect
+        ~finally:(fun () ->
+          Service.release_singleton_lock lock;
+          Service.remove_pid ())
+        (fun () -> f (Unix.getpid ())))
+
+let test_readiness_polls_manager_lock_before_pid () =
+  with_lock_only_startup (fun pid ->
+      let now = ref 0. in
+      let polls = ref 0 in
+      Service.wait_for_systemd ~timeout_s:1.
+        ~clock:(fun () -> !now)
+        ~sleep:(fun delay ->
+          incr polls;
+          now := !now +. delay;
+          Service.write_pid pid;
+          Daemon_liveness.write_heartbeat ~now:!now ())
+        ~app_ready:(fun actual -> actual = pid)
+        (fun command ->
+          if Test_helpers.string_contains command "MainPID" then
+            string_of_int pid
+          else "ActiveState=active\nSubState=running\nResult=success");
+      Alcotest.(check int) "waited through publication before success" 1 !polls;
+      Alcotest.(check (option int))
+        "published PID identity validated" (Some pid) (Service.read_pid ()))
+
+let test_readiness_lock_only_timeout_is_bounded () =
+  with_lock_only_startup (fun pid ->
+      let now = ref 0. in
+      let failure =
+        try
+          Service.wait_for_systemd ~timeout_s:0.2
+            ~clock:(fun () -> !now)
+            ~sleep:(fun delay -> now := !now +. delay)
+            ~app_ready:(fun _ ->
+              Alcotest.fail "lock-only process is never ready")
+            (fun command ->
+              if Test_helpers.string_contains command "MainPID" then
+                string_of_int pid
+              else "ActiveState=active\nSubState=running\nResult=success");
+          "unexpected readiness success"
+        with Failure msg -> msg
+      in
+      Alcotest.(check bool)
+        "publication pending until readiness deadline" true
+        (Test_helpers.string_contains failure "failed to become ready");
+      Alcotest.(check (float 0.0001)) "bounded injected clock" 0.2 !now)
+
+let test_readiness_rejects_foreign_and_mismatched_lock () =
+  with_lock_only_startup (fun pid ->
+      let parent = Unix.getppid () in
+      let reject ~main_pid =
+        let failed =
+          try
+            Service.wait_for_systemd ~timeout_s:1.
+              ~clock:(fun () -> 0.)
+              ~sleep:(fun _ ->
+                Alcotest.fail "foreign or mismatched ownership must not poll")
+              ~app_ready:(fun _ ->
+                Alcotest.fail
+                  "foreign ownership must not reach application readiness")
+              (fun command ->
+                if Test_helpers.string_contains command "MainPID" then
+                  string_of_int main_pid
+                else "ActiveState=active\nSubState=running\nResult=success");
+            false
+          with Failure msg ->
+            Test_helpers.string_contains msg "ownership is inconsistent"
+        in
+        Alcotest.(check bool)
+          "true ownership conflict remains closed" true failed
+      in
+      reject ~main_pid:parent;
+      reject ~main_pid:0;
+      let strict_preflight =
+        try
+          ignore (Service.live_daemon_owner ());
+          false
+        with Failure _ -> true
+      in
+      Alcotest.(check bool)
+        "ordinary lifecycle preflight stays strict" true strict_preflight;
+      Service.write_pid parent;
+      reject ~main_pid:pid)
+
 let suite =
   [
+    Alcotest.test_case "readiness polls manager lock before PID" `Quick
+      test_readiness_polls_manager_lock_before_pid;
+    Alcotest.test_case "lock-only readiness timeout is bounded" `Quick
+      test_readiness_lock_only_timeout_is_bounded;
+    Alcotest.test_case "readiness rejects foreign and mismatched lock" `Quick
+      test_readiness_rejects_foreign_and_mismatched_lock;
     Alcotest.test_case "installed stop terminates manual owner" `Quick
       test_installed_stop_terminates_manual_owner;
     Alcotest.test_case "installed restart refuses manual owner" `Quick
