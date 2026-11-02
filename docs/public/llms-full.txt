@@ -1480,7 +1480,7 @@ Not available in the minimal build (`clawq-min`). Requires the full `clawq` bina
 - **OpenCodex returns 401 or cannot connect**: ensure a valid `ocx_` token is available from configured `api_key`, `OPENCODEX_API_AUTH_TOKEN`, or `~/.opencodex/api-token`, in that order. If `cachy.lan` does not resolve, set `providers.opencodex.base_url` to `http://10.100.1.2:10100/v1`.
 - **Config not found**: run `clawq onboard` to create the initial config, or `clawq config wizard` after a config already exists.
 - **`clawq rooms wizard` requires admin**: set `CLAWQ_ADMIN=1` in your environment. Plan mode is read-only and does not require admin.
-- **Wizard shows "Connector not configured"**: the connector you specified doesn't have usable credentials. Run `clawq config show channels` to verify. Teams requires `app_id` and `app_secret`; Slack requires `bot_token` and `signing_secret`.
+- **Wizard shows "Connector not configured"**: the connector you specified doesn't have usable credentials. Run `clawq config show channels` to verify. Teams requires `app_id` and `app_secret`; Slack requires `bot_token` plus `app_token` for Socket Mode, or `signing_secret` for HTTP Events API delivery.
 - **Wizard shows "Room ID format is invalid"**: each connector has specific room ID requirements. Teams: must start with `19:` or end with `@thread.tacv2`. Slack: must start with `C`, `G`, `D`, or `#`.
 - **Wizard rerun shows "Blocked" items**: missing dependencies (e.g., access bundles not created, connector not configured). Resolve the dependency first, then re-run.
 - **Wizard not available in minimal build**: the pilot setup wizard requires the full `clawq` binary. Use `clawq` instead of `clawq-min`.
