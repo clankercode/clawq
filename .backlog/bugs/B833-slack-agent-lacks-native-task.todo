@@ -1,19 +1,18 @@
 ---
-claimed_at: "2026-11-02T06:19:38Z"
+claimed_at: "2026-11-02T12:41:56Z"
 claimed_by: cli-user
-completed_at: "2026-11-02T12:23:28Z"
+completed_at: null
 complexity: medium
 created_at: "2026-11-02T05:48:08Z"
 depends_on: []
-duration_minutes: 363.84454351645
 estimate_hours: 1
 id: B833
 priority: high
-started_at: "2026-11-02T06:19:38Z"
-status: done
+started_at: "2026-11-02T12:41:56Z"
+status: in_progress
 tags: []
 title: Slack agent lacks native task execution UX and thread lifecycle
-updated_at: "2026-11-02T12:23:28Z"
+updated_at: "2026-11-02T12:41:56Z"
 ---
 Research found Slack's agent UX supports more than a plain reply: start/update task progress in the originating thread, surface processing/loading and stop controls, preserve a stable per-thread session so follow-up mentions continue the same work, and post completion summaries/actions in-thread. Claude Tag and Slack agent guidance also emphasize context from the full thread and visible async progress. Clawq should use Slack's supported agent/thread UX for execution runs and when tagged in threads, rather than treating each mention as an isolated chat response. Investigate supported Slack APIs/scopes and implement the appropriate experience while preserving channel access boundaries and guest/privacy controls. References: https://support.claude.com/en/articles/15594475-what-is-claude-tag ; https://code.claude.com/docs/en/slack ; https://docs.slack.dev/ai/developing-agents/ ; https://developers.openai.com/cookbook/examples/agents_api/apps/slack_bot/readme
 
@@ -38,3 +37,5 @@ Scoped security rereview2 on b2892049: R2 shutdown/interrupt retention, S1/S2/S4
 Scoped lifecycle rereview2 on b2892049 confirms DM, bang, queued helper cleanup and L3/L4 repaired; accepted remaining P2 R-L5: actual Socket run finalizer cancels deliveries before outer native shutdown, abandoning admitted cancellable chat.postMessage response/control timestamp or terminal update. Final fix3 aggregates this with shared-room S3-R1: preserve verified classification at final current-role policy/snapshot check, and order/protect actual Socket terminal cleanup so admitted UI reply/cleanup joins before delivery cancellation. Add real start_with cancellation regressions using cancellable Lwt.task, not helper-only uncancellable waits. Preserve ordinary reconnect/reload and fresh-manager retry. All execution remote x-p35; same two scoped reviewers must pass before merge/close.
 
 Completed2026-11-02 in local master merge404eba85 from implementation0a54d394 + fix23baaf24/b2892049/9d44fb3d. Both independent security/runtime and lifecycle/API scoped rereviews3 PASS; all prior accepted findings resolved. Native agent_view now has stable per-root identity, bounded authorized context, originating-thread delivery/restart fallback, correlated native/public stops and generation-safe progress/cleanup. Durable requests preserve original provenance; fresh/queued/default-resumed execution verifies current role and full actual-room classification after native preparation, with truthful snapshots. Terminal weak manager admission fence and inner Socket cleanup join preserve admitted cancellable UI replies; normal reconnect/reload remain usable. Empty/unrelated native stop streams conservatively refuse to select a run. Lane final7992quick/281Slack/66focused/fmt/minimal+optimized PASS x-p35; exact merged master7992quick62.437s + actual make fmt-check PASS x-p35. Full/Slow and final combined public docs gates remain batch-level closeout work. No real Slack workspace capability or production daemon deployment claimed. Reports and tests-first RED/GREEN receipts archived in the campaign. B830 original fourteen-day observation remains separately OPEN.
+
+Final whole-batch independent review of integrated726af769 found two accepted P1 production call-chain gaps after earlier scoped PASS: F1 actual autonomous continuation, keepalive and idle background-completion turns enter plain Session.turn without native requester reauthorization, verified room classification, manager admission or run controls; F2 fresh/queued authorization can become stale during awaited UserPromptSubmit/history/notification preparation before task model entry. Reopened for one fresh-implementer final fix pass with actual-owner and post-preparation revocation regressions, preserving truthful snapshots, held queued requests and no synthetic huddle authority. All build/test/format/docs execution remains x-p35 only; no merge/closure before independent scoped final rereview and renewed exact remote gates.
