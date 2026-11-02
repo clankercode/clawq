@@ -165,6 +165,39 @@ and `wait --timeout SECONDS` inspect an existing thread. `settle THREAD` archive
 a bridge-owned thread; unrelated threads require `--force`. Do not equate
 archival with a generic cancellation operation. [T7]
 
+For active-turn cancellation, the active **T3 Code 0.1.3** server advertises
+`t3_thread_interrupt`, reachable through the bridge's generic `call` command.
+Use an ordinary bot caller whose paired token has write authority for the
+target; read-only clients are refused, and the server enforces the caller's
+runtime/interaction-mode ceiling. Reserved `t3:THREAD_ID` callers cannot make
+generic calls. The active tool describes top-level thread interruption and
+directs delegated tasks to `task_cancel` instead. [T4, T5, T9]
+
+Preserve the complete `threadId`. Optional `runId` pins the intended run;
+without it, the newest interruptible run is selected. An explicit terminal run
+returns its terminal status, an unknown/non-interruptible selected run is
+rejected, and no active run without an explicit selection returns
+`no_active_run`. `reason` is optional. Persist a stable `clientRequestId` for
+the interruption request and retain the selected `runId` from the response. [T9]
+
+Future mutating example, **not executed** (the wait/read commands are follow-up
+inspection only; use the returned run id when `interrupt_requested` is returned):
+
+```bash
+t3-bridge --as CALLER call t3_thread_interrupt --json \
+  '{"threadId":"mcp:RETURNED_THREAD_ID","clientRequestId":"STABLE_INTERRUPT_ID"}'
+t3-bridge --as CALLER call t3_thread_wait --json \
+  '{"threadId":"mcp:RETURNED_THREAD_ID","runId":"RETURNED_SELECTED_RUN_ID","timeoutMs":120000}'
+t3-bridge --as CALLER read 'mcp:RETURNED_THREAD_ID' --json
+```
+
+`interrupt_requested` acknowledges dispatch, not terminal completion. Confirm
+the **same thread and selected run** with read/run-specific wait and a terminal
+status (`completed`, `failed`, `cancelled`, `interrupted`, or `rolled_back`).
+`timedOut:true` is not confirmation; retain the pending state and follow any
+completion-wake guidance in the wait result. Interruption is distinct from
+archival, stopping a watcher, or disabling queued/future work. [T9]
+
 `--fallback` is opt-in: an explicit launch-capacity rejection can step down Sol
 effort, then try Cursor Auto. It does not replace a created thread, retry
 ambiguous transport outcomes, or treat 429/reset/quota/timeouts as a safe launch
@@ -228,9 +261,35 @@ they can send continuations or create fallback agents. The source journals
 recovery reservations, uses process-shared locks and fsynced atomic writes,
 and blocks replay after an uncertain recovery outcome. These protections do
 not make independently repeated launch commands idempotent: each source launch
-creates a new random launch journal. The upstream creation/send API has no
-idempotency key, and project/workspace/agent creation is not one transaction.
-Inspect after a timeout/lost acknowledgement; never blindly relaunch. [P5]
+creates a new random launch journal, and the bridge does not preserve upstream
+operation identities across helper invocations. Project, workspace, and agent
+creation is not one bridge transaction. [P5, P8]
+
+Pinned **Paseo 0.13.2 does provide upstream idempotency primitives**:
+`createAgent` and `createWorkspace` accept `idempotencyKey`; the creation client
+generates one when omitted. The server advertises `creationLifecycle`,
+`agentRequestReceipts`, and `workspaceRequestReceipts`; receipt/lifecycle
+behavior is capability-gated. Its creation service persists request
+fingerprints, resource ids, progress/results, and `outcomeUnknown`. Sends accept
+a caller-supplied `messageId`; server message receipts deduplicate by agent/id,
+reject changed request fingerprints, and expose uncertain pending outcomes.
+These primitives do not give this bridge caller-level exactly-once semantics.
+[P8, P9]
+
+The bridge supplies neither stable creation keys nor creation `onEvent`
+observers, and its reduced receipt drops creation progress/uncertainty. Fresh
+helper invocations obtain fresh keys, including its automatic same-preset
+capacity retries and provider fallback selected by capacity/429/503 text
+matching. Avoiding manual relaunches does not prevent those internal attempts.
+The bounded bridge fix is to check advertised capabilities and persist
+per-operation creation keys, send message ids, initial-prompt `clientMessageId`,
+and exact request fingerprints before
+dispatch; retain partial resource ids and creation/uncertainty receipts; then
+reconcile uncertain outcomes before any retry or fallback. Retry the same
+request with its recorded identity; a deliberately changed provider/request
+needs a distinct operation identity, because reusing a key with a changed
+fingerprint conflicts. Inspect after lost acknowledgement rather than blindly
+relaunching. No such bridge plumbing is implemented in this lane. [P3, P5, P8, P9]
 
 Source `wait --timeout 120` can return an outer `ok:true` with an inner JSON
 `stdout` whose `status` is `timeout`; that is not completion. Parse both layers,
@@ -343,7 +402,7 @@ a report. Neither path establishes job/event deduplication by itself. [C3]
 | Clawq shell defaults to 30s; external waits can be longer | Set caller deadlines deliberately or use existing background-shell jobs with persisted bridge identities. Track the remote job separately: cancellation of a local shell job does not prove remote cancellation. [C2] |
 | New thread has no parent conversation/session mapping | Put the bounded brief in the initial prompt and persist `{job_id, clawq_session_key, bridge, remote_id, workspace, caller, state, event_id}` before depending on callbacks. Treat report text as result data, not new authority. |
 | Paseo launch verification is weaker than its README wording | Python checks model/mode/features only when present; the Node receipt can substitute requested values when daemon fields are absent. There is no independent fetch/readback like T3, no required provider comparison, and no required effort comparison. Upstream follow-up: fetch actual daemon state and require id/provider/model/effort/mode/tier/workspace before a verified-success receipt. Missing acknowledgement remains uncertain, not safe to relaunch. [P3, P7] |
-| Launches lack caller-level exactly-once semantics | A durable caller adapter must reserve dispatch, preserve partial receipts, reject duplicate job requests, deduplicate result event ids, and expose uncertain outcomes for inspection. Do not claim bridge journals alone provide exactly-once task creation. |
+| Available Paseo creation/message receipts are not durably wired through the bridge | Persist operation keys/message ids and exact request fingerprints before dispatch; retain progress, partial resource ids, and uncertain receipts; reconcile before automatic capacity retry or provider fallback. Same-request retries retain identity; changed provider/request needs a deliberate new identity. Upstream supports these primitives, while the current bridge still lacks caller-level exactly-once semantics. The caller adapter also needs job-request and result-event deduplication. [P8, P9] |
 
 Keep Clawq's existing runner framework unchanged: its variants are direct Codex,
 Claude, Kimi, Gemini, OpenCode, and Cursor processes, with runner session and
@@ -361,8 +420,10 @@ was proven by this investigation, so no prompt, helper, registry, policy, or
 runner change accompanies this document.
 
 Future implementation acceptance should exercise fake daemons and scratch
-config/state: created-id plus failed verification; lost acknowledgement without
-duplicate launch; recovery preserving workspace/partial edits; timeout distinct
+config/state: created-id plus failed verification; keyed retries with preserved
+partial receipts and changed-fingerprint conflicts; lost acknowledgement without
+duplicate launch; run-specific interrupt acknowledgement versus terminal state;
+recovery preserving workspace/partial edits; timeout distinct
 from completion; concurrent duplicate result delivery; unauthorized/mismatched
 caller; missing target; local cancellation versus remote lifetime. Real agent
 spawning is not necessary to test those contracts.
@@ -373,6 +434,10 @@ Paths below refer to the source snapshots identified above; line numbers are
 navigation aids for those snapshots. `I1` is the installed release's distinct
 code, not evidence that it matches source.
 
+T3 API sources below were inspected read-only at reference checkout HEAD
+`fddc5fa583d66a00698e0dc33ee89d2c7e1277c6`; fresh MCP discovery separately
+confirmed the active 0.1.3 interrupt/wait schemas without invoking either tool.
+
 - [T1]: [workspace facts](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/workspace-facts.mjs:14), [workspace strategy](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/workspace-resolution.mjs:1).
 - [T2]: [registration and recovery contract](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/SKILL.md:56), [project command](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/cli/commands/projects.mjs:1).
 - [T3]: [CLI launch flags](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/cli/commands/launch.mjs:4), [launch/receipt/state/watcher](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/launch.mjs:24), [verification](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/launch-verification.mjs:6), [capability check](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/capabilities.mjs:58).
@@ -381,6 +446,7 @@ code, not evidence that it matches source.
 - [T6]: [routing/outbox/watch documentation](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/README.md:395), [wake statuses](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/wake.mjs:94).
 - [T7]: [thread commands](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/cli/commands/thread.mjs:15), [send/read/wait](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/thread.mjs:1), [settle](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/settle.mjs:1).
 - [T8]: [fallback classification](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/t3/presets.mjs:41), [MCP timeout/session handling](/home/xertrov/src/agent-plugin-mgmt-and-vencord/tools/t3-bridge/src/mcp-client.mjs:101).
+- [T9]: [interrupt/wait tool definitions](/home/xertrov/src/refs/t3code/apps/server/src/mcp/toolkits/orchestrator/tools.ts:248), [write-authority handler](/home/xertrov/src/refs/t3code/apps/server/src/mcp/toolkits/orchestrator/handlers.ts:143), [server caller/mode checks and acknowledgement](/home/xertrov/src/refs/t3code/apps/server/src/mcp/OrchestratorMcpService.ts:2576), [run selection](/home/xertrov/src/refs/t3code/apps/server/src/orchestration-v2/ThreadManagementService.ts:962), [input/result schemas](/home/xertrov/src/refs/t3code/packages/contracts/src/orchestratorMcp.ts:443).
 - [P1]: [installation/pin/auth](/home/xertrov/src/paseo-bridge/README.md:1), [path/home guards](/home/xertrov/src/paseo-bridge/paseo_bridge/paths.py:12).
 - [P2]: [launch receipt](/home/xertrov/src/paseo-bridge/paseo_bridge/cli.py:164), [project/workspace selection](/home/xertrov/src/paseo-bridge/paseo_bridge/client.py:779).
 - [P3]: [pinned client API and receipt](/home/xertrov/src/paseo-bridge/paseo_bridge/node/launch.mjs:63).
@@ -388,6 +454,8 @@ code, not evidence that it matches source.
 - [P5]: [launch journal](/home/xertrov/src/paseo-bridge/paseo_bridge/client.py:543), [read/send/wait](/home/xertrov/src/paseo-bridge/paseo_bridge/client.py:208), [recovery and same-workspace handoff](/home/xertrov/src/paseo-bridge/paseo_bridge/client.py:666), [atomic storage](/home/xertrov/src/paseo-bridge/paseo_bridge/run_state.py:13), [recovery contract](/home/xertrov/src/paseo-bridge/docs/recovery.md:1).
 - [P6]: [no-op wake target](/home/xertrov/src/paseo-bridge/paseo_bridge/cli.py:194), [wake forwarding](/home/xertrov/src/paseo-bridge/paseo_bridge/cli.py:231).
 - [P7]: [conditional launch checks](/home/xertrov/src/paseo-bridge/paseo_bridge/client.py:872), [actual-state observation helper](/home/xertrov/src/paseo-bridge/paseo_bridge/node/observe.mjs:13).
+- [P8]: [pinned creation key/options contracts](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/client/dist/daemon-client.d.ts:181), [client key generation/fingerprints/observers](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/client/dist/creation/index.js:56), [server durable creation receipts/uncertainty](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/server/dist/server/server/creation/index.js:25), [advertised capabilities](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/server/dist/server/server/websocket-server.js:1378).
+- [P9]: [caller-supplied send message id](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/client/dist/daemon-client.js:2353), [server send receipt dispatch](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/server/dist/server/server/session.js:6341), [message receipt fingerprints/deduplication/uncertainty](/mnt/build-cache/paseo/releases/0.13.2/node_modules/@getpaseo/server/dist/server/server/message-receipts/index.js:17).
 - [I1]: [installed wait](/mnt/build-cache/paseo/bridge-releases/f68a26e175f3a820af8ef499e3a55fc13f9d291efdc36c783828295b301a5595/paseo_bridge/client.py:234), [installed recovery/fallback](/mnt/build-cache/paseo/bridge-releases/f68a26e175f3a820af8ef499e3a55fc13f9d291efdc36c783828295b301a5595/paseo_bridge/client.py:666), [installed workspace creation](/mnt/build-cache/paseo/bridge-releases/f68a26e175f3a820af8ef499e3a55fc13f9d291efdc36c783828295b301a5595/paseo_bridge/node/launch.mjs:81).
 - [C1]: [Clawq skill search roots](../../src/skills.ml), lines 479-486, and instruction-only skill tool, lines 659-675.
 - [C2]: [Clawq shell allowlist/deadlines/policy](../../src/tools_builtin_util.ml), lines 74-113 and 426-550; [background-shell tools](../../src/tools_bg_shell.ml).
@@ -403,6 +471,9 @@ worktree. Runtime RED/GREEN is not applicable to this documentation-only
 investigation. The coordinator supplied the canonical x-p35 quick-suite baseline:
 **7,746 tests, GREEN, 62.056 seconds**, in the memory lane's
 `.superpowers/sdd/b816-b835/baseline-tests.log`. No local suite was run.
+The scoped review correction is recorded in `task-B834-fix-report.md`; its
+read-only `initialize`/`tools/list` evidence is in
+`b834-fix-mcp-discovery.json` beside that report. No interruption was executed.
 
 Coordinator-owned integration docs should summarize the external workflow and
 its readiness gaps in the background-task guide, CLI references, room-agent
