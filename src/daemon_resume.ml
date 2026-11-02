@@ -19,7 +19,7 @@ let default_resume_senders =
         Telegram.send_message ~disable_notification:true ~bot_token ~chat_id
           ~text ());
     send_discord = Discord.send_message;
-    send_slack = Slack.send_message;
+    send_slack = Slack_thread_route.send;
     send_teams = Teams.send_message;
   }
 
@@ -36,7 +36,7 @@ let boot_resume_summary_message (summary : boot_resume_summary) =
     summary.failed_count
 
 let dispatch_resumed_message ?(senders = default_resume_senders)
-    ~(config : Runtime_config.t) ~channel ~channel_id ~text () =
+    ~(config : Runtime_config.t) ?session_key ~channel ~channel_id ~text () =
   let open Lwt.Syntax in
   match channel with
   | "telegram" -> (
@@ -59,12 +59,23 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
       | None -> Lwt.return (Error "discord channel is not configured"))
   | "slack" -> (
       match config.channels.slack with
-      | Some slack ->
+      | Some slack
+        when Runtime_config.slack_has_valid_credentials slack
+             &&
+             match Option.bind session_key Slack_thread_route.of_key with
+             | None -> true
+             | Some route ->
+                 (channel_id = route.channel
+                 || channel_id = Slack_thread_route.key route)
+                 && Slack_api.is_allowed_allowlist ~kind:"channel"
+                      ~id:route.channel slack.allow_channels ->
           let* () =
-            senders.send_slack ~bot_token:slack.bot_token ~channel_id ~text
+            senders.send_slack ~bot_token:slack.bot_token
+              ~channel_id:(Slack_thread_route.target ?session_key channel_id)
+              ~text
           in
           Lwt.return (Ok ())
-      | None -> Lwt.return (Error "slack channel is not configured"))
+      | _ -> Lwt.return (Error "slack disabled or channel delivery denied"))
   | "teams" -> (
       match config.channels.teams with
       | Some tc ->
@@ -101,48 +112,35 @@ let notify_resumed_session ?(senders = default_resume_senders)
     ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
     ~channel ~channel_id text =
   let open Lwt.Syntax in
+  let fallback () =
+    Lwt.catch
+      (fun () ->
+        let* result =
+          dispatch_resumed_message ~senders ~config ~session_key ~channel
+            ~channel_id ~text ()
+        in
+        (match result with
+        | Ok () -> ()
+        | Error err ->
+            Logs.warn (fun m ->
+                m "Resumed notice failed %s: %s" session_key err));
+        Lwt.return_unit)
+      (fun exn ->
+        Logs.warn (fun m ->
+            m "Resumed notice dispatch failed %s: %s" session_key
+              (Printexc.to_string exn));
+        Lwt.return_unit)
+  in
   match Session.find_registered_notifier session_manager ~key:session_key with
   | Some notify ->
-      Logs.info (fun m ->
-          m
-            "notify_resumed_session: using registered notifier for session=%s \
-             text_len=%d"
-            session_key (String.length text));
       Lwt.catch
         (fun () -> notify text)
         (fun exn ->
           Logs.warn (fun m ->
-              m "Resumed session notifier failed for %s: %s" session_key
-                (Printexc.to_string exn));
-          Lwt.return_unit)
-  | None ->
-      Logs.info (fun m ->
-          m
-            "notify_resumed_session: dispatching to %s:%s for session=%s \
-             text_len=%d"
-            channel channel_id session_key (String.length text));
-      Lwt.catch
-        (fun () ->
-          let* result =
-            dispatch_resumed_message ~senders ~config ~channel ~channel_id ~text
-              ()
-          in
-          match result with
-          | Ok () ->
-              Logs.info (fun m ->
-                  m "notify_resumed_session: dispatch ok for %s via %s:%s"
-                    session_key channel channel_id);
-              Lwt.return_unit
-          | Error err ->
-              Logs.warn (fun m ->
-                  m "Failed to send resumed session notice for %s via %s:%s: %s"
-                    session_key channel channel_id err);
-              Lwt.return_unit)
-        (fun exn ->
-          Logs.warn (fun m ->
-              m "Resumed session notice dispatch failed for %s: %s" session_key
-                (Printexc.to_string exn));
-          Lwt.return_unit)
+              m "Resumed notifier failed %s: %s; using persisted route"
+                session_key (Printexc.to_string exn));
+          fallback ())
+  | None -> fallback ()
 
 let post_dispatch_resumed_session_response
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
@@ -429,13 +427,14 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
       in
       let* response =
         Session.with_in_flight session_manager (fun () ->
-            run_turn agent interrupt)
+            Slack_thread_runs.with_resumed ~manager:session_manager
+              ~key:session_key (fun () -> run_turn agent interrupt))
       in
       Session.persist_new_messages session_manager ~key:session_key
         ~history_before:!persisted_up_to agent;
       let* dispatch_result =
-        dispatch_resumed_message ~senders ~config ~channel ~channel_id
-          ~text:response ()
+        dispatch_resumed_message ~senders ~config ~session_key ~channel
+          ~channel_id ~text:response ()
       in
       let* () =
         match dispatch_result with

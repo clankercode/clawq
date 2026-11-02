@@ -154,10 +154,11 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id
-    ?on_tool_round_complete ?(io = buffered_turn_io) () =
+    ?on_tool_round_complete ?before_run ?(io = buffered_turn_io) () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
+  let* () = match before_run with Some f -> f () | None -> Lwt.return_unit in
   (* Hook dispatch helper for session-level events *)
   let fire_session_hook event ?reason () =
     let cwd = Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ()) in
@@ -612,7 +613,7 @@ let evaluate_room_policy (config : Runtime_config.t) ~key ~channel ~channel_id
     ~channel_id ~user_group ~has_external_users ~work_kind:Room_work ()
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-    ~drained_any () =
+    ?before_queued_run ~drained_any () =
   match Session_core.take_next_queued_message_for_drain mgr ~key with
   | Some queued when Session_core.is_queued_admin_stop_message queued ->
       Session_core.handle_queued_admin_stop mgr ~key interrupt queued;
@@ -673,16 +674,27 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
           | None ->
               agent.Agent.access_snapshot_id <- None;
               agent.Agent.access_snapshot <- None);
-          let* response =
-            run_locked_turn mgr ~key agent interrupt ~message:turn_message
-              ~content_parts:queued.content_parts
-              ?channel_name:queued.channel_name
-              ?channel_type:queued.channel_type ?sender_id:queued.sender_id
-              ?sender_name:queued.sender_name ?user_group:queued.user_group
-              ?channel:queued.channel ?channel_id:queued.channel_id
-              ?message_id:queued.message_id ()
+          (* Preparation callbacks may yield. Activate/validate the request only
+             after them, with no asynchronous gap before the turn resets its
+             interrupt flag. A declined request is still retired from the
+             durable queue below. *)
+          let* proceed =
+            match before_queued_run with
+            | Some f -> f queued
+            | None -> Lwt.return_true
           in
-          let* () = notify response in
+          let* response =
+            if proceed then
+              run_locked_turn mgr ~key agent interrupt ~message:turn_message
+                ~content_parts:queued.content_parts
+                ?channel_name:queued.channel_name
+                ?channel_type:queued.channel_type ?sender_id:queued.sender_id
+                ?sender_name:queued.sender_name ?user_group:queued.user_group
+                ?channel:queued.channel ?channel_id:queued.channel_id
+                ?message_id:queued.message_id ()
+            else Lwt.return Session_core.queued_message_response
+          in
+          let* () = if proceed then notify response else Lwt.return_unit in
           (match (queued.inbound_queue_id, mgr.Session_core.db) with
           | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
           | _ -> ());
@@ -694,7 +706,7 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
           if not (Session_core.take_response_deferred mgr ~key) then
             Session_core.mark_response_sent mgr ~key;
           drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-            ~drained_any:true ()
+            ?before_queued_run ~drained_any:true ()
       | None ->
           Logs.info (fun m ->
               m
@@ -720,17 +732,19 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         Lwt.return_unit
       else Lwt.return_unit
 
-let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
+let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress
+    ?before_queued_run () =
   let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-        ~drained_any:false ())
+        ?before_queued_run ~drained_any:false ())
 
 let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id ?cwd
-    ?(deferred_if_busy = false) ?on_tool_round_complete ?on_drain_progress
-    ?before_drain ?snapshot_work_type ?(has_external_users = false) () =
+    ?(deferred_if_busy = false) ?before_run ?on_tool_round_complete
+    ?on_drain_progress ?before_drain ?before_queued_run ?snapshot_work_type
+    ?(has_external_users = false) () =
   let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
@@ -841,7 +855,7 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
                         ~content_parts ~attachments ~skill_injections
                         ?channel_name ?channel_type ?sender_id ?sender_name
                         ?user_group ?channel ?channel_id ?message_id
-                        ?on_tool_round_complete ~io ()
+                        ?on_tool_round_complete ?before_run ~io ()
                     in
                     (* Persist effective_cwd after turn (may have changed via
                    change_working_dir tool) *)
@@ -857,7 +871,7 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
                     in
                     let* () =
                       drain_queued_messages mgr ~key agent interrupt
-                        ?on_drain_progress ()
+                        ?on_drain_progress ?before_queued_run ()
                     in
                     Lwt.return response)
               in
@@ -955,10 +969,13 @@ let () =
 let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
     ?user_group ?channel ?channel_id ?message_id ?cwd ?on_tool_round_complete
-    ?on_drain_progress ?before_drain ?snapshot_work_type ~on_chunk () =
+    ?on_drain_progress ?before_drain ?before_run ?before_queued_run
+    ?(deferred_if_busy = false) ?(has_external_users = false)
+    ?snapshot_work_type ~on_chunk () =
   run_session_turn mgr
     ~io:(streaming_turn_io on_chunk)
     ~key ~message ~content_parts ~attachments ~skill_injections ?channel_name
     ?channel_type ?sender_id ?sender_name ?user_group ?channel ?channel_id
     ?message_id ?cwd ?on_tool_round_complete ?on_drain_progress ?before_drain
+    ?before_run ?before_queued_run ~deferred_if_busy ~has_external_users
     ?snapshot_work_type ()

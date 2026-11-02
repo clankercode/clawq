@@ -263,7 +263,10 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
                       (Yojson.Safe.to_string
                          (`Assoc [ ("envelope_id", `String env.envelope_id) ])))
               in
-              if env.payload_type = "events_api" then begin
+              if
+                env.payload_type = "events_api"
+                || env.payload_type = "interactive"
+              then begin
                 let event_id =
                   try
                     Yojson.Safe.Util.(
@@ -357,7 +360,10 @@ let start_with ?connect ?handle_event ?(on_health = publish_health) ?sleep ?now
     ~(event_limiter : Rate_limiter.t) () =
   match config.Runtime_config.channels.slack with
   | None -> Lwt.return_unit
-  | Some sc when (not sc.socket_mode) || sc.app_token = "" -> Lwt.return_unit
+  | Some sc
+    when (not sc.socket_mode)
+         || not (Runtime_config.slack_has_valid_credentials sc) ->
+      Lwt.return_unit
   | Some sc ->
       let connect =
         match connect with Some f -> f | None -> connect_transport ~config:sc

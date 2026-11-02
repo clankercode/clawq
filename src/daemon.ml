@@ -756,7 +756,7 @@ let run ~(config : Runtime_config.t) =
   let slack_socket_enabled =
     match config.channels.slack with
     | Some sc
-      when sc.socket_mode && Runtime_config.is_credential_valid sc.app_token ->
+      when sc.socket_mode && Runtime_config.slack_has_valid_credentials sc ->
         true
     | _ -> false
   in

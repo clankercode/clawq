@@ -41,7 +41,9 @@ let discord_has_valid_credentials (cfg : discord_config) =
   is_credential_valid cfg.bot_token
 
 let slack_has_valid_credentials (cfg : slack_config) =
-  is_credential_valid cfg.bot_token && is_credential_valid cfg.signing_secret
+  let valid s = is_credential_valid (String.trim s) in
+  valid cfg.bot_token
+  && if cfg.socket_mode then valid cfg.app_token else valid cfg.signing_secret
 
 let github_app_has_valid_credentials (cfg : github_app_config) =
   cfg.app_id > 0 && cfg.private_key_path <> "" && cfg.webhook_secret <> ""
@@ -200,7 +202,21 @@ let resolve_room_profile (cfg : t) ~session_key : room_profile option =
           && (b.room = session_key || (channel_id <> "" && b.room = channel_id)))
         cfg.room_profile_bindings
     in
-    match find_binding () with
+    let binding =
+      match find_binding () with
+      | Some _ as b -> b
+      | None -> (
+          match Room_session.slack_thread_of_key session_key with
+          | None -> None
+          | Some route ->
+              List.find_opt
+                (fun (b : room_profile_binding) ->
+                  b.active
+                  && (b.room = route.channel
+                     || b.room = "slack:" ^ route.channel))
+                cfg.room_profile_bindings)
+    in
+    match binding with
     | None -> None
     | Some b ->
         List.find_opt
@@ -400,7 +416,13 @@ let scope_matches (cfg : t) ~session_key (scope : access_scope) =
       &&
       match scope.room with
       | None -> false
-      | Some expected -> expected = session_key || expected = room)
+      | Some expected -> (
+          expected = session_key || expected = room
+          ||
+          match Room_session.slack_thread_of_key session_key with
+          | Some route ->
+              expected = route.channel || expected = "slack:" ^ route.channel
+          | None -> false))
 
 let sort_scopes scopes =
   List.sort

@@ -371,8 +371,8 @@ let inject_background_task_completion
                 Some
                   (fun text ->
                     let* result =
-                      dispatch_resumed_message ~senders ~config ~channel:ch
-                        ~channel_id:cid ~text ()
+                      dispatch_resumed_message ~senders ~config ~session_key
+                        ~channel:ch ~channel_id:cid ~text ()
                     in
                     match result with Ok () | Error _ -> Lwt.return_unit)
             | _ -> None
@@ -756,8 +756,9 @@ let notify_background_task_finished ?continuation_delay
                     match (task.channel, task.channel_id) with
                     | Some channel, Some channel_id -> (
                         let* result =
-                          dispatch_resumed_message ~senders ~config ~channel
-                            ~channel_id ~text:channel_text ()
+                          dispatch_resumed_message ~senders ~config
+                            ?session_key:task.session_key ~channel ~channel_id
+                            ~text:channel_text ()
                         in
                         match result with
                         | Ok () ->
@@ -783,7 +784,8 @@ let notify_background_task_finished ?continuation_delay
                 match (task.channel, task.channel_id) with
                 | Some channel, Some channel_id -> (
                     let* result =
-                      dispatch_resumed_message ~config ~channel ~channel_id
+                      dispatch_resumed_message ~config
+                        ?session_key:task.session_key ~channel ~channel_id
                         ~text:channel_text ()
                     in
                     match result with

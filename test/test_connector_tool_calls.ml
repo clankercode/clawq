@@ -116,7 +116,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
       in
       let result =
         Lwt_main.run
-          (Slack.handle_event ~config:slack_config ~session_manager
+          (Test_slack.handle_message ~config:slack_config ~session_manager
              ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
                sent := text :: !sent;
                Lwt.return_unit)

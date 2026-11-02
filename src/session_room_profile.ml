@@ -92,9 +92,12 @@ let apply_cwd_change_for_turn (mgr : Session_types.t) ~key agent ~cwd =
 (** {1 Room Profile Resolution} *)
 
 let child_thread_parent_session_key key =
-  match Room_session.parse_child_thread_key key with
-  | Some child -> Some (child.connector ^ ":" ^ child.room_id)
-  | None -> None
+  match Room_session.slack_thread_of_key key with
+  | Some route -> Some ("slack:" ^ route.channel)
+  | None -> (
+      match Room_session.parse_child_thread_key key with
+      | Some child -> Some (child.connector ^ ":" ^ child.room_id)
+      | None -> None)
 
 let room_profile_binding_matches_child (cfg : Runtime_config.t)
     (child : Room_session.child_thread) =
@@ -209,9 +212,12 @@ let resolve_instruction_items_for_session (mgr : Session_types.t) ~key :
     Runtime_config.effective_instruction_item list =
   let room_profile = resolve_room_profile_for_session mgr ~key in
   let scope_key =
-    match child_thread_parent_session_key key with
-    | Some parent_key -> parent_key
-    | None -> key
+    match Room_session.slack_thread_of_key key with
+    | Some _ -> key
+    | None -> (
+        match child_thread_parent_session_key key with
+        | Some parent_key -> parent_key
+        | None -> key)
   in
   let effective_access =
     Runtime_config.resolve_effective_access mgr.config ~session_key:scope_key

@@ -595,7 +595,7 @@ let test_dispatch_resumed_message_routes_slack () =
             Some
               {
                 bot_token = "slack-token";
-                signing_secret = "secret";
+                signing_secret = "fixture-signing-secret";
                 events_path = "/slack/events";
                 allow_channels = [];
                 allow_users = [];
@@ -990,7 +990,7 @@ let test_resume_agent_session_sends_debug_summary () =
       let slack_config =
         {
           Runtime_config.bot_token = "xoxb-test";
-          signing_secret = "secret";
+          signing_secret = "fixture-signing-secret";
           events_path = "/slack/events";
           allow_channels = [];
           allow_users = [];
@@ -1050,7 +1050,7 @@ let test_resume_agent_session_persists_response_and_marks_sent () =
   let slack_config =
     {
       Runtime_config.bot_token = "xoxb-test";
-      signing_secret = "secret";
+      signing_secret = "fixture-signing-secret";
       events_path = "/slack/events";
       allow_channels = [];
       allow_users = [];
@@ -1113,7 +1113,7 @@ let test_resume_agent_session_sends_compaction_notice () =
       let slack_config =
         {
           Runtime_config.bot_token = "xoxb-test";
-          signing_secret = "secret";
+          signing_secret = "fixture-signing-secret";
           events_path = "/slack/events";
           allow_channels = [];
           allow_users = [];
@@ -1393,7 +1393,7 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
   let slack_config =
     {
       Runtime_config.bot_token = "xoxb-test";
-      signing_secret = "secret";
+      signing_secret = "fixture-signing-secret";
       events_path = "/slack/events";
       allow_channels = [];
       allow_users = [];

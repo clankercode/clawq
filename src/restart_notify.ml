@@ -100,11 +100,14 @@ let read () =
 let remove () = try Sys.remove (path ()) with _ -> ()
 
 let parse_channel_from_key key =
-  match String.split_on_char ':' key with
-  | "teams" :: _ :: rest when rest <> [] ->
-      Some ("teams", "|" ^ String.concat ":" rest)
-  | channel :: rest when rest <> [] -> Some (channel, String.concat ":" rest)
-  | _ -> None
+  match Room_session.slack_thread_of_key key with
+  | Some route -> Some ("slack", route.channel)
+  | None -> (
+      match String.split_on_char ':' key with
+      | "teams" :: _ :: rest when rest <> [] ->
+          Some ("teams", "|" ^ String.concat ":" rest)
+      | channel :: rest when rest <> [] -> Some (channel, String.concat ":" rest)
+      | _ -> None)
 
 let env_key = "CLAWQ_RESTART_NOTIFY_JSON"
 let marker_to_json_string marker = Yojson.Safe.to_string (marker_to_json marker)

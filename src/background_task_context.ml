@@ -22,35 +22,42 @@ let make_context_origin ?connector ?workspace_id ?room_id ?requester_id
 
 let context_origin_of_session_key key =
   let parts = String.split_on_char ':' key in
-  match Room_session.parse_child_thread_key key with
-  | Some child ->
-      make_context_origin ~connector:child.connector ~room_id:child.room_id
-        ?source_message_id:child.source_message_id ?thread_id:child.thread_id ()
+  match Room_session.slack_thread_of_key key with
+  | Some route ->
+      make_context_origin ~connector:"slack" ~workspace_id:route.team
+        ~room_id:route.channel ~thread_id:route.root ()
   | None -> (
-      match parts with
-      | [ (("slack" | "discord" | "telegram") as connector); room_id ] ->
-          make_context_origin ~connector ~room_id ()
-      | (("slack" | "discord" | "telegram") as connector)
-        :: room_id :: requester_parts ->
-          make_context_origin ~connector ~room_id
-            ?requester_id:(nonempty (Some (String.concat ":" requester_parts)))
-            ()
-      | [ "teams"; room_id ] ->
-          make_context_origin ~connector:"teams" ~room_id ()
-      | "teams" :: team_id :: conversation_parts when conversation_parts <> []
-        ->
-          make_context_origin ~connector:"teams" ~workspace_id:team_id
-            ~room_id:(String.concat ":" conversation_parts)
-            ()
-      | _ -> (
-          match Room_session.parse key with
-          | None -> make_context_origin ()
-          | Some session ->
-              make_context_origin
-                ~connector:(Room_session.channel_to_string session.channel)
-                ~room_id:session.channel_id
-                ?requester_id:(nonempty (Some session.sender_id))
-                ()))
+      match Room_session.parse_child_thread_key key with
+      | Some child ->
+          make_context_origin ~connector:child.connector ~room_id:child.room_id
+            ?source_message_id:child.source_message_id
+            ?thread_id:child.thread_id ()
+      | None -> (
+          match parts with
+          | [ (("slack" | "discord" | "telegram") as connector); room_id ] ->
+              make_context_origin ~connector ~room_id ()
+          | (("slack" | "discord" | "telegram") as connector)
+            :: room_id :: requester_parts ->
+              make_context_origin ~connector ~room_id
+                ?requester_id:
+                  (nonempty (Some (String.concat ":" requester_parts)))
+                ()
+          | [ "teams"; room_id ] ->
+              make_context_origin ~connector:"teams" ~room_id ()
+          | "teams" :: team_id :: conversation_parts
+            when conversation_parts <> [] ->
+              make_context_origin ~connector:"teams" ~workspace_id:team_id
+                ~room_id:(String.concat ":" conversation_parts)
+                ()
+          | _ -> (
+              match Room_session.parse key with
+              | None -> make_context_origin ()
+              | Some session ->
+                  make_context_origin
+                    ~connector:(Room_session.channel_to_string session.channel)
+                    ~room_id:session.channel_id
+                    ?requester_id:(nonempty (Some session.sender_id))
+                    ())))
 
 let room_binding_candidates ~session_key origin =
   let add seen value =

@@ -205,9 +205,9 @@ let with_connector ?handle_event sockets f =
                        ( "slack",
                          `Assoc
                            [
-                             ("bot_token", `String "unused");
+                             ("bot_token", `String "xoxb-unused-fixture");
                              ("signing_secret", `String "unused");
-                             ("app_token", `String "unused");
+                             ("app_token", `String "xapp-unused-fixture");
                              ("socket_mode", `Bool true);
                            ] );
                      ] );
@@ -222,14 +222,14 @@ let with_connector ?handle_event sockets f =
           in
           let sc : Runtime_config.slack_config =
             {
-              bot_token = "unused";
+              bot_token = "xoxb-unused-fixture";
               signing_secret = "unused";
               events_path = "/unused";
               allow_channels = [ "*" ];
               allow_users = [ "*" ];
               allow_private_channels = [];
               private_channel_policy = Pc_deny;
-              app_token = "unused";
+              app_token = "xapp-unused-fixture";
               socket_mode = true;
               default_model = None;
             }
