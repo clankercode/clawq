@@ -79,6 +79,31 @@ These commands use the same background task table as `clawq background`. The com
 
 Task-tree entries can also carry native-agent execution metadata. The `task_tree` tool accepts `depends_on`, `agent_model`, `agent_type`, `agent_prompt`, `agent_details`, and `autostart` fields on task add/update operations. `task_start_agent` starts a task as a native/local subagent using that metadata. When `autostart` is true, clawq queues the task automatically after every listed dependency is done or cancelled.
 
+Automatic continuation and keepalive prompts treat `task_tree` as the primary
+backlog. They direct the agent to review and complete remaining actionable
+items, taking concrete actions within the user's existing authorization.
+Status narration alone does not satisfy a check-in when work can proceed.
+Items awaiting authorization remain blocked while other available work can
+continue. This prompt guidance is separate from dependency-driven native-agent
+autostart and from opted-in `HEARTBEAT.md` execution.
+
+### External T3 Code and Paseo bridges
+
+An external `t3-bridge` or `paseo-bridge` deployment can launch work in its own
+coding-agent threads. Clawq's built-in runner list above remains the supported
+`background`/`delegate` interface. A separately installed bridge CLI or skill
+does not register another runner or automatically deliver its result to a
+Clawq session.
+
+Bridge callers must retain the returned thread or agent identity, distinguish
+launch acknowledgement from completed work, and arrange authorized follow-up,
+interruption and result delivery. Bridge skills must be exposed through
+Clawq's own skill search roots, and execution still follows its shell and
+sandbox policy. The repository investigation
+`docs/plans/2026-11-02-coding-agent-bridges.md` documents supported flows,
+source-versus-installed version differences, and integration gaps. Refresh its
+dated deployment observations before applying them to another installation.
+
 ## Worktree Lifecycle
 
 When a task is created with a branch name (or when `delegate` creates one automatically), clawq provisions a git worktree:

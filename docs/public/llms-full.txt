@@ -1158,13 +1158,32 @@ Progress updates are only dispatched for Slack, Teams, and Discord. All other co
 
 - Clawq can resume some interrupted agent turns after restart, but there is no general "re-prompt every unfinished idea" system.
 - Resume depends on persisted session state plus a supported channel destination.
-- Heartbeats are the built-in periodic autonomous mechanism.
+- Automatic continuation and keepalive prompts direct the agent to review `task_tree` as its primary backlog and complete all remaining actionable items before concluding that work is done.
+- Check-ins require the next concrete action now, including tool-backed progress on review, harvest, commit, or research work within the user's existing authorization. A status update, plan, or promise alone does not satisfy that instruction when actionable work remains.
+- Blocked items do not prevent other available actions. When all work is complete or remaining steps need user input or authorization, the prompt asks for completion or a specific blocker; it does not grant additional authority.
+- Hidden runtime idle controls remain supported but are not advertised in visible check-in/keepalive prompts.
+- Disabling `agent_defaults.send_continuation_checkin` hides the visible check-in and in-turn channel chatter; non-idle final continuation replies still reach the channel through the registered response callback.
+- Heartbeats independently run opted-in sessions using the configured `HEARTBEAT.md` content; they are separate from the automatic continuation and keepalive prompts.
 - The `send_message` built-in tool exists only when the runtime registers it with a send function. Configuring `notify.notify_channel` / `notify.notify_target` alone does not guarantee the tool is available.
 - When invoked during an active channel turn, `send_message` prefers the live session notifier from tool context, so the message goes straight back to the current attached session.
 - Outside an active notified session, behavior falls back to the runtime-provided send function if one exists; if no send function was wired at startup, the tool is absent or returns an error.
 - Heartbeat replies and continuation follow-ups are delivered through the opted-in session's normal outbound channel path.
 - During an active channel turn, the runtime can send additional text to that same session via the registered notifier.
 - Turn ownership is effectively per session key: one session runs at a time under a mutex, while different session keys can proceed independently.
+
+## Daemon Memory Observation
+
+- Linux operators can install `scripts/clawq_memwatch.py` as `~/.local/bin/clawq-memwatch` together with the repository's `clawq-memory-sample` and `clawq-memory-review` user units/timers. This is a separate monitor; it does not install a daemon supervisor or restart the daemon.
+- Samples record process/runtime identity, RSS/PSS/swap, uptime and heartbeat health. They live in `$XDG_STATE_HOME/clawq/memwatch` (default `~/.local/state/clawq/memwatch`); `clawq-memwatch report` inspects the current evidence and the daily timer publishes `summary.json`.
+- Runtime replacements, stale/dead/unreadable samples, observation gaps and invalid records cannot earn uninterrupted healthy-window credit. A stopped sampler cannot report a current healthy window. Original evidence is preserved.
+- `fourteen_days_observed` is observation evidence, not an automatic ticket closure or proof that no OOM/kill/leak occurred. Review kernel/user journals and hourly daemon `mem_stats` before closing an investigation. See the Daemon Memory Observation guide.
+
+## External Coding Agent Bridges
+
+- External T3 Code and Paseo bridge deployments can launch coding work in their own threads. They are not built-in Clawq runners, and installing their CLIs does not register a Clawq callback, discover their skills, or grant shell permissions.
+- Clawq skill search roots are workspace `.claude-p/skills`, workspace `.claude/skills`, and the configured data-directory `skills` (normally `~/.clawq/skills`). Exposing reviewed bridge instructions is separate from exposing an execution capability under the current shell/sandbox policy.
+- Keep each bridge's returned thread/agent identity for follow-up, waiting, interruption and terminal confirmation. Launch acknowledgement is separate from successful completion and delivery back to the originating Clawq session.
+- The repository investigation `docs/plans/2026-11-02-coding-agent-bridges.md` records source-vs-installed versions, supported commands, T3 interruption, Paseo idempotency/receipt durability gaps, callback routing and bounded integration recommendations. Its dated installation findings must be refreshed against the actual deployment.
 
 ## Runtime Architecture Summary
 

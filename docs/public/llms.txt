@@ -12,6 +12,7 @@
 - [Architecture](https://clawq.org/architecture): Coq-to-OCaml build pipeline, runtime module map, library dependency structure
 - [Tools](https://clawq.org/tools): Built-in tools reference, MCP server/client, skills overview, sandbox backends, shell allowlist
 - [Background Tasks](https://clawq.org/background-tasks): Delegate coding tasks to background agent runners with git worktree isolation
+- [Daemon Memory Observation](https://clawq.org/daemon-memory-watch): Durable Linux memory and heartbeat sampling, daily summaries, and evidence requirements for a clean observation window
 - [Skills](https://clawq.org/skills): SKILL.md definitions, discovery paths, @mention and /slash syntax, custom skill walkthrough
 - [Security](https://clawq.org/security): Security model, dual path safety, sandbox backends, Landlock, secret encryption, audit log, rate limiting
 
