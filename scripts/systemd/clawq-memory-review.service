@@ -1,0 +1,7 @@
+[Unit]
+Description=Summarize Clawq daemon memory observation evidence
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/clawq-memwatch report --write-summary
+UMask=0077

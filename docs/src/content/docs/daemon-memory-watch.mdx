@@ -1,0 +1,58 @@
+---
+title: Daemon memory observation
+description: Collect durable memory and heartbeat evidence for a running Linux daemon.
+---
+
+The Linux memory sampler records the daemon's RSS, PSS, swap, process identity,
+process uptime, and heartbeat age once a minute. It reads the PID from
+`$CLAWQ_HOME/daemon.pid` (default `~/.clawq/daemon.pid`) and does not restart or
+signal the daemon. Its user timers survive agent sessions. Python 3 and a
+systemd user session are required.
+
+From a reviewed checkout, install the sampler and timers:
+
+```bash
+install -d ~/.local/bin ~/.config/systemd/user
+install -m 755 scripts/clawq_memwatch.py ~/.local/bin/clawq-memwatch
+install -m 644 scripts/systemd/clawq-memory-* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now clawq-memory-sample.timer clawq-memory-review.timer
+systemctl --user start clawq-memory-sample.service clawq-memory-review.service
+```
+
+Use `loginctl enable-linger "$USER"` when timers must run while logged out.
+For a custom daemon home, add `Environment=CLAWQ_HOME=/absolute/path` under
+`[Service]` in a drop-in for `clawq-memory-sample.service`, then reload systemd.
+
+Inspect the evidence:
+
+```bash
+clawq-memwatch report
+systemctl --user list-timers 'clawq-memory-*'
+journalctl --user -u clawq-memory-sample.service -u clawq-memory-review.service
+```
+
+Samples live in `$XDG_STATE_HOME/clawq/memwatch/samples.csv` (default
+`~/.local/state/clawq/memwatch/samples.csv`). The daily review writes
+`summary.json` beside them. Old `~/.cache/clawq-memwatch/mem.csv` evidence is
+preserved separately; its older uptime column must not be interpreted as
+process age.
+
+Missing/dead processes, unreadable samples, heartbeats older than 120 seconds,
+RSS plus swap at or above 512 MiB, and growth exceeding 100 MiB within five
+minutes interrupt the observed healthy window. Growth is compared only within
+one process generation. Gaps over three minutes also interrupt the window;
+calendar time without samples cannot establish a clean run.
+
+`fourteen_days_observed` describes the sampled window. Before closing a memory
+investigation, also review OOM/kill evidence in the kernel and user journals and
+hourly `mem_stats` retained-set trends in the daemon log. A daily summary does
+not diagnose a leak or automatically close a backlog ticket. Daemon supervision
+and the memory sampler are separate services: sampling a dead daemon records
+the failure and leaves restart policy to its supervisor.
+
+To stop collecting, disable both timers:
+
+```bash
+systemctl --user disable --now clawq-memory-sample.timer clawq-memory-review.timer
+```
