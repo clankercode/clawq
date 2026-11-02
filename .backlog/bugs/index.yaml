@@ -1750,7 +1750,7 @@ bugs:
       file: B816-autonomous-checkins-often-narrate.todo
       id: B816
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: autonomous check-ins often narrate work instead of doing it
     - complexity: medium
@@ -1768,7 +1768,7 @@ bugs:
       file: B818-auto-checkin-should-point-agent.todo
       id: B818
       priority: high
-      status: pending
+      status: in_progress
       tags: []
       title: Auto check-in should direct agent to complete task_tree items
     - file: B819-bash-omits-command-because-ope.todo

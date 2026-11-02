@@ -1,15 +1,17 @@
 ---
+claimed_at: "2026-11-02T06:19:37Z"
+claimed_by: cli-user
 completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B816
 priority: high
-started_at: null
-status: pending
+started_at: "2026-11-02T06:19:37Z"
+status: in_progress
 tags: []
 title: autonomous check-ins often narrate work instead of doing it
-updated_at: null
+updated_at: "2026-11-02T06:19:37Z"
 ---
 
 autonomous check-ins often narrate work instead of doing it
