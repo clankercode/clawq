@@ -1,10 +1,87 @@
-# Daemon Hang Recovery (B823)
+# Daemon Supervision and Recovery (B823, B829)
 
-The daemon can hang with a live process but a dead event loop: every connector
-stops, the UI listener refuses connections, and nothing recovers it because
-`clawq service start` sees a live pid and refuses to start a replacement. This
-page describes the liveness heartbeat and takeover mechanism that makes hangs
-self-healing (whatever their root cause).
+A Linux user service supervises the daemon process and recovers from crashes,
+OOM kills, and SIGKILL. The liveness heartbeat also reveals a daemon whose
+process is alive but whose event loop has stopped progressing.
+
+## Linux service supervision
+
+Install from the **stable installed binary** you want systemd to run:
+
+```sh
+clawq service install
+systemctl --user show clawq -p MainPID -p Restart -p ActiveState
+clawq service status
+journalctl --user -u clawq -f
+```
+
+Installation writes `~/.config/systemd/user/clawq.service`, reloads the user
+manager, enables autostart, and starts the service immediately. If a manually
+started daemon exists for the current data directory, installation stops it
+before starting the supervised instance. If systemd already owns the daemon,
+installation restarts the unit to apply the new launch contract. A stop,
+reload, enable, or start failure is reported with the failed command and its
+output; installation does not claim success. Success requires matching manager
+and daemon PIDs, a lock holder, and a fresh heartbeat.
+
+`clawq service start`, `stop`, and `restart` use the installed unit when its
+`CLAWQ_HOME` binding matches the current data directory. An explicit managed
+stop stays stopped. `clawq service signal-restart` and `systemctl --user reload
+clawq` perform the daemon's graceful in-place restart and retain the PID.
+`clawq service uninstall` stops and disables the unit before removing it.
+
+The generated unit uses `Type=exec` and runs `clawq service run` in the
+foreground. That entrypoint acquires `daemon.lock`, writes `daemon.pid` and
+its identity metadata, propagates startup failures as process failures, and
+cleans up on ordinary exit. A second foreground instance fails while the lock
+is held. `Restart=on-failure` and `RestartSec=5` recover unexpected exits;
+`KillMode=control-group` removes the old EC process and other children before
+restarting. The new daemon starts its own EC watcher when enabled. The unit
+orders startup after `network-online.target`; a user manager's ordering does
+not guarantee that external networks are reachable, so connectors still own
+connection retries.
+
+There is no `WatchdogSec`: the daemon does not implement `sd_notify`, so an
+armed systemd watchdog would kill a healthy process after the watchdog timeout.
+The heartbeat is an operator liveness signal, and a hung managed daemon needs
+`clawq service restart` or an external heartbeat monitor. The unit preserves
+B830's `OCAMLRUNPARAM=o=60`, `MemoryHigh=1G`, `MemoryMax=1536M`, and
+`OOMPolicy=stop`. Under earlyoom or kernel OOM pressure, a killed daemon now
+recovers automatically; the existing bounded webhook queue/worker limits
+remain in force. These limits bound damage, and do not prove that a workload
+fits within the available memory.
+
+The unit captures the current data directory through `CLAWQ_HOME` and quotes
+paths and spaces, escapes systemd percent specifiers, and preserves literal
+dollars in the executable name. Keep the binary
+at a durable executable path; generating a unit from a temporary build or
+worktree pins it to that path. Maintain any required runner/tool PATH in the
+user manager environment or a unit drop-in. Run `loginctl enable-linger "$USER"`
+if the service must start at boot and stay available after logout; otherwise
+the enabled user unit starts with the login session.
+
+Deployment requires the rebuilt stable binary, the install/adoption step, a
+working user systemd bus, and optional linger. Installing/adopting a real daemon
+interrupts it briefly. The B829 scratch regression does not deploy the worktree
+binary for the real user or control the production daemon.
+
+### Isolated recovery regression
+
+On the x-p35 build box, after building the candidate binary:
+
+```sh
+python3 test/service_supervision_integration.py --binary _build/default/src/main.exe
+```
+
+This opt-in regression uses a unique `clawq-b829-*.service`, empty scratch
+HOME/config/DB, a loopback port, fake GitHub credentials, and an EC watcher with
+no diagnosis models. A narrow systemctl shim maps only the installer's `clawq`
+unit argument to the scratch unit. It tests real install/adoption, foreground
+lock exclusion, SIGKILL recovery within 30 seconds, EC replacement, fresh
+heartbeat/PID/lock state, a signed curl webhook returning HTTP 200, graceful
+reload, managed restart/stop/start/uninstall, and command failures. It removes
+the scratch unit on exit and retains scratch logs if a check fails. Batch
+build/test invocations must run through the coordinator's global gate.
 
 ## Heartbeat
 
@@ -47,8 +124,9 @@ the heartbeat whether the holder may be replaced:
 
 Takeover is wired into:
 
-- `clawq service start` — the pid-file gate replaces a hung holder (and cleans
-  up the hung daemon's orphaned EC child) before forking the replacement.
+- Unmanaged `clawq service start` — the pid-file gate replaces a hung holder
+  (and cleans up its orphaned EC child) before forking the replacement. For an
+  installed systemd unit, use `clawq service restart` to recover a hung daemon.
 - `clawq agent` — same decision when the daemon singleton lock
   (`~/.clawq/daemon.lock`) is held. The lock file records the holder pid so the
   decision never depends on `daemon.pid` being fresh.
@@ -73,9 +151,10 @@ containing `takeover:` plus the reason, e.g.
 
 `~/.clawq/daemon.pid` (with its `daemon.pid.meta` identity file) and
 `~/.clawq/ec_process.pid` are rewritten **atomically on every start** (temp
-file + rename) and always reflect the live instance. In-place restarts
-(`service restart`, `service signal-restart`, self-update re-exec) keep the
-same pid, so the files stay accurate across them.
+file + rename) and always reflect the live instance. Graceful in-place
+restarts (`service signal-restart`, unit reload, self-update re-exec) retain the
+PID. `service restart` stops and starts the daemon, giving
+it a new PID.
 
 ## `clawq service status`
 
@@ -91,7 +170,8 @@ Service status:
 
 - `verdict: healthy` — holder alive, heartbeat fresh.
 - `verdict: stale` — holder alive but heartbeat is past the threshold (or no
-  heartbeat file exists at all); `clawq service start` will take over.
+  heartbeat file exists at all); use `clawq service restart` for a managed
+  daemon.
 - `heartbeat: no daemon` — no live daemon pid recorded.
 
 ## Relation to the B652 watchdog

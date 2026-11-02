@@ -221,24 +221,33 @@ clawq agent                                      Start the daemon
 
 ### `clawq service`
 
-Manage the Clawq system service.
+Manage the Clawq daemon and its process supervisor.
 
 ```
-clawq service start                              Start the service (takes over a hung daemon whose heartbeat is stale)
-clawq service stop                               Stop the service
-clawq service status                             Show service status (lock holder, heartbeat age, verdict)
-clawq service restart                            Restart the service
-clawq service signal-restart                     Send SIGUSR1 for graceful restart
-clawq service install                            Install system service (systemd/launchd)
-clawq service uninstall                          Uninstall system service
-clawq service systemd-unit                       Generate systemd unit file
-clawq service launchd-plist                      Generate launchd plist file
+clawq service start                              Start through systemd when installed, otherwise launch unmanaged
+clawq service run                                Run in foreground with singleton lock and PID lifecycle
+clawq service stop                               Stop through systemd when installed; stays stopped
+clawq service status                             Show daemon, heartbeat, lock holder, and systemd ownership
+clawq service restart                            Stop and start through systemd when installed
+clawq service signal-restart                     Send SIGUSR1 for graceful restart with the same PID
+clawq service install                            Install, enable, start, and adopt the Linux daemon; install a macOS plist
+clawq service uninstall                          Stop, disable, and remove the service
+clawq service systemd-unit                       Generate a foreground systemd unit file
+clawq service launchd-plist                      Generate a launchd plist file
 ```
+
+On Linux, `service install` adopts a manually started daemon by stopping it
+before starting the user unit. Supervisor command failures include the command
+and output and return a nonzero CLI status. Use a stable installed binary when
+installing; the unit records its path and the current `CLAWQ_HOME`. Enable
+linger with `loginctl enable-linger "$USER"` for boot/logout availability.
 
 The daemon writes a liveness heartbeat (`~/.clawq/heartbeat`, ≤30 s interval).
-`service start` refuses to replace a daemon with a fresh heartbeat, but
-replaces a hung one (stale heartbeat) or cleans up a dead holder — see
-[daemon-recovery.md](daemon-recovery.md).
+An installed unit restarts unexpected process exits after five seconds and
+cleans up the old EC child. An unmanaged `service start` can take over stale
+holders; for a hung managed daemon use `service restart`. There is no systemd
+notification watchdog. See [daemon-recovery.md](daemon-recovery.md) for
+memory guardrails, supervision verification, and the isolated SIGKILL test.
 
 ### `clawq update`
 

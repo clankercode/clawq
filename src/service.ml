@@ -386,7 +386,7 @@ let run_nofork_start ?(execve = Unix.execve)
     ""
   end
 
-let cmd_start ~config =
+let cmd_start_unmanaged ~config =
   (* B830: tune GC in every launch branch; Daemon.run re-applies it in the
      daemonized child after the re-exec. *)
   Gc_init.apply ();
@@ -487,37 +487,46 @@ let cmd_start ~config =
                 Printf.sprintf "Daemon failed to become ready. Check logs at %s"
                   (log_path ())))
 
-let cmd_stop () =
+let cmd_stop_unmanaged ?(send_signal = Unix.kill)
+    ?(alive = Daemon_liveness.process_alive) ?(sleep = Unix.sleepf) () =
   match read_pid () with
   | None -> "Daemon is not running"
-  | Some pid ->
-      if not (pid_identity_ok pid) then begin
-        remove_pid ();
-        Printf.sprintf
-          "Refusing to stop pid %d: process identity mismatch; stale pid state \
-           removed"
-          pid
-      end
-      else begin
-        (try Unix.kill pid Sys.sigterm with _ -> ());
-        let rec wait attempts =
-          if attempts <= 0 then begin
-            (try Unix.kill pid Sys.sigkill with _ -> ());
-            remove_pid ();
-            Printf.sprintf "Daemon killed (pid %d)" pid
-          end
-          else begin
-            Unix.sleepf 0.5;
-            try
-              Unix.kill pid 0;
-              wait (attempts - 1)
-            with Unix.Unix_error _ ->
-              remove_pid ();
-              Printf.sprintf "Daemon stopped (pid %d)" pid
-          end
+  | Some pid -> (
+      let rec wait attempts =
+        if not (alive pid) then true
+        else if attempts <= 0 then false
+        else (
+          sleep 0.1;
+          wait (attempts - 1))
+      in
+      let signal sig_num =
+        if pid_identity_ok pid then
+          try send_signal pid sig_num
+          with Unix.Unix_error (Unix.ESRCH, _, _) -> ()
+        else if alive pid then
+          failwith "process identity changed; refusing signal"
+      in
+      try
+        signal Sys.sigterm;
+        let killed =
+          if wait 50 then false
+          else (
+            signal Sys.sigkill;
+            true)
         in
-        wait 10
-      end
+        if wait 20 then begin
+          remove_pid ();
+          Printf.sprintf "Daemon %s (pid %d)"
+            (if killed then "killed" else "stopped")
+            pid
+        end
+        else
+          Printf.sprintf
+            "Error: daemon pid %d survived stop; PID state retained" pid
+      with exn ->
+        Printf.sprintf
+          "Error: cannot stop daemon pid %d: %s; PID state retained" pid
+          (Printexc.to_string exn))
 
 type platform = Linux | Darwin | Other of string
 
@@ -538,22 +547,32 @@ let detect_platform () =
     | "Unix" -> Other "unix"
     | s -> Other (String.lowercase_ascii s))
 
-(** Run a hardcoded shell command and return its stdout trimmed. All current
-    callers pass compile-time constant strings (e.g. "systemctl --user is-active
-    clawq"). Do NOT pass user-supplied or unsanitised input — the command is
-    executed via [Unix.open_process_in] without shell quoting. *)
+(** Mutating supervisor commands must retain failures, including stderr. *)
 let run_command_default cmd =
+  let ic = Unix.open_process_in (cmd ^ " 2>&1") in
+  let output = Buffer.create 256 in
+  (try
+     while true do
+       Buffer.add_char output (input_char ic)
+     done
+   with End_of_file -> ());
+  let output = String.trim (Buffer.contents output) in
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0 -> output
+  | status ->
+      failwith
+        (Printf.sprintf
+           "%s failed (%s): %s. Check the user service manager and journal." cmd
+           (Error_watcher.exit_status_string status)
+           output)
+
+let probe run_command cmd = try run_command cmd with _ -> ""
+
+let command_response run_command command success =
   try
-    let ic = Unix.open_process_in cmd in
-    let buf = Buffer.create 256 in
-    (try
-       while true do
-         Buffer.add_char buf (input_char ic)
-       done
-     with End_of_file -> ());
-    ignore (Unix.close_process_in ic);
-    String.trim (Buffer.contents buf)
-  with _ -> ""
+    ignore (run_command command);
+    success
+  with exn -> "Error: " ^ Printexc.to_string exn
 
 let systemd_unit_path () =
   let home = try Sys.getenv "HOME" with Not_found -> "~" in
@@ -569,7 +588,7 @@ let autostart_status ?(detect_platform = detect_platform)
   | Linux ->
       let unit_exists = Sys.file_exists (systemd_unit_path ()) in
       if unit_exists then
-        let out = run_command "systemctl --user is-enabled clawq 2>/dev/null" in
+        let out = probe run_command "systemctl --user is-enabled clawq" in
         match out with
         | "enabled" ->
             "  autostart: enabled (systemd user unit)\n\
@@ -612,8 +631,7 @@ let heartbeat_status_line () =
       | Stale a ->
           Printf.sprintf
             "  heartbeat: %.0fs old (stale threshold %.0fs) — verdict: stale \
-             (pid %d): daemon appears hung; `clawq service start` will take \
-             over"
+             (pid %d): daemon appears hung; use `clawq service restart`"
             a threshold_s pid
       | NoHeartbeat ->
           Printf.sprintf
@@ -644,6 +662,18 @@ let cmd_status ?(detect_platform = detect_platform)
         (Printf.sprintf "  lock holder: none recorded (%s)"
            (singleton_lock_path ())));
   add (autostart_status ~detect_platform ~run_command ());
+  (if detect_platform () = Linux && Sys.file_exists (systemd_unit_path ()) then
+     let managed_pid =
+       probe run_command "systemctl --user show -p MainPID --value clawq"
+       |> String.trim |> int_of_string_opt
+     in
+     match (managed_pid, read_pid ()) with
+     | Some pid, Some daemon_pid when pid > 0 && pid = daemon_pid ->
+         add (Printf.sprintf "  supervision: systemd owns daemon (pid %d)" pid)
+     | _ ->
+         add
+           "  supervision: no managed daemon confirmed (run: clawq service \
+            install)");
   let state_path = Filename.concat (clawq_dir ()) "daemon_state.json" in
   if Sys.file_exists state_path then begin
     try
@@ -681,38 +711,137 @@ let cmd_signal_restart ?(read_pid = read_pid) ?(send_signal = Unix.kill) () =
           Printf.sprintf "Failed to signal daemon pid %d: %s" pid
             (Unix.error_message err))
 
-let cmd_restart ~config =
-  let stop_msg = cmd_stop () in
-  Unix.sleepf 1.0;
-  let start_msg = cmd_start ~config in
-  stop_msg ^ "\n" ^ start_msg
+(* The foreground entrypoint owns the same singleton lock and PID contract
+   as `agent`. Never fork: systemd must supervise the actual daemon and its EC. *)
+let cmd_run ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
+    ?(execve = Unix.execve) ~config () =
+  Gc_init.apply ();
+  match acquire_singleton_lock () with
+  | None ->
+      failwith
+        "Daemon lock is held; stop the existing daemon before starting the \
+         supervisor"
+  | Some fd ->
+      Unix.set_close_on_exec fd;
+      Fun.protect
+        ~finally:(fun () ->
+          remove_pid ();
+          release_singleton_lock (Some fd))
+        (fun () ->
+          write_pid (Unix.getpid ());
+          let intent =
+            try run_daemon ~config
+            with Lwt_util.Deadlock_timeout _ -> Daemon.Restart
+          in
+          match intent with
+          | Daemon.Shutdown -> "Daemon stopped."
+          | Daemon.Restart ->
+              let executable =
+                match
+                  Restart_exec.validate_and_fix (Restart_exec.executable ())
+                with
+                | Ok path -> path
+                | Error msg -> failwith msg
+              in
+              execve executable
+                [| executable; "service"; "run" |]
+                (build_env
+                   ~set_vars:
+                     (match Restart_notify.read_marker () with
+                     | None -> []
+                     | Some marker ->
+                         [
+                           ( Restart_notify.env_key,
+                             Restart_notify.marker_to_json_string marker );
+                         ])
+                   ~unset_vars:
+                     [ nofork_env; internal_nofork_env; Restart_notify.env_key ]);
+              "Daemon restart requested.")
+
+(* Executable names are not subject to systemd variable expansion; dollars
+   stay literal there. Percent specifiers and string escapes still apply. *)
+let systemd_quote value =
+  let buf = Buffer.create (String.length value + 2) in
+  Buffer.add_char buf '"';
+  String.iter
+    (function
+      | '%' -> Buffer.add_string buf "%%"
+      | '"' -> Buffer.add_string buf "\\\""
+      | '\\' -> Buffer.add_string buf "\\\\"
+      | '\n' -> Buffer.add_string buf "\\n"
+      | '\r' -> Buffer.add_string buf "\\r"
+      | '\t' -> Buffer.add_string buf "\\t"
+      | c -> Buffer.add_char buf c)
+    value;
+  Buffer.add_char buf '"';
+  Buffer.contents buf
+
+let installed_systemd_for_home () =
+  match read_file (systemd_unit_path ()) with
+  | None -> false
+  | Some unit ->
+      let binding =
+        "Environment="
+        ^ systemd_quote ("CLAWQ_HOME=" ^ normalize_path (clawq_dir ()))
+      in
+      String.split_on_char '\n' unit |> List.exists (( = ) binding)
+
+let cmd_start_with_supervisor ?(detect_platform = detect_platform)
+    ?(run_command = run_command_default) ~config () =
+  if detect_platform () = Linux && installed_systemd_for_home () then
+    command_response run_command "systemctl --user start clawq"
+      "Daemon started under systemd supervision."
+  else cmd_start_unmanaged ~config
+
+let cmd_start ~config = cmd_start_with_supervisor ~config ()
+
+let cmd_stop ?(detect_platform = detect_platform)
+    ?(run_command = run_command_default) () =
+  if detect_platform () = Linux && installed_systemd_for_home () then
+    command_response run_command "systemctl --user stop clawq"
+      "Stopped daemon through systemd."
+  else cmd_stop_unmanaged ()
+
+let cmd_restart_with_supervisor ?(detect_platform = detect_platform)
+    ?(run_command = run_command_default) ~config () =
+  if detect_platform () = Linux && installed_systemd_for_home () then
+    command_response run_command "systemctl --user restart clawq"
+      "Service restarted under systemd supervision."
+  else
+    let stop_msg = cmd_stop_unmanaged () in
+    if read_pid () <> None then "Error: restart aborted: " ^ stop_msg
+    else stop_msg ^ "\n" ^ cmd_start_unmanaged ~config
+
+let cmd_restart ~config = cmd_restart_with_supervisor ~config ()
 
 let cmd_systemd_unit () =
-  let executable = Restart_exec.executable () in
-  let pid_file = Filename.concat (Dot_dir.path ()) "daemon.pid" in
+  let executable =
+    systemd_quote (normalize_path (Restart_exec.executable ()))
+  in
+  let data_dir =
+    systemd_quote ("CLAWQ_HOME=" ^ normalize_path (clawq_dir ()))
+  in
   Printf.sprintf
     {|# clawq systemd user service
-# Install: clawq service systemd-unit > ~/.config/systemd/user/clawq.service
-# Enable:  systemctl --user enable clawq
-# Start:   systemctl --user start clawq
-# Logs:    journalctl --user -u clawq -f
-
+# Install and adopt: clawq service install
+# Enable: systemctl --user enable clawq
+# Logs: journalctl --user -u clawq -f
 [Unit]
 Description=clawq daemon
+Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
-Type=forking
-PIDFile=%s
-ExecStart=%s service start
-ExecStop=%s service stop
-ExecReload=%s service signal-restart
+Type=exec
+ExecStart=%s service run
+ExecReload=/bin/kill -USR1 $MAINPID
 Restart=on-failure
 RestartSec=5
-WatchdogSec=120
-# B830 memory guardrails: GC headroom matches Gc_init (o=60), MemoryHigh makes
-# the kernel reclaim from clawq first under pressure, MemoryMax bounds a leak
-# to a SIGKILL that Restart=on-failure turns into a clean unit restart.
+KillMode=control-group
+TimeoutStopSec=30
+Environment=%s
+# B830: bound GC headroom and reclaim memory before a leak becomes host OOM.
 Environment=OCAMLRUNPARAM=o=60
 MemoryHigh=1G
 MemoryMax=1536M
@@ -720,7 +849,7 @@ OOMPolicy=stop
 
 [Install]
 WantedBy=default.target|}
-    pid_file executable executable executable
+    executable data_dir
 
 let cmd_launchd_plist () =
   let executable = Restart_exec.executable () in
@@ -782,79 +911,131 @@ let write_file path contents =
     (fun () -> output_string oc contents)
     ~finally:(fun () -> close_out oc)
 
+let wait_for_systemd run_command =
+  let rec wait attempts =
+    let main_pid =
+      probe run_command "systemctl --user show -p MainPID --value clawq"
+      |> String.trim |> int_of_string_opt
+    in
+    let ready =
+      match (main_pid, read_pid (), Daemon_liveness.heartbeat_age ()) with
+      | Some pid, Some daemon_pid, Some age ->
+          pid > 0 && pid = daemon_pid
+          && read_lock_holder_pid () = Some pid
+          && age < 30.
+      | _ -> false
+    in
+    if ready then ()
+    else if attempts <= 0 then
+      failwith
+        "Supervisor did not acquire daemon PID/lock/heartbeat; inspect \
+         journalctl --user -u clawq and clawq service status"
+    else (
+      Unix.sleepf 0.1;
+      wait (attempts - 1))
+  in
+  wait 100
+
 let cmd_install ?(detect_platform = detect_platform)
-    ?(run_command = run_command_default) () =
-  match detect_platform () with
-  | Linux ->
-      let unit_path = systemd_unit_path () in
-      let unit_contents = cmd_systemd_unit () in
-      write_file unit_path unit_contents;
-      ignore (run_command "systemctl --user daemon-reload");
-      ignore (run_command "systemctl --user enable clawq");
-      let already_running = read_pid () <> None in
-      let start_hint =
-        if already_running then
-          "Daemon is already running; the unit will manage future starts."
-        else "Start now with: systemctl --user start clawq"
-      in
-      Printf.sprintf
-        "Service installed and enabled.\n\
-         Unit file: %s\n\
-         The service will autostart on login.\n\
-         To also start on boot without login, run: loginctl enable-linger $USER\n\
-         Disable autostart with: systemctl --user disable clawq\n\
-         %s"
-        unit_path start_hint
-  | Darwin ->
-      let plist_path = launchd_plist_path () in
-      let plist_contents = cmd_launchd_plist () in
-      write_file plist_path plist_contents;
-      let already_running = read_pid () <> None in
-      if not already_running then
-        ignore (run_command (Printf.sprintf "launchctl load %s" plist_path));
-      let extra =
-        if already_running then
-          "\n\
-           Daemon is already running; plist will take effect on next \
-           boot/login."
-        else ""
-      in
-      Printf.sprintf
-        "Service installed and loaded.\n\
-         Plist file: %s\n\
-         The service will autostart on login (RunAtLoad).\n\
-         Disable autostart with: launchctl unload %s\n\
-         Or remove entirely with: clawq service uninstall%s"
-        plist_path plist_path extra
-  | Other platform ->
-      Printf.sprintf
-        "Service install is not supported on %s.\n\
-         Manual alternatives:\n\
-         - Generate a systemd unit: clawq service systemd-unit\n\
-         - Generate a launchd plist: clawq service launchd-plist\n\
-         - Use your platform's init system to run: clawq service start"
-        platform
+    ?(run_command = run_command_default) ?(wait_ready = wait_for_systemd)
+    ?(stop_daemon = fun () -> cmd_stop_unmanaged ()) () =
+  try
+    match detect_platform () with
+    | Linux ->
+        let unit_path = systemd_unit_path () in
+        let unit_contents = cmd_systemd_unit () in
+        write_file unit_path unit_contents;
+        ignore (run_command "systemctl --user daemon-reload");
+        ignore (run_command "systemctl --user enable clawq");
+        let supervisor_pid =
+          probe run_command "systemctl --user show -p MainPID --value clawq"
+          |> String.trim |> int_of_string_opt
+        in
+        (match read_pid () with
+        | Some pid when supervisor_pid <> Some pid ->
+            let stopped = stop_daemon () in
+            if read_pid () <> None then
+              failwith ("Cannot adopt existing daemon: " ^ stopped)
+        | _ -> ());
+        let action =
+          match supervisor_pid with
+          | Some pid when pid > 0 -> "restart"
+          | _ -> "start"
+        in
+        ignore (run_command ("systemctl --user " ^ action ^ " clawq"));
+        if
+          String.trim (run_command "systemctl --user is-active clawq")
+          <> "active"
+        then
+          failwith
+            "clawq.service did not become active; inspect journalctl --user -u \
+             clawq";
+        wait_ready run_command;
+        Printf.sprintf
+          "Service installed, enabled, and started under systemd supervision.\n\
+           Unit file: %s\n\
+           The service autostarts on login.\n\
+           To start on boot without login, run: loginctl enable-linger $USER\n\
+           Stop with: clawq service stop"
+          unit_path
+    | Darwin ->
+        let plist_path = launchd_plist_path () in
+        let plist_contents = cmd_launchd_plist () in
+        write_file plist_path plist_contents;
+        let already_running = read_pid () <> None in
+        if not already_running then
+          ignore
+            (run_command
+               (Printf.sprintf "launchctl load %s" (Filename.quote plist_path)));
+        let extra =
+          if already_running then
+            "\n\
+             Daemon is already running; plist will take effect on next \
+             boot/login."
+          else ""
+        in
+        Printf.sprintf
+          "Service installed and loaded.\n\
+           Plist file: %s\n\
+           The service will autostart on login (RunAtLoad).\n\
+           Disable autostart with: launchctl unload %s\n\
+           Or remove entirely with: clawq service uninstall%s"
+          plist_path plist_path extra
+    | Other platform ->
+        Printf.sprintf
+          "Service install is not supported on %s.\n\
+           Manual alternatives:\n\
+           - Generate a systemd unit: clawq service systemd-unit\n\
+           - Generate a launchd plist: clawq service launchd-plist\n\
+           - Use your platform's init system to run: clawq service start"
+          platform
+  with exn -> "Error: service installation failed: " ^ Printexc.to_string exn
 
 let cmd_uninstall ?(detect_platform = detect_platform)
     ?(run_command = run_command_default) () =
-  match detect_platform () with
-  | Linux ->
-      let unit_path = systemd_unit_path () in
-      ignore (run_command "systemctl --user stop clawq");
-      ignore (run_command "systemctl --user disable clawq");
-      (if Sys.file_exists unit_path then try Sys.remove unit_path with _ -> ());
-      ignore (run_command "systemctl --user daemon-reload");
-      Printf.sprintf "Service stopped, disabled, and unit file removed.\n%s"
-        unit_path
-  | Darwin ->
-      let plist_path = launchd_plist_path () in
-      if Sys.file_exists plist_path then begin
-        ignore (run_command (Printf.sprintf "launchctl unload %s" plist_path));
-        try Sys.remove plist_path with _ -> ()
-      end;
-      Printf.sprintf "Service unloaded and plist file removed.\n%s" plist_path
-  | Other platform ->
-      Printf.sprintf
-        "Service uninstall is not supported on %s.\n\
-         Stop the daemon manually with: clawq service stop"
-        platform
+  try
+    match detect_platform () with
+    | Linux ->
+        let unit_path = systemd_unit_path () in
+        ignore (run_command "systemctl --user stop clawq");
+        ignore (run_command "systemctl --user disable clawq");
+        if Sys.file_exists unit_path then Sys.remove unit_path;
+        ignore (run_command "systemctl --user daemon-reload");
+        Printf.sprintf "Service stopped, disabled, and unit file removed.\n%s"
+          unit_path
+    | Darwin ->
+        let plist_path = launchd_plist_path () in
+        if Sys.file_exists plist_path then begin
+          ignore
+            (run_command
+               (Printf.sprintf "launchctl unload %s"
+                  (Filename.quote plist_path)));
+          Sys.remove plist_path
+        end;
+        Printf.sprintf "Service unloaded and plist file removed.\n%s" plist_path
+    | Other platform ->
+        Printf.sprintf
+          "Service uninstall is not supported on %s.\n\
+           Stop the daemon manually with: clawq service stop"
+          platform
+  with exn -> "Error: service uninstall failed: " ^ Printexc.to_string exn
