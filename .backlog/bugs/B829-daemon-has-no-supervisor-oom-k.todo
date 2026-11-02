@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T08:15:16Z"
 complexity: medium
 created_at: "2026-10-01T12:34:01Z"
 depends_on: []
+duration_minutes: 115.6489109115
 estimate_hours: 1
 id: B829
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: 'daemon has no supervisor: OOM-killed daemon stayed dead 15h with webhooks silently undelivered'
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T08:15:16Z"
 ---
 Incident 2026-10-01: the daemon (pid 2492906, build 3dd3d4ce, started 2026-09-28) was killed at 07:14:47 AEST mid-webhook-flood (516 webhooks in the final 4 minutes, concurrent with the 07:05 briefing cron turn). Kill signature: last daemon.log line complete, stderr dup2'd into daemon.log shows no OCaml fatal, no coredump, no shutdown lines — external SIGKILL class. No OOM/kill journal evidence survives: journald storage is volatile on this host and journald restarted at 09:01:30 wiping the window; dmesg is restricted; auditd inactive. earlyoom is running (-n: no dmesg); kernel OOM killer or earlyoom during the morning's memory pressure (load ~16, 30G zram in use) is the most probable killer.
 
