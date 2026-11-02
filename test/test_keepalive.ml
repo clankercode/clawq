@@ -150,6 +150,28 @@ let test_nudge_prompt_contains_header () =
        true
      with Not_found -> false)
 
+let test_checkin_requires_action prompt () =
+  List.iter
+    (fun instruction ->
+      Alcotest.(check bool)
+        ("check-in requires " ^ instruction)
+        true
+        (Test_helpers.string_contains prompt instruction))
+    [
+      "next concrete action";
+      "Use tools in this turn";
+      "Do not end with only a status update";
+      "review";
+      "harvest";
+      "commit";
+      "research";
+      "existing authorization";
+      "blocker";
+    ];
+  Alcotest.(check bool)
+    "idle control response stays hidden" false
+    (Test_helpers.string_contains prompt Session.autonomous_stay_idle_message)
+
 let suite =
   [
     Alcotest.test_case "set and get keepalive flag" `Quick
@@ -176,4 +198,8 @@ let suite =
       test_nudge_prompt_hides_stay_idle;
     Alcotest.test_case "nudge prompt contains header" `Quick
       test_nudge_prompt_contains_header;
+    Alcotest.test_case "continuation requires tool-backed action" `Quick
+      (test_checkin_requires_action Session.autonomous_continuation_prompt);
+    Alcotest.test_case "keepalive requires tool-backed action" `Quick
+      (test_checkin_requires_action Session.keepalive_nudge_prompt);
   ]
