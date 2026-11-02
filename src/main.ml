@@ -352,23 +352,53 @@ let skills_cmd =
     ]
 
 let service_cmd =
-  with_args "service"
-    "Manage the clawq system service \
-     (start/stop/restart/signal-restart/systemd-unit)."
+  let run_service args =
+    let result = Command_bridge.cmd_service args in
+    let result =
+      match args with
+      | [ "systemd-unit" ] | [ "launchd-plist" ] -> result
+      | _ -> String_util.unescape_newlines result
+    in
+    if
+      Service.has_prefix ~prefix:"Error:" result
+      || Cli_exit.should_error ~name:"service" ~args ~result
+    then `Error (false, result)
+    else (
+      print_string result;
+      `Ok ())
+  in
+  let man =
     [
       `S "SUBCOMMANDS";
-      `I ("start", "Start the clawq service.");
-      `I ("stop", "Stop the clawq service.");
-      `I ("restart", "Restart the clawq service.");
+      `I
+        ( "start",
+          "Start the daemon, using its installed systemd unit when available."
+        );
+      `I ("run", "Run the daemon in the foreground for a process supervisor.");
+      `I ("stop", "Stop the daemon through its supervisor when installed.");
+      `I
+        ( "restart",
+          "Stop and start the daemon through its supervisor when installed." );
       `I
         ( "signal-restart",
-          "Send SIGUSR1 to the running daemon for a graceful restart." );
-      `I ("status", "Show service status (default).");
+          "Send SIGUSR1 for a graceful restart with the same PID." );
+      `I ("status", "Show service and heartbeat status (default).");
+      `I
+        ( "install",
+          "Install, enable and start the Linux service, adopting an existing \
+           daemon. Installs a launchd plist on macOS." );
+      `I ("uninstall", "Stop and remove the autostart service configuration.");
       `I
         ( "systemd-unit",
-          "Print a systemd unit file. Install with: clawq service systemd-unit \
-           > ~/.config/systemd/user/clawq.service" );
+          "Print the foreground systemd unit. Install with: clawq service \
+           install." );
+      `I ("launchd-plist", "Print a macOS launchd plist.");
     ]
+  in
+  Cmd.v
+    (Cmd.info "service" ~doc:"Manage the clawq daemon and process supervisor."
+       ~man)
+    Term.(ret (const run_service $ rest_args "ARGS"))
 
 let update_cmd =
   let mode =

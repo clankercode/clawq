@@ -391,17 +391,20 @@ let test_systemd_unit_output () =
     "has Install section" true
     (Test_helpers.string_contains output "[Install]");
   Alcotest.(check bool)
-    "has Type=forking" true
-    (Test_helpers.string_contains output "Type=forking");
+    "tracks foreground process" true
+    (Test_helpers.string_contains output "Type=exec");
   Alcotest.(check bool)
-    "has PIDFile" true
-    (Test_helpers.string_contains output "PIDFile=");
+    "uses foreground service run" true
+    (Test_helpers.string_contains output " service run");
   Alcotest.(check bool)
     "has ExecStart" true
     (Test_helpers.string_contains output "ExecStart=");
   Alcotest.(check bool)
-    "has ExecStop" true
+    "systemd sends stop signal directly" false
     (Test_helpers.string_contains output "ExecStop=");
+  Alcotest.(check bool)
+    "no unimplemented watchdog" false
+    (Test_helpers.string_contains output "WatchdogSec=");
   Alcotest.(check bool)
     "has Restart=on-failure" true
     (Test_helpers.string_contains output "Restart=on-failure");
@@ -652,6 +655,7 @@ let test_launchd_plist_path_under_home () =
 let test_cmd_install_unsupported_platform () =
   let result =
     Service.cmd_install
+      ~wait_ready:(fun _ -> ())
       ~detect_platform:(fun () -> Service.Other "FreeBSD")
       ~run_command:(fun _ -> "")
       ()
@@ -668,10 +672,11 @@ let test_cmd_install_linux () =
       let commands = ref [] in
       let mock_run cmd =
         commands := cmd :: !commands;
-        ""
+        if Test_helpers.string_contains cmd "is-active" then "active" else ""
       in
       let result =
         Service.cmd_install
+          ~wait_ready:(fun _ -> ())
           ~detect_platform:(fun () -> Service.Linux)
           ~run_command:mock_run ()
       in
@@ -696,15 +701,52 @@ let test_cmd_install_linux () =
            (fun c -> Test_helpers.string_contains c "enable clawq")
            !commands))
 
+let test_cmd_install_linux_starts_supervision () =
+  Test_helpers.with_temp_home (fun _ ->
+      let commands = ref [] in
+      ignore
+        (Service.cmd_install
+           ~wait_ready:(fun _ -> ())
+           ~detect_platform:(fun () -> Service.Linux)
+           ~run_command:(fun cmd ->
+             commands := !commands @ [ cmd ];
+             if Test_helpers.string_contains cmd "is-active" then "active"
+             else "")
+           ());
+      Alcotest.(check bool)
+        "starts the supervisor now" true
+        (List.exists
+           (fun c -> Test_helpers.string_contains c "start clawq")
+           !commands))
+
+let test_cmd_install_linux_reports_command_failure () =
+  Test_helpers.with_temp_home (fun _ ->
+      let commands = ref [] in
+      let result =
+        Service.cmd_install
+          ~wait_ready:(fun _ -> ())
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command:(fun cmd ->
+            commands := cmd :: !commands;
+            failwith "Failed to connect to user bus")
+          ()
+      in
+      Alcotest.(check bool)
+        "failure is actionable" true
+        (Test_helpers.string_contains result "Failed to connect to user bus");
+      Alcotest.(check int)
+        "does not proceed after failure" 1 (List.length !commands))
+
 let test_cmd_install_darwin () =
   Test_helpers.with_temp_home (fun home ->
       let commands = ref [] in
       let mock_run cmd =
         commands := cmd :: !commands;
-        ""
+        if Test_helpers.string_contains cmd "is-active" then "active" else ""
       in
       let result =
         Service.cmd_install
+          ~wait_ready:(fun _ -> ())
           ~detect_platform:(fun () -> Service.Darwin)
           ~run_command:mock_run ()
       in
@@ -773,10 +815,11 @@ let test_cmd_install_darwin_already_running () =
       let commands = ref [] in
       let mock_run cmd =
         commands := cmd :: !commands;
-        ""
+        if Test_helpers.string_contains cmd "is-active" then "active" else ""
       in
       let result =
         Service.cmd_install
+          ~wait_ready:(fun _ -> ())
           ~detect_platform:(fun () -> Service.Darwin)
           ~run_command:mock_run ()
       in
@@ -799,28 +842,519 @@ let test_cmd_install_linux_already_running () =
   Test_helpers.with_temp_home (fun home ->
       Service.write_pid (Unix.getpid ());
       let commands = ref [] in
-      let mock_run cmd =
-        commands := cmd :: !commands;
-        ""
-      in
       let result =
         Service.cmd_install
+          ~wait_ready:(fun _ -> ())
           ~detect_platform:(fun () -> Service.Linux)
-          ~run_command:mock_run ()
+          ~stop_daemon:(fun () ->
+            commands := !commands @ [ "stop unmanaged" ];
+            Service.remove_pid ();
+            "Daemon stopped")
+          ~run_command:(fun cmd ->
+            commands := !commands @ [ cmd ];
+            if Test_helpers.string_contains cmd "is-active" then "active"
+            else "")
+          ()
       in
       Alcotest.(check bool)
-        "mentions already running" true
-        (Test_helpers.string_contains result "already running");
+        "supervision installed" true
+        (Test_helpers.string_contains result "under systemd supervision");
+      Alcotest.(check (list string))
+        "adopts before starting unit"
+        [
+          "systemctl --user daemon-reload";
+          "systemctl --user enable clawq";
+          "systemctl --user show -p MainPID --value clawq";
+          "stop unmanaged";
+          "systemctl --user start clawq";
+          "systemctl --user is-active clawq";
+        ]
+        !commands;
       Alcotest.(check bool)
-        "does not suggest systemctl start" false
-        (Test_helpers.string_contains result "systemctl --user start clawq");
-      let unit_path =
-        Filename.concat home ".config/systemd/user/clawq.service"
+        "unit file created" true
+        (Sys.file_exists
+           (Filename.concat home ".config/systemd/user/clawq.service")))
+
+let test_cmd_run_owns_lock_and_pid () =
+  Test_helpers.with_temp_home (fun _ ->
+      ignore
+        (Service.cmd_run ~config:Runtime_config.default
+           ~run_daemon:(fun ~config:_ ->
+             Alcotest.(check (option int))
+               "pid is foreground process"
+               (Some (Unix.getpid ()))
+               (Service.read_pid ());
+             Daemon.Shutdown)
+           ());
+      Alcotest.(check (option int))
+        "clean shutdown removes pid" None (Service.read_pid ());
+      let lock = Service.acquire_singleton_lock () in
+      Alcotest.(check bool) "shutdown releases lock" true (lock <> None);
+      Service.release_singleton_lock lock)
+
+let test_cmd_run_failure_cleans_up () =
+  Test_helpers.with_temp_home (fun _ ->
+      let failed =
+        try
+          ignore
+            (Service.cmd_run ~config:Runtime_config.default
+               ~run_daemon:(fun ~config:_ -> failwith "startup failed")
+               ());
+          false
+        with Failure msg -> msg = "startup failed"
       in
-      Alcotest.(check bool) "unit file created" true (Sys.file_exists unit_path))
+      Alcotest.(check bool) "failure reaches supervisor" true failed;
+      Alcotest.(check (option int))
+        "failure removes pid" None (Service.read_pid ());
+      let lock = Service.acquire_singleton_lock () in
+      Alcotest.(check bool) "failure releases lock" true (lock <> None);
+      Service.release_singleton_lock lock)
+
+let test_cmd_run_restart_retains_foreground () =
+  Test_helpers.with_temp_home (fun _ ->
+      let called = ref None in
+      ignore
+        (Service.cmd_run ~config:Runtime_config.default
+           ~run_daemon:(fun ~config:_ -> Daemon.Restart)
+           ~execve:(fun _ argv _ -> called := Some (Array.to_list argv))
+           ());
+      Alcotest.(check (option (list string)))
+        "restart uses foreground entrypoint"
+        (Some [ Restart_exec.executable (); "service"; "run" ])
+        !called)
+
+let test_systemd_quoting () =
+  Alcotest.(check string)
+    "escapes specifiers, quotes and slashes; executable dollars stay literal"
+    "\"/tmp/space %% $ \\\" \\\\\""
+    (Service.systemd_quote "/tmp/space % $ \" \\");
+  with_env "CLAWQ_HOME" (Some "/tmp/clawq with % $ spaces") (fun () ->
+      Alcotest.(check bool)
+        "unit carries explicit data directory" true
+        (Test_helpers.string_contains
+           (Service.cmd_systemd_unit ())
+           "Environment=\"CLAWQ_HOME=/tmp/clawq with %% $ spaces\""))
+
+let test_managed_commands_use_supervisor () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_file
+        (Service.systemd_unit_path ())
+        (Service.cmd_systemd_unit ());
+      let commands = ref [] in
+      let run_command cmd =
+        commands := !commands @ [ cmd ];
+        if Test_helpers.string_contains cmd "MainPID" then "0" else ""
+      in
+      let started =
+        Service.cmd_start_with_supervisor ~config:Runtime_config.default
+          ~wait_ready:(fun _ -> ())
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command ()
+      in
+      Alcotest.(check bool)
+        "native runtime accepts managed start" true
+        (String.starts_with ~prefix:"Daemon " started);
+      let stopped =
+        Service.cmd_stop
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command ()
+      in
+      Alcotest.(check bool)
+        "native runtime accepts managed stop" true
+        (String.starts_with ~prefix:"Stopped" stopped);
+      ignore
+        (Service.cmd_restart_with_supervisor ~config:Runtime_config.default
+           ~wait_ready:(fun _ -> ())
+           ~detect_platform:(fun () -> Service.Linux)
+           ~run_command ());
+      Alcotest.(check (list string))
+        "manager owns the lifecycle"
+        [
+          "systemctl --user show -p MainPID --value clawq";
+          "systemctl --user start clawq";
+          "systemctl --user show -p MainPID --value clawq";
+          "systemctl --user stop clawq";
+          "systemctl --user show -p MainPID --value clawq";
+          "systemctl --user restart clawq";
+        ]
+        !commands)
+
+let test_install_aborts_failed_adoption () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_pid (Unix.getpid ());
+      let commands = ref [] in
+      let result =
+        Service.cmd_install
+          ~wait_ready:(fun _ -> ())
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command:(fun cmd ->
+            commands := !commands @ [ cmd ];
+            "")
+          ~stop_daemon:(fun () -> "permission denied")
+          ()
+      in
+      Alcotest.(check bool)
+        "reports adoption failure" true
+        (Test_helpers.string_contains result "Cannot adopt existing daemon");
+      Alcotest.(check bool)
+        "does not start a competing unit" false
+        (List.mem "systemctl --user start clawq" !commands);
+      Service.remove_pid ())
+
+let test_unmanaged_stop_preserves_pid_on_error () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_pid (Unix.getpid ());
+      let result =
+        Service.cmd_stop_unmanaged
+          ~send_signal:(fun _ _ ->
+            raise (Unix.Unix_error (Unix.EPERM, "kill", "")))
+          ()
+      in
+      Alcotest.(check bool)
+        "reports stop failure" true
+        (Test_helpers.string_contains result "Error: cannot stop daemon");
+      Alcotest.(check (option int))
+        "failed stop retains identity"
+        (Some (Unix.getpid ()))
+        (Service.read_pid ());
+      Service.remove_pid ())
+
+let test_run_command_reports_exit_status () =
+  let failed =
+    try
+      ignore
+        (Service.run_command_default "printf supervisor-failure >&2; exit 7");
+      false
+    with Failure msg ->
+      Test_helpers.string_contains msg "exit code 7"
+      && Test_helpers.string_contains msg "supervisor-failure"
+  in
+  Alcotest.(check bool) "status and stderr survive" true failed
+
+let test_foreground_log_reaches_ec_scanner () =
+  Test_helpers.with_temp_home (fun _ ->
+      let reporter = Logs.reporter () in
+      let level = Logs.level () in
+      Fun.protect
+        ~finally:(fun () ->
+          Logs.set_reporter reporter;
+          Logs.set_level level)
+        (fun () ->
+          ignore
+            (Service.cmd_run ~config:Runtime_config.default
+               ~run_daemon:(fun ~config:_ ->
+                 Daemon_logging.install ();
+                 Logs.err (fun m -> m "B829 foreground EC scanner regression");
+                 Daemon.Shutdown)
+               ());
+          let entries, _ =
+            Ec_process.scan_daemon_log ~config:Runtime_config.default
+              ~scan_state:(Ec_process.create_log_scan_state ())
+              ~seen:[]
+          in
+          Alcotest.(check bool)
+            "foreground error reaches existing EC scanner" true
+            (List.exists
+               (fun (entry : Error_watcher.error_entry) ->
+                 Test_helpers.string_contains entry.message
+                   "B829 foreground EC scanner regression")
+               entries)))
+
+let test_installed_start_refuses_manual_owner () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_file
+        (Service.systemd_unit_path ())
+        (Service.cmd_systemd_unit ());
+      Service.write_pid (Unix.getpid ());
+      let commands = ref [] in
+      let result =
+        Service.cmd_start_with_supervisor ~config:Runtime_config.default
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command:(fun cmd ->
+            commands := cmd :: !commands;
+            if Test_helpers.string_contains cmd "MainPID" then "0" else "")
+          ()
+      in
+      Alcotest.(check bool)
+        "manual owner needs explicit adoption" true
+        (String.starts_with ~prefix:"Error:" result
+        && Test_helpers.string_contains result "install");
+      Alcotest.(check bool)
+        "does not launch competing supervisor" false
+        (List.mem "systemctl --user start clawq" !commands);
+      Service.remove_pid ())
+
+let test_supervisor_does_not_accept_early_heartbeat () =
+  Test_helpers.with_temp_home (fun _ ->
+      let lock = Service.acquire_singleton_lock () in
+      Fun.protect
+        ~finally:(fun () ->
+          Service.release_singleton_lock lock;
+          Service.remove_pid ())
+        (fun () ->
+          Service.write_pid (Unix.getpid ());
+          Daemon_liveness.write_heartbeat ();
+          let rejected =
+            try
+              Service.wait_for_systemd ~timeout_s:0.
+                ~clock:(fun () -> 0.)
+                ~sleep:(fun _ -> Alcotest.fail "readiness test must not sleep")
+                (fun _ -> string_of_int (Unix.getpid ()));
+              false
+            with Failure _ -> true
+          in
+          Alcotest.(check bool)
+            "PID lock and early heartbeat are not application readiness" true
+            rejected))
+
+let test_installed_stop_terminates_manual_owner () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_file
+        (Service.systemd_unit_path ())
+        (Service.cmd_systemd_unit ());
+      Service.write_pid (Unix.getpid ());
+      let stop_called = ref false in
+      let result =
+        Service.cmd_stop
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command:(fun cmd ->
+            if Test_helpers.string_contains cmd "MainPID" then "0" else "")
+          ~stop_daemon:(fun () ->
+            stop_called := true;
+            Service.remove_pid ();
+            "Daemon stopped")
+          ()
+      in
+      Alcotest.(check bool) "stops actual manual owner" true !stop_called;
+      Alcotest.(check bool)
+        "reports successful verified stop" true
+        (String.starts_with ~prefix:"Stopped" result))
+
+let test_installed_restart_refuses_manual_owner () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_file
+        (Service.systemd_unit_path ())
+        (Service.cmd_systemd_unit ());
+      Service.write_pid (Unix.getpid ());
+      let result =
+        Service.cmd_restart_with_supervisor ~config:Runtime_config.default
+          ~detect_platform:(fun () -> Service.Linux)
+          ~run_command:(fun cmd ->
+            if Test_helpers.string_contains cmd "MainPID" then "0"
+            else Alcotest.fail "must not restart a competing unit")
+          ()
+      in
+      Alcotest.(check bool)
+        "explicit adoption required" true
+        (String.starts_with ~prefix:"Error:" result
+        && Test_helpers.string_contains result "install");
+      Service.remove_pid ())
+
+let test_managed_actions_propagate_readiness_failure () =
+  Test_helpers.with_temp_home (fun _ ->
+      Service.write_file
+        (Service.systemd_unit_path ())
+        (Service.cmd_systemd_unit ());
+      let run_command cmd =
+        if Test_helpers.string_contains cmd "MainPID" then "0" else ""
+      in
+      let wait_ready _ = failwith "gateway startup rejected" in
+      let results =
+        [
+          Service.cmd_start_with_supervisor ~config:Runtime_config.default
+            ~detect_platform:(fun () -> Service.Linux)
+            ~run_command ~wait_ready ();
+          Service.cmd_restart_with_supervisor ~config:Runtime_config.default
+            ~detect_platform:(fun () -> Service.Linux)
+            ~run_command ~wait_ready ();
+        ]
+      in
+      List.iter
+        (fun result ->
+          Alcotest.(check bool)
+            "application failure reaches CLI" true
+            (String.starts_with ~prefix:"Error:" result
+            && Test_helpers.string_contains result "gateway startup rejected"))
+        results)
+
+let test_readiness_poll_uses_injected_clock () =
+  Test_helpers.with_temp_home (fun _ ->
+      let lock = Service.acquire_singleton_lock () in
+      Fun.protect
+        ~finally:(fun () ->
+          Service.release_singleton_lock lock;
+          Service.remove_pid ())
+        (fun () ->
+          Service.write_pid (Unix.getpid ());
+          Daemon_liveness.write_heartbeat ~now:0. ();
+          let now = ref 0. in
+          let run_command cmd =
+            if Test_helpers.string_contains cmd "MainPID" then
+              string_of_int (Unix.getpid ())
+            else "ActiveState=active\nSubState=running\nResult=success"
+          in
+          Service.wait_for_systemd ~timeout_s:1.
+            ~clock:(fun () -> !now)
+            ~sleep:(fun delay -> now := !now +. delay)
+            ~app_ready:(fun _ -> !now >= 0.2)
+            run_command;
+          Alcotest.(check bool)
+            "waits for application after early heartbeat" true (!now >= 0.2);
+          let timed_out =
+            try
+              Service.wait_for_systemd ~timeout_s:0.2
+                ~clock:(fun () -> !now)
+                ~sleep:(fun delay -> now := !now +. delay)
+                ~app_ready:(fun _ -> false)
+                run_command;
+              false
+            with Failure _ -> true
+          in
+          Alcotest.(check bool)
+            "bounded timeout without wall-clock sleeps" true timed_out))
+
+let test_listening_socket_parser () =
+  let row state port inode =
+    Printf.sprintf
+      "0: 0100007F:%s 00000000:0000 %s 00000000:00000000 00:00000000 00000000 \
+       1000 0 %s"
+      port state inode
+  in
+  Alcotest.(check (list string))
+    "only listening socket at requested port" [ "123" ]
+    (Service.listening_inodes ~port:8080
+       (String.concat "\n"
+          [
+            row "0A" "1F90" "123"; row "01" "1F90" "124"; row "0A" "1F91" "125";
+          ]))
+
+let with_lock_only_startup f =
+  Test_helpers.with_temp_home (fun _ ->
+      let lock = Service.acquire_singleton_lock () in
+      Fun.protect
+        ~finally:(fun () ->
+          Service.release_singleton_lock lock;
+          Service.remove_pid ())
+        (fun () -> f (Unix.getpid ())))
+
+let test_readiness_polls_manager_lock_before_pid () =
+  with_lock_only_startup (fun pid ->
+      let now = ref 0. in
+      let polls = ref 0 in
+      Service.wait_for_systemd ~timeout_s:1.
+        ~clock:(fun () -> !now)
+        ~sleep:(fun delay ->
+          incr polls;
+          now := !now +. delay;
+          Service.write_pid pid;
+          Daemon_liveness.write_heartbeat ~now:!now ())
+        ~app_ready:(fun actual -> actual = pid)
+        (fun command ->
+          if Test_helpers.string_contains command "MainPID" then
+            string_of_int pid
+          else "ActiveState=active\nSubState=running\nResult=success");
+      Alcotest.(check int) "waited through publication before success" 1 !polls;
+      Alcotest.(check (option int))
+        "published PID identity validated" (Some pid) (Service.read_pid ()))
+
+let test_readiness_lock_only_timeout_is_bounded () =
+  with_lock_only_startup (fun pid ->
+      let now = ref 0. in
+      let failure =
+        try
+          Service.wait_for_systemd ~timeout_s:0.2
+            ~clock:(fun () -> !now)
+            ~sleep:(fun delay -> now := !now +. delay)
+            ~app_ready:(fun _ ->
+              Alcotest.fail "lock-only process is never ready")
+            (fun command ->
+              if Test_helpers.string_contains command "MainPID" then
+                string_of_int pid
+              else "ActiveState=active\nSubState=running\nResult=success");
+          "unexpected readiness success"
+        with Failure msg -> msg
+      in
+      Alcotest.(check bool)
+        "publication pending until readiness deadline" true
+        (Test_helpers.string_contains failure "failed to become ready");
+      Alcotest.(check (float 0.0001)) "bounded injected clock" 0.2 !now)
+
+let test_readiness_rejects_foreign_and_mismatched_lock () =
+  with_lock_only_startup (fun pid ->
+      let parent = Unix.getppid () in
+      let reject ~main_pid =
+        let failed =
+          try
+            Service.wait_for_systemd ~timeout_s:1.
+              ~clock:(fun () -> 0.)
+              ~sleep:(fun _ ->
+                Alcotest.fail "foreign or mismatched ownership must not poll")
+              ~app_ready:(fun _ ->
+                Alcotest.fail
+                  "foreign ownership must not reach application readiness")
+              (fun command ->
+                if Test_helpers.string_contains command "MainPID" then
+                  string_of_int main_pid
+                else "ActiveState=active\nSubState=running\nResult=success");
+            false
+          with Failure msg ->
+            Test_helpers.string_contains msg "ownership is inconsistent"
+        in
+        Alcotest.(check bool)
+          "true ownership conflict remains closed" true failed
+      in
+      reject ~main_pid:parent;
+      reject ~main_pid:0;
+      let strict_preflight =
+        try
+          ignore (Service.live_daemon_owner ());
+          false
+        with Failure _ -> true
+      in
+      Alcotest.(check bool)
+        "ordinary lifecycle preflight stays strict" true strict_preflight;
+      Service.write_pid parent;
+      reject ~main_pid:pid)
 
 let suite =
   [
+    Alcotest.test_case "readiness polls manager lock before PID" `Quick
+      test_readiness_polls_manager_lock_before_pid;
+    Alcotest.test_case "lock-only readiness timeout is bounded" `Quick
+      test_readiness_lock_only_timeout_is_bounded;
+    Alcotest.test_case "readiness rejects foreign and mismatched lock" `Quick
+      test_readiness_rejects_foreign_and_mismatched_lock;
+    Alcotest.test_case "installed stop terminates manual owner" `Quick
+      test_installed_stop_terminates_manual_owner;
+    Alcotest.test_case "installed restart refuses manual owner" `Quick
+      test_installed_restart_refuses_manual_owner;
+    Alcotest.test_case "managed readiness failure propagates" `Quick
+      test_managed_actions_propagate_readiness_failure;
+    Alcotest.test_case "readiness clock is injectable and bounded" `Quick
+      test_readiness_poll_uses_injected_clock;
+    Alcotest.test_case "listening socket parser" `Quick
+      test_listening_socket_parser;
+    Alcotest.test_case "foreground log feeds EC scanner" `Quick
+      test_foreground_log_reaches_ec_scanner;
+    Alcotest.test_case "installed start refuses manual owner" `Quick
+      test_installed_start_refuses_manual_owner;
+    Alcotest.test_case "early heartbeat is not startup readiness" `Quick
+      test_supervisor_does_not_accept_early_heartbeat;
+    Alcotest.test_case "stop error retains pid" `Quick
+      test_unmanaged_stop_preserves_pid_on_error;
+    Alcotest.test_case "supervisor command failure preserves status" `Quick
+      test_run_command_reports_exit_status;
+    Alcotest.test_case "foreground owns lock and pid" `Quick
+      test_cmd_run_owns_lock_and_pid;
+    Alcotest.test_case "foreground failure cleans up" `Quick
+      test_cmd_run_failure_cleans_up;
+    Alcotest.test_case "foreground restart remains foreground" `Quick
+      test_cmd_run_restart_retains_foreground;
+    Alcotest.test_case "systemd quoting" `Quick test_systemd_quoting;
+    Alcotest.test_case "managed commands use supervisor" `Quick
+      test_managed_commands_use_supervisor;
+    Alcotest.test_case "failed adoption aborts" `Quick
+      test_install_aborts_failed_adoption;
     Alcotest.test_case "handle daemon exit restart sets nofork and execs" `Quick
       test_handle_daemon_exit_restart_sets_nofork_and_execs;
     Alcotest.test_case "handle daemon exit restart carries restart notify env"
@@ -883,6 +1417,10 @@ let suite =
     Alcotest.test_case "cmd install unsupported platform" `Quick
       test_cmd_install_unsupported_platform;
     Alcotest.test_case "cmd install linux" `Quick test_cmd_install_linux;
+    Alcotest.test_case "install starts supervision" `Quick
+      test_cmd_install_linux_starts_supervision;
+    Alcotest.test_case "install reports command failure" `Quick
+      test_cmd_install_linux_reports_command_failure;
     Alcotest.test_case "cmd install darwin" `Quick test_cmd_install_darwin;
     Alcotest.test_case "cmd uninstall unsupported platform" `Quick
       test_cmd_uninstall_unsupported_platform;
