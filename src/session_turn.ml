@@ -154,10 +154,11 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id
-    ?on_tool_round_complete ?(io = buffered_turn_io) () =
+    ?on_tool_round_complete ?before_run ?(io = buffered_turn_io) () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
+  let* () = match before_run with Some f -> f () | None -> Lwt.return_unit in
   (* Hook dispatch helper for session-level events *)
   let fire_session_hook event ?reason () =
     let cwd = Option.value agent.Agent.effective_cwd ~default:(Sys.getcwd ()) in
@@ -607,144 +608,183 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     This function now also enforces invocation restrictions by scope, checking
     role/member/admin rules before allowing work to proceed. *)
 let evaluate_room_policy (config : Runtime_config.t) ~key ~channel ~channel_id
-    ~user_group ?(has_external_users = false) () =
+    ~user_group ?(has_external_users = false) ?room_classification () =
   Invocation_restrict.check_room_policy_and_role ~config ~key ~channel
-    ~channel_id ~user_group ~has_external_users ~work_kind:Room_work ()
+    ~channel_id ~user_group ~has_external_users ?room_classification
+    ~work_kind:Room_work ()
+
+let run_queued_turn ?(io = buffered_turn_io) ?(skill_injections = []) ?cwd
+    ?on_tool_round_complete mgr ~key agent interrupt ~room_classification
+    (queued : Session_types.queued_message) =
+  (match Room_session.slack_thread_of_key key with
+  | None -> ()
+  | Some route -> (
+      match room_classification with
+      | Some c
+        when c.Runtime_config_types.connector = "slack"
+             && queued.channel = Some c.connector
+             && queued.channel_id = Some c.room_id
+             && c.room_id = route.channel
+             && c.tenant_id = Some route.team ->
+          ()
+      | _ ->
+          raise
+            (Session_queue.Request_retained
+               "Native request lacks verified classification for its actual \
+                room")));
+  let room_cls, room_dec =
+    match
+      evaluate_room_policy mgr.Session_core.config ~key ~channel:queued.channel
+        ~channel_id:queued.channel_id ~user_group:queued.user_group
+        ~has_external_users:queued.has_external_users ?room_classification ()
+    with
+    | Ok (cls, dec) -> (cls.scope, dec)
+    | Error reason when Room_session.slack_thread_of_key key <> None ->
+        (* The native adapter refreshes the requester after yielding preparation.
+           Refusal must retain work before run_locked_turn clears interrupts. *)
+        raise (Session_queue.Request_retained reason)
+    | Error reason -> (Runtime_config_types.Rm_unknown, "deny: " ^ reason)
+  in
+  consume_pending_github_catalog_refresh ?db:mgr.Session_core.db
+    ?room_id:queued.channel_id ();
+  (match (queued.snapshot_work_type, mgr.Session_core.db) with
+  | Some work_type, Some db ->
+      let snap =
+        Access_snapshot.create_and_persist ~db ~config:mgr.Session_core.config
+          ~work_type ~session_key:key ?room_id:queued.channel_id
+          ~room_classification:room_cls ~room_policy_decision:room_dec ()
+      in
+      agent.Agent.access_snapshot_id <- Some snap.id;
+      agent.Agent.access_snapshot <- Some snap
+  | _ ->
+      agent.Agent.access_snapshot_id <- None;
+      agent.Agent.access_snapshot <- None);
+  (match cwd with
+  | Some cwd ->
+      Session_room_profile.apply_cwd_change_for_turn mgr ~key agent ~cwd
+  | None -> ());
+  let turn_message =
+    if queued.deferred_followup then queued.message
+    else
+      Session_core.queued_message_prompt
+        (Session_core.effective_message_for_turn ~message:queued.message
+           ?channel_name:queued.channel_name ?channel_type:queued.channel_type
+           ?sender_id:queued.sender_id ?sender_name:queued.sender_name
+           ?user_group:queued.user_group ())
+  in
+  run_locked_turn mgr ~key agent interrupt ~message:turn_message
+    ~content_parts:queued.content_parts ~attachments:queued.attachments
+    ~skill_injections ?on_tool_round_complete ~io
+    ?channel_name:queued.channel_name ?channel_type:queued.channel_type
+    ?sender_id:queued.sender_id ?sender_name:queued.sender_name
+    ?user_group:queued.user_group ?channel:queued.channel
+    ?channel_id:queued.channel_id ?message_id:queued.message_id ()
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-    ~drained_any () =
+    ?before_queued_run ~drained_any () =
+  let open Lwt.Syntax in
+  let after_all () =
+    match on_drain_progress with
+    | Some dp -> dp.Session_core.after_all ()
+    | None -> Lwt.return_unit
+  in
   match Session_core.take_next_queued_message_for_drain mgr ~key with
-  | Some queued when Session_core.is_queued_admin_stop_message queued ->
+  | Some queued
+    when Session_core.is_queued_admin_stop_message queued
+         && Room_session.slack_thread_of_key key = None ->
       Session_core.handle_queued_admin_stop mgr ~key interrupt queued;
       Lwt.return_unit
   | Some queued -> (
-      match Session_core.find_registered_notifier mgr ~key with
-      | Some notify ->
-          let open Lwt.Syntax in
-          Logs.info (fun m ->
-              m "Sending queued message to LLM for session %s" key);
-          let* () =
-            match on_drain_progress with
-            | Some dp -> dp.Session_core.before_turn queued.message_id
-            | None -> Lwt.return_unit
-          in
-          let turn_message =
-            if queued.deferred_followup then queued.message
-            else
-              Session_core.queued_message_prompt
-                (Session_core.effective_message_for_turn ~message:queued.message
-                   ?channel_name:queued.channel_name
-                   ?channel_type:queued.channel_type ?sender_id:queued.sender_id
-                   ?sender_name:queued.sender_name ?user_group:queued.user_group
-                   ())
-          in
-          (* Record effective-access snapshot when queued work begins and
-             store the snapshot on the agent. Clear any stale snapshot from
-             a previous turn when no snapshot_work_type is set.
-             Also record room classification for the snapshot. *)
-          let room_cls, room_dec =
-            match
-              evaluate_room_policy mgr.Session_core.config ~key
-                ~channel:queued.channel ~channel_id:queued.channel_id
-                ~user_group:queued.user_group
-                ~has_external_users:queued.has_external_users ()
-            with
-            | Ok (cls, dec) -> (cls.scope, dec)
-            | Error msg ->
-                Logs.warn (fun m -> m "Room policy denied: %s" msg);
-                (Runtime_config_types.Rm_unknown, "deny: " ^ msg)
-          in
-          consume_pending_github_catalog_refresh ?db:mgr.Session_core.db
-            ?room_id:queued.channel_id ();
-          (match queued.snapshot_work_type with
-          | Some work_type -> (
-              match mgr.Session_core.db with
-              | Some db ->
-                  let snap =
-                    Access_snapshot.create_and_persist ~db
-                      ~config:mgr.Session_core.config ~work_type
-                      ~session_key:key ?room_id:queued.channel_id
-                      ~room_classification:room_cls
-                      ~room_policy_decision:room_dec ()
-                  in
-                  agent.Agent.access_snapshot_id <- Some snap.id;
-                  agent.Agent.access_snapshot <- Some snap
-              | None -> ())
-          | None ->
-              agent.Agent.access_snapshot_id <- None;
-              agent.Agent.access_snapshot <- None);
-          let* response =
-            run_locked_turn mgr ~key agent interrupt ~message:turn_message
-              ~content_parts:queued.content_parts
-              ?channel_name:queued.channel_name
-              ?channel_type:queued.channel_type ?sender_id:queued.sender_id
-              ?sender_name:queued.sender_name ?user_group:queued.user_group
-              ?channel:queued.channel ?channel_id:queued.channel_id
-              ?message_id:queued.message_id ()
-          in
-          let* () = notify response in
-          (match (queued.inbound_queue_id, mgr.Session_core.db) with
-          | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
-          | _ -> ());
-          let* () =
-            match on_drain_progress with
-            | Some dp -> dp.after_turn queued.message_id
-            | None -> Lwt.return_unit
-          in
-          if not (Session_core.take_response_deferred mgr ~key) then
-            Session_core.mark_response_sent mgr ~key;
-          drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-            ~drained_any:true ()
-      | None ->
-          Logs.info (fun m ->
-              m
-                "Pausing drain for session %s: no notifier registered; message \
-                 preserved in queue"
-                key);
-          let existing =
-            match Hashtbl.find_opt mgr.Session_core.queued_messages key with
-            | Some msgs -> msgs
-            | None -> []
-          in
-          Hashtbl.replace mgr.Session_core.queued_messages key
-            (existing @ [ queued ]);
-          Lwt.return_unit)
-  | None ->
-      if drained_any then
-        let open Lwt.Syntax in
-        let* () =
-          match on_drain_progress with
-          | Some dp -> dp.after_all ()
-          | None -> Lwt.return_unit
+      let hold reason =
+        (match (queued.inbound_queue_id, mgr.Session_core.db) with
+        | Some id, Some db ->
+            Memory.queue_record_failure ~db ~queue_id:id ~error:reason
+        | _ -> ());
+        let rest =
+          Option.value
+            (Hashtbl.find_opt mgr.Session_core.queued_messages key)
+            ~default:[]
         in
-        Lwt.return_unit
-      else Lwt.return_unit
+        Hashtbl.replace mgr.Session_core.queued_messages key (queued :: rest);
+        Logs.warn (fun m -> m "Queued request retained %s: %s" key reason);
+        after_all ()
+      in
+      match Session_core.find_registered_notifier mgr ~key with
+      | None -> hold "No registered notifier; request retained"
+      | Some notify -> (
+          let* () =
+            match on_drain_progress with
+            | Some dp -> dp.before_turn queued.message_id
+            | None -> Lwt.return_unit
+          in
+          let* result =
+            Session_core.execute_queued_request mgr ~key ~message:queued
+              ~run:(fun ~room_classification current ->
+                let* proceed =
+                  match before_queued_run with
+                  | Some f -> f current
+                  | None -> Lwt.return_true
+                in
+                if proceed then
+                  run_queued_turn mgr ~key agent interrupt ~room_classification
+                    current
+                else Lwt.return Session_core.queued_message_response)
+          in
+          match result with
+          | Session_types.Queue_retained reason -> hold reason
+          | (Queue_executed _ | Queue_cancelled) as outcome ->
+              let* () =
+                match outcome with
+                | Queue_executed response
+                  when not (Session_core.should_suppress_response response) ->
+                    notify response
+                | _ -> Lwt.return_unit
+              in
+              Session_core.delete_queued_message_row mgr queued;
+              let* () =
+                match on_drain_progress with
+                | Some dp -> dp.after_turn queued.message_id
+                | None -> Lwt.return_unit
+              in
+              if not (Session_core.take_response_deferred mgr ~key) then
+                Session_core.mark_response_sent mgr ~key;
+              drain_queued_messages_loop mgr ~key agent interrupt
+                ?on_drain_progress ?before_queued_run ~drained_any:true ()))
+  | None -> if drained_any then after_all () else Lwt.return_unit
 
-let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
+let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress
+    ?before_queued_run () =
   let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
-        ~drained_any:false ())
+        ?before_queued_run ~drained_any:false ())
 
 let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id ?cwd
-    ?(deferred_if_busy = false) ?on_tool_round_complete ?on_drain_progress
-    ?before_drain ?snapshot_work_type ?(has_external_users = false) () =
+    ?(deferred_if_busy = false) ?(require_request_origin = false) ?before_run
+    ?on_tool_round_complete ?on_drain_progress ?before_drain ?before_queued_run
+    ?snapshot_work_type ?(has_external_users = false)
+    ?(verified_execution = false) () =
   let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
       let raw_message = message in
-      let* message = normalize_incoming_message mgr ~key ~message in
+      let* message =
+        if require_request_origin then Lwt.return message
+        else normalize_incoming_message mgr ~key ~message
+      in
       let send_progress =
         if io.streaming then Some (emit_progress io)
         else Session_core.find_registered_notifier mgr ~key
       in
       let* handled =
-        Session_core.handle_special_command mgr ~key ~message ?send_progress
-          ~interrupt_check:(Session_core.interrupt_check_if_present mgr ~key)
-          ()
+        if require_request_origin then Lwt.return_none
+        else
+          Session_core.handle_special_command mgr ~key ~message ?send_progress
+            ~interrupt_check:(Session_core.interrupt_check_if_present mgr ~key)
+            ()
       in
       match handled with
       | Some response -> finish_response io response
@@ -753,7 +793,7 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
           let policy_denial =
             (* The public streaming path historically records policy in its
                access snapshot but does not short-circuit the turn. *)
-            if io.streaming then None
+            if io.streaming || require_request_origin then None
             else
               match
                 evaluate_room_policy mgr.Session_core.config ~key ~channel
@@ -796,52 +836,75 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
               in
               let run_with_lock agent interrupt =
                 Session_core.with_in_flight mgr (fun () ->
-                    (* Record effective-access snapshot when work begins and
+                    let run_current () =
+                      (* Record effective-access snapshot when work begins and
                    store the snapshot on the agent so tools can use
                    snapshot-scoped access instead of re-resolving from
                    the live config. Clear any stale snapshot from a
                    previous turn when no snapshot_work_type is set.
                    Also evaluate the external room policy. *)
-                    let room_classification_for_snap, room_decision_for_snap =
-                      match
-                        evaluate_room_policy mgr.Session_core.config ~key
-                          ~channel ~channel_id ~user_group ~has_external_users
-                          ()
-                      with
-                      | Ok (cls, dec) -> (cls.scope, dec)
-                      | Error _msg -> (Runtime_config_types.Rm_unknown, "denied")
+                      let room_classification_for_snap, room_decision_for_snap =
+                        match
+                          evaluate_room_policy mgr.Session_core.config ~key
+                            ~channel ~channel_id ~user_group ~has_external_users
+                            ()
+                        with
+                        | Ok (cls, dec) -> (cls.scope, dec)
+                        | Error _msg ->
+                            (Runtime_config_types.Rm_unknown, "denied")
+                      in
+                      consume_pending_github_catalog_refresh
+                        ?db:mgr.Session_core.db ?room_id:channel_id ();
+                      (match snapshot_work_type with
+                      | Some work_type -> (
+                          match mgr.Session_core.db with
+                          | Some db ->
+                              let snap =
+                                Access_snapshot.create_and_persist ~db
+                                  ~config:mgr.Session_core.config ~work_type
+                                  ~session_key:key ?room_id:channel_id
+                                  ~room_classification:
+                                    room_classification_for_snap
+                                  ~room_policy_decision:room_decision_for_snap
+                                  ()
+                              in
+                              agent.Agent.access_snapshot_id <- Some snap.id;
+                              agent.Agent.access_snapshot <- Some snap
+                          | None -> ())
+                      | None ->
+                          agent.Agent.access_snapshot_id <- None;
+                          agent.Agent.access_snapshot <- None);
+                      (match cwd with
+                      | Some c ->
+                          Session_room_profile.apply_cwd_change_for_turn mgr
+                            ~key agent ~cwd:c
+                      | None -> ());
+                      let* response =
+                        run_locked_turn mgr ~key agent interrupt ~message
+                          ~content_parts ~attachments ~skill_injections
+                          ?channel_name ?channel_type ?sender_id ?sender_name
+                          ?user_group ?channel ?channel_id ?message_id
+                          ?on_tool_round_complete ?before_run ~io ()
+                      in
+                      Lwt.return response
                     in
-                    consume_pending_github_catalog_refresh
-                      ?db:mgr.Session_core.db ?room_id:channel_id ();
-                    (match snapshot_work_type with
-                    | Some work_type -> (
-                        match mgr.Session_core.db with
-                        | Some db ->
-                            let snap =
-                              Access_snapshot.create_and_persist ~db
-                                ~config:mgr.Session_core.config ~work_type
-                                ~session_key:key ?room_id:channel_id
-                                ~room_classification:
-                                  room_classification_for_snap
-                                ~room_policy_decision:room_decision_for_snap ()
-                            in
-                            agent.Agent.access_snapshot_id <- Some snap.id;
-                            agent.Agent.access_snapshot <- Some snap
-                        | None -> ())
-                    | None ->
-                        agent.Agent.access_snapshot_id <- None;
-                        agent.Agent.access_snapshot <- None);
-                    (match cwd with
-                    | Some c ->
-                        Session_room_profile.apply_cwd_change_for_turn mgr ~key
-                          agent ~cwd:c
-                    | None -> ());
                     let* response =
-                      run_locked_turn mgr ~key agent interrupt ~message
-                        ~content_parts ~attachments ~skill_injections
-                        ?channel_name ?channel_type ?sender_id ?sender_name
-                        ?user_group ?channel ?channel_id ?message_id
-                        ?on_tool_round_complete ~io ()
+                      if require_request_origin || verified_execution then
+                        let* outcome =
+                          Session_core.execute_queued_request mgr ~key
+                            ~message:queued_message
+                            ~run:
+                              (run_queued_turn ~io ~skill_injections ?cwd
+                                 ?on_tool_round_complete mgr ~key agent
+                                 interrupt)
+                        in
+                        match outcome with
+                        | Queue_executed response -> Lwt.return response
+                        | Queue_cancelled ->
+                            Lwt.return Session_core.queued_message_response
+                        | Queue_retained reason ->
+                            Lwt.fail (Session_queue.Request_retained reason)
+                      else run_current ()
                     in
                     (* Persist effective_cwd after turn (may have changed via
                    change_working_dir tool) *)
@@ -857,11 +920,17 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
                     in
                     let* () =
                       drain_queued_messages mgr ~key agent interrupt
-                        ?on_drain_progress ()
+                        ?on_drain_progress ?before_queued_run ()
                     in
                     Lwt.return response)
               in
-              if deferred_if_busy then
+              if require_request_origin then
+                if mgr.Session_core.draining then
+                  Lwt.fail
+                    (Session_queue.Request_retained
+                       "Session draining; request retained")
+                else Session_core.with_session_lock mgr ~key run_with_lock
+              else if deferred_if_busy then
                 let rec send_now_or_queue () =
                   if mgr.Session_core.draining then on_draining ()
                   else
@@ -902,6 +971,13 @@ let turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ~attachments ~skill_injections ?channel_name ?channel_type ?sender_id
     ?sender_name ?user_group ?channel ?channel_id ?message_id ?cwd
     ~deferred_if_busy ?before_drain ?snapshot_work_type ~has_external_users ()
+
+let turn_verified_queued mgr ~key ~message ?sender_id ?message_id ~channel
+    ~channel_id ~channel_name ~channel_type ?before_drain () =
+  run_session_turn mgr ~io:buffered_turn_io ~key ~message ?sender_id ?message_id
+    ~channel ~channel_id ~channel_name ~channel_type
+    ~require_request_origin:true ?before_drain
+    ~snapshot_work_type:Access_snapshot.Room_turn ()
 
 let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
@@ -952,13 +1028,19 @@ let () =
     ~turn:(fun mgr ~key ~message () -> turn mgr ~key ~message ())
     ()
 
-let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
-    ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?user_group ?channel ?channel_id ?message_id ?cwd ?on_tool_round_complete
-    ?on_drain_progress ?before_drain ?snapshot_work_type ~on_chunk () =
+let turn_stream_with_execution ~verified_execution mgr ~key ~message
+    ?(content_parts = []) ?(attachments = []) ?(skill_injections = [])
+    ?channel_name ?channel_type ?sender_id ?sender_name ?user_group ?channel
+    ?channel_id ?message_id ?cwd ?on_tool_round_complete ?on_drain_progress
+    ?before_drain ?before_run ?before_queued_run ?(deferred_if_busy = false)
+    ?(has_external_users = false) ?snapshot_work_type ~on_chunk () =
   run_session_turn mgr
     ~io:(streaming_turn_io on_chunk)
     ~key ~message ~content_parts ~attachments ~skill_injections ?channel_name
     ?channel_type ?sender_id ?sender_name ?user_group ?channel ?channel_id
     ?message_id ?cwd ?on_tool_round_complete ?on_drain_progress ?before_drain
-    ?snapshot_work_type ()
+    ?before_run ?before_queued_run ~deferred_if_busy ~has_external_users
+    ?snapshot_work_type ~verified_execution ()
+
+let turn_stream = turn_stream_with_execution ~verified_execution:false
+let turn_verified_stream = turn_stream_with_execution ~verified_execution:true

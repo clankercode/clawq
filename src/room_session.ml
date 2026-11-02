@@ -1,3 +1,34 @@
+type slack_thread = {
+  team : string;
+  app : string;
+  channel : string;
+  root : string;
+}
+(** Slack ordinary-thread address. This is routing data, never a caller or
+    authorization room alias. It contains no integration dependencies. *)
+
+let slack_id prefix s =
+  String.length s > 1
+  && String.length s <= 64
+  && String.contains prefix s.[0]
+  && String.for_all (function 'A' .. 'Z' | '0' .. '9' -> true | _ -> false) s
+
+let slack_thread_of_key key =
+  match String.split_on_char ':' key with
+  | [ "slack"; channel; "thread"; team; app; root ]
+    when slack_id "CGD" channel && slack_id "T" team && slack_id "A" app
+         && String.length root > 0
+         && String.length root < 30
+         && String.for_all
+              (function '0' .. '9' | '.' -> true | _ -> false)
+              root
+         &&
+         match float_of_string_opt root with
+         | Some n -> Float.is_finite n && n >= 0.
+         | _ -> false ->
+      Some { team; app; channel; root }
+  | _ -> None
+
 (** Typed room session key construction and parsing.
 
     Session keys encode a channel, channel-specific identifiers, and a session

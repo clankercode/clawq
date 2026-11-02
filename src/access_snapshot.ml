@@ -185,6 +185,11 @@ let profile_id_for_access_key (config : Runtime_config.t) access_key =
 
 let access_session_key ?session_key room_id =
   match (session_key, room_id) with
+  | Some key, Some rid
+    when match Room_session.slack_thread_of_key key with
+         | Some route -> route.channel = rid
+         | None -> false ->
+      key
   | Some key, Some rid -> (
       match String.split_on_char ':' key with
       | connector :: _ when connector <> "" -> connector ^ ":" ^ rid

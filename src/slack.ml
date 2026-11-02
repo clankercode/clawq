@@ -1,9 +1,104 @@
 include Slack_api
 
-let handle_event ~(config : Runtime_config.slack_config)
-    ~(session_manager : Session.t) ?(send_message_fn = send_message)
-    ?run_update_command ?event_limiter body =
+let handle_message ?thread_run ?(thread_context = "")
+    ~(config : Runtime_config.slack_config) ~(session_manager : Session.t)
+    ?(send_message_fn = send_message) ?run_update_command ?event_limiter body =
   let open Lwt.Syntax in
+  let root =
+    Option.map (fun (r : Slack_thread_runs.run) -> r.route.root) thread_run
+  in
+  let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
+    match thread_run with
+    | None -> send_message_reply ~bot_token ~channel_id ~text ?thread_ts ()
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.postMessage"
+            ([ ("channel", `String channel_id); ("text", `String text) ]
+            @
+            match thread_ts with
+            | None -> []
+            | Some ts -> [ ("thread_ts", `String ts) ])
+        in
+        Lwt.return_unit
+  in
+  let send_message_fn ~bot_token ~channel_id ~text =
+    match root with
+    | Some thread_ts ->
+        send_message_reply ~bot_token ~channel_id ~text ~thread_ts ()
+    | None -> send_message_fn ~bot_token ~channel_id ~text
+  in
+  let send_message_with_id ~bot_token ~channel_id ~text =
+    match root with
+    | None -> send_message_with_id ~bot_token ~channel_id ~text
+    | Some thread_ts ->
+        let r = Option.get thread_run in
+        let* result =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.postMessage"
+            [
+              ("channel", `String channel_id);
+              ("thread_ts", `String thread_ts);
+              ("text", `String text);
+            ]
+        in
+        Lwt.return (Slack_huddles.field "ts" result)
+  in
+  let edit_message ~bot_token ~channel_id ~ts ~text =
+    match thread_run with
+    | None -> edit_message ~bot_token ~channel_id ~ts ~text
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.update"
+            [
+              ("channel", `String channel_id);
+              ("ts", `String ts);
+              ("text", `String text);
+            ]
+        in
+        Lwt.return_unit
+  in
+  let delete_message ~bot_token ~channel_id ~ts =
+    match thread_run with
+    | None -> delete_message ~bot_token ~channel_id ~ts
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.delete"
+            [ ("channel", `String channel_id); ("ts", `String ts) ]
+        in
+        Lwt.return_unit
+  in
+  let reaction method_ legacy ~bot_token ~channel_id ~timestamp ~emoji_name =
+    match thread_run with
+    | None -> legacy ~bot_token ~channel_id ~timestamp ~emoji_name
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current ~manager:session_manager ~route:r.route
+            method_
+            [
+              ("channel", `String channel_id);
+              ("timestamp", `String timestamp);
+              ("name", `String emoji_name);
+            ]
+        in
+        Lwt.return_unit
+  in
+  let add_reaction = reaction "reactions.add" add_reaction in
+  let remove_reaction = reaction "reactions.remove" remove_reaction in
+  let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ text ->
+          send_message_with_id ~bot_token ~channel_id ~text);
+      edit =
+        (fun ts ?parse_mode:_ text ->
+          let* () = edit_message ~bot_token ~channel_id ~ts ~text in
+          Lwt.return_none);
+      delete = (fun ts -> delete_message ~bot_token ~channel_id ~ts);
+    }
+  in
   match parse_event body with
   | Some (UrlVerification challenge) ->
       let resp =
@@ -22,10 +117,17 @@ let handle_event ~(config : Runtime_config.slack_config)
       end
       else
         let* is_private_opt =
-          fetch_channel_is_private ~bot_token:config.bot_token ~channel_id
+          match thread_run with
+          | Some _ ->
+              Lwt.return_none
+              (* Native ingress already checked typed conversation metadata. *)
+          | None ->
+              fetch_channel_is_private ~bot_token:config.bot_token ~channel_id
         in
         if
-          not (check_private_channel_policy ~config ~channel_id ~is_private_opt)
+          Option.is_none thread_run
+          && not
+               (check_private_channel_policy ~config ~channel_id ~is_private_opt)
         then begin
           Logs.warn (fun m ->
               m "Slack: refusing channel=%s (policy=%s, api_failed=%b)"
@@ -84,7 +186,10 @@ let handle_event ~(config : Runtime_config.slack_config)
           end
           else
             let key =
-              resolve_session_key ~session_manager ~channel_id ~user_id
+              match thread_run with
+              | Some r -> r.Slack_thread_runs.key
+              | None ->
+                  resolve_session_key ~session_manager ~channel_id ~user_id
             in
             (* Reply helper: sends into the thread when thread_ts is present,
              otherwise uses the caller-provided send_message_fn *)
@@ -637,11 +742,15 @@ let handle_event ~(config : Runtime_config.slack_config)
                     set_reaction (Connector_status.Slack.phase_emoji Received)
                   in
                   let drain_progress_msg_ts = ref None in
+                  let draining_run = ref None in
                   let on_drain_progress : Session.drain_progress =
                     {
                       before_turn =
                         (fun queued_msg_id ->
                           Slack_huddle_context.before_queued ~key queued_msg_id;
+                          draining_run :=
+                            Option.bind queued_msg_id
+                              (Slack_thread_runs.find session_manager key);
                           let* () =
                             match queued_msg_id with
                             | Some msg_ts ->
@@ -671,6 +780,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                       after_turn =
                         (fun queued_msg_id ->
                           Slack_huddle_context.clear ();
+                          let* () =
+                            Slack_thread_runs.finish_message session_manager key
+                              queued_msg_id
+                          in
+                          draining_run := None;
                           match queued_msg_id with
                           | Some msg_ts ->
                               set_reaction_on_single msg_ts
@@ -692,6 +806,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                   let response_sent = ref false in
                   let before_drain response =
                     Slack_huddle_context.clear ();
+                    let* () =
+                      match thread_run with
+                      | Some r -> Slack_thread_runs.finish r
+                      | None -> Lwt.return_unit
+                    in
                     if Session.should_suppress_response response then
                       Lwt.return_unit
                     else
@@ -842,17 +961,40 @@ let handle_event ~(config : Runtime_config.slack_config)
                                 in
                                 Lwt.return ([], [], placeholder)
                             in
+                            (* Keep raw text for command/control classification. Strip
+                               native bang only from the model-facing instruction,
+                               before history can hide it from Session normalization.
+                               Owned interruption already ran at ingress. *)
+                            let message =
+                              match thread_run with
+                              | Some _
+                                when String.starts_with ~prefix:"!" message ->
+                                  let raw =
+                                    String.sub message 1
+                                      (String.length message - 1)
+                                  in
+                                  if String.trim raw = "" then "[interrupted]"
+                                  else raw
+                              | _ -> message
+                            in
+                            let turn_stream =
+                              if Option.is_some thread_run then
+                                Session.turn_verified_stream
+                              else Session.turn_stream
+                            in
                             let* response =
                               Slack_huddle_context.with_request ~session_manager
                                 ~key ~channel_id ~user_id ~message_id:ts
                                 (fun () ->
-                                  Session.turn_stream session_manager ~key
-                                    ~message ~content_parts
-                                    ~attachments:att_list ~skill_injections
-                                    ~channel_name:channel_id
+                                  turn_stream session_manager ~key
+                                    ~message:(thread_context ^ message)
+                                    ~content_parts ~attachments:att_list
+                                    ~skill_injections ~channel_name:channel_id
                                     ~channel_type:"group" ~sender_id:user_id
                                     ~user_group ~channel:"slack" ~channel_id
                                     ~message_id:ts ~on_drain_progress
+                                    ~deferred_if_busy:
+                                      (Option.is_some thread_run)
                                     ~before_drain
                                     ~snapshot_work_type:
                                       Access_snapshot.Room_turn ~on_chunk ())
@@ -860,6 +1002,18 @@ let handle_event ~(config : Runtime_config.slack_config)
                             Lwt.return (Ok response))
                           (fun exn ->
                             Lwt.return (Error (Printexc.to_string exn))))
+                  in
+                  let* () =
+                    match (thread_run, result) with
+                    | Some r, Ok response
+                      when not (Session.is_queued_message_response response) ->
+                        Slack_thread_runs.finish r
+                    | Some r, Error _ -> (
+                        let* () = Slack_thread_runs.finish r in
+                        match !draining_run with
+                        | Some child -> Slack_thread_runs.finish child
+                        | None -> Lwt.return_unit)
+                    | _ -> Lwt.return_unit
                   in
                   match result with
                   | Ok response ->
@@ -951,3 +1105,13 @@ let handle_event ~(config : Runtime_config.slack_config)
                   Lwt.return "ok"
         end
   | Some Other | None -> Lwt.return "ok"
+
+let handle_event ~config ~session_manager ?send_message_fn ?run_update_command
+    ?event_limiter body =
+  Slack_thread_ingress.handle_event ~handle_message ~config ~session_manager
+    ?send_message_fn ?run_update_command ?event_limiter body
+
+let dispatch_http ~config ~session_manager ?run_update_command ?event_limiter
+    body =
+  Slack_thread_ingress.dispatch_http ~handle_message ~config ~session_manager
+    ?run_update_command ?event_limiter body

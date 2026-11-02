@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T09:04:56Z"
 complexity: medium
 created_at: "2026-11-02T05:46:14Z"
 depends_on: []
+duration_minutes: 165.3124501201
 estimate_hours: 1
 id: B832
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: Slack tools cannot inspect huddles or transcripts
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T09:04:56Z"
 ---
 The assistant has no available Slack tools to browse huddles or retrieve their transcripts. Users cannot ask it about huddle content unless they manually provide transcripts. Add appropriate Slack access/tooling for listing or finding huddles and retrieving transcripts, with suitable permission and privacy boundaries.
 
@@ -25,3 +26,5 @@ Decision (primary-source research 2026-11-02): Slack public conversation/file ob
 Independent API/content review of689283e6 found P2: Slack conversations.history is_limited=true is omitted and terminal pagination can imply an exhaustive negative search despite plan-hidden history. Accepted: preserve explicit history visibility limit, separate pagination exhaustion from requested-window coverage, test empty/matching terminal limited pages, and document that cursor pagination cannot restore hidden history. Security/runtime independent review still pending; fixes will be bundled after aggregation. All builds/tests remote x-p35 only.
 
 Independent security/runtime review of689283e6 found three additional accepted defects: P1 mid-turn queued steering bypasses the explicit drain boundary and may retain another users frozen admin/membership authority; P1 per-user session key selects different egress scopes from the verified room snapshot; P2 clearing the live bot credential leaves old frozen token reads enabled. Fix together with is_limited content finding, add real mocked turn-loop injection/room-scope/parsed-empty-config regressions, then both independent scoped rereviews. Shared session hook changes are now safe to coordinate because B831 has merged; keep integrations out of core and fail closed for unknown injected callers. No merge or B833 until PASS.
+
+Completed:689283e6 plusfa649f5a merged as5acc74e0 after independent API/content and security reviews, fixes, and both scoped PASS verdicts. Real Slack ingress/snapshot authority, actual steering invalidation, matching frozen room/profile egress, inactive live credential denial, origin/target membership/guest/private-room gates, bounded discovery/hydration and truthful conditional transcript/history coverage. Remote lane56focused/7828quick/minimal/optimized/fmt passed; exact combined master gate7887 tests in64.824s plus make fmt-check passed x-p35. Early fake-token auth.test fixture incident disclosed/corrected; no real credential, content read or write involved. Live workspace transcript availability remains conditional/unverified; source delivery and tests are complete.

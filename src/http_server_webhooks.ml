@@ -4,6 +4,11 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
     ?lark_config ?teams_config ?pairing ?runner_tokens ?ask_fn meth path req
     body =
   let open Lwt.Syntax in
+  let slack_config =
+    match slack_config with
+    | None -> None
+    | Some _ -> (Session.get_config session_manager).channels.slack
+  in
   match (meth, path) with
   | `POST, path
     when match slack_config with
@@ -26,9 +31,11 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
         | None -> ""
       in
       if
-        not
-          (Slack.verify_signature ~signing_secret:sc.signing_secret ~timestamp
-             ~body:body_str ~signature)
+        (not
+           (Runtime_config.is_credential_valid (String.trim sc.signing_secret)))
+        || not
+             (Slack.verify_signature ~signing_secret:sc.signing_secret
+                ~timestamp ~body:body_str ~signature)
       then
         let* resp =
           Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
@@ -38,7 +45,7 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config ?config
         Lwt.return (Some resp)
       else
         let* result =
-          Slack.handle_event ~config:sc ~session_manager
+          Slack.dispatch_http ~config:sc ~session_manager
             ?run_update_command:slack_run_update_command
             ?event_limiter:slack_event_limiter body_str
         in

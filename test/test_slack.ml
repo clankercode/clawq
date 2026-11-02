@@ -1,3 +1,40 @@
+(* Legacy command-plumbing fixtures use the same Slack-only default-deny
+   transport boundary as production thread tests. No fake-token live calls. *)
+let handle_message ~config ~session_manager ?send_message_fn ?run_update_command
+    ?event_limiter body =
+  let transport : Slack_transport.t =
+    {
+      get =
+        (fun ~uri ~headers:_ ->
+          if
+            Filename.basename (Uri.path (Uri.of_string uri))
+            <> "conversations.info"
+          then Alcotest.fail ("unexpected Slack GET " ^ uri);
+          Lwt.return
+            ( 200,
+              {|{"ok":true,"channel":{"id":"C123","is_private":false,"is_member":true}}|}
+            ));
+      post =
+        (fun ~uri ~headers:_ ~body:_ ->
+          let method_ = Filename.basename (Uri.path (Uri.of_string uri)) in
+          if
+            not
+              (List.mem method_
+                 [
+                   "chat.postMessage";
+                   "chat.update";
+                   "chat.delete";
+                   "reactions.add";
+                   "reactions.remove";
+                 ])
+          then Alcotest.fail ("unexpected Slack POST " ^ method_);
+          Lwt.return (200, {|{"ok":true,"ts":"200.000001"}|}));
+    }
+  in
+  Slack_transport.with_http transport (fun () ->
+      Slack.handle_message ~config ~session_manager ?send_message_fn
+        ?run_update_command ?event_limiter body)
+
 let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     ?(events_path = "/slack/events") ?(allow_channels = [ "*" ])
     ?(allow_users = [ "*" ]) ?(allow_private_channels = [])
@@ -125,8 +162,8 @@ let test_parse_event_non_message_callback () =
     {|{"type":"event_callback","event":{"type":"app_mention","channel":"C1","user":"U1","text":"hey"}}|}
   in
   match Slack.parse_event body with
-  | Some Slack.Other -> ()
-  | _ -> Alcotest.fail "expected Some Other for non-message event_callback"
+  | Some (Slack.Message _) -> ()
+  | _ -> Alcotest.fail "expected mention message"
 
 let test_session_key_format () =
   (* Verify handle_event produces the right session key format by checking
@@ -151,7 +188,7 @@ let test_handle_event_update_returns_before_restart_finishes () =
   in
   let result =
     Lwt_main.run
-      (Slack.handle_event ~config ~session_manager
+      (handle_message ~config ~session_manager
          ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
            sent := text :: !sent;
            Lwt.return_unit)
@@ -187,7 +224,7 @@ let test_handle_event_debate_sends_debug_summary () =
       in
       let result =
         Lwt_main.run
-          (Slack.handle_event ~config ~session_manager
+          (handle_message ~config ~session_manager
              ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
                sent := text :: !sent;
                Lwt.return_unit)
@@ -264,7 +301,7 @@ let test_model_set_default_ambiguous_preserves_config () =
       let sent = ref [] in
       let result =
         Lwt_main.run
-          (Slack.handle_event ~config:(make_config ()) ~session_manager
+          (handle_message ~config:(make_config ()) ~session_manager
              ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
                sent := text :: !sent;
                Lwt.return_unit)
@@ -301,7 +338,7 @@ let test_model_set_bare_match_persists_canonical () =
   let sent = ref [] in
   let result =
     Lwt_main.run
-      (Slack.handle_event ~config:(make_config ()) ~session_manager
+      (handle_message ~config:(make_config ()) ~session_manager
          ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
            sent := text :: !sent;
            Lwt.return_unit)
@@ -338,7 +375,7 @@ let test_model_set_force_ambiguous_preserves_session_model () =
   let sent = ref [] in
   let result =
     Lwt_main.run
-      (Slack.handle_event ~config:(make_config ()) ~session_manager
+      (handle_message ~config:(make_config ()) ~session_manager
          ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
            sent := text :: !sent;
            Lwt.return_unit)
@@ -694,7 +731,7 @@ let handle_slack_test_message ~db ~channel_id ~user_id ~text ~ts =
   in
   let body = slack_message_body ~channel_id ~user_id ~text ~ts in
   Lwt_main.run
-    (Slack.handle_event ~config:(make_config ()) ~session_manager
+    (handle_message ~config:(make_config ()) ~session_manager
        ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text:_ ->
          Lwt.return_unit)
        body)
