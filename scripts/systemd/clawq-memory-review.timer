@@ -1,0 +1,9 @@
+[Unit]
+Description=Write a daily Clawq daemon memory observation summary
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

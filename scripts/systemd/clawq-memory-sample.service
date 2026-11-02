@@ -1,0 +1,7 @@
+[Unit]
+Description=Record Clawq daemon memory and heartbeat evidence
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/clawq-memwatch sample
+UMask=0077
