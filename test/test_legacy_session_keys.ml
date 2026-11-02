@@ -377,6 +377,269 @@ let test_reappeared_raw_history () =
         (List.length
            (Memory.load_pending_agent_sessions ~db ~max_age_seconds:3600)))
 
+let fts_matches db word key =
+  rows db
+    "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND session_key \
+     = ?"
+    [ Sqlite3.Data.TEXT word; Sqlite3.Data.TEXT key ]
+  |> List.length
+
+let with_late_search ~partial f =
+  with_provider (fun config _ ->
+      let path = Filename.concat config.workspace "late-search.db" in
+      let use_db ~search_enabled f =
+        let db = Memory.init ~db_path:path ~search_enabled () in
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.db_close db))
+          (fun () -> f db)
+      in
+      use_db ~search_enabled:false (fun db ->
+          store db raw "legacyBeforeSearch";
+          store db "other:unindexed" "untouchedBeforeSearch");
+      use_db ~search_enabled:true (fun db ->
+          if partial then store db raw "legacyAfterSearch";
+          store db "other:indexed" "untouchedAfterSearch";
+          f config db))
+
+let test_late_search partial () =
+  with_late_search ~partial (fun config db ->
+      let before =
+        rows db
+          "SELECT id,content,created_at FROM messages WHERE session_key = ? \
+           ORDER BY id"
+          (param raw)
+      in
+      ignore (Session.create ~config ~db ());
+      Alcotest.(check bool)
+        "message IDs and payloads survive late search" true
+        (before
+        = rows db
+            "SELECT id,content,created_at FROM messages WHERE session_key = ? \
+             ORDER BY id"
+            (param canonical));
+      Alcotest.(check int)
+        "previously unindexed legacy row is searchable" 1
+        (fts_matches db "legacyBeforeSearch" canonical);
+      if partial then
+        Alcotest.(check int)
+          "previously indexed legacy row is searchable once" 1
+          (fts_matches db "legacyAfterSearch" canonical);
+      Alcotest.(check int)
+        "old raw key no longer searchable" 0
+        (fts_matches db "legacyBeforeSearch" raw);
+      Alcotest.(check int)
+        "unrelated indexed row retained" 1
+        (fts_matches db "untouchedAfterSearch" "other:indexed");
+      Alcotest.(check int)
+        "no unrelated index rebuild/backfill" 0
+        (fts_matches db "untouchedBeforeSearch" "other:unindexed");
+      ignore (Session.create ~config ~db ());
+      Alcotest.(check int)
+        "repeated manager creation leaves one index entry" 1
+        (fts_matches db "legacyBeforeSearch" canonical))
+
+let test_late_search_rollback () =
+  with_late_search ~partial:true (fun config db ->
+      Sql_util.exec_with_params db
+        "INSERT INTO pending_questions(session_key,questions_json) VALUES (?, \
+         '[]')"
+        (param raw);
+      Sql_util.exec_exn db
+        "CREATE TRIGGER reject_late_search BEFORE UPDATE OF session_key ON \
+         pending_questions BEGIN SELECT RAISE(ABORT, 'late search rollback'); \
+         END";
+      let failure =
+        try
+          ignore (Session.create ~config ~db ());
+          "no failure"
+        with exn -> Printexc.to_string exn
+      in
+      Alcotest.(check bool)
+        "failure reaches the late metadata write" true
+        (Test_helpers.string_contains failure "pending_questions");
+      Alcotest.(check int)
+        "unindexed source remains unindexed on rollback" 0
+        (fts_matches db "legacyBeforeSearch" raw);
+      Alcotest.(check int)
+        "indexed source restored on rollback" 1
+        (fts_matches db "legacyAfterSearch" raw);
+      Alcotest.(check int)
+        "no canonical index after rollback" 0
+        (fts_matches db "legacyAfterSearch" canonical);
+      Alcotest.(check (list string))
+        "both source messages retained"
+        [ "legacyBeforeSearch"; "legacyAfterSearch" ]
+        (current db raw);
+      Alcotest.(check int)
+        "no committed receipt" 0
+        (List.length
+           (rows db "SELECT raw_key FROM session_key_reconciliations" [])))
+
+let completion_task db key =
+  Background_task.init_schema db;
+  Sql_util.exec_with_params db
+    "INSERT INTO \
+     background_tasks(runner,repo_path,prompt,status,session_key,channel,channel_id,use_worktree,automerge,agent_name,result_preview) \
+     VALUES ('local','/scratch','test \
+     completion','succeeded',?,'github','acme/backend',0,0,'fixture','finished')"
+    (param key);
+  let id = Int64.to_int (Sqlite3.last_insert_rowid db) in
+  Option.get (Background_task.get_task ~db ~id)
+
+let test_background_reference_only () =
+  with_legacy (fun config db ->
+      let task = completion_task db raw in
+      ignore (Session.create ~config ~db ());
+      let restored = Option.get (Background_task.get_task ~db ~id:task.id) in
+      Alcotest.(check (option string))
+        "parent-only identity discovered and promoted" (Some canonical)
+        restored.session_key;
+      Alcotest.(check (option string))
+        "routing remains original repository" (Some "acme/backend")
+        restored.channel_id;
+      Alcotest.(check int) "task ID preserved" task.id restored.id)
+
+let test_held_background_completion reset () =
+  with_provider (fun config requests ->
+      Test_helpers.with_memory_store (fun db ->
+          store db raw "preserved raw branch";
+          store db canonical "canonical authority";
+          let task = completion_task db raw in
+          let mgr = Session.create ~config ~db () in
+          if reset then ignore (Lwt_main.run (Session.reset mgr ~key:canonical));
+          let expected = current db canonical in
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             let* () =
+               Daemon_util.inject_background_task_completion
+                 ~session_manager:mgr ~config ~session_key:raw task
+             in
+             Daemon_util.notify_background_task_finished ~session_manager:mgr
+               ~config ~db task);
+          Alcotest.(check int)
+            "held completion never calls provider" 0 (List.length !requests);
+          Alcotest.(check (list string))
+            "canonical history unchanged" expected (current db canonical);
+          Alcotest.(check (list string))
+            "held branch retained" [ "preserved raw branch" ] (current db raw);
+          Alcotest.(check (option string))
+            "held parent reference retained" (Some raw)
+            (Option.get (Background_task.get_task ~db ~id:task.id)).session_key))
+
+let test_colliding_background_completions () =
+  with_provider (fun config requests ->
+      Test_helpers.with_memory_store (fun db ->
+          let first = "github:acme/backend:workflow:ci/a"
+          and second = "github:acme/backend:workflow:ci_a" in
+          let tasks = List.map (completion_task db) [ first; second ] in
+          let mgr = Session.create ~config ~db () in
+          List.iter
+            (fun task ->
+              Lwt_main.run
+                (Daemon_util.notify_background_task_finished
+                   ~session_manager:mgr ~config ~db task))
+            tasks;
+          Alcotest.(check int)
+            "ambiguous parent references never auto-run" 0
+            (List.length !requests);
+          Alcotest.(check (list string))
+            "no history created for canonical collision" []
+            (current db (Session.sanitize_session_key first));
+          Alcotest.(check (list string))
+            "both raw parent references preserved"
+            (List.sort String.compare [ first; second ])
+            (keys db "background_tasks")))
+
+let test_promoted_background_completion () =
+  with_provider (fun config requests ->
+      let config =
+        { config with observer = { config.observer with enabled = false } }
+      in
+      Test_helpers.with_memory_store (fun db ->
+          store db raw "recovered prefix";
+          let stale_task = completion_task db raw in
+          let mgr = Session.create ~config ~db () in
+          let task =
+            Option.get (Background_task.get_task ~db ~id:stale_task.id)
+          in
+          let notifier_seen = ref false and progress_seen = ref false in
+          let canonical_continuation_armed = ref false in
+          Session.set_special_command_handler mgr
+            (fun ~key ~message:_ ~send_progress ~interrupt_check:_ ->
+              notifier_seen :=
+                key = canonical
+                && Option.is_some (Session.find_registered_notifier mgr ~key);
+              progress_seen := Option.is_some send_progress;
+              let open Lwt.Syntax in
+              let* () =
+                match send_progress with
+                | Some send -> send "completion progress"
+                | None -> Lwt.return_unit
+              in
+              Lwt.return_none);
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             Lwt.finalize
+               (fun () ->
+                 let* () =
+                   Daemon_util.notify_background_task_finished
+                     ~continuation_delay:100.0 ~session_manager:mgr ~config ~db
+                     task
+                 in
+                 (* Also exercise an already-captured raw task after promotion. *)
+                 Daemon_util.inject_background_task_completion
+                   ~continuation_delay:100.0 ~session_manager:mgr ~config
+                   ~session_key:raw ~channel:"github" ~channel_id:"acme/backend"
+                   stale_task)
+               (fun () ->
+                 canonical_continuation_armed :=
+                   Option.fold ~none:false
+                     ~some:(fun state -> Option.is_some state.Session.cancel)
+                     (Hashtbl.find_opt mgr.continuation_checks canonical);
+                 let* () =
+                   Session.cancel_autonomous_continuation mgr ~key:canonical
+                 in
+                 if Hashtbl.mem mgr.continuation_checks raw then
+                   Session.cancel_autonomous_continuation mgr ~key:raw
+                 else Lwt.return_unit));
+          Alcotest.(check bool)
+            "canonical completion notifier is available" true !notifier_seen;
+          Alcotest.(check bool)
+            "progress callback is available" true !progress_seen;
+          Alcotest.(check (option string))
+            "persisted task parent promoted" (Some canonical) task.session_key;
+          Alcotest.(check int)
+            "both eligible completion paths call provider" 2
+            (List.length !requests);
+          List.iter
+            (fun (key, messages, _) ->
+              Alcotest.(check (option string))
+                "completion provider key" (Some canonical) key;
+              Alcotest.(check int)
+                "recovered prefix included once" 1
+                (List.length
+                   (List.filter
+                      (fun (m : Provider.message) ->
+                        m.content = "recovered prefix")
+                      messages)))
+            !requests;
+          Alcotest.(check (list string))
+            "response state has only canonical ownership" [ canonical ]
+            (keys db "session_state");
+          Alcotest.(check bool)
+            "response marked sent under canonical key" true
+            (rows db
+               "SELECT response_sent_at FROM session_state WHERE session_key = \
+                ? AND response_sent_at IS NOT NULL"
+               (param canonical)
+            <> []);
+          Alcotest.(check bool)
+            "canonical continuation was armed" true
+            !canonical_continuation_armed;
+          Alcotest.(check bool)
+            "no raw continuation state" false
+            (Hashtbl.mem mgr.continuation_checks raw)))
+
 let suite =
   [
     Alcotest.test_case "unique raw history promotes with IDs payloads and FTS"
@@ -399,4 +662,24 @@ let suite =
       test_non_github_untouched;
     Alcotest.test_case "raw data after promotion is held without reimport"
       `Quick test_reappeared_raw_history;
+    Alcotest.test_case "late search enablement handles an empty index" `Quick
+      (test_late_search false);
+    Alcotest.test_case "late search enablement handles a partial index" `Quick
+      (test_late_search true);
+    Alcotest.test_case "partial index changes roll back with failed promotion"
+      `Quick test_late_search_rollback;
+    Alcotest.test_case "background parent-only identities are reconciled" `Quick
+      test_background_reference_only;
+    Alcotest.test_case
+      "held background completion cannot enter canonical history" `Quick
+      (test_held_background_completion false);
+    Alcotest.test_case
+      "held background completion cannot resurrect reset history" `Quick
+      (test_held_background_completion true);
+    Alcotest.test_case
+      "colliding background parents cannot wake canonical session" `Quick
+      test_colliding_background_completions;
+    Alcotest.test_case
+      "promoted completion routes notifier progress and state canonically"
+      `Quick test_promoted_background_completion;
   ]

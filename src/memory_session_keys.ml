@@ -46,6 +46,16 @@ let blocked_legacy_github_key ~db key =
        (fun _ -> ())
      <> []
 
+let held_legacy_github_key ~db key =
+  String.starts_with ~prefix:"github:" key
+  && table_exists db "session_key_reconciliations"
+  && query db
+       "SELECT 1 FROM session_key_reconciliations WHERE raw_key = ? AND \
+        decision = 'deferred'"
+       [ text key ]
+       (fun _ -> ())
+     <> []
+
 let has_rows db table key =
   table_exists db table
   && query db
@@ -72,6 +82,7 @@ let append_tables =
     "embeddings";
     "task_tree";
     "task_tree_archive";
+    "background_tasks";
   ]
 
 let json_data = function
@@ -133,13 +144,30 @@ let promote_single db table raw canonical =
         ("UPDATE " ^ table ^ " SET session_key = ? WHERE session_key = ?")
         [ text canonical; text raw ]
 
+let remove_indexed_messages db raw =
+  (* Search can be enabled after messages already exist. External-content rows
+     do not prove index membership; deleting an unindexed row corrupts FTS5.
+     MATCH uses the indexed session-key phrase to select only present entries.
+     Materialize before deleting, and never rebuild unrelated history. *)
+  let phrase =
+    "session_key : \""
+    ^ String.concat "\"\"" (String.split_on_char '"' raw)
+    ^ "\""
+  in
+  query db
+    "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND session_key \
+     = ?"
+    [ text phrase; text raw ]
+    (fun stmt -> Sqlite3.column stmt 0)
+  |> List.iter (fun id ->
+      exec db
+        "INSERT INTO messages_fts(messages_fts,rowid,content,session_key) \
+         SELECT 'delete',id,content,session_key FROM messages WHERE id = ?"
+        [ id ])
+
 let promote db raw canonical =
   let indexed = table_exists db "messages_fts" && has_rows db "messages" raw in
-  if indexed then
-    exec db
-      "INSERT INTO messages_fts(messages_fts,rowid,content,session_key) SELECT \
-       'delete',id,content,session_key FROM messages WHERE session_key = ?"
-      [ text raw ];
+  if indexed then remove_indexed_messages db raw;
   List.iter
     (fun table ->
       if table_exists db table then

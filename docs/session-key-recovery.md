@@ -26,10 +26,19 @@ An unambiguous promotion changes ownership in a checked SQLite transaction.
 Message IDs, timestamps, tool-call payloads, provider response JSON, thinking
 content, epoch IDs, queue IDs, and embedding message references are retained.
 The optional full-text index is updated with the message ownership change.
-Workspace state, pending questions, repository bindings, summaries, and task
-trees move with the recovered session where present. Canonical settings take
-precedence; missing model/CWD values can be filled from legacy state. The work
-and channel-routing fields transfer as one tuple. Displaced source metadata is
+Search may have been enabled after some or all messages were stored. Recovery
+uses indexed session-key matches to remove only entries that actually exist,
+then indexes the promoted rows. Both steps run inside the reconciliation
+savepoint. It does not rebuild or backfill unrelated history: the work is
+limited to indexed lookups for promoted aliases and their affected messages.
+An empty or partially populated index therefore does not block startup, and
+the supervisor readiness timeout is unchanged.
+
+Workspace state, pending questions, repository bindings, summaries, task trees,
+and background-task parent references move with the recovered session where
+present. Task IDs, results, and channel routing remain intact. Canonical settings
+take precedence; missing model/CWD values can be filled from legacy state. The
+work and channel-routing fields transfer as one tuple. Displaced source metadata is
 saved in the reconciliation receipt. A failed write rolls the transaction back
 and surfaces the failure instead of exposing a partially reconciled manager.
 Normal tool-group integrity repair still runs when history is loaded.
@@ -38,7 +47,12 @@ Reconciliation decisions persist in `session_key_reconciliations`, with the raw
 key, canonical key, decision, reason, and source metadata snapshot. Held raw
 branches remain inspectable in their original tables. Automatic pending-session
 resume, durable inbound replay/claim, keepalive, and heartbeat selection exclude
-those raw identities. Their queue rows and payloads are retained. Startup logs
+those raw identities. Background completion checks the original parent reference
+before normalizing it; a held parent cannot dispatch a completion or wake the
+canonical session, including after reset. Eligible completion callbacks use the
+canonical key for notifiers, progress, response state, and continuation. This
+also covers an in-memory callback retaining a raw reference from a successful
+promotion. Held task results, queue rows, and payloads are retained. Startup logs
 identify held keys and the diagnostic table. Operators can inspect decisions
 with a read-only query on the relevant database:
 

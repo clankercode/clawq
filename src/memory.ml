@@ -9,6 +9,7 @@ let reconcile_legacy_github_keys =
   Memory_session_keys.reconcile_legacy_github_keys
 
 let blocked_legacy_github_key = Memory_session_keys.blocked_legacy_github_key
+let held_legacy_github_key = Memory_session_keys.held_legacy_github_key
 
 include Memory_session
 include Memory_search
