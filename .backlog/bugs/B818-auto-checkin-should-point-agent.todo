@@ -25,3 +25,5 @@ The automatic autonomous check-in prompt currently tells the agent to continue w
 - A protective source comment remains near the prompt definitions so future edits do not regress the intent.
 
 Decision (2026-11-02 batch): same session worktree after B816, then B831 (shared session tests). Verified continuation/keepalive prompts omit task_tree. Make task_tree the primary backlog and direct review/completion of actionable items; preserve protective comment and hidden idle token.
+
+Completed9fad51e2 merged master7a0a2ba6 after fresh independentPASS. Visible continuation and keepalive prompts prioritize task_tree and completion of all actionable items, preserve concrete action/authorization/blocker bounds, hidden idle token and protective comment. Regression coverage drives task_tree tools through real continuation engine including blocked work. Coordinator combined merged-tree x-p35 canonical quick gate7754 passed61.482s; touched and whole-tree root preview formatting pass.
