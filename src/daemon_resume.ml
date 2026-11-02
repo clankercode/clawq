@@ -403,6 +403,7 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
     ?(after_dispatch = fun ~response:_ -> Lwt.return_unit)
     ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
     ~channel ~channel_id () =
+  let session_key = Session.sanitize_session_key session_key in
   let notify text =
     notify_resumed_session ~senders ~session_manager ~config ~session_key
       ~channel ~channel_id text

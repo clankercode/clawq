@@ -256,6 +256,8 @@ let list_keepalive_session_keys ~db =
   done;
   ignore (Sqlite3.finalize stmt);
   List.rev !keys
+  |> List.filter (fun key ->
+      not (Memory_session_keys.blocked_legacy_github_key ~db key))
 
 let list_heartbeat_session_keys ~db =
   let sql =
@@ -271,6 +273,8 @@ let list_heartbeat_session_keys ~db =
   done;
   ignore (Sqlite3.finalize stmt);
   List.rev !keys
+  |> List.filter (fun key ->
+      not (Memory_session_keys.blocked_legacy_github_key ~db key))
 
 let load_pending_agent_sessions ~db ~max_age_seconds =
   let sql =
@@ -293,6 +297,8 @@ let load_pending_agent_sessions ~db ~max_age_seconds =
   done;
   ignore (Sqlite3.finalize stmt);
   List.rev !rows
+  |> List.filter (fun (key, _, _) ->
+      not (Memory_session_keys.blocked_legacy_github_key ~db key))
 
 let get_session_channel ~db ~session_key =
   let sql =

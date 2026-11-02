@@ -323,76 +323,100 @@ let task_with_teams_room_context ?db (task : Background_task.task) =
         requester = Some requester;
       }
 
+let held_background_completion_key ~(session_manager : Session.t) keys =
+  match session_manager.db with
+  | None -> None
+  | Some db -> List.find_opt (Memory.held_legacy_github_key ~db) keys
+
+let skip_held_background_completion (task : Background_task.task) key =
+  Logs.warn (fun m ->
+      m
+        "Background task #%d completion held for legacy session %S \
+         (session_key_reconciliations)"
+        task.id key);
+  Lwt.return_unit
+
 let inject_background_task_completion
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
     ?(senders = default_resume_senders) ~(session_manager : Session.t)
     ~(config : Runtime_config.t) ~session_key ?channel ?channel_id
     (task : Background_task.task) =
-  let base_message = background_task_wakeup_message task in
-  (* B488: when the task has a follow_up_prompt and completed successfully,
+  (* Check original references before the lossy turn sanitizer erases them.
+     A captured raw reference from a successful promotion remains eligible. *)
+  match
+    held_background_completion_key ~session_manager
+      (session_key :: Option.to_list task.session_key)
+  with
+  | Some key -> skip_held_background_completion task key
+  | None ->
+      let session_key = Session.sanitize_session_key session_key in
+      let base_message = background_task_wakeup_message task in
+      (* B488: when the task has a follow_up_prompt and completed successfully,
      append it to the completion message so the resumed session runs the
      follow-up checklist in the same turn. Failed tasks skip the follow-up
      since their checklist (verify tests, commit, etc.) wouldn't apply. *)
-  let message =
-    match (task.status, task.follow_up_prompt) with
-    | Succeeded, Some prompt when String.trim prompt <> "" ->
-        Printf.sprintf "%s\n\n--- Follow-up tasks ---\n%s" base_message prompt
-    | _ -> base_message
-  in
-  Lwt.catch
-    (fun () ->
-      let open Lwt.Syntax in
-      let notify_fn =
-        match (channel, channel_id) with
-        | Some ch, Some cid ->
-            Some
-              (fun text ->
-                let* result =
-                  dispatch_resumed_message ~senders ~config ~channel:ch
-                    ~channel_id:cid ~text ()
+      let message =
+        match (task.status, task.follow_up_prompt) with
+        | Succeeded, Some prompt when String.trim prompt <> "" ->
+            Printf.sprintf "%s\n\n--- Follow-up tasks ---\n%s" base_message
+              prompt
+        | _ -> base_message
+      in
+      Lwt.catch
+        (fun () ->
+          let open Lwt.Syntax in
+          let notify_fn =
+            match (channel, channel_id) with
+            | Some ch, Some cid ->
+                Some
+                  (fun text ->
+                    let* result =
+                      dispatch_resumed_message ~senders ~config ~channel:ch
+                        ~channel_id:cid ~text ()
+                    in
+                    match result with Ok () | Error _ -> Lwt.return_unit)
+            | _ -> None
+          in
+          let run_turn () =
+            Session.turn session_manager ~key:session_key ~message ?channel
+              ?channel_id ~snapshot_work_type:Access_snapshot.Room_turn ()
+          in
+          let* response =
+            match notify_fn with
+            | Some notify ->
+                Session.with_registered_notifier session_manager
+                  ~key:session_key ~notify run_turn
+            | None -> run_turn ()
+          in
+          if Session.should_suppress_response response then begin
+            Logs.info (fun m ->
+                m
+                  "Background task completion injected into busy session %s; \
+                   queued for later processing"
+                  session_key);
+            Lwt.return_unit
+          end
+          else begin
+            Session.mark_response_sent session_manager ~key:session_key;
+            Logs.info (fun m ->
+                m "Background task completion injected into session %s"
+                  session_key);
+            match (channel, channel_id) with
+            | Some ch, Some cid ->
+                let* () =
+                  notify_resumed_session ~senders ~session_manager ~config
+                    ~session_key ~channel:ch ~channel_id:cid response
                 in
-                match result with Ok () | Error _ -> Lwt.return_unit)
-        | _ -> None
-      in
-      let run_turn () =
-        Session.turn session_manager ~key:session_key ~message ?channel
-          ?channel_id ~snapshot_work_type:Access_snapshot.Room_turn ()
-      in
-      let* response =
-        match notify_fn with
-        | Some notify ->
-            Session.with_registered_notifier session_manager ~key:session_key
-              ~notify run_turn
-        | None -> run_turn ()
-      in
-      if Session.should_suppress_response response then begin
-        Logs.info (fun m ->
-            m
-              "Background task completion injected into busy session %s; \
-               queued for later processing"
-              session_key);
-        Lwt.return_unit
-      end
-      else begin
-        Session.mark_response_sent session_manager ~key:session_key;
-        Logs.info (fun m ->
-            m "Background task completion injected into session %s" session_key);
-        match (channel, channel_id) with
-        | Some ch, Some cid ->
-            let* () =
-              notify_resumed_session ~senders ~session_manager ~config
-                ~session_key ~channel:ch ~channel_id:cid response
-            in
-            post_dispatch_resumed_session_response ~continuation_delay ~senders
-              ~session_manager ~config ~session_key ~channel:ch ~channel_id:cid
-              ~response ()
-        | _ -> Lwt.return_unit
-      end)
-    (fun exn ->
-      Logs.warn (fun m ->
-          m "Background task completion session injection failed for %s: %s"
-            session_key (Printexc.to_string exn));
-      Lwt.return_unit)
+                post_dispatch_resumed_session_response ~continuation_delay
+                  ~senders ~session_manager ~config ~session_key ~channel:ch
+                  ~channel_id:cid ~response ()
+            | _ -> Lwt.return_unit
+          end)
+        (fun exn ->
+          Logs.warn (fun m ->
+              m "Background task completion session injection failed for %s: %s"
+                session_key (Printexc.to_string exn));
+          Lwt.return_unit)
 
 let summarize_for_notification ~(config : Runtime_config.t)
     (task : Background_task.task) =
@@ -597,127 +621,170 @@ let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
     ?db task =
-  let open Lwt.Syntax in
-  let* task, skip_notification =
-    match db with
-    | Some db
-      when task.Background_task.use_worktree
-           && (task.Background_task.status = Background_task.Succeeded
-              || task.Background_task.status = Background_task.DirtyWorktree)
-           && Background_task.resume_supported task -> (
-        match task.Background_task.merge_status with
-        | Some "completion_pass" ->
-            (* Second pass complete. Automerge if applicable and clean. *)
-            if
-              task.Background_task.automerge
-              && task.Background_task.status = Background_task.Succeeded
-            then (
-              let* merge_result = Worktree_merge.try_automerge ~db task in
-              let updated_task =
-                match merge_result with
-                | Worktree_merge.Merged _ ->
-                    { task with merge_status = Some "merged" }
-                | Worktree_merge.Conflict _ ->
-                    { task with merge_status = Some "conflict" }
-                | Worktree_merge.Error _ ->
-                    { task with merge_status = Some "error" }
-                | Worktree_merge.No_worktree ->
-                    { task with merge_status = Some "error" }
-                | Worktree_merge.Already_merged ->
-                    { task with merge_status = Some "merged" }
-                | Worktree_merge.Dirty_worktree _ ->
-                    { task with merge_status = Some "dirty" }
-              in
-              Logs.info (fun m ->
-                  m "Automerge result for task %d: %s" task.id
-                    (Worktree_merge.format_result merge_result));
-              Lwt.return (updated_task, false))
-            else Lwt.return (task, false)
-        | _ ->
-            (* First pass: send completion message, requeue *)
-            Background_task.request_completion_pass ~db ~id:task.id;
-            Logs.info (fun m -> m "Queued completion pass for task %d" task.id);
-            Lwt.return (task, true))
-    | _ -> Lwt.return (task, false)
-  in
-  let task = task_with_teams_room_context ?db task in
-  (* B630/B632: if this task was triggered by a cron job, record its output
+  match
+    held_background_completion_key ~session_manager
+      (Option.to_list task.Background_task.session_key)
+  with
+  | Some key -> skip_held_background_completion task key
+  | None -> (
+      let task =
+        {
+          task with
+          session_key = Option.map Session.sanitize_session_key task.session_key;
+        }
+      in
+      let open Lwt.Syntax in
+      let* task, skip_notification =
+        match db with
+        | Some db
+          when task.Background_task.use_worktree
+               && (task.Background_task.status = Background_task.Succeeded
+                  || task.Background_task.status = Background_task.DirtyWorktree
+                  )
+               && Background_task.resume_supported task -> (
+            match task.Background_task.merge_status with
+            | Some "completion_pass" ->
+                (* Second pass complete. Automerge if applicable and clean. *)
+                if
+                  task.Background_task.automerge
+                  && task.Background_task.status = Background_task.Succeeded
+                then (
+                  let* merge_result = Worktree_merge.try_automerge ~db task in
+                  let updated_task =
+                    match merge_result with
+                    | Worktree_merge.Merged _ ->
+                        { task with merge_status = Some "merged" }
+                    | Worktree_merge.Conflict _ ->
+                        { task with merge_status = Some "conflict" }
+                    | Worktree_merge.Error _ ->
+                        { task with merge_status = Some "error" }
+                    | Worktree_merge.No_worktree ->
+                        { task with merge_status = Some "error" }
+                    | Worktree_merge.Already_merged ->
+                        { task with merge_status = Some "merged" }
+                    | Worktree_merge.Dirty_worktree _ ->
+                        { task with merge_status = Some "dirty" }
+                  in
+                  Logs.info (fun m ->
+                      m "Automerge result for task %d: %s" task.id
+                        (Worktree_merge.format_result merge_result));
+                  Lwt.return (updated_task, false))
+                else Lwt.return (task, false)
+            | _ ->
+                (* First pass: send completion message, requeue *)
+                Background_task.request_completion_pass ~db ~id:task.id;
+                Logs.info (fun m ->
+                    m "Queued completion pass for task %d" task.id);
+                Lwt.return (task, true))
+        | _ -> Lwt.return (task, false)
+      in
+      let task = task_with_teams_room_context ?db task in
+      (* B630/B632: if this task was triggered by a cron job, record its output
      so the scheduler can detect consecutive-identical-output loops and
      disable the cron before it burns more tokens. Safe no-op for non-cron
      tasks (lookup returns None). *)
-  (match (db, task.Background_task.status) with
-  | Some db, Background_task.Succeeded ->
-      let output =
-        Option.value ~default:"" task.Background_task.result_preview
-      in
-      let _ : string option =
-        Scheduler.mark_run_output ~db ~bg_task_id:task.Background_task.id
-          ~output
-      in
-      ()
-  | _ -> ());
-  if skip_notification then Lwt.return_unit
-  else
-    (* Sync workflow run status from completed background task *)
-    let () =
-      match db with
-      | Some db -> (
-          let bg_status =
-            match task.Background_task.status with
-            | Background_task.Succeeded -> Some `Succeeded
-            | Background_task.Failed -> Some `Failed
-            | Background_task.DirtyWorktree -> Some `Succeeded
-            | _ -> None
+      (match (db, task.Background_task.status) with
+      | Some db, Background_task.Succeeded ->
+          let output =
+            Option.value ~default:"" task.Background_task.result_preview
           in
-          match bg_status with
-          | Some status ->
-              ignore
-                (Workflow_run_trigger.sync_from_background_task ~db
-                   ~task_id:task.Background_task.id ~status
-                   ~result_preview:task.Background_task.result_preview
-                   ~error_message:task.Background_task.result_preview)
-          | None -> ())
-      | None -> ()
-    in
-    let* card_delivered = deliver_room_progress ~config ?db task in
-    (* Send channel notification if card was not delivered successfully *)
-    let* () =
-      if not card_delivered then begin
-        (* B712: skip summarizer LLM for subagent tasks (agent_name set +
+          let _ : string option =
+            Scheduler.mark_run_output ~db ~bg_task_id:task.Background_task.id
+              ~output
+          in
+          ()
+      | _ -> ());
+      if skip_notification then Lwt.return_unit
+      else
+        (* Sync workflow run status from completed background task *)
+        let () =
+          match db with
+          | Some db -> (
+              let bg_status =
+                match task.Background_task.status with
+                | Background_task.Succeeded -> Some `Succeeded
+                | Background_task.Failed -> Some `Failed
+                | Background_task.DirtyWorktree -> Some `Succeeded
+                | _ -> None
+              in
+              match bg_status with
+              | Some status ->
+                  ignore
+                    (Workflow_run_trigger.sync_from_background_task ~db
+                       ~task_id:task.Background_task.id ~status
+                       ~result_preview:task.Background_task.result_preview
+                       ~error_message:task.Background_task.result_preview)
+              | None -> ())
+          | None -> ()
+        in
+        let* card_delivered = deliver_room_progress ~config ?db task in
+        (* Send channel notification if card was not delivered successfully *)
+        let* () =
+          if not card_delivered then begin
+            (* B712: skip summarizer LLM for subagent tasks (agent_name set +
            no worktree). Use result_preview directly — YAGNI on summarizer. *)
-        let* summary =
-          match task.Background_task.agent_name with
-          | Some _ when not task.Background_task.use_worktree -> Lwt.return_none
-          | _ -> summarize_for_notification ~config task
-        in
-        let git_info = Background_task.gather_git_status task in
-        let channel_text =
-          Background_task.channel_notification_message ?summary ?git_info task
-        in
-        let open Lwt.Syntax in
-        match task.Background_task.session_key with
-        | Some key -> (
-            match Session.find_registered_notifier session_manager ~key with
-            | Some notify ->
-                Lwt.catch
-                  (fun () ->
-                    let* () = notify channel_text in
-                    record_notification ~db ~task_id:task.Background_task.id
-                      ~status:"delivered" ();
-                    Lwt.return_unit)
-                  (fun exn ->
-                    Logs.warn (fun m ->
-                        m "Background task notifier failed: %s"
-                          (Printexc.to_string exn));
-                    record_notification ~db ~task_id:task.Background_task.id
-                      ~status:"failed" ~error:(Printexc.to_string exn) ();
-                    Lwt.return_unit)
+            let* summary =
+              match task.Background_task.agent_name with
+              | Some _ when not task.Background_task.use_worktree ->
+                  Lwt.return_none
+              | _ -> summarize_for_notification ~config task
+            in
+            let git_info = Background_task.gather_git_status task in
+            let channel_text =
+              Background_task.channel_notification_message ?summary ?git_info
+                task
+            in
+            let open Lwt.Syntax in
+            match task.Background_task.session_key with
+            | Some key -> (
+                match Session.find_registered_notifier session_manager ~key with
+                | Some notify ->
+                    Lwt.catch
+                      (fun () ->
+                        let* () = notify channel_text in
+                        record_notification ~db ~task_id:task.Background_task.id
+                          ~status:"delivered" ();
+                        Lwt.return_unit)
+                      (fun exn ->
+                        Logs.warn (fun m ->
+                            m "Background task notifier failed: %s"
+                              (Printexc.to_string exn));
+                        record_notification ~db ~task_id:task.Background_task.id
+                          ~status:"failed" ~error:(Printexc.to_string exn) ();
+                        Lwt.return_unit)
+                | None -> (
+                    match (task.channel, task.channel_id) with
+                    | Some channel, Some channel_id -> (
+                        let* result =
+                          dispatch_resumed_message ~senders ~config ~channel
+                            ~channel_id ~text:channel_text ()
+                        in
+                        match result with
+                        | Ok () ->
+                            record_notification ~db
+                              ~task_id:task.Background_task.id
+                              ~status:"delivered" ();
+                            Lwt.return_unit
+                        | Error err ->
+                            Logs.warn (fun m ->
+                                m
+                                  "Background task completion dispatch failed: \
+                                   %s"
+                                  err);
+                            record_notification ~db
+                              ~task_id:task.Background_task.id ~status:"failed"
+                              ~error:err ();
+                            Lwt.return_unit)
+                    | _ ->
+                        record_notification ~db ~task_id:task.Background_task.id
+                          ~status:"skipped" ();
+                        Lwt.return_unit))
             | None -> (
                 match (task.channel, task.channel_id) with
                 | Some channel, Some channel_id -> (
                     let* result =
-                      dispatch_resumed_message ~senders ~config ~channel
-                        ~channel_id ~text:channel_text ()
+                      dispatch_resumed_message ~config ~channel ~channel_id
+                        ~text:channel_text ()
                     in
                     match result with
                     | Ok () ->
@@ -734,39 +801,17 @@ let notify_background_task_finished ?continuation_delay
                 | _ ->
                     record_notification ~db ~task_id:task.Background_task.id
                       ~status:"skipped" ();
-                    Lwt.return_unit))
-        | None -> (
-            match (task.channel, task.channel_id) with
-            | Some channel, Some channel_id -> (
-                let* result =
-                  dispatch_resumed_message ~config ~channel ~channel_id
-                    ~text:channel_text ()
-                in
-                match result with
-                | Ok () ->
-                    record_notification ~db ~task_id:task.Background_task.id
-                      ~status:"delivered" ();
-                    Lwt.return_unit
-                | Error err ->
-                    Logs.warn (fun m ->
-                        m "Background task completion dispatch failed: %s" err);
-                    record_notification ~db ~task_id:task.Background_task.id
-                      ~status:"failed" ~error:err ();
                     Lwt.return_unit)
-            | _ ->
-                record_notification ~db ~task_id:task.Background_task.id
-                  ~status:"skipped" ();
-                Lwt.return_unit)
-      end
-      else Lwt.return_unit
-    in
-    (* Always inject completion for session continuation *)
-    match task.Background_task.session_key with
-    | Some session_key ->
-        inject_background_task_completion ?continuation_delay ~senders
-          ~session_manager ~config ~session_key ?channel:task.channel
-          ?channel_id:task.channel_id task
-    | None -> Lwt.return_unit
+          end
+          else Lwt.return_unit
+        in
+        (* Always inject completion for session continuation *)
+        match task.Background_task.session_key with
+        | Some session_key ->
+            inject_background_task_completion ?continuation_delay ~senders
+              ~session_manager ~config ~session_key ?channel:task.channel
+              ?channel_id:task.channel_id task
+        | None -> Lwt.return_unit)
 
 let notify_background_task_started ~(session_manager : Session.t)
     ~(config : Runtime_config.t) ?(db : Sqlite3.db option) task =

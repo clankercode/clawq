@@ -1248,8 +1248,23 @@ let handle_webhook_clawq_pr_comment_session_key () =
           with
           | Github.Ok _ ->
               Alcotest.(check string)
-                "session key for PR comment" "github:acme/backend:pr:42"
-                !captured_key
+                "session key for PR comment" "github:acme_backend:pr:42"
+                !captured_key;
+              Alcotest.(check bool)
+                "canonical notifier registered" true
+                (Option.is_some
+                   (Session.find_registered_notifier session_manager
+                      ~key:!captured_key));
+              Alcotest.(check bool)
+                "raw notifier not registered" true
+                (Option.is_none
+                   (Session.find_registered_notifier session_manager
+                      ~key:"github:acme/backend:pr:42"));
+              Alcotest.(check bool)
+                "canonical connector capabilities registered" true
+                (Option.is_some
+                   (Session.find_connector_capabilities session_manager
+                      ~key:!captured_key))
           | Github.BadSignature -> Alcotest.fail "expected valid signature"))
 
 let handle_webhook_clawq_issue_comment_session_key () =
@@ -1284,7 +1299,7 @@ let handle_webhook_clawq_issue_comment_session_key () =
           with
           | Github.Ok _ ->
               Alcotest.(check string)
-                "session key for issue comment" "github:acme/backend:issue:5"
+                "session key for issue comment" "github:acme_backend:issue:5"
                 !captured_key
           | Github.BadSignature -> Alcotest.fail "expected valid signature"))
 
@@ -1320,7 +1335,7 @@ let handle_webhook_clawq_review_comment_session_key () =
           with
           | Github.Ok _ ->
               Alcotest.(check string)
-                "session key for review comment" "github:acme/backend:pr:42"
+                "session key for review comment" "github:acme_backend:pr:42"
                 !captured_key
           | Github.BadSignature -> Alcotest.fail "expected valid signature"))
 
@@ -1363,9 +1378,9 @@ let handle_webhook_repeated_clawq_same_session () =
           let keys = List.rev !captured_keys in
           Alcotest.(check int) "two turns processed" 2 (List.length keys);
           Alcotest.(check string)
-            "first key" "github:acme/backend:pr:42" (List.nth keys 0);
+            "first key" "github:acme_backend:pr:42" (List.nth keys 0);
           Alcotest.(check string)
-            "second key matches first" "github:acme/backend:pr:42"
+            "second key matches first" "github:acme_backend:pr:42"
             (List.nth keys 1)))
 
 let handle_webhook_bot_self_loop_protection () =

@@ -721,6 +721,7 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
       else Lwt.return_unit
 
 let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
+  let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         ~drained_any:false ())
@@ -730,6 +731,7 @@ let run_session_turn mgr ~io ~key ~message ?(content_parts = [])
     ?sender_id ?sender_name ?user_group ?channel ?channel_id ?message_id ?cwd
     ?(deferred_if_busy = false) ?on_tool_round_complete ?on_drain_progress
     ?before_drain ?snapshot_work_type ?(has_external_users = false) () =
+  let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -905,6 +907,7 @@ let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
     ?user_group ?channel ?channel_id ?message_id ?on_tool_round_complete
     ?before_drain () =
+  let key = Session_core.sanitize_session_key key in
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in

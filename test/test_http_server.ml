@@ -1256,7 +1256,7 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
           (* Processing is async; wait for side effects *)
           Lwt_main.run (Lwt_unix.sleep 0.1);
           Alcotest.(check (option string))
-            "session key" (Some "github:acme/backend:pr:42") !seen_key;
+            "session key" (Some "github:acme_backend:pr:42") !seen_key;
           Alcotest.(check bool)
             "message includes github context" true
             (match !seen_message with
@@ -1364,7 +1364,7 @@ let test_github_pr_synchronize_reuses_pr_session () =
           (* Processing is async; wait for side effects *)
           Lwt_main.run (Lwt_unix.sleep 0.1);
           Alcotest.(check (option string))
-            "session key" (Some "github:acme/backend:pr:42") !seen_key;
+            "session key" (Some "github:acme_backend:pr:42") !seen_key;
           Alcotest.(check bool)
             "message includes github context" true
             (match !seen_message with
@@ -1474,7 +1474,7 @@ Payload: {{payload_path}}
       (* Processing is async; wait for side effects *)
       Lwt_main.run (Lwt_unix.sleep 0.1);
       Alcotest.(check (option string))
-        "session key" (Some "github:acme/backend:workflow_run:55") !seen_key;
+        "session key" (Some "github:acme_backend:workflow_run:55") !seen_key;
       Alcotest.(check bool)
         "message mentions failure" true
         (match !seen_message with
@@ -1733,7 +1733,7 @@ let test_github_webhook_reaction_and_placeholder_edit () =
           (* Processing is async; wait for side effects *)
           Lwt_main.run (Lwt_unix.sleep 0.2);
           Alcotest.(check (option string))
-            "session key" (Some "github:acme/backend:pr:42") !seen_key;
+            "session key" (Some "github:acme_backend:pr:42") !seen_key;
           let calls = List.rev !api_calls in
           (* AC #4: Verify eyes reaction was posted *)
           let reaction_calls =

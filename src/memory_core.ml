@@ -68,6 +68,7 @@ let init ~db_path ?(search_enabled = false) () =
   init_postmortems_schema db;
   Summary_store.init_schema db;
   init_session_archive_schema db;
+  Memory_session_keys.init_schema db;
   init_attachment_log_schema db;
   init_teams_dedup_schema db;
   Admin.init_schema db;
