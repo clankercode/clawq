@@ -377,6 +377,24 @@ Automatic native restart execution also rechecks the persisted human's current
 role and verified room policy after preparation and any pre-model compaction or
 notification wait, recording a fresh snapshot. The resume prompt supplies no
 Slack message authority for huddle tools.
+Automatic continuation, enabled keepalive, opted-in heartbeat and background
+completion turns in native threads use the same current authorization and owned run lifecycle.
+They recheck the persisted human (or the completion task's original human)
+after Session preparation, refresh the verified room snapshot, and own their
+processing stream and Stop control through cleanup. Synthetic completions queued
+while busy retain that human separately from queued messages and reauthorize on
+drain or restart replay. They supply no Slack message identity or huddle-tool
+authority; missing human-request provenance remains a retained request.
+Unmarked native input, including cron work without original human provenance,
+is refused instead of borrowing the last thread owner.
+
+Ad hoc leading `@template` syntax in a native turn stays on the owned Session
+path; it does not launch a separate template agent. Existing room/thread agent
+template bindings still apply. Direct CLI/session injections and unprofiled cron
+jobs aimed at a native thread key have no verified Slack human/message/room
+provenance and are refused with that reason. Submit a fresh Slack message for
+new work. Profile-backed routine jobs use their separate worker session.
+
 Original-text question answers and authorized interrupts are handled before
 history/deferral. An owned `!change direction` interrupts and preserves
 `change direction` as a fresh request; bare admin `stop` has no followup.

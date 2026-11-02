@@ -92,11 +92,12 @@ let test_foreign_drain ~resume ~revoke () =
             ()
         else
           let* _ =
-            Session.turn base.manager ~key ~message:"background owner" ()
+            Session.turn_synthetic base.manager ~key ~message:"background owner"
+              ()
           in
           Lwt.return_unit
       in
-      (* Ordinary buffered Session.turn is the actual autonomous/background drain owner. *)
+      (* The explicit buffered automatic owner drains subsequent human requests. *)
       let* () = Test_slack_socket.settle 4 in
       let* _ =
         run ~id:"queued-foreign"
@@ -193,7 +194,8 @@ let test_admin_policy ~shared ~boot ~resume ~already_revoked () =
                 ()
             else
               let* _ =
-                Session.turn base.manager ~key ~message:"background owner" ()
+                Session.turn_synthetic base.manager ~key
+                  ~message:"background owner" ()
               in
               Lwt.return_unit
           in
@@ -431,12 +433,21 @@ let test_classified_snapshot ~kind ~override ~queued () =
       if override then admin base;
       let channel = configure_classification base handler ~kind ~override in
       let native_key = "slack:" ^ channel ^ ":thread:T123:A123:100.000001" in
+      let* () =
+        if queued then
+          let* _ =
+            run ~id:"seed-classified-owner"
+              (message ~channel "seed verified owner")
+          in
+          Lwt.return_unit
+        else Lwt.return_unit
+      in
       let held, release_owner = Lwt.task () in
       (provider := fun ~model:_ ~messages:_ -> held);
       let owner =
         if queued then
           Some
-            (Session.turn base.manager ~key:native_key
+            (Session.turn_synthetic base.manager ~key:native_key
                ~message:"ordinary background owner" ())
         else None
       in

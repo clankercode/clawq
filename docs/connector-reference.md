@@ -319,6 +319,24 @@ notification wait, then records a fresh room snapshot. The automatic resume
 prompt supplies no Slack message authority for huddle tools. No caller authority
 is restored from quoted history.
 
+Automatic continuation, enabled keepalive, opted-in heartbeat and background
+completion turns in native threads use the same current authorization and owned run lifecycle.
+They recheck the persisted human (or the completion task's original human)
+after Session preparation, refresh the verified room snapshot, and own their
+processing stream and Stop control through cleanup. Synthetic completions queued
+while busy retain that human separately from queued messages and reauthorize on
+drain or restart replay. They supply no Slack message identity or huddle-tool
+authority; missing human-request provenance remains a retained request.
+Unmarked native input, including cron work without original human provenance,
+is refused instead of borrowing the last thread owner.
+
+Ad hoc leading `@template` syntax in a native turn stays on the owned Session
+path; it does not launch a separate template agent. Existing room/thread agent
+template bindings still apply. Direct CLI/session injections and unprofiled cron
+jobs aimed at a native thread key have no verified Slack human/message/room
+provenance and are refused with that reason. Submit a fresh Slack message for
+new work. Profile-backed routine jobs use their separate worker session.
+
 Deferred requests keep their original human, message, room and installation
 route in the existing durable queue. Every drain owner and boot replay freshly
 authorizes that requester before model/tools and activates and finishes that

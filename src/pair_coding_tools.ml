@@ -31,6 +31,7 @@ let enqueue_to_role ctx ~(target_role : Pair_coding_types.role) ~message =
       channel = Some "pair";
       channel_id = Some ctx.pair_id;
       message_id = None;
+      execution_origin = Session_types.Human_request;
       inbound_queue_id = None;
       bang = false;
       deferred_followup = false;

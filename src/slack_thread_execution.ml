@@ -29,7 +29,9 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
   | None ->
       Lwt.map
         (fun response -> Session_types.Queue_executed response)
-        (run ~room_classification:None message)
+        (run
+           ~verify_before_model:(fun _ -> Lwt.return_unit)
+           ~room_classification:None message)
   | Some route -> (
       let refuse reason =
         let* () =
@@ -44,7 +46,15 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
       if not (Slack_thread_runs.accepting manager) then
         refuse "Slack connector shut down; request retained"
       else
-        match requester route message with
+        match
+          match message.execution_origin with
+          | Human_request -> requester route message
+          | Synthetic (Some owner) when Slack_huddles.valid_id "UW" owner ->
+              Ok (owner, "synthetic:" ^ Temp_downloads.generate_token ())
+          | Synthetic _ ->
+              Error
+                "Synthetic Slack work lacks a persisted human owner; retained"
+        with
         | Error reason -> refuse reason
         | Ok (user, message_id) -> (
             let* authorization =
@@ -78,7 +88,10 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                             else Lwt.return_unit
                           in
                           let* classification =
-                            Slack_thread_runs.start_verified r
+                            Slack_thread_runs.start_verified
+                              ~persist_owner:
+                                (message.execution_origin = Human_request)
+                              r
                           in
                           Lwt.return (Ok classification))
                         (function
@@ -115,21 +128,41 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                               classification.has_external_users;
                           }
                         in
+                        let suppressed =
+                          Session.find_registered_notifier manager ~key = None
+                        in
                         Session.register_channel_notifier manager ~key
                           (notify manager route);
-                        Slack_huddle_context.with_request
-                          ~session_manager:manager ~key
-                          ~channel_id:route.channel ~user_id:user ~message_id
-                          (fun () ->
+                        let with_authority f =
+                          match message.execution_origin with
+                          | Human_request ->
+                              Slack_huddle_context.with_request
+                                ~session_manager:manager ~key
+                                ~channel_id:route.channel ~user_id:user
+                                ~message_id f
+                          | Synthetic _ ->
+                              Lwt.with_value Slack_huddle_context.current None
+                                (fun () ->
+                                  if suppressed then
+                                    Session.with_suppressed_channel_output
+                                      manager ~key f
+                                  else f ())
+                        in
+                        with_authority (fun () ->
                             Lwt.catch
                               (fun () ->
                                 Lwt.map
                                   (fun response ->
                                     Session_types.Queue_executed response)
                                   (run
+                                     ~verify_before_model:
+                                       (Slack_thread_runs.verify_before_model r)
                                      ~room_classification:(Some classification)
                                      current))
                               (function
+                                | Session_queue.Request_retained _
+                                  when r.stopped ->
+                                    Lwt.return Session_types.Queue_cancelled
                                 | Session_queue.Request_retained reason ->
                                     Lwt.return
                                       (Session_types.Queue_retained reason)
@@ -137,4 +170,26 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                   (fun () -> Slack_thread_runs.finish r)))
 
 let install manager =
-  manager.Session.queued_execution_adapter <- Some (execute manager)
+  manager.Session.queued_execution_adapter <- Some (execute manager);
+  manager.Session.synthetic_owner <-
+    Some (fun ~key -> Slack_thread_route.load_owner manager key)
+
+(** Completions are data from their original task, not a request by whichever
+    human happens to hold the Session now. Older tasks without an origin use the
+    persisted thread owner; conflicting origins fail closed. *)
+let completion_owner manager ~key (task : Background_task.task) =
+  match Slack_thread_route.of_key key with
+  | None -> None
+  | Some route ->
+      Some
+        (match task.origin_json with
+        | None -> Slack_thread_route.load_owner manager key
+        | Some json -> (
+            match Room_origin.of_json_string_opt json with
+            | Some origin
+              when origin.connector = Some "slack"
+                   && origin.room_id = Some route.channel
+                   && origin.workspace_id = Some route.team
+                   && origin.thread_id = Some route.root ->
+                origin.requester_id
+            | _ -> None))

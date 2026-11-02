@@ -34,6 +34,16 @@ notifier/status output suppressed. The action instructions guide the model;
 they do not reject every text-only response at runtime. Tools may be unavailable
 or work may be blocked.
 
+In native Slack threads, automatic check-ins, opted-in heartbeat turns and background completions also
+reauthorize the persisted human or original task human against current connector
+settings, membership, administrator role and verified room policy. Authorization
+is checked again after awaited Session preparation before task model entry.
+Allowed turns own a native processing stream and Stop control through cleanup.
+These lifecycle controls remain visible while ordinary check-in chatter is suppressed.
+These synthetic turns supply no Slack message identity or huddle-tool authority.
+A completion arriving while busy remains separate from queued human requests and
+keeps its original human through drain and restart replay.
+
 Regression tests use an in-process mock provider, a scratch workspace, and an
 in-memory database to drive the real session turn and tool loop. They verify
 that `doc_write` completes before progress is returned and tool results persist.

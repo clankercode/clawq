@@ -28,6 +28,7 @@ let queued_msg : Session.queued_message =
     channel = None;
     channel_id = None;
     message_id = None;
+    execution_origin = Session_types.Human_request;
     inbound_queue_id = None;
     bang = false;
     deferred_followup = false;

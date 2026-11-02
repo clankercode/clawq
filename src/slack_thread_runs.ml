@@ -327,8 +327,11 @@ let execution_policy r ~config classification =
   if Session.get_config r.manager != config then
     refuse
       "Slack configuration changed before model execution; request retained";
-  if classification.Runtime_config_types.tenant_id <> Some r.route.team then
-    refuse "Verified Slack classification does not match the execution team";
+  if
+    classification.Runtime_config_types.tenant_id <> Some r.route.team
+    || classification.connector <> "slack"
+    || classification.room_id <> r.route.channel
+  then refuse "Verified Slack classification does not match the execution team";
   let admin =
     match Session.get_db r.manager with
     | Some db -> Admin.is_admin ~db ~channel:"slack" ~sender_id:r.owner
@@ -343,7 +346,37 @@ let execution_policy r ~config classification =
   | Ok result -> result
   | Error reason -> refuse reason
 
-let start_verified r =
+(** A neutral Session callback invokes this after all awaited preparation.
+    Authorize metadata again, then check role/ownership/config without yielding
+    between the final decision, snapshot refresh and task Agent entry. *)
+let verify_before_model r agent =
+  require_accepting r.manager;
+  let config = Session.get_config r.manager in
+  let* authorized =
+    Slack_thread_api.authorize ~manager:r.manager ~route:r.route ~user:r.owner
+  in
+  let classification =
+    match authorized with
+    | Ok (_, _, classification) -> classification
+    | Error reason -> raise (Session_queue.Request_retained reason)
+  in
+  let classification, decision = execution_policy r ~config classification in
+  (match Session.get_db r.manager with
+  | None ->
+      agent.Agent.access_snapshot_id <- None;
+      agent.Agent.access_snapshot <- None
+  | Some db ->
+      let snap =
+        Access_snapshot.create_and_persist ~db ~config ~work_type:Room_turn
+          ~session_key:r.key ~room_id:r.route.channel
+          ~room_classification:classification.scope
+          ~room_policy_decision:decision ()
+      in
+      agent.Agent.access_snapshot_id <- Some snap.id;
+      agent.Agent.access_snapshot <- Some snap);
+  Lwt.return_unit
+
+let start_verified ?(persist_owner = true) r =
   require_accepting r.manager;
   let authorized_config = Session.get_config r.manager in
   let* () = Lwt.protected r.group.terminal in
@@ -374,7 +407,8 @@ let start_verified r =
           | Ok (_, _, classification) -> Lwt.return classification
           | Error reason -> Lwt.fail_with reason
         in
-        Slack_thread_route.save_owner r.manager r.route r.owner;
+        if persist_owner then
+          Slack_thread_route.save_owner r.manager r.route r.owner;
         let* () = status r "processing" in
         check_preparation ();
         match token r.manager with

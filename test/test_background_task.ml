@@ -3350,6 +3350,7 @@ let test_subagent_result_tool_uses_session_mgr_for_queued_interrupts () =
             channel = Some "telegram";
             channel_id = Some "1";
             message_id = None;
+            execution_origin = Session_types.Human_request;
             inbound_queue_id = None;
             bang = false;
             deferred_followup = false;

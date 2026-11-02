@@ -12,7 +12,9 @@ let execute_queued_request mgr ~key ~message ~run =
   | None ->
       Lwt.map
         (fun response -> Queue_executed response)
-        (run ~room_classification:None message)
+        (run
+           ~verify_before_model:(fun _ -> Lwt.return_unit)
+           ~room_classification:None message)
 
 let starts_with ~prefix text =
   let prefix_len = String.length prefix in
@@ -56,6 +58,15 @@ let queued_message_payload_json (msg : queued_message) =
       ("deferred_followup", `Bool msg.deferred_followup);
       ("origin_version", `Int 1);
     ]
+    @
+    match msg.execution_origin with
+    | Human_request -> []
+    | Synthetic owner ->
+        [
+          ("execution_origin", `String "synthetic");
+          ( "synthetic_owner",
+            Option.fold ~none:`Null ~some:(fun s -> `String s) owner );
+        ]
   in
   let fields =
     match msg.channel_id with
@@ -124,7 +135,11 @@ let replace_last_deferred_followup ?(same_requester = false) msgs addition =
     when same_requester
          &&
          let msg = List.nth msgs target_idx in
-         msg.sender_id = None
+         msg.execution_origin <> addition.execution_origin
+         || (match msg.execution_origin with
+           | Synthetic _ -> true
+           | Human_request -> false)
+         || msg.sender_id = None
          || msg.sender_id <> addition.sender_id
          || msg.channel <> addition.channel
          || msg.channel_id <> addition.channel_id

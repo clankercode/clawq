@@ -378,8 +378,12 @@ let inject_background_task_completion
             | _ -> None
           in
           let run_turn () =
-            Session.turn session_manager ~key:session_key ~message ?channel
-              ?channel_id ~snapshot_work_type:Access_snapshot.Room_turn ()
+            Session.turn_synthetic session_manager ~key:session_key ~message
+              ?channel ?channel_id
+              ?origin_owner:
+                (Slack_thread_execution.completion_owner session_manager
+                   ~key:session_key task)
+              ~snapshot_work_type:Access_snapshot.Room_turn ()
           in
           let* response =
             match notify_fn with
@@ -841,6 +845,7 @@ let notify_background_task_started ~(session_manager : Session.t)
             channel = task.channel;
             channel_id = task.channel_id;
             message_id = None;
+            execution_origin = Session_types.Human_request;
             inbound_queue_id = None;
             bang = false;
             deferred_followup = false;
@@ -977,10 +982,20 @@ let pp_header_with_ts ppf t (level, _header) =
   Fmt.pf ppf "%s[%02d:%02d:%02d.%03d]%s %s%s%s " ansi_fg_gray tm.Unix.tm_hour
     tm.Unix.tm_min tm.Unix.tm_sec ms ansi_reset lc lt ansi_reset
 
+let keepalive_timing : ((unit -> float) * (float -> unit Lwt.t)) Lwt.key =
+  Lwt.new_key ()
+
+let with_keepalive_timing ~now ~sleep f =
+  Lwt.with_value keepalive_timing (Some (now, sleep)) f
+
 let run_keepalive_loop ~db ~(session_manager : Session.t) =
   let open Lwt.Syntax in
+  let now, sleep =
+    Option.value (Lwt.get keepalive_timing)
+      ~default:(Unix.gettimeofday, Lwt_unix.sleep)
+  in
   let rec loop () =
-    let* () = Lwt_unix.sleep keepalive_check_interval_s in
+    let* () = sleep keepalive_check_interval_s in
     let keys = Memory.list_keepalive_session_keys ~db in
     let* () =
       Lwt_list.iter_s
@@ -1011,8 +1026,7 @@ let run_keepalive_loop ~db ~(session_manager : Session.t) =
                   | Some ts ->
                       let epoch = Background_task.parse_sqlite_datetime ts in
                       epoch = 0.0
-                      || Unix.gettimeofday () -. epoch
-                         >= keepalive_idle_threshold_s)
+                      || now () -. epoch >= keepalive_idle_threshold_s)
             in
             if not is_idle then begin
               Logs.debug (fun m ->
@@ -1028,7 +1042,8 @@ let run_keepalive_loop ~db ~(session_manager : Session.t) =
                       Session.with_suppressed_channel_output session_manager
                         ~key:session_key (fun () ->
                           let* _response =
-                            Session.turn session_manager ~key:session_key
+                            Session.turn_synthetic session_manager
+                              ~key:session_key
                               ~message:Session.keepalive_nudge_prompt ()
                           in
                           Lwt.return_unit))

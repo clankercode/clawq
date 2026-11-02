@@ -8,7 +8,12 @@ type special_command_handler =
   interrupt_check:(unit -> string option) option ->
   string option Lwt.t
 
+type execution_origin = Human_request | Synthetic of string option
+
 type queued_message = {
+  execution_origin : execution_origin;
+      (** Synthetic work captures its human owner before queuing, without a
+          human message identity. Missing legacy provenance stays a request. *)
   message : string;
   content_parts : Provider.content_part list;
   attachments : (string * string) list;
@@ -44,7 +49,8 @@ type queued_execution_adapter =
   key:string ->
   message:queued_message ->
   run:
-    (room_classification:Runtime_config_types.room_classification option ->
+    (verify_before_model:(Agent.t -> unit Lwt.t) ->
+    room_classification:Runtime_config_types.room_classification option ->
     queued_message ->
     string Lwt.t) ->
   queued_execution Lwt.t
@@ -82,6 +88,7 @@ type t = {
   continuation_checks : (string, continuation_state) Hashtbl.t;
   mutable special_command_handler : special_command_handler option;
   mutable queued_execution_adapter : queued_execution_adapter option;
+  mutable synthetic_owner : (key:string -> string option) option;
   observer_last_checked : (string, int) Hashtbl.t;
       (** Maps session_key -> history length at last observer check *)
   last_active : (string, float) Hashtbl.t;

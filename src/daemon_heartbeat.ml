@@ -29,7 +29,8 @@ let process_heartbeat_for_session ~session_manager ~content key =
               (String.length content) key);
         let* result =
           Session.with_suppressed_channel_output session_manager ~key (fun () ->
-              Session.try_turn session_manager ~key ~message:content ())
+              Session.try_turn_synthetic session_manager ~key ~message:content
+                ())
         in
         match result with
         | Some response -> Lwt.return_some response

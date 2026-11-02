@@ -642,6 +642,7 @@ let test_queue_identity () =
               channel = Some "slack";
               channel_id = Some "C123";
               message_id = Some "99.2";
+              execution_origin = Session_types.Human_request;
               inbound_queue_id = None;
               bang = false;
               deferred_followup = false;

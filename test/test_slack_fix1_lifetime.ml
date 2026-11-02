@@ -250,6 +250,7 @@ let test_shutdown_preparing ~restart () =
     else Lwt.return_unit
   in
   with_recording ~delay (fun base _ _ _ _ provider run ->
+      let* _ = run (message "seed verified background owner") in
       let clock = Test_slack_socket.make_clock () in
       Slack_thread_runs.with_clock
         ~now:(fun () -> clock.time)
@@ -261,7 +262,8 @@ let test_shutdown_preparing ~restart () =
                let* content = held in
                Lwt.return (text model content));
           let owner =
-            Session.turn base.manager ~key ~message:"background owner" ()
+            Session.turn_synthetic base.manager ~key ~message:"background owner"
+              ()
           in
           let* () = Test_slack_socket.settle 4 in
           let* _ =
@@ -381,15 +383,16 @@ let test_shutdown_preparing ~restart () =
 
 let test_shutdown_queued_finishing () =
   let ui, release_ui = Lwt.wait () in
-  let terminal = ref false in
+  let terminal = ref false and armed = ref false in
   let delay m p =
-    if m = "chat.update" && get "blocks" p = arr [] then begin
+    if !armed && m = "chat.update" && get "blocks" p = arr [] then begin
       terminal := true;
       ui
     end
     else Lwt.return_unit
   in
   with_recording ~delay (fun base _ _ _ _ provider run ->
+      let* _ = run (message "seed verified background owner") in
       let clock = Test_slack_socket.make_clock () in
       Slack_thread_runs.with_clock
         ~now:(fun () -> clock.time)
@@ -403,9 +406,12 @@ let test_shutdown_queued_finishing () =
                let* content = held in
                Lwt.return (text model content));
           let owner =
-            Session.turn base.manager ~key ~message:"background owns lock" ()
+            Session.turn_synthetic base.manager ~key
+              ~message:"background owns lock" ()
           in
           let* () = Test_slack_socket.settle 4 in
+          let background = List.hd (live_runs base.manager) in
+          armed := true;
           let* _ =
             run ~id:"never-active"
               (message ~thread:"100.000001" ~ts:"100.000012" "queued task B")
@@ -425,7 +431,9 @@ let test_shutdown_queued_finishing () =
           let* () = Test_slack_socket.settle 4 in
           let removed_while_finishing =
             !terminal && r.finished
-            && live_runs base.manager = []
+            && (match live_runs base.manager with
+              | [ owner ] -> owner == background
+              | _ -> false)
             && groups base.manager <> []
           in
           let stopping = Slack_thread_runs.shutdown base.manager in

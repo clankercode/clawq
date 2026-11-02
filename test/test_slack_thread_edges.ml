@@ -370,13 +370,24 @@ let test_socket ?(empty_secret = false) () =
           Lwt.catch (fun () -> loop) (fun _ -> Lwt.return_unit)))
 
 let test_background () =
-  with_ingress (fun base calls _ _ _ run ->
+  with_ingress (fun base calls _ _ provider run ->
       let* _ = run (message "origin") in
       let key = thread_key base.manager in
       let fresh = Session.create ~config:base.manager.config ~db:base.db () in
-      Session.set_special_command_handler fresh
-        (fun ~key:_ ~message:_ ~send_progress:_ ~interrupt_check:_ ->
-          Lwt.return_some "background result");
+      Slack_thread_execution.install fresh;
+      let invoked = ref 0 in
+      (provider :=
+         fun ~model ~messages:_ ->
+           incr invoked;
+           Lwt.return
+             (Provider.Text
+                {
+                  model;
+                  content = "background result";
+                  usage = None;
+                  thinking = None;
+                  provider_response_items_json = None;
+                }));
       let task =
         {
           (Test_daemon.make_test_task ()) with
@@ -394,6 +405,10 @@ let test_background () =
           ~config:fresh.config task
       in
       let* () = Session.cancel_autonomous_continuation fresh ~key in
+      let* () = Session.cancel_autonomous_continuation base.manager ~key in
+      let* () = Slack_thread_runs.shutdown fresh in
+      Alcotest.(check int)
+        "restart completion executes one authorized task turn" 1 !invoked;
       check_bool
         "restart background final stays threaded without origin or notifier"
         true

@@ -1275,6 +1275,7 @@ let test_drain_queued_messages_marks_live_activity () =
                    channel = Some "telegram";
                    channel_id = Some "1";
                    message_id = None;
+                   execution_origin = Session_types.Human_request;
                    inbound_queue_id = None;
                    bang = false;
                    deferred_followup = false;
@@ -1320,6 +1321,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name
     channel;
     channel_id;
     message_id;
+    execution_origin = Session_types.Human_request;
     inbound_queue_id = None;
     bang = false;
     deferred_followup;
@@ -4449,6 +4451,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       channel = Some "telegram";
       channel_id = Some "1";
       message_id = None;
+      execution_origin = Session_types.Human_request;
       inbound_queue_id = None;
       bang = false;
       deferred_followup = false;

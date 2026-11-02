@@ -63,8 +63,8 @@ let rec schedule_autonomous_continuation ?delay ?(around_turn = fun f -> f ())
             Lwt.catch
               (fun () ->
                 around_turn (fun () ->
-                    Session_turn.turn mgr ~key ~message:prompt_with_suggestion
-                      ()))
+                    Session_turn.turn_synthetic mgr ~key
+                      ~message:prompt_with_suggestion ()))
               (fun exn ->
                 Logs.warn (fun m ->
                     m "Autonomous continuation prompt failed for %s: %s" key
@@ -79,7 +79,8 @@ let rec schedule_autonomous_continuation ?delay ?(around_turn = fun f -> f ())
                 run_continuation_turn
           in
           let trimmed = String.trim response in
-          if trimmed = Session_core.queued_message_response then Lwt.return_unit
+          if trimmed = "" || trimmed = Session_core.queued_message_response then
+            Lwt.return_unit
           else if trimmed = Session_core.autonomous_stay_idle_message then
             Session_core.with_continuation_state mgr ~key (fun state ->
                 state.disarmed <- true;

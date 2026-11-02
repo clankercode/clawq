@@ -277,6 +277,7 @@ let all_suites =
     ("slack_threads", Test_slack_threads.suite);
     ("slack_thread_edges", Test_slack_thread_edges.suite);
     ("slack_transport_credentials", Test_slack_transport_credentials.suite);
+    ("slack_finalfix", Test_slack_finalfix.suite);
     ("slack_fix1_access", Test_slack_fix1_access.suite);
     ("slack_fix1_recovery", Test_slack_fix1_recovery.suite);
     ("slack_fix1_lifecycle", Test_slack_fix1_lifecycle.suite);

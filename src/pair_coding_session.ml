@@ -273,6 +273,7 @@ let start_session ~db ~(session_mgr : Session_core.t)
           channel = Some "pair";
           channel_id = Some id;
           message_id = None;
+          execution_origin = Session_types.Human_request;
           inbound_queue_id = None;
           bang = false;
           deferred_followup = false;

@@ -522,6 +522,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                    channel = Some "telegram";
                    channel_id = Some update.chat_id;
                    message_id = Some (string_of_int update.message_id);
+                   execution_origin = Session_types.Human_request;
                    inbound_queue_id = None;
                    bang = false;
                    deferred_followup = false;

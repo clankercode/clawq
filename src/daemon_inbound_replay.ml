@@ -85,13 +85,20 @@ let native_replay_turn manager route (row : Memory.queue_row) payload =
     && field "channel" = Some "slack"
     && field "channel_id" = Some route.Slack_thread_route.channel
   in
+  let execution_origin =
+    if
+      provenance
+      && Slack_huddles.get "execution_origin" json = `String "synthetic"
+    then Session_types.Synthetic (field "synthetic_owner")
+    else Session_types.Human_request
+  in
   let sender_id = if provenance then field "sender_id" else None in
   let message_id = if provenance then field "message_id" else None in
   Session.turn_verified_queued manager ~key:row.session_key
     ~message:payload.message ~channel:"slack" ~channel_id:route.channel
     ~channel_name:route.channel
     ~channel_type:(if route.channel.[0] = 'D' then "dm" else "group")
-    ?sender_id ?message_id
+    ?sender_id ?message_id ~execution_origin
     ~before_drain:(fun response ->
       if Session.should_suppress_response response then Lwt.return_unit
       else Slack_thread_execution.notify manager route response)

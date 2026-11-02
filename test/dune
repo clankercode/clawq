@@ -299,6 +299,7 @@
   test_slack_thread_edges
   test_slack_transport_credentials
   test_slack_fix1_fixtures
+  test_slack_finalfix
   test_slack_fix1_access
   test_slack_fix1_recovery
   test_slack_fix1_lifecycle

@@ -100,6 +100,7 @@ let queued_followup ?channel_name ?channel_type ?sender_name ?message_id
     channel = Some connector_name;
     channel_id = Some channel_id;
     message_id;
+    execution_origin = Session_types.Human_request;
     inbound_queue_id = None;
     bang = false;
     deferred_followup = true;
