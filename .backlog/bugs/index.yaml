@@ -1744,8 +1744,15 @@ bugs:
       status: cancelled
       tags: []
       title: 'Hooks: Config validation not enforced at load time'
-    - file: B816-autonomous-checkins-often-narrate.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: B816-autonomous-checkins-often-narrate.todo
       id: B816
+      priority: high
+      status: pending
+      tags: []
+      title: autonomous check-ins often narrate work instead of doing it
     - complexity: medium
       depends_on: []
       estimate_hours: 1

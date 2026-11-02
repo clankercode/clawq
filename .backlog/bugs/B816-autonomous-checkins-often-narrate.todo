@@ -1,14 +1,19 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B816
 priority: high
+started_at: null
 status: pending
 tags: []
 title: autonomous check-ins often narrate work instead of doing it
+updated_at: null
 ---
 
 autonomous check-ins often narrate work instead of doing it
 
 When checked in with autonomously, the agent often responds with a status message about remaining work instead of actually taking the next concrete action. Worse, it avoids saying STAY_IDLE, so it creates the impression of activity while failing to execute. These turns should be used to do work whenever actionable tasks remain, especially on active local lanes like review, harvest, commit, and research.
+
+Decision (2026-11-02 batch): session lane, serial B816 -> B818 -> B831 because session code and test/test_session.ml overlap. Verified session_activity.ml prompts only say continue if more remains, permitting narration. Require concrete tool-backed progress on actionable work, preserving the hidden idle control token.
