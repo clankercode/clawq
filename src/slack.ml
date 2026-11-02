@@ -977,11 +977,16 @@ let handle_message ?thread_run ?(thread_context = "")
                                   else raw
                               | _ -> message
                             in
+                            let turn_stream =
+                              if Option.is_some thread_run then
+                                Session.turn_verified_stream
+                              else Session.turn_stream
+                            in
                             let* response =
                               Slack_huddle_context.with_request ~session_manager
                                 ~key ~channel_id ~user_id ~message_id:ts
                                 (fun () ->
-                                  Session.turn_stream session_manager ~key
+                                  turn_stream session_manager ~key
                                     ~message:(thread_context ^ message)
                                     ~content_parts ~attachments:att_list
                                     ~skill_injections ~channel_name:channel_id
@@ -990,10 +995,6 @@ let handle_message ?thread_run ?(thread_context = "")
                                     ~message_id:ts ~on_drain_progress
                                     ~deferred_if_busy:
                                       (Option.is_some thread_run)
-                                    ?before_run:
-                                      (Option.map
-                                         (fun r () -> Slack_thread_runs.start r)
-                                         thread_run)
                                     ~before_drain
                                     ~snapshot_work_type:
                                       Access_snapshot.Room_turn ~on_chunk ())

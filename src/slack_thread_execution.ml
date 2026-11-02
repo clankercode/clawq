@@ -29,7 +29,7 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
   | None ->
       Lwt.map
         (fun response -> Session_types.Queue_executed response)
-        (run message)
+        (run ~room_classification:None message)
   | Some route -> (
       let refuse reason =
         let* () =
@@ -56,7 +56,7 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                 refuse
                   "Slack connector shut down during authorization; request \
                    retained"
-            | Ok (_, _, external_) ->
+            | Ok _ ->
                 let previous =
                   Option.bind message.message_id
                     (Slack_thread_runs.find manager key)
@@ -77,8 +77,10 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                             if previous = None then Slack_thread_runs.control r
                             else Lwt.return_unit
                           in
-                          let* () = Slack_thread_runs.start r in
-                          Lwt.return (Ok ()))
+                          let* classification =
+                            Slack_thread_runs.start_verified r
+                          in
+                          Lwt.return (Ok classification))
                         (function
                           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
                           | exn -> Lwt.return (Error (Printexc.to_string exn)))
@@ -88,14 +90,14 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                         Lwt.return Session_types.Queue_cancelled
                     | Error reason ->
                         Lwt.return (Session_types.Queue_retained reason)
-                    | Ok () when r.stopped ->
+                    | Ok _ when r.stopped ->
                         Lwt.return Session_types.Queue_cancelled
-                    | Ok () when not (Slack_thread_runs.owns r) ->
+                    | Ok _ when not (Slack_thread_runs.owns r) ->
                         Lwt.return
                           (Session_types.Queue_retained
                              "Slack task finished before queued execution; \
                               request retained")
-                    | Ok () ->
+                    | Ok classification ->
                         let admin =
                           match Session.get_db manager with
                           | Some db ->
@@ -109,7 +111,8 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                             user_group =
                               Some (if admin then "admin" else "guest");
                             snapshot_work_type = Some Access_snapshot.Room_turn;
-                            has_external_users = external_;
+                            has_external_users =
+                              classification.has_external_users;
                           }
                         in
                         Session.register_channel_notifier manager ~key
@@ -123,7 +126,9 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                                 Lwt.map
                                   (fun response ->
                                     Session_types.Queue_executed response)
-                                  (run current))
+                                  (run
+                                     ~room_classification:(Some classification)
+                                     current))
                               (function
                                 | Session_queue.Request_retained reason ->
                                     Lwt.return

@@ -617,8 +617,140 @@ let test_reconnect_reload_same_manager () =
           Lwt.cancel loop;
           ignore_error (fun () -> loop)))
 
+let test_socket_terminal_join ~finishing () =
+  let pending, release_http = Lwt.task () in
+  let entered = ref false and abandoned = ref false in
+  Lwt.on_cancel pending (fun () -> abandoned := true);
+  let delay m p =
+    if
+      if finishing then m = "chat.update" && get "blocks" p = arr []
+      else m = "chat.postMessage" && get "blocks" p <> `Null
+    then begin
+      entered := true;
+      pending
+    end
+    else Lwt.return_unit
+  in
+  with_recording ~delay (fun base calls _ handler _ provider _ ->
+      reload_slack base (fun sc ->
+          { sc with socket_mode = true; app_token = "xapp-fixture" });
+      let post_returned = ref false and terminal_returned = ref false in
+      let old = !handler in
+      (handler :=
+         fun m p ->
+           if m = "chat.postMessage" && get "blocks" p <> `Null then begin
+             post_returned := true;
+             ok [ ("ts", str "700.000001"); ("channel", str "C123") ]
+           end
+           else begin
+             if
+               m = "chat.update"
+               && get "ts" p = str "700.000001"
+               && get "blocks" p = arr []
+             then terminal_returned := true;
+             old m p
+           end);
+      let invoked = ref 0 in
+      (provider :=
+         fun ~model ~messages:_ ->
+           incr invoked;
+           Lwt.return (text model "completed before terminal update"));
+      let socket = Test_slack_socket.make_socket ()
+      and clock = Test_slack_socket.make_clock () in
+      Slack_thread_runs.with_clock
+        ~now:(fun () -> clock.time)
+        ~sleep:(Test_slack_socket.sleep clock)
+        (fun () ->
+          let connector =
+            Slack_socket.start_with
+              ~connect:(fun () -> Lwt.return socket.transport)
+              ~on_health:(fun _ -> ())
+              ~sleep:(Test_slack_socket.sleep clock)
+              ~config:base.manager.config ~session_manager:base.manager
+              ~event_limiter:
+                (Rate_limiter.create ~rate_per_minute:100 ~burst_multiplier:1.0)
+              ()
+          in
+          let* () = socket.emit {|{"type":"hello"}|} in
+          let* () =
+            socket.emit
+              (Yojson.Safe.to_string
+                 (obj
+                    [
+                      ("envelope_id", str "native-terminal-join");
+                      ("type", str "events_api");
+                      ( "payload",
+                        callback
+                          ~id:(Temp_downloads.generate_token ())
+                          (message "Socket owned UI teardown") );
+                    ]))
+          in
+          let* () = Test_slack_socket.settle 5 in
+          let held = !entered && Lwt.is_sleeping pending in
+          let acknowledged = List.length !(socket.acks) = 1 in
+          let before_cancel = !invoked in
+          let removed_finishing =
+            finishing
+            && live_runs base.manager = []
+            && groups base.manager <> []
+          in
+          Lwt.cancel connector;
+          let* () = Test_slack_socket.settle 5 in
+          Lwt.cancel connector;
+          let* () = Test_slack_socket.settle 3 in
+          let joined = Lwt.is_sleeping connector in
+          let operation_owned = (not !abandoned) && Lwt.is_sleeping pending in
+          if Lwt.is_sleeping pending then Lwt.wakeup_later release_http ();
+          let* () = ignore_error (fun () -> connector) in
+          let* () = Test_slack_socket.settle 5 in
+          check_bool "real Socket event acknowledged before cancellable UI wait"
+            true acknowledged;
+          check_bool "real admitted HTTP operation held by Lwt.task" true held;
+          if finishing then
+            check_bool "terminal update already removed run from lookup" true
+              removed_finishing;
+          check_bool
+            "Socket teardown preserves cancellable admitted HTTP operation" true
+            operation_owned;
+          check_bool "connector completion joins admitted UI reply" true joined;
+          check_bool "posted control timestamp captured before terminal release"
+            true !post_returned;
+          check_bool "terminal control update reply completes before teardown"
+            true !terminal_returned;
+          check_bool "returned control visibly cleared" true
+            (List.exists
+               (fun (m, p) ->
+                 m = "chat.update"
+                 && get "ts" p = str "700.000001"
+                 && get "blocks" p = arr [])
+               !calls);
+          Alcotest.(check int)
+            "no provider starts during or after terminal teardown"
+            (if finishing then 1 else 0)
+            before_cancel;
+          Alcotest.(check int)
+            "provider entry count stable after cancellation" before_cancel
+            !invoked;
+          check_bool "Socket terminal cleanup releases runs groups and timers"
+            true
+            (live_runs base.manager = []
+            && groups base.manager = []
+            && not
+                 (List.exists
+                    (fun (t : Test_slack_socket.timer) ->
+                      Lwt.is_sleeping t.promise)
+                    clock.timers));
+          Alcotest.(check int) "Socket transport closed" 1 !(socket.closes);
+          Lwt.return_unit))
+
 let suite =
   [
+    ( "Socket cancellation joins cancellable control POST",
+      `Quick,
+      test_socket_terminal_join ~finishing:false );
+    ( "Socket cancellation joins finishing control update",
+      `Quick,
+      test_socket_terminal_join ~finishing:true );
     ( "same manager Socket reconnect and credential reload",
       `Quick,
       test_reconnect_reload_same_manager );

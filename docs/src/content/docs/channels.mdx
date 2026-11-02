@@ -370,9 +370,15 @@ manager credentials and channel/egress policy, including fallback and legacy
 child-thread progress. Deferred requests retain their own requester/message
 provenance; every drain and boot replay reauthorizes that requester. Revoked
 or missing provenance retains the request with a failure reason. Current admin
-membership and room policy are enforced after preparation before queued model
-entry. Original-text question answers and authorized interrupts are handled
-before history/deferral. An owned `!change direction` interrupts and preserves
+membership and room policy are enforced after preparation before model entry
+for fresh native requests and every queued owner. Verified shared, external,
+group and DM scope remains distinct in policy and persisted snapshots.
+Automatic native restart execution also rechecks the persisted human's current
+role and verified room policy after preparation and any pre-model compaction or
+notification wait, recording a fresh snapshot. The resume prompt supplies no
+Slack message authority for huddle tools.
+Original-text question answers and authorized interrupts are handled before
+history/deferral. An owned `!change direction` interrupts and preserves
 `change direction` as a fresh request; bare admin `stop` has no followup.
 
 Channel privacy metadata fails closed when unknown. Documented one-to-one DMs
@@ -390,8 +396,10 @@ before releasing root ownership. Shutdown during preparation prevents model
 entry and retains the request with a reason, preserving restart interrupts.
 Shutdown also closes new native admission for that manager before collecting
 cleanup. Socket reconnects and config reloads stay within an open manager;
-a daemon restart creates a fresh manager. Without streaming,
-processing refreshes and the public Stop button remain available.
+a daemon restart creates a fresh manager. Terminal Socket teardown joins admitted
+control POST replies and finishing control updates before cancelling delivery
+handlers. Without streaming, processing refreshes and the public Stop button
+remain available.
 
 Native stops must name an owned live stream. Empty-stream native events cannot
 safely distinguish successive runs; use **Stop this task** for queued or

@@ -224,7 +224,7 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
                     in
                     let ids = list (get "members" response) |> List.map text in
                     if List.mem user ids then
-                      Lwt.return (Ok (sc, bot, external_))
+                      Lwt.return (Ok (sc, bot, classification))
                     else
                       let next =
                         field "next_cursor" (get "response_metadata" response)
@@ -233,7 +233,7 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
                         fail "Slack requesting human is not a channel member"
                       else members next (pages - 1) (cursor :: seen)
                 in
-                if is_dm then Lwt.return (Ok (sc, bot, external_))
+                if is_dm then Lwt.return (Ok (sc, bot, classification))
                 else members "" 10 [])
   | _ -> fail "Slack disabled or user/channel denied"
 

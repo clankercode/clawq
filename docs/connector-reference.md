@@ -298,8 +298,10 @@ Shutdown closes admission for that manager before cleanup is collected, so an
 in-flight authorization/history reply cannot create a later run. Shutdown is
 terminal for that manager; a restarted daemon creates a fresh manager. Ordinary
 Socket reconnects and config reloads keep the manager open; they do not invoke
-terminal shutdown. If streaming is unavailable, processing refreshes continue
-and the public button remains the stop control.
+terminal shutdown. Terminal Socket teardown joins admitted control POST replies
+and finishing control updates before cancelling delivery handlers, so their
+returned timestamps remain available for cleanup. If streaming is unavailable,
+processing refreshes continue and the public button remains the stop control.
 
 A session key includes the workspace, app, channel and original root timestamp.
 Root mentions and replies from authorized humans share that thread's history;
@@ -311,14 +313,21 @@ persisted `channel_id` remain the Slack channel ID. The reversible session key
 survives eviction/restart and routes resumed, background and fallback completion
 to the same root. The last
 executing human is persisted for a freshly authorized restart run; old controls
-are discarded on restart. No caller authority is restored from quoted history.
+are discarded on restart. Native restart execution rechecks that human's current
+role and verified room policy after preparation and any pre-model compaction or
+notification wait, then records a fresh room snapshot. The automatic resume
+prompt supplies no Slack message authority for huddle tools. No caller authority
+is restored from quoted history.
 
 Deferred requests keep their original human, message, room and installation
 route in the existing durable queue. Every drain owner and boot replay freshly
 authorizes that requester before model/tools and activates and finishes that
-request's native controls. Current admin membership and room policy are checked
-after yielding preparation and before queued model entry. Missing provenance or
-revoked access retains the request with a failure reason; it never substitutes
+request's native controls. Fresh native requests use the same final execution
+boundary as deferred work: current admin membership and room policy are checked
+after yielding preparation and before model entry. Verified shared, external,
+group and DM classification stays distinct and supplies the persisted snapshot
+and policy decision; the room ID remains the actual channel. Missing provenance
+or revoked access retains the request with a failure reason; it never substitutes
 the previous thread owner.
 Mixed-author `/followup-append` inputs remain separate requests. Original-text
 question answers, leading `!` interrupts and authorized admin `stop` are handled

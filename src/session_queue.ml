@@ -9,7 +9,10 @@ let execute_queued_request mgr ~key ~message ~run =
       Lwt.return
         (Queue_retained
            "Native Slack request has no installed execution authorizer")
-  | None -> Lwt.map (fun response -> Queue_executed response) (run message)
+  | None ->
+      Lwt.map
+        (fun response -> Queue_executed response)
+        (run ~room_classification:None message)
 
 let starts_with ~prefix text =
   let prefix_len = String.length prefix in

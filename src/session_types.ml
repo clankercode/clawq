@@ -43,7 +43,10 @@ type queued_execution =
 type queued_execution_adapter =
   key:string ->
   message:queued_message ->
-  run:(queued_message -> string Lwt.t) ->
+  run:
+    (room_classification:Runtime_config_types.room_classification option ->
+    queued_message ->
+    string Lwt.t) ->
   queued_execution Lwt.t
 
 type live_activity_snapshot = { active : bool; generation : int }

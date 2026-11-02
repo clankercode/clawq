@@ -318,7 +318,32 @@ let stop_maintenance r =
       r.maintenance <- None;
       Lwt.return_unit
 
-let start r =
+let execution_policy r ~config classification =
+  require_accepting r.manager;
+  let refuse reason = raise (Session_queue.Request_retained reason) in
+  if r.stopped then refuse "Task stopped before model execution";
+  if not (owns r) then
+    refuse "Slack task finished before model execution; request retained";
+  if Session.get_config r.manager != config then
+    refuse
+      "Slack configuration changed before model execution; request retained";
+  if classification.Runtime_config_types.tenant_id <> Some r.route.team then
+    refuse "Verified Slack classification does not match the execution team";
+  let admin =
+    match Session.get_db r.manager with
+    | Some db -> Admin.is_admin ~db ~channel:"slack" ~sender_id:r.owner
+    | None -> false
+  in
+  match
+    Invocation_restrict.check_room_policy_and_role ~config ~key:r.key
+      ~channel:(Some "slack") ~channel_id:(Some r.route.channel)
+      ~user_group:(Some (if admin then "admin" else "guest"))
+      ~room_classification:classification ~work_kind:Room_work ()
+  with
+  | Ok result -> result
+  | Error reason -> refuse reason
+
+let start_verified r =
   require_accepting r.manager;
   let authorized_config = Session.get_config r.manager in
   let* () = Lwt.protected r.group.terminal in
@@ -344,9 +369,9 @@ let start r =
             ~user:r.owner
         in
         check_preparation ();
-        let* () =
+        let* classification =
           match authorized with
-          | Ok _ -> Lwt.return_unit
+          | Ok (_, _, classification) -> Lwt.return classification
           | Error reason -> Lwt.fail_with reason
         in
         Slack_thread_route.save_owner r.manager r.route r.owner;
@@ -369,9 +394,12 @@ let start r =
             | Ok _ -> ()
             | Error e -> Logs.warn (fun m -> m "%s" e));
             check_preparation ();
+            ignore (execution_policy r ~config:authorized_config classification);
             start_maintenance r;
-            Lwt.return_unit
+            Lwt.return classification
       end)
+
+let start r = Lwt.map (fun _ -> ()) (start_verified r)
 
 let finish r =
   if r.finished then Lwt.protected r.done_
@@ -582,7 +610,7 @@ let handle ~manager json =
     native streams and public controls cannot target this new generation. *)
 let with_resumed ~manager ~key f =
   match Slack_thread_route.of_key key with
-  | None -> f ()
+  | None -> f ~before_run:(fun _ -> ())
   | Some route -> (
       match Slack_thread_route.load_owner manager key with
       | None ->
@@ -604,8 +632,30 @@ let with_resumed ~manager ~key f =
               Lwt.finalize
                 (fun () ->
                   let* () = control r in
-                  let* () = start r in
-                  f ())
+                  let* classification = start_verified r in
+                  let config = Session.get_config manager in
+                  let before_run agent =
+                    (* Resume can compact/notify after native preparation. Check
+                       again at model entry, without inventing message authority. *)
+                    let classification, decision =
+                      execution_policy r ~config classification
+                    in
+                    match Session.get_db manager with
+                    | None ->
+                        agent.Agent.access_snapshot_id <- None;
+                        agent.Agent.access_snapshot <- None
+                    | Some db ->
+                        let snap =
+                          Access_snapshot.create_and_persist ~db ~config
+                            ~work_type:Room_turn ~session_key:key
+                            ~room_id:route.channel
+                            ~room_classification:classification.scope
+                            ~room_policy_decision:decision ()
+                        in
+                        agent.Agent.access_snapshot_id <- Some snap.id;
+                        agent.Agent.access_snapshot <- Some snap
+                  in
+                  f ~before_run)
                 (fun () -> finish r)))
 
 let shutdown manager =

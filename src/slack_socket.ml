@@ -181,7 +181,8 @@ let with_deadline ~sleep ~seconds ~label f =
    acknowledged event must survive a routine socket refresh. *)
 let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     ?(connect_timeout = 30.0) ?(ping_interval = 15.0) ?(pong_timeout = 10.0)
-    ~connect ~handle_event ~on_health () =
+    ?(before_stop = fun () -> Lwt.return_unit) ~connect ~handle_event ~on_health
+    () =
   let open Lwt.Syntax in
   let dedup = Channel_util.Lru_dedup.create 4096 in
   let in_flight = Hashtbl.create 16 in
@@ -351,9 +352,13 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     loop ()
   in
   Lwt.finalize loop (fun () ->
-      List.iter Lwt.cancel !deliveries;
-      update Stopped "connector stopped" None;
-      Lwt.return_unit)
+      (* Close native admission and join admitted UI replies before cancelling
+         handlers. Routine reconnect never enters this terminal finalizer. *)
+      Lwt.no_cancel
+        (Lwt.finalize before_stop (fun () ->
+             List.iter Lwt.cancel !deliveries;
+             update Stopped "connector stopped" None;
+             Lwt.return_unit)))
 
 let start_with ?connect ?handle_event ?(on_health = publish_health) ?sleep ?now
     ?connect_timeout ?ping_interval ?pong_timeout ~config ~session_manager
@@ -381,11 +386,10 @@ let start_with ?connect ?handle_event ?(on_health = publish_health) ?sleep ?now
               Lwt.return_unit
       in
       Logs.info (fun m -> m "Slack Socket Mode starting");
-      Lwt.finalize
-        (fun () ->
-          run ?sleep ?now ?connect_timeout ?ping_interval ?pong_timeout ~connect
-            ~handle_event ~on_health ())
-        (fun () -> Slack_thread_runs.shutdown session_manager)
+      run ?sleep ?now ?connect_timeout ?ping_interval ?pong_timeout ~connect
+        ~handle_event ~on_health
+        ~before_stop:(fun () -> Slack_thread_runs.shutdown session_manager)
+        ()
 
 let start ~config ~session_manager ~event_limiter =
   start_with ~config ~session_manager ~event_limiter ()

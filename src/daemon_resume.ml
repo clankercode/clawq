@@ -359,8 +359,8 @@ let sanitize_history_for_resume (history : Provider.message list) =
   let dropped = List.length history - List.length filtered in
   (filtered, dropped)
 
-let default_resume_turn ?on_history_persisted ~(session_manager : Session.t)
-    ~notify ~session_key agent interrupt =
+let default_resume_turn ?on_history_persisted ?(before_run = fun _ -> ())
+    ~(session_manager : Session.t) ~notify ~session_key agent interrupt =
   let open Lwt.Syntax in
   let sanitized, dropped_count =
     sanitize_history_for_resume agent.Agent.history
@@ -385,6 +385,7 @@ let default_resume_turn ?on_history_persisted ~(session_manager : Session.t)
   let* () = Session.notify_compaction_if_needed ~notify compaction_info in
   if compacted then
     Session.persist_compacted_history session_manager ~key:session_key agent;
+  before_run agent;
   Logs.info (fun m ->
       m "Firing automatic restart-resume prompt for session=%s prompt_len=%d"
         session_key
@@ -466,17 +467,19 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
     (fun agent interrupt ->
       let history_before = List.length agent.Agent.history in
       let persisted_up_to = ref history_before in
-      let run_turn =
-        match run_turn with
-        | Some f -> f
-        | None ->
-            default_resume_turn ~session_manager ~notify ~session_key
-              ~on_history_persisted:(fun len -> persisted_up_to := len)
-      in
       let* response =
         Session.with_in_flight session_manager (fun () ->
             Slack_thread_runs.with_resumed ~manager:session_manager
-              ~key:session_key (fun () -> run_turn agent interrupt))
+              ~key:session_key (fun ~before_run ->
+                match run_turn with
+                | Some f ->
+                    before_run agent;
+                    f agent interrupt
+                | None ->
+                    default_resume_turn ~session_manager ~notify ~session_key
+                      ~before_run
+                      ~on_history_persisted:(fun len -> persisted_up_to := len)
+                      agent interrupt))
       in
       Session.persist_new_messages session_manager ~key:session_key
         ~history_before:!persisted_up_to agent;
