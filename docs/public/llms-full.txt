@@ -1209,7 +1209,7 @@ Progress updates are only dispatched for Slack, Teams, and Discord. All other co
 | Web UI | HTTP gateway at host:port, SSE streaming | Implemented |
 | Telegram | Bot API long polling — no public IP needed | Implemented |
 | Discord | Gateway v10 WebSocket + REST API — auto heartbeat/resume/reconnect; guild messages filtered to @mention/name/command only | Implemented |
-| Slack (Socket Mode) | WSS via app_token — no public IP needed | Implemented |
+| Slack (Socket Mode) | WSS via app_token — bounded reconnect and half-open detection; no public IP needed | Implemented |
 | Slack (Events API) | HTTP push to configurable path (default /slack/events) | Implemented |
 | WhatsApp | Cloud API webhook at /whatsapp/webhook | Implemented |
 | LINE | Messaging API webhook at /line/webhook | Implemented |
@@ -1285,6 +1285,18 @@ Validation limits:
 6. `clawq config set channels.slack.app_token "xapp-..."`
 7. `clawq config set channels.slack.socket_mode true`
 8. `clawq agent` to start
+
+Socket Mode obtains a fresh connection URL for each attempt, handles Slack
+disconnect controls, bounds connection/hello/ACK/pong waits, and retries with
+backoff from one to thirty seconds. Ping/pong detects stale connections;
+cancellation stops retry and closes owned or late-acquired resources.
+Envelopes are acknowledged before application work. A bounded cache and
+in-flight event identities suppress duplicate processing across reconnects;
+Slack does not guarantee replay of every message sent during an outage.
+`clawq status` includes connecting/connected/reconnecting/stopped health,
+retry delay and reconnect count, and reports stale or dead-process health as
+disconnected. Connection transitions are logged; persisted health is in
+`$CLAWQ_HOME/slack_socket_status.json`.
 
 ### Setting up Slack (Events API)
 1. User creates app, installs to workspace, copies Bot Token and Signing Secret
