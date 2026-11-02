@@ -277,6 +277,12 @@ let all_suites =
     ("slack_threads", Test_slack_threads.suite);
     ("slack_thread_edges", Test_slack_thread_edges.suite);
     ("slack_transport_credentials", Test_slack_transport_credentials.suite);
+    ("slack_fix1_access", Test_slack_fix1_access.suite);
+    ("slack_fix1_recovery", Test_slack_fix1_recovery.suite);
+    ("slack_fix1_lifecycle", Test_slack_fix1_lifecycle.suite);
+    ("slack_fix1_lifetime", Test_slack_fix1_lifetime.suite);
+    ("slack_fix1_routing", Test_slack_fix1_routing.suite);
+    ("slack_fix1_boundaries", Test_slack_fix1_boundaries.suite);
     ("slack_profiles", Test_slack.test_suite_with_profiles);
     ("slack_private_policy", Test_slack.private_channel_policy_suite);
     ("discord", Test_discord.suite);

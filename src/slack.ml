@@ -7,40 +7,20 @@ let handle_message ?thread_run ?(thread_context = "")
   let root =
     Option.map (fun (r : Slack_thread_runs.run) -> r.route.root) thread_run
   in
-  let current_token fallback =
-    match thread_run with
-    | None -> fallback
-    | Some r -> (
-        match (Session.get_config session_manager).channels.slack with
-        | Some sc
-          when Runtime_config.slack_has_valid_credentials
-                 {
-                   sc with
-                   bot_token = String.trim sc.bot_token;
-                   signing_secret = String.trim sc.signing_secret;
-                 }
-               && Slack_api.is_allowed_allowlist ~kind:"channel"
-                    ~id:r.route.channel sc.allow_channels ->
-            sc.bot_token
-        | _ -> failwith "Slack delivery disabled by current configuration")
-  in
   let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
     match thread_run with
     | None -> send_message_reply ~bot_token ~channel_id ~text ?thread_ts ()
     | Some r ->
-        Slack_thread_api.with_route session_manager r.route (fun () ->
-            let* result =
-              Slack_thread_api.call ~token:(current_token bot_token)
-                "chat.postMessage"
-                ([ ("channel", `String channel_id); ("text", `String text) ]
-                @
-                match thread_ts with
-                | None -> []
-                | Some ts -> [ ("thread_ts", `String ts) ])
-            in
-            match result with
-            | Ok _ -> Lwt.return_unit
-            | Error e -> Lwt.fail_with e)
+        let* _ =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.postMessage"
+            ([ ("channel", `String channel_id); ("text", `String text) ]
+            @
+            match thread_ts with
+            | None -> []
+            | Some ts -> [ ("thread_ts", `String ts) ])
+        in
+        Lwt.return_unit
   in
   let send_message_fn ~bot_token ~channel_id ~text =
     match root with
@@ -51,20 +31,62 @@ let handle_message ?thread_run ?(thread_context = "")
   let send_message_with_id ~bot_token ~channel_id ~text =
     match root with
     | None -> send_message_with_id ~bot_token ~channel_id ~text
-    | Some thread_ts -> (
+    | Some thread_ts ->
+        let r = Option.get thread_run in
         let* result =
-          Slack_thread_api.call ~token:(current_token bot_token)
-            "chat.postMessage"
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.postMessage"
             [
               ("channel", `String channel_id);
               ("thread_ts", `String thread_ts);
               ("text", `String text);
             ]
         in
-        match result with
-        | Ok j -> Lwt.return (Slack_huddles.field "ts" j)
-        | Error e -> Lwt.fail_with e)
+        Lwt.return (Slack_huddles.field "ts" result)
   in
+  let edit_message ~bot_token ~channel_id ~ts ~text =
+    match thread_run with
+    | None -> edit_message ~bot_token ~channel_id ~ts ~text
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.update"
+            [
+              ("channel", `String channel_id);
+              ("ts", `String ts);
+              ("text", `String text);
+            ]
+        in
+        Lwt.return_unit
+  in
+  let delete_message ~bot_token ~channel_id ~ts =
+    match thread_run with
+    | None -> delete_message ~bot_token ~channel_id ~ts
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current_exn ~manager:session_manager
+            ~route:r.route "chat.delete"
+            [ ("channel", `String channel_id); ("ts", `String ts) ]
+        in
+        Lwt.return_unit
+  in
+  let reaction method_ legacy ~bot_token ~channel_id ~timestamp ~emoji_name =
+    match thread_run with
+    | None -> legacy ~bot_token ~channel_id ~timestamp ~emoji_name
+    | Some r ->
+        let* _ =
+          Slack_thread_api.call_current ~manager:session_manager ~route:r.route
+            method_
+            [
+              ("channel", `String channel_id);
+              ("timestamp", `String timestamp);
+              ("name", `String emoji_name);
+            ]
+        in
+        Lwt.return_unit
+  in
+  let add_reaction = reaction "reactions.add" add_reaction in
+  let remove_reaction = reaction "reactions.remove" remove_reaction in
   let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
     {
       send =
@@ -95,10 +117,17 @@ let handle_message ?thread_run ?(thread_context = "")
       end
       else
         let* is_private_opt =
-          fetch_channel_is_private ~bot_token:config.bot_token ~channel_id
+          match thread_run with
+          | Some _ ->
+              Lwt.return_none
+              (* Native ingress already checked typed conversation metadata. *)
+          | None ->
+              fetch_channel_is_private ~bot_token:config.bot_token ~channel_id
         in
         if
-          not (check_private_channel_policy ~config ~channel_id ~is_private_opt)
+          Option.is_none thread_run
+          && not
+               (check_private_channel_policy ~config ~channel_id ~is_private_opt)
         then begin
           Logs.warn (fun m ->
               m "Slack: refusing channel=%s (policy=%s, api_failed=%b)"
@@ -943,9 +972,6 @@ let handle_message ?thread_run ?(thread_context = "")
                                     ~channel_type:"group" ~sender_id:user_id
                                     ~user_group ~channel:"slack" ~channel_id
                                     ~message_id:ts ~on_drain_progress
-                                    ~before_queued_run:(fun queued ->
-                                      Slack_thread_runs.start_queued
-                                        session_manager key queued.message_id)
                                     ~deferred_if_busy:
                                       (Option.is_some thread_run)
                                     ?before_run:

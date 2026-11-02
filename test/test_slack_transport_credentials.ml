@@ -29,6 +29,7 @@ let test_fallback () =
       socket_config base;
       let* result =
         Daemon_resume.dispatch_resumed_message ~config:base.manager.config
+          ~session_manager:base.manager
           ~session_key:"slack:C123:thread:T123:A123:100.000001" ~channel:"slack"
           ~channel_id:"C123" ~text:"Socket fallback" ()
       in
@@ -86,10 +87,12 @@ let test_disabled_outbound () =
       base.manager.config <- !(base.cfg);
       let* legacy =
         Daemon_resume.dispatch_resumed_message ~config:base.manager.config
-          ~channel:"slack" ~channel_id:"C123" ~text:"disabled" ()
+          ~session_manager:base.manager ~channel:"slack" ~channel_id:"C123"
+          ~text:"disabled" ()
       in
       let* native =
         Daemon_resume.dispatch_resumed_message ~config:base.manager.config
+          ~session_manager:base.manager
           ~session_key:"slack:C123:thread:T123:A123:100.000001" ~channel:"slack"
           ~channel_id:"C123" ~text:"disabled" ()
       in

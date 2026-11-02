@@ -35,6 +35,17 @@ type continuation_state = {
   mutable disarmed : bool;
 }
 
+type queued_execution =
+  | Queue_executed of string
+  | Queue_retained of string
+  | Queue_cancelled
+
+type queued_execution_adapter =
+  key:string ->
+  message:queued_message ->
+  run:(queued_message -> string Lwt.t) ->
+  queued_execution Lwt.t
+
 type live_activity_snapshot = { active : bool; generation : int }
 
 type live_activity_state = {
@@ -67,6 +78,7 @@ type t = {
   live_activity : (string, live_activity_state) Hashtbl.t;
   continuation_checks : (string, continuation_state) Hashtbl.t;
   mutable special_command_handler : special_command_handler option;
+  mutable queued_execution_adapter : queued_execution_adapter option;
   observer_last_checked : (string, int) Hashtbl.t;
       (** Maps session_key -> history length at last observer check *)
   last_active : (string, float) Hashtbl.t;

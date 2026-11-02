@@ -24,6 +24,7 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
   let open Lwt.Syntax in
   let open Slack_huddles in
   let event_dedup = delivery_cache session_manager in
+  Slack_thread_execution.install session_manager;
   let json = try Yojson.Safe.from_string body with _ -> `Null in
   if field "type" json = "url_verification" then
     Lwt.return
@@ -87,72 +88,80 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                 let command =
                   String.starts_with ~prefix:"/" (String.trim text)
                 in
-                let* context =
-                  if command then Lwt.return (Ok "")
+                let* consumed =
+                  if command then Lwt.return_false
                   else
-                    Slack_thread_api.history ~manager:session_manager
-                      ~token:sc.bot_token ~route ~bot ~current:ts
+                    Slack_thread_runs.handle_text ~manager:session_manager
+                      ~route ~user text
                 in
-                let context =
-                  match context with
-                  | Ok c -> c
-                  | Error e ->
-                      "Slack thread context unavailable (no complete history): "
-                      ^ e ^ "\n"
-                in
-                let context =
-                  match get "app_context" event with
-                  | `Null -> context
-                  | c ->
-                      context
-                      ^ "Untrusted browsing context (not access authority): "
-                      ^ Yojson.Safe.to_string c ^ "\n"
-                in
-                let run =
-                  Slack_thread_runs.create ~manager:session_manager ~route
-                    ~message:ts ~owner:user
-                in
-                let rewritten =
-                  obj
-                    [
-                      ("type", str "event_callback");
-                      ( "event",
-                        obj
-                          (("thread_ts", str root)
-                          :: ("type", str "message")
-                          ::
-                          (match event with
-                          | `Assoc xs ->
-                              List.remove_assoc "type"
-                                (List.remove_assoc "thread_ts" xs)
-                          | _ -> [])) );
-                    ]
-                in
-                Slack_thread_api.with_route session_manager route (fun () ->
-                    Lwt.finalize
-                      (fun () ->
-                        let* () =
-                          if command then Lwt.return_unit
-                          else Slack_thread_runs.control run
-                        in
-                        handle_message ?thread_run:(Some run)
-                          ?thread_context:(Some context) ~config:sc
-                          ~session_manager ?send_message_fn ?run_update_command
-                          ?event_limiter
-                          (Yojson.Safe.to_string rewritten))
-                      (fun () ->
-                        let queued =
-                          Option.value
-                            (Hashtbl.find_opt session_manager.queued_messages
-                               run.key)
-                            ~default:[]
-                          |> List.exists
-                               (fun (q : Session_types.queued_message) ->
-                                 q.message_id = Some run.message)
-                        in
-                        if run.active || not queued then
-                          Slack_thread_runs.finish run
-                        else Lwt.return_unit))
+                if consumed then Lwt.return "ok"
+                else
+                  let* context =
+                    if command then Lwt.return (Ok "")
+                    else
+                      Slack_thread_api.history ~manager:session_manager
+                        ~token:sc.bot_token ~route ~bot ~current:ts
+                  in
+                  let context =
+                    match context with
+                    | Ok c -> c
+                    | Error e ->
+                        "Slack thread context unavailable (no complete \
+                         history): " ^ e ^ "\n"
+                  in
+                  let context =
+                    match get "app_context" event with
+                    | `Null -> context
+                    | c ->
+                        context
+                        ^ "Untrusted browsing context (not access authority): "
+                        ^ Yojson.Safe.to_string c ^ "\n"
+                  in
+                  let run =
+                    Slack_thread_runs.create ~manager:session_manager ~route
+                      ~message:ts ~owner:user
+                  in
+                  let rewritten =
+                    obj
+                      [
+                        ("type", str "event_callback");
+                        ( "event",
+                          obj
+                            (("thread_ts", str root)
+                            :: ("type", str "message")
+                            ::
+                            (match event with
+                            | `Assoc xs ->
+                                List.remove_assoc "type"
+                                  (List.remove_assoc "thread_ts" xs)
+                            | _ -> [])) );
+                      ]
+                  in
+                  Slack_thread_api.with_route session_manager route (fun () ->
+                      Lwt.finalize
+                        (fun () ->
+                          let* () =
+                            if command then Lwt.return_unit
+                            else Slack_thread_runs.control run
+                          in
+                          handle_message ?thread_run:(Some run)
+                            ?thread_context:(Some context) ~config:sc
+                            ~session_manager ?send_message_fn
+                            ?run_update_command ?event_limiter
+                            (Yojson.Safe.to_string rewritten))
+                        (fun () ->
+                          let queued =
+                            Option.value
+                              (Hashtbl.find_opt session_manager.queued_messages
+                                 run.key)
+                              ~default:[]
+                            |> List.exists
+                                 (fun (q : Session_types.queued_message) ->
+                                   q.message_id = Some run.message)
+                          in
+                          if run.active || not queued then
+                            Slack_thread_runs.finish run
+                          else Lwt.return_unit))
       else
         (* agent_view bootstrap/context events have no execution-root binding.
          Acknowledge them; never infer authority from installation authorizations

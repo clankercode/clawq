@@ -364,6 +364,26 @@ Native `agents.sessions.setStatus`/`rename` address `channel_id` and root
 fallback when native features are unavailable. Room bindings and live policy
 continue to apply to every thread.
 
+Exact-thread restrictions apply to tools and Slack egress while the room ID
+stays the real Slack channel. All completion/status/progress writes use current
+manager credentials and channel/egress policy, including fallback and legacy
+child-thread progress. Deferred requests retain their own requester/message
+provenance; every drain and boot replay reauthorizes that requester. Revoked
+or missing provenance retains the request with a failure reason. Original-text
+question answers and authorized interrupts are handled before history/deferral.
+
+Channel privacy metadata fails closed when unknown. Documented one-to-one DMs
+use the exact human peer and installation identity instead of channel-only
+membership/privacy fields. They still require configured private access: under
+the default `deny` policy, add the `D...` conversation to both `allow_channels`
+and `allow_private_channels`, or use `allow_if_listed` with `allow_channels`.
+
+Clawq rotates owned stream markers every nine minutes, before Slack's ten-minute
+limit, and refreshes processing status so work longer than an hour remains
+truthful. Terminal cleanup and connector/daemon shutdown stop maintenance and
+join outstanding UI work before releasing root ownership. Without streaming,
+processing refreshes and the public Stop button remain available.
+
 Native stops must name an owned live stream. Empty-stream native events cannot
 safely distinguish successive runs; use **Stop this task** for queued or
 nonstreaming work. Stale native events and buttons never select a newer run.

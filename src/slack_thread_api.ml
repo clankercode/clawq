@@ -6,43 +6,63 @@ let policy_context : (Session.t * Slack_thread_route.t) Lwt.key = Lwt.new_key ()
 let with_route manager route f =
   Lwt.with_value policy_context (Some (manager, route)) f
 
+exception Delivery_denied of string
+
+let delivery_token ~manager ?session_key ~channel method_ verb =
+  let cfg = Session.get_config manager in
+  let session_key =
+    match Option.bind session_key Room_session.parse_child_thread_key with
+    | Some child when child.connector = "slack" && child.room_id = channel ->
+        Some ("slack:" ^ channel)
+    | _ -> session_key
+  in
+  let key = Access_snapshot.access_session_key ?session_key (Some channel) in
+  let access =
+    Runtime_config.resolve_effective_access cfg ~session_key:key ()
+  in
+  let rules = Runtime_config.effective_egress_rules cfg access.egress_rules in
+  match cfg.channels.slack with
+  | Some sc
+    when Runtime_config.slack_has_valid_credentials sc
+         && Slack_api.is_allowed_allowlist ~kind:"channel" ~id:channel
+              sc.allow_channels -> (
+      match
+        Policy_http_client.check_policy ~rules
+          ~uri:("https://slack.com/api/" ^ method_)
+          ~method_:verb ()
+      with
+      | Ok () -> Ok sc.bot_token
+      | Error e -> Error (Policy_http_client.policy_error_to_string e))
+  | _ -> Error "Slack disabled or channel denied in current configuration"
+
+let with_delivery ~manager ?session_key ~channel method_ f =
+  match delivery_token ~manager ?session_key ~channel method_ "POST" with
+  | Error e -> Lwt.fail (Delivery_denied e)
+  | Ok token -> f token
+
+let current_token fallback =
+  match Lwt.get policy_context with
+  | None -> fallback
+  | Some (manager, _) -> (
+      match (Session.get_config manager).channels.slack with
+      | Some sc -> sc.bot_token
+      | None -> "")
+
 let check method_ verb =
   match Lwt.get policy_context with
-  | None -> Ok ()
-  | Some (manager, route) -> (
-      let cfg = Session.get_config manager in
-      let key =
-        Access_snapshot.access_session_key
-          ~session_key:(Slack_thread_route.key route)
-          (Some route.channel)
-      in
-      let access =
-        Runtime_config.resolve_effective_access cfg ~session_key:key ()
-      in
-      let rules =
-        Runtime_config.effective_egress_rules cfg access.egress_rules
-      in
-      match cfg.channels.slack with
-      | Some sc
-        when Runtime_config.slack_has_valid_credentials
-               {
-                 sc with
-                 bot_token = String.trim sc.bot_token;
-                 signing_secret = String.trim sc.signing_secret;
-               } -> (
-          match
-            Policy_http_client.check_policy ~rules
-              ~uri:("https://slack.com/api/" ^ method_)
-              ~method_:verb ()
-          with
-          | Ok () -> Ok ()
-          | Error e -> Error (Policy_http_client.policy_error_to_string e))
-      | _ -> Error "Slack disabled in current configuration")
+  | None -> Error "Slack operation has no explicit thread policy context"
+  | Some (manager, route) ->
+      Result.map
+        (fun _ -> ())
+        (delivery_token ~manager
+           ~session_key:(Slack_thread_route.key route)
+           ~channel:route.channel method_ verb)
 
 let call ~token method_ params =
   match check method_ "POST" with
   | Error e -> fail e
   | Ok () ->
+      let token = current_token token in
       Lwt.catch
         (fun () ->
           let* status, body =
@@ -66,6 +86,7 @@ let call ~token method_ params =
           | _ -> fail (method_ ^ ": transport or response failure"))
 
 let read ~token method_ params =
+  let token = current_token token in
   api
     ~check:(fun m -> check m "GET")
     ~http:(fun ~token ~method_ ~params ->
@@ -77,6 +98,22 @@ let read ~token method_ params =
       in
       Slack_transport.get ~uri ~headers:[ ("Authorization", "Bearer " ^ token) ])
     ~token method_ params
+
+let call_current ~manager ~route method_ params =
+  with_route manager route (fun () -> call ~token:"" method_ params)
+
+let call_current_exn ~manager ~route method_ params =
+  let* result = call_current ~manager ~route method_ params in
+  match result with
+  | Ok json -> Lwt.return json
+  | Error e -> (
+      match
+        delivery_token ~manager
+          ~session_key:(Slack_thread_route.key route)
+          ~channel:route.channel method_ "POST"
+      with
+      | Error reason -> Lwt.fail (Delivery_denied reason)
+      | Ok _ -> Lwt.fail_with e)
 
 let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
   let cfg = Session.get_config manager in
@@ -114,16 +151,28 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
               [ ("channel", str route.channel) ]
           in
           let channel = get "channel" response in
+          let is_dm =
+            route.channel.[0] = 'D' && get "is_im" channel = `Bool true
+          in
+          let membership =
+            if is_dm then
+              field "user" channel = user
+              && get "is_user_deleted" channel = `Bool false
+            else route.channel.[0] <> 'D' && flag "is_member" channel
+          in
+          let privacy =
+            if is_dm then Some true
+            else
+              match get "is_private" channel with
+              | `Bool b -> Some b
+              | _ -> None
+          in
           if
             field "id" channel <> route.channel
-            || (not (flag "is_member" channel))
-            || (match get "is_private" channel with
-              | `Bool _ -> false
-              | _ -> true)
+            || (not membership) || privacy = None
             || not
                  (Slack_api.check_private_channel_policy ~config:sc
-                    ~channel_id:route.channel
-                    ~is_private_opt:(Some (flag "is_private" channel)))
+                    ~channel_id:route.channel ~is_private_opt:privacy)
           then fail "Slack bot membership/private-channel policy denied"
           else
             let external_ =
@@ -178,7 +227,8 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
                         fail "Slack requesting human is not a channel member"
                       else members next (pages - 1) (cursor :: seen)
                 in
-                members "" 10 [])
+                if is_dm then Lwt.return (Ok (sc, bot, external_))
+                else members "" 10 [])
   | _ -> fail "Slack disabled or user/channel denied"
 
 let authorize ~manager ~route ~user =

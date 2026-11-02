@@ -43,40 +43,89 @@ type progress_callbacks = {
 
 (** {1 Slack callbacks} *)
 
-let slack_callbacks (slack_config : Runtime_config.slack_config) :
-    progress_callbacks =
-  let send ~room_id ?thread_id ~text () =
-    match thread_id with
-    | Some thread_ts ->
-        let open Lwt.Syntax in
-        let uri = "https://slack.com/api/chat.postMessage" in
-        let headers =
-          [ ("Authorization", "Bearer " ^ slack_config.bot_token) ]
-        in
-        let body =
-          `Assoc
-            [
-              ("channel", `String room_id);
-              ("text", `String text);
-              ("thread_ts", `String thread_ts);
-            ]
-          |> Yojson.Safe.to_string
-        in
-        let* _status, resp_body = Http_client.post_json ~uri ~headers ~body in
-        let ts =
-          try
-            let json = Yojson.Safe.from_string resp_body in
-            json |> Yojson.Safe.Util.member "ts" |> Yojson.Safe.Util.to_string
-          with _ -> "0"
-        in
-        Lwt.return ts
+let slack_callbacks ?session_manager ?session_key
+    (_slack_config : Runtime_config.slack_config) : progress_callbacks =
+  let locator =
+    match Option.bind session_key Slack_thread_route.of_key with
+    | Some r -> Some (r.channel, Some r.root)
     | None ->
-        Slack.send_message_with_id ~bot_token:slack_config.bot_token
-          ~channel_id:room_id ~text
+        Option.bind
+          (Option.bind session_key Room_session.parse_child_thread_key)
+          (fun child ->
+            if
+              child.connector = "slack"
+              && Slack_huddles.valid_id "CGD" child.room_id
+              &&
+              match child.thread_id with
+              | None -> true
+              | Some ts -> Slack_huddles.valid_ts ts
+            then Some (child.room_id, child.thread_id)
+            else None)
+  in
+  let post ~room_id method_ params =
+    let open Lwt.Syntax in
+    match session_manager with
+    | None ->
+        Lwt.fail
+          (Slack_thread_api.Delivery_denied
+             "Slack progress requires current manager configuration")
+    | Some manager ->
+        if
+          match locator with Some (room, _) -> room <> room_id | None -> false
+        then
+          Lwt.fail
+            (Slack_thread_api.Delivery_denied
+               "Slack progress room/route mismatch")
+        else
+          Slack_thread_api.with_delivery ~manager ?session_key ~channel:room_id
+            method_ (fun token ->
+              let* status, body =
+                Slack_transport.post_json
+                  ~uri:("https://slack.com/api/" ^ method_)
+                  ~headers:[ ("Authorization", "Bearer " ^ token) ]
+                  ~body:(Yojson.Safe.to_string (`Assoc params))
+              in
+              let json = Yojson.Safe.from_string body in
+              if status = 200 && Slack_huddles.flag "ok" json then
+                Lwt.return json
+              else
+                Lwt.fail_with
+                  ("Slack progress " ^ method_ ^ ": "
+                  ^ Slack_huddles.field "error" json))
+  in
+  let send ~room_id ?thread_id ~text () =
+    let open Lwt.Syntax in
+    if
+      match (locator, thread_id) with
+      | Some (room, root), supplied -> room <> room_id || root <> supplied
+      | None, Some _ -> true
+      | None, None -> false
+    then
+      Lwt.fail
+        (Slack_thread_api.Delivery_denied
+           "Slack progress lacks a matching originating thread")
+    else
+      let* json =
+        post ~room_id "chat.postMessage"
+          ([ ("channel", `String room_id); ("text", `String text) ]
+          @
+          match thread_id with
+          | Some ts -> [ ("thread_ts", `String ts) ]
+          | None -> [])
+      in
+      Lwt.return (Slack_huddles.field "ts" json)
   in
   let edit ~room_id ~msg_id ~text =
-    Slack.edit_message ~bot_token:slack_config.bot_token ~channel_id:room_id
-      ~ts:msg_id ~text
+    let open Lwt.Syntax in
+    let* _ =
+      post ~room_id "chat.update"
+        [
+          ("channel", `String room_id);
+          ("ts", `String msg_id);
+          ("text", `String text);
+        ]
+    in
+    Lwt.return_unit
   in
   { send; edit; send_adaptive_card = None; edit_adaptive_card = None }
 
@@ -178,13 +227,16 @@ let discord_callbacks (discord_config : Runtime_config.discord_config) :
     - Slack (requires configured slack channel with valid credentials)
     - Teams (requires configured teams channel)
     - Discord (requires configured discord channel with valid credentials) *)
-let dispatch ~(config : Runtime_config.t) ~(connector : string)
-    ?(service_url = "") () : progress_callbacks option =
+let dispatch ~(config : Runtime_config.t) ~(connector : string) ?session_manager
+    ?session_key ?(service_url = "") () : progress_callbacks option =
+  let config =
+    match session_manager with Some m -> Session.get_config m | None -> config
+  in
   match String.lowercase_ascii connector with
   | "slack" -> (
       match config.channels.slack with
       | Some sc when Runtime_config.slack_has_valid_credentials sc ->
-          Some (slack_callbacks sc)
+          Some (slack_callbacks ?session_manager ?session_key sc)
       | _ -> None)
   | "teams" -> (
       match config.channels.teams with

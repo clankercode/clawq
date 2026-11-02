@@ -381,8 +381,11 @@ let start_with ?connect ?handle_event ?(on_health = publish_health) ?sleep ?now
               Lwt.return_unit
       in
       Logs.info (fun m -> m "Slack Socket Mode starting");
-      run ?sleep ?now ?connect_timeout ?ping_interval ?pong_timeout ~connect
-        ~handle_event ~on_health ()
+      Lwt.finalize
+        (fun () ->
+          run ?sleep ?now ?connect_timeout ?ping_interval ?pong_timeout ~connect
+            ~handle_event ~on_health ())
+        (fun () -> Slack_thread_runs.shutdown session_manager)
 
 let start ~config ~session_manager ~event_limiter =
   start_with ~config ~session_manager ~event_limiter ()

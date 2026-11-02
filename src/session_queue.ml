@@ -1,5 +1,16 @@
 open Session_types
 
+exception Request_retained of string
+
+let execute_queued_request mgr ~key ~message ~run =
+  match mgr.queued_execution_adapter with
+  | Some adapter -> adapter ~key ~message ~run
+  | None when Room_session.slack_thread_of_key key <> None ->
+      Lwt.return
+        (Queue_retained
+           "Native Slack request has no installed execution authorizer")
+  | None -> Lwt.map (fun response -> Queue_executed response) (run message)
+
 let starts_with ~prefix text =
   let prefix_len = String.length prefix in
   String.length text >= prefix_len && String.sub text 0 prefix_len = prefix
@@ -40,6 +51,7 @@ let queued_message_payload_json (msg : queued_message) =
       ("message", `String msg.message);
       ("bang", `Bool msg.bang);
       ("deferred_followup", `Bool msg.deferred_followup);
+      ("origin_version", `Int 1);
     ]
   in
   let fields =
@@ -51,6 +63,22 @@ let queued_message_payload_json (msg : queued_message) =
     match msg.user_group with
     | Some ug -> ("user_group", `String ug) :: fields
     | None -> fields
+  in
+  let fields =
+    List.fold_left
+      (fun fields (name, value) ->
+        match value with
+        | None -> fields
+        | Some v -> (name, `String v) :: fields)
+      fields
+      [
+        ("sender_id", msg.sender_id);
+        ("sender_name", msg.sender_name);
+        ("message_id", msg.message_id);
+        ("channel", msg.channel);
+        ("channel_name", msg.channel_name);
+        ("channel_type", msg.channel_type);
+      ]
   in
   Yojson.Safe.to_string (`Assoc fields)
 
@@ -81,7 +109,7 @@ let append_followup_text existing addition =
   | "" -> addition
   | _ -> existing ^ "\n\n" ^ addition
 
-let replace_last_deferred_followup msgs addition =
+let replace_last_deferred_followup ?(same_requester = false) msgs addition =
   let last_idx = ref None in
   List.iteri
     (fun idx (msg : queued_message) ->
@@ -89,6 +117,16 @@ let replace_last_deferred_followup msgs addition =
     msgs;
   match !last_idx with
   | None -> None
+  | Some target_idx
+    when same_requester
+         &&
+         let msg = List.nth msgs target_idx in
+         msg.sender_id = None
+         || msg.sender_id <> addition.sender_id
+         || msg.channel <> addition.channel
+         || msg.channel_id <> addition.channel_id
+         || msg.message_id = None || addition.message_id = None ->
+      None
   | Some target_idx ->
       let updated_msg = ref None in
       let updated =
@@ -145,7 +183,13 @@ let append_followup_if_busy mgr ~key queued_message =
             | Some msgs -> msgs
             | None -> []
           in
-          match replace_last_deferred_followup existing queued_message with
+          (* Coalescing different humans would give the appended text the first
+             request's durable authority. Keep it as its own authorized request. *)
+          let same_requester = Room_session.slack_thread_of_key key <> None in
+          match
+            replace_last_deferred_followup ~same_requester existing
+              queued_message
+          with
           | Some (updated, updated_msg) ->
               Hashtbl.replace mgr.queued_messages key updated;
               update_queued_message_row mgr updated_msg;

@@ -180,6 +180,7 @@ let run ~(config : Runtime_config.t) =
     Session.create ~config:!current_config ?tool_registry ~sandbox:!sandbox
       ~landlock_enabled ?db ()
   in
+  Slack_thread_execution.install session_manager;
   (match tool_registry with
   | Some registry ->
       refresh_runtime_bound_tools ~config:!current_config ~session_manager
@@ -208,8 +209,8 @@ let run ~(config : Runtime_config.t) =
                     let config = !current_config in
                     let open Lwt.Syntax in
                     let* result =
-                      dispatch_resumed_message ~config ~channel ~channel_id
-                        ~text ()
+                      dispatch_session_fallback ~session_manager ~config
+                        ~session_key ~text ()
                     in
                     match result with
                     | Ok () ->
@@ -413,8 +414,7 @@ let run ~(config : Runtime_config.t) =
             in
             let open Lwt.Syntax in
             let* result =
-              dispatch_resumed_message ~config ~channel:marker.channel
-                ~channel_id:marker.channel_id ~text ()
+              dispatch_update_marker ~session_manager ~config ~marker ~text ()
             in
             (match result with
             | Ok () ->
@@ -872,6 +872,7 @@ let run ~(config : Runtime_config.t) =
   let* final_intent =
     match picked_intent with
     | Shutdown ->
+        let* () = Slack_thread_runs.shutdown session_manager in
         Lwt.wakeup_later stop_gateway ();
         if Lwt.is_sleeping telegram_stop_waiter then
           Lwt.wakeup_later telegram_stop_resolver ();
@@ -888,6 +889,7 @@ let run ~(config : Runtime_config.t) =
           Session.interrupt_resumable_channel_sessions session_manager
         in
         let* () = Session.start_draining session_manager in
+        let* () = Slack_thread_runs.shutdown session_manager in
         let* () =
           Session.notify_channel_sessions session_manager initial_drain_warning
         in

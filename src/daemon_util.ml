@@ -371,8 +371,8 @@ let inject_background_task_completion
                 Some
                   (fun text ->
                     let* result =
-                      dispatch_resumed_message ~senders ~config ~session_key
-                        ~channel:ch ~channel_id:cid ~text ()
+                      dispatch_resumed_message ~senders ~config ~session_manager
+                        ~session_key ~channel:ch ~channel_id:cid ~text ()
                     in
                     match result with Ok () | Error _ -> Lwt.return_unit)
             | _ -> None
@@ -500,8 +500,8 @@ let room_progress_connector_supported ~connector (task : Background_task.task) =
       String.lowercase_ascii origin_connector = String.lowercase_ascii connector
   | _ -> true
 
-let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
-    (task : Background_task.task) : bool Lwt.t =
+let deliver_room_progress ~(config : Runtime_config.t) ?session_manager
+    ?(db : Sqlite3.db option) (task : Background_task.task) : bool Lwt.t =
   let open Lwt.Syntax in
   let origin = Option.bind task.origin_json Room_origin.of_json_string_opt in
   let connector =
@@ -519,7 +519,8 @@ let deliver_room_progress ~(config : Runtime_config.t) ?(db : Sqlite3.db option)
       | None -> ""
     in
     match
-      Connector_room_progress.dispatch ~config ~connector ~service_url ()
+      Connector_room_progress.dispatch ~config ?session_manager
+        ?session_key:task.session_key ~connector ~service_url ()
     with
     | Some { send; edit; send_adaptive_card; edit_adaptive_card } ->
         (* Try to get checklist items for adaptive card delivery *)
@@ -717,7 +718,9 @@ let notify_background_task_finished ?continuation_delay
               | None -> ())
           | None -> ()
         in
-        let* card_delivered = deliver_room_progress ~config ?db task in
+        let* card_delivered =
+          deliver_room_progress ~config ~session_manager ?db task
+        in
         (* Send channel notification if card was not delivered successfully *)
         let* () =
           if not card_delivered then begin
@@ -757,8 +760,8 @@ let notify_background_task_finished ?continuation_delay
                     | Some channel, Some channel_id -> (
                         let* result =
                           dispatch_resumed_message ~senders ~config
-                            ?session_key:task.session_key ~channel ~channel_id
-                            ~text:channel_text ()
+                            ~session_manager ?session_key:task.session_key
+                            ~channel ~channel_id ~text:channel_text ()
                         in
                         match result with
                         | Ok () ->
@@ -784,7 +787,7 @@ let notify_background_task_finished ?continuation_delay
                 match (task.channel, task.channel_id) with
                 | Some channel, Some channel_id -> (
                     let* result =
-                      dispatch_resumed_message ~config
+                      dispatch_resumed_message ~config ~session_manager
                         ?session_key:task.session_key ~channel ~channel_id
                         ~text:channel_text ()
                     in
@@ -819,7 +822,9 @@ let notify_background_task_started ~(session_manager : Session.t)
     ~(config : Runtime_config.t) ?(db : Sqlite3.db option) task =
   let open Lwt.Syntax in
   let message = Background_task.terse_started_message task in
-  let* _card_delivered = deliver_room_progress ~config ?db task in
+  let* _card_delivered =
+    deliver_room_progress ~config ~session_manager ?db task
+  in
   match task.Background_task.session_key with
   | Some key ->
       let* _queued =

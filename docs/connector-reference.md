@@ -287,15 +287,40 @@ aggregate native `status` may differ from this app's `agent_status` when other
 agents are working. Custom tool progress and final messages remain ordinary
 messages in the originating thread.
 
+Slack streams have a ten-minute maximum lifetime; processing status expires
+after an hour without a refresh. While its run still owns the root, Clawq
+closes and replaces the marker every nine minutes and refreshes processing.
+Terminal cleanup and connector/daemon shutdown stop maintenance and join any
+in-flight UI request before releasing ownership. If streaming is unavailable,
+processing refreshes continue and the public button remains the stop control.
+
 A session key includes the workspace, app, channel and original root timestamp.
 Root mentions and replies from authorized humans share that thread's history;
 other roots remain separate. Existing room bindings retain their models,
 instructions, tool denials and CWD inheritance; runtime profile reloads apply to
-live threads. The actual authorization room and persisted `channel_id` remain
-the Slack channel ID. The reversible session key survives eviction/restart and
-routes resumed, background and fallback completion to the same root. The last
+live threads. Exact-thread bindings and access scopes apply to the actual tool
+snapshot and Slack egress, with room inheritance; the authorization room and
+persisted `channel_id` remain the Slack channel ID. The reversible session key
+survives eviction/restart and routes resumed, background and fallback completion
+to the same root. The last
 executing human is persisted for a freshly authorized restart run; old controls
 are discarded on restart. No caller authority is restored from quoted history.
+
+Deferred requests keep their original human, message, room and installation
+route in the existing durable queue. Every drain owner and boot replay freshly
+authorizes that requester before model/tools and activates and finishes that
+request's native controls. Missing provenance or revoked access retains the
+request with a failure reason; it never substitutes the previous thread owner.
+Mixed-author `/followup-append` inputs remain separate requests. Original-text
+question answers, leading `!` interrupts and authorized admin `stop` are handled
+before history is added to the model prompt or ordinary work is deferred.
+
+Retained status send/edit/delete callbacks, persisted fallback and origin-bearing
+room progress select current manager configuration at each write. Credential,
+channel or exact-thread egress revocation refuses delivery; a refused live
+notifier cannot recover through an old captured token. Valid legacy child-thread
+progress keeps the room/root encoded in its typed key and must match the task
+origin; arbitrary supplied thread locators are refused.
 
 Before reading context, Clawq checks current configuration, workspace identity,
 human identity/guest flags, bot and requesting-human channel membership,
@@ -309,6 +334,14 @@ and user history require the relevant `channels:history`, `groups:history`,
 relevant `channels:read`, `groups:read`, `im:read`, `mpim:read` and `users:read`.
 Only this app's bot is labeled as assistant source; all other authors, bot
 messages, attachments and browsing context remain quoted untrusted data.
+
+Public/group channels require typed `is_private` and bot-membership metadata;
+unknown privacy fails closed. A documented one-to-one DM instead uses
+`is_im`, its exact human peer (`user` and `is_user_deleted`), and the authenticated
+installation identity. It does not require channel-only `is_member`/`is_private`
+fields. DMs are private for configuration policy: under the default `deny`
+policy, explicitly list the `D...` conversation in `allow_private_channels`
+as well as `allow_channels`, or choose `allow_if_listed` with `allow_channels`.
 
 Each run has a public **Stop this task** button with an opaque app-owned value.
 Clawq verifies the clicking human is the authorized run owner, installation,
@@ -337,6 +370,8 @@ References: [agent sessions](https://docs.slack.dev/ai/agent-sessions/),
 [setStatus](https://docs.slack.dev/reference/methods/agents.sessions.setStatus/),
 [rename](https://docs.slack.dev/reference/methods/agents.sessions.rename/),
 [native stop event](https://docs.slack.dev/reference/events/agent_session_stopped/),
+[conversation metadata](https://docs.slack.dev/reference/methods/conversations.info/),
+[stream lifetime](https://docs.slack.dev/reference/methods/chat.startStream/),
 [thread context](https://docs.slack.dev/ai/agent-context-management/).
 
 ### Huddles and conditional transcripts

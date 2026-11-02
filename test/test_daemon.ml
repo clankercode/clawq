@@ -984,6 +984,36 @@ let test_resume_turn_payload_is_openai_compat_valid () =
         "resume prompt stored exactly once in durable history" 1
         (List.length durable_resume_prompts))
 
+let slack_resume_delivery_fixture (config : Runtime_config.t) =
+  let channels =
+    {
+      config.channels with
+      slack =
+        Option.map
+          (fun (sc : Runtime_config.slack_config) ->
+            { sc with allow_channels = [ "c1" ] })
+          config.channels.slack;
+    }
+  in
+  let rule : Runtime_config.egress_rule =
+    {
+      host = "slack.com";
+      path = Some "/api/*";
+      method_ = Some "POST";
+      action = Allow;
+      log_policy = No_log;
+    }
+  in
+  {
+    config with
+    channels;
+    egress =
+      {
+        config.egress with
+        default_allowlist = rule :: config.egress.default_allowlist;
+      };
+  }
+
 let test_resume_agent_session_sends_debug_summary () =
   with_fake_chat_provider (fun base_config ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -1007,6 +1037,7 @@ let test_resume_agent_session_sends_debug_summary () =
           channels = { base_config.channels with slack = Some slack_config };
         }
       in
+      let config = slack_resume_delivery_fixture config in
       let session_manager = Session.create ~config ~db () in
       let key = "slack:c1:u1" in
       Session.record_agent_turn session_manager ~key ~channel:"slack"
@@ -1068,6 +1099,7 @@ let test_resume_agent_session_persists_response_and_marks_sent () =
         { Runtime_config.default.channels with slack = Some slack_config };
     }
   in
+  let config = slack_resume_delivery_fixture config in
   let session_manager = Session.create ~config ~db () in
   Memory.store_message ~db ~session_key:"slack:c1:u1"
     (Provider.make_message ~role:"user" ~content:"hello");
@@ -1132,6 +1164,7 @@ let test_resume_agent_session_sends_compaction_notice () =
           model_context_limits = [ ("fake-model", 1000) ];
         }
       in
+      let config = slack_resume_delivery_fixture config in
       let session_manager = Session.create ~config ~db () in
       for i = 1 to 21 do
         Memory.store_message ~db ~session_key:"slack:c1:u1"
@@ -1411,6 +1444,7 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
         { Runtime_config.default.channels with slack = Some slack_config };
     }
   in
+  let config = slack_resume_delivery_fixture config in
   let session_manager = Session.create ~config ~db () in
   Session.record_agent_turn session_manager ~key:"__main__" ~channel:"slack"
     ~channel_id:"c1" ();
