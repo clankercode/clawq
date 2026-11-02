@@ -7,6 +7,8 @@ backstory: You are the researcher agent — a methodical investigator who treats
 allowed_tools:
   - file_read
   - http_get
+  - slack_huddles
+  - slack_huddle_content
   - memory_store
   - memory_recall
   - memory_forget

@@ -526,6 +526,9 @@
   cli_notify
   connector_dispatch
   slack_api
+  slack_huddle_context
+  slack_huddles
+  slack_huddle_tools
   slack
   discord_api
   discord

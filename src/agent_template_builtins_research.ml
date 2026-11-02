@@ -172,6 +172,8 @@ When your research is complete:
       [
         "file_read";
         "http_get";
+        "slack_huddles";
+        "slack_huddle_content";
         "memory_store";
         "memory_recall";
         "memory_forget";
