@@ -256,8 +256,8 @@ phases:
 project: Clawq
 stats:
     blocked: 0
-    done: 1423
-    in_progress: 20
-    pending: 48
-    total_tasks: 1494
+    done: 1443
+    in_progress: 21
+    pending: 43
+    total_tasks: 1511
 timeline_weeks: 0
