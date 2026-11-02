@@ -568,12 +568,6 @@ let run_command_default cmd =
 
 let probe run_command cmd = try run_command cmd with _ -> ""
 
-let command_response run_command command success =
-  try
-    ignore (run_command command);
-    success
-  with exn -> "Error: " ^ Printexc.to_string exn
-
 let systemd_unit_path () =
   let home = try Sys.getenv "HOME" with Not_found -> "~" in
   Filename.concat home ".config/systemd/user/clawq.service"
@@ -711,6 +705,43 @@ let cmd_signal_restart ?(read_pid = read_pid) ?(send_signal = Unix.kill) () =
           Printf.sprintf "Failed to signal daemon pid %d: %s" pid
             (Unix.error_message err))
 
+let with_daemon_log f =
+  let flush_outputs () =
+    Format.pp_print_flush Format.std_formatter ();
+    Format.pp_print_flush Format.err_formatter ();
+    flush Stdlib.stdout;
+    flush Stdlib.stderr
+  in
+  flush_outputs ();
+  let saved_out = Unix.dup Unix.stdout in
+  let saved_err =
+    try Unix.dup Unix.stderr
+    with exn ->
+      Unix.close saved_out;
+      raise exn
+  in
+  Unix.set_close_on_exec saved_out;
+  Unix.set_close_on_exec saved_err;
+  Fun.protect
+    ~finally:(fun () ->
+      flush_outputs ();
+      Unix.dup2 saved_out Unix.stdout;
+      Unix.dup2 saved_err Unix.stderr;
+      Unix.close saved_out;
+      Unix.close saved_err)
+    (fun () ->
+      let fd =
+        Unix.openfile (log_path ())
+          [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ]
+          0o644
+      in
+      Fun.protect
+        ~finally:(fun () -> Unix.close fd)
+        (fun () ->
+          Unix.dup2 fd Unix.stdout;
+          Unix.dup2 fd Unix.stderr);
+      f ())
+
 (* The foreground entrypoint owns the same singleton lock and PID contract
    as `agent`. Never fork: systemd must supervise the actual daemon and its EC. *)
 let cmd_run ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
@@ -728,35 +759,51 @@ let cmd_run ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
           remove_pid ();
           release_singleton_lock (Some fd))
         (fun () ->
-          write_pid (Unix.getpid ());
-          let intent =
-            try run_daemon ~config
-            with Lwt_util.Deadlock_timeout _ -> Daemon.Restart
-          in
-          match intent with
-          | Daemon.Shutdown -> "Daemon stopped."
-          | Daemon.Restart ->
-              let executable =
-                match
-                  Restart_exec.validate_and_fix (Restart_exec.executable ())
-                with
-                | Ok path -> path
-                | Error msg -> failwith msg
+          with_daemon_log (fun () ->
+              (* Old heartbeat/state must not attest to a replacement's startup. *)
+              List.iter
+                (fun name ->
+                  let path = Dot_dir.sub name in
+                  if Sys.file_exists path then Sys.remove path)
+                [ "heartbeat"; "daemon_state.json" ];
+              write_pid (Unix.getpid ());
+              let intent =
+                try run_daemon ~config with
+                | Lwt_util.Deadlock_timeout _ -> Daemon.Restart
+                | exn ->
+                    Logs.err (fun m ->
+                        m "Daemon startup/runtime failure: %s"
+                          (Printexc.to_string exn));
+                    raise exn
               in
-              execve executable
-                [| executable; "service"; "run" |]
-                (build_env
-                   ~set_vars:
-                     (match Restart_notify.read_marker () with
-                     | None -> []
-                     | Some marker ->
+              match intent with
+              | Daemon.Shutdown -> "Daemon stopped."
+              | Daemon.Restart ->
+                  let executable =
+                    match
+                      Restart_exec.validate_and_fix (Restart_exec.executable ())
+                    with
+                    | Ok path -> path
+                    | Error msg -> failwith msg
+                  in
+                  execve executable
+                    [| executable; "service"; "run" |]
+                    (build_env
+                       ~set_vars:
+                         (match Restart_notify.read_marker () with
+                         | None -> []
+                         | Some marker ->
+                             [
+                               ( Restart_notify.env_key,
+                                 Restart_notify.marker_to_json_string marker );
+                             ])
+                       ~unset_vars:
                          [
-                           ( Restart_notify.env_key,
-                             Restart_notify.marker_to_json_string marker );
-                         ])
-                   ~unset_vars:
-                     [ nofork_env; internal_nofork_env; Restart_notify.env_key ]);
-              "Daemon restart requested.")
+                           nofork_env;
+                           internal_nofork_env;
+                           Restart_notify.env_key;
+                         ]);
+                  "Daemon restart requested."))
 
 (* Executable names are not subject to systemd variable expansion; dollars
    stay literal there. Percent specifiers and string escapes still apply. *)
@@ -786,26 +833,189 @@ let installed_systemd_for_home () =
       in
       String.split_on_char '\n' unit |> List.exists (( = ) binding)
 
+let systemd_main_pid run_command =
+  let output = run_command "systemctl --user show -p MainPID --value clawq" in
+  match int_of_string_opt (String.trim output) with
+  | Some pid when pid >= 0 -> pid
+  | _ -> failwith ("Cannot determine systemd MainPID: " ^ output)
+
+let live_daemon_owner () =
+  let live = function
+    | Some pid when Daemon_liveness.process_alive pid -> Some pid
+    | _ -> None
+  in
+  let pid = live (read_pid ()) in
+  let lock = live (read_lock_holder_pid ()) in
+  match (pid, lock) with
+  | None, None -> None
+  | Some pid, None -> Some pid
+  | Some pid, Some holder when pid = holder -> Some pid
+  | _ ->
+      failwith
+        "Daemon PID/lock ownership is inconsistent; inspect clawq service \
+         status before installing/adopting"
+
+(* A successful exec and the early heartbeat precede gateway binding. Check
+   the daemon's own listening socket, not another process occupying its port. *)
+let listening_inodes ~port contents =
+  String.split_on_char '\n' contents
+  |> List.filter_map (fun line ->
+      let fields = String.split_on_char ' ' line |> List.filter (( <> ) "") in
+      match
+        (List.nth_opt fields 1, List.nth_opt fields 3, List.nth_opt fields 9)
+      with
+      | Some address, Some "0A", Some inode -> (
+          match String.rindex_opt address ':' with
+          | Some offset
+            when String.sub address (offset + 1)
+                   (String.length address - offset - 1)
+                 = Printf.sprintf "%04X" port ->
+              Some inode
+          | _ -> None)
+      | _ -> None)
+
+let daemon_application_ready pid =
+  try
+    let state = Yojson.Safe.from_file (Dot_dir.sub "daemon_state.json") in
+    let open Yojson.Safe.Util in
+    let port = state |> member "gateway_port" |> to_int in
+    state |> member "pid" |> to_int = pid
+    && state |> member "components" |> member "gateway" |> to_string = "running"
+    && port > 0 && port <= 65535
+    &&
+    let inodes =
+      [ "tcp"; "tcp6" ]
+      |> List.concat_map (fun protocol ->
+          read_file (Printf.sprintf "/proc/%d/net/%s" pid protocol)
+          |> Option.value ~default:"" |> listening_inodes ~port)
+    in
+    Sys.readdir (Printf.sprintf "/proc/%d/fd" pid)
+    |> Array.exists (fun fd ->
+        try
+          let target = Unix.readlink (Printf.sprintf "/proc/%d/fd/%s" pid fd) in
+          List.exists (fun inode -> target = "socket:[" ^ inode ^ "]") inodes
+        with _ -> false)
+  with _ -> false
+
+let wait_for_systemd ?(timeout_s = 10.) ?(clock = Unix.gettimeofday)
+    ?(sleep = Unix.sleepf) ?(app_ready = daemon_application_ready) run_command =
+  let deadline = clock () +. timeout_s in
+  let details () =
+    run_command
+      "systemctl --user show -p ActiveState -p SubState -p Result -p \
+       ExecMainStatus clawq"
+  in
+  let fail state =
+    let last_error =
+      match read_file (log_path ()) with
+      | None -> ""
+      | Some log -> (
+          String.split_on_char '\n' log
+          |> List.filter_map Error_watcher.parse_log_line
+          |> List.filter (fun (entry : Error_watcher.error_entry) ->
+              entry.level = "ERROR")
+          |> List.rev
+          |> function
+          | [] -> ""
+          | entry :: _ -> " Last daemon error: " ^ entry.message)
+    in
+    failwith
+      ("Daemon failed to become ready with matching systemd PID/lock/heartbeat \
+        and gateway listener. " ^ state ^ last_error ^ ". Inspect "
+     ^ log_path ())
+  in
+  let rec wait () =
+    let main_pid = systemd_main_pid run_command in
+    let ready =
+      match
+        (live_daemon_owner (), Daemon_liveness.heartbeat_age ~now:(clock ()) ())
+      with
+      | Some pid, Some age ->
+          pid = main_pid
+          && read_lock_holder_pid () = Some pid
+          && age < 30. && app_ready pid
+      | _ -> false
+    in
+    if ready then ()
+    else
+      let state = details () in
+      let fields =
+        String.split_on_char '\n' state
+        |> List.filter_map (fun line ->
+            match String.index_opt line '=' with
+            | None -> None
+            | Some at ->
+                Some
+                  ( String.sub line 0 at,
+                    String.sub line (at + 1) (String.length line - at - 1) ))
+      in
+      if
+        List.assoc_opt "ActiveState" fields = Some "failed"
+        || List.assoc_opt "ActiveState" fields = Some "inactive"
+        || List.assoc_opt "SubState" fields = Some "auto-restart"
+        || clock () >= deadline
+      then fail state
+      else (
+        sleep (min 0.1 (max 0. (deadline -. clock ())));
+        wait ())
+  in
+  wait ()
+
+let manual_owner_error pid =
+  failwith
+    (Printf.sprintf
+       "Daemon pid %d is unmanaged by the installed unit; run clawq service \
+        install to adopt it, or clawq service stop to stop it"
+       pid)
+
+let managed_action ~run_command ~wait_ready action success =
+  try
+    let main_pid = systemd_main_pid run_command in
+    (match live_daemon_owner () with
+    | Some pid when pid <> main_pid -> manual_owner_error pid
+    | _ -> ());
+    ignore (run_command ("systemctl --user " ^ action ^ " clawq"));
+    wait_ready run_command;
+    success
+  with exn -> "Error: " ^ Printexc.to_string exn
+
 let cmd_start_with_supervisor ?(detect_platform = detect_platform)
-    ?(run_command = run_command_default) ~config () =
+    ?(run_command = run_command_default)
+    ?(wait_ready = fun run_command -> wait_for_systemd run_command) ~config () =
   if detect_platform () = Linux && installed_systemd_for_home () then
-    command_response run_command "systemctl --user start clawq"
+    managed_action ~run_command ~wait_ready "start"
       "Daemon started under systemd supervision."
   else cmd_start_unmanaged ~config
 
 let cmd_start ~config = cmd_start_with_supervisor ~config ()
 
 let cmd_stop ?(detect_platform = detect_platform)
-    ?(run_command = run_command_default) () =
+    ?(run_command = run_command_default)
+    ?(stop_daemon = fun () -> cmd_stop_unmanaged ()) () =
   if detect_platform () = Linux && installed_systemd_for_home () then
-    command_response run_command "systemctl --user stop clawq"
-      "Stopped daemon through systemd."
+    try
+      let main_pid = systemd_main_pid run_command in
+      let owner = live_daemon_owner () in
+      (* Also stop an inactive/retrying unit before terminating a manual owner. *)
+      ignore (run_command "systemctl --user stop clawq");
+      (match owner with
+      | Some pid when pid <> main_pid ->
+          let result = stop_daemon () in
+          if has_prefix ~prefix:"Error:" result then failwith result
+      | _ -> ());
+      if
+        live_daemon_owner () <> None
+        || (main_pid > 0 && Daemon_liveness.process_alive main_pid)
+      then failwith "Daemon survived stop; inspect clawq service status";
+      "Stopped daemon through its actual owner."
+    with exn -> "Error: " ^ Printexc.to_string exn
   else cmd_stop_unmanaged ()
 
 let cmd_restart_with_supervisor ?(detect_platform = detect_platform)
-    ?(run_command = run_command_default) ~config () =
+    ?(run_command = run_command_default)
+    ?(wait_ready = fun run_command -> wait_for_systemd run_command) ~config () =
   if detect_platform () = Linux && installed_systemd_for_home () then
-    command_response run_command "systemctl --user restart clawq"
+    managed_action ~run_command ~wait_ready "restart"
       "Service restarted under systemd supervision."
   else
     let stop_msg = cmd_stop_unmanaged () in
@@ -911,33 +1121,9 @@ let write_file path contents =
     (fun () -> output_string oc contents)
     ~finally:(fun () -> close_out oc)
 
-let wait_for_systemd run_command =
-  let rec wait attempts =
-    let main_pid =
-      probe run_command "systemctl --user show -p MainPID --value clawq"
-      |> String.trim |> int_of_string_opt
-    in
-    let ready =
-      match (main_pid, read_pid (), Daemon_liveness.heartbeat_age ()) with
-      | Some pid, Some daemon_pid, Some age ->
-          pid > 0 && pid = daemon_pid
-          && read_lock_holder_pid () = Some pid
-          && age < 30.
-      | _ -> false
-    in
-    if ready then ()
-    else if attempts <= 0 then
-      failwith
-        "Supervisor did not acquire daemon PID/lock/heartbeat; inspect \
-         journalctl --user -u clawq and clawq service status"
-    else (
-      Unix.sleepf 0.1;
-      wait (attempts - 1))
-  in
-  wait 100
-
 let cmd_install ?(detect_platform = detect_platform)
-    ?(run_command = run_command_default) ?(wait_ready = wait_for_systemd)
+    ?(run_command = run_command_default)
+    ?(wait_ready = fun run_command -> wait_for_systemd run_command)
     ?(stop_daemon = fun () -> cmd_stop_unmanaged ()) () =
   try
     match detect_platform () with

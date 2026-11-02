@@ -13,6 +13,7 @@ clawq service install
 systemctl --user show clawq -p MainPID -p Restart -p ActiveState
 clawq service status
 journalctl --user -u clawq -f
+tail -F ~/.clawq/daemon.log
 ```
 
 Installation writes `~/.config/systemd/user/clawq.service`, reloads the user
@@ -22,24 +23,45 @@ before starting the supervised instance. If systemd already owns the daemon,
 installation restarts the unit to apply the new launch contract. A stop,
 reload, enable, or start failure is reported with the failed command and its
 output; installation does not claim success. Success requires matching manager
-and daemon PIDs, a lock holder, and a fresh heartbeat.
+and daemon PIDs, a lock holder, a fresh heartbeat, completed gateway startup,
+and a listening gateway socket owned by that daemon.
 
 `clawq service start`, `stop`, and `restart` use the installed unit when its
-`CLAWQ_HOME` binding matches the current data directory. An explicit managed
-stop stays stopped. `clawq service signal-restart` and `systemctl --user reload
-clawq` perform the daemon's graceful in-place restart and retain the PID.
+`CLAWQ_HOME` binding matches the current data directory. They also compare the
+live daemon PID/identity and lock holder with the unit's MainPID. If the unit is
+inactive but a manual daemon owns this data directory, `service stop` stops
+that actual owner. `service start` and `restart` refuse to replace a healthy
+manual owner and return a nonzero error directing you to `service install`
+for explicit adoption. Inconsistent PID/lock ownership also fails explicitly.
+An explicit managed stop stays stopped. `clawq service signal-restart` and
+`systemctl --user reload clawq` perform the daemon's graceful in-place restart and retain the PID.
 `clawq service uninstall` stops and disables the unit before removing it.
 
 The generated unit uses `Type=exec` and runs `clawq service run` in the
 foreground. That entrypoint acquires `daemon.lock`, writes `daemon.pid` and
 its identity metadata, propagates startup failures as process failures, and
-cleans up on ordinary exit. A second foreground instance fails while the lock
-is held. `Restart=on-failure` and `RestartSec=5` recover unexpected exits;
+cleans up on ordinary exit. It appends stdout/stderr to `daemon.log` without
+forking; the existing log rotation and EC scanner continue to use that file
+across adoption and graceful re-exec. The journal retains unit/supervisor
+failures; daemon incident logs are in `daemon.log`. A second foreground
+instance fails while the lock is held. `Restart=on-failure` and `RestartSec=5`
+recover unexpected exits;
 `KillMode=control-group` removes the old EC process and other children before
 restarting. The new daemon starts its own EC watcher when enabled. The unit
 orders startup after `network-online.target`; a user manager's ordering does
 not guarantee that external networks are reachable, so connectors still own
 connection retries.
+
+Managed `start`, `restart`, and installation wait up to ten seconds for
+application readiness, rather than treating successful exec as a ready daemon.
+Each new foreground instance clears previous heartbeat/runtime state before
+startup. Readiness requires the manager PID, verified daemon PID, lock,
+fresh heartbeat, runtime gateway state, and that PID's own listening socket.
+A listener from another process cannot make an occupied-port startup pass.
+Startup rejection, an inactive/failed/retrying unit, or a readiness timeout
+returns a nonzero CLI status with manager state and the latest daemon error.
+The Linux check uses `/proc` socket/FD ownership; denying access to those
+files makes readiness fail closed.
 
 There is no `WatchdogSec`: the daemon does not implement `sd_notify`, so an
 armed systemd watchdog would kill a healthy process after the watchdog timeout.
@@ -53,8 +75,7 @@ fits within the available memory.
 
 The unit captures the current data directory through `CLAWQ_HOME` and quotes
 paths and spaces, escapes systemd percent specifiers, and preserves literal
-dollars in the executable name. Keep the binary
-at a durable executable path; generating a unit from a temporary build or
+dollars in the executable name. Keep the binary at a durable executable path; generating a unit from a temporary build or
 worktree pins it to that path. Maintain any required runner/tool PATH in the
 user manager environment or a unit drop-in. Run `loginctl enable-linger "$USER"`
 if the service must start at boot and stay available after logout; otherwise
@@ -79,7 +100,11 @@ no diagnosis models. A narrow systemctl shim maps only the installer's `clawq`
 unit argument to the scratch unit. It tests real install/adoption, foreground
 lock exclusion, SIGKILL recovery within 30 seconds, EC replacement, fresh
 heartbeat/PID/lock state, a signed curl webhook returning HTTP 200, graceful
-reload, managed restart/stop/start/uninstall, and command failures. It removes
+reload, managed restart/stop/start/uninstall, and command failures. The review
+regressions additionally verify daemon-generated file logs consumed by the
+real EC scanner with empty diagnosis model lists, manual ownership after unit
+installation, and nonzero invalid-config/occupied-gateway start and restart.
+It removes
 the scratch unit on exit and retains scratch logs if a check fails. Batch
 build/test invocations must run through the coordinator's global gate.
 

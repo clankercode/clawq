@@ -16,6 +16,7 @@ from pathlib import Path
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -175,6 +176,68 @@ sys.exit(subprocess.call([real] + args))
         webhook()
         return pid, ec
 
+    def logging_and_ec(pid):
+        # A real daemon reload error must enter the existing EC scanner. Empty
+        # model lists make its resulting diagnosis_failed report local-only.
+        config_path = data / "config.json"
+        before = (data / "daemon.log").stat().st_size
+        try:
+            config_path.write_text("{invalid scratch reload")
+            os.kill(pid, signal.SIGHUP)
+            wait_for("daemon error appended to daemon.log", lambda:
+                     "Config reload failed" in (data / "daemon.log").read_text()[before:])
+
+            def scanned():
+                try:
+                    with sqlite3.connect(data / "memory.db") as db:
+                        row = db.execute("SELECT count(*) FROM ec_reports WHERE "
+                                         "error_context LIKE '%Config reload failed%' "
+                                         "AND status = 'diagnosis_failed'").fetchone()
+                    return row[0] > 0
+                except sqlite3.OperationalError:
+                    return False
+            wait_for("EC scanner consumes daemon-generated error without provider calls", scanned)
+        finally:
+            config_path.write_text(json.dumps(config))
+        print("PASS foreground daemon.log append and real EC scanner report with no diagnosis models", flush=True)
+
+    def startup_failure_cases():
+        config_path = data / "config.json"
+        original = json.dumps(config)
+
+        def failure_pair(bad_config, evidence):
+            for action in ("start", "restart"):
+                cli("stop")
+                config_path.write_text(original)
+                if action == "restart":
+                    cli("start")
+                    ready(expected=int(property_value("MainPID")))
+                config_path.write_text(json.dumps(bad_config))
+                try:
+                    result = cli(action, check=False)
+                    assert result.returncode != 0, (action, result.stdout)
+                    assert "under systemd supervision" not in result.stdout, result.stdout
+                    assert "failed to become ready" in result.stdout, result.stdout
+                    assert evidence in result.stdout, result.stdout
+                finally:
+                    ctl("stop")
+                    config_path.write_text(original)
+                assert property_value("MainPID") == "0"
+
+        invalid = json.loads(original)
+        invalid["gateway"].update(host="0.0.0.0", auth_token=None)
+        failure_pair(invalid, "Refusing to bind")
+        print("PASS invalid-config start and restart return nonzero with startup rejection detail", flush=True)
+        with socket.socket() as blocker:
+            blocker.bind(("127.0.0.1", 0))
+            blocker.listen()
+            occupied = json.loads(original)
+            occupied["gateway"]["port"] = blocker.getsockname()[1]
+            failure_pair(occupied, "Gateway server error")
+        print("PASS occupied-gateway start and restart return nonzero; foreign listener is not readiness", flush=True)
+        cli("start")
+        ready(expected=int(property_value("MainPID")))
+
     try:
         with (scratch / "manual.log").open("w") as output:
             manual = subprocess.Popen([str(binary), "service", "run"], env=client_env,
@@ -200,6 +263,7 @@ sys.exit(subprocess.call([real] + args))
         assert ctl("is-enabled").stdout.strip() == "enabled"
         assert unit in Path(f"/proc/{ec}/cgroup").read_text()
         print(f"PASS install adopts existing daemon: MainPID={pid} EC={ec}, memory guards intact", flush=True)
+        logging_and_ec(pid)
 
         killed_at = time.monotonic()
         heartbeat_before = (data / "heartbeat").read_text()
@@ -219,6 +283,7 @@ sys.exit(subprocess.call([real] + args))
             assert current[1] != new_ec
             return current
         pid, ec = wait_for("graceful same-PID reload", reloaded)
+        assert "SIGUSR1 received" in (data / "daemon.log").read_text()
         print(f"PASS graceful reload: same MainPID={pid}, replacement EC={ec}", flush=True)
 
         cli("restart")
@@ -232,8 +297,26 @@ sys.exit(subprocess.call([real] + args))
         assert property_value("MainPID") == "0"
         assert property_value("NRestarts") == restarts
         print("PASS managed restart and clean stop: no automatic resurrection", flush=True)
+        # The installed inactive unit does not own a separately launched agent.
+        with (scratch / "manual-agent.log").open("w") as output:
+            manual = subprocess.Popen([str(binary), "agent"], env=client_env,
+                                      stdout=output, stderr=subprocess.STDOUT)
+        manual_pid, manual_ec = wait_for("manual agent with installed inactive unit",
+                                         lambda: ready(expected=manual.pid))
+        for action in ("start", "restart"):
+            result = cli(action, check=False)
+            assert result.returncode != 0 and "service install" in result.stdout, result.stdout
+            assert alive(manual_pid) and alive(manual_ec)
+            assert property_value("MainPID") == "0"
+        print("PASS installed inactive unit start/restart refuse healthy manual owner and direct explicit adoption", flush=True)
+        cli("stop")
+        manual.wait(timeout=10)
+        assert not alive(manual_pid) and not alive(manual_ec)
+        assert property_value("MainPID") == "0" and not (data / "daemon.pid").exists()
+        print("PASS installed inactive unit stop terminates actual manual daemon and EC", flush=True)
         cli("start")
         wait_for("managed start", lambda: ready(expected=int(property_value("MainPID"))))
+        startup_failure_cases()
         cli("uninstall")
         assert not generated.exists() and not unit_path.exists()
         bad_env = dict(client_env, B829_FAIL_COMMAND="daemon-reload")
@@ -241,7 +324,7 @@ sys.exit(subprocess.call([real] + args))
         assert failure.returncode != 0, failure.stdout
         assert "injected user bus failure" in failure.stdout, failure.stdout
         print("PASS uninstall and actionable nonzero install failure", flush=True)
-        print("PASS B829: 7 integration scenarios, isolated scratch state only", flush=True)
+        print("PASS B829: original 7 scenario groups plus 5 review regression groups; isolated scratch state only", flush=True)
     except BaseException:
         print(ctl("status", "--no-pager", check=False).stdout, flush=True)
         for name in ("daemon.log", "ec_process.log"):

@@ -224,7 +224,7 @@ clawq agent                                      Start the daemon
 Manage the Clawq daemon and its process supervisor.
 
 ```
-clawq service start                              Start through systemd when installed, otherwise launch unmanaged
+clawq service start                              Start through systemd when installed; manual owners require adoption
 clawq service run                                Run in foreground with singleton lock and PID lifecycle
 clawq service stop                               Stop through systemd when installed; stays stopped
 clawq service status                             Show daemon, heartbeat, lock holder, and systemd ownership
@@ -241,6 +241,14 @@ before starting the user unit. Supervisor command failures include the command
 and output and return a nonzero CLI status. Use a stable installed binary when
 installing; the unit records its path and the current `CLAWQ_HOME`. Enable
 linger with `loginctl enable-linger "$USER"` for boot/logout availability.
+
+An installed inactive unit does not own a manual daemon: `service stop` stops
+the live owner, while `start`/`restart` return a nonzero adoption instruction.
+Managed startup waits up to ten seconds for PID/lock/heartbeat consistency,
+runtime gateway state, and a listening socket owned by the daemon. Invalid
+configuration and gateway bind failure return nonzero with startup details.
+Foreground service output appends to `daemon.log`, preserving log rotation
+and the EC scanner's input; the journal retains supervisor failures.
 
 The daemon writes a liveness heartbeat (`~/.clawq/heartbeat`, ≤30 s interval).
 An installed unit restarts unexpected process exits after five seconds and
