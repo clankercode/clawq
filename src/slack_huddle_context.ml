@@ -72,7 +72,9 @@ let with_request ~session_manager ~key ~channel_id ~user_id ~message_id f =
   Hashtbl.replace pending (key, message_id) request;
   let cell = ref (Some (start request)) in
   Lwt.with_value current (Some cell) (fun () ->
-      Lwt.finalize f (fun () ->
+      Lwt.finalize
+        (fun () -> Tool.with_message_injection_guard (fun () -> cell := None) f)
+        (fun () ->
           cell := None;
           (* Queued requests must remain available for the active drainer. *)
           let queued =
@@ -121,7 +123,7 @@ let resolve ~tool_name (context : Tool.invoke_context) =
                       ~allowed_tools:snap.allowed_tools
                       ~denied_tools:snap.denied_tools ()
                   with
-                  | Tool_authz.Allowed -> Ok turn
+                  | Tool_authz.Allowed -> Ok (turn, snap)
                   | Tool_authz.Denied reason -> Error reason)
               | _ -> error)
           | None -> error)

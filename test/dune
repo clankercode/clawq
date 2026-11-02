@@ -292,6 +292,7 @@
   test_skills_cmd_inject
   test_slack
   test_slack_huddles
+  test_slack_huddle_fix1
   test_slack_huddle_fixtures
   test_slack_socket
   test_slash_commands

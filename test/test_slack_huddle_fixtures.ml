@@ -41,7 +41,7 @@ type fixture = {
   key : string;
 }
 
-let with_fixture f =
+let with_fixture ?(key = "slack:C123:U123") f =
   Test_helpers.with_temp_home (fun _ ->
       let db = Memory.init ~db_path:":memory:" ~search_enabled:false () in
       Access_snapshot.init_schema db;
@@ -71,7 +71,6 @@ let with_fixture f =
       let cfg = ref config in
       let registry = Tool_registry.create () in
       let manager = Session.create ~config ~tool_registry:registry ~db () in
-      let key = "slack:C123:U123" in
       let agent, _, _ = Session_core.get_or_create_locked manager ~key in
       let calls = ref [] in
       let handle =

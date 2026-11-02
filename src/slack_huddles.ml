@@ -237,10 +237,11 @@ let authorize ~check ~http ~(turn : Slack_huddle_context.turn) ~channel_id =
 
 let pagination json =
   let cursor = field "next_cursor" (get "response_metadata" json) in
-  let complete = cursor = "" && not (flag "has_more" json) in
+  let exhausted = cursor = "" && not (flag "has_more" json) in
   [
     ("next_cursor", if cursor = "" then `Null else str cursor);
-    ("complete", `Bool complete);
+    ("pagination_exhausted", `Bool exhausted);
+    ("complete", `Bool (exhausted && not (flag "is_limited" json)));
   ]
 
 let huddle json =
@@ -306,6 +307,22 @@ let discover ~call ~channel_id ~oldest ~latest ~cursor ~limit =
        (obj
           ([
              ("huddles", `List huddles);
+             ("is_limited", `Bool (flag "is_limited" result));
+             ( "history_coverage",
+               str
+                 (if flag "is_limited" result then "limited"
+                  else if
+                    get "pagination_exhausted" (obj (pagination result))
+                    = `Bool true
+                  then "available_history_exhausted"
+                  else "pagination_incomplete") );
+             ( "coverage_warning",
+               if flag "is_limited" result then
+                 str
+                   "Slack's workspace history limit hides earlier messages; \
+                    pagination cannot retrieve hidden history. An empty result \
+                    is not an exhaustive negative search."
+               else `Null );
              ("oldest", str oldest);
              ("latest", str latest);
              ("untrusted_content", `Bool true);

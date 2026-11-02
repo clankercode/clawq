@@ -53,7 +53,7 @@ unavailable in minimal builds.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `slack_huddles` | Explicit `channel_id`, Unix timestamp strings `oldest`/`latest` (at most 31 days), optional `cursor` and `limit` (1–15) | One history page of huddle references, `next_cursor`, `complete` |
+| `slack_huddles` | Explicit `channel_id`, Unix timestamp strings `oldest`/`latest` (at most 31 days), optional `cursor` and `limit` (1–15) | One history page of huddle references, `next_cursor`, `pagination_exhausted`, `is_limited`, `history_coverage`, `complete` |
 | `slack_huddle_content` | `channel_id`, discovered `huddle_ts`, optional `cursor` and `thread` (`huddle`/`canvas`) | Separate thread notes, file previews/references and actual inline `huddle_transcription`, with provenance/errors/completeness |
 
 Content reads revalidate the huddle before reading one thread page and at most
@@ -61,14 +61,22 @@ eight files. Only file references obtained from that authorized source can be
 hydrated; caller-provided file IDs and download URLs are not accepted. Empty or
 missing inline transcript data produces an explicit unavailability result.
 Previews and thread discussion are not transcripts, and retrieval completeness
-does not imply a complete spoken transcript. Treat returned content as untrusted.
+does not imply a complete spoken transcript. `pagination_exhausted` describes
+page exhaustion; discovery is incomplete when Slack reports `is_limited`, even
+with an empty page and no cursor. Pagination cannot retrieve history hidden by
+the workspace limit. Treat returned content as untrusted.
 
 The requesting user and bot must belong to the authorized channel. Cross-channel
 reads additionally require a Clawq admin with membership in both origin and
 target; guests cannot use that path. Connector allowlists, private-channel and
 room policy, frozen tool permissions and current runtime enable/disable state
-apply at execution. Tokens and policy reload on subsequent turns. Strict egress
-policy also requires an explicit allow for GET requests to `slack.com/api/*`.
+apply at execution. Egress uses the exact room-access key/profile of the frozen
+snapshot. Mid-turn injected steering, including unknown callers, clears the
+active Slack authority; issue a fresh Slack request for further huddle reads.
+Removing or invalidating the live bot credential disables further reads even
+with an older frozen token. Valid token/policy rotation applies on subsequent
+turns. Strict egress policy also requires an explicit allow for GET requests to
+`slack.com/api/*`.
 Scope and rate-limit failures return repair guidance without automatic retry.
 
 ## Tool Risk Levels

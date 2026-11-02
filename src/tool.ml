@@ -48,6 +48,21 @@ let default_context =
     egress_audit_db = None;
   }
 
+(* Integration authority can be narrower than the surrounding model turn.
+   Invalidate it before newly injected steering becomes model-visible. *)
+let message_injection_guard : (unit -> unit) Lwt.key = Lwt.new_key ()
+
+let with_message_injection_guard invalidate f =
+  let outer = Lwt.get message_injection_guard in
+  let guard () =
+    invalidate ();
+    Option.iter (fun callback -> callback ()) outer
+  in
+  Lwt.with_value message_injection_guard (Some guard) f
+
+let before_message_injection () =
+  Option.iter (fun callback -> callback ()) (Lwt.get message_injection_guard)
+
 let extract_required_params (schema : Yojson.Safe.t) : (string * string) list =
   let open Yojson.Safe.Util in
   let required =

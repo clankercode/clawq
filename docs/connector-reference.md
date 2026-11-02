@@ -270,8 +270,12 @@ The full daemon registers two read-only tools through its integration registry:
 Use an explicit C/G channel ID and Unix timestamp strings. Discovery accepts a
 window of at most 31 days and reads one `conversations.history` page, retaining
 only `huddle_thread` messages with room metadata. Repeat the identical query
-with `next_cursor` while `complete` is false. A page with no huddles can still
-be incomplete. The tools support channels, not direct messages.
+with `next_cursor` when a cursor is returned. `pagination_exhausted` means Slack
+returned no further page; `complete` additionally requires that Slack has not
+reported `is_limited`. `history_coverage` identifies limited history or remaining
+pages. When `is_limited` is true, the workspace history limit hides older
+messages, and pagination cannot recover them. An empty limited page is not an
+exhaustive negative search. The tools support channels, not direct messages.
 
 Content retrieval revalidates the exact history source on every call, reads
 one `conversations.replies` page (15 messages) for the selected huddle thread
@@ -292,10 +296,16 @@ content may cover only part of a huddle. `file_errors`, `files_truncated` and
 `transcript_status` expose partial reads and unavailable data explicitly.
 
 Tools require a verified active Slack ingress user and matching access snapshot.
-They apply the frozen turn policy, current runtime enable/disable state and live
-Slack identity/membership checks. Later turns pick up configuration and credential
-changes without re-registering tools. Queued messages select their own ingress
-authority; direct CLI/background calls and durable replay without that evidence
+They apply the frozen turn policy, including the snapshot's exact room-access
+key and profile for egress, current runtime enable/disable state and live Slack
+identity/membership checks. Clearing or invalidating the current bot credential
+disables further reads even while a turn holds an older valid credential. Valid
+credential rotation and policy changes remain frozen until the next turn.
+Later turns pick up those changes without re-registering tools. Separately drained
+queued turns select their own ingress authority. Mid-turn injected steering
+clears the active authority before it becomes model-visible, including steering
+from unknown or multiple callers; further huddle reads require a fresh Slack
+request. Direct CLI/background calls and durable replay without ingress evidence
 are refused. Both origin and target must pass user/channel allowlists,
 private-channel policy, room policy, bot membership and requesting-human
 membership (bounded to five membership pages). Cross-channel reads additionally
