@@ -7,6 +7,12 @@ during that turn. Active review, harvest, commit, and research lanes should make
 progress before the agent reports what it did. A status update, plan, or promise
 to continue later does not satisfy that instruction.
 
+Both check-in prompts make `task_tree` the primary backlog for the session.
+Review the tree and complete all remaining actionable items before concluding
+that work is done. Use tools to perform the work and update the tree to reflect
+completed items. Keep items that need user input or authorization incomplete
+and report their specific blocker; a pending blocked item is not finished work.
+
 Check-ins stay within the user's existing authorization. If one step is blocked,
 the agent should attempt another available action. When nothing actionable remains,
 or all remaining work requires user input or authorization, the prompt permits a
@@ -33,5 +39,8 @@ in-memory database to drive the real session turn and tool loop. They verify
 that `doc_write` completes before progress is returned and tool results persist.
 They verify suppressed turn-time notifier output alongside successful progress
 delivery through `on_response`, and continuation can still disarm after work.
+Task-tree cases also review and update a real scratch tree, complete two
+actionable items with written artifacts before reporting progress, and leave an
+item awaiting user authorization pending.
 These checks cover prompt delivery and tool execution, without measuring live
 model compliance.

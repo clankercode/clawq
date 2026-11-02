@@ -3836,7 +3836,8 @@ let test_tool_write_then_external_edit_no_double_report () =
          external edit"
         2 event_count)
 
-let test_autonomous_checkin_executes_tool ~keepalive () =
+let test_autonomous_checkin_executes_tool ?(tree_backlog = false) ~keepalive ()
+    =
   Test_helpers.with_temp_home (fun workspace ->
       Test_helpers.with_memory_store (fun db ->
           let config =
@@ -3850,19 +3851,96 @@ let test_autonomous_checkin_executes_tool ~keepalive () =
           let registry = Tool_registry.create () in
           Tool_registry.register registry
             (Tools_builtin.doc_write ~workspace ~workspace_files:[]);
-          let mgr = Session.create ~config ~tool_registry:registry ~db () in
           let key = "web:autonomous-action" in
+          if tree_backlog then begin
+            Task_tree.init_schema db;
+            Tool_registry.register registry (Task_tree.tool ~db ());
+            ignore
+              (Test_helpers.assert_ok
+                 (Task_tree.process_operations ~db ~session_key:key
+                    (List.map
+                       (fun (id, title, note) ->
+                         `Assoc
+                           [
+                             ("op", `String "add");
+                             ("id", `String id);
+                             ("title", `String title);
+                             ("note", `String note);
+                           ])
+                       [
+                         ("review", "Complete review", "Actionable");
+                         ("research", "Record research", "Actionable");
+                         ("approval", "Await user authorization", "Blocked");
+                       ])))
+          end;
+          let mgr = Session.create ~config ~tool_registry:registry ~db () in
           let requests = ref [] in
           let previous_complete = !Provider.native_complete in
           let progress_path = Filename.concat workspace "progress.md" in
           let progress = "Completed the active review lane." in
+          let make_call id function_name arguments =
+            {
+              Provider.id;
+              function_name;
+              arguments = Yojson.Safe.to_string arguments;
+            }
+          in
+          let progress_call =
+            make_call "autonomous-progress" "doc_write"
+              (`Assoc
+                 [
+                   ("filename", `String "progress.md");
+                   ("content", `String progress);
+                 ])
+          in
+          let scripted_calls =
+            if tree_backlog then
+              [
+                [ make_call "tree-review" "task_tree" (`Assoc []) ];
+                [
+                  progress_call;
+                  make_call "research-progress" "doc_write"
+                    (`Assoc
+                       [
+                         ("filename", `String "research.md");
+                         ("content", `String "Research recorded.");
+                       ]);
+                ];
+                [
+                  make_call "tree-complete" "task_tree"
+                    (`Assoc
+                       [
+                         ( "operations",
+                           `List
+                             (List.map
+                                (fun id ->
+                                  `Assoc
+                                    [
+                                      ("op", `String "update");
+                                      ("id", `String id);
+                                      ("status", `String "done");
+                                    ])
+                                [ "review"; "research" ]) );
+                       ]);
+                ];
+                [ make_call "tree-recheck" "task_tree" (`Assoc []) ];
+              ]
+            else [ [ progress_call ] ]
+          in
           let delivered = ref [] in
+          let tree_at_delivery = ref [] in
           let visible = ref [] in
           Session.register_channel_notifier mgr ~key (fun text ->
               visible := text :: !visible;
               Lwt.return_unit);
           let on_response text =
             delivered := (text, Sys.file_exists progress_path) :: !delivered;
+            if tree_backlog then
+              tree_at_delivery :=
+                Task_tree.load_tasks ~db ~session_key:key ()
+                |> List.map (fun (task : Task_tree.task) ->
+                    (task.id, Task_tree.string_of_status task.status))
+                |> List.sort compare;
             Lwt.return_unit
           in
           Fun.protect
@@ -3880,39 +3958,32 @@ let test_autonomous_checkin_executes_tool ~keepalive () =
                 ->
                   requests := messages :: !requests;
                   Lwt.return
-                    (if List.length !requests = 1 then
-                       Provider.ToolCalls
-                         {
-                           calls =
-                             [
-                               {
-                                 Provider.id = "autonomous-progress";
-                                 function_name = "doc_write";
-                                 arguments =
-                                   Yojson.Safe.to_string
-                                     (`Assoc
-                                        [
-                                          ("filename", `String "progress.md");
-                                          ("content", `String progress);
-                                        ]);
-                               };
-                             ];
-                           model;
-                           usage = None;
-                           provider_response_items_json = None;
-                           thinking = None;
-                         }
-                     else
-                       Provider.Text
-                         {
-                           content =
-                             (if List.length !requests = 2 then progress
-                              else Session.autonomous_stay_idle_message);
-                           model;
-                           usage = None;
-                           provider_response_items_json = None;
-                           thinking = None;
-                         }));
+                    (match
+                       List.nth_opt scripted_calls (List.length !requests - 1)
+                     with
+                    | Some calls ->
+                        Provider.ToolCalls
+                          {
+                            calls;
+                            model;
+                            usage = None;
+                            provider_response_items_json = None;
+                            thinking = None;
+                          }
+                    | None ->
+                        Provider.Text
+                          {
+                            content =
+                              (if
+                                 List.length !requests
+                                 = List.length scripted_calls + 1
+                               then progress
+                               else Session.autonomous_stay_idle_message);
+                            model;
+                            usage = None;
+                            provider_response_items_json = None;
+                            thinking = None;
+                          }));
               Lwt_main.run
                 (if keepalive then
                    Session.with_suppressed_channel_output mgr ~key (fun () ->
@@ -3927,7 +3998,7 @@ let test_autonomous_checkin_executes_tool ~keepalive () =
                      ~on_response mgr ~key));
           Alcotest.(check int)
             "provider follows tool execution"
-            (if keepalive then 2 else 3)
+            (List.length scripted_calls + if keepalive then 1 else 2)
             (List.length !requests);
           let first_request = List.hd (List.rev !requests) in
           let expected_prompt =
@@ -3944,33 +4015,55 @@ let test_autonomous_checkin_executes_tool ~keepalive () =
             "progress is delivered only after tool writes the file"
             [ (progress, true) ]
             (List.rev !delivered);
-          let followup_request = List.nth (List.rev !requests) 1 in
           Alcotest.(check bool)
             "provider sees the successful tool result before reporting" true
             (List.exists
-               (fun (msg : Provider.message) ->
-                 msg.role = "tool"
-                 && msg.tool_call_id = Some "autonomous-progress"
-                 && not msg.is_error)
-               followup_request);
-          let ic = open_in progress_path in
-          let written =
+               (List.exists (fun (msg : Provider.message) ->
+                    msg.role = "tool"
+                    && msg.tool_call_id = Some "autonomous-progress"
+                    && not msg.is_error))
+               !requests);
+          let read_file path =
+            let ic = open_in path in
             Fun.protect
               ~finally:(fun () -> close_in_noerr ic)
               (fun () -> really_input_string ic (in_channel_length ic))
           in
-          Alcotest.(check string) "concrete action completed" progress written;
+          Alcotest.(check string)
+            "concrete action completed" progress (read_file progress_path);
           let history = Memory.load_history ~db ~session_key:key in
-          Alcotest.(check bool)
-            "successful tool result persisted" true
-            (List.exists
-               (fun (msg : Provider.message) ->
-                 msg.role = "tool"
-                 && msg.tool_call_id = Some "autonomous-progress"
-                 && not msg.is_error)
-               history);
+          List.iter
+            (fun (call : Provider.tool_call) ->
+              Alcotest.(check bool)
+                ("successful tool result persisted: " ^ call.id)
+                true
+                (List.exists
+                   (fun (msg : Provider.message) ->
+                     msg.role = "tool"
+                     && msg.tool_call_id = Some call.id
+                     && not msg.is_error)
+                   history))
+            (List.flatten scripted_calls);
+          if tree_backlog then begin
+            Alcotest.(check (list (pair string string)))
+              "all actionable items done before reporting; blocked item remains"
+              [
+                ("approval", "pending"); ("research", "done"); ("review", "done");
+              ]
+              !tree_at_delivery;
+            Alcotest.(check string)
+              "second tree item produced its artifact" "Research recorded."
+              (read_file (Filename.concat workspace "research.md"));
+            Alcotest.(check bool)
+              "real check-in identifies the primary backlog" true
+              (List.exists
+                 (fun (msg : Provider.message) ->
+                   msg.role = "user"
+                   && Test_helpers.string_contains msg.content "primary backlog")
+                 first_request)
+          end;
           Alcotest.(check (list string))
-            "check-in stays silent on the channel" [] !visible;
+            "no turn-time channel notifications" [] !visible;
           if not keepalive then
             Alcotest.(check bool)
               "hidden idle response still disarms after concrete work" true
@@ -5438,6 +5531,11 @@ let suite =
     Alcotest.test_case "keepalive executes a tool before reporting progress"
       `Quick
       (test_autonomous_checkin_executes_tool ~keepalive:true);
+    Alcotest.test_case "continuation completes actionable task_tree items"
+      `Quick
+      (test_autonomous_checkin_executes_tool ~tree_backlog:true ~keepalive:false);
+    Alcotest.test_case "keepalive completes actionable task_tree items" `Quick
+      (test_autonomous_checkin_executes_tool ~tree_backlog:true ~keepalive:true);
     Alcotest.test_case
       "autonomous continuation prompt can disarm with STAY_IDLE" `Quick
       test_autonomous_continuation_stays_idle_disarms;
