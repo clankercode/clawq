@@ -4,10 +4,13 @@ description: Collect durable memory and heartbeat evidence for a running Linux d
 ---
 
 The Linux memory sampler records the daemon's RSS, PSS, swap, process identity,
-process uptime, and heartbeat age once a minute. It reads the PID from
-`$CLAWQ_HOME/daemon.pid` (default `~/.clawq/daemon.pid`) and does not restart or
-signal the daemon. Its user timers survive agent sessions. Python 3 and a
-systemd user session are required.
+process uptime, and heartbeat age once a minute. It checks the PID in
+`$CLAWQ_HOME/daemon.pid` (default `~/.clawq/daemon.pid`) against the plain start
+ticks written by the service in `daemon.pid.meta`, both before and after
+capturing metrics. Missing, unreadable, or mismatched metadata produces unknown
+identity evidence; a change during capture produces `identity_changed`.
+The sampler does not restart or signal the daemon. Its user timers survive
+agent sessions. Python 3 and a systemd user session are required.
 
 From a reviewed checkout, install the sampler and timers:
 
@@ -34,19 +37,57 @@ journalctl --user -u clawq-memory-sample.service -u clawq-memory-review.service
 
 Samples live in `$XDG_STATE_HOME/clawq/memwatch/samples.csv` (default
 `~/.local/state/clawq/memwatch/samples.csv`). The daily review writes
-`summary.json` beside them. Old `~/.cache/clawq-memwatch/mem.csv` evidence is
+`summary.json` beside them. Summary writers hold `summary.lock` from before
+reading the CSV through atomic publication with a unique temporary file, so
+overlapping CLI and timer reviews cannot publish an older snapshot over a newer
+one. Sampling uses a separate CSV lock and can continue during publication.
+Old `~/.cache/clawq-memwatch/mem.csv` evidence is
 preserved separately; its older uptime column must not be interpreted as
 process age.
 
 Missing/dead processes, unreadable samples, heartbeats older than 120 seconds,
 RSS plus swap at or above 512 MiB, and growth exceeding 100 MiB within five
-minutes interrupt the observed healthy window. Growth is compared only within
-one process generation. Gaps over three minutes also interrupt the window;
+minutes interrupt the observed healthy window. Each sample also records the
+Linux boot ID, the running executable's device/inode/size/mtime identity, and
+a runtime fingerprint of the service metadata file and stable process exec
+layout fields. Replacing an on-disk binary without changing the running image
+does not change its identity. A service restart, same-PID image replacement,
+metadata replacement, or observed exec layout/boot change interrupts automatic
+duration credit and is exposed by `runtime_boundaries` and
+`last_runtime_boundary_ts`. Growth is compared only within a continuous series
+from one runtime. Missing runtime identity cannot earn healthy credit.
+Gaps over three minutes also interrupt the window;
 calendar time without samples cannot establish a clean run.
+
+CSV records require the exact current header, complete healthy identity and
+metrics, valid finite numbers, and a terminating newline. Malformed records
+interrupt observation and appear in `invalid_records` and bounded
+`evidence_errors` diagnostics. Raw bytes are retained in `samples.csv`.
+An unterminated tail is separated under the append lock and followed by an
+explicit invalid-evidence marker before the next sample, even when the tail
+looks otherwise complete. Later samples remain collectable. An unrecognized
+header is preserved and its file cannot establish valid evidence.
+
+Any corrupt history makes `evidence_complete=false` and prevents
+`fourteen_days_observed=true`, including when later rows are healthy. The
+healthy-duration field can show the valid suffix after the break. The sampler
+does not silently repair or migrate old CSV schemas. To start a new eligible
+series after review, preserve the original directory and use a fresh
+`--state-dir` (or configure `XDG_STATE_HOME` consistently for both services).
+Retain both series for investigation; do not discard the damaged evidence.
 
 `fourteen_days_observed` describes the sampled window. Before closing a memory
 investigation, also review OOM/kill evidence in the kernel and user journals and
-hourly `mem_stats` retained-set trends in the daemon log. A daily summary does
+hourly `mem_stats` retained-set trends in the daemon log. B830's original
+fourteen-clean-day criterion remains OPEN until that evidence is reviewed.
+Any exception for a diagnostic or manual restart requires explicit reviewed
+evidence tying both runtime identities to the reason, verified build, journals,
+and retained-heap trends. Such a decision belongs in a separate review record;
+it never carries automatic duration across a runtime boundary. Read-only
+identity snapshots cannot prove the absence of every possible exec between
+samples: in-place exec can retain the PID metadata, and an identical image
+with an identical exec layout can remain indistinguishable. Journal and runtime
+review remains necessary. A daily summary does
 not diagnose a leak or automatically close a backlog ticket. Daemon supervision
 and the memory sampler are separate services: sampling a dead daemon records
 the failure and leaves restart policy to its supervisor.
