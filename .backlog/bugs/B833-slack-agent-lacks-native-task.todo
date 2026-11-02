@@ -1,13 +1,17 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-11-02T05:48:08Z"
 depends_on: []
 estimate_hours: 1
 id: B833
 priority: high
+started_at: null
 status: pending
 tags: []
 title: Slack agent lacks native task execution UX and thread lifecycle
 updated_at: "2026-11-02T05:48:08Z"
 ---
 Research found Slack's agent UX supports more than a plain reply: start/update task progress in the originating thread, surface processing/loading and stop controls, preserve a stable per-thread session so follow-up mentions continue the same work, and post completion summaries/actions in-thread. Claude Tag and Slack agent guidance also emphasize context from the full thread and visible async progress. Clawq should use Slack's supported agent/thread UX for execution runs and when tagged in threads, rather than treating each mention as an isolated chat response. Investigate supported Slack APIs/scopes and implement the appropriate experience while preserving channel access boundaries and guest/privacy controls. References: https://support.claude.com/en/articles/15594475-what-is-claude-tag ; https://code.claude.com/docs/en/slack ; https://docs.slack.dev/ai/developing-agents/ ; https://developers.openai.com/cookbook/examples/agents_api/apps/slack_bot/readme
+
+Decision (2026-11-02 batch): same Slack worktree after B835 and B832. Verified Slack currently derives reply/thread handling separately and lacks native assistant task lifecycle. Use documented assistant/thread APIs with stable per-thread identity, full authorized thread context, processing/progress/final cleanup and stop handling; preserve guest/channel authorization.
