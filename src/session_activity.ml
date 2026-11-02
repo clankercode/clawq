@@ -6,12 +6,20 @@ let autonomous_stay_idle_message = "STAY_IDLE"
    not mention or spell it out in visible autonomous check-in/keepalive prompt
    text. Advertising the token makes the agent over-index on idling and tempts
    future prompt edits to reintroduce the same behavioral bug. *)
+let autonomous_work_instructions =
+  "Review the current session and take the next concrete action now whenever \
+   actionable work remains. Use tools in this turn to make progress on active \
+   review, harvest, commit, or research lanes within the user's existing \
+   authorization. Do not end with only a status update, a plan, or a promise \
+   to continue later. If a step is blocked, try another available action. If \
+   no actionable work remains or all remaining work needs user input or \
+   authorization, briefly report completion or the specific blocker."
+
 let autonomous_continuation_prompt =
-  "Autonomous session check-in: continue working if more remains."
+  "Autonomous session check-in: " ^ autonomous_work_instructions
 
 let keepalive_nudge_prompt =
-  "[Automated Keepalive Check-In]\n\
-   Continue working on your tasks if any remain."
+  "[Automated Keepalive Check-In]\n" ^ autonomous_work_instructions
 
 let default_autonomous_continuation_delay = 90.0
 

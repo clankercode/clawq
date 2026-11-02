@@ -3836,6 +3836,146 @@ let test_tool_write_then_external_edit_no_double_report () =
          external edit"
         2 event_count)
 
+let test_autonomous_checkin_executes_tool ~keepalive () =
+  Test_helpers.with_temp_home (fun workspace ->
+      Test_helpers.with_memory_store (fun db ->
+          let config =
+            {
+              (tool_enabled_config (make_openai_capture_config ())) with
+              workspace;
+              memory =
+                { Runtime_config.default.memory with search_enabled = false };
+            }
+          in
+          let registry = Tool_registry.create () in
+          Tool_registry.register registry
+            (Tools_builtin.doc_write ~workspace ~workspace_files:[]);
+          let mgr = Session.create ~config ~tool_registry:registry ~db () in
+          let key = "web:autonomous-action" in
+          let requests = ref [] in
+          let previous_complete = !Provider.native_complete in
+          let progress_path = Filename.concat workspace "progress.md" in
+          let progress = "Completed the active review lane." in
+          let delivered = ref [] in
+          let visible = ref [] in
+          Session.register_channel_notifier mgr ~key (fun text ->
+              visible := text :: !visible;
+              Lwt.return_unit);
+          let on_response text =
+            delivered := (text, Sys.file_exists progress_path) :: !delivered;
+            Lwt.return_unit
+          in
+          Fun.protect
+            ~finally:(fun () -> Provider.native_complete := previous_complete)
+            (fun () ->
+              Provider.register_native_complete Provider.OpenAICompat
+                (fun
+                  ~config:_
+                  ~provider:_
+                  ~model
+                  ~messages
+                  ?tools:_
+                  ?session_key:_
+                  ()
+                ->
+                  requests := messages :: !requests;
+                  Lwt.return
+                    (if List.length !requests = 1 then
+                       Provider.ToolCalls
+                         {
+                           calls =
+                             [
+                               {
+                                 Provider.id = "autonomous-progress";
+                                 function_name = "doc_write";
+                                 arguments =
+                                   Yojson.Safe.to_string
+                                     (`Assoc
+                                        [
+                                          ("filename", `String "progress.md");
+                                          ("content", `String progress);
+                                        ]);
+                               };
+                             ];
+                           model;
+                           usage = None;
+                           provider_response_items_json = None;
+                           thinking = None;
+                         }
+                     else
+                       Provider.Text
+                         {
+                           content =
+                             (if List.length !requests = 2 then progress
+                              else Session.autonomous_stay_idle_message);
+                           model;
+                           usage = None;
+                           provider_response_items_json = None;
+                           thinking = None;
+                         }));
+              Lwt_main.run
+                (if keepalive then
+                   Session.with_suppressed_channel_output mgr ~key (fun () ->
+                       let open Lwt.Syntax in
+                       let* response =
+                         Session.turn mgr ~key
+                           ~message:Session.keepalive_nudge_prompt ()
+                       in
+                       on_response response)
+                 else
+                   Session.schedule_autonomous_continuation ~delay:0.0
+                     ~on_response mgr ~key));
+          Alcotest.(check int)
+            "provider follows tool execution"
+            (if keepalive then 2 else 3)
+            (List.length !requests);
+          let first_request = List.hd (List.rev !requests) in
+          let expected_prompt =
+            if keepalive then Session.keepalive_nudge_prompt
+            else Session.autonomous_continuation_prompt
+          in
+          Alcotest.(check bool)
+            "real turn receives check-in prompt" true
+            (List.exists
+               (fun (msg : Provider.message) ->
+                 msg.role = "user" && msg.content = expected_prompt)
+               first_request);
+          Alcotest.(check (list (pair string bool)))
+            "progress is delivered only after tool writes the file"
+            [ (progress, true) ]
+            (List.rev !delivered);
+          let followup_request = List.nth (List.rev !requests) 1 in
+          Alcotest.(check bool)
+            "provider sees the successful tool result before reporting" true
+            (List.exists
+               (fun (msg : Provider.message) ->
+                 msg.role = "tool"
+                 && msg.tool_call_id = Some "autonomous-progress"
+                 && not msg.is_error)
+               followup_request);
+          let ic = open_in progress_path in
+          let written =
+            Fun.protect
+              ~finally:(fun () -> close_in_noerr ic)
+              (fun () -> really_input_string ic (in_channel_length ic))
+          in
+          Alcotest.(check string) "concrete action completed" progress written;
+          let history = Memory.load_history ~db ~session_key:key in
+          Alcotest.(check bool)
+            "successful tool result persisted" true
+            (List.exists
+               (fun (msg : Provider.message) ->
+                 msg.role = "tool"
+                 && msg.tool_call_id = Some "autonomous-progress"
+                 && not msg.is_error)
+               history);
+          Alcotest.(check (list string))
+            "check-in stays silent on the channel" [] !visible;
+          if not keepalive then
+            Alcotest.(check bool)
+              "hidden idle response still disarms after concrete work" true
+              (Session.continuation_state mgr ~key).disarmed))
+
 let test_autonomous_continuation_stays_idle_disarms () =
   let continuation_calls = ref 0 in
   let response_for_user message =
@@ -5292,6 +5432,12 @@ let suite =
       test_delegate_sends_debug_summary_for_parent_session;
     Alcotest.test_case "fork_and sends debug summary for parent session" `Quick
       test_fork_and_sends_debug_summary_for_parent_session;
+    Alcotest.test_case "continuation executes a tool before reporting progress"
+      `Quick
+      (test_autonomous_checkin_executes_tool ~keepalive:false);
+    Alcotest.test_case "keepalive executes a tool before reporting progress"
+      `Quick
+      (test_autonomous_checkin_executes_tool ~keepalive:true);
     Alcotest.test_case
       "autonomous continuation prompt can disarm with STAY_IDLE" `Quick
       test_autonomous_continuation_stays_idle_disarms;
