@@ -698,6 +698,11 @@ remain retained with a failure; thread history and the last owner cannot supply
 that authority. Answers to pending questions and authorized text interrupts are
 handled before ordinary follow-ups enter the queue.
 
+With strict HTTP egress, allow the required Slack GET metadata/history requests
+and POST chat/native lifecycle requests under `https://slack.com/api/` in the
+applicable room or thread policy. Status updates, room progress and persisted
+fallback delivery use those same current checks; they do not bypass a deny.
+
 ### Private Channels
 
 By default, Clawq **will not read or operate in Slack private channels**, even if their IDs are listed in `allow_channels`. This is a defense-in-depth safety measure.
