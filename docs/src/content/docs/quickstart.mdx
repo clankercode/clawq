@@ -218,11 +218,23 @@ clawq: [INFO] Starting Telegram polling for account 'main'
 clawq: [INFO] Daemon ready. Gateway on 127.0.0.1:13451
 ```
 
-The daemon runs in the foreground. Press `Ctrl+C` to stop it. To run in the background:
+The daemon runs in the foreground. Press `Ctrl+C` to stop it. For a persistent
+Linux installation with automatic crash recovery, use the stable installed
+binary:
 
 ```bash
-clawq agent &
+clawq service install
+clawq service status
+systemctl --user show clawq -p MainPID -p Restart -p ActiveState
 ```
+
+Installation enables and starts a user service, adopting a running manual
+daemon with a brief interruption. Unexpected exits restart after five seconds;
+an explicit `clawq service stop` stays stopped. To keep the user service
+available after logout and at boot, run `loginctl enable-linger "$USER"`.
+Daemon logs remain in `~/.clawq/daemon.log`; supervisor failures appear in
+`journalctl --user -u clawq`. On macOS, `service install` installs a launchd
+plist instead.
 
 ## 6. Verify
 

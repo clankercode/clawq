@@ -701,6 +701,8 @@ Agent dispatch surfaces:
 - Telegram uses `telegram:<chat_id>:<user_id>`.
 - Discord uses `discord:<channel_id>:<author_id>`.
 - Slack uses `slack:<channel_id>:<user_id>`.
+- GitHub logical thread keys use `github:<owner>/<repo>:pr:<number>` or `github:<owner>/<repo>:issue:<number>`. Session turn boundaries canonicalize the key before history writes, locks, queues, tools, and restoration; for example, `github:acme/backend:pr:831` persists as `github:acme_backend:pr:831`. GitHub API routing still uses the original owner/repo.
+- On session-manager creation, one unambiguous legacy raw GitHub identity can be promoted transactionally when canonical history and conflicting state are absent. Canonical history wins; ambiguous or reset-related branches remain stored for explicit recovery, with a `session_key_reconciliations` receipt and startup diagnostic. Held raw identities are excluded from automatic resume, queue replay, keepalive, and heartbeat selection. See `docs/session-key-recovery.md`; histories are never automatically combined.
 - The runtime-context block shown to the model always includes the current session id. Session name is optional metadata; today it is only set for special internal cases such as the main session or debug prompt flows.
 - Registered channel notifiers exist only while a live channel request/stream is active; they are used for restart drain warnings and similar out-of-band messages to currently attached sessions.
 
@@ -1111,19 +1113,20 @@ Progress updates are only dispatched for Slack, Teams, and Discord. All other co
 
 ## Restart and Resume Model
 
-- There are two daemon launch modes in practice: service-managed (`clawq service start`) and direct agent execution (`clawq agent`). They share most runtime code but not identical operational control paths.
+- Linux systemd supervision runs `clawq service run` in the foreground. `clawq service start` routes through the installed unit when appropriate; without one it uses the unmanaged launch path. Direct `clawq agent` execution shares the runtime with different process-control paths.
 - `clawq service signal-restart` only targets the daemon discovered via the service PID file. If no PID file exists, that command reports "Daemon is not running" even if a directly launched `clawq agent` process is alive and reflected in `daemon_state.json`.
 - `SIGUSR1` on the live daemon process triggers graceful restart logic: the daemon enters draining mode, interrupts all active sessions (so long-running tool calls like `background_task_wait` can detect imminent restart and return early), warns active channel sessions, waits for in-flight requests to finish, then restarts itself.
 - Drain warnings go to currently registered live channel notifiers immediately, then again at 5s, 10s, 15s, 30s, 45s, and 60s while waiting.
 - If drain does not finish within about 60 seconds, the daemon forces the restart.
-- The actual restart path is an in-place `execve` re-entry. In service-managed mode this goes back through `clawq service start` with internal no-fork environment flags; direct `clawq agent` restart uses the agent re-exec path instead.
-- `clawq service restart` is different: it is stop, sleep 1 second, start. That path is not graceful and is meaningful only for service-managed daemon instances.
+- Graceful restart uses in-place `execve`: a supervised foreground daemon re-enters `clawq service run`; the unmanaged daemon re-enters the internal no-fork start path; direct `clawq agent` uses its agent re-exec path.
+- `clawq service restart` stops and starts the daemon with a new PID. An installed unit waits for application readiness and reports startup failures; a healthy manual owner must first be adopted with `service install`.
 - Persisted service/runtime state lives under `~/.clawq/`, especially `daemon.pid`, `daemon.pid.meta`, `daemon.log`, and `daemon_state.json`.
-- `daemon_state.json` is runtime state, not authoritative proof that service commands can control the process. The service PID file governs `clawq service stop|restart|signal-restart`; `daemon_state.json` is primarily for status/introspection.
+- `daemon_state.json` provides runtime status; control also verifies daemon PID identity, singleton-lock ownership, and systemd MainPID when installed. A stale state file alone cannot establish ownership or startup readiness.
 
 ### What resumes after restart
 
 - Conversation history is stored in SQLite (`memory.db` by default unless `memory.db_path` overrides it).
+- Canonical GitHub history restores after restart or eviction independently of outbound turn resumption. Legacy raw-key recovery preserves conflicting originals and excludes held raw branches from automatic delivery.
 - Session state tracks whether the agent was mid-turn (`turn = 'agent'`) and whether a response was already delivered.
 - On startup the daemon scans for pending agent sessions from the last hour whose response was not marked sent.
 - Automatic post-restart completion currently resumes only sessions that have persisted channel metadata for a supported outbound channel: Telegram, Discord, or Slack.
@@ -1137,13 +1140,16 @@ Progress updates are only dispatched for Slack, Teams, and Discord. All other co
 
 ### Autostart on reboot
 
-- `clawq service install` writes a platform-specific service definition and enables autostart. On Linux this creates a systemd user unit at `~/.config/systemd/user/clawq.service` and runs `systemctl --user enable clawq`. On macOS it writes a launchd plist to `~/Library/LaunchAgents/org.clawq.daemon.plist` with `RunAtLoad` enabled.
-- The systemd unit uses `Type=forking` and defers process management to clawq's own double-fork. The launchd plist sets `CLAWQ_DAEMON_NOFORK=1` so launchd manages the process directly.
+- On Linux, `clawq service install` writes `~/.config/systemd/user/clawq.service`, reloads systemd, enables and starts the unit, and adopts an existing manual daemon by stopping it first. An already managed daemon is restarted to apply the unit. Installation briefly interrupts that daemon. On macOS it writes `~/Library/LaunchAgents/org.clawq.daemon.plist` with `RunAtLoad` enabled.
+- The Linux unit uses `Type=exec` and foreground `clawq service run`, `Restart=on-failure`, `RestartSec=5`, `KillMode=control-group`, and ordering after `network-online.target`. Unexpected process exits recover automatically with a replacement EC child; connector retries still handle network availability. The launchd plist sets `CLAWQ_DAEMON_NOFORK=1`.
+- Managed startup waits up to ten seconds for matching manager/daemon PID, singleton lock, fresh heartbeat, gateway runtime state, and a listening socket owned by that process. Command failure, invalid configuration, occupied ports, and readiness failure return nonzero with diagnostics. Daemon output appends to `daemon.log` for rotation and EC scanning; inspect supervisor failures with `journalctl --user -u clawq`.
+- Installed service commands verify the unit's data-directory binding and actual daemon ownership. An inactive unit does not own a manual daemon: `service stop` stops the actual owner, while `start`/`restart` require explicit adoption with `service install`. Managed stop stays stopped; `service signal-restart` and unit reload retain the PID.
+- The unit preserves `OCAMLRUNPARAM=o=60`, `MemoryHigh=1G`, `MemoryMax=1536M`, and `OOMPolicy=stop`. It has no systemd notification watchdog; use `service restart` for a hung managed daemon. See `docs/daemon-recovery.md` for the isolated recovery regression.
 - For the systemd user unit to survive logout, the user must also run `loginctl enable-linger $USER`.
 - To disable autostart without removing the service definition: on Linux run `systemctl --user disable clawq`; on macOS run `launchctl unload ~/Library/LaunchAgents/org.clawq.daemon.plist`.
 - `clawq service uninstall` removes the service definition entirely and stops the daemon.
 - `clawq service status` shows the current autostart state.
-- Installing the service does not interfere with an already-running daemon. The systemd unit or launchd plist will manage future starts; the current process continues until stopped.
+- Install using the stable installed binary: the Linux unit records its executable path and current `CLAWQ_HOME`. A worktree or temporary build path is unsuitable for a persistent installation.
 
 ### Runtime reload and tool registration caveats
 

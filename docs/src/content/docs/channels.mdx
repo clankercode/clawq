@@ -393,11 +393,24 @@ Use the interactive wizard (`clawq setup github`) or follow the manual steps:
 Each GitHub thread maps to a stable clawq session key so that follow-up
 `/clawq` interactions resume the same conversation context:
 
-| Thread surface | Session key format |
+| Thread surface | Logical session key format |
 |---|---|
 | PR event or comment on a PR | `github:{owner}/{repo}:pr:{number}` |
 | Issue comment (non-PR) | `github:{owner}/{repo}:issue:{number}` |
 | PR review comment | `github:{owner}/{repo}:pr:{number}` |
+
+The runtime canonicalizes these logical keys before persistence and turn
+execution: `github:acme/backend:pr:831` is stored as
+`github:acme_backend:pr:831`. History writes and restoration use the same key,
+so follow-ups retain context after restart or session eviction. API routing
+continues to use the original `owner/repo`.
+
+At startup, an unambiguous legacy raw-key history can be recovered when the
+canonical history is absent. Existing canonical history takes precedence;
+ambiguous or reset-related histories are preserved for explicit recovery,
+with a `session_key_reconciliations` diagnostic. These held branches are
+excluded from automatic delivery and are never combined with live history.
+The source guide `docs/session-key-recovery.md` describes the recovery rules.
 
 Review comments on the same PR share a session with the PR timeline, so the
 agent has full PR context regardless of which comment surface invoked it.

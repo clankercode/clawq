@@ -29,6 +29,10 @@ clawq auth codex-login openai-codex
 # Start the daemon
 clawq agent
 
+# Or install a persistent Linux user service with automatic crash recovery
+clawq service install
+clawq service status
+
 # Open the web UI
 xdg-open http://127.0.0.1:13451/
 
