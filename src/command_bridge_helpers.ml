@@ -260,6 +260,10 @@ let cmd_status () =
              Printf.sprintf "enabled (path=%s socket_mode=%b)" s.events_path
                s.socket_mode
            else "disabled (no auth)"));
+  (match cfg.channels.slack with
+  | Some sc when sc.socket_mode && sc.app_token <> "" ->
+      add ("  " ^ Slack_socket.status_line ())
+  | _ -> ());
   add
     (Printf.sprintf "  teams: %s"
        (match cfg.channels.teams with

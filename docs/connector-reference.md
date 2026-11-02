@@ -258,6 +258,37 @@ Slack connects via Socket Mode (WebSocket) or Events API (HTTP webhook).
 It supports edit-in-place, reactions, native thread replies, and history
 capture.
 
+### Socket Mode connection recovery
+
+Socket Mode reconnects automatically after a transport failure or Slack's
+`disconnect` controls (`warning`, `refresh_requested`, and `link_disabled`).
+Each attempt obtains a fresh WebSocket URL. Opening the connection and receiving
+Slack's `hello` each have a 30-second deadline. After `hello`, Clawq sends a
+WebSocket ping every 15 seconds and requires the matching pong within 10 seconds,
+so a silent or half-open connection cannot remain connected indefinitely.
+Retries use exponential delays from 1 to 30 seconds and continue while the
+connector runs. A connection that stays healthy for at least a minute resets
+that delay; stopping the connector cancels retries and closes the transport.
+
+`clawq status` includes the live Socket Mode state (`connecting`, `connected`,
+`reconnecting`, or `stopped`), recovery reason, retry delay, and reconnect count.
+The daemon writes this health snapshot to
+`$CLAWQ_HOME/slack_socket_status.json` (default `~/.clawq/`); stale snapshots or
+snapshots from an exited process report a disconnected state. Connection state
+changes and retries also appear in the daemon logs.
+
+Every envelope is acknowledged, including duplicates. Event delivery is
+deduplicated by Slack's `event_id` (falling back to `envelope_id`) across
+connections, with a bounded cache of 4096 accepted events. Accepted work
+continues during a socket refresh; failures are logged. The cache is in memory,
+so this does not guarantee deduplication across daemon restarts. Slack Socket
+Mode does not provide a replay guarantee for messages sent during an outage;
+automatic recovery restores delivery of newly received events without backfilling
+channel history.
+
+Protocol references: [Slack Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode/)
+and [WebSocket ping/pong](https://www.rfc-editor.org/rfc/rfc6455#section-5.5.2).
+
 ### Setup
 
 Run the interactive setup wizard:

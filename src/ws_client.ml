@@ -1,154 +1,234 @@
-module Ws_tls = Httpun_ws_lwt.Client (Gluten_lwt_unix.Client.TLS)
-module Ws_tcp = Httpun_ws_lwt.Client (Gluten_lwt_unix.Client)
+(* Use the public protocol/runtime interfaces directly so the owner can await
+   transport shutdown; httpun-ws-lwt hides the runtime handle's type. *)
+let websocket_connection ~nonce ~host ~port ~resource ~error_handler
+    ~websocket_handler =
+  let headers =
+    Httpun.Headers.of_list [ ("host", host ^ ":" ^ string_of_int port) ]
+  in
+  let sha1 s = Digestif.SHA1.(to_raw_string (digest_string s)) in
+  Httpun_ws.Client_connection.connect ~nonce ~headers ~sha1 ~error_handler
+    ~websocket_handler resource
+
+module Ws_protocol = struct
+  include Httpun_ws.Client_connection
+
+  (* The HTTP upgrade can leave WebSocket bytes in the same input buffer.
+     Drain those bytes now; Gluten otherwise waits for a new socket read. *)
+  let rec read t buffer ~off ~len =
+    let consumed = Httpun_ws.Client_connection.read t buffer ~off ~len in
+    if consumed > 0 && consumed < len then
+      consumed + read t buffer ~off:(off + consumed) ~len:(len - consumed)
+    else consumed
+end
 
 type any_ref = Any : 'a -> any_ref
+type transport = { keepalive : any_ref; shutdown : unit -> unit Lwt.t }
 
 type t = {
   wsd : Httpun_ws.Wsd.t;
   mutable on_message_cb : (string -> unit Lwt.t) option;
+  pending_messages : string Queue.t;
   close_code_ref : int option ref;
   closed_p : unit Lwt.t;
   closed_u : unit Lwt.u;
   send_mutex : Lwt_mutex.t;
-  mutable _transport_keepalive : any_ref;
+  pending_pong : (string * unit Lwt.u) option ref;
+  shutdown_transport : unit -> unit Lwt.t;
+  _transport_keepalive : any_ref;
 }
 
-let is_resolved p = not (Lwt.is_sleeping p)
+let resolve_closed p u = if Lwt.is_sleeping p then Lwt.wakeup_later u ()
+let quiet f = Lwt.catch f (fun _ -> Lwt.return_unit)
 
-(** Shared WebSocket connection logic. [default_port] is used when the URI has
-    no port. [do_connect] performs the transport-level WebSocket handshake (TLS
-    or plain TCP) using the resolved file descriptor. The transport connection
-    is bound in this scope to prevent GC. *)
-let connect_common ~default_port ~do_connect ~uri () =
+(** Bound DNS, TCP, TLS and the WebSocket upgrade by the same deadline. The
+    transport owns the descriptor after a successful upgrade; all earlier
+    failures and cancellation release it here. *)
+let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
+    ~do_connect ~uri () =
   let open Lwt.Syntax in
-  let parsed = Uri.of_string uri in
-  let host = Uri.host parsed |> Option.value ~default:"localhost" in
-  let port = Uri.port parsed |> Option.value ~default:default_port in
-  let path = Uri.path parsed in
-  let query = match Uri.verbatim_query parsed with Some q -> q | None -> "" in
-  let resource =
-    if query = "" then if path = "" then "/" else path else path ^ "?" ^ query
+  let fd_ref = ref None in
+  let transport_ref = ref None in
+  let shutdown_p = ref None in
+  let stop () =
+    match !shutdown_p with
+    | Some p -> p
+    | None ->
+        let p =
+          (match !fd_ref with
+          | Some fd -> (
+              try Lwt_unix.shutdown fd Unix.SHUTDOWN_ALL with _ -> ())
+          | None -> ());
+          let* () =
+            match !transport_ref with
+            | Some tr -> quiet tr.shutdown
+            | None -> Lwt.return_unit
+          in
+          match !fd_ref with
+          | Some fd -> quiet (fun () -> Lwt_unix.close fd)
+          | None -> Lwt.return_unit
+        in
+        shutdown_p := Some p;
+        p
   in
-  let nonce = Mirage_crypto_rng.generate 16 |> Base64.encode_exn in
-  let* addrs =
-    Lwt_unix.getaddrinfo host (string_of_int port)
-      [ Unix.AI_FAMILY Unix.PF_INET; Unix.AI_SOCKTYPE Unix.SOCK_STREAM ]
-  in
-  let addr =
-    match addrs with
-    | [] -> failwith ("DNS resolution failed for " ^ host)
-    | a :: _ -> a
-  in
-  let fd = Lwt_unix.socket addr.ai_family Unix.SOCK_STREAM 0 in
-  let* () = Lwt_unix.connect fd addr.ai_addr in
-  let closed_p, closed_u = Lwt.wait () in
-  let msg_buf = Buffer.create 4096 in
-  let on_message_ref = ref None in
-  let close_code_ref = ref None in
-  let resolve_closed () =
-    if not (is_resolved closed_p) then Lwt.wakeup_later closed_u ()
-  in
-  let websocket_handler wsd =
-    let frame ~opcode ~is_fin ~len:_ payload =
-      let buf = Buffer.create 256 in
-      let rec drain () =
-        Httpun_ws.Payload.schedule_read payload
-          ~on_eof:(fun () ->
-            match opcode with
-            | `Text | `Binary | `Continuation ->
-                Buffer.add_string msg_buf (Buffer.contents buf);
-                if is_fin then begin
-                  let msg = Buffer.contents msg_buf in
-                  Buffer.clear msg_buf;
-                  match !on_message_ref with
-                  | Some cb -> Lwt.async (fun () -> cb msg)
-                  | None -> ()
-                end
-            | `Connection_close ->
-                let payload_str = Buffer.contents buf in
-                if String.length payload_str >= 2 then begin
-                  let code =
-                    (Char.code payload_str.[0] lsl 8)
-                    lor Char.code payload_str.[1]
+  let connect () =
+    let parsed = Uri.of_string uri in
+    let host = Uri.host parsed |> Option.value ~default:"localhost" in
+    let port = Uri.port parsed |> Option.value ~default:default_port in
+    let path = Uri.path parsed in
+    let query = Option.value (Uri.verbatim_query parsed) ~default:"" in
+    let path = if path = "" then "/" else path in
+    let resource = if query = "" then path else path ^ "?" ^ query in
+    let nonce = Mirage_crypto_rng.generate 16 |> Base64.encode_exn in
+    let* addrs =
+      Lwt_unix.getaddrinfo host (string_of_int port)
+        [ Unix.AI_FAMILY Unix.PF_INET; Unix.AI_SOCKTYPE Unix.SOCK_STREAM ]
+    in
+    let addr =
+      match addrs with
+      | [] -> failwith ("DNS resolution failed for " ^ host)
+      | a :: _ -> a
+    in
+    let fd = Lwt_unix.socket addr.ai_family Unix.SOCK_STREAM 0 in
+    fd_ref := Some fd;
+    let* () = Lwt_unix.connect fd addr.ai_addr in
+    let closed_p, closed_u = Lwt.wait () in
+    let finish () = resolve_closed closed_p closed_u in
+    let msg_buf = Buffer.create 4096 in
+    let close_code_ref = ref None in
+    let pending_messages = Queue.create () in
+    let pending_pong = ref None in
+    let on_message_ref = ref None in
+    let deliver msg =
+      match !on_message_ref with
+      | Some cb -> cb msg
+      | None -> Queue.push msg pending_messages
+    in
+    let websocket_handler wsd =
+      let frame ~opcode ~is_fin ~len:_ payload =
+        let buf = Buffer.create 256 in
+        let rec drain () =
+          Httpun_ws.Payload.schedule_read payload
+            ~on_eof:(fun () ->
+              let payload = Buffer.contents buf in
+              match opcode with
+              | `Text | `Binary | `Continuation ->
+                  Buffer.add_string msg_buf payload;
+                  if is_fin then begin
+                    let msg = Buffer.contents msg_buf in
+                    Buffer.clear msg_buf;
+                    deliver msg
+                  end
+              | `Connection_close ->
+                  if String.length payload >= 2 then
+                    close_code_ref :=
+                      Some
+                        ((Char.code payload.[0] lsl 8) lor Char.code payload.[1]);
+                  finish ()
+              | `Ping ->
+                  let buffer =
+                    Bigstringaf.of_string ~off:0 ~len:(String.length payload)
+                      payload
                   in
-                  close_code_ref := Some code
-                end;
-                resolve_closed ()
-            | `Ping -> Httpun_ws.Wsd.send_pong wsd
-            | `Pong -> ()
-            | `Other _ -> ())
-          ~on_read:(fun bs ~off ~len ->
-            Buffer.add_string buf (Bigstringaf.substring bs ~off ~len);
-            drain ())
+                  Httpun_ws.Wsd.send_pong wsd
+                    ~application_data:
+                      {
+                        Httpun.IOVec.buffer;
+                        off = 0;
+                        len = String.length payload;
+                      }
+              | `Pong -> (
+                  match !pending_pong with
+                  | Some (expected, wake) when expected = payload ->
+                      pending_pong := None;
+                      Lwt.wakeup_later wake ()
+                  | _ -> ())
+              | `Other _ -> ())
+            ~on_read:(fun bs ~off ~len ->
+              Buffer.add_string buf (Bigstringaf.substring bs ~off ~len);
+              drain ())
+        in
+        drain ()
       in
-      drain ()
+      let eof ?error:_ () = finish () in
+      Httpun_ws.Websocket_connection.{ frame; eof }
     in
-    let eof ?error () =
-      ignore error;
-      resolve_closed ()
+    let wsd_p, wsd_u = Lwt.task () in
+    let websocket_handler' wsd =
+      Lwt.wakeup_later wsd_u wsd;
+      websocket_handler wsd
     in
-    Httpun_ws.Websocket_connection.{ frame; eof }
-  in
-  let wsd_p, wsd_u = Lwt.wait () in
-  let websocket_handler' wsd =
-    Lwt.wakeup_later wsd_u wsd;
-    websocket_handler wsd
-  in
-  let error_handler err =
-    let msg =
-      match err with
-      | `Handshake_failure (resp, _body) ->
-          Printf.sprintf "WS handshake failure: %s"
-            (Httpun.Status.to_string resp.Httpun.Response.status)
-      | `Exn exn -> Printexc.to_string exn
-      | `Malformed_response msg -> "Malformed response: " ^ msg
-      | `Invalid_response_body_length _ -> "Invalid response body length"
-    in
-    Logs.err (fun m -> m "WS error: %s" msg);
-    resolve_closed ()
-  in
-  (* Perform transport handshake and keep connection alive in this scope. *)
-  let* _transport_conn =
-    do_connect ~nonce ~host ~port ~resource ~error_handler
-      ~websocket_handler:websocket_handler' fd
-  in
-  let* wsd_result =
-    Lwt.pick
-      [
-        (let* w = wsd_p in
-         Lwt.return (Ok w));
-        (let* () = closed_p in
-         Lwt.return
-           (Error "WebSocket connection closed before handshake completed"));
-      ]
-  in
-  match wsd_result with
-  | Error msg -> Lwt.fail_with msg
-  | Ok wsd ->
-      (* Store transport connection in t to prevent premature GC. The
-         connection holds the underlying socket/TLS session alive; if it is
-         collected the WebSocket would fail. *)
-      let transport_holder = Any _transport_conn in
-      let t =
-        {
-          wsd;
-          on_message_cb = None;
-          close_code_ref;
-          closed_p;
-          closed_u;
-          send_mutex = Lwt_mutex.create ();
-          _transport_keepalive = transport_holder;
-        }
+    let error_handler err =
+      let msg =
+        match err with
+        | `Handshake_failure (resp, _) ->
+            "WS handshake failure: "
+            ^ Httpun.Status.to_string resp.Httpun.Response.status
+        | `Exn exn -> Printexc.to_string exn
+        | `Malformed_response msg -> "Malformed response: " ^ msg
+        | `Invalid_response_body_length _ -> "Invalid response body length"
       in
-      on_message_ref :=
-        Some
-          (fun msg ->
-            match t.on_message_cb with
-            | Some cb -> cb msg
-            | None -> Lwt.return_unit);
-      Lwt.return t
+      Logs.err (fun m -> m "WS error: %s" msg);
+      finish ()
+    in
+    let* transport =
+      do_connect ~nonce ~host ~port ~resource ~error_handler
+        ~websocket_handler:websocket_handler' fd
+    in
+    transport_ref := Some transport;
+    let* wsd =
+      Lwt.pick
+        [
+          wsd_p;
+          (let* () = Lwt.protected closed_p in
+           Lwt.fail_with "WebSocket closed before handshake completed");
+        ]
+    in
+    let t =
+      {
+        wsd;
+        on_message_cb = None;
+        pending_messages;
+        close_code_ref;
+        closed_p;
+        closed_u;
+        send_mutex = Lwt_mutex.create ();
+        pending_pong;
+        shutdown_transport = stop;
+        _transport_keepalive = transport.keepalive;
+      }
+    in
+    let dispatch msg =
+      match t.on_message_cb with
+      | None -> Queue.push msg t.pending_messages
+      | Some cb ->
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () -> cb msg)
+                (function
+                  | Lwt.Canceled -> Lwt.return_unit
+                  | exn ->
+                      Logs.err (fun m ->
+                          m "WS message handler failed: %s"
+                            (Printexc.to_string exn));
+                      finish ();
+                      stop ()))
+    in
+    on_message_ref := Some dispatch;
+    Lwt.return t
+  in
+  Lwt.catch
+    (fun () ->
+      Lwt.pick
+        [
+          connect ();
+          (let* () = sleep timeout in
+           Lwt.fail_with "WebSocket connect timeout");
+        ])
+    (fun exn ->
+      let* () = stop () in
+      Lwt.fail exn)
 
-let connect_wss ~uri () =
+let connect_wss ?timeout ?sleep ~uri () =
   let do_connect ~nonce ~host ~port ~resource ~error_handler ~websocket_handler
       fd =
     let open Lwt.Syntax in
@@ -169,32 +249,112 @@ let connect_wss ~uri () =
       | Error (`Msg msg) -> failwith ("TLS config error: " ^ msg)
     in
     let* tls_socket = Tls_lwt.Unix.client_of_fd tls_config fd in
+    let protocol =
+      websocket_connection ~nonce ~host ~port ~resource ~error_handler
+        ~websocket_handler
+    in
+    let* conn =
+      Gluten_lwt_unix.Client.TLS.create
+        ~read_buffer_size:Httpun.Config.default.read_buffer_size
+        ~protocol:(module Ws_protocol)
+        protocol tls_socket
+    in
     Lwt.return
-      (Ws_tls.connect ~nonce ~host ~port ~resource ~error_handler
-         ~websocket_handler tls_socket)
+      {
+        keepalive = Any conn;
+        shutdown = (fun () -> Gluten_lwt_unix.Client.TLS.shutdown conn);
+      }
   in
-  connect_common ~default_port:443 ~do_connect ~uri ()
+  connect_common ?timeout ?sleep ~default_port:443 ~do_connect ~uri ()
 
-let connect_ws ~uri () =
+let connect_ws ?timeout ?sleep ~uri () =
   let do_connect ~nonce ~host ~port ~resource ~error_handler ~websocket_handler
       fd =
+    let open Lwt.Syntax in
+    let protocol =
+      websocket_connection ~nonce ~host ~port ~resource ~error_handler
+        ~websocket_handler
+    in
+    let* conn =
+      Gluten_lwt_unix.Client.create
+        ~read_buffer_size:Httpun.Config.default.read_buffer_size
+        ~protocol:(module Ws_protocol)
+        protocol fd
+    in
     Lwt.return
-      (Ws_tcp.connect ~nonce ~host ~port ~resource ~error_handler
-         ~websocket_handler fd)
+      {
+        keepalive = Any conn;
+        shutdown = (fun () -> Gluten_lwt_unix.Client.shutdown conn);
+      }
   in
-  connect_common ~default_port:80 ~do_connect ~uri ()
+  connect_common ?timeout ?sleep ~default_port:80 ~do_connect ~uri ()
 
 let send_text t msg =
   Lwt_util.with_lock_timeout ~label:"ws_send"
     ~fatal_timeout:Lwt_util.short_fatal_timeout t.send_mutex (fun () ->
-      let bytes = Bytes.of_string msg in
-      Httpun_ws.Wsd.send_bytes t.wsd ~kind:`Text bytes ~off:0
-        ~len:(Bytes.length bytes);
+      if not (Lwt.is_sleeping t.closed_p) then
+        Lwt.fail_with "WebSocket is closed"
+      else begin
+        let bytes = Bytes.of_string msg in
+        Httpun_ws.Wsd.send_bytes t.wsd ~kind:`Text bytes ~off:0
+          ~len:(Bytes.length bytes);
+        Lwt.return_unit
+      end)
+
+(** The caller supplies the deadline. Match the payload so unsolicited pongs
+    cannot conceal a half-open connection. *)
+let ping t =
+  let open Lwt.Syntax in
+  let payload = Mirage_crypto_rng.generate 8 |> Base64.encode_exn in
+  let pong, wake = Lwt.task () in
+  Lwt.finalize
+    (fun () ->
+      let* () =
+        Lwt_mutex.with_lock t.send_mutex (fun () ->
+            if not (Lwt.is_sleeping t.closed_p) then
+              Lwt.fail_with "WebSocket is closed"
+            else if Option.is_some !(t.pending_pong) then
+              Lwt.fail_with "WebSocket ping already pending"
+            else begin
+              t.pending_pong := Some (payload, wake);
+              let buffer =
+                Bigstringaf.of_string ~off:0 ~len:(String.length payload)
+                  payload
+              in
+              Httpun_ws.Wsd.send_ping t.wsd
+                ~application_data:
+                  { Httpun.IOVec.buffer; off = 0; len = String.length payload };
+              Lwt.return_unit
+            end)
+      in
+      Lwt.pick
+        [
+          pong;
+          (let* () = Lwt.protected t.closed_p in
+           Lwt.fail_with "WebSocket closed awaiting pong");
+        ])
+    (fun () ->
+      (match !(t.pending_pong) with
+      | Some (expected, _) when expected = payload -> t.pending_pong := None
+      | _ -> ());
       Lwt.return_unit)
 
-let close t =
-  if not (Httpun_ws.Wsd.is_closed t.wsd) then Httpun_ws.Wsd.close t.wsd
+let shutdown t =
+  resolve_closed t.closed_p t.closed_u;
+  t.on_message_cb <- None;
+  Queue.clear t.pending_messages;
+  quiet (fun () ->
+      if not (Httpun_ws.Wsd.is_closed t.wsd) then Httpun_ws.Wsd.close t.wsd;
+      t.shutdown_transport ())
 
-let on_message t cb = t.on_message_cb <- Some cb
-let closed t = t.closed_p
+let close t = Lwt.async (fun () -> shutdown t)
+
+let on_message t cb =
+  t.on_message_cb <- Some cb;
+  while not (Queue.is_empty t.pending_messages) do
+    let msg = Queue.pop t.pending_messages in
+    Lwt.async (fun () -> Lwt.catch (fun () -> cb msg) (fun _ -> shutdown t))
+  done
+
+let closed t = Lwt.protected t.closed_p
 let close_code t = !(t.close_code_ref)
