@@ -621,6 +621,10 @@ let run_queued_turn mgr ~key agent interrupt
         ~has_external_users:queued.has_external_users ()
     with
     | Ok (cls, dec) -> (cls.scope, dec)
+    | Error reason when Room_session.slack_thread_of_key key <> None ->
+        (* The native adapter refreshes the requester after yielding preparation.
+           Refusal must retain work before run_locked_turn clears interrupts. *)
+        raise (Session_queue.Request_retained reason)
     | Error reason -> (Runtime_config_types.Rm_unknown, "deny: " ^ reason)
   in
   consume_pending_github_catalog_refresh ?db:mgr.Session_core.db

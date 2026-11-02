@@ -23,7 +23,6 @@ let test_dm () =
                        ("is_im", `Bool true);
                        ("is_org_shared", `Bool false);
                        ("user", str "U123");
-                       ("is_user_deleted", `Bool false);
                        ("priority", `Float 0.);
                        ("is_open", `Bool true);
                      ] );
@@ -53,6 +52,36 @@ let test_dm () =
              ~ts:"100.000004" "other human")
       in
       Alcotest.(check int) "DM metadata binds exact human" 2 (List.length !seen);
+      let dm_handler = !handler in
+      let* () =
+        Lwt_list.iter_s
+          (fun deleted ->
+            (handler :=
+               fun m p ->
+                 let j = dm_handler m p in
+                 if m = "conversations.info" then
+                   update j
+                     [
+                       ( "channel",
+                         update (get "channel" j)
+                           [ ("is_user_deleted", deleted) ] );
+                     ]
+                 else j);
+            let* _ =
+              run
+                ~id:("deleted-" ^ Yojson.Safe.to_string deleted)
+                (message ~channel:"D123" ~thread:"100.000001"
+                   ~ts:
+                     (if deleted = `Bool true then "100.000005"
+                      else "100.000006")
+                   "deleted or malformed peer")
+            in
+            Alcotest.(check int)
+              "explicit deletion or malformed metadata denied" 2
+              (List.length !seen);
+            Lwt.return_unit)
+          [ `Bool true; str "false" ]
+      in
       Lwt.return_unit)
 
 let test_question () =
@@ -112,10 +141,15 @@ let test_question () =
       Lwt.return_unit)
 
 let test_control ~bang () =
-  with_recording (fun base _ _ _ _ provider run ->
+  with_recording (fun base calls _ _ _ provider run ->
       admin base;
       let gate, release = Lwt.task () in
-      (provider := fun ~model:_ ~messages:_ -> gate);
+      let inputs = ref [] in
+      (provider :=
+         fun ~model ~messages ->
+           inputs := !inputs @ [ messages ];
+           if List.length !inputs = 1 then gate
+           else Lwt.return (text model "new direction complete"));
       let work = run (message "held work") in
       let* () = Test_slack_socket.settle 3 in
       let control = if bang then "!change direction" else "stop" in
@@ -125,18 +159,110 @@ let test_control ~bang () =
       in
       let interrupt = Session.interrupt_check_if_present base.manager ~key () in
       let queued = queued_count base.manager in
-      ignore (Session.take_all_queued_messages base.manager ~key);
+      let rows = Memory.queue_list ~db:base.db ~session_key:key in
+      let provenance =
+        match rows with
+        | [ row ] ->
+            contains row.payload_json "U123"
+            && contains row.payload_json "100.000003"
+            && contains row.payload_json "change direction"
+        | _ -> false
+      in
+      let followup_run = Slack_thread_runs.find base.manager key "100.000003" in
       release_text release "gpt-test";
       let* _ = work in
       check_bool "raw control interrupts actual held turn" true
         (interrupt
         = Some (if bang then "change direction" else Agent.stop_interrupt_token)
         );
-      Alcotest.(check int) "control never becomes deferred prompt" 0 queued;
+      Alcotest.(check int)
+        "bang retained once, bare stop consumed"
+        (if bang then 1 else 0)
+        queued;
+      Alcotest.(check int)
+        "bang instruction executes once after interruption"
+        (if bang then 2 else 1)
+        (List.length !inputs);
+      if bang then begin
+        check_bool "followup has original durable requester/message" true
+          provenance;
+        let last = List.hd (List.rev (List.nth !inputs 1)) in
+        check_bool "model receives normalized instruction after context" true
+          (contains last.Provider.content "change direction"
+          && not (contains last.content "!change direction"));
+        Alcotest.(check int)
+          "followup has its own native activation" 2
+          (List.length
+             (List.filter (fun (m, _) -> m = "agents.sessions.rename") !calls));
+        let states =
+          List.filter_map
+            (fun (m, p) ->
+              if m = "agents.sessions.setStatus" then Some (get "status" p)
+              else None)
+            !calls
+        in
+        check_bool "old terminal precedes fresh processing and terminal" true
+          (states
+          = [ str "processing"; str "active"; str "processing"; str "active" ]);
+        let r = Option.get followup_run in
+        check_bool "followup owned its own activation and terminal control" true
+          (r.finished
+          && List.exists
+               (fun (m, p) ->
+                 m = "chat.update"
+                 && get "ts" p = str (Option.get r.control)
+                 && get "blocks" p = arr [])
+               !calls)
+      end;
+      check_bool "durable retirement and all native resources released" true
+        (Memory.queue_list ~db:base.db ~session_key:key = []
+        && live_runs base.manager = []
+        && groups base.manager = []);
+      Lwt.return_unit)
+
+let test_bang_revoked_during_cancel () =
+  let ui, release_ui = Lwt.wait () in
+  let armed = ref false and authorizations = ref 0 in
+  let delay m _ =
+    if !armed && m = "auth.test" then begin
+      incr authorizations;
+      if !authorizations = 2 then ui else Lwt.return_unit
+    end
+    else Lwt.return_unit
+  in
+  with_recording ~delay (fun base _ _ _ _ provider run ->
+      let held, release_provider = Lwt.task () in
+      (provider := fun ~model:_ ~messages:_ -> held);
+      let work = run (message "held native owner") in
+      let* () = Test_slack_socket.settle 4 in
+      armed := true;
+      let bang =
+        run ~id:"revoked-bang"
+          (message ~thread:"100.000001" ~ts:"100.000013" "!revoked change")
+      in
+      let* () = Test_slack_socket.settle 4 in
+      let held_authorization = !authorizations = 2 && Lwt.is_sleeping bang in
+      reload_slack base (fun sc -> { sc with allow_users = [ "U456" ] });
+      Lwt.wakeup_later release_ui ();
+      let* _ = bang in
+      let interrupted =
+        Session.interrupt_check_if_present base.manager ~key ()
+      in
+      release_text release_provider "gpt-test";
+      let* _ = work in
+      let* () = Slack_thread_runs.shutdown base.manager in
+      check_bool "bang cancel awaits fresh authorization" true
+        held_authorization;
+      Alcotest.(check (option string))
+        "refused cancellation cannot write normalized interrupt" None
+        interrupted;
       Lwt.return_unit)
 
 let suite =
   [
+    ( "bang revocation during cancellation authorization",
+      `Quick,
+      test_bang_revoked_during_cancel );
     ("documented DM metadata root followup and unrelated human", `Quick, test_dm);
     ("real pending question answer before deferral", `Quick, test_question);
     ("raw bang before model context prefix", `Quick, test_control ~bang:true);

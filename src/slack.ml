@@ -961,6 +961,22 @@ let handle_message ?thread_run ?(thread_context = "")
                                 in
                                 Lwt.return ([], [], placeholder)
                             in
+                            (* Keep raw text for command/control classification. Strip
+                               native bang only from the model-facing instruction,
+                               before history can hide it from Session normalization.
+                               Owned interruption already ran at ingress. *)
+                            let message =
+                              match thread_run with
+                              | Some _
+                                when String.starts_with ~prefix:"!" message ->
+                                  let raw =
+                                    String.sub message 1
+                                      (String.length message - 1)
+                                  in
+                                  if String.trim raw = "" then "[interrupted]"
+                                  else raw
+                              | _ -> message
+                            in
                             let* response =
                               Slack_huddle_context.with_request ~session_manager
                                 ~key ~channel_id ~user_id ~message_id:ts

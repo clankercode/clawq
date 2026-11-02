@@ -290,9 +290,16 @@ messages in the originating thread.
 Slack streams have a ten-minute maximum lifetime; processing status expires
 after an hour without a refresh. While its run still owns the root, Clawq
 closes and replaces the marker every nine minutes and refreshes processing.
-Terminal cleanup and connector/daemon shutdown stop maintenance and join any
-in-flight UI request before releasing ownership. If streaming is unavailable,
-processing refreshes continue and the public button remains the stop control.
+Terminal cleanup and connector/daemon shutdown stop maintenance and join every
+run's in-flight UI cleanup, including queued requests that never activated,
+before releasing ownership. Shutdown during preparation retains the request
+with a failure reason and prevents model entry; restart interrupts are preserved.
+Shutdown closes admission for that manager before cleanup is collected, so an
+in-flight authorization/history reply cannot create a later run. Shutdown is
+terminal for that manager; a restarted daemon creates a fresh manager. Ordinary
+Socket reconnects and config reloads keep the manager open; they do not invoke
+terminal shutdown. If streaming is unavailable, processing refreshes continue
+and the public button remains the stop control.
 
 A session key includes the workspace, app, channel and original root timestamp.
 Root mentions and replies from authorized humans share that thread's history;
@@ -309,11 +316,17 @@ are discarded on restart. No caller authority is restored from quoted history.
 Deferred requests keep their original human, message, room and installation
 route in the existing durable queue. Every drain owner and boot replay freshly
 authorizes that requester before model/tools and activates and finishes that
-request's native controls. Missing provenance or revoked access retains the
-request with a failure reason; it never substitutes the previous thread owner.
+request's native controls. Current admin membership and room policy are checked
+after yielding preparation and before queued model entry. Missing provenance or
+revoked access retains the request with a failure reason; it never substitutes
+the previous thread owner.
 Mixed-author `/followup-append` inputs remain separate requests. Original-text
 question answers, leading `!` interrupts and authorized admin `stop` are handled
 before history is added to the model prompt or ordinary work is deferred.
+An owned `!change direction` interrupts the active task and queues the normalized
+`change direction` as a fresh authorized request with its original sender/message;
+bare admin `stop` is consumed without a followup. Other humans cannot interrupt
+the owned task through text controls.
 
 Retained status send/edit/delete callbacks, persisted fallback and origin-bearing
 room progress select current manager configuration at each write. Credential,
@@ -337,10 +350,11 @@ messages, attachments and browsing context remain quoted untrusted data.
 
 Public/group channels require typed `is_private` and bot-membership metadata;
 unknown privacy fails closed. A documented one-to-one DM instead uses
-`is_im`, its exact human peer (`user` and `is_user_deleted`), and the authenticated
-installation identity. It does not require channel-only `is_member`/`is_private`
-fields. DMs are private for configuration policy: under the default `deny`
-policy, explicitly list the `D...` conversation in `allow_private_channels`
+`is_im`, its exact human peer (`user`), fresh `users.info` human validation,
+and the authenticated installation identity. The optional `is_user_deleted`
+field may be absent; explicit deletion or malformed supplied values are denied.
+It does not require channel-only `is_member`/`is_private` fields. DMs are private
+for configuration policy: under the default `deny` policy, explicitly list the `D...` conversation in `allow_private_channels`
 as well as `allow_channels`, or choose `allow_if_listed` with `allow_channels`.
 
 Each run has a public **Stop this task** button with an opaque app-owned value.

@@ -157,7 +157,13 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
           let membership =
             if is_dm then
               field "user" channel = user
-              && get "is_user_deleted" channel = `Bool false
+              &&
+              match channel with
+              | `Assoc fields -> (
+                  match List.assoc_opt "is_user_deleted" fields with
+                  | None | Some (`Bool false) -> true
+                  | _ -> false)
+              | _ -> false
             else route.channel.[0] <> 'D' && flag "is_member" channel
           in
           let privacy =

@@ -41,71 +41,95 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
         in
         Lwt.return (Session_types.Queue_retained reason)
       in
-      match requester route message with
-      | Error reason -> refuse reason
-      | Ok (user, message_id) -> (
-          let* authorization =
-            Slack_thread_api.authorize ~manager ~route ~user
-          in
-          match authorization with
-          | Error reason -> refuse ("Slack queued request denied: " ^ reason)
-          | Ok (_, _, external_) ->
-              let previous =
-                Option.bind message.message_id
-                  (Slack_thread_runs.find manager key)
-              in
-              let r =
-                match previous with
-                | Some r -> r
-                | None ->
-                    Slack_thread_runs.create ~manager ~route ~message:message_id
-                      ~owner:user
-              in
-              Lwt.finalize
-                (fun () ->
-                  let* started =
-                    Lwt.catch
-                      (fun () ->
-                        let* () =
-                          if previous = None then Slack_thread_runs.control r
-                          else Lwt.return_unit
-                        in
-                        let* () = Slack_thread_runs.start r in
-                        Lwt.return (Ok ()))
-                      (function
-                        | Lwt.Canceled -> Lwt.fail Lwt.Canceled
-                        | exn -> Lwt.return (Error (Printexc.to_string exn)))
-                  in
-                  match started with
-                  | Error _ when r.stopped ->
-                      Lwt.return Session_types.Queue_cancelled
-                  | Error reason ->
-                      Lwt.return (Session_types.Queue_retained reason)
-                  | Ok () ->
-                      let admin =
-                        match Session.get_db manager with
-                        | Some db ->
-                            Admin.is_admin ~db ~channel:"slack" ~sender_id:user
-                        | None -> false
-                      in
-                      let current =
-                        {
-                          message with
-                          user_group = Some (if admin then "admin" else "guest");
-                          snapshot_work_type = Some Access_snapshot.Room_turn;
-                          has_external_users = external_;
-                        }
-                      in
-                      Session.register_channel_notifier manager ~key
-                        (notify manager route);
-                      Slack_huddle_context.with_request ~session_manager:manager
-                        ~key ~channel_id:route.channel ~user_id:user ~message_id
+      if not (Slack_thread_runs.accepting manager) then
+        refuse "Slack connector shut down; request retained"
+      else
+        match requester route message with
+        | Error reason -> refuse reason
+        | Ok (user, message_id) -> (
+            let* authorization =
+              Slack_thread_api.authorize ~manager ~route ~user
+            in
+            match authorization with
+            | Error reason -> refuse ("Slack queued request denied: " ^ reason)
+            | Ok _ when not (Slack_thread_runs.accepting manager) ->
+                refuse
+                  "Slack connector shut down during authorization; request \
+                   retained"
+            | Ok (_, _, external_) ->
+                let previous =
+                  Option.bind message.message_id
+                    (Slack_thread_runs.find manager key)
+                in
+                let r =
+                  match previous with
+                  | Some r -> r
+                  | None ->
+                      Slack_thread_runs.create ~manager ~route
+                        ~message:message_id ~owner:user
+                in
+                Lwt.finalize
+                  (fun () ->
+                    let* started =
+                      Lwt.catch
                         (fun () ->
-                          Lwt.map
-                            (fun response ->
-                              Session_types.Queue_executed response)
-                            (run current)))
-                (fun () -> Slack_thread_runs.finish r)))
+                          let* () =
+                            if previous = None then Slack_thread_runs.control r
+                            else Lwt.return_unit
+                          in
+                          let* () = Slack_thread_runs.start r in
+                          Lwt.return (Ok ()))
+                        (function
+                          | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+                          | exn -> Lwt.return (Error (Printexc.to_string exn)))
+                    in
+                    match started with
+                    | Error _ when r.stopped ->
+                        Lwt.return Session_types.Queue_cancelled
+                    | Error reason ->
+                        Lwt.return (Session_types.Queue_retained reason)
+                    | Ok () when r.stopped ->
+                        Lwt.return Session_types.Queue_cancelled
+                    | Ok () when not (Slack_thread_runs.owns r) ->
+                        Lwt.return
+                          (Session_types.Queue_retained
+                             "Slack task finished before queued execution; \
+                              request retained")
+                    | Ok () ->
+                        let admin =
+                          match Session.get_db manager with
+                          | Some db ->
+                              Admin.is_admin ~db ~channel:"slack"
+                                ~sender_id:user
+                          | None -> false
+                        in
+                        let current =
+                          {
+                            message with
+                            user_group =
+                              Some (if admin then "admin" else "guest");
+                            snapshot_work_type = Some Access_snapshot.Room_turn;
+                            has_external_users = external_;
+                          }
+                        in
+                        Session.register_channel_notifier manager ~key
+                          (notify manager route);
+                        Slack_huddle_context.with_request
+                          ~session_manager:manager ~key
+                          ~channel_id:route.channel ~user_id:user ~message_id
+                          (fun () ->
+                            Lwt.catch
+                              (fun () ->
+                                Lwt.map
+                                  (fun response ->
+                                    Session_types.Queue_executed response)
+                                  (run current))
+                              (function
+                                | Session_queue.Request_retained reason ->
+                                    Lwt.return
+                                      (Session_types.Queue_retained reason)
+                                | exn -> Lwt.fail exn)))
+                  (fun () -> Slack_thread_runs.finish r)))
 
 let install manager =
   manager.Session.queued_execution_adapter <- Some (execute manager)

@@ -10,11 +10,31 @@ type clock = { now : unit -> float; sleep : float -> unit Lwt.t }
 let clock_key : clock Lwt.key = Lwt.new_key ()
 let with_clock ~now ~sleep f = Lwt.with_value clock_key (Some { now; sleep }) f
 
+module Closed_managers = Ephemeron.K1.Make (struct
+  type t = Session.t
+
+  let equal a b = a == b
+  let hash _ = 0
+end)
+
+(* Only terminal connector/daemon exit closes a manager. Transport reconnect
+   and config reload do not call shutdown; a restarted daemon has a new manager.
+   Unit values cannot retain the weak manager keys. *)
+let closed_managers = Closed_managers.create 2
+let accepting manager = not (Closed_managers.mem closed_managers manager)
+
+let require_accepting manager =
+  if not (accepting manager) then
+    raise
+      (Session_queue.Request_retained
+         "Slack connector shut down; request retained")
+
 type group = {
   ui : Lwt_mutex.t;
   mutable owner : string option;
   mutable references : int;
   mutable terminal : unit Lwt.t;
+  mutable pending : (string * unit Lwt.t) list;
 }
 
 let groups : (Session.t * string * group) list ref = ref []
@@ -31,6 +51,7 @@ let group manager key =
           owner = None;
           references = 1;
           terminal = Lwt.return_unit;
+          pending = [];
         }
       in
       groups := (manager, key, g) :: !groups;
@@ -102,6 +123,7 @@ let status r state =
       Lwt.return_unit
 
 let create ~manager ~route ~message ~owner =
+  require_accepting manager;
   let key = Slack_thread_route.key route in
   let done_, ended = Lwt.wait () in
   let r =
@@ -128,64 +150,68 @@ let create ~manager ~route ~message ~owner =
       maintenance_stop = None;
     }
   in
+  r.group.pending <- (r.reference, r.done_) :: r.group.pending;
   Hashtbl.add runs r.reference r;
   r
 
 let control r =
-  match token r.manager with
-  | None -> Lwt.return_unit
-  | Some token ->
-      let* result =
-        call r ~token "chat.postMessage"
-          [
-            ("channel", str r.route.channel);
-            ("thread_ts", str r.route.root);
-            ("text", str "Task queued. Stop applies only to this request.");
-            ( "blocks",
-              `List
+  Lwt_mutex.with_lock r.group.ui (fun () ->
+      if r.finished || not (accepting r.manager) then Lwt.return_unit
+      else
+        match token r.manager with
+        | None -> Lwt.return_unit
+        | Some token ->
+            let* result =
+              call r ~token "chat.postMessage"
                 [
-                  obj
-                    [
-                      ("type", str "section");
-                      ( "text",
+                  ("channel", str r.route.channel);
+                  ("thread_ts", str r.route.root);
+                  ("text", str "Task queued. Stop applies only to this request.");
+                  ( "blocks",
+                    `List
+                      [
                         obj
                           [
-                            ("type", str "plain_text");
-                            ("text", str "Task queued / working");
-                          ] );
-                    ];
-                  obj
-                    [
-                      ("type", str "actions");
-                      ( "elements",
-                        `List
+                            ("type", str "section");
+                            ( "text",
+                              obj
+                                [
+                                  ("type", str "plain_text");
+                                  ("text", str "Task queued / working");
+                                ] );
+                          ];
+                        obj
                           [
-                            obj
-                              [
-                                ("type", str "button");
-                                ("action_id", str "clawq_stop_run");
-                                ( "text",
+                            ("type", str "actions");
+                            ( "elements",
+                              `List
+                                [
                                   obj
                                     [
-                                      ("type", str "plain_text");
-                                      ("text", str "Stop this task");
-                                    ] );
-                                ("value", str r.reference);
-                              ];
-                          ] );
-                    ];
-                ] );
-          ]
-      in
-      (match result with
-      | Ok j ->
-          let ts = field "ts" j in
-          if valid_ts ts then r.control <- Some ts
-      | Error e -> Logs.warn (fun m -> m "%s" e));
-      Lwt.return_unit
+                                      ("type", str "button");
+                                      ("action_id", str "clawq_stop_run");
+                                      ( "text",
+                                        obj
+                                          [
+                                            ("type", str "plain_text");
+                                            ("text", str "Stop this task");
+                                          ] );
+                                      ("value", str r.reference);
+                                    ];
+                                ] );
+                          ];
+                      ] );
+                ]
+            in
+            (match result with
+            | Ok j ->
+                let ts = field "ts" j in
+                if valid_ts ts then r.control <- Some ts
+            | Error e -> Logs.warn (fun m -> m "%s" e));
+            Lwt.return_unit)
 
 let owns r =
-  r.active && (not r.finished) && (not r.stopped)
+  accepting r.manager && r.active && (not r.finished) && (not r.stopped)
   && r.group.owner = Some r.reference
 
 let open_stream r =
@@ -293,34 +319,44 @@ let stop_maintenance r =
       Lwt.return_unit
 
 let start r =
+  require_accepting r.manager;
   let authorized_config = Session.get_config r.manager in
   let* () = Lwt.protected r.group.terminal in
   Lwt_mutex.with_lock r.group.ui (fun () ->
-      if r.finished || r.stopped then
-        Lwt.fail_with "Slack task cancelled before execution"
+      if r.stopped then Lwt.fail_with "Task stopped before model execution"
+      else if r.finished then
+        Lwt.fail_with "Slack task finished before preparation; request retained"
       else begin
         r.active <- true;
         r.group.owner <- Some r.reference;
         r.group.terminal <- r.done_;
+        let check_preparation () =
+          if r.stopped then failwith "Task stopped before model execution"
+          else if not (owns r) then
+            failwith "Slack task finished during preparation; request retained"
+          else if Session.get_config r.manager != authorized_config then
+            failwith
+              "Slack configuration changed during task preparation; request \
+               retained"
+        in
         let* authorized =
           Slack_thread_api.authorize ~manager:r.manager ~route:r.route
             ~user:r.owner
         in
+        check_preparation ();
         let* () =
           match authorized with
           | Ok _ -> Lwt.return_unit
           | Error reason -> Lwt.fail_with reason
         in
-        if Session.get_config r.manager != authorized_config then
-          failwith
-            "Slack configuration changed while awaiting task ownership; retry \
-             the request";
         Slack_thread_route.save_owner r.manager r.route r.owner;
         let* () = status r "processing" in
+        check_preparation ();
         match token r.manager with
         | None -> Lwt.fail_with "Slack disabled before model execution"
         | Some token ->
             let* () = open_stream r in
+            check_preparation ();
             let* renamed =
               call r ~token "agents.sessions.rename"
                 [
@@ -332,15 +368,9 @@ let start r =
             (match renamed with
             | Ok _ -> ()
             | Error e -> Logs.warn (fun m -> m "%s" e));
-            if Session.get_config r.manager != authorized_config then
-              Lwt.fail_with
-                "Slack configuration changed during task preparation; request \
-                 retained"
-            else if r.stopped then
-              Lwt.fail_with "Task stopped before model execution"
-            else (
-              start_maintenance r;
-              Lwt.return_unit)
+            check_preparation ();
+            start_maintenance r;
+            Lwt.return_unit
       end)
 
 let finish r =
@@ -400,10 +430,11 @@ let finish r =
               status r "active")
             else Lwt.return_unit))
       (fun () ->
-        if Lwt.is_sleeping r.done_ then Lwt.wakeup_later r.ended ();
+        r.group.pending <- List.remove_assoc r.reference r.group.pending;
         r.group.references <- r.group.references - 1;
         if r.group.references = 0 then
           groups := List.filter (fun (_, _, g) -> g != r.group) !groups;
+        if Lwt.is_sleeping r.done_ then Lwt.wakeup_later r.ended ();
         Lwt.return_unit)
   end
 
@@ -426,7 +457,7 @@ let start_queued manager key id =
           else Lwt.fail exn)
   | None -> Lwt.return_true
 
-let cancel r user =
+let cancel ?(interrupt_reason = Agent.stop_interrupt_token) r user =
   let* authorization =
     Slack_thread_api.authorize ~manager:r.manager ~route:r.route ~user
   in
@@ -459,8 +490,7 @@ let cancel r user =
         if (not !removed) && r.active && r.group.owner = Some r.reference then (
           Session.cancel_pending_question r.manager ~key:r.key;
           match Hashtbl.find_opt r.manager.sessions r.key with
-          | Some (_, _, interrupt) ->
-              interrupt := Some Agent.stop_interrupt_token
+          | Some (_, _, interrupt) -> interrupt := Some interrupt_reason
           | None -> ());
         r.stopped <- true;
         if !removed then finish r else Lwt.return_unit
@@ -488,15 +518,16 @@ let handle_text ~manager ~route ~user text =
       let bang = String.starts_with ~prefix:"!" text in
       let stop = admin && String.lowercase_ascii (String.trim text) = "stop" in
       if bang || stop then
-        let* () = cancel r user in
-        let* () =
-          if bang && (not r.finished) && r.group.owner = Some r.reference then
+        let interrupt_reason =
+          if bang then
             let raw = String.sub text 1 (String.length text - 1) in
-            Session.set_interrupt_if_present manager ~key
-              (if String.trim raw = "" then "[interrupted]" else raw)
-          else Lwt.return_unit
+            if String.trim raw = "" then "[interrupted]" else raw
+          else Agent.stop_interrupt_token
         in
-        Lwt.return_true
+        let* () = cancel ~interrupt_reason r user in
+        (* Bang keeps its instruction as a fresh request; only bare stop and
+           pending-question answers are consumed by the active run. *)
+        Lwt.return (not bang)
       else
         Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
           ~label:"sessions_lock" manager.sessions_lock (fun () ->
@@ -578,17 +609,20 @@ let with_resumed ~manager ~key f =
                 (fun () -> finish r)))
 
 let shutdown manager =
+  Closed_managers.replace closed_managers manager ();
+  (* Live controls disappear at finish entry; every run's completion stays in
+     its group until cleanup has released all resources, even if never active. *)
   let finishing =
-    List.filter_map
-      (fun (m, _, g) -> if m == manager then Some g.terminal else None)
+    List.concat_map
+      (fun (m, _, g) -> if m == manager then List.map snd g.pending else [])
       !groups
   in
   let owned =
     Hashtbl.to_seq_values runs |> List.of_seq
     |> List.filter (fun r -> r.manager == manager)
   in
-  let* () =
-    Lwt_list.iter_s
+  let terminal =
+    List.map
       (fun r ->
         (if r.active then
            match Hashtbl.find_opt manager.Session.sessions r.key with
@@ -599,4 +633,4 @@ let shutdown manager =
         finish r)
       owned
   in
-  Lwt_list.iter_s (fun task -> Lwt.protected task) finishing
+  Lwt_list.iter_s (fun task -> Lwt.protected task) (terminal @ finishing)
