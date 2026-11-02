@@ -158,6 +158,14 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(verify_before_model = fun _ -> Lwt.return_unit) ?(io = buffered_turn_io)
     () =
   let open Lwt.Syntax in
+  let retain_native_if_draining () =
+    if mgr.Session_core.draining && Room_session.slack_thread_of_key key <> None
+    then
+      raise
+        (Session_queue.Request_retained
+           "Session draining before model execution; request retained")
+  in
+  retain_native_if_draining ();
   let interrupt_check () = !interrupt in
   interrupt := None;
   let* () = match before_run with Some f -> f () | None -> Lwt.return_unit in
@@ -493,10 +501,12 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       let* response =
         Lwt.catch
           (fun () ->
+            retain_native_if_draining ();
             let* () =
               if mgr.Session_core.draining then Lwt.return_unit
               else verify_before_model agent
             in
+            retain_native_if_draining ();
             let* draining_response =
               Session_core.respond_if_draining ?on_chunk mgr
             in

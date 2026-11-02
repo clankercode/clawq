@@ -100,8 +100,14 @@ let native_replay_turn manager route (row : Memory.queue_row) payload =
     ~channel_type:(if route.channel.[0] = 'D' then "dm" else "group")
     ?sender_id ?message_id ~execution_origin
     ~before_drain:(fun response ->
-      if Session.should_suppress_response response then Lwt.return_unit
-      else Slack_thread_execution.notify manager route response)
+      let open Lwt.Syntax in
+      let* () =
+        if Session.should_suppress_response response then Lwt.return_unit
+        else Slack_thread_execution.notify manager route response
+      in
+      if not (Session.take_response_deferred manager ~key:row.session_key) then
+        Session.mark_response_sent manager ~key:row.session_key;
+      Lwt.return_unit)
     ()
 
 let replay_durable_inbound_queue ?replay_turn ~(session_manager : Session.t)

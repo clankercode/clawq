@@ -604,6 +604,238 @@ let test_unmarked_busy () =
         untouched;
       Lwt.return_unit)
 
+let test_draining_retention synthetic phase () =
+  let armed = ref false and notified = ref false and blocked = ref false in
+  let waiting, release_preparation = Lwt.task () in
+  let current_manager = ref None in
+  let delay method_ params =
+    if !armed && method_ = "agents.sessions.rename" then begin
+      let mgr = Option.get !current_manager in
+      let agent, _, _ = Hashtbl.find mgr.Session.sessions key in
+      agent.Agent.observed_active_workspace_files <-
+        [ ("AGENTS.md", Some "previous") ];
+      if phase = "before-preparation" then begin
+        blocked := true;
+        waiting
+      end
+      else Lwt.return_unit
+    end
+    else if
+      !armed
+      && method_ = "chat.postMessage"
+      && contains
+           (Slack_huddles.field "text" params)
+           "workspace context refreshed"
+    then begin
+      notified := true;
+      if phase <> "verification" then begin
+        blocked := true;
+        waiting
+      end
+      else Lwt.return_unit
+    end
+    else if !armed && !notified && method_ = "users.info" then begin
+      blocked := true;
+      waiting
+    end
+    else Lwt.return_unit
+  in
+  with_recording ~delay (fun base calls _ handler _ provider run ->
+      classified base handler;
+      ignore
+        (Sqlite3.exec base.db
+           "INSERT INTO channel_admins(channel,sender_id) VALUES \
+            ('slack','U456')");
+      current_manager := Some base.manager;
+      let clock = Test_slack_socket.make_clock () in
+      Slack_thread_runs.with_clock
+        ~now:(fun () -> clock.time)
+        ~sleep:(Test_slack_socket.sleep clock)
+        (fun () ->
+          let* _ = run (message "seed original U123 owner") in
+          let pending, release_owner = Lwt.task () in
+          (provider := fun ~model:_ ~messages:_ -> pending);
+          let owner =
+            run ~id:"restart-other-human"
+              (message ~user:"U456" ~thread:"100.000001" ~ts:"100.000050"
+                 "U456 independent work")
+          in
+          let* () = Test_slack_socket.settle 5 in
+          let* () =
+            if synthetic then
+              Daemon_util.inject_background_task_completion
+                ~session_manager:base.manager ~config:base.manager.config
+                ~session_key:key (origin_task ())
+            else
+              Lwt.map
+                (fun _ -> ())
+                (run ~id:"restart-queued-human"
+                   (message ~thread:"100.000001" ~ts:"100.000051"
+                      "U123 original queued human work"))
+          in
+          let rows = Memory.queue_list ~db:base.db ~session_key:key in
+          let queued = Hashtbl.find base.manager.queued_messages key in
+          let invoked = ref 0 and entries = ref [] and snapshots = ref [] in
+          (provider :=
+             fun ~model ~messages:_ ->
+               incr invoked;
+               let mgr = Option.get !current_manager in
+               entries :=
+                 !entries
+                 @ List.map
+                     (fun (r : Slack_thread_runs.run) -> r.owner)
+                     (List.filter Slack_thread_runs.owns (live_runs mgr));
+               let agent, _, _ = Hashtbl.find mgr.sessions key in
+               snapshots := agent.Agent.access_snapshot :: !snapshots;
+               Lwt.return (text model "original queued request completed"));
+          armed := true;
+          release_text release_owner "gpt-test";
+          let* () = Test_slack_socket.settle 20 in
+          let held = !blocked && Lwt.is_sleeping owner in
+          (* The daemon sets Session draining before closing native admission. *)
+          let* () = Session.start_draining base.manager in
+          let* () =
+            if phase = "production-restart" then
+              Slack_thread_runs.shutdown base.manager
+            else Lwt.return_unit
+          in
+          Lwt.wakeup_later release_preparation ();
+          let* _ = owner in
+          armed := false;
+          let before_boot_entries = !entries in
+          let before_boot_invoked = !invoked in
+          let retained = Memory.queue_list ~db:base.db ~session_key:key in
+          let memory_retained =
+            Hashtbl.find_opt base.manager.queued_messages key = Some queued
+          in
+          let _, _, interrupt = Hashtbl.find base.manager.sessions key in
+          let preserved_interrupt =
+            !interrupt = Some Agent.restart_interrupt_token
+          in
+          let pending_before_boot =
+            Session.load_pending_agent_sessions base.manager
+              ~max_age_seconds:3600
+          in
+          let released = clean base.manager clock in
+          let* () = Session.cancel_autonomous_continuation base.manager ~key in
+          let* () = Slack_thread_runs.shutdown base.manager in
+          let mgr =
+            Session.create ~config:base.manager.config
+              ?tool_registry:base.manager.tool_registry ~db:base.db ()
+          in
+          current_manager := Some mgr;
+          (* Boot resumes pending sessions before it replays durable requests.
+             Keep U456 authorized so an erroneous last-human resume is visible. *)
+          revoke base;
+          let* resumed =
+            Daemon_resume.resume_sessions_after_channels ~session_manager:mgr
+              ~config:mgr.config ()
+          in
+          let* denied =
+            Daemon_inbound_replay.replay_durable_inbound_queue
+              ~session_manager:mgr ~config:mgr.config ()
+          in
+          let denied_rows = Memory.queue_list ~db:base.db ~session_key:key in
+          let before_allow_entries = !entries in
+          let before_allow_invoked = !invoked in
+          admin base;
+          let* replayed =
+            Daemon_inbound_replay.replay_durable_inbound_queue
+              ~session_manager:mgr ~config:mgr.config ()
+          in
+          let* () = Session.cancel_autonomous_continuation mgr ~key in
+          let fresh_released = clean mgr clock in
+          let* () = Slack_thread_runs.shutdown mgr in
+          let next =
+            Session.create ~config:mgr.config ?tool_registry:mgr.tool_registry
+              ~db:base.db ()
+          in
+          current_manager := Some next;
+          let* next_resume =
+            Daemon_resume.resume_sessions_after_channels ~session_manager:next
+              ~config:next.config ()
+          in
+          let* next_replay =
+            Daemon_inbound_replay.replay_durable_inbound_queue
+              ~session_manager:next ~config:next.config ()
+          in
+          let* () = Session.cancel_autonomous_continuation next ~key in
+          let next_released = clean next clock in
+          let* () = Slack_thread_runs.shutdown next in
+          check_bool "actual foreign drain held before task entry" true held;
+          check_bool "draining prevents task entry even before native shutdown"
+            true
+            (before_boot_invoked = 0 && before_boot_entries = []);
+          check_bool
+            "original durable row, payload and draining reason retained" true
+            (match (rows, retained) with
+            | [ before ], [ after ] ->
+                before.queue_id = after.queue_id
+                && before.payload_json = after.payload_json
+                && after.state = Memory.Failed
+                && Option.fold ~none:false
+                     ~some:(fun s -> contains s "Session draining")
+                     after.last_error
+            | _ -> false);
+          check_bool "original queued owner and request retained in memory" true
+            memory_retained;
+          check_bool "restart interrupt survives preparation and cleanup" true
+            preserved_interrupt;
+          check_bool "native resources and in-flight work joined" true
+            (released && Session.current_in_flight base.manager = 0);
+          if phase <> "before-preparation" then
+            check_bool "retained work remains pending, never falsely answered"
+              true
+              (List.exists (fun (k, _, _) -> k = key) pending_before_boot);
+          Alcotest.(check (list string))
+            "boot cannot execute retained data using last-human authority" []
+            before_allow_entries;
+          Alcotest.(check int)
+            "boot defers competing automatic resume" 0 resumed.pending_count;
+          check_bool "fresh authorization refuses revoked original owner" true
+            (denied.failed_count = 1 && before_allow_invoked = 0
+           && before_allow_entries = []
+            &&
+            match (rows, denied_rows) with
+            | [ before ], [ after ] ->
+                before.queue_id = after.queue_id
+                && before.payload_json = after.payload_json
+                && Option.fold ~none:false
+                     ~some:(fun s -> contains s "fix3 shared role")
+                     after.last_error
+            | _ -> false);
+          Alcotest.(check int)
+            "task entries across draining, replay and subsequent boot" 1
+            !invoked;
+          check_bool "new manager replays exactly once under original U123" true
+            (replayed.replayed_count = 1
+            && replayed.failed_count = 0 && !entries = [ "U123" ]
+            && Memory.queue_list ~db:base.db ~session_key:key = []);
+          check_bool "completed replay cannot resume again on the next boot"
+            true
+            (next_resume.pending_count = 0
+            && next_replay.total_rows = 0 && next_released);
+          check_bool
+            "replay has current shared authorization and joined cleanup" true
+            (fresh_released
+            &&
+            match !snapshots with
+            | [ Some s ] ->
+                Room_policy.room_scope_to_string s.room_classification
+                = "shared"
+                && String.starts_with ~prefix:"admin_override:"
+                     s.room_policy_decision
+            | _ -> false);
+          check_bool "draining never delivered a successful restart response"
+            true
+            (not
+               (List.exists
+                  (fun (method_, p) ->
+                    method_ = "chat.postMessage"
+                    && Slack_huddles.field "text" p = Session.draining_message)
+                  !calls));
+          Lwt.return_unit))
+
 let suite =
   List.concat_map
     (fun kind ->
@@ -647,3 +879,17 @@ let suite =
               test_prepared ~interruption mode false ))
           [ "stop"; "shutdown"; "restart" ])
       [ "fresh"; "foreign-drain" ]
+  @ List.concat_map
+      (fun synthetic ->
+        List.map
+          (fun phase ->
+            ( (if synthetic then "completion" else "human") ^ " " ^ phase,
+              `Quick,
+              test_draining_retention synthetic phase ))
+          [
+            "production-restart";
+            "preparation";
+            "verification";
+            "before-preparation";
+          ])
+      [ true; false ]

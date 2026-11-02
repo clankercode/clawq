@@ -530,6 +530,17 @@ let resume_pending_agent_sessions ?(senders = default_resume_senders)
   in
   let pending =
     Session.load_pending_agent_sessions session_manager ~max_age_seconds:3600
+    |> List.filter (fun (key, _, _) ->
+        match
+          (Slack_thread_route.of_key key, Session.get_db session_manager)
+        with
+        | Some _, Some db when Memory.queue_list ~db ~session_key:key <> [] ->
+            (* Preparation can mark retained work pending. Durable replay owns
+               its original requester; last-human resume must not race it. *)
+            Logs.info (fun m ->
+                m "Deferring native resume to durable request replay: %s" key);
+            false
+        | _ -> true)
   in
   let open Lwt.Syntax in
   let summary =
