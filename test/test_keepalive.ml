@@ -172,6 +172,20 @@ let test_checkin_requires_action prompt () =
     "idle control response stays hidden" false
     (Test_helpers.string_contains prompt Session.autonomous_stay_idle_message)
 
+let test_checkin_prioritizes_task_tree prompt () =
+  List.iter
+    (fun instruction ->
+      Alcotest.(check bool)
+        ("check-in requires " ^ instruction)
+        true
+        (Test_helpers.string_contains prompt instruction))
+    [
+      "Review your task_tree";
+      "primary backlog";
+      "Complete all remaining actionable task_tree items";
+      "before concluding that work is done";
+    ]
+
 let suite =
   [
     Alcotest.test_case "set and get keepalive flag" `Quick
@@ -202,4 +216,9 @@ let suite =
       (test_checkin_requires_action Session.autonomous_continuation_prompt);
     Alcotest.test_case "keepalive requires tool-backed action" `Quick
       (test_checkin_requires_action Session.keepalive_nudge_prompt);
+    Alcotest.test_case "continuation prioritizes actionable task_tree items"
+      `Quick
+      (test_checkin_prioritizes_task_tree Session.autonomous_continuation_prompt);
+    Alcotest.test_case "keepalive prioritizes actionable task_tree items" `Quick
+      (test_checkin_prioritizes_task_tree Session.keepalive_nudge_prompt);
   ]

@@ -5,9 +5,12 @@ let autonomous_stay_idle_message = "STAY_IDLE"
 (* STAY_IDLE remains a valid hidden control response for runtime logic, but do
    not mention or spell it out in visible autonomous check-in/keepalive prompt
    text. Advertising the token makes the agent over-index on idling and tempts
-   future prompt edits to reintroduce the same behavioral bug. *)
+   future prompt edits to reintroduce the same behavioral bug. Keep task_tree
+   the primary backlog so recent context cannot displace unfinished work. *)
 let autonomous_work_instructions =
-  "Review the current session and take the next concrete action now whenever \
+  "Review your task_tree as the primary backlog for this session. Complete all \
+   remaining actionable task_tree items before concluding that work is done. \
+   Review the current session and take the next concrete action now whenever \
    actionable work remains. Use tools in this turn to make progress on active \
    review, harvest, commit, or research lanes within the user's existing \
    authorization. Do not end with only a status update, a plan, or a promise \
