@@ -104,6 +104,10 @@ let compaction_suggestion_for_prompt mgr ~key =
   | _ -> ""
 
 let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
+  Option.iter
+    (fun db ->
+      Memory.reconcile_legacy_github_keys ~db ~canonicalize:sanitize_session_key)
+    db;
   {
     config;
     sessions = Hashtbl.create 16;
@@ -704,6 +708,7 @@ let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
       Lwt.return_unit)
 
 let try_session_lock mgr ~key f =
+  let key = sanitize_session_key key in
   let open Lwt.Syntax in
   (* Release sessions_lock before checking per-session mutex to avoid holding
      sessions_lock while blocking.  try_session_lock is non-blocking on the
@@ -730,6 +735,7 @@ let try_session_lock mgr ~key f =
         Lwt.return_unit)
 
 let with_session_lock_unless_draining mgr ~key ~on_draining f =
+  let key = sanitize_session_key key in
   let open Lwt.Syntax in
   (* Release sessions_lock before blocking on per-session mutex to avoid
      deadlock: interrupt_resumable_channel_sessions and start_draining also
