@@ -1770,3 +1770,4 @@ bugs:
     - file: B829-daemon-has-no-supervisor-oom-k.todo
     - file: B830-daemon-memory-usage-watch-anal.todo
     - file: B831-github-sessions-pass-raw-owner.todo
+    - file: B832-slack-tools-cannot-inspect-hud.todo
