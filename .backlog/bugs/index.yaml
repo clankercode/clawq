@@ -1773,3 +1773,4 @@ bugs:
     - file: B832-slack-tools-cannot-inspect-hud.todo
     - file: B833-slack-agent-lacks-native-task.todo
     - file: B834-investigate-t3code-and-paseo-b.todo
+    - file: B835-slack-stops-receiving-messages.todo

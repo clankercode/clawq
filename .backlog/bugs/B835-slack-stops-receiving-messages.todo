@@ -1,0 +1,28 @@
+---
+complexity: medium
+created_at: "2026-11-02T06:11:30Z"
+depends_on: []
+estimate_hours: 1
+id: B835
+priority: high
+status: pending
+tags:
+    - slack
+    - connector
+    - reliability
+title: Slack stops receiving messages after a brief network disconnect; detect and recover automatically
+updated_at: "2026-11-02T06:11:30Z"
+---
+User report: A brief drop in the network connection used by Clawq can disconnect Slack, after which incoming Slack messages no longer reach Clawq.
+
+Reproduction: With the Slack connector running, briefly interrupt network connectivity, restore it, then send a Slack message to Clawq. Check whether inbound delivery resumes without restarting Clawq.
+
+Expected behavior: Detect a lost or stale Slack connection, expose the disconnected/reconnecting state accurately in status and logs, and automatically reconnect with bounded retry/backoff when connectivity returns. Incoming messages sent after recovery must be processed normally without a manual daemon restart or duplicate processing.
+
+Acceptance criteria:
+- Exercise a brief network interruption and a stale/half-open connection.
+- Verify disconnect detection and automatic reconnect through the production Slack connector path.
+- Verify inbound message delivery resumes after network restoration.
+- Add regression coverage for disconnect/reconnect and observable connector health.
+
+The precise failure mechanism and treatment of messages sent during the outage require investigation; do not assume Slack replays missed events.
