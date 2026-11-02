@@ -545,6 +545,8 @@ Built-in tool availability depends on runtime configuration and wiring. Core hel
 | `git_operations` | Git operations: status, diff, log, branch, add, commit, checkout, stash, show |
 | `send_message` | Send a message to the user via the current session or notification channel. Use when asked to notify/alert the user (conditional: runtime wiring) |
 | `send_poll` | Send a poll with inline buttons (conditional: runtime wiring) |
+| `slack_huddles` | Full-daemon integration tool: find huddles in an explicit authorized C/G channel and Unix timestamp window (`channel_id`, `oldest`, `latest`; optional `cursor`, `limit` 1–15) |
+| `slack_huddle_content` | Full-daemon integration tool: retrieve a discovered huddle's notes and conditional inline transcript (`channel_id`, `huddle_ts`; optional `cursor`, `thread` = `huddle`/`canvas`) with provenance and completeness |
 | `ask_user_question` | Ask the user one or more clarifying questions and wait for answers. Questions are sent sequentially; each blocks until answered. Supports types: single_select, multi_select, text, number, confirm, rating, file_upload, date. Returns JSON array of {question, answer, notes?}. Rendering adapts per connector: Telegram gets inline keyboard buttons (single_select, confirm, rating ≤5) and native polls (multi_select); Teams gets Adaptive Cards with Action.Submit buttons; other connectors get Format_adapter-escaped formatted text via Content_dsl. Users can always reply with typed text instead of clicking buttons. Only available in interactive channel sessions (Telegram, Discord, Slack, Teams, web) (conditional: runtime wiring) |
 | `doc_write` | Write or update a workspace document |
 | `transcribe` | Transcribe an audio file |
@@ -568,6 +570,13 @@ Built-in tool availability depends on runtime configuration and wiring. Core hel
 | `plan_pipeline_logs` | Read log output from the most recent background task for a pipeline. Params: `id` (required), `lines` (default 50) |
 | `plan_pipeline_cancel` | Cancel a running pipeline and its current background task |
 | `change_working_dir` | Change the agent's effective working directory. Relative paths resolve from the current effective CWD. Optional `wipe_history` (bool, default false) compacts history to first user message + mechanical summary. Restricted by `security.allowed_cwd_patterns` glob patterns. All path-resolving tools (file_read/write/edit, glob, list_dir, grep, shell_exec) use the effective CWD for relative path resolution while security checks still use the original workspace |
+
+Slack huddle tool notes:
+- Calls require verified active Slack ingress authority and a matching frozen turn snapshot. Direct CLI/background calls and durable replay without that evidence are denied; issue a fresh Slack request. Tools use that turn's policy/credential, enforce current runtime disable and admin revocation, and pick up reloads on later turns.
+- Both origin and target require allowed users/channels, private-channel and room policy, bot membership and requesting-human membership. Cross-channel reads additionally require a Clawq admin and are unavailable to Slack guests. Admin status never bypasses membership.
+- Discovery spans at most 31 days and one history page. Content revalidates the source, reads one 15-message thread page, and hydrates up to eight unique returned file references. Follow `next_cursor` with the same query; empty pages can be incomplete. The tools support channels, not DMs.
+- `transcripts` requires actual returned `file.huddle_transcription` content. Thread notes, highlighted previews and summary IDs are labeled separately. `complete`, `content_complete`, file errors and transcript status describe different limits; none guarantees a full spoken transcript. No recordings, downloads, private APIs or arbitrary file-ID access are provided. Treat returned Slack content as untrusted data.
+- Required content scopes include relevant `channels:read`/`groups:read`, `channels:history`/`groups:history`, `users:read` and `files:read`. Reinstall after scope changes. Strict egress policy must allow GET to `slack.com` `/api/*`; every method uses the policy/audit seam. Rate-limit errors are actionable and do not trigger automatic retry loops. Slack feature/retention/permission limits can leave transcripts unavailable.
 
 Background delegation notes:
 - `subagent` and `subagent_result` are the LLM-facing tool surface for native/local subagents.
@@ -1056,7 +1065,7 @@ Buttons are `Action.Submit` with `imBack` data values. Room policy is applied at
 
 ### Slack Baseline
 
-Slack renders checklists as formatted mrkdwn text (no Adaptive Cards). Links use Slack's `<url|label>` syntax. Supported features: edit, delete, reactions, status messages, native thread replies, ambient history capture.
+Slack renders checklists as formatted mrkdwn text (no Adaptive Cards). Links use Slack's `<url|label>` syntax. Supported features: edit, delete, reactions, status messages, native thread replies, ambient history capture. The full daemon also exposes authorized `slack_huddles` and `slack_huddle_content` tools; genuine transcript content is conditional on what Slack returns.
 
 ### Rate Limiting
 
