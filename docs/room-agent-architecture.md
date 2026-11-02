@@ -467,6 +467,19 @@ room policy. Either can deny work.
 
 ## 6. Session Lifecycle
 
+Public buffered, streaming, and nonblocking turns canonicalize their session
+key before closures capture it. Locks, activity, tool context, snapshots,
+queues, persistence and restoration therefore share one identity. GitHub
+notifiers and direct restart/resume paths use that identity too; external API
+routing retains the original repository name.
+
+Session-manager creation can transactionally promote an unambiguous legacy
+raw GitHub identity when canonical history and conflicting state are absent.
+Canonical history takes precedence. Conflicting originals remain stored for
+explicit recovery and are excluded from automatic work selection; the runtime
+does not union histories through the lossy sanitizer. See
+[session-key-recovery.md](session-key-recovery.md) for receipts and safeguards.
+
 ### Message Flow
 
 ```

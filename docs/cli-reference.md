@@ -166,6 +166,12 @@ clawq memory                                     Display memory backend and sear
 
 Manage agent sessions, chat log epochs, and message injection.
 
+Use the canonical identity shown by `session list` for inspection. For example,
+the logical GitHub thread `github:acme/backend:pr:831` persists under
+`github:acme_backend:pr:831`. Public turn entrypoints canonicalize incoming
+keys consistently. Preserved conflicting legacy histories require an explicit
+recovery decision; see [session-key-recovery.md](session-key-recovery.md).
+
 **Registered CLI subcommands:**
 
 ```
