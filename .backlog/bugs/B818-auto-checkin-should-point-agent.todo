@@ -1,13 +1,16 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-03-13T00:00:00Z"
 depends_on: []
 estimate_hours: 1
 id: B818
 priority: high
+started_at: null
 status: pending
-tags: [autonomy, prompts, task-tree]
-title: 'Auto check-in should direct agent to complete task_tree items'
+tags: []
+title: Auto check-in should direct agent to complete task_tree items
+updated_at: null
 ---
 ## Summary
 The automatic autonomous check-in prompt currently tells the agent to continue working if more remains, but it does not explicitly direct the agent to use its task_tree as the primary backlog. In practice this permits drift, narration, or local optimization around whatever is salient in recent context. The prompt should tell the agent to review and complete all actionable items in its task_tree before concluding that work is done.
@@ -18,3 +21,5 @@ The automatic autonomous check-in prompt currently tells the agent to continue w
 - The prompt still avoids reintroducing visible STAY_IDLE wording.
 - Relevant tests are updated to reflect the new prompt wording.
 - A protective source comment remains near the prompt definitions so future edits do not regress the intent.
+
+Decision (2026-11-02 batch): same session worktree after B816, then B831 (shared session tests). Verified continuation/keepalive prompts omit task_tree. Make task_tree the primary backlog and direct review/completion of actionable items; preserve protective comment and hidden idle token.

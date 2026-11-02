@@ -1762,8 +1762,15 @@ bugs:
       status: done
       tags: []
       title: Auto check-in prompt should not mention STAY_IDLE
-    - file: B818-auto-checkin-should-point-agent.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: B818-auto-checkin-should-point-agent.todo
       id: B818
+      priority: high
+      status: pending
+      tags: []
+      title: Auto check-in should direct agent to complete task_tree items
     - file: B819-bash-omits-command-because-ope.todo
     - file: B820-empty-tool-argument-streams-ar.todo
     - file: B821-github-feed-per-room-channel-e.todo
