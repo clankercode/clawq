@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:37Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T07:04:55Z"
 complexity: medium
 created_at: "2026-03-13T00:00:00Z"
 depends_on: []
+duration_minutes: 45.3154187029
 estimate_hours: 1
 id: B818
 priority: high
 started_at: "2026-11-02T06:19:37Z"
-status: in_progress
+status: done
 tags: []
 title: Auto check-in should direct agent to complete task_tree items
-updated_at: "2026-11-02T06:19:37Z"
+updated_at: "2026-11-02T07:04:55Z"
 ---
 ## Summary
 The automatic autonomous check-in prompt currently tells the agent to continue working if more remains, but it does not explicitly direct the agent to use its task_tree as the primary backlog. In practice this permits drift, narration, or local optimization around whatever is salient in recent context. The prompt should tell the agent to review and complete all actionable items in its task_tree before concluding that work is done.

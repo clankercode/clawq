@@ -1768,7 +1768,7 @@ bugs:
       file: B818-auto-checkin-should-point-agent.todo
       id: B818
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Auto check-in should direct agent to complete task_tree items
     - file: B819-bash-omits-command-because-ope.todo
