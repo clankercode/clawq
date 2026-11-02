@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T08:43:43Z"
 complexity: medium
 created_at: "2026-10-01T16:38:01Z"
 depends_on: []
+duration_minutes: 144.08913867678334
 estimate_hours: 1
 id: B831
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: github sessions pass raw owner/repo keys to Session.turn — history restores under sanitized key, losing context across restarts
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T08:43:43Z"
 ---
 Found during B830 session-eviction work (Lane A report 2026-10-02): github passes raw owner/repo keys into Session.turn in some paths, so turn persistence writes DB rows under the raw key while the in-memory session table and load_restorable_history use the sanitized key (slash->underscore). Those github sessions lose history restore across daemon restarts today (and across eviction reloads). Pre-existing duality; eviction neither fixes nor worsens it (eviction relies on the same lazy reload every other connector uses correctly). Root-cause mirror of B822 (which fixed the model-override APIs); fix belongs in session_turn.ml/github.ml key normalization at the turn boundary. Repro: github webhook comment on a PR -> restart daemon -> session context gone despite DB rows under the raw key. Lane A's test suite used the sanitized key form; a regression test for raw-key turns should accompany the fix.
 
