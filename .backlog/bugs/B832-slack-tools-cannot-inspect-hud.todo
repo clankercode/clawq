@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T09:04:56Z"
 complexity: medium
 created_at: "2026-11-02T05:46:14Z"
 depends_on: []
+duration_minutes: 165.3124501201
 estimate_hours: 1
 id: B832
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: Slack tools cannot inspect huddles or transcripts
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T09:04:56Z"
 ---
 The assistant has no available Slack tools to browse huddles or retrieve their transcripts. Users cannot ask it about huddle content unless they manually provide transcripts. Add appropriate Slack access/tooling for listing or finding huddles and retrieving transcripts, with suitable permission and privacy boundaries.
 
