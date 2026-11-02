@@ -168,9 +168,10 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `runtime native start/stop/health` | Manage native runtime |
 | `runtime docker start/stop/health` | Manage Docker runtime |
 | `service` | Manage the clawq system service (default: status) |
-| `service start` | Start the clawq system service |
-| `service stop` | Stop the clawq system service |
-| `service restart` | Restart the clawq system service |
+| `service start` | Start through the installed unit and wait for readiness; healthy manual owners require explicit adoption |
+| `service run` | Run the daemon in the foreground with singleton lock and PID lifecycle for a supervisor |
+| `service stop` | Stop the actual daemon owner; explicit managed stops stay stopped |
+| `service restart` | Stop and start through the installed unit, returning nonzero on startup failure or manual-owner conflict |
 | `service signal-restart` | Send SIGUSR1 to running daemon for graceful restart |
 | `service status` | Show service status |
 | `service systemd-unit` | Print a systemd unit file for user-level daemon management |

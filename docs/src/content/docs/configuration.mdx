@@ -109,6 +109,23 @@ When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API key
 
 ## Configuration Sections
 
+### agent_defaults: autonomous follow-up
+
+| Field | Default | Behavior |
+|-------|---------|----------|
+| `autonomous_continuation_enabled` | `true` | Enable the automatic continuation mechanism for actionable follow-up work |
+| `autonomous_continuation_delay` | `90.0` | Delay in seconds before an automatic continuation check |
+| `send_continuation_checkin` | `false` | Show the visible check-in and in-turn channel chatter; non-idle final continuation replies still reach the channel |
+
+Continuation and session keepalive prompts direct the agent to review
+`task_tree` as its primary backlog, take the next concrete action within the
+user's authorization, and continue through remaining actionable items. Blocked
+items do not prevent progress on independent work. When nothing is actionable,
+the agent should identify the specific blocker or finish without idle chatter.
+These prompts grant no additional permissions. Opted-in `HEARTBEAT.md` runs
+are a separate mechanism; see [Heartbeats](#heartbeat) and
+[Background Tasks](/background-tasks).
+
 ### providers
 
 An object keyed by provider name. The active provider is selected via `agent_defaults.primary_model` using the `provider:model` format.
