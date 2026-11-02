@@ -245,6 +245,25 @@ TLS connections with proper certificate verification via `ca-certs`.
 Clawq supports two Slack integration modes: **Socket Mode** (recommended) and
 the **Events API** (requires a public endpoint).
 
+### Huddle reads
+
+The full daemon exposes `slack_huddles` for a bounded channel/time-window search
+and `slack_huddle_content` for the resulting huddle timestamp. These tools use
+supported history, replies and file-info methods. Inline transcripts are
+conditional; discussion, file previews and summaries remain separately labeled.
+
+A verified active Slack user must pass turn policy, connector allowlists,
+private-channel policy and live channel membership checks. Bot visibility alone
+grants no access to a human. Cross-channel reads require a Clawq admin who is a
+member of both channels; guests must request content in its source channel.
+Enable the relevant channel metadata/history scopes, `users:read` and
+`files:read`, then reinstall the app. App-level Socket Mode tokens do not grant
+these permissions. Reads return cursors, partial-result indicators and actionable
+access/rate-limit errors without eager retries.
+
+The tool results report the source channel, huddle, file references and the
+completeness of each bounded read. Transcript completeness is not asserted.
+
 ### Socket Mode (Recommended)
 
 Socket Mode uses a WebSocket connection initiated by the bot, so no public URL

@@ -510,6 +510,7 @@ let run_turn agent ~mk_io ~user_message ?db ?session_key ?interrupt_check
             (match inject_messages with
             | Some get_msgs ->
                 let msgs = get_msgs () in
+                if msgs <> [] then Tool.before_message_injection ();
                 List.iter
                   (fun msg ->
                     agent.history <-

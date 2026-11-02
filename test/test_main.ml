@@ -272,6 +272,8 @@ let all_suites =
     ("landlock", Test_landlock.suite);
     ("rate_limiter", Test_rate_limiter.suite);
     ("slack", Test_slack.suite);
+    ("slack_huddles", Test_slack_huddles.suite);
+    ("slack_huddle_fix1", Test_slack_huddle_fix1.suite);
     ("slack_profiles", Test_slack.test_suite_with_profiles);
     ("slack_private_policy", Test_slack.private_channel_policy_suite);
     ("discord", Test_discord.suite);

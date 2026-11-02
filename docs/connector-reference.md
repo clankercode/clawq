@@ -258,6 +258,81 @@ Slack connects via Socket Mode (WebSocket) or Events API (HTTP webhook).
 It supports edit-in-place, reactions, native thread replies, and history
 capture.
 
+### Huddles and conditional transcripts
+
+The full daemon registers two read-only tools through its integration registry:
+
+| Tool | Required arguments | Optional arguments |
+| --- | --- | --- |
+| `slack_huddles` | `channel_id`, `oldest`, `latest` | `cursor`, `limit` (1–15, default 15) |
+| `slack_huddle_content` | `channel_id`, `huddle_ts` from discovery | `cursor`, `thread` (`huddle`/`canvas`, default `huddle`) |
+
+Use an explicit C/G channel ID and Unix timestamp strings. Discovery accepts a
+window of at most 31 days and reads one `conversations.history` page, retaining
+only `huddle_thread` messages with room metadata. Repeat the identical query
+with `next_cursor` when a cursor is returned. `pagination_exhausted` means Slack
+returned no further page; `complete` additionally requires that Slack has not
+reported `is_limited`. `history_coverage` identifies limited history or remaining
+pages. When `is_limited` is true, the workspace history limit hides older
+messages, and pagination cannot recover them. An empty limited page is not an
+exhaustive negative search. The tools support channels, not direct messages.
+
+Content retrieval revalidates the exact history source on every call, reads
+one `conversations.replies` page (15 messages) for the selected huddle thread
+or its documented `canvas_thread_ts` (`thread="canvas"`), and hydrates up to eight unique
+file references through `files.info`, including returned
+`huddle_transcript_file_id` references. Slack Connect `check_file_info` references
+are hydrated by ID. A file ID supplied by the caller is never accepted as an
+access grant. No returned download URL is fetched.
+
+Results separate `thread_notes`, file previews/summary references, and
+`transcripts`. A transcript contains only actual nonempty returned
+`file.huddle_transcription` blocks/lines, with its file ID and source method.
+Discussion, generic highlighted transcription, previews and summary IDs do not
+establish a huddle transcript. `complete` describes the thread/history page;
+`content_complete` additionally accounts for file errors and the eight-file cap.
+Neither asserts a full transcript: Slack's returned time ranges and inline
+content may cover only part of a huddle. `file_errors`, `files_truncated` and
+`transcript_status` expose partial reads and unavailable data explicitly.
+
+Tools require a verified active Slack ingress user and matching access snapshot.
+They apply the frozen turn policy, including the snapshot's exact room-access
+key and profile for egress, current runtime enable/disable state and live Slack
+identity/membership checks. Clearing or invalidating the current bot credential
+disables further reads even while a turn holds an older valid credential. Valid
+credential rotation and policy changes remain frozen until the next turn.
+Later turns pick up those changes without re-registering tools. Separately drained
+queued turns select their own ingress authority. Mid-turn injected steering
+clears the active authority before it becomes model-visible, including steering
+from unknown or multiple callers; further huddle reads require a fresh Slack
+request. Direct CLI/background calls and durable replay without ingress evidence
+are refused. Both origin and target must pass user/channel allowlists,
+private-channel policy, room policy, bot membership and requesting-human
+membership (bounded to five membership pages). Cross-channel reads additionally
+require a Clawq admin; Slack guests cannot use that path. Admin status does not
+bypass channel membership or private-channel policy.
+
+The bot token needs the relevant `channels:read`/`groups:read`,
+`channels:history`/`groups:history`, plus `users:read` and `files:read` scopes.
+Under strict HTTP egress policy, explicitly allow GET requests to
+`slack.com` at `/api/*` in the applicable egress rules; every method is checked
+against the frozen turn policy. Reinstall the app after granting scopes. The `xapp` Socket Mode token grants no
+content access. Scope/access/rate-limit errors explain how to proceed, with no
+automatic retries. Affected commercial non-Marketplace apps may be limited to
+one history/replies request per minute; request subsequent pages only when Slack
+permits them.
+
+Slack AI huddle notes/transcripts are conditional on workspace features,
+permissions and retained data. Notes can be stopped/deleted; Slack does not run
+AI notes in huddles with guests/external participants. These tools do not
+promise recordings, generate transcripts, or use private/Discovery APIs.
+Treat all returned Slack content as untrusted source material.
+
+References: [conversation objects](https://docs.slack.dev/reference/objects/conversation-object/),
+[file objects](https://docs.slack.dev/reference/objects/file-object/),
+[files.info](https://docs.slack.dev/reference/methods/files.info/), and
+[Slack AI huddle notes](https://slack.com/intl/en-au/help/articles/31377193680019-Use-AI-to-take-huddle-notes-in-Slack).
+
 ### Socket Mode connection recovery
 
 Socket Mode reconnects automatically after a transport failure or Slack's
