@@ -690,8 +690,198 @@ let test_failed_handler_is_not_dispatched_twice () =
       Alcotest.(check int) "accepted event dispatched once" 1 !attempts;
       Lwt.return_unit)
 
+let check_terminated clock connecting =
+  Alcotest.(check bool)
+    "public attempt ended" true
+    (match Lwt.state connecting with Lwt.Fail _ -> true | _ -> false);
+  Alcotest.(check bool)
+    "deadline cancelled" true
+    (List.for_all (fun t -> not (Lwt.is_sleeping t.promise)) clock.timers)
+
+let end_attempt clock timeout connecting =
+  let open Lwt.Syntax in
+  if timeout then fire clock 7. else Lwt.cancel connecting;
+  Lwt.catch
+    (fun () ->
+      let* _ = connecting in
+      Lwt.return_unit)
+    (fun _ -> Lwt.return_unit)
+
+let test_ws_late_dns timeout =
+  with_ws_peer (fun uri _ ->
+      let open Lwt.Syntax in
+      let clock = make_clock () in
+      let lookup, resolve = Lwt.wait () in
+      let allocations = ref [] and runtimes = ref 0 in
+      let socket family kind protocol =
+        let fd = Lwt_unix.socket family kind protocol in
+        allocations := fd :: !allocations;
+        fd
+      in
+      let do_connect ~is_active:_ ~nonce:_ ~host:_ ~port:_ ~resource:_
+          ~error_handler:_ ~websocket_handler:_ _ =
+        incr runtimes;
+        fst (Lwt.task ())
+      in
+      let connecting =
+        Ws_client.connect_common ~default_port:80
+          ~getaddrinfo:(fun _ _ _ -> lookup)
+          ~socket ~do_connect ~sleep:(sleep clock) ~timeout:7. ~uri ()
+      in
+      Lwt.finalize
+        (fun () ->
+          let* () = end_attempt clock timeout connecting in
+          check_terminated clock connecting;
+          Alcotest.(check bool)
+            "DNS really is uncancellable" true (Lwt.is_sleeping lookup);
+          let port = Option.get (Uri.port (Uri.of_string uri)) in
+          let addr : Unix.addr_info =
+            {
+              ai_family = Unix.PF_INET;
+              ai_socktype = Unix.SOCK_STREAM;
+              ai_protocol = 0;
+              ai_addr = Unix.ADDR_INET (Unix.inet_addr_loopback, port);
+              ai_canonname = "localhost";
+            }
+          in
+          Lwt.wakeup_later resolve [ addr ];
+          let* () = settle 20 in
+          Alcotest.(check int)
+            "no socket allocated after attempt ended" 0
+            (List.length !allocations);
+          Alcotest.(check int) "no late runtime started" 0 !runtimes;
+          check_terminated clock connecting;
+          Lwt.return_unit)
+        (fun () ->
+          Lwt.cancel connecting;
+          Lwt_list.iter_s
+            (fun fd -> Ws_client.quiet (fun () -> Lwt_unix.close fd))
+            !allocations))
+
+let test_ws_late_transport ?(tls = false) timeout =
+  with_ws_peer (fun uri accept ->
+      let open Lwt.Syntax in
+      let clock = make_clock () in
+      let late, deliver = Lwt.wait () in
+      let entered, enter = Lwt.task () in
+      let shutdowns = ref 0 and runtime_starts = ref 0 and fd_ref = ref None in
+      let do_connect ~is_active ~nonce:_ ~host:_ ~port:_ ~resource:_
+          ~error_handler:_ ~websocket_handler:_ fd =
+        fd_ref := Some fd;
+        Lwt.wakeup_later enter ();
+        if tls then
+          Ws_client.connect_tls_transport ~is_active
+            ~handshake:(fun _ -> late)
+            ~close_tls:(fun (tr : Ws_client.transport) -> tr.shutdown ())
+            ~start:(fun tr ->
+              incr runtime_starts;
+              Lwt.return tr)
+            fd
+        else late
+      in
+      let connecting =
+        Ws_client.connect_common ~default_port:80 ~do_connect
+          ~sleep:(sleep clock) ~timeout:7. ~uri ()
+      in
+      let* input, _ = accept in
+      let* () = entered in
+      let* () = end_attempt clock timeout connecting in
+      check_terminated clock connecting;
+      let* eof = Lwt_io.read ~count:1 input in
+      Alcotest.(check string)
+        "owned descriptor closed before late result" "" eof;
+      Lwt.wakeup_later deliver
+        Ws_client.
+          {
+            keepalive = Any ();
+            shutdown =
+              (fun () ->
+                incr shutdowns;
+                Lwt.return_unit);
+          };
+      let* () = settle 20 in
+      Alcotest.(check int) "late transport disposed exactly once" 1 !shutdowns;
+      Alcotest.(check int) "late TLS does not start a runtime" 0 !runtime_starts;
+      Alcotest.(check bool)
+        "descriptor stays closed" true
+        (Lwt_unix.state (Option.get !fd_ref) = Lwt_unix.Closed);
+      Lwt.cancel connecting;
+      check_terminated clock connecting;
+      Lwt.return_unit)
+
+let test_connector_cancel_during_uncancellable_dns () =
+  let open Lwt.Syntax in
+  let clock = make_clock () in
+  let lookup, resolve = Lwt.wait () in
+  let attempts = ref 0 and allocations = ref 0 in
+  let socket _ _ _ =
+    incr allocations;
+    failwith "late socket allocation"
+  in
+  let do_connect ~is_active:_ ~nonce:_ ~host:_ ~port:_ ~resource:_
+      ~error_handler:_ ~websocket_handler:_ _ =
+    fst (Lwt.task ())
+  in
+  let connect () =
+    incr attempts;
+    let* _ =
+      Ws_client.connect_common ~default_port:80
+        ~getaddrinfo:(fun _ _ _ -> lookup)
+        ~socket ~do_connect ~sleep:(sleep clock) ~timeout:7.
+        ~uri:"ws://127.0.0.1:9/socket" ()
+    in
+    Lwt.fail_with "unexpected connection"
+  in
+  let run =
+    Slack_socket.run ~connect ~sleep:(sleep clock)
+      ~handle_event:(fun _ -> Lwt.return_unit)
+      ~on_health:(fun _ -> ())
+      ()
+  in
+  Lwt_main.run
+    (Lwt.finalize
+       (fun () ->
+         Lwt.cancel run;
+         let* () = settle 20 in
+         check_terminated clock run;
+         Alcotest.(check bool)
+           "worker job remains pending" true (Lwt.is_sleeping lookup);
+         Lwt.wakeup_later resolve
+           [
+             Unix.
+               {
+                 ai_family = PF_INET;
+                 ai_socktype = SOCK_STREAM;
+                 ai_protocol = 0;
+                 ai_addr = ADDR_INET (inet_addr_loopback, 9);
+                 ai_canonname = "localhost";
+               };
+           ];
+         let* () = settle 20 in
+         Alcotest.(check int) "connector did not retry" 1 !attempts;
+         Alcotest.(check int) "abandoned DNS did not allocate" 0 !allocations;
+         check_terminated clock run;
+         Lwt.return_unit)
+       (fun () ->
+         Lwt.cancel run;
+         settle 20))
+
 let suite =
   [
+    Alcotest.test_case "connector cancel prevents work after delayed DNS" `Quick
+      test_connector_cancel_during_uncancellable_dns;
+    Alcotest.test_case "cancel disposes late TLS without runtime startup" `Quick
+      (fun () -> test_ws_late_transport ~tls:true false);
+    Alcotest.test_case "deadline disposes late TLS without runtime startup"
+      `Quick (fun () -> test_ws_late_transport ~tls:true true);
+    Alcotest.test_case "cancel before DNS prevents late socket allocation"
+      `Quick (fun () -> test_ws_late_dns false);
+    Alcotest.test_case "deadline before DNS prevents late socket allocation"
+      `Quick (fun () -> test_ws_late_dns true);
+    Alcotest.test_case "cancel disposes uncancellable late transport" `Quick
+      (fun () -> test_ws_late_transport false);
+    Alcotest.test_case "deadline disposes uncancellable late transport" `Quick
+      (fun () -> test_ws_late_transport true);
     Alcotest.test_case "handler failure does not duplicate accepted work" `Quick
       test_failed_handler_is_not_dispatched_twice;
     Alcotest.test_case "production status rejects stale or dead health" `Quick

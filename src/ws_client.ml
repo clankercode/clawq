@@ -40,16 +40,41 @@ type t = {
 let resolve_closed p u = if Lwt.is_sleeping p then Lwt.wakeup_later u ()
 let quiet f = Lwt.catch f (fun _ -> Lwt.return_unit)
 
+let connect_tls_transport ~is_active ~handshake ~close_tls ~start fd =
+  let open Lwt.Syntax in
+  if not (is_active ()) then Lwt.fail Lwt.Canceled
+  else
+    let* tls = handshake fd in
+    if not (is_active ()) then
+      let* () = quiet (fun () -> close_tls tls) in
+      Lwt.fail Lwt.Canceled
+    else
+      Lwt.catch
+        (fun () -> start tls)
+        (fun exn ->
+          let* () = quiet (fun () -> close_tls tls) in
+          Lwt.fail exn)
+
 (** Bound DNS, TCP, TLS and the WebSocket upgrade by the same deadline. The
     transport owns the descriptor after a successful upgrade; all earlier
     failures and cancellation release it here. *)
-let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
-    ~do_connect ~uri () =
+let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep)
+    ?(getaddrinfo = Lwt_unix.getaddrinfo)
+    ?(socket = fun family kind protocol -> Lwt_unix.socket family kind protocol)
+    ~default_port ~do_connect ~uri () =
   let open Lwt.Syntax in
   let fd_ref = ref None in
   let transport_ref = ref None in
   let shutdown_p = ref None in
+  let stopped = ref false in
+  let is_active () = not !stopped in
+  let ensure_active () =
+    if is_active () then Lwt.return_unit else Lwt.fail Lwt.Canceled
+  in
   let stop () =
+    (* Promise cancellation cannot stop every worker job. Termination is an
+       ownership fact checked by continuations, even after cleanup returned. *)
+    stopped := true;
     match !shutdown_p with
     | Some p -> p
     | None ->
@@ -80,17 +105,19 @@ let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
     let resource = if query = "" then path else path ^ "?" ^ query in
     let nonce = Mirage_crypto_rng.generate 16 |> Base64.encode_exn in
     let* addrs =
-      Lwt_unix.getaddrinfo host (string_of_int port)
+      getaddrinfo host (string_of_int port)
         [ Unix.AI_FAMILY Unix.PF_INET; Unix.AI_SOCKTYPE Unix.SOCK_STREAM ]
     in
+    let* () = ensure_active () in
     let addr =
       match addrs with
       | [] -> failwith ("DNS resolution failed for " ^ host)
       | a :: _ -> a
     in
-    let fd = Lwt_unix.socket addr.ai_family Unix.SOCK_STREAM 0 in
+    let fd = socket addr.ai_family Unix.SOCK_STREAM 0 in
     fd_ref := Some fd;
     let* () = Lwt_unix.connect fd addr.ai_addr in
+    let* () = ensure_active () in
     let closed_p, closed_u = Lwt.wait () in
     let finish () = resolve_closed closed_p closed_u in
     let msg_buf = Buffer.create 4096 in
@@ -154,7 +181,10 @@ let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
     in
     let wsd_p, wsd_u = Lwt.task () in
     let websocket_handler' wsd =
-      Lwt.wakeup_later wsd_u wsd;
+      if is_active () then begin
+        if Lwt.is_sleeping wsd_p then Lwt.wakeup_later wsd_u wsd
+      end
+      else if not (Httpun_ws.Wsd.is_closed wsd) then Httpun_ws.Wsd.close wsd;
       websocket_handler wsd
     in
     let error_handler err =
@@ -171,10 +201,18 @@ let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
       finish ()
     in
     let* transport =
-      do_connect ~nonce ~host ~port ~resource ~error_handler
+      do_connect ~is_active ~nonce ~host ~port ~resource ~error_handler
         ~websocket_handler:websocket_handler' fd
     in
-    transport_ref := Some transport;
+    let* () =
+      if is_active () then (
+        transport_ref := Some transport;
+        Lwt.return_unit)
+      else
+        (* A late result is a new resource, not part of memoized cleanup. *)
+        let* () = quiet transport.shutdown in
+        Lwt.fail Lwt.Canceled
+    in
     let* wsd =
       Lwt.pick
         [
@@ -183,6 +221,7 @@ let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
            Lwt.fail_with "WebSocket closed before handshake completed");
         ]
     in
+    let* () = ensure_active () in
     let t =
       {
         wsd;
@@ -229,8 +268,8 @@ let connect_common ?(timeout = 30.0) ?(sleep = Lwt_unix.sleep) ~default_port
       Lwt.fail exn)
 
 let connect_wss ?timeout ?sleep ~uri () =
-  let do_connect ~nonce ~host ~port ~resource ~error_handler ~websocket_handler
-      fd =
+  let do_connect ~is_active ~nonce ~host ~port ~resource ~error_handler
+      ~websocket_handler fd =
     let open Lwt.Syntax in
     let authenticator =
       match Ca_certs.authenticator () with
@@ -248,29 +287,34 @@ let connect_wss ?timeout ?sleep ~uri () =
       | Ok c -> c
       | Error (`Msg msg) -> failwith ("TLS config error: " ^ msg)
     in
-    let* tls_socket = Tls_lwt.Unix.client_of_fd tls_config fd in
-    let protocol =
-      websocket_connection ~nonce ~host ~port ~resource ~error_handler
-        ~websocket_handler
+    let start tls_socket =
+      let protocol =
+        websocket_connection ~nonce ~host ~port ~resource ~error_handler
+          ~websocket_handler
+      in
+      let* conn =
+        Gluten_lwt_unix.Client.TLS.create
+          ~read_buffer_size:Httpun.Config.default.read_buffer_size
+          ~protocol:(module Ws_protocol)
+          protocol tls_socket
+      in
+      Lwt.return
+        {
+          keepalive = Any conn;
+          shutdown = (fun () -> Gluten_lwt_unix.Client.TLS.shutdown conn);
+        }
     in
-    let* conn =
-      Gluten_lwt_unix.Client.TLS.create
-        ~read_buffer_size:Httpun.Config.default.read_buffer_size
-        ~protocol:(module Ws_protocol)
-        protocol tls_socket
-    in
-    Lwt.return
-      {
-        keepalive = Any conn;
-        shutdown = (fun () -> Gluten_lwt_unix.Client.TLS.shutdown conn);
-      }
+    connect_tls_transport ~is_active
+      ~handshake:(Tls_lwt.Unix.client_of_fd tls_config)
+      ~close_tls:Tls_lwt.Unix.close ~start fd
   in
   connect_common ?timeout ?sleep ~default_port:443 ~do_connect ~uri ()
 
 let connect_ws ?timeout ?sleep ~uri () =
-  let do_connect ~nonce ~host ~port ~resource ~error_handler ~websocket_handler
-      fd =
+  let do_connect ~is_active ~nonce ~host ~port ~resource ~error_handler
+      ~websocket_handler fd =
     let open Lwt.Syntax in
+    let* () = if is_active () then Lwt.return_unit else Lwt.fail Lwt.Canceled in
     let protocol =
       websocket_connection ~nonce ~host ~port ~resource ~error_handler
         ~websocket_handler
