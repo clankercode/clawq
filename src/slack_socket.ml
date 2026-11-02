@@ -181,7 +181,8 @@ let with_deadline ~sleep ~seconds ~label f =
    acknowledged event must survive a routine socket refresh. *)
 let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     ?(connect_timeout = 30.0) ?(ping_interval = 15.0) ?(pong_timeout = 10.0)
-    ~connect ~handle_event ~on_health () =
+    ?(before_stop = fun () -> Lwt.return_unit) ~connect ~handle_event ~on_health
+    () =
   let open Lwt.Syntax in
   let dedup = Channel_util.Lru_dedup.create 4096 in
   let in_flight = Hashtbl.create 16 in
@@ -263,7 +264,10 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
                       (Yojson.Safe.to_string
                          (`Assoc [ ("envelope_id", `String env.envelope_id) ])))
               in
-              if env.payload_type = "events_api" then begin
+              if
+                env.payload_type = "events_api"
+                || env.payload_type = "interactive"
+              then begin
                 let event_id =
                   try
                     Yojson.Safe.Util.(
@@ -348,16 +352,23 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     loop ()
   in
   Lwt.finalize loop (fun () ->
-      List.iter Lwt.cancel !deliveries;
-      update Stopped "connector stopped" None;
-      Lwt.return_unit)
+      (* Close native admission and join admitted UI replies before cancelling
+         handlers. Routine reconnect never enters this terminal finalizer. *)
+      Lwt.no_cancel
+        (Lwt.finalize before_stop (fun () ->
+             List.iter Lwt.cancel !deliveries;
+             update Stopped "connector stopped" None;
+             Lwt.return_unit)))
 
 let start_with ?connect ?handle_event ?(on_health = publish_health) ?sleep ?now
     ?connect_timeout ?ping_interval ?pong_timeout ~config ~session_manager
     ~(event_limiter : Rate_limiter.t) () =
   match config.Runtime_config.channels.slack with
   | None -> Lwt.return_unit
-  | Some sc when (not sc.socket_mode) || sc.app_token = "" -> Lwt.return_unit
+  | Some sc
+    when (not sc.socket_mode)
+         || not (Runtime_config.slack_has_valid_credentials sc) ->
+      Lwt.return_unit
   | Some sc ->
       let connect =
         match connect with Some f -> f | None -> connect_transport ~config:sc
@@ -376,7 +387,9 @@ let start_with ?connect ?handle_event ?(on_health = publish_health) ?sleep ?now
       in
       Logs.info (fun m -> m "Slack Socket Mode starting");
       run ?sleep ?now ?connect_timeout ?ping_interval ?pong_timeout ~connect
-        ~handle_event ~on_health ()
+        ~handle_event ~on_health
+        ~before_stop:(fun () -> Slack_thread_runs.shutdown session_manager)
+        ()
 
 let start ~config ~session_manager ~event_limiter =
   start_with ~config ~session_manager ~event_limiter ()

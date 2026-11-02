@@ -242,6 +242,11 @@ TLS connections with proper certificate verification via `ca-certs`.
 
 ## Slack
 
+Socket Mode requires bot and app tokens; its signing secret is optional. HTTP
+Events/Interactivity require a bot token and signing secret. HTTP requests are
+rejected if the signing secret is absent, even when Socket Mode is enabled.
+Clearing the bot token disables task and huddle operations for both transports.
+
 Clawq supports two Slack integration modes: **Socket Mode** (recommended) and
 the **Events API** (requires a public endpoint).
 
@@ -339,6 +344,71 @@ verification** with the signing secret and a 5-minute timestamp window.
 - **No ambient connector-history capture** --- Slack delivers relevant messages
   through the normal bot event path; `/inject_connector_history` is currently
   for Teams and Discord group chats only.
+
+### Agent threads and native task UX
+
+Slack uses the current `agent_view` manifest feature with an `agent_description`.
+Subscribe to `agent_session_stopped`, `app_home_opened`, `app_context_changed`
+and the normal mention/message events; enable Interactivity for run-specific
+Stop buttons. In HTTP mode, use the signed Events endpoint for Interactivity too.
+Add `chat:write`, `assistant:write`, `users:read`, the relevant conversation
+metadata scopes (`channels:read`, `groups:read`, `im:read`, `mpim:read`) and history
+scopes for conversations the app uses. Reinstall after changing scopes.
+
+Root mentions and all authorized followups share one workspace/app/channel/root
+session. Clawq retrieves bounded chronological thread context, labels its own
+bot separately from untrusted other bots, and posts progress and final output
+in the same root thread, including after restart or background fallback.
+Native `agents.sessions.setStatus`/`rename` address `channel_id` and root
+`thread_ts`; ordinary thread messages and public Stop controls remain the
+fallback when native features are unavailable. Room bindings and live policy
+continue to apply to every thread.
+
+Exact-thread restrictions apply to tools and Slack egress while the room ID
+stays the real Slack channel. All completion/status/progress writes use current
+manager credentials and channel/egress policy, including fallback and legacy
+child-thread progress. Deferred requests retain their own requester/message
+provenance; every drain and boot replay reauthorizes that requester. Revoked
+or missing provenance retains the request with a failure reason. Current admin
+membership and room policy are enforced after preparation before model entry
+for fresh native requests and every queued owner. Verified shared, external,
+group and DM scope remains distinct in policy and persisted snapshots.
+Automatic native restart execution also rechecks the persisted human's current
+role and verified room policy after preparation and any pre-model compaction or
+notification wait, recording a fresh snapshot. The resume prompt supplies no
+Slack message authority for huddle tools.
+Original-text question answers and authorized interrupts are handled before
+history/deferral. An owned `!change direction` interrupts and preserves
+`change direction` as a fresh request; bare admin `stop` has no followup.
+
+Channel privacy metadata fails closed when unknown. Documented one-to-one DMs
+use the exact human peer, fresh human validation and installation identity
+instead of channel-only membership/privacy fields. Optional `is_user_deleted`
+may be absent; supplied deletion or malformed values are denied. They still
+require configured private access: under the default `deny` policy, add the
+`D...` conversation to both `allow_channels` and `allow_private_channels`, or use `allow_if_listed` with `allow_channels`.
+
+Clawq rotates owned stream markers every nine minutes, before Slack's ten-minute
+limit, and refreshes processing status so work longer than an hour remains
+truthful. Terminal cleanup and connector/daemon shutdown stop maintenance and
+join outstanding UI cleanup for every run, including never-active queued work,
+before releasing root ownership. Shutdown during preparation prevents model
+entry and retains the request with a reason, preserving restart interrupts.
+Shutdown also closes new native admission for that manager before collecting
+cleanup. Socket reconnects and config reloads stay within an open manager;
+a daemon restart creates a fresh manager. Terminal Socket teardown joins admitted
+control POST replies and finishing control updates before cancelling delivery
+handlers. Without streaming, processing refreshes and the public Stop button
+remain available.
+
+Native stops must name an owned live stream. Empty-stream native events cannot
+safely distinguish successive runs; use **Stop this task** for queued or
+nonstreaming work. Stale native events and buttons never select a newer run.
+Standalone browsing context is not an authority grant or an execution locator.
+Legacy `assistant_view` compatibility is not implemented. See the
+[connector reference](https://github.com/xertrov/clawq/blob/master/docs/connector-reference.md#native-agent-threads-and-task-controls)
+for API, pagination, cancellation and fallback limits.
+
 
 ## GitHub
 

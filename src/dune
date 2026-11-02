@@ -526,10 +526,16 @@
   command_bridge
   cli_notify
   connector_dispatch
+  slack_transport
   slack_api
   slack_huddle_context
   slack_huddles
   slack_huddle_tools
+  slack_thread_route
+  slack_thread_api
+  slack_thread_runs
+  slack_thread_execution
+  slack_thread_ingress
   slack
   discord_api
   discord

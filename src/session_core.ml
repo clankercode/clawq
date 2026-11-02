@@ -130,6 +130,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     live_activity = Hashtbl.create 16;
     continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
+    queued_execution_adapter = None;
     observer_last_checked = Hashtbl.create 8;
     last_active = Hashtbl.create 16;
     postmortem_circuit_breakers = Hashtbl.create 8;

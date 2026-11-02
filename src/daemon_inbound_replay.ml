@@ -72,9 +72,35 @@ let replay_message payload =
 let default_replay_turn mgr ~key ~message ?(deferred_if_busy = false) ?cwd () =
   Session.turn mgr ~key ~message ?cwd ~deferred_if_busy ()
 
+let native_replay_turn manager route (row : Memory.queue_row) payload =
+  let json = try Yojson.Safe.from_string row.payload_json with _ -> `Null in
+  let field name =
+    match Slack_huddles.get name json with
+    | `String s when s <> "" -> Some s
+    | _ -> None
+  in
+  let provenance =
+    row.source = "live"
+    && Slack_huddles.get "origin_version" json = `Int 1
+    && field "channel" = Some "slack"
+    && field "channel_id" = Some route.Slack_thread_route.channel
+  in
+  let sender_id = if provenance then field "sender_id" else None in
+  let message_id = if provenance then field "message_id" else None in
+  Session.turn_verified_queued manager ~key:row.session_key
+    ~message:payload.message ~channel:"slack" ~channel_id:route.channel
+    ~channel_name:route.channel
+    ~channel_type:(if route.channel.[0] = 'D' then "dm" else "group")
+    ?sender_id ?message_id
+    ~before_drain:(fun response ->
+      if Session.should_suppress_response response then Lwt.return_unit
+      else Slack_thread_execution.notify manager route response)
+    ()
+
 let replay_durable_inbound_queue ?replay_turn ~(session_manager : Session.t)
     ~(config : Runtime_config.t) () =
   ignore config;
+  Slack_thread_execution.install session_manager;
   match session_manager.Session.db with
   | None ->
       Logs.info (fun m ->
@@ -158,10 +184,15 @@ let replay_durable_inbound_queue ?replay_turn ~(session_manager : Session.t)
                                 row.queue_id session_key payload.is_bang
                                 (String.length payload.message));
                           let* _response =
-                            turn_fn session_manager ~key:session_key
-                              ~message:(replay_message payload)
-                              ~deferred_if_busy:payload.deferred_followup
-                              ?cwd:payload.cwd ()
+                            match Slack_thread_route.of_key session_key with
+                            | Some route ->
+                                native_replay_turn session_manager route row
+                                  payload
+                            | None ->
+                                turn_fn session_manager ~key:session_key
+                                  ~message:(replay_message payload)
+                                  ~deferred_if_busy:payload.deferred_followup
+                                  ?cwd:payload.cwd ()
                           in
                           let deleted =
                             Memory.queue_delete ~db ~queue_id:row.queue_id
@@ -196,7 +227,9 @@ let replay_durable_inbound_queue ?replay_turn ~(session_manager : Session.t)
                               !summary with
                               failed_count = !summary.failed_count + 1;
                             };
-                          drain_session ())
+                          match exn with
+                          | Session_queue.Request_retained _ -> Lwt.return_unit
+                          | _ -> drain_session ())
               in
               drain_session ())
             pending_sessions

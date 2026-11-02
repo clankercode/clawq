@@ -139,7 +139,7 @@ let fetch_channel_is_private ~bot_token ~channel_id =
       let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
       Lwt.catch
         (fun () ->
-          let* _status, body = Http_client.get ~uri ~headers in
+          let* _status, body = Slack_transport.get ~uri ~headers in
           try
             let json = Yojson.Safe.from_string body in
             let open Yojson.Safe.Util in
@@ -258,7 +258,7 @@ let send_message ~bot_token ~channel_id ~text =
   let uri = "https://slack.com/api/chat.postMessage" in
   let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
   let body = build_post_body ~channel_id ~text ~thread_ts:None in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
 let send_message_with_id ~bot_token ~channel_id ~text =
@@ -266,7 +266,7 @@ let send_message_with_id ~bot_token ~channel_id ~text =
   let uri = "https://slack.com/api/chat.postMessage" in
   let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
   let body = build_post_body ~channel_id ~text ~thread_ts:None in
-  let* _status, resp_body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, resp_body = Slack_transport.post_json ~uri ~headers ~body in
   let ts =
     try
       let json = Yojson.Safe.from_string resp_body in
@@ -283,7 +283,7 @@ let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
   let uri = "https://slack.com/api/chat.postMessage" in
   let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
   let body = build_post_body ~channel_id ~text ~thread_ts in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
 let edit_message ~bot_token ~channel_id ~ts ~text =
@@ -299,7 +299,7 @@ let edit_message ~bot_token ~channel_id ~ts ~text =
       ]
     |> Yojson.Safe.to_string
   in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
 let delete_message ~bot_token ~channel_id ~ts =
@@ -310,7 +310,7 @@ let delete_message ~bot_token ~channel_id ~ts =
     `Assoc [ ("channel", `String channel_id); ("ts", `String ts) ]
     |> Yojson.Safe.to_string
   in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
 let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
@@ -339,7 +339,7 @@ let add_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
       ]
     |> Yojson.Safe.to_string
   in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
 let remove_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
@@ -355,7 +355,7 @@ let remove_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
       ]
     |> Yojson.Safe.to_string
   in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
@@ -377,7 +377,7 @@ let parse_event body =
         let evt = json |> member "event" in
         let evt_type = evt |> member "type" |> to_string in
         match evt_type with
-        | "message" ->
+        | "message" | "app_mention" ->
             let channel_id = evt |> member "channel" |> to_string in
             let user_id =
               try evt |> member "user" |> to_string with _ -> ""

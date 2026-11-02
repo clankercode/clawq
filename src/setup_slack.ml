@@ -20,6 +20,16 @@ let validate_app_token s =
     Ok trimmed
   else Error "App token must start with 'xapp-' (or leave empty)."
 
+let validate_transport_credentials ~bot_token ~app_token ~signing_secret
+    ~socket_mode =
+  let valid s = Runtime_config.is_credential_valid (String.trim s) in
+  if not (valid bot_token) then Error "A valid bot token is required."
+  else if socket_mode && not (valid app_token) then
+    Error "Socket Mode requires an app token (xapp-...) with connections:write."
+  else if (not socket_mode) && not (valid signing_secret) then
+    Error "HTTP Events requires a signing secret for request verification."
+  else Ok ()
+
 let build_slack_json ~bot_token ~signing_secret ~events_path ~allow_channels
     ~allow_users ~app_token ~socket_mode =
   Setup_common.build_channel_json ~channel_name:"slack"
@@ -58,12 +68,26 @@ let post_setup_instructions ~events_path ~socket_mode ~gateway_port ~tunnel_url
        - groups:history
        - im:history
        - mpim:history
-       For optional huddle discovery/content tools, also add:
        - channels:read
        - groups:read
+       - im:read
+       - mpim:read
        - users:read
+       - assistant:write
+       Thread context verifies the human and bot are channel members.
+       For optional huddle discovery/content tools, also add:
        - files:read
        Huddle reads require bot and requesting-user channel membership.
+    Agent experience (current agent_view):
+       In the app manifest, declare features.agent_view with an
+       agent_description (for example, "Clawq thread assistant").
+       Subscribe to agent_session_stopped (chat:write), app_home_opened,
+       app_context_changed (assistant:write), and the message events below.
+       Enable Interactivity for the run-specific "Stop this task" buttons.
+       Socket Mode delivers interactive envelopes; HTTP uses the same signed
+       Events Request URL for Interactivity. Native APIs may return
+       feature_disabled; Clawq then uses ordinary threaded progress/buttons.
+       Legacy assistant_view events are not implemented by this connector.
     6. Install the app to your workspace
     7. Copy the "Bot User OAuth Token" (xoxb-...) into this wizard
 %s%s|}
@@ -136,9 +160,11 @@ let run () =
     Setup_tui.make_secret_field ~key:"s" ~label:"Signing Secret"
       ~menu_label:"Set signing secret"
       ~description:
-        "Slack signing secret for verifying webhook requests. Found in Basic \
-         Information."
-      ~validate:validate_signing_secret ~default:d.signing_secret ()
+        "Required for HTTP Events and Interactivity; optional in Socket Mode. \
+         Found in Basic Information."
+      ~validate:(fun input ->
+        if String.trim input = "" then Ok "" else validate_signing_secret input)
+      ~default:d.signing_secret ()
   in
   let events_path =
     Setup_tui.make_field ~key:"e" ~label:"Events Path"
@@ -207,8 +233,11 @@ let run () =
             ~socket_mode:(Setup_tui.get_bool socket_mode));
       pre_save_check =
         (fun () ->
-          Setup_tui.check_required_str_fields
-            [ (bot_token, "Bot token is required.") ]);
+          validate_transport_credentials
+            ~bot_token:(Setup_tui.get_str bot_token)
+            ~app_token:(Setup_tui.get_str app_token)
+            ~signing_secret:(Setup_tui.get_str signing_secret)
+            ~socket_mode:(Setup_tui.get_bool socket_mode));
       post_instructions = live_instructions;
     }
   in
