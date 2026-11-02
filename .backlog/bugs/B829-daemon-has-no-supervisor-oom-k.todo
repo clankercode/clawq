@@ -1,16 +1,14 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-10-01T12:34:01Z"
 depends_on: []
 estimate_hours: 1
 id: B829
 priority: high
+started_at: null
 status: pending
-tags:
-    - daemon
-    - supervision
-    - oom
-    - reliability
+tags: []
 title: 'daemon has no supervisor: OOM-killed daemon stayed dead 15h with webhooks silently undelivered'
 updated_at: "2026-10-01T12:34:01Z"
 ---
@@ -28,3 +26,5 @@ Acceptance criteria:
 2. Kill -9 the daemon in a test; it is back within 30s, lock/pid/heartbeat consistent, EC respawned per B828.
 3. Webhook listener accepts deliveries immediately after restart (curl smoke test).
 4. Docs updated (service supervision section).
+
+Decision (2026-11-02 batch): independent service lane. Verified systemd template already has Restart=on-failure but cmd_install ignores systemctl errors and leaves existing daemons unmanaged; WatchdogSec lacks an evident notification contract. Complete production supervision/adoption semantics and verify SIGKILL recovery using an isolated scratch daemon, never kill the user daemon for testing. Serialize build/test commands centrally.
