@@ -1067,6 +1067,15 @@ Buttons are `Action.Submit` with `imBack` data values. Room policy is applied at
 
 Slack renders checklists as formatted mrkdwn text (no Adaptive Cards). Links use Slack's `<url|label>` syntax. Supported features: edit, delete, reactions, status messages, native thread replies, ambient history capture. The full daemon also exposes authorized `slack_huddles` and `slack_huddle_content` tools; genuine transcript content is conditional on what Slack returns.
 
+Slack task/thread lifecycle:
+- Ordinary channel mentions and direct messages use the originating root thread for the run, response and follow-ups. The durable key is `slack:CHANNEL:thread:TEAM:APP:ROOT_TS`; authorization and room profiles continue to use the real channel ID. Thread routing survives restart/background completion fallback through the persisted session identity.
+- Before fetching thread context, Clawq verifies installation/user identity, requesting-human and bot membership, connector allowlists, private-channel policy and external-room policy. Bounded chronological thread history is quoted as untrusted data; only messages from this app's verified bot identity are labeled assistant content. Returned limits and truncation are explicit.
+- Native agent status uses `agents.sessions.setStatus` with `channel_id`, root `thread_ts` and documented states; `agents.sessions.rename` sets the task title. Processing streams use Slack's supported chat streaming methods. Missing native capabilities fall back to visible thread progress and run-specific public stop controls.
+- Native `agent_session_stopped` events must identify a stream owned by the matching live run. An empty or unrelated stream list cannot select a run; use that run's Stop button instead. Public stop controls carry an opaque run reference and are checked against the app, workspace, channel, control message and authorized initiating human. Stale controls do not cancel a later run.
+- Queued requests have separate stop controls. Terminal processing/stream/control cleanup belongs to the completed run and must preserve a newer run's state. Completion replies, progress and fallback delivery remain in the originating thread.
+- Current agent-view message/event handling is distinct from legacy assistant-thread APIs. `app_context_changed` has no reliable actor/thread locator in its standalone documented payload; it is acknowledged without granting access or selecting arbitrary threads. App setup, event subscriptions and feature support must match the documented connector guide.
+
+
 ### Rate Limiting
 
 - **Inbound**: Per-conversation+user rate limiting with 60-second warning cooldowns.
