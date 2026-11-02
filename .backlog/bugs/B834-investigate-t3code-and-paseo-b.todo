@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-11-02T06:19:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-02T07:04:57Z"
 complexity: medium
 created_at: "2026-11-02T05:50:07Z"
 depends_on: []
+duration_minutes: 45.31851324901667
 estimate_hours: 1
 id: B834
 priority: high
 started_at: "2026-11-02T06:19:38Z"
-status: in_progress
+status: done
 tags: []
 title: Investigate T3Code and Paseo bridges for spawning coding agents
-updated_at: "2026-11-02T06:19:38Z"
+updated_at: "2026-11-02T07:04:57Z"
 ---
 Investigate the existing T3Code and Paseo bridges and how bots can use them to spawn coding agents in new T3Code/Paseo threads. Identify the supported flow, integration gaps, and any fixes needed to make this capability reliable.
 
