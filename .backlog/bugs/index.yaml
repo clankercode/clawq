@@ -1788,3 +1788,4 @@ bugs:
     - file: B833-slack-agent-lacks-native-task.todo
     - file: B834-investigate-t3code-and-paseo-b.todo
     - file: B835-slack-stops-receiving-messages.todo
+    - file: B836-policy-refusals-are-silent-cla.todo

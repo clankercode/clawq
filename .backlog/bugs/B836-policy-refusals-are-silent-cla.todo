@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-04T04:55:31Z"
+depends_on: []
+estimate_hours: 1
+id: B836
+priority: high
+status: pending
+tags: []
+title: 'Policy refusals are silent: clawq should DM the operator with a one-click fix (e.g. Slack private channels)'
+updated_at: "2026-11-04T04:55:31Z"
+---
+Observed 2026-11-04: in private #clawq-huddle-test, every message (Max's and Slackbot's) was refused by private_channel_policy=deny with only a WARN log line ('Slack request refused: Slack bot membership/private-channel policy denied'); the requester got no reply. Max: private channels should normally be allowed (the bot only sees private channels it was invited to — the invite is consent), and when clawq detects such a config-gated refusal it should DM the operator (Max) once per channel/cause with a one-click fix (plan-confirm-apply button, e.g. 'Allow clawq in #x'), and tell the requester (ephemeral) that access is pending. Also: 'clawq config set channels.slack.private_channel_policy' fails with 'unknown config key' — the Slack section of config set only knows bot_token/signing_secret/events_path/allow_channels/allow_users/app_token/socket_mode/default_model; add private_channel_policy and allow_private_channels. Consider changing the default to allow_if_listed (B735 chose deny for defense in depth). Local workaround applied: ~/.clawq/config.json private_channel_policy=allow_if_listed (backup config.json.bak-20261104-private-policy).
