@@ -498,6 +498,82 @@ let test_epoch_guard () =
       check "late refusal cannot suspend new epoch" true
         ((Option.get (Store.find e.db e.order.id)).state = T.Active))
 
+let test_suspension_failure_recovers () =
+  List.iter
+    (fun content_refusal ->
+      with_env (fun e ->
+          seen e;
+          ready e ();
+          resolve e;
+          let id = (one_fire e).id in
+          if content_refusal then
+            S.override e.mock "files.info" (fun _ ->
+                ( 200,
+                  obj [ ("ok", `Bool false); ("error", str "missing_scope") ] ))
+          else Session.update_config e.manager (S.config ~targets:[] ());
+          Sql_util.exec_exn e.db
+            "CREATE TEMP TRIGGER fail_suspension BEFORE UPDATE OF state ON \
+             slack_standing_orders WHEN NEW.state='suspended' BEGIN SELECT \
+             RAISE(ABORT,'injected suspension failure'); END";
+          let result =
+            with_claim e id (fun lease r ->
+                Lwt_main.run
+                  (E.fetch ~ctx:(ctx e) ~db:e.db ~manager:e.manager
+                     ~http:e.mock.http ~lease r))
+          in
+          check "suspension failure is reported" true
+            (result = Error "fetch_store_failed");
+          check_state e id (if content_refusal then T.Fetching else T.Detected);
+          let order = Option.get (Store.find e.db e.order.id) in
+          check "failed transaction keeps order active" true
+            (order.state = T.Active && order.epoch = e.order.epoch);
+          check "failed denial remains due after lease release" true
+            (List.exists
+               (fun (r : Store.fire_runtime) -> r.fire.id = id)
+               (Store.due e.db ~now:(Store.now ())));
+          check "failed denial does not finalise the ledger" true
+            (List.for_all
+               (fun (row : L.row) -> not row.finalised)
+               (L.list_rows ~db:e.db ~team:"T123" ~channel:"C123"));
+          Sql_util.exec_exn e.db "DROP TRIGGER fail_suspension";
+          check "retry completes without payload" true (fetch e id = None);
+          check_state e id T.Denied;
+          let order = Option.get (Store.find e.db e.order.id) in
+          check "retry suspends the same epoch" true (order.state = T.Suspended);
+          Alcotest.(check int)
+            "suspension advances epoch once" (e.order.epoch + 1) order.epoch;
+          check "denial clears retry scheduling" true
+            ((runtime e id).next_attempt_at = None);
+          check "completed denial is no longer due" true
+            (not
+               (List.exists
+                  (fun (r : Store.fire_runtime) -> r.fire.id = id)
+                  (Store.due e.db ~now:(Store.now ()))));
+          no_upload e))
+    [ false; true ]
+
+let test_ledger_failure_cannot_prevent_suspension () =
+  with_env (fun e ->
+      seen e;
+      resolve e;
+      let id = (one_fire e).id in
+      Session.update_config e.manager (S.config ~targets:[] ());
+      Sql_util.exec_exn e.db
+        "CREATE TEMP TRIGGER fail_finalisation BEFORE UPDATE OF finalised ON \
+         slack_huddles WHEN NEW.finalised=1 BEGIN SELECT RAISE(ABORT,'injected \
+         ledger failure'); END";
+      let result =
+        with_claim e id (fun lease r ->
+            Lwt_main.run
+              (E.fetch ~ctx:(ctx e) ~db:e.db ~manager:e.manager
+                 ~http:e.mock.http ~lease r))
+      in
+      check "ledger failure is reported" true (result = Error "fetch_internal");
+      check_state e id T.Denied;
+      check "ledger failure cannot prevent suspension" true
+        ((Option.get (Store.find e.db e.order.id)).state = T.Suspended);
+      no_upload e)
+
 let test_waiting_eligibility () =
   with_env (fun e ->
       e.root :=
@@ -615,4 +691,8 @@ let suite =
     S.case "shared worker context stops HTTP on drain" test_drain;
     S.case "missing optional end retains the first observed deadline"
       test_optional_end;
+    S.case "failed suspension recovers on the same epoch"
+      test_suspension_failure_recovers;
+    S.case "ledger failure cannot prevent hard-refusal suspension"
+      test_ledger_failure_cannot_prevent_suspension;
   ]

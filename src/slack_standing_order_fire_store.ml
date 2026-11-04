@@ -524,105 +524,109 @@ let relay_producing (before : fire_runtime) (after : fire_runtime) =
          || a.upload_started_at <> old.upload_started_at)
        after.attempts
 
-let cas db ~(lease : lease) ~(before : fire_runtime) ~(after : fire_runtime)
-    ~now =
+let cas_in_tx db ~(lease : lease) ~(before : fire_runtime)
+    ~(after : fire_runtime) ~now =
+  guard (fun () ->
+      match runtime_raw db ~fire_id:before.fire.id with
+      | None -> Ok false
+      | Some current
+        when (not (valid_lease lease current now))
+             || current.fire.state <> before.fire.state ->
+          Ok false
+      | Some current ->
+          let ( let* ) = Result.bind in
+          if
+            (not (immutable_fire before.fire after.fire))
+            || (not
+                  (declared_transition before.fire.state after.fire.state
+                  || retained_tracking_transition before after))
+            || after.claim <> before.claim
+            || after.current_attempt < before.current_attempt
+            || (not (List.mem after.current_attempt [ 0; 1 ]))
+            || (not (kept before.nonce after.nonce))
+            || (not (kept before.root_ts after.root_ts))
+            || sources_changed before after
+               && ((not (sources_mutable current))
+                  || List.exists
+                       (fun (a : relay_attempt) ->
+                         a.uploaded_file_ids <> []
+                         || a.upload_started_at <> None)
+                       after.attempts)
+          then Error "invalid fire transition or immutable scope change"
+          else if
+            current.attempts <> before.attempts
+            || current.current_attempt <> before.current_attempt
+            || current.root_ts <> before.root_ts
+            || current.canvas_id <> before.canvas_id
+            || current.transcript_id <> before.transcript_id
+            || current.notes_ready_ts <> before.notes_ready_ts
+            || current.nonce <> before.nonce
+            || current.next_attempt_at <> before.next_attempt_at
+          then Ok false
+          else if
+            relay_producing before after
+            && ((not (relay_allowed db current))
+               || current.fire.repost_forbidden)
+          then Ok false
+          else
+            let* attempts = validate_attempts current after in
+            let projected =
+              List.find_opt
+                (fun (a : relay_attempt) ->
+                  a.attempt_no = after.current_attempt)
+                attempts
+            in
+            let relay_ts = Option.bind projected (fun a -> a.relay_ts) in
+            if after.fire.relay_ts <> relay_ts then
+              Error "fire relay timestamp must project its current attempt"
+            else
+              let ids =
+                match projected with
+                | None -> []
+                | Some a -> a.uploaded_file_ids
+              in
+              exec db
+                "UPDATE slack_standing_order_fires SET \
+                 state=?,reason=?,root_ts=?,canvas_file_id=?,transcript_file_id=?,notes_ready_ts=?,nonce=?,current_attempt=?,next_attempt_at=?,relay_ts=?,uploaded_file_ids=?,repost_forbidden=?,cancel_requested=?,updated_at=? \
+                 WHERE id=? AND state=? AND claim_owner=? AND lease_epoch=? \
+                 AND lease_until > ?"
+                [
+                  text (T.fire_state_to_string after.fire.state);
+                  opt_text after.fire.reason;
+                  opt_text after.root_ts;
+                  opt_text after.canvas_id;
+                  opt_text after.transcript_id;
+                  opt_text after.notes_ready_ts;
+                  opt_text after.nonce;
+                  int after.current_attempt;
+                  opt_float after.next_attempt_at;
+                  opt_text relay_ts;
+                  text
+                    (Yojson.Safe.to_string
+                       (`List (List.map (fun s -> `String s) ids)));
+                  bool
+                    (current.fire.repost_forbidden
+                   || after.fire.repost_forbidden);
+                  bool
+                    (current.fire.cancel_requested
+                   || after.fire.cancel_requested);
+                  text (stamp ());
+                  text before.fire.id;
+                  text (T.fire_state_to_string before.fire.state);
+                  text lease.owner;
+                  int lease.lease_epoch;
+                  Sqlite3.Data.FLOAT now;
+                ];
+              let changed = Sqlite3.changes db = 1 in
+              if changed then
+                List.iter (save_attempt db before.fire.id) attempts;
+              Ok changed)
+
+let cas db ~lease ~before ~after ~now =
   guard (fun () ->
       ensure_schema db;
       in_tx db ~on_error:Fun.id (fun () ->
-          match runtime_raw db ~fire_id:before.fire.id with
-          | None -> Ok false
-          | Some current
-            when (not (valid_lease lease current now))
-                 || current.fire.state <> before.fire.state ->
-              Ok false
-          | Some current ->
-              let ( let* ) = Result.bind in
-              if
-                (not (immutable_fire before.fire after.fire))
-                || (not
-                      (declared_transition before.fire.state after.fire.state
-                      || retained_tracking_transition before after))
-                || after.claim <> before.claim
-                || after.current_attempt < before.current_attempt
-                || (not (List.mem after.current_attempt [ 0; 1 ]))
-                || (not (kept before.nonce after.nonce))
-                || (not (kept before.root_ts after.root_ts))
-                || sources_changed before after
-                   && ((not (sources_mutable current))
-                      || List.exists
-                           (fun (a : relay_attempt) ->
-                             a.uploaded_file_ids <> []
-                             || a.upload_started_at <> None)
-                           after.attempts)
-              then Error "invalid fire transition or immutable scope change"
-              else if
-                current.attempts <> before.attempts
-                || current.current_attempt <> before.current_attempt
-                || current.root_ts <> before.root_ts
-                || current.canvas_id <> before.canvas_id
-                || current.transcript_id <> before.transcript_id
-                || current.notes_ready_ts <> before.notes_ready_ts
-                || current.nonce <> before.nonce
-                || current.next_attempt_at <> before.next_attempt_at
-              then Ok false
-              else if
-                relay_producing before after
-                && ((not (relay_allowed db current))
-                   || current.fire.repost_forbidden)
-              then Ok false
-              else
-                let* attempts = validate_attempts current after in
-                let projected =
-                  List.find_opt
-                    (fun (a : relay_attempt) ->
-                      a.attempt_no = after.current_attempt)
-                    attempts
-                in
-                let relay_ts = Option.bind projected (fun a -> a.relay_ts) in
-                if after.fire.relay_ts <> relay_ts then
-                  Error "fire relay timestamp must project its current attempt"
-                else
-                  let ids =
-                    match projected with
-                    | None -> []
-                    | Some a -> a.uploaded_file_ids
-                  in
-                  exec db
-                    "UPDATE slack_standing_order_fires SET \
-                     state=?,reason=?,root_ts=?,canvas_file_id=?,transcript_file_id=?,notes_ready_ts=?,nonce=?,current_attempt=?,next_attempt_at=?,relay_ts=?,uploaded_file_ids=?,repost_forbidden=?,cancel_requested=?,updated_at=? \
-                     WHERE id=? AND state=? AND claim_owner=? AND \
-                     lease_epoch=? AND lease_until > ?"
-                    [
-                      text (T.fire_state_to_string after.fire.state);
-                      opt_text after.fire.reason;
-                      opt_text after.root_ts;
-                      opt_text after.canvas_id;
-                      opt_text after.transcript_id;
-                      opt_text after.notes_ready_ts;
-                      opt_text after.nonce;
-                      int after.current_attempt;
-                      opt_float after.next_attempt_at;
-                      opt_text relay_ts;
-                      text
-                        (Yojson.Safe.to_string
-                           (`List (List.map (fun s -> `String s) ids)));
-                      bool
-                        (current.fire.repost_forbidden
-                       || after.fire.repost_forbidden);
-                      bool
-                        (current.fire.cancel_requested
-                       || after.fire.cancel_requested);
-                      text (stamp ());
-                      text before.fire.id;
-                      text (T.fire_state_to_string before.fire.state);
-                      text lease.owner;
-                      int lease.lease_epoch;
-                      Sqlite3.Data.FLOAT now;
-                    ];
-                  let changed = Sqlite3.changes db = 1 in
-                  if changed then
-                    List.iter (save_attempt db before.fire.id) attempts;
-                  Ok changed))
+          cas_in_tx db ~lease ~before ~after ~now))
 
 let reserve_dispatch db ~fire_id ~(lease : lease) ~repost ~now =
   guard (fun () ->
@@ -696,13 +700,39 @@ let reserve_dispatch db ~fire_id ~(lease : lease) ~repost ~now =
                       if Sqlite3.changes db = 1 then Ok true
                       else Error "dispatch reservation lost its lease")))
 
+let suspend_if_epoch_in_tx db ~order_id ~epoch ~reason ~now =
+  guard (fun () ->
+      match find_raw db order_id with
+      | Some o when o.state = T.Active && o.epoch = epoch ->
+          Result.map
+            (fun change -> change.changed)
+            (deactivate_in_tx db ~order_id (Suspend reason) ~now)
+      | _ -> Ok false)
+
 let suspend_if_epoch db ~order_id ~epoch ~reason ~now =
   guard (fun () ->
       ensure_schema db;
       in_tx db ~on_error:Fun.id (fun () ->
-          match find_raw db order_id with
-          | Some o when o.state = T.Active && o.epoch = epoch ->
+          suspend_if_epoch_in_tx db ~order_id ~epoch ~reason ~now))
+
+(* A failed suspension must leave the fire due for retry. Keep the lease CAS,
+   epoch check and lifecycle sweep in one transaction, before ledger writes. *)
+let deny_and_suspend_if_epoch db ~lease ~(before : fire_runtime) ~reason ~now =
+  guard (fun () ->
+      ensure_schema db;
+      in_tx db ~on_error:Fun.id (fun () ->
+          let after =
+            {
+              before with
+              fire = { before.fire with state = T.Denied; reason = Some reason };
+              next_attempt_at = None;
+            }
+          in
+          match cas_in_tx db ~lease ~before ~after ~now with
+          | Error _ as e -> e
+          | Ok false -> Ok false
+          | Ok true ->
               Result.map
-                (fun change -> change.changed)
-                (deactivate_in_tx db ~order_id (Suspend reason) ~now)
-          | _ -> Ok false))
+                (fun _ -> true)
+                (suspend_if_epoch_in_tx db ~order_id:before.fire.order_id
+                   ~epoch:before.fire.epoch ~reason ~now)))

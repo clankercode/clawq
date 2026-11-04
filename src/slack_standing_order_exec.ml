@@ -96,6 +96,16 @@ let save ~ctx ~db ~lease ~(before : Store.fire_runtime) ~after =
   | Ok false -> Error "fetch_fence_lost"
   | Error _ -> Error "fetch_store_failed"
 
+let finalise_ledger ~db (r : Store.fire_runtime) =
+  match
+    (Store.find db r.fire.order_id, C.seconds (`String r.fire.date_start))
+  with
+  | Some order, Some date_start ->
+      L.set_verified ~db ~team:order.team_id ~channel:order.channel_id
+        ~room_id:r.fire.room_id ~date_start ~transcript_file_id:r.transcript_id
+        ~finalised:true
+  | _ -> ()
+
 let terminal ~ctx ~db ~lease (r : Store.fire_runtime) state reason =
   match
     save ~ctx ~db ~lease ~before:r
@@ -108,14 +118,7 @@ let terminal ~ctx ~db ~lease (r : Store.fire_runtime) state reason =
   with
   | Error _ as e -> e
   | Ok () ->
-      (match
-         (Store.find db r.fire.order_id, C.seconds (`String r.fire.date_start))
-       with
-      | Some order, Some date_start ->
-          L.set_verified ~db ~team:order.team_id ~channel:order.channel_id
-            ~room_id:r.fire.room_id ~date_start
-            ~transcript_file_id:r.transcript_id ~finalised:true
-      | _ -> ());
+      finalise_ledger ~db r;
       Ok ()
 
 let retry ~ctx ~db ~lease (r : Store.fire_runtime) ~no_notes ~reason =
@@ -146,15 +149,15 @@ let refuse ~ctx ~db ~lease (r : Store.fire_runtime) (failure : Grant.failure) =
   match failure.cls with
   | Grant.Transient -> retry ~ctx ~db ~lease r ~no_notes:false ~reason
   | Hard -> (
-      match terminal ~ctx ~db ~lease r T.Denied reason with
-      | Error _ as e -> e
-      | Ok () -> (
-          match
-            Store.suspend_if_epoch db ~order_id:r.fire.order_id
-              ~epoch:r.fire.epoch ~reason ~now:(ctx.Ctx.now ())
-          with
-          | Ok _ -> Ok ()
-          | Error _ -> Error "fetch_store_failed"))
+      match
+        Store.deny_and_suspend_if_epoch db ~lease ~before:r ~reason
+          ~now:(ctx.Ctx.now ())
+      with
+      | Error _ -> Error "fetch_store_failed"
+      | Ok false -> Error "fetch_fence_lost"
+      | Ok true ->
+          finalise_ledger ~db r;
+          Ok ())
   | Inactive -> terminal ~ctx ~db ~lease r T.Skipped_inactive reason
   | Capped -> terminal ~ctx ~db ~lease r T.Skipped_cap reason
 
