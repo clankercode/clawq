@@ -138,7 +138,11 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                       match fetched with
                       | Some (Ok thread) when not command ->
                           Slack_thread_api.render_history ~route ~bot
-                            ~current:ts thread
+                            ~current:ts
+                            ~untrusted:
+                              (Slack_relay_guard.untrusted_in_history ~registry
+                                 ~channel)
+                            thread
                       | Some (Error e) when not command ->
                           "Slack thread context unavailable (no complete \
                            history): " ^ e ^ "\n"

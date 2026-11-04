@@ -74,6 +74,11 @@ let phase1_registry (_ : Session.t) = no_relays
 let registry_source = ref phase1_registry
 let current_registry manager = !registry_source manager
 
+(** History's secondary relay check: [message] is a recorded relay post.
+    [Slack_thread_api.render_history] applies the structural check itself. *)
+let untrusted_in_history ~registry ~channel message =
+  registry.recorded_relay ~channel ~ts:(field "ts" message)
+
 let posted_after_unconfirmed_upload ~registry ~bot ~channel root =
   field "user" root = bot
   && file_ids root <> []

@@ -375,6 +375,9 @@ and user history require the relevant `channels:history`, `groups:history`,
 relevant `channels:read`, `groups:read`, `im:read`, `mpim:read` and `users:read`.
 Only this app's bot is labeled as assistant source; all other authors, bot
 messages, attachments and browsing context remain quoted untrusted data.
+Attached-file metadata in thread context is limited to id, name, title,
+mimetype, filetype, size, user and created (no previews, lines or
+transcriptions).
 
 Public/group channels require typed `is_private` and bot-membership metadata;
 unknown privacy fails closed. A documented one-to-one DM instead uses

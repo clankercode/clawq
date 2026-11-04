@@ -309,17 +309,35 @@ let fetch_thread ~manager ~token ~(route : Slack_thread_route.t) ~current =
 let root_message ~(route : Slack_thread_route.t) thread =
   List.find_opt (fun m -> field "ts" m = route.root) thread.messages
 
-let render_history ~(route : Slack_thread_route.t) ~bot ~current thread =
+(* Previews, lines, title blocks and transcriptions never enter history. *)
+let history_file_keys =
+  [ "id"; "name"; "title"; "mimetype"; "filetype"; "size"; "user"; "created" ]
+
+let project_file = function
+  | `Assoc _ as file ->
+      Some (obj (Slack_event_log.scalars history_file_keys file))
+  | _ -> None
+
+(** [untrusted] adds a secondary check (the relay registry); clawq's own relay
+    posts are recognised structurally here, so no caller can label one
+    [assistant]. *)
+let render_history ~(route : Slack_thread_route.t) ~bot ~current ~untrusted
+    thread =
   let budget = ref 48000 and clipped = ref thread.overflow in
   let messages =
     List.filter_map
       (fun m ->
         let value = field "text" m in
+        let files = List.filter_map project_file (list (get "files" m)) in
         let extras =
           List.filter_map
-            (fun k ->
-              match get k m with `Null | `List [] -> None | v -> Some (k, v))
-            [ "blocks"; "attachments"; "files" ]
+            (fun (k, v) ->
+              match v with `Null | `List [] -> None | v -> Some (k, v))
+            [
+              ("blocks", get "blocks" m);
+              ("attachments", get "attachments" m);
+              ("files", `List files);
+            ]
         in
         let value =
           if extras = [] then value
@@ -334,15 +352,18 @@ let render_history ~(route : Slack_thread_route.t) ~bot ~current thread =
           let n = min (min (String.length value) 6000) !budget in
           if n < String.length value then clipped := true;
           budget := !budget - n;
+          let assistant =
+            field "user" m = bot
+            && not (Slack_relay_guard.is_own_relay_message ~bot m || untrusted m)
+          in
           Some
             (obj
                [
                  ("ts", str (field "ts" m));
                  ("author", str (field "user" m));
                  ( "role",
-                   str
-                     (if field "user" m = bot then "assistant"
-                      else "untrusted_source") );
+                   str (if assistant then "assistant" else "untrusted_source")
+                 );
                  ("text", str (String.sub value 0 n));
                ]))
       thread.messages
