@@ -705,10 +705,254 @@ let test_notice_failure () =
         (F.card_for env ~order_id:o.id ~kind:T.Pause_button).message_ts;
       Lwt.return_unit)
 
+(* An unexpected OCaml domain exception, after the UPDATE has happened. *)
+let inject_raised_activation db sql =
+  Sqlite3.create_fun0 db "fixture_raise" (fun () ->
+      invalid_arg "injected domain exception");
+  Sqlite3.Rc.check (Sqlite3.exec db sql)
+
+let check_no_applied_receipt db (card : T.card) =
+  Alcotest.(check int)
+    "no applied receipt" 0
+    (Store.int_query db
+       "SELECT count(*) FROM setup_plans WHERE id = ? AND (status = 'applied' \
+        OR receipt_id IS NOT NULL)"
+       [ Sqlite3.Data.TEXT (Option.get card.plan_id) ]);
+  Sqlite3.Rc.check (Sqlite3.exec db "BEGIN IMMEDIATE");
+  Sqlite3.Rc.check (Sqlite3.exec db "ROLLBACK")
+
+let apply_plan_callback (env : F.env) (card : T.card) apply_ops =
+  let plan =
+    Option.get
+      (Setup_plan_apply.get_plan ~db:env.db ~plan_id:(Option.get card.plan_id))
+  in
+  Setup_plan_apply.apply ~db:env.db ~plan_id:plan.id ~digest:plan.digest
+    ~principal:plan.principal ~current_base_revision:plan.base_revision
+    ~destination_room:"C123" ~now:S.now
+    ~authority:(fun ~principal:_ ~destination:_ -> Ok ())
+    ~apply_ops ()
+
+let test_confirm_mutation_then_raise () =
+  F.with_orders (fun env ->
+      let* o, card = planned env in
+      let apply_ops ~plan:_ ~receipt_id:_ =
+        (match
+           Store.activate_in_tx env.db ~order_id:o.id
+             ~active_since:"1700000000.000200" ~confirmed_by:"U123"
+             ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:S.now
+         with
+        | Ok _ -> check_state env o T.Active
+        | Error e -> Alcotest.fail e);
+        failwith "injected"
+      in
+      Test_setup_plan_apply.assert_rejected
+        (apply_plan_callback env card apply_ops)
+        "apply_error";
+      check_state env o T.Pending_confirmation;
+      check_no_applied_receipt env.db card;
+      Lwt.return_unit)
+
+let test_raised_confirm_rolls_back () =
+  F.with_orders (fun env ->
+      let* o, card = planned env in
+      inject_raised_activation env.db
+        "CREATE TRIGGER fixture_raise_activation AFTER UPDATE OF state ON \
+         slack_standing_orders WHEN NEW.state = 'active' BEGIN SELECT \
+         fixture_raise(); END";
+      let* () = confirm env card in
+      check_state env o T.Pending_confirmation;
+      check_no_applied_receipt env.db card;
+      check_bool "fixed refusal" true
+        (has_text env "Not confirmed (apply_error).");
+      check_bool "no raw exception" false
+        (mentions env "injected domain exception");
+      check_bool "card unused" true
+        ((F.card_for env ~order_id:o.id ~kind:T.Confirm_card).used_at = None);
+      Lwt.return_unit)
+
+let fire_eligible (env : F.env) (o : T.order) =
+  let+ result =
+    G.evaluate ~db:env.db
+      ~current_config:(fun () -> Session.get_config env.base.manager)
+      ~now:S.now
+      ~stage:(G.Fire { fire_epoch = o.epoch })
+      ~unit_label:"fire" (G.subject_of_order o)
+  in
+  Result.is_ok result
+
+let test_post_commit_use_card_failure () =
+  F.with_orders (fun env ->
+      let* o, card = planned env in
+      Sqlite3.Rc.check
+        (Sqlite3.exec env.db
+           "CREATE TRIGGER fixture_no_card_update BEFORE UPDATE ON \
+            slack_standing_order_cards BEGIN SELECT RAISE(ABORT, 'injected \
+            card update'); END");
+      let* () = confirm env card in
+      check_state env o T.Paused;
+      check_bool "unannounced and ineligible" false
+        (Store.activation_announced env.db ~order_id:o.id);
+      let* eligible = fire_eligible env (find env o) in
+      check_bool "no relay eligibility" false eligible;
+      check_opt "system pause" (Some "system:activation_notice_failed")
+        (find env o).paused_by;
+      check_bool "no success card" true (updates env = []);
+      check_bool "failure receipt" true
+        (mentions env "could not post the channel notice");
+      Lwt.return_unit)
+
+let test_missing_pause_message_is_unannounced () =
+  let db = S.fresh_db () in
+  let o = S.seed db () in
+  let announced () = Store.activation_announced db ~order_id:o.id in
+  check_bool "no button" false (announced ());
+  let card =
+    Store.insert_card db ~kind:T.Pause_button ~order:o ~created_by:"U123"
+      ~now:S.now ()
+  in
+  check_bool "NULL ts" false (announced ());
+  List.iter
+    (fun ts ->
+      Store.set_card_message_ts db ~card_id:card.id ts;
+      check_bool "invalid ts" false (announced ()))
+    [ ""; "invalid"; "0"; "100.bad" ];
+  Store.set_card_message_ts db ~card_id:card.id "100.000001";
+  check_bool "persisted bound button" true (announced ());
+  List.iter
+    (fun column ->
+      Store.exec db
+        ("UPDATE slack_standing_order_cards SET " ^ column
+       ^ " = 'other' WHERE id = ?")
+        [ Store.text card.id ];
+      check_bool "scope mismatch" false (announced ());
+      let value =
+        match column with
+        | "team_id" -> o.team_id
+        | "app_id" -> o.api_app_id
+        | _ -> o.channel_id
+      in
+      Store.exec db
+        ("UPDATE slack_standing_order_cards SET " ^ column ^ " = ? WHERE id = ?")
+        [ Store.text value; Store.text card.id ])
+    [ "team_id"; "app_id"; "channel_id" ];
+  Store.exec db
+    "UPDATE slack_standing_order_cards SET kind = 'resume' WHERE id = ?"
+    [ Store.text card.id ];
+  check_bool "resume card is no announcement" false (announced ());
+  Sqlite3.Rc.check
+    (Sqlite3.exec db
+       "ALTER TABLE slack_standing_order_cards RENAME COLUMN message_ts TO \
+        missing_ts");
+  check_bool "failed lookup raises" true
+    (try
+       ignore (announced () : bool);
+       false
+     with _ -> true);
+  ignore (Sqlite3.db_close db)
+
+let fail_activation_notice env =
+  F.override env "chat.postMessage" (fun params ->
+      if S.param params "thread_ts" = "" then
+        S.obj [ ("ok", `Bool false); ("error", S.str "channel_not_found") ]
+      else S.default_response env.world "chat.postMessage" params)
+
+let test_resume_repairs_unannounced () =
+  F.with_orders (fun env ->
+      fail_activation_notice env;
+      let* o, card = planned env in
+      let* () = confirm env card in
+      check_state env o T.Paused;
+      check_bool "unbound button is not adopted" false
+        (Store.activation_announced env.db ~order_id:o.id);
+      let* card = resume_card env (find env o) in
+      F.override env "chat.postMessage"
+        (S.default_response env.world "chat.postMessage");
+      let before = List.length (updates env) in
+      let* () = resume env card in
+      check_state env o T.Active;
+      check_bool "announcement restored" true
+        (Store.activation_announced env.db ~order_id:o.id);
+      let* eligible = fire_eligible env (find env o) in
+      check_bool "repaired order fire eligible" true eligible;
+      Alcotest.(check int)
+        "one success card" (before + 1)
+        (List.length (updates env));
+      Alcotest.(check int)
+        "one bound announcement" 1
+        (List.length (posts_with env Render.action_pause));
+      let button = F.card_for env ~order_id:o.id ~kind:T.Pause_button in
+      let* () = pause env button in
+      let* card = resume_card env (find env o) in
+      let* () = resume env card in
+      check_state env o T.Active;
+      check_bool "announcement survives new epoch" true
+        (Store.activation_announced env.db ~order_id:o.id);
+      Alcotest.(check int)
+        "ordinary resume posts no new announcement" 1
+        (List.length (posts_with env Render.action_pause));
+      Lwt.return_unit)
+
+let test_resume_notice_failure () =
+  F.with_orders (fun env ->
+      let o = F.seed env ~state:T.Paused () in
+      let* card = resume_card env o in
+      fail_activation_notice env;
+      let before = List.length (updates env) in
+      let* () = resume env card in
+      check_state env o T.Paused;
+      check_bool "still unannounced" false
+        (Store.activation_announced env.db ~order_id:o.id);
+      Alcotest.(check int)
+        "no false resume success" before
+        (List.length (updates env));
+      check_bool "failure receipt" true
+        (mentions env "could not post the channel notice");
+      Lwt.return_unit)
+
+let test_lost_activation_response () =
+  F.with_orders (fun env ->
+      let* o, card = planned env in
+      F.override env "chat.postMessage" (fun params ->
+          if S.param params "thread_ts" = "" then S.ok []
+          else S.default_response env.world "chat.postMessage" params);
+      let* () = confirm env card in
+      check_state env o T.Paused;
+      check_bool "no false confirmation success" true (updates env = []);
+      check_bool "lost response stays unannounced" false
+        (Store.activation_announced env.db ~order_id:o.id);
+      Lwt.return_unit)
+
+let test_ignored_notice_binding () =
+  F.with_orders (fun env ->
+      let* o, card = planned env in
+      Sqlite3.Rc.check
+        (Sqlite3.exec env.db
+           "CREATE TRIGGER fixture_ignore_notice_binding BEFORE UPDATE OF \
+            message_ts ON slack_standing_order_cards WHEN OLD.kind = 'pause' \
+            BEGIN SELECT RAISE(IGNORE); END");
+      let* () = confirm env card in
+      check_state env o T.Paused;
+      check_bool "still unannounced" false
+        (Store.activation_announced env.db ~order_id:o.id);
+      check_bool "no false success" true (updates env = []);
+      Lwt.return_unit)
+
 let suite =
   List.map
     (fun (name, f) -> (name, `Quick, f))
     [
+      ("ignored notice binding pauses unannounced", test_ignored_notice_binding);
+      ( "confirm mutation then raised apply ops rolls back",
+        test_confirm_mutation_then_raise );
+      ("raised confirm callback rolls back", test_raised_confirm_rolls_back);
+      ( "post commit use_card failure pauses unannounced",
+        test_post_commit_use_card_failure );
+      ( "missing pause message is unannounced",
+        test_missing_pause_message_is_unannounced );
+      ( "Slack resume repairs unannounced activation",
+        test_resume_repairs_unannounced );
+      ("resume notice failure pauses unannounced", test_resume_notice_failure);
+      ("lost activation response stays paused", test_lost_activation_response);
       ("card actions are recognised", test_card_actions);
       ("confirm activates", test_confirm_activates);
       ("only the grantor confirms", test_only_grantor_confirms);

@@ -474,100 +474,106 @@ let apply ~db ~plan_id ~digest ~(principal : Setup_plan.principal)
             match begin_immediate db with
             | Error e -> reject Apply_error e []
             | Ok () -> (
-                match load_row ~db ~plan_id with
-                | None ->
-                    rollback db;
-                    reject Plan_not_found "plan disappeared" []
-                | Some locked when locked.status = "applied" -> (
-                    rollback db;
-                    match locked.receipt_id with
-                    | Some receipt_id ->
-                        applied_idempotent ~db ~plan_id ~digest ~principal_id
-                          ~receipt_id ~now
-                    | None ->
-                        reject Concurrent_conflict
-                          "applied plan missing receipt" [])
-                | Some locked when locked.status <> "pending" ->
-                    rollback db;
-                    reject Concurrent_conflict
-                      (Printf.sprintf "plan status is %s" locked.status)
-                      []
-                | Some locked when locked.base_revision <> current_base_revision
-                  ->
-                    rollback db;
-                    reject Stale_revision "base revision changed under lock" []
-                | Some _locked -> (
-                    let receipt_id = receipt_id_for_plan plan_id in
-                    (* Domain ops then durable CAS. apply_ops must tolerate
+                try
+                  match load_row ~db ~plan_id with
+                  | None ->
+                      rollback db;
+                      reject Plan_not_found "plan disappeared" []
+                  | Some locked when locked.status = "applied" -> (
+                      rollback db;
+                      match locked.receipt_id with
+                      | Some receipt_id ->
+                          applied_idempotent ~db ~plan_id ~digest ~principal_id
+                            ~receipt_id ~now
+                      | None ->
+                          reject Concurrent_conflict
+                            "applied plan missing receipt" [])
+                  | Some locked when locked.status <> "pending" ->
+                      rollback db;
+                      reject Concurrent_conflict
+                        (Printf.sprintf "plan status is %s" locked.status)
+                        []
+                  | Some locked
+                    when locked.base_revision <> current_base_revision ->
+                      rollback db;
+                      reject Stale_revision "base revision changed under lock"
+                        []
+                  | Some _locked -> (
+                      let receipt_id = receipt_id_for_plan plan_id in
+                      (* Domain ops then durable CAS. apply_ops must tolerate
                        retry with this stable receipt_id if crash occurs after
                        domain success but before commit. *)
-                    match apply_ops ~plan ~receipt_id with
-                    | Error err -> (
-                        rollback db;
-                        let details =
-                          redact_details_json
-                            (`Assoc
-                               [
-                                 ("error", `String err);
-                                 ("plan_id", `String plan_id);
-                               ])
-                        in
-                        match
-                          audit_insert ~db ~plan_id ~digest ~principal_id
-                            ~outcome:"failed" ~reason:(Some "apply_error")
-                            ~details ~now ()
-                        with
-                        | Ok () -> rejected Apply_error err
-                        | Error audit_error ->
-                            rejected Apply_error
-                              ("apply failed, but could not persist required \
-                                failure audit: " ^ audit_error))
-                    | Ok () -> (
-                        match
-                          cas_mark_applied ~db ~plan_id ~digest:plan.digest
-                            ~receipt_id ~now
-                        with
-                        | Error "concurrent_conflict" ->
-                            rollback db;
-                            reject Concurrent_conflict "lost CAS race on apply"
-                              []
-                        | Error e ->
-                            rollback db;
-                            reject Apply_error e []
-                        | Ok () -> (
-                            (* Success audit inside the same transaction. *)
-                            let details =
-                              redact_details_json
-                                (`Assoc
-                                   [
-                                     ("receipt_id", `String receipt_id);
-                                     ("plan_id", `String plan_id);
-                                     ( "destination_room",
-                                       `String destination_room );
-                                     ( "apply_kind",
-                                       `String
-                                         (apply_kind_name
-                                            plan.apply_payload.kind) );
-                                   ])
-                            in
-                            match
-                              audit_insert ~db ~plan_id ~digest ~principal_id
-                                ~outcome:"applied" ~reason:None ~details ~now ()
-                            with
-                            | Error audit_error ->
-                                rollback db;
-                                reject Apply_error
-                                  ("could not persist required success audit: "
-                                 ^ audit_error)
-                                  []
-                            | Ok () -> (
-                                match commit db with
-                                | Error e ->
-                                    rollback db;
-                                    reject Apply_error e []
-                                | Ok () ->
-                                    Applied { receipt_id; first_time = true })))
-                    ))))
+                      match apply_ops ~plan ~receipt_id with
+                      | Error err -> (
+                          rollback db;
+                          let details =
+                            redact_details_json
+                              (`Assoc
+                                 [
+                                   ("error", `String err);
+                                   ("plan_id", `String plan_id);
+                                 ])
+                          in
+                          match
+                            audit_insert ~db ~plan_id ~digest ~principal_id
+                              ~outcome:"failed" ~reason:(Some "apply_error")
+                              ~details ~now ()
+                          with
+                          | Ok () -> rejected Apply_error err
+                          | Error audit_error ->
+                              rejected Apply_error
+                                ("apply failed, but could not persist required \
+                                  failure audit: " ^ audit_error))
+                      | Ok () -> (
+                          match
+                            cas_mark_applied ~db ~plan_id ~digest:plan.digest
+                              ~receipt_id ~now
+                          with
+                          | Error "concurrent_conflict" ->
+                              rollback db;
+                              reject Concurrent_conflict
+                                "lost CAS race on apply" []
+                          | Error e ->
+                              rollback db;
+                              reject Apply_error e []
+                          | Ok () -> (
+                              (* Success audit inside the same transaction. *)
+                              let details =
+                                redact_details_json
+                                  (`Assoc
+                                     [
+                                       ("receipt_id", `String receipt_id);
+                                       ("plan_id", `String plan_id);
+                                       ( "destination_room",
+                                         `String destination_room );
+                                       ( "apply_kind",
+                                         `String
+                                           (apply_kind_name
+                                              plan.apply_payload.kind) );
+                                     ])
+                              in
+                              match
+                                audit_insert ~db ~plan_id ~digest ~principal_id
+                                  ~outcome:"applied" ~reason:None ~details ~now
+                                  ()
+                              with
+                              | Error audit_error ->
+                                  rollback db;
+                                  reject Apply_error
+                                    ("could not persist required success \
+                                      audit: " ^ audit_error)
+                                    []
+                              | Ok () -> (
+                                  match commit db with
+                                  | Error e ->
+                                      rollback db;
+                                      reject Apply_error e []
+                                  | Ok () ->
+                                      Applied { receipt_id; first_time = true })
+                              )))
+                with _ ->
+                  rollback db;
+                  reject Apply_error "apply_exception" [])))
 
 let list_audit ~db ?plan_id ?(limit = 100) () =
   let sql, bind_plan =

@@ -249,6 +249,12 @@ let cmd_resume db ~config ?http ~now (o : T.order) =
     Printf.sprintf "Not resumed: %s." (Render.reason_text reason)
   in
   match o.state with
+  | (T.Paused | T.Suspended)
+    when not (Store.activation_announced db ~order_id:o.id) ->
+      Printf.sprintf
+        "Not resumed: resume it from Slack so the channel gets its activation \
+         notice (%s)."
+        n
   | T.Paused | T.Suspended -> (
       (* The daemon migrates this table at startup; a CLI run against a store
          it hasn't migrated yet would otherwise fail every snapshot. *)

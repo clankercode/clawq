@@ -195,10 +195,29 @@ let test_pause_withdraws_pending _dir =
     (List.length (ledger db "standing_order_withdrawn"));
   no_calls m
 
+let announce db (o : T.order) =
+  let card =
+    Store.insert_card db ~kind:T.Pause_button ~order:o ~created_by:"U123"
+      ~now:S.now ()
+  in
+  Store.set_card_message_ts db ~card_id:card.id "100.000001"
+
+let test_resume_unannounced _dir =
+  Unix.putenv "CLAWQ_ADMIN" "1";
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db ~state:T.Paused () in
+  let out = run ~http:m.http db [ "orders"; "resume"; o.id ] in
+  check_bool "actionable refusal" true
+    (contains out
+       "resume it from Slack so the channel gets its activation notice");
+  Alcotest.check S.state_t "remains paused" T.Paused (find db o).state;
+  no_calls m
+
 let test_resume_preflight _dir =
   Unix.putenv "CLAWQ_ADMIN" "1";
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db ~state:T.Paused () in
+  announce db o;
   let out = run ~http:m.http db [ "orders"; "resume"; o.id ] in
   check_string "resumed"
     "Standing order SO-1 resumed (cli). Huddles that became ready while it was \
@@ -225,6 +244,7 @@ let test_resume_preflight _dir =
     (run ~http:m.http db [ "orders"; "resume"; o.id ]);
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db ~state:T.Paused () in
+  announce db o;
   S.override m "conversations.info" (fun params ->
       let response = S.default_response m.world "conversations.info" params in
       match response with
@@ -271,6 +291,7 @@ let test_cancel _dir =
 let test_resume_expired_conflict _dir =
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db ~state:T.Suspended () in
+  announce db o;
   let competitor = S.seed db ~state:T.Pending_confirmation () in
   Sql_util.exec_with_params db
     "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
@@ -286,6 +307,7 @@ let test_resume_expired_conflict _dir =
 let test_resume_expiration_failure _dir =
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db ~state:T.Suspended () in
+  announce db o;
   let competitor = S.seed db ~state:T.Pending_confirmation () in
   Sql_util.exec_with_params db
     "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
@@ -328,6 +350,7 @@ let suite =
     case "mutations need CLAWQ_ADMIN" test_mutations_need_admin;
     case "unknown count receipt" test_unknown_count_receipt;
     case "cli pause withdraws a pending order" test_pause_withdraws_pending;
+    case "CLI refuses unannounced resume" test_resume_unannounced;
     case "cli resume runs the full preflight" test_resume_preflight;
     case "CLI resume expires stale pending conflict"
       test_resume_expired_conflict;

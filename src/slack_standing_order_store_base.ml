@@ -93,6 +93,20 @@ let schema =
 
 let ensure_schema db = List.iter (Sql_util.exec_schema ~label db) schema
 
+(* Announcement consent is per order, including across resume epochs. Only a
+   persisted Pause button bound to this installation/channel counts. A failed
+   read raises rather than allowing a relay. *)
+let activation_announced db ~order_id =
+  ensure_schema db;
+  query db
+    "SELECT c.message_ts FROM slack_standing_order_cards c JOIN \
+     slack_standing_orders o ON o.id = c.order_id WHERE o.id = ? AND c.kind = \
+     'pause' AND c.team_id = o.team_id AND c.app_id = o.api_app_id AND \
+     c.channel_id = o.channel_id AND c.message_ts IS NOT NULL"
+    [ text order_id ]
+    (fun stmt -> Sql_util.opt_text_column stmt 0)
+  |> List.exists (function Some ts -> T.valid_slack_ts ts | None -> false)
+
 (* ── Order codec ────────────────────────────────────────────────────────── *)
 
 let order_columns =

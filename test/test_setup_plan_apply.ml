@@ -358,8 +358,59 @@ let test_plan_not_found () =
   in
   assert_rejected outcome "plan_not_found"
 
+let test_raised_apply_ops_rolls_back () =
+  with_db @@ fun db ->
+  let plan = make_plan ~id:"plan_raised" () in
+  ignore (Setup_plan_apply.store_plan ~db plan);
+  Sqlite3.Rc.check (Sqlite3.exec db "CREATE TABLE sentinel (value TEXT)");
+  let apply_ops ~plan:_ ~receipt_id:_ =
+    Sqlite3.Rc.check (Sqlite3.exec db "INSERT INTO sentinel VALUES ('written')");
+    failwith "injected"
+  in
+  let outcome =
+    do_apply db plan ~revision:"rev-1" ~now:1_700_000_000. ~authority:allow_all
+      ~apply_ops
+  in
+  assert_rejected outcome "apply_error";
+  Alcotest.(check int)
+    "no sentinel" 0
+    (Slack_standing_order_sql.int_query db "SELECT count(*) FROM sentinel" []);
+  Alcotest.(check int)
+    "no applied receipt" 0
+    (Slack_standing_order_sql.int_query db
+       "SELECT count(*) FROM setup_plans WHERE status = 'applied' OR \
+        receipt_id IS NOT NULL"
+       []);
+  Sqlite3.Rc.check (Sqlite3.exec db "BEGIN IMMEDIATE");
+  Sqlite3.Rc.check (Sqlite3.exec db "ROLLBACK");
+  Alcotest.(check bool)
+    "failure audited" true
+    (List.exists
+       (fun a -> a.Setup_plan_apply.reason = Some "apply_error")
+       (Setup_plan_apply.list_audit ~db ~plan_id:plan.id ()))
+
+let test_failed_begin_preserves_callers_transaction () =
+  with_db @@ fun db ->
+  let plan = make_plan ~id:"plan_nested" () in
+  ignore (Setup_plan_apply.store_plan ~db plan);
+  Sqlite3.Rc.check (Sqlite3.exec db "CREATE TABLE sentinel (value TEXT)");
+  Sqlite3.Rc.check (Sqlite3.exec db "BEGIN IMMEDIATE");
+  Sqlite3.Rc.check (Sqlite3.exec db "INSERT INTO sentinel VALUES ('owned')");
+  assert_rejected
+    (do_apply db plan ~revision:"rev-1" ~now:1_700_000_000. ~authority:allow_all
+       ~apply_ops:apply_ok)
+    "apply_error";
+  Sqlite3.Rc.check (Sqlite3.exec db "COMMIT");
+  Alcotest.(check int)
+    "caller's mutation kept" 1
+    (Slack_standing_order_sql.int_query db "SELECT count(*) FROM sentinel" [])
+
 let suite =
   [
+    ("raised apply ops rolls back", `Quick, test_raised_apply_ops_rolls_back);
+    ( "failed BEGIN preserves caller transaction",
+      `Quick,
+      test_failed_begin_preserves_callers_transaction );
     ("successful apply", `Quick, test_successful_apply);
     ( "retry idempotent with advanced revision",
       `Quick,

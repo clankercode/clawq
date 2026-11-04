@@ -2,6 +2,8 @@
 
 open Slack_standing_order_store_base
 
+let activation_announced = Slack_standing_order_store_base.activation_announced
+
 (* ── Cards ──────────────────────────────────────────────────────────────── *)
 
 let card_columns =
@@ -58,7 +60,8 @@ let insert_card db ~kind ~(order : T.order) ~created_by ?reply_thread_ts
 let set_card_message_ts db ~card_id message_ts =
   ensure_schema db;
   exec db "UPDATE slack_standing_order_cards SET message_ts = ? WHERE id = ?"
-    [ text message_ts; text card_id ]
+    [ text message_ts; text card_id ];
+  if Sqlite3.changes db <> 1 then failwith "card_message_not_bound"
 
 let find_card db card_id =
   ensure_schema db;

@@ -299,11 +299,13 @@ let apply_confirm c (v : Grant.validated) (o : T.order) ~action_ts ~plan_id
     else Error "not grantor"
   in
   let apply_ops ~plan:_ ~receipt_id:_ =
-    Result.map
-      (fun a -> activated := Some a)
-      (Store.activate_in_tx c.db ~order_id:o.id ~active_since:action_ts
-         ~confirmed_by:c.clicker ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id
-         ~now:c.now)
+    try
+      Result.map
+        (fun a -> activated := Some a)
+        (Store.activate_in_tx c.db ~order_id:o.id ~active_since:action_ts
+           ~confirmed_by:c.clicker ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id
+           ~now:c.now)
+    with _ -> Error "confirm_apply_exception"
   in
   Setup_plan_apply.init_schema c.db;
   match
@@ -321,27 +323,31 @@ let apply_confirm c (v : Grant.validated) (o : T.order) ~action_ts ~plan_id
            (Setup_plan_apply.string_of_reject_reason reason))
   | Applied { first_time = false; _ } -> ignored "the plan was already applied"
   | Applied { first_time = true; _ } ->
-      (* After the commit a failed read must not skip the notice (an order
-         nobody was told about must pause), so it falls back to the row the
-         transaction wrote. *)
-      let committed () = Option.value !activated ~default:o in
-      let active =
-        match Store.find c.db o.id with
-        | Some fresh -> fresh
-        | None -> committed ()
-        | exception exn when Store.is_db_error exn ->
-            Logs.warn (fun m ->
-                m "standing-order %s re-read after confirm failed: %s" o.id
-                  (Printexc.to_string exn));
-            committed ()
-      in
-      use_card c;
-      ledger c ~event_type:"standing_order_confirmed" active;
-      let* () =
-        close_card v.call c
-          (Render.card_closed active (Render.Confirmed_by c.clicker))
-      in
-      announce_activation ~db:c.db ~call:v.call ~now:c.now active
+      let committed = Option.value !activated ~default:o in
+      Lwt.catch
+        (fun () ->
+          let active = Option.value (Store.find c.db o.id) ~default:committed in
+          use_card c;
+          ledger c ~event_type:"standing_order_confirmed" active;
+          let* () =
+            announce_activation ~db:c.db ~call:v.call ~now:c.now active
+          in
+          match Store.find c.db active.id with
+          | Some current
+            when current.state = T.Active
+                 && current.epoch = active.epoch
+                 && Store.activation_announced c.db ~order_id:current.id ->
+              close_card v.call c
+                (Render.card_closed current (Render.Confirmed_by c.clicker))
+          | _ -> Lwt.return_unit)
+        (fun exn ->
+          let* () =
+            pause_unannounced ~db:c.db ~call:v.call ~now:c.now committed
+              "confirm_post_commit_failed"
+          in
+          match exn with
+          | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+          | _ -> Lwt.return_unit)
 
 let confirm c =
   match (c.card.used_at, c.action_ts, c.card.plan_id, c.card.plan_digest) with
@@ -452,18 +458,42 @@ let apply_resume c (v : Grant.validated) ~action_ts =
         (Printf.sprintf "clawq could not resume %s; nothing changed. Try again."
            n)
   | Ok after ->
-      use_card c;
-      ledger c ~event_type:"standing_order_resumed" after;
-      let* () =
-        close_card v.call c
-          (Render.card_closed after (Render.Resumed_by c.clicker))
-      in
-      if c.clicker = after.grantor_user_id then Lwt.return_unit
-      else
-        post v.call ~what:"resume_notice"
-          ~channel_id:after.management_channel_id
-          ~thread_ts:after.management_thread_ts
-          (Render.grantor_notice after (Render.Resumed_by_user c.clicker))
+      Lwt.catch
+        (fun () ->
+          let* () =
+            if Store.activation_announced c.db ~order_id:after.id then
+              Lwt.return_unit
+            else announce_activation ~db:c.db ~call:v.call ~now:c.now after
+          in
+          (* A failed or ambiguous notice paused the order. Never claim a
+             successful resume or adopt its still-unbound Pause button. *)
+          match Store.find c.db after.id with
+          | Some current
+            when current.state = T.Active
+                 && current.epoch = after.epoch
+                 && Store.activation_announced c.db ~order_id:current.id ->
+              use_card c;
+              ledger c ~event_type:"standing_order_resumed" after;
+              let* () =
+                close_card v.call c
+                  (Render.card_closed after (Render.Resumed_by c.clicker))
+              in
+              if c.clicker = after.grantor_user_id then Lwt.return_unit
+              else
+                post v.call ~what:"resume_notice"
+                  ~channel_id:after.management_channel_id
+                  ~thread_ts:after.management_thread_ts
+                  (Render.grantor_notice after
+                     (Render.Resumed_by_user c.clicker))
+          | _ -> Lwt.return_unit)
+        (fun exn ->
+          let* () =
+            pause_unannounced ~db:c.db ~call:v.call ~now:c.now after
+              "resume_post_commit_failed"
+          in
+          match exn with
+          | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+          | _ -> Lwt.return_unit)
 
 (* The capability gate runs before any HTTP, so a denied capability costs only
    the refusal (ruling F2); a non-grantor admin then needs the allowlist and
@@ -558,8 +588,8 @@ let handle_action ~manager ?now ~payload action =
               | Press_pause, _ -> pause c
               | Press_change, _ ->
                   Change.handle_click ~manager ~now
-                    ~announce:announce_activation ~card:c.card
-                    ~clicker:c.clicker ~action_ts:c.action_ts)))
+                    ~announce:announce_activation ~pause_unannounced
+                    ~card:c.card ~clicker:c.clicker ~action_ts:c.action_ts)))
     (function
       | Lwt.Canceled -> Lwt.fail Lwt.Canceled
       | exn ->

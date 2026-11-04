@@ -636,8 +636,91 @@ let test_replace_rolls_back () =
       check_int "a confirmed order's epoch" 1 fresh.epoch
   | Error e -> Alcotest.fail ("replace failed: " ^ e)
 
+let test_raised_change_rolls_back () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let* card = planned env o in
+      C.inject_raised_activation env.db
+        "CREATE TRIGGER fixture_raise_change AFTER INSERT ON \
+         slack_standing_orders WHEN NEW.state = 'active' BEGIN SELECT \
+         fixture_raise(); END";
+      let* () = confirm_change env card in
+      unchanged env o;
+      no_successor env;
+      C.check_no_applied_receipt env.db card;
+      check_bool "claim rolled back" true ((change_card env o).used_at = None);
+      check_bool "fixed refusal" true
+        (C.has_text env "Not changed (apply_error).");
+      no_activation env;
+      Lwt.return_unit)
+
+let test_change_mutation_then_raise () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let* card = planned env o in
+      let plan =
+        Option.get
+          (Setup_plan_apply.get_plan ~db:env.db
+             ~plan_id:(Option.get card.plan_id))
+      in
+      let draft = Option.get (Change.draft_of_plan plan) in
+      let apply_ops ~plan:_ ~receipt_id:_ =
+        check_bool "claim taken" true
+          (Store.use_card env.db ~card_id:card.id ~now:S.now);
+        (match
+           Store.replace_in_tx env.db ~old_id:o.id ~expected_epoch:o.epoch
+             ~new_id:draft.order_id ~grantor_user_id:"U123" ~action:draft.action
+             ~management_thread_ts:draft.management_thread_ts
+             ~active_since:"1700000000.000200" ~confirmed_by:"U123"
+             ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:S.now ()
+         with
+        | Ok (old, fresh) ->
+            Alcotest.check S.state_t "cancelled inside callback" T.Cancelled
+              old.state;
+            Alcotest.check S.state_t "active inside callback" T.Active
+              fresh.state
+        | Error e -> Alcotest.fail e);
+        failwith "injected"
+      in
+      Test_setup_plan_apply.assert_rejected
+        (C.apply_plan_callback env card apply_ops)
+        "apply_error";
+      unchanged env o;
+      no_successor env;
+      C.check_no_applied_receipt env.db card;
+      check_bool "claim released" true ((change_card env o).used_at = None);
+      Lwt.return_unit)
+
+let test_change_post_commit_failure () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let* card = planned env o in
+      let before = List.length (C.updates env) in
+      let announce ~db:_ ~call:_ ~now:_ _ =
+        Lwt.fail_with "injected announcement exception"
+      in
+      let* () =
+        Change.handle_click ~manager:env.base.manager ~now:S.now ~announce
+          ~pause_unannounced:Slack_standing_order_cards.pause_unannounced ~card
+          ~clicker:"U123" ~action_ts:(Some "1700000000.000200")
+      in
+      let fresh = Option.get (successor env) in
+      C.check_state env o T.Cancelled;
+      C.check_state env fresh T.Paused;
+      check_bool "unannounced successor" false
+        (Store.activation_announced env.db ~order_id:fresh.id);
+      check_int "no false success card" before (List.length (C.updates env));
+      check_bool "failure receipt" true
+        (C.mentions env "could not post the channel notice");
+      Lwt.return_unit)
+
 let suite =
   [
+    S.case "change mutation then raised apply ops rolls back"
+      test_change_mutation_then_raise;
+    S.case "post commit change failure pauses successor"
+      test_change_post_commit_failure;
+    S.case "raised change callback rolls back" test_raised_change_rolls_back;
     S.case "change card discloses a restart" test_restart_disclosed;
     S.case "change card copy" test_change_card_copy;
     S.case "expired change card" test_expired_card;
