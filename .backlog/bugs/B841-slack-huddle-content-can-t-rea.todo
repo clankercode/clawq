@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-04T06:19:41Z"
+depends_on: []
+estimate_hours: 1
+id: B841
+priority: high
+status: pending
+tags: []
+title: slack_huddle_content can't read AI notes or transcripts, misses thread-started huddles, permissive provenance
+updated_at: "2026-11-04T06:19:41Z"
+---
+Found 2026-11-04 (huddle-orders Phase 0 live probe, .superpowers/sdd/huddle-orders/research/live-workspace-probe.md). Slack_huddles.content (src/slack_huddles.ml): (1) never calls canvases.getContent, so AI notes text is unavailable (bot token CAN read it; canvases:read now granted); (2) uses documented files.info only, which returns no huddle_transcription for bot tokens — transcript needs undocumented include_transcription=true (Max approved for huddle orders); (3) requires subtype=huddle_thread (:247-251) so huddles started inside a thread (thread_broadcast with room) are unreadable; (4) hydrates max 8 files sorted by id, transcript appended last — can be cut off; (5) provenance passes when originating_huddle_id/channel_id are empty (:452-456); live data shows canvas_metadata is null and canvas/transcript are owned by the huddle starter, so provenance must use shares by USLACKBOT + room.transcript_file_id. Align with the huddle-orders design §6.5 rules.
