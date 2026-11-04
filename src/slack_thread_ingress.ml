@@ -101,21 +101,48 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                 in
                 if consumed then Lwt.return "ok"
                 else
-                  let* context =
-                    if command then Lwt.return (Ok "")
+                  let reply = root <> ts in
+                  (* A top-level command reads no history; a command reply
+                     reads the thread only so the gate can see its root. *)
+                  let* fetched =
+                    if command && not reply then Lwt.return_none
                     else
-                      Slack_thread_api.history ~manager:session_manager
-                        ~token:sc.bot_token ~route ~bot ~current:ts
+                      Lwt.map Option.some
+                        (Slack_thread_api.fetch_thread ~manager:session_manager
+                           ~token:sc.bot_token ~route ~current:ts)
                   in
-                  if not (Slack_thread_runs.accepting session_manager) then
+                  let registry =
+                    Slack_relay_guard.current_registry session_manager
+                  in
+                  let root_message =
+                    match fetched with
+                    | Some (Ok thread) ->
+                        Slack_thread_api.root_message ~route thread
+                    | Some (Error _) | None -> None
+                  in
+                  if
+                    reply
+                    && Slack_relay_guard.silent ~registry ~bot ~channel
+                         ~root_ts:root ~root:root_message ~text
+                  then (
+                    Logs.info (fun m ->
+                        m
+                          "Slack relay thread %s/%s: no turn without an \
+                           explicit mention"
+                          channel root);
+                    Lwt.return "ok")
+                  else if not (Slack_thread_runs.accepting session_manager) then
                     Lwt.return "ok"
                   else
                     let context =
-                      match context with
-                      | Ok c -> c
-                      | Error e ->
+                      match fetched with
+                      | Some (Ok thread) when not command ->
+                          Slack_thread_api.render_history ~route ~bot
+                            ~current:ts thread
+                      | Some (Error e) when not command ->
                           "Slack thread context unavailable (no complete \
                            history): " ^ e ^ "\n"
+                      | _ -> ""
                     in
                     let context =
                       match get "app_context" event with

@@ -533,6 +533,7 @@
   slack_huddles
   slack_huddle_tools
   slack_event_log
+  slack_relay_guard
   slack_thread_route
   slack_thread_api
   slack_thread_runs

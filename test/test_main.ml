@@ -288,6 +288,7 @@ let all_suites =
     ("slack_private_policy", Test_slack.private_channel_policy_suite);
     ("slack_event_log", Test_slack_event_log.suite);
     ("slack_turn_gate", Test_slack_turn_gate.suite);
+    ("slack_relay_guard", Test_slack_relay_guard.suite);
     ("discord", Test_discord.suite);
     ("attachment_download", Test_attachment_download.suite);
     ("group_chat_filter", Test_group_chat_filter.suite);

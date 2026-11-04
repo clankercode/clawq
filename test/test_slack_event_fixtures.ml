@@ -246,3 +246,21 @@ let read_lines path =
     In_channel.with_open_text path In_channel.input_all
     |> String.split_on_char '\n'
     |> List.filter (fun line -> line <> "")
+
+let relay_nonce = "0123456789abcdef0123456789abcdef"
+
+(* Clawq's own standing-order relay post (P0-4: no subtype). *)
+let own_relay ?(channel = "C0TEST") ?(user = "UBOT") ?(bot_id = Some "BOWN")
+    ?subtype ?(ts = "1700004000.000500") ?thread_ts ?(files = [ md_file () ])
+    ?(footer = Some (Slack_relay_guard.footer ~nonce:relay_nonce)) () =
+  let footer = match footer with None -> "" | Some f -> "\n" ^ f in
+  obj
+    ([
+       ("type", str "message");
+       ("user", str user);
+       ("channel", str channel);
+       ("ts", str ts);
+       ("files", arr files);
+       ("text", str ("<@U0CLAUDE> Huddle notes from this channel." ^ footer));
+     ]
+    @ opt "bot_id" bot_id @ opt "subtype" subtype @ opt "thread_ts" thread_ts)
