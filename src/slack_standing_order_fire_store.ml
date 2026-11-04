@@ -55,7 +55,7 @@ let query_fires db where params =
         None)
 
 let insert_fire db ~(order : T.order) ~room_id ~date_start ?canvas_file_id
-    ?transcript_file_id ?notes_ready_ts ~now:_ () =
+    ?transcript_file_id ?notes_ready_ts ?root_ts ~now:_ () =
   if date_start = "" then Error "date_start is empty"
   else begin
     ensure_schema db;
@@ -78,8 +78,8 @@ let insert_fire db ~(order : T.order) ~room_id ~date_start ?canvas_file_id
             step db
               "INSERT INTO slack_standing_order_fires (id, order_id, room_id, \
                date_start, canvas_file_id, transcript_file_id, notes_ready_ts, \
-               state, epoch, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, \
-               ?, ?, ?, ?, ?)"
+               state, epoch, created_at, updated_at,root_ts) VALUES (?, ?, ?, \
+               ?, ?, ?, ?, ?, ?, ?, ?,?)"
               [
                 text id;
                 text order.id;
@@ -92,6 +92,7 @@ let insert_fire db ~(order : T.order) ~room_id ~date_start ?canvas_file_id
                 int order.epoch;
                 text at;
                 text at;
+                opt_text root_ts;
               ]
           with
           | Sqlite3.Rc.DONE -> (
@@ -430,6 +431,13 @@ let immutable_fire (a : T.fire) (b : T.fire) =
 
 let kept old next = old = None || old = next
 
+(* Ready evidence may improve until dispatch. A source change also invalidates
+   any prepared upload bytes, which must be fetched and uploaded again. *)
+let sources_mutable (r : fire_runtime) =
+  List.mem r.fire.state T.[ Detected; Fetching; Uploading ]
+  && r.fire.dispatched_at = None
+  && List.for_all (fun (a : relay_attempt) -> a.dispatched_at = None) r.attempts
+
 let normalize_attempt (a : relay_attempt) =
   match a.relay_ts with
   | None ->
@@ -441,6 +449,11 @@ let normalize_attempt (a : relay_attempt) =
         Ok { a with pickup_started_at = Some seconds }
       else Error "pickup must start at the Slack relay timestamp"
   | Some _ -> Error "invalid relay timestamp"
+
+let sources_changed (a : fire_runtime) (b : fire_runtime) =
+  a.canvas_id <> b.canvas_id
+  || a.transcript_id <> b.transcript_id
+  || a.notes_ready_ts <> b.notes_ready_ts
 
 let validate_attempts (before : fire_runtime) (after : fire_runtime) =
   let ( let* ) = Result.bind in
@@ -461,12 +474,18 @@ let validate_attempts (before : fire_runtime) (after : fire_runtime) =
                   (fun id -> List.mem id a.uploaded_file_ids)
                   old.uploaded_file_ids
         in
+        let reset_sources =
+          sources_mutable before
+          && sources_changed before after
+          && a.uploaded_file_ids = [] && a.upload_started_at = None
+        in
         if
           (not (List.mem a.attempt_no [ 0; 1 ]))
           || a.dispatched_at <> old.dispatched_at
-          || (not ids_kept)
+          || (not (ids_kept || reset_sources))
           || (not (kept old.relay_ts a.relay_ts))
-          || (not (kept old.upload_started_at a.upload_started_at))
+          || (not
+                (kept old.upload_started_at a.upload_started_at || reset_sources))
           || (not (kept old.first_reply_ts a.first_reply_ts))
           || (not (kept old.rate_limited_at a.rate_limited_at))
           || (not (kept old.acknowledged_at a.acknowledged_at))
@@ -528,8 +547,13 @@ let cas db ~(lease : lease) ~(before : fire_runtime) ~(after : fire_runtime)
                 || (not (List.mem after.current_attempt [ 0; 1 ]))
                 || (not (kept before.nonce after.nonce))
                 || (not (kept before.root_ts after.root_ts))
-                || (not (kept before.canvas_id after.canvas_id))
-                || not (kept before.transcript_id after.transcript_id)
+                || sources_changed before after
+                   && ((not (sources_mutable current))
+                      || List.exists
+                           (fun (a : relay_attempt) ->
+                             a.uploaded_file_ids <> []
+                             || a.upload_started_at <> None)
+                           after.attempts)
               then Error "invalid fire transition or immutable scope change"
               else if
                 current.attempts <> before.attempts

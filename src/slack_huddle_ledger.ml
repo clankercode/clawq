@@ -178,10 +178,9 @@ let row_of_stmt stmt =
 
 let find_one db where values =
   match
-    Sql_util.query_rows db
+    Slack_standing_order_sql.query db
       (select_rows ^ " WHERE " ^ where)
-      ~bind:(fun stmt -> Sql_util.bind_params stmt values)
-      ~of_stmt:row_of_stmt
+      values row_of_stmt
   with
   | found :: _ -> Some found
   | [] -> None
@@ -202,10 +201,10 @@ let update db id r =
 (* ── Reads and pruning ──────────────────────────────────────────────────── *)
 
 let table_exists db =
-  Sql_util.query_rows db
+  Slack_standing_order_sql.query db
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = \
      'slack_huddles'"
-    ~bind:ignore ~of_stmt:ignore
+    [] ignore
   <> []
 
 let prune ~db ~now =
@@ -220,12 +219,10 @@ let prune ~db ~now =
 let list_rows ~db ~team ~channel =
   if not (table_exists db) then []
   else
-    Sql_util.query_rows db
+    Slack_standing_order_sql.query db
       (select_rows ^ " WHERE team_id = ? AND channel_id = ? ORDER BY id")
-      ~bind:(fun stmt ->
-        Sql_util.bind_params stmt
-          [ Sqlite3.Data.TEXT team; Sqlite3.Data.TEXT channel ])
-      ~of_stmt:(fun stmt -> snd (row_of_stmt stmt))
+      [ Sqlite3.Data.TEXT team; Sqlite3.Data.TEXT channel ] (fun stmt ->
+        snd (row_of_stmt stmt))
 
 (* The DB is the daemon's shared handle. BEGIN runs outside the handler, so a
    write that cannot start its own transaction raises without rolling back a
@@ -411,3 +408,22 @@ let record_notes_ready ~db ~team ~channel ~source ~now ~thread_ts ~ts ~file_ids
                 (notes (fresh ~kind:Notes_stub ~team ~channel ~source ~now))
           | Some (id, stored) -> update db id (notes stored));
           Stub)
+
+(** A reused room id must never receive a previous use's verification. SQL
+    failures propagate, including a failed UPDATE step. *)
+let set_verified ~db ~team ~channel ~room_id ~date_start ~transcript_file_id
+    ~finalised =
+  ensure_schema db;
+  Sql_util.exec_with_params ~label db
+    "UPDATE slack_huddles SET transcript_file_id=?,finalised=? WHERE \
+     row_kind='room' AND team_id=? AND channel_id=? AND room_id=? AND \
+     date_start=?"
+    Sqlite3.Data.
+      [
+        opt_text transcript_file_id;
+        INT (if finalised then 1L else 0L);
+        TEXT team;
+        TEXT channel;
+        TEXT room_id;
+        INT (Int64.of_int date_start);
+      ]

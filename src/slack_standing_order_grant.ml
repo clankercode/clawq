@@ -27,6 +27,7 @@ type stage =
   | Confirm
   | Replace of { replaces : string; replaced_epoch : int }
   | Resume
+  | Resolve
   | Fire of { fire_epoch : int; fire_id : string }
   | Track of { fire_id : string }
 
@@ -287,6 +288,13 @@ let stage_rows db ~now ~stage (s : subject) =
       (* Dispatch evidence survives terminal states and pause/cancel epochs. *)
       if Option.is_some f.dispatched_at then only o
       else Error (Indeterminate "fire")
+  | Resolve ->
+      let*? o = own_row db s in
+      let*? () = require_state o [ T.Active ] in
+      if not (unexpired o ~now) then Error Order_expired
+      else if not (Store.activation_announced db ~order_id:o.id) then
+        Error Activation_unannounced
+      else only o
   | Fire { fire_epoch; fire_id } ->
       let*? o = own_row db s in
       let*? f = bound_fire db o fire_id in
@@ -590,14 +598,15 @@ let tracking_call (call : SO.call) method_ params =
       call method_ params
   | _ -> Lwt.return (Error (SO.Method_not_permitted method_))
 
-let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
+let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
+    (s : subject) =
   let now = match now with Some t -> t | None -> Store.now () in
   let run () =
     let cfg : Runtime_config.t = current_config () in
     let fire_id =
       match stage with
       | Fire { fire_id; _ } | Track { fire_id } -> Some fire_id
-      | Plan _ | Confirm | Replace _ | Resume -> None
+      | Plan _ | Confirm | Replace _ | Resume | Resolve -> None
     in
     let order_ref = Some { Access_snapshot.order_id = s.order_id; fire_id } in
     match gate ~db ~config:cfg ~channel_id:s.channel_id ~order_ref with
@@ -612,7 +621,7 @@ let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
             let call =
               SO.make ~db ~current_config ~snapshot ~channel_id:s.channel_id
                 ~audit:(SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
-                ?http ()
+                ?http ?limit ()
             in
             let call =
               match stage with Track _ -> tracking_call call | _ -> call

@@ -235,7 +235,8 @@ let fetch_transcript ~call ~channel ~date_start canvas =
             Lwt.return (Ok (Some { file_id; lines; markdown }, false)))
   | _ -> Lwt.return (Ok (None, true))
 
-let verify ~call ~(order : T.order) ~room_id ~date_start ~root_ts =
+let verify_with_source ~before_content ~call ~(order : T.order) ~room_id
+    ~date_start ~root_ts =
   let channel = order.channel_id in
   let* history =
     request call "conversations.history"
@@ -316,6 +317,14 @@ let verify ~call ~(order : T.order) ~room_id ~date_start ~root_ts =
                   || ready_ts = None
                 then Lwt.return (Error (Rejected "canvas_provenance"))
                 else
+                  let*? () =
+                    before_content ~canvas_id
+                      ~transcript_id:
+                        (match get "huddle_transcript_file_id" canvas with
+                        | `String id when valid_id "F" id -> Some id
+                        | _ -> None)
+                      ~notes_ready_ts:(Option.get ready_ts)
+                  in
                   let* notes =
                     request call "canvases.getContent"
                       [
@@ -347,3 +356,9 @@ let verify ~call ~(order : T.order) ~room_id ~date_start ~root_ts =
                   | _ -> Lwt.return (Error Not_ready))
             | _ -> Lwt.return (Error (Rejected "canvas_provenance"))))
   | _ -> Lwt.return (Error (Rejected "root_mismatch"))
+
+let verify ~call ~order ~room_id ~date_start ~root_ts =
+  verify_with_source
+    ~before_content:(fun ~canvas_id:_ ~transcript_id:_ ~notes_ready_ts:_ ->
+      Ok ())
+    ~call ~order ~room_id ~date_start ~root_ts

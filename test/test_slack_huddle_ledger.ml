@@ -225,6 +225,46 @@ let test_write_transaction_boundary () =
       Sql_util.exec_exn db "ROLLBACK";
       check_int "failed write left no row" 0 (List.length (rows db)))
 
+let test_verified_use () =
+  with_db (fun db ->
+      seen db (room ());
+      let verify date_start transcript_file_id =
+        L.set_verified ~db ~team:"T123" ~channel:"C0TEST" ~room_id:"R0ROOM1"
+          ~date_start ~transcript_file_id ~finalised:true
+      in
+      verify 1700000000 (Some "FVERIFIED");
+      check_bool "matching use finalised" true (one db).finalised;
+      check_str_opt "verified transcript" (Some "FVERIFIED")
+        (one db).transcript_file_id;
+      seen db (room ~date_start:(Some 1700003600) ());
+      verify 1700000000 (Some "FOLD");
+      check_bool "old use cannot finalise new room" false (one db).finalised;
+      check_str_opt "old transcript cannot overwrite" None
+        (one db).transcript_file_id)
+
+let test_strict_read_failure () =
+  let path = Filename.temp_file "clawq-ledger-lock" ".db" in
+  let db = Sqlite3.db_open path in
+  let other = Sqlite3.db_open path in
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sqlite3.db_close other);
+      ignore (Sqlite3.db_close db);
+      Sys.remove path)
+    (fun () ->
+      L.ensure_schema db;
+      Sql_util.exec_exn other "BEGIN EXCLUSIVE";
+      Fun.protect
+        ~finally:(fun () -> Sql_util.exec_exn other "ROLLBACK")
+        (fun () ->
+          let raised =
+            try
+              ignore (rows db);
+              false
+            with _ -> true
+          in
+          check_bool "failed read is not an empty hint list" true raised))
+
 let suite =
   [
     ("room lifecycle merge is monotonic", `Quick, test_room_lifecycle_merge);
@@ -241,4 +281,6 @@ let suite =
     ( "write never rolls back a caller's transaction",
       `Quick,
       test_write_transaction_boundary );
+    ("verification requires the current room use", `Quick, test_verified_use);
+    ("failed ledger read raises", `Quick, test_strict_read_failure);
   ]

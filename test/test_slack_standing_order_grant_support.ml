@@ -22,6 +22,7 @@ let unit_label : G.stage -> string = function
   | Confirm -> "confirm"
   | Replace _ -> "replace"
   | Resume -> "resume"
+  | Resolve -> "resolve"
   | Fire _ -> "fire"
   | Track _ -> "track"
 
