@@ -13,6 +13,7 @@
   lwt_util
   process_group
   phase2
+  slack_config_types
   runtime_config_types
   opencodex
   llmp
@@ -531,6 +532,7 @@
   slack_huddle_context
   slack_huddles
   slack_huddle_tools
+  slack_event_log
   slack_thread_route
   slack_thread_api
   slack_thread_runs

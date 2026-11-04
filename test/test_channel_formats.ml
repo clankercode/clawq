@@ -84,6 +84,7 @@ let test_slack_is_allowed_wildcard_channel () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   Alcotest.(check bool)
@@ -103,6 +104,7 @@ let test_slack_is_allowed_specific_channel_match () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   Alcotest.(check bool)
@@ -122,6 +124,7 @@ let test_slack_is_allowed_specific_channel_no_match () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   Alcotest.(check bool)
@@ -141,6 +144,7 @@ let test_slack_is_allowed_user_filter () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   Alcotest.(check bool)
@@ -500,6 +504,7 @@ let test_slack_is_allowed_both_wildcard () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   Alcotest.(check bool)
@@ -519,6 +524,7 @@ let test_slack_is_allowed_neither_match () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   Alcotest.(check bool)

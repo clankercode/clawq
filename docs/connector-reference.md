@@ -560,6 +560,7 @@ Or configure manually:
 | `allow_users`    | User ID allowlist                              | `["*"]`          |
 | `allow_private_channels` | Explicit opt-in list for private channels (required under `deny` policy) | `[]` |
 | `private_channel_policy` | `"deny"` (default) or `"allow_if_listed"` — controls whether private channels in `allow_channels` are permitted | `"deny"` |
+| `event_log` | Phase 0 diagnostic: metadata-only JSONL of every Slack event at `$CLAWQ_HOME/slack-events.jsonl` (0600, rotates at 16 MiB to `.1`); `capture_text_from` adds full text only for an exact `{channel, bot_id}` pair | `{"enabled": false, "capture_text_from": []}` |
 
 #### Private Channel Policy (B735)
 

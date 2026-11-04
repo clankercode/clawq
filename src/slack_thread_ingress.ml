@@ -43,6 +43,7 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
     else begin
       if field "event_id" json <> "" then
         Channel_util.Lru_dedup.mark event_dedup identity;
+      Slack_event_log.observe ~manager:session_manager json;
       if
         field "type" json = "block_actions"
         || field "type" event = "agent_session_stopped"

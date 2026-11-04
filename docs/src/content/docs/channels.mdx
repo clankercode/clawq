@@ -338,6 +338,11 @@ verification** with the signing secret and a 5-minute timestamp window.
   cryptographically verified.
 - **Envelope acknowledgement** (Socket Mode) --- ensures Slack does not
   redeliver events.
+- **Diagnostic event log** (off by default) --- `event_log.enabled` writes one
+  metadata-only JSON line per Slack event (ids, types, timestamps, room and
+  file ids; no message text) to `slack-events.jsonl`. `capture_text_from` adds
+  text only for an exact channel and bot id pair. Toggling it takes effect
+  without a restart.
 - **Voice transcription** --- audio file attachments are automatically
   transcribed via the configured STT provider with progress messages.
   Music files are skipped; size limit: 25 MB.

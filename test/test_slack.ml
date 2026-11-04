@@ -51,6 +51,7 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     app_token;
     socket_mode;
     default_model = None;
+    event_log = Slack_config_types.default_event_log;
   }
 
 let make_fake_provider_config = Test_helpers.make_fake_provider_config

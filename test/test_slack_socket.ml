@@ -232,6 +232,7 @@ let with_connector ?handle_event sockets f =
               app_token = "xapp-unused-fixture";
               socket_mode = true;
               default_model = None;
+              event_log = Slack_config_types.default_event_log;
             }
           in
           let config =
