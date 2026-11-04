@@ -258,7 +258,7 @@ Each module owns an idempotent `ensure_schema`.
 - Claim fields: `claim_owner`, `lease_until`, `lease_epoch`. **Every state transition is a compare-and-swap on (state, claim_owner, lease_epoch)**, so a holder whose lease has expired can't write. Per-channel serialisation also goes through the DB.
 - Relay identity:
   - `nonce = HMAC(local secret, order_id‖room_id‖date_start)`. It is deterministic, never shown in `show`, `list` or reports, and appears only in the relay's fixed footer.
-  - Per-attempt `uploaded_file_ids`, `relay_ts`, upload/dispatch time, pickup start time, first reply, reaction, acknowledgement, pickup and notice evidence for attempts 0 and 1. Retain both identities for observation and registry lookups; a fire-level current-attempt projection must not erase the original relay. Pickup time starts at that attempt’s Slack relay timestamp, including after adoption.
+  - Per-attempt `uploaded_file_ids`, `relay_ts`, upload/dispatch time, pickup start time, first reply, reaction, acknowledgement, pickup and notice evidence for attempts 0 and 1. Retain both identities for observation and registry lookups; a fire-level current-attempt projection must not erase the original relay. Pickup time starts at that attempt’s Slack relay timestamp, including after adoption. Preserve the existing public `T.fire` record: its `relay_ts` projects the current attempt, and it has no uploaded-file-id field. Expose uploaded file ids through `Store.relay_attempt`; maintain the existing SQL fire-level `uploaded_file_ids` column as a compatibility projection, updated atomically with `relay_ts`, without erasing retained attempts.
 - `epoch`: the order's epoch at the time the fire was created.
 - States:
   - progression: `detected → fetching → uploading → posting → posting_unknown → posted → acknowledged → picked_up`;
@@ -719,6 +719,7 @@ The original questions:
 
 ## Review history
 
+- **r5 Round 2 (2026-11-05):** clarified the unchanged public fire record versus per-attempt uploaded file ids and the SQL compatibility projection; plan regressions now belong to the tasks that implement their required interfaces. Docs-only review; no new live verification.
 - **r5 Round 1 (2026-11-05):** clarified per-attempt relay identities/pickup, verified observation scope, method-specific scope failures, sensitive upload URI redaction, zero-HTTP local capability refusals and the narrow undocumented-parameter exception. Docs-only review; no new live verification.
 - **r5 (2026-11-05):** documentation revision from the supplied live facts, deployed P1/P2 interfaces and Max’s P3 inputs. Folded in the roadmap’s superseded-text list; P0-5 stays deferred. §6.10 is unchanged. No new live probe or implementation verification is claimed by this revision.
 
