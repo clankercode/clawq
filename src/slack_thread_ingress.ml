@@ -230,13 +230,19 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
         && user <> slackbot_user_id
       then
         (* Decision 18: a human's "also send to channel" reply reaches the
-           pause parser and never starts a turn. *)
-        with_message ~root:(field "thread_ts" event) (fun route ->
-            let* (_ : bool) =
-              Slack_standing_order_pause.handle_text ~manager:session_manager
-                ~route ~user ~ts (field "text" event)
-            in
-            Lwt.return "ok")
+           pause parser and never starts a turn. Only a pause command takes
+           the shared message identity: Slack may also deliver an
+           [app_mention] for the same message, in either order, and that
+           mention's turn must not be deduplicated away. *)
+        if Slack_standing_order_pause.parse_command (field "text" event) = None
+        then Lwt.return "ok"
+        else
+          with_message ~root:(field "thread_ts" event) (fun route ->
+              let* (_ : bool) =
+                Slack_standing_order_pause.handle_text ~manager:session_manager
+                  ~route ~user ~ts (field "text" event)
+              in
+              Lwt.return "ok")
       else
         (* agent_view bootstrap/context events have no execution-root binding.
          Acknowledge them; never infer authority from installation authorizations

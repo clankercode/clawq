@@ -191,6 +191,53 @@ let test_thread_broadcast () =
       check_bool "order unchanged" true (find env o = paused);
       Lwt.return_unit)
 
+(* A human "also send to channel" reply that mentions clawq can arrive as both
+   a [thread_broadcast] message and an [app_mention], in either order. *)
+let broadcast env ~ts text =
+  F.say env ~thread:F.thread_root ~ts ~subtype:"thread_broadcast" text
+
+let mention (env : F.env) ~ts text =
+  env.run ("mention" ^ ts)
+    (Test_slack_threads.message ~kind:"app_mention" ~thread:F.thread_root ~ts
+       text)
+
+let test_broadcast_keeps_mention_turn () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let text = "<@UBOT> can you summarise?" in
+      let turns () = List.length !(env.seen) in
+      let* _ = broadcast env ~ts:"300.900001" text in
+      Alcotest.(check int) "the broadcast starts no turn" 0 (turns ());
+      let* _ = mention env ~ts:"300.900001" text in
+      Alcotest.(check int)
+        "a mention after the broadcast runs a turn" 1 (turns ());
+      let* _ = mention env ~ts:"300.900002" text in
+      let* _ = broadcast env ~ts:"300.900002" text in
+      Alcotest.(check int)
+        "a mention before the broadcast runs one turn" 2 (turns ());
+      check_state env o T.Active;
+      Lwt.return_unit)
+
+let test_broadcast_pause_pair () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let text = "<@UBOT> pause SO-1" in
+      let* _ = broadcast env ~ts:"300.900003" text in
+      let* _ = mention env ~ts:"300.900003" text in
+      check_state env o T.Paused;
+      Alcotest.(check (list string))
+        "broadcast first: one receipt"
+        [ paused_receipt ~by:"U123" ]
+        (F.texts env);
+      let* _ = mention env ~ts:"300.900004" text in
+      let* _ = broadcast env ~ts:"300.900004" text in
+      Alcotest.(check (list string))
+        "mention first: one more receipt"
+        [ paused_receipt ~by:"U123"; "Standing order SO-1 is already paused." ]
+        (F.texts env);
+      check_bool "no provider turn" true (!(env.seen) = []);
+      Lwt.return_unit)
+
 let test_slackbot () =
   F.with_orders (fun env ->
       let o = F.seed env () in
@@ -411,6 +458,8 @@ let suite =
     case "pause runs before history" test_before_history;
     case "relay thread pause" test_relay_thread;
     case "thread broadcast pause" test_thread_broadcast;
+    case "broadcast leaves the mention turn" test_broadcast_keeps_mention_turn;
+    case "broadcast pause pair runs once" test_broadcast_pause_pair;
     case "slackbot text never pauses" test_slackbot;
     case "guest refused" test_guest_refused;
     case "not found is identical" test_not_found_identical;
