@@ -548,6 +548,7 @@
   slack_standing_order_tools
   slack_standing_order_change
   slack_standing_order_cards
+  slack_standing_order_cli
   slack_thread_route
   slack_thread_api
   slack_thread_runs

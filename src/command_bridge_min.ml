@@ -700,6 +700,7 @@ let handle args =
   | "github" :: "user-auth" :: rest ->
       Github_user_auth_enablement_cli_min.cmd ("user-auth" :: rest)
   | "github" :: _ -> unsupported "github route/App setup"
+  | "slack" :: _ -> unsupported "slack"
   | "runner" :: _ -> unsupported "runner"
   | "runtime" :: _ -> unsupported "runtime"
   | "tunnel" :: _ -> unsupported "tunnel"

@@ -766,6 +766,8 @@ let handle args =
   | "ec-run" :: rest -> Command_bridge_debug.cmd_ec_run rest
   | "manifest" :: rest -> Command_bridge_debug.cmd_manifest rest
   | "held-items" :: rest -> cmd_held_items rest
+  | "slack" :: rest ->
+      Slack_standing_order_cli.cmd ~db:(get_db ()) ~config:(get_config ()) rest
   | "subscriptions" :: rest ->
       Github_pr_subscriptions_cli.cmd_subscriptions rest
   | "github" :: "webhooks" :: rest ->

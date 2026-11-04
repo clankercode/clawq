@@ -799,6 +799,66 @@ let manifest_cmd =
       `I ("telegram", "Generate Telegram setMyCommands JSON payload.");
     ]
 
+(* [with_args]'s doc and man, plus the two flags its positional-only term
+   would reject; they go back after the positional args for the bridge. *)
+let slack_cmd =
+  let flag name = function None -> [] | Some v -> [ "--" ^ name; v ] in
+  let channel =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "channel" ] ~docv:"C"
+          ~doc:"With $(b,orders list): only this channel's orders.")
+  in
+  let limit =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "limit" ] ~docv:"N"
+          ~doc:"With $(b,orders fires): show at most N fires (default 20).")
+  in
+  let term =
+    Term.(
+      ret
+        (const (fun channel limit args ->
+             run "slack" (args @ flag "channel" channel @ flag "limit" limit))
+        $ channel $ limit $ rest_args "ARGS"))
+  in
+  Cmd.v
+    (Cmd.info "slack"
+       ~doc:
+         "Slack operations: standing orders (admin mutations need \
+          CLAWQ_ADMIN=1)."
+       ~man:
+         [
+           `S "SUBCOMMANDS";
+           `I
+             ( "orders list [--channel C]",
+               "List standing orders with their opaque ids, cancelled ones \
+                included." );
+           `I
+             ( "orders show ID",
+               "Show one order. Its instruction is untrusted text." );
+           `I
+             ( "orders fires ID [--limit N]",
+               "Show an order's latest fires, newest first (default 20)." );
+           `I
+             ( "orders pause ID",
+               "Pause an active order or withdraw a pending one; posts nothing \
+                to Slack (CLAWQ_ADMIN=1)." );
+           `I
+             ( "orders resume ID",
+               "Re-run the resume checks against Slack and resume a paused or \
+                suspended order (CLAWQ_ADMIN=1)." );
+           `I
+             ( "orders cancel ID",
+               "Cancel an order; posts nothing to Slack (CLAWQ_ADMIN=1)." );
+           `P
+             "Orders are created and changed only in Slack, because both need \
+              a verified Slack request.";
+         ])
+    term
+
 let main_info =
   Cmd.info "clawq" ~version:Build_info.version_string
     ~doc:"Coq-first AI assistant runtime"
@@ -891,6 +951,7 @@ let () =
       held_items_cmd;
       subscriptions_cmd;
       github_cmd;
+      slack_cmd;
       debate_cmd;
       pipeline_cmd;
     ]

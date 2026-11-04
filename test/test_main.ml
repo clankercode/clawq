@@ -303,6 +303,7 @@ let all_suites =
     ("slack_standing_order_tools", Test_slack_standing_order_tools.suite);
     ("slack_standing_order_cards", Test_slack_standing_order_cards.suite);
     ("slack_standing_order_change", Test_slack_standing_order_change.suite);
+    ("slack_standing_order_cli", Test_slack_standing_order_cli.suite);
     ("slack_huddles_grant", Test_slack_huddles_grant.suite);
     ("access_snapshot_decode", Test_access_snapshot_decode.suite);
     ("access_snapshot_standing_order", Test_access_snapshot_standing_order.suite);
