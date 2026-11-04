@@ -431,6 +431,7 @@ let not_resumed text = Printf.sprintf "Not resumed: %s." text
 (* Step 5: the epoch-fenced resume at the click's Slack time, then step 6. *)
 let apply_resume c (v : Grant.validated) ~action_ts =
   let n = T.display_name c.order in
+  ignore (Store.expire_pending c.db ~now:c.now : int);
   match
     Store.resume c.db ~order_id:c.order.id ~expected_epoch:c.card.order_epoch
       ~active_since:action_ts ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id
@@ -500,6 +501,7 @@ let resume c =
                 reply_with call c
                   (not_resumed (Render.member_refusal_text ~action:`Resume r))
             | Ok () -> (
+                ignore (Store.expire_pending c.db ~now:c.now : int);
                 let* evaluated =
                   Grant.evaluate ~db:c.db ~current_config:(current_config c)
                     ~now:c.now ~stage:Grant.Resume ~unit_label:"resume"

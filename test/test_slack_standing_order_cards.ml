@@ -410,6 +410,48 @@ let test_resume_click () =
       Alcotest.(check (list string)) "no Slack call" [] (calls_since env m);
       Lwt.return_unit)
 
+let test_resume_expired_conflict () =
+  F.with_orders (fun env ->
+      let o = F.seed env ~state:T.Suspended () in
+      let* card = resume_card env o in
+      let competitor = F.seed env ~state:T.Pending_confirmation () in
+      Sql_util.exec_with_params env.db
+        "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
+        [ Sqlite3.Data.FLOAT (S.now -. 1.); Sqlite3.Data.TEXT competitor.id ];
+      let* () = resume env card in
+      check_state env competitor T.Cancelled;
+      check_state env o T.Active;
+      Lwt.return_unit)
+
+let test_resume_expiration_failure () =
+  F.with_orders (fun env ->
+      let o = F.seed env ~state:T.Suspended () in
+      let* card = resume_card env o in
+      let competitor = F.seed env ~state:T.Pending_confirmation () in
+      Sql_util.exec_with_params env.db
+        "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
+        [ Sqlite3.Data.FLOAT (S.now -. 1.); Sqlite3.Data.TEXT competitor.id ];
+      Sqlite3.Rc.check
+        (Sqlite3.exec env.db
+           "CREATE TRIGGER fail_pending_expiration BEFORE UPDATE OF state ON \
+            slack_standing_orders WHEN OLD.state = 'pending_confirmation' AND \
+            NEW.state = 'cancelled' BEGIN SELECT RAISE(ABORT, 'fixture \
+            expiration failure'); END");
+      let before = mark env in
+      let* () = resume env card in
+      check_state env o T.Suspended;
+      check_state env competitor T.Pending_confirmation;
+      (* The explicitly requested management refusal is the only HTTP call. *)
+      Alcotest.(check (list string))
+        "no resume authority HTTP" [ "chat.postMessage" ]
+        (calls_since env before);
+      check_bool "uniqueness refusal" true
+        (has_text env
+           ("Not resumed: "
+           ^ Render.reason_text (G.Duplicate_order competitor.display_no)
+           ^ "."));
+      Lwt.return_unit)
+
 let test_resume_admin_allowlist () =
   F.with_orders
     ~config:(fun c -> S.with_allow_users c [ "U123" ])
@@ -682,6 +724,9 @@ let suite =
       ("cancel button withdraws", test_cancel_withdraws);
       ("cancel click authority and membership", test_cancel_authority);
       ("resume click", test_resume_click);
+      ("resume expires stale pending conflict", test_resume_expired_conflict);
+      ( "resume expiration failure preserves uniqueness",
+        test_resume_expiration_failure );
       ("an admin resume needs the allowlist", test_resume_admin_allowlist);
       ("resume needs a valid action_ts", test_resume_action_ts);
       ("expired resume card", test_expired_resume_card);

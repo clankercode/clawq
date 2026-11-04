@@ -266,6 +266,48 @@ let test_cancel _dir =
     (run ~http:m.http db [ "orders"; "cancel"; o.id ]);
   no_calls m
 
+(* Exercise the same handler as [cmd_mutate], after its lookup-time sweep.
+   Calling [cmd] here would hide the missing Resume-boundary expiration. *)
+let test_resume_expired_conflict _dir =
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db ~state:T.Suspended () in
+  let competitor = S.seed db ~state:T.Pending_confirmation () in
+  Sql_util.exec_with_params db
+    "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
+    [ Sqlite3.Data.FLOAT (S.now -. 1.); Sqlite3.Data.TEXT competitor.id ];
+  let out = Cli.cmd_resume db ~config:(S.config ()) ~http:m.http ~now:S.now o in
+  Alcotest.check S.state_t "competitor cancelled" T.Cancelled
+    (find db competitor).state;
+  Alcotest.check S.state_t "resumed active" T.Active (find db o).state;
+  check_bool "resumed receipt" true (contains out "resumed (cli)");
+  check_bool "authority checked" true
+    (List.mem "auth.test" (S.methods_called m))
+
+let test_resume_expiration_failure _dir =
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db ~state:T.Suspended () in
+  let competitor = S.seed db ~state:T.Pending_confirmation () in
+  Sql_util.exec_with_params db
+    "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
+    [ Sqlite3.Data.FLOAT (S.now -. 1.); Sqlite3.Data.TEXT competitor.id ];
+  Sqlite3.Rc.check
+    (Sqlite3.exec db
+       "CREATE TRIGGER fail_pending_expiration BEFORE UPDATE OF state ON \
+        slack_standing_orders WHEN OLD.state = 'pending_confirmation' AND \
+        NEW.state = 'cancelled' BEGIN SELECT RAISE(ABORT, 'fixture expiration \
+        failure'); END");
+  let out = Cli.cmd_resume db ~config:(S.config ()) ~http:m.http ~now:S.now o in
+  Alcotest.check S.state_t "still suspended" T.Suspended (find db o).state;
+  Alcotest.check S.state_t "competitor remains" T.Pending_confirmation
+    (find db competitor).state;
+  check_string "uniqueness refusal"
+    ("Not resumed: "
+    ^ Render.reason_text
+        (Slack_standing_order_grant.Duplicate_order competitor.display_no)
+    ^ ".")
+    out;
+  no_calls m
+
 let test_minimal_stub _dir =
   check_bool "minimal build refuses" true
     (contains
@@ -287,6 +329,10 @@ let suite =
     case "unknown count receipt" test_unknown_count_receipt;
     case "cli pause withdraws a pending order" test_pause_withdraws_pending;
     case "cli resume runs the full preflight" test_resume_preflight;
+    case "CLI resume expires stale pending conflict"
+      test_resume_expired_conflict;
+    case "resume expiration failure preserves uniqueness"
+      test_resume_expiration_failure;
     case "cancel" test_cancel;
     case "minimal build stub" test_minimal_stub;
     case "usage" test_usage;

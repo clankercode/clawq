@@ -257,6 +257,7 @@ let cmd_resume db ~config ?http ~now (o : T.order) =
          Logs.warn (fun m ->
              m "standing-order CLI: access snapshot schema: %s"
                (Printexc.to_string exn)));
+      ignore (Store.expire_pending db ~now : int);
       match
         Lwt_main.run
           (Grant.evaluate ~db
@@ -266,6 +267,7 @@ let cmd_resume db ~config ?http ~now (o : T.order) =
       with
       | Error f -> not_resumed f.Grant.reason
       | Ok v -> (
+          ignore (Store.expire_pending db ~now : int);
           match
             Store.resume db ~order_id:o.id ~expected_epoch:o.epoch
               ~active_since:(Store.ts_of_unix now) ~bot_user_id:v.bot_user_id
