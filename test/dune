@@ -320,6 +320,7 @@
   test_slack_standing_order_support
   test_slack_standing_order_store
   test_slack_standing_order_slack
+  test_slack_huddles_grant
   test_access_snapshot_decode
   test_access_snapshot_standing_order
   test_slash_commands

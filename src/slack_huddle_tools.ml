@@ -171,7 +171,10 @@ let register ?(http = Slack_huddles.http) ~current_config registry =
                   | Error err ->
                       Error (Policy_http_client.policy_error_to_string err)
                 in
-                let* result = authorize ~check ~http ~turn ~channel_id in
+                let* result =
+                  authorize ~check ~http
+                    ~authority:(Slack_huddles.Human_turn turn) ~channel_id
+                in
                 match result with
                 | Error reason -> error reason
                 | Ok call -> (
