@@ -133,6 +133,50 @@ let admin env id =
     "INSERT INTO channel_admins(channel, sender_id) VALUES ('slack', ?)"
     [ Sqlite3.Data.TEXT id ]
 
+(* ---- Card clicks ---- *)
+
+(* A [block_actions] button press through [Slack.handle_event]. Both
+   [container.message_ts] and [message.ts] are [message_ts]; [~action_ts:None]
+   leaves the action's click time out. *)
+let click env ~action_id ~card_id ~message_ts ?(user = "U123")
+    ?(action_ts = Some "1700000000.000200") ?(team = "T123") ?(app = "A123")
+    ?(channel = "C123") () =
+  let action =
+    S.obj
+      ([
+         ("type", S.str "button");
+         ("action_id", S.str action_id);
+         ("value", S.str card_id);
+       ]
+      @
+      match action_ts with
+      | Some ts -> [ ("action_ts", S.str ts) ]
+      | None -> [])
+  in
+  let payload =
+    S.obj
+      [
+        ("type", S.str "block_actions");
+        ("api_app_id", S.str app);
+        ("team", S.obj [ ("id", S.str team) ]);
+        ("user", S.obj [ ("id", S.str user) ]);
+        ("channel", S.obj [ ("id", S.str channel) ]);
+        ( "container",
+          S.obj
+            [
+              ("type", S.str "message");
+              ("message_ts", S.str message_ts);
+              ("channel_id", S.str channel);
+            ] );
+        ("message", S.obj [ ("ts", S.str message_ts) ]);
+        ("actions", `List [ action ]);
+      ]
+  in
+  Slack.handle_event
+    ~config:(Option.get (Session.get_config env.base.manager).channels.slack)
+    ~session_manager:env.base.manager
+    (Yojson.Safe.to_string payload)
+
 (* ---- Management tools ---- *)
 
 (* [`Live]: a verified ingress turn on [thread_key] as [user] with a fresh
