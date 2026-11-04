@@ -19,6 +19,7 @@ let ( let*? ) promise f =
   match result with Ok value -> f value | Error _ as error -> Lwt.return error
 
 let valid_id = Slack_config_types.valid_id
+let slackbot_user_id = "USLACKBOT"
 
 let valid_ts s =
   String.length s > 0

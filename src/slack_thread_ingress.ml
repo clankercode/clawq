@@ -54,6 +54,7 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
         List.mem (field "type" event) [ "message"; "app_mention" ]
         && get "bot_id" event = `Null
         && get "subtype" event = `Null
+        && field "user" event <> slackbot_user_id
       then
         let channel = field "channel" event
         and user = field "user" event

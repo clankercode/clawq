@@ -273,7 +273,8 @@ Clawq implements the current **`agent_view`** experience. Declare
 Interactivity: Socket Mode carries `interactive` envelopes; HTTP interactions
 use the same signed endpoint as Events API callbacks. HTTP acknowledges before
 running the model. Delivery retries are deduplicated in a bounded process-local
-cache; delivery is not claimed to be exactly once across restarts.
+cache; delivery is not claimed to be exactly once across restarts. Slackbot
+(`USLACKBOT`) messages never start tasks.
 
 Native `agents.sessions.setStatus` and `agents.sessions.rename` require
 `chat:write` and use **`channel_id` plus the root `thread_ts`**, in channels and
