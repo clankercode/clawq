@@ -292,6 +292,7 @@ let all_suites =
     ("slack_history_hardening", Test_slack_history_hardening.suite);
     ("slack_huddle_classify", Test_slack_huddle_classify.suite);
     ("slack_huddle_ledger", Test_slack_huddle_ledger.suite);
+    ("slack_huddle_observer", Test_slack_huddle_observer.suite);
     ("discord", Test_discord.suite);
     ("attachment_download", Test_attachment_download.suite);
     ("group_chat_filter", Test_group_chat_filter.suite);

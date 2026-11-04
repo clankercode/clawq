@@ -315,6 +315,7 @@
   test_slack_history_hardening
   test_slack_huddle_classify
   test_slack_huddle_ledger
+  test_slack_huddle_observer
   test_slash_commands
   test_status_message
   test_stream_visibility
