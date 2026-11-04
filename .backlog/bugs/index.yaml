@@ -1794,3 +1794,4 @@ bugs:
     - file: B839-slack-scopes-events-manifest-l.todo
     - file: B840-setup-guide-says-empty-slack-a.todo
     - file: B841-slack-huddle-content-can-t-rea.todo
+    - file: B842-telegram-setmycommands-fails-w.todo
