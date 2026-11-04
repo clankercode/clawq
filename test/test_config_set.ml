@@ -498,6 +498,7 @@ let test_channel_default_model_lookup () =
                 app_token = "";
                 socket_mode = false;
                 default_model = None;
+                event_log = Slack_config_types.default_event_log;
               };
         };
     }

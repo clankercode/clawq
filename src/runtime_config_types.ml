@@ -147,6 +147,8 @@ type slack_config = {
   app_token : string;
   socket_mode : bool;
   default_model : string option;
+  event_log : Slack_config_types.event_log;
+      (** Metadata-only Slack event log (off by default). *)
 }
 
 type github_app_installation = { installation_id : int; repos : string list }

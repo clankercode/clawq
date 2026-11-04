@@ -603,6 +603,7 @@ let test_dispatch_resumed_message_routes_slack () =
                 private_channel_policy = Runtime_config.Pc_deny;
                 socket_mode = false;
                 default_model = None;
+                event_log = Slack_config_types.default_event_log;
                 app_token = "";
               };
         };
@@ -1029,6 +1030,7 @@ let test_resume_agent_session_sends_debug_summary () =
           app_token = "";
           socket_mode = false;
           default_model = None;
+          event_log = Slack_config_types.default_event_log;
         }
       in
       let config =
@@ -1090,6 +1092,7 @@ let test_resume_agent_session_persists_response_and_marks_sent () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   let config =
@@ -1154,6 +1157,7 @@ let test_resume_agent_session_sends_compaction_notice () =
           app_token = "";
           socket_mode = false;
           default_model = None;
+          event_log = Slack_config_types.default_event_log;
         }
       in
       let config =
@@ -1435,6 +1439,7 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
       app_token = "";
       socket_mode = false;
       default_model = None;
+      event_log = Slack_config_types.default_event_log;
     }
   in
   let config =

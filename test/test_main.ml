@@ -286,6 +286,14 @@ let all_suites =
     ("slack_fix1_boundaries", Test_slack_fix1_boundaries.suite);
     ("slack_profiles", Test_slack.test_suite_with_profiles);
     ("slack_private_policy", Test_slack.private_channel_policy_suite);
+    ("slack_event_log", Test_slack_event_log.suite);
+    ("slack_turn_gate", Test_slack_turn_gate.suite);
+    ("slack_relay_guard", Test_slack_relay_guard.suite);
+    ("slack_history_hardening", Test_slack_history_hardening.suite);
+    ("slack_huddle_classify", Test_slack_huddle_classify.suite);
+    ("slack_huddle_ledger", Test_slack_huddle_ledger.suite);
+    ("slack_huddle_observer", Test_slack_huddle_observer.suite);
+    ("access_snapshot_decode", Test_access_snapshot_decode.suite);
     ("discord", Test_discord.suite);
     ("attachment_download", Test_attachment_download.suite);
     ("group_chat_filter", Test_group_chat_filter.suite);

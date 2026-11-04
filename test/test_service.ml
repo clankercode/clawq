@@ -469,6 +469,7 @@ let test_component_status_disabled_without_credentials () =
           app_token = "";
           socket_mode = false;
           default_model = None;
+          event_log = Slack_config_types.default_event_log;
         }
       in
       (* Test the credential validation functions directly *)
@@ -552,6 +553,7 @@ let test_component_status_running_with_valid_credentials () =
           app_token = "";
           socket_mode = false;
           default_model = None;
+          event_log = Slack_config_types.default_event_log;
         }
       in
       (* Test the credential validation functions directly *)

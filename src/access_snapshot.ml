@@ -427,7 +427,19 @@ let persist ~(db : Sqlite3.db) (snap : t) =
             (Printf.sprintf "Access_snapshot persist error: %s"
                (Sqlite3.Rc.to_string rc)))
 
-let row_of_stmt stmt : t =
+(** A stored row as listed for audit. A work type this binary doesn't know is
+    [Unknown] and is never decoded into a [t], so it can never be authority. *)
+type listed =
+  | Known of t
+  | Unknown of {
+      id : string;
+      timestamp : string;
+      stored_work_type : string;
+      session_key : string option;
+      room_id : string option;
+    }
+
+let row_of_stmt stmt : listed =
   let text pos =
     match Sqlite3.column stmt pos with Sqlite3.Data.TEXT s -> s | _ -> ""
   in
@@ -466,48 +478,60 @@ let row_of_stmt stmt : t =
       | _ -> []
     with _ -> []
   in
-  {
-    id = text 0;
-    timestamp = text 1;
-    config_hash = text 2;
-    session_key = opt_text 3;
-    work_type =
-      (match work_type_of_string (text 4) with
-      | Some wt -> wt
-      | None -> Room_turn);
-    room_id = opt_text 5;
-    profile_id = opt_text 6;
-    bundle_sources = json_bundle_sources 7;
-    allowed_tools = json_list 8;
-    denied_tools = json_list 9;
-    codebase_grants = json_list 10;
-    blocked_codebase_grants = json_list 11;
-    mcp_servers = json_list 12;
-    skills = json_list 13;
-    repositories = json_list 14;
-    repo_grants = json_list 15;
-    blocked_repo_grants = json_list 16;
-    domains = json_list 17;
-    credential_handles = json_list 18;
-    memory_grants = json_list 19;
-    budget_refs = json_list 20;
-    egress_rules_count =
-      (match Sqlite3.column stmt 21 with
-      | Sqlite3.Data.INT n -> Int64.to_int n
-      | _ -> 0);
-    instruction_digests = json_list 22;
-    redacted_summary = text 23;
-    room_classification =
-      (let raw = text 24 in
-       match Yojson.Safe.from_string raw with
-       | `String s -> Room_policy.room_scope_of_string s
-       | _ -> Rm_unknown
-       | exception _ -> Rm_unknown);
-    room_policy_decision = text 25;
-  }
+  let stored_work_type = text 4 in
+  match work_type_of_string stored_work_type with
+  | None ->
+      Unknown
+        {
+          id = text 0;
+          timestamp = text 1;
+          stored_work_type;
+          session_key = opt_text 3;
+          room_id = opt_text 5;
+        }
+  | Some work_type ->
+      Known
+        {
+          id = text 0;
+          timestamp = text 1;
+          config_hash = text 2;
+          session_key = opt_text 3;
+          work_type;
+          room_id = opt_text 5;
+          profile_id = opt_text 6;
+          bundle_sources = json_bundle_sources 7;
+          allowed_tools = json_list 8;
+          denied_tools = json_list 9;
+          codebase_grants = json_list 10;
+          blocked_codebase_grants = json_list 11;
+          mcp_servers = json_list 12;
+          skills = json_list 13;
+          repositories = json_list 14;
+          repo_grants = json_list 15;
+          blocked_repo_grants = json_list 16;
+          domains = json_list 17;
+          credential_handles = json_list 18;
+          memory_grants = json_list 19;
+          budget_refs = json_list 20;
+          egress_rules_count =
+            (match Sqlite3.column stmt 21 with
+            | Sqlite3.Data.INT n -> Int64.to_int n
+            | _ -> 0);
+          instruction_digests = json_list 22;
+          redacted_summary = text 23;
+          room_classification =
+            (let raw = text 24 in
+             match Yojson.Safe.from_string raw with
+             | `String s -> Room_policy.room_scope_of_string s
+             | _ -> Rm_unknown
+             | exception _ -> Rm_unknown);
+          room_policy_decision = text 25;
+        }
 
-let query ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
-    ?(limit = 50) () =
+(** [list_rows] lists every stored row, [Unknown] ones included, newest first.
+    It is the one SQL path behind [query] and [export_json]. *)
+let list_rows ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
+    ?(limit = 50) () : listed list =
   let conditions = ref [] in
   let bindings = ref [] in
   let add_cond cond value =
@@ -562,6 +586,13 @@ let query ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
       loop ();
       List.rev !results)
 
+(** [query] is [list_rows] without [Unknown] rows, so a page may hold fewer than
+    [limit] snapshots. *)
+let query ~(db : Sqlite3.db) ?work_type ?session_key ?room_id ?config_hash
+    ?limit () : t list =
+  list_rows ~db ?work_type ?session_key ?room_id ?config_hash ?limit ()
+  |> List.filter_map (function Known snap -> Some snap | Unknown _ -> None)
+
 let get_by_id ~(db : Sqlite3.db) id =
   let sql =
     Printf.sprintf "SELECT %s FROM access_snapshots WHERE id = ?"
@@ -573,7 +604,16 @@ let get_by_id ~(db : Sqlite3.db) id =
     (fun () ->
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT id));
       match Sqlite3.step stmt with
-      | Sqlite3.Rc.ROW -> Some (row_of_stmt stmt)
+      | Sqlite3.Rc.ROW -> (
+          match row_of_stmt stmt with
+          | Known snap -> Some snap
+          | Unknown row ->
+              Logs.warn (fun m ->
+                  m
+                    "access snapshot %s has unknown work type %S; it is not \
+                     loaded, so it grants nothing"
+                    row.id row.stored_work_type);
+              None)
       | Sqlite3.Rc.DONE -> None
       | rc ->
           failwith
@@ -615,6 +655,20 @@ let to_json (snap : t) : Yojson.Safe.t =
       ("room_policy_decision", `String snap.room_policy_decision);
     ]
 
+let listed_to_json = function
+  | Known snap -> to_json snap
+  | Unknown row ->
+      let opt = function Some s -> `String s | None -> `Null in
+      `Assoc
+        [
+          ("id", `String row.id);
+          ("timestamp", `String row.timestamp);
+          ("work_type", `String "unknown");
+          ("stored_work_type", `String row.stored_work_type);
+          ("session_key", opt row.session_key);
+          ("room_id", opt row.room_id);
+        ]
+
 let record_for_work ~(db : Sqlite3.db) ~(config : Runtime_config.t) ~work_type
     ?session_key ?room_id ?profile_id ?room_classification ?room_policy_decision
     () =
@@ -654,15 +708,15 @@ let tool_denial (snap : t) ~tool_name ?(equivalence_names = [ tool_name ]) () :
 
 let export_json ~(db : Sqlite3.db) ?(limit = 100) ?work_type ?session_key
     ?room_id ?config_hash ~path () =
-  let snaps =
-    query ~db ?work_type ?session_key ?room_id ?config_hash ~limit ()
+  let rows =
+    list_rows ~db ?work_type ?session_key ?room_id ?config_hash ~limit ()
   in
   let oc = open_out path in
   List.iter
-    (fun snap ->
-      let line = Yojson.Safe.to_string (to_json snap) in
+    (fun row ->
+      let line = Yojson.Safe.to_string (listed_to_json row) in
       output_string oc line;
       output_char oc '\n')
-    snaps;
+    rows;
   close_out oc;
-  List.length snaps
+  List.length rows

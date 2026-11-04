@@ -103,6 +103,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
           app_token = "";
           socket_mode = false;
           default_model = None;
+          event_log = Slack_config_types.default_event_log;
         }
       in
       let session_manager =

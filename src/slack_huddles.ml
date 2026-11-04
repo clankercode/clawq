@@ -18,11 +18,8 @@ let ( let*? ) promise f =
   let* result = promise in
   match result with Ok value -> f value | Error _ as error -> Lwt.return error
 
-let valid_id prefixes s =
-  String.length s > 1
-  && String.length s <= 64
-  && String.contains prefixes s.[0]
-  && String.for_all (function 'A' .. 'Z' | '0' .. '9' -> true | _ -> false) s
+let valid_id = Slack_config_types.valid_id
+let slackbot_user_id = "USLACKBOT"
 
 let valid_ts s =
   String.length s > 0
