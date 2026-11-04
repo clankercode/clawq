@@ -43,6 +43,17 @@ val dispatch :
 
 val runtime_tool_names : string list
 
+val room_for_context :
+  db:Sqlite3.db ->
+  tool_name:string ->
+  Tool.invoke_context option ->
+  (string, string) result
+(** The Room a runtime tool call may act in, from the turn's persisted access
+    snapshot: [Ok room_id] only when the snapshot loads, is not a
+    [Standing_order] snapshot (grant authority never reaches GitHub Room tools),
+    names a Room, has an allowing Room policy decision and lets [tool_name]
+    through [Tool_authz]. *)
+
 val runtime_tools : db:Sqlite3.db -> config:Runtime_config.t -> Tool.t list
 (** Runtime bindings obtain Room scope and policy only from the immutable access
     snapshot attached to the current turn. *)

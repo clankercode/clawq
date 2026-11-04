@@ -152,6 +152,32 @@ message from it. Telegram target history is not account-scoped; `--account`
 selects the account shown in the follow-up send command, not which local IDs are
 listed.
 
+### `clawq slack`
+
+Operator view and kill switch for Slack [standing
+orders](connector-reference.md#standing-orders-huddle-relay) (full build only;
+the minimal build answers that the command is not available). Reads are open;
+pause, resume and cancel are **[admin]**, and a refused mutation is audited
+against the order's room.
+
+```
+clawq slack orders list [--channel C]            List orders with their opaque ids, cancelled ones included
+clawq slack orders show ID                       Show one order (its instruction is untrusted text)
+clawq slack orders fires ID [--limit N]          Show an order's latest fires, newest first (default 20)
+clawq slack orders pause ID                      Pause an active order or withdraw a pending one [admin]
+clawq slack orders resume ID                     Re-check a paused or suspended order with Slack and resume it [admin]
+clawq slack orders cancel ID                     Cancel an order [admin]
+```
+
+`ID` is the opaque order id that `list` shows; Slack users see the per-channel
+`SO-n` name instead. Pause and cancel are a local kill switch: they change the
+order, print a receipt and write a ledger row with actor `cli`, but post nothing
+to Slack and don't notify the grantor. Resume re-runs the resume checks over
+direct Slack HTTP (bot token, the same egress rules as the daemon) and sets
+`active_since` to the current time; huddles that became ready while the order
+was paused are never relayed. There is no create or change command: both need a
+verified Slack request.
+
 ### `clawq memory`
 
 Show memory backend configuration.

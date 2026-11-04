@@ -522,5 +522,8 @@ After completing any infrastructure change, provide this structured output:
         "change_working_dir";
         "browser";
         "send_to_session";
+        "slack_standing_order_list";
+        "slack_standing_order_show";
+        "slack_standing_order_pause";
       ]
     ~disallowed_tools:[]

@@ -75,6 +75,11 @@ let channels_schema =
             ("socket_mode", L);
             ("default_model", L);
             ("event_log", O [ ("enabled", L); ("capture_text_from", L) ]);
+            ( "standing_orders",
+              O
+                [
+                  ("enabled", L); ("allowed_targets", L); ("creator_policy", L);
+                ] );
           ] );
       ( "github",
         O

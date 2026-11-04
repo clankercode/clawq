@@ -92,8 +92,56 @@ let api ~check ~http ~token method_ params =
 let allowed config channel user =
   Slack_api.is_allowed ~config ~channel_id:channel ~user_id:user
 
-let authorize ~check ~http ~(turn : Slack_huddle_context.turn) ~channel_id =
-  let config = turn.config in
+type grant_fire = {
+  order_id : string;
+  fire_id : string option;
+  team_id : string;
+  channel_id : string;
+  grantor_user_id : string;
+  config : Runtime_config.t;
+}
+(** A standing order's authority for one fire: the grantor's identity, pinned to
+    the order's team and channel. Never an admin, never cross-channel. *)
+
+type authority =
+  | Human_turn of Slack_huddle_context.turn
+  | Grant_fire of grant_fire
+
+let share_flags =
+  [ "is_ext_shared"; "is_shared"; "is_org_shared"; "is_pending_ext_shared" ]
+
+type sharing = Not_shared | Shared | Sharing_unreported
+
+(* The one share-flag rule for grant authority, used by every [Grant_fire] read
+   here and by every standing-order evaluation: any flag reported true is
+   sharing (a hard deny); otherwise each flag must be a reported [false], and a
+   missing or untyped one leaves the state unknown (transient), never "not
+   shared". *)
+let channel_sharing channel =
+  let flags = List.map (fun key -> get key channel) share_flags in
+  if List.mem (`Bool true) flags then Shared
+  else if List.for_all (( = ) (`Bool false)) flags then Not_shared
+  else Sharing_unreported
+
+let authorize ~check ~http ~authority ~channel_id =
+  let config, origin, user, grant =
+    match authority with
+    | Human_turn (turn : Slack_huddle_context.turn) ->
+        (turn.config, turn.request.channel_id, turn.request.user_id, None)
+    | Grant_fire g -> (g.config, g.channel_id, g.grantor_user_id, Some g)
+  in
+  let is_grant = Option.is_some grant in
+  (* The turn's admin status was frozen at ingress and must still hold; a grant
+     is never an admin, so it can take no admin override or cross-channel read. *)
+  let live_admin () =
+    match authority with
+    | Human_turn turn -> (
+        match Session.get_db turn.request.manager with
+        | Some db ->
+            turn.is_admin && Admin.is_admin ~db ~channel:"slack" ~sender_id:user
+        | None -> false)
+    | Grant_fire _ -> false
+  in
   match config.channels.slack with
   | None ->
       fail
@@ -102,8 +150,11 @@ let authorize ~check ~http ~(turn : Slack_huddle_context.turn) ~channel_id =
       fail
         "Slack bot credential is missing; configure channels.slack.bot_token."
   | Some slack ->
-      let origin = turn.request.channel_id and user = turn.request.user_id in
-      if
+      if is_grant && channel_id <> origin then
+        fail
+          "Grant authority is pinned to the order's channel; no content was \
+           read."
+      else if
         not
           (valid_id "CG" channel_id && valid_id "CG" origin
          && valid_id "UW" user)
@@ -119,9 +170,17 @@ let authorize ~check ~http ~(turn : Slack_huddle_context.turn) ~channel_id =
       else
         let call = api ~check ~http ~token:slack.bot_token in
         let*? auth = call "auth.test" [] in
+        let team = field "team_id" auth in
+        let*? () =
+          match grant with
+          | Some g when team <> g.team_id ->
+              fail
+                "Grant authority belongs to another Slack installation (team \
+                 mismatch); no content was read."
+          | _ -> Lwt.return (Ok ())
+        in
         let*? human = call "users.info" [ ("user", str user) ] in
         let human = get "user" human in
-        let team = field "team_id" auth in
         let bot = field "user_id" auth in
         if
           team = ""
@@ -141,13 +200,7 @@ let authorize ~check ~http ~(turn : Slack_huddle_context.turn) ~channel_id =
           let guest =
             flag "is_restricted" human || flag "is_ultra_restricted" human
           in
-          let is_admin =
-            match Session.get_db turn.request.manager with
-            | Some db ->
-                turn.is_admin
-                && Admin.is_admin ~db ~channel:"slack" ~sender_id:user
-            | None -> false
-          in
+          let is_admin = live_admin () in
           (* Even admins must be members. Cross-channel export into a guest's
            origin is refused; membership never follows from bot visibility. *)
           if channel_id <> origin && (guest || not is_admin) then
@@ -198,6 +251,28 @@ let authorize ~check ~http ~(turn : Slack_huddle_context.turn) ~channel_id =
                     ~classification ~is_admin ()
                 with
                 | Room_policy.Denied reason -> fail reason
+                (* A grant needs typed [false] flags: a guest grantor or any
+                   sharing is a deny whatever the room policy says, and an
+                   unreported share state ([channel_sharing]) is refused too,
+                   with its own text. *)
+                | _
+                  when is_grant
+                       && (get "is_restricted" human <> `Bool false
+                          || get "is_ultra_restricted" human <> `Bool false) ->
+                    fail
+                      "Grant authority needs a full (non-guest) member as \
+                       grantor; no content was read."
+                | _ when is_grant && channel_sharing channel = Shared ->
+                    fail
+                      "Grant authority refuses shared channels; no content was \
+                       read."
+                | _
+                  when is_grant && channel_sharing channel = Sharing_unreported
+                  ->
+                    fail
+                      "Slack did not report whether this channel is shared, so \
+                       grant authority refuses it for now; try again later. No \
+                       content was read."
                 | Room_policy.Proceed | Room_policy.Proceed_with_warning _
                 | Room_policy.Denied_admin_override _ ->
                     let rec members cursor pages =

@@ -625,17 +625,21 @@ let handle ~manager json =
     let container = get "container" json in
     Lwt_list.iter_s
       (fun action ->
-        match Hashtbl.find_opt runs (field "value" action) with
-        | Some r
-          when field "action_id" action = "clawq_stop_run"
-               && r.manager == manager && r.route.team = team
-               && r.route.app = field "api_app_id" json
-               && r.route.channel = field "channel_id" container
-               && r.control = Some (field "message_ts" container)
-               && field "ts" (get "message" json) = field "message_ts" container
-          ->
-            cancel r (field "id" (get "user" json))
-        | _ -> Lwt.return_unit)
+        if Slack_standing_order_cards.is_card_action (field "action_id" action)
+        then
+          Slack_standing_order_cards.handle_action ~manager ~payload:json action
+        else
+          match Hashtbl.find_opt runs (field "value" action) with
+          | Some r
+            when field "action_id" action = "clawq_stop_run"
+                 && r.manager == manager && r.route.team = team
+                 && r.route.app = field "api_app_id" json
+                 && r.route.channel = field "channel_id" container
+                 && r.control = Some (field "message_ts" container)
+                 && field "ts" (get "message" json)
+                    = field "message_ts" container ->
+              cancel r (field "id" (get "user" json))
+          | _ -> Lwt.return_unit)
       (list (get "actions" json))
   else Lwt.return_unit
 

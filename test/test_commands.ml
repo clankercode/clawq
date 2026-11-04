@@ -390,6 +390,7 @@ let test_slack_credential_validation () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      standing_orders = Slack_config_types.default_standing_orders;
     }
   in
   let invalid_slack = { valid_slack with Runtime_config.bot_token = "abc" } in

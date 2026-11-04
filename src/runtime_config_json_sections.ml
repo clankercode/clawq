@@ -218,7 +218,11 @@ let slack_json (s : slack_config) : Yojson.Safe.t =
        ("socket_mode", `Bool s.socket_mode);
      ]
     @ default_model_json_fields s.default_model
-    @ [ ("event_log", Slack_config_types.event_log_to_json s.event_log) ])
+    @ [
+        ("event_log", Slack_config_types.event_log_to_json s.event_log);
+        ( "standing_orders",
+          Slack_config_types.standing_orders_to_json s.standing_orders );
+      ])
 
 let github_json (g : github_config) : Yojson.Safe.t =
   let auth_json =

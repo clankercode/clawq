@@ -149,6 +149,7 @@ type slack_config = {
   default_model : string option;
   event_log : Slack_config_types.event_log;
       (** Metadata-only Slack event log (off by default). *)
+  standing_orders : Slack_config_types.slack_standing_orders_config;
 }
 
 type github_app_installation = { installation_id : int; repos : string list }

@@ -173,6 +173,166 @@ let test_lookup_failure () =
             (!seen <> []);
           Lwt.return_unit))
 
+(* ── Phase 2: [W.of_db] over the standing-order store ─────────────────── *)
+
+module S = Test_slack_standing_order_support
+module Store = Slack_standing_order_store
+
+let target_t =
+  Alcotest.testable
+    (fun ppf (t : Slack_huddle_classify.target) ->
+      Format.fprintf ppf "{user %s; bot %s; app %s}" t.target_user_id
+        t.target_bot_id t.target_app_id)
+    ( = )
+
+let claude_target : Slack_huddle_classify.target =
+  {
+    target_user_id = "UCLAUDE";
+    target_bot_id = "BCLAUDE";
+    target_app_id = "ACLAUDE";
+  }
+
+let other : Slack_standing_order_types.target =
+  {
+    user_id = "UOTHER";
+    app_id = "AOTHER";
+    bot_id = "BOTHER";
+    label = "Other bot";
+  }
+
+let observed ?(team = "T123") ?(app = "A123") db channel =
+  (W.of_db db).W.observed ~team ~app ~channel
+
+let check_context db channel ~self ~targets =
+  let ctx = (W.of_db db).W.context ~team:"T123" ~app:"A123" ~channel in
+  Alcotest.(check (option string))
+    (channel ^ " self user") self ctx.Slack_huddle_classify.self_user_id;
+  Alcotest.(check (list target_t)) (channel ^ " targets") targets ctx.targets;
+  check_bool (channel ^ " no matchers") true
+    (ctx.matchers = Slack_huddle_classify.no_matchers)
+
+let deactivate db (o : Slack_standing_order_types.order) op =
+  match Store.deactivate db ~order_id:o.id op ~now:S.now with
+  | Ok { Store.changed = true; _ } -> ()
+  | Ok _ -> Alcotest.fail "the order did not change state"
+  | Error e -> Alcotest.fail e
+
+let test_of_db_observes () =
+  with_db (fun db ->
+      let o = S.seed db ~channel:"C0TEST" () in
+      check_bool "active order observed" true (observed db "C0TEST");
+      check_context db "C0TEST" ~self:(Some "UBOT") ~targets:[ claude_target ];
+      check_bool "another team" false (observed ~team:"T999" db "C0TEST");
+      check_bool "another app" false (observed ~app:"A999" db "C0TEST");
+      check_bool "another channel" false (observed db "C999");
+      deactivate db o (Store.Pause "U123");
+      check_bool "paused order still observed" true (observed db "C0TEST");
+      check_context db "C0TEST" ~self:(Some "UBOT") ~targets:[ claude_target ])
+
+let test_of_db_ignores_inactive () =
+  with_db (fun db ->
+      List.iter
+        (fun (channel, state) ->
+          ignore
+            (S.seed db ~channel ~state () : Slack_standing_order_types.order);
+          check_bool (channel ^ " not observed") false (observed db channel);
+          check_context db channel ~self:None ~targets:[])
+        Slack_standing_order_types.
+          [
+            ("C0PENDING", Pending_confirmation);
+            ("C0SUSPENDED", Suspended);
+            ("C0CANCELLED", Cancelled);
+          ])
+
+let set_bot_user db (o : Slack_standing_order_types.order) bot_user_id =
+  Sql_util.exec_with_params ~label:"test" db
+    "UPDATE slack_standing_orders SET bot_user_id = ? WHERE id = ?"
+    [ bot_user_id; Sqlite3.Data.TEXT o.id ]
+
+let test_of_db_context () =
+  with_db (fun db ->
+      let first = S.seed db ~channel:"C0TEST" () in
+      let second =
+        S.seed db ~channel:"C0TEST" ~target:other
+          ~state:Slack_standing_order_types.Paused ()
+      in
+      let other_target : Slack_huddle_classify.target =
+        {
+          target_user_id = "UOTHER";
+          target_bot_id = "BOTHER";
+          target_app_id = "AOTHER";
+        }
+      in
+      let targets = [ claude_target; other_target ] in
+      check_context db "C0TEST" ~self:(Some "UBOT") ~targets;
+      set_bot_user db second Sqlite3.Data.NULL;
+      check_context db "C0TEST" ~self:(Some "UBOT") ~targets;
+      set_bot_user db second (Sqlite3.Data.TEXT "UBOT2");
+      let (), logs =
+        Lwt_main.run
+          (S.with_log_capture (fun () ->
+               check_context db "C0TEST" ~self:None ~targets;
+               Lwt.return_unit))
+      in
+      check_bool "disagreeing bot users are logged" true
+        (List.exists (fun (level, _) -> level = Logs.Warning) logs);
+      check_bool "both orders still observed" true (observed db "C0TEST");
+      set_bot_user db first Sqlite3.Data.NULL;
+      set_bot_user db second Sqlite3.Data.NULL;
+      check_context db "C0TEST" ~self:None ~targets)
+
+let test_of_db_unreadable () =
+  let closed = Sqlite3.db_open ":memory:" in
+  ignore (S.seed closed ~channel:"C0TEST" () : Slack_standing_order_types.order);
+  ignore (Sqlite3.db_close closed : bool);
+  let (), logs =
+    Lwt_main.run
+      (S.with_log_capture (fun () ->
+           check_bool "an unreadable store observes nothing" false
+             (observed closed "C0TEST");
+           check_context closed "C0TEST" ~self:None ~targets:[];
+           Lwt.return_unit))
+  in
+  Alcotest.(check int)
+    "each failed read is logged" 2
+    (List.length (List.filter (fun (level, _) -> level = Logs.Warning) logs))
+
+let table_exists db name =
+  Sql_util.query_rows db
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+    ~bind:(fun stmt -> Sql_util.bind_params stmt [ Sqlite3.Data.TEXT name ])
+    ~of_stmt:(fun _ -> ())
+  <> []
+
+(* Every Store read runs [ensure_schema] first, so the store's table appears
+   exactly when the watch first queries it (ruling F13). *)
+let test_of_db_lazy () =
+  with_db (fun db ->
+      let store_table () = table_exists db "slack_standing_orders" in
+      let watch = W.of_db db in
+      check_bool "building of_db runs no query" false (store_table ());
+      Slack_huddle_observer.observe_db ~db ~watch:(W.of_db db) ~now:1000.
+        F.block_actions;
+      check_bool "block_actions runs no query" false (store_table ());
+      observe ~watch db (F.human ~channel:"D0DM" "hello");
+      check_bool "a DM runs no query" false (store_table ());
+      observe ~watch db (F.human "hello");
+      check_bool "a channel message asks the store" true (store_table ()))
+
+let test_real_store_ledger () =
+  with_db (fun db ->
+      let o = S.seed db ~channel:"C0TEST" () in
+      observe ~watch:(W.of_db db) db (F.huddle_root ());
+      check_bool "the active order's channel writes a row" true
+        (room_row "R0ROOM1" (rows db) <> None);
+      deactivate db o (Store.Cancel "U123");
+      observe ~watch:(W.of_db db) db
+        (F.huddle_root ~ts:"1700000001.000100" ~room:(F.room ~id:"R0ROOM9" ())
+           ());
+      check_bool "a cancelled order's channel writes nothing" true
+        (room_row "R0ROOM9" (rows db) = None);
+      Alcotest.(check int) "still one row" 1 (List.length (rows db)))
+
 let suite =
   [
     ("observed channel records huddle and notes", `Quick, test_observed_channel);
@@ -182,4 +342,13 @@ let suite =
       `Quick,
       test_tap );
     ("watch lookup failure never escapes the tap", `Quick, test_lookup_failure);
+    S.case "of_db observes channels with active or paused orders"
+      test_of_db_observes;
+    S.case "of_db ignores pending, suspended and cancelled orders"
+      test_of_db_ignores_inactive;
+    S.case "of_db context needs every order to agree on the bot user"
+      test_of_db_context;
+    S.case "of_db fails closed on an unreadable store" test_of_db_unreadable;
+    S.case "of_db is cheap per event" test_of_db_lazy;
+    S.case "real store drives the ledger" test_real_store_ledger;
   ]

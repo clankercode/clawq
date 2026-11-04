@@ -17,7 +17,8 @@ let persisted db =
 let set db sql id = Sql_util.exec_with_params db sql [ Sqlite3.Data.TEXT id ]
 
 let to_unknown db id =
-  set db "UPDATE access_snapshots SET work_type='standing_order' WHERE id=?" id
+  set db "UPDATE access_snapshots SET work_type='future_work_type' WHERE id=?"
+    id
 
 let snapshot_ids snaps = List.map (fun (s : Access_snapshot.t) -> s.id) snaps
 
@@ -41,7 +42,7 @@ let test_unknown_fails_closed () =
              | Access_snapshot.Unknown
                  { id; stored_work_type; session_key; room_id; _ } ->
                  id = unknown.id
-                 && stored_work_type = "standing_order"
+                 && stored_work_type = "future_work_type"
                  && session_key = Some "slack:C1"
                  && room_id = Some "C1"
              | Access_snapshot.Known _ -> false)
@@ -55,7 +56,7 @@ let test_unknown_fails_closed () =
           check_bool "export marks unknown" true
             (contains text {|"work_type":"unknown"|});
           check_bool "export keeps the stored type" true
-            (contains text {|"stored_work_type":"standing_order"|})))
+            (contains text {|"stored_work_type":"future_work_type"|})))
 
 let test_corrupt_classification () =
   with_db (fun db ->
@@ -77,7 +78,7 @@ let test_huddle_tools_deny () =
       f.turn (fun () ->
           check_bool "snapshot rewritten" true
             (Sqlite3.exec f.db
-               "UPDATE access_snapshots SET work_type='standing_order'"
+               "UPDATE access_snapshots SET work_type='future_work_type'"
             = Sqlite3.Rc.OK);
           let* result = f.invoke "slack_huddles" in
           expect_error result;

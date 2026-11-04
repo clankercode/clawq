@@ -256,6 +256,7 @@ let service_cmd = disabled "service" "Manage the clawq system service"
 let update_cmd = disabled "update" "Trigger a daemon update"
 let hardware_cmd = disabled "hardware" "Hardware integration (deferred)"
 let otp_show_cmd = disabled "otp-show" "Show pairing codes"
+let slack_cmd = disabled "slack" "Slack standing orders"
 
 let manifest_cmd =
   with_args "manifest"
@@ -358,6 +359,7 @@ let () =
       completions_cmd;
       manifest_cmd;
       github_cmd;
+      slack_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

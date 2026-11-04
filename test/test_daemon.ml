@@ -604,6 +604,7 @@ let test_dispatch_resumed_message_routes_slack () =
                 socket_mode = false;
                 default_model = None;
                 event_log = Slack_config_types.default_event_log;
+                standing_orders = Slack_config_types.default_standing_orders;
                 app_token = "";
               };
         };
@@ -1031,6 +1032,7 @@ let test_resume_agent_session_sends_debug_summary () =
           socket_mode = false;
           default_model = None;
           event_log = Slack_config_types.default_event_log;
+          standing_orders = Slack_config_types.default_standing_orders;
         }
       in
       let config =
@@ -1093,6 +1095,7 @@ let test_resume_agent_session_persists_response_and_marks_sent () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      standing_orders = Slack_config_types.default_standing_orders;
     }
   in
   let config =
@@ -1158,6 +1161,7 @@ let test_resume_agent_session_sends_compaction_notice () =
           socket_mode = false;
           default_model = None;
           event_log = Slack_config_types.default_event_log;
+          standing_orders = Slack_config_types.default_standing_orders;
         }
       in
       let config =
@@ -1440,6 +1444,7 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      standing_orders = Slack_config_types.default_standing_orders;
     }
   in
   let config =
