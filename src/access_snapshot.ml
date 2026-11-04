@@ -1,8 +1,9 @@
 (* Effective-access snapshots for executable work.
    Records an immutable snapshot of the resolved access policy at the moment
    work begins (room turn, background task, ambient tick, GitHub trigger,
-   routine). Each snapshot is self-contained: it carries the config hash,
-   resolved grants/denials, bundle sources, and a redacted summary. *)
+   routine, standing-order fire or reconcile). Each snapshot is
+   self-contained: it carries the config hash, resolved grants/denials, bundle
+   sources, and a redacted summary. *)
 
 type work_type =
   | Room_turn
@@ -10,6 +11,7 @@ type work_type =
   | Ambient_work
   | GitHub_trigger
   | Routine
+  | Standing_order
 
 let work_type_to_string = function
   | Room_turn -> "room_turn"
@@ -17,6 +19,7 @@ let work_type_to_string = function
   | Ambient_work -> "ambient_work"
   | GitHub_trigger -> "github_trigger"
   | Routine -> "routine"
+  | Standing_order -> "standing_order"
 
 let work_type_of_string = function
   | "room_turn" -> Some Room_turn
@@ -24,9 +27,14 @@ let work_type_of_string = function
   | "ambient_work" -> Some Ambient_work
   | "github_trigger" -> Some GitHub_trigger
   | "routine" -> Some Routine
+  | "standing_order" -> Some Standing_order
   | _ -> None
 
 type bundle_source = { bundle_id : string; layer : string; source_id : string }
+
+type standing_order_ref = { order_id : string; fire_id : string option }
+(** The order a [Standing_order] snapshot runs for, and the fire when it is a
+    fire ([None] for a reconcile pass). *)
 
 type t = {
   id : string;
@@ -60,6 +68,8 @@ type t = {
   room_policy_decision : string;
       (** Human-readable policy decision (e.g., "allow", "warn: ...", "deny:
           ..."). Empty when no policy evaluation was performed. *)
+  standing_order : standing_order_ref option;
+      (** Set only for [Standing_order] work. *)
 }
 
 let room_id_from_session_key key =
@@ -199,7 +209,8 @@ let access_session_key ?session_key room_id =
   | None, None -> "__anonymous__"
 
 let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
-    ?profile_id ?room_classification ?(room_policy_decision = "") () : t =
+    ?profile_id ?room_classification ?(room_policy_decision = "")
+    ?standing_order () : t =
   let derived_room_id =
     match room_id with
     | Some _ -> room_id
@@ -243,6 +254,7 @@ let create ~(config : Runtime_config.t) ~work_type ?session_key ?room_id
     room_classification =
       Option.value room_classification ~default:Runtime_config_types.Rm_unknown;
     room_policy_decision;
+    standing_order;
   }
 
 let sqlite_column_exists ~db ~table_name ~column_name =
@@ -282,6 +294,20 @@ let ensure_int_column db column_name ~default =
       Printf.sprintf
         "ALTER TABLE access_snapshots ADD COLUMN %s INTEGER NOT NULL DEFAULT %d"
         column_name default
+    in
+    match Sqlite3.exec db sql with
+    | Sqlite3.Rc.OK -> ()
+    | rc ->
+        failwith
+          (Printf.sprintf "Access_snapshot schema migration error: %s"
+             (Sqlite3.Rc.to_string rc))
+
+let ensure_nullable_text_column db column_name =
+  if not (sqlite_column_exists ~db ~table_name:"access_snapshots" ~column_name)
+  then
+    let sql =
+      Printf.sprintf "ALTER TABLE access_snapshots ADD COLUMN %s TEXT"
+        column_name
     in
     match Sqlite3.exec db sql with
     | Sqlite3.Rc.OK -> ()
@@ -339,7 +365,9 @@ let init_schema db =
     ];
   ensure_int_column db "egress_rules_count" ~default:0;
   ignore (ensure_json_column db "room_classification");
-  ensure_json_column db "room_policy_decision"
+  ensure_json_column db "room_policy_decision";
+  ensure_nullable_text_column db "standing_order_id";
+  ensure_nullable_text_column db "standing_order_fire_id"
 
 let list_to_json strings = `List (List.map (fun s -> `String s) strings)
 
@@ -358,7 +386,8 @@ let snapshot_select_columns =
    skills_json, repositories_json, repo_grants_json, blocked_repo_grants_json, \
    domains_json, credential_handles_json, memory_grants_json, \
    budget_refs_json, egress_rules_count, instruction_digests_json, \
-   redacted_summary, room_classification, room_policy_decision"
+   redacted_summary, room_classification, room_policy_decision, \
+   standing_order_id, standing_order_fire_id"
 
 let persist ~(db : Sqlite3.db) (snap : t) =
   let stmt =
@@ -370,9 +399,9 @@ let persist ~(db : Sqlite3.db) (snap : t) =
        repositories_json, repo_grants_json, blocked_repo_grants_json, \
        domains_json, credential_handles_json, memory_grants_json, \
        budget_refs_json, egress_rules_count, instruction_digests_json, \
-       redacted_summary, room_classification, room_policy_decision) VALUES (?, \
-       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
-       ?)"
+       redacted_summary, room_classification, room_policy_decision, \
+       standing_order_id, standing_order_fire_id) VALUES (?, ?, ?, ?, ?, ?, ?, \
+       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
@@ -420,6 +449,8 @@ let persist ~(db : Sqlite3.db) (snap : t) =
         (Yojson.Safe.to_string
            (`String (Room_policy.room_scope_to_string snap.room_classification)));
       bind_text 26 snap.room_policy_decision;
+      bind_opt_text 27 (Option.map (fun r -> r.order_id) snap.standing_order);
+      bind_opt_text 28 (Option.bind snap.standing_order (fun r -> r.fire_id));
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE -> ()
       | rc ->
@@ -526,6 +557,10 @@ let row_of_stmt stmt : listed =
              | _ -> Rm_unknown
              | exception _ -> Rm_unknown);
           room_policy_decision = text 25;
+          standing_order =
+            Option.map
+              (fun order_id -> { order_id; fire_id = opt_text 27 })
+              (opt_text 26);
         }
 
 (** [list_rows] lists every stored row, [Unknown] ones included, newest first.
@@ -653,6 +688,16 @@ let to_json (snap : t) : Yojson.Safe.t =
       ( "room_classification",
         `String (Room_policy.room_scope_to_string snap.room_classification) );
       ("room_policy_decision", `String snap.room_policy_decision);
+      ( "standing_order",
+        match snap.standing_order with
+        | None -> `Null
+        | Some r ->
+            `Assoc
+              [
+                ("order_id", `String r.order_id);
+                ( "fire_id",
+                  match r.fire_id with Some s -> `String s | None -> `Null );
+              ] );
     ]
 
 let listed_to_json = function
@@ -671,10 +716,10 @@ let listed_to_json = function
 
 let record_for_work ~(db : Sqlite3.db) ~(config : Runtime_config.t) ~work_type
     ?session_key ?room_id ?profile_id ?room_classification ?room_policy_decision
-    () =
+    ?standing_order () =
   let snap =
     create ~config ~work_type ?session_key ?room_id ?profile_id
-      ?room_classification ?room_policy_decision ()
+      ?room_classification ?room_policy_decision ?standing_order ()
   in
   (try persist ~db snap
    with _ ->
@@ -688,10 +733,10 @@ let record_for_work ~(db : Sqlite3.db) ~(config : Runtime_config.t) ~work_type
     for snapshot-scoped access during execution). *)
 let create_and_persist ~(db : Sqlite3.db) ~(config : Runtime_config.t)
     ~work_type ?session_key ?room_id ?profile_id ?room_classification
-    ?room_policy_decision () =
+    ?room_policy_decision ?standing_order () =
   let snap =
     create ~config ~work_type ?session_key ?room_id ?profile_id
-      ?room_classification ?room_policy_decision ()
+      ?room_classification ?room_policy_decision ?standing_order ()
   in
   (try persist ~db snap with _ -> ());
   snap

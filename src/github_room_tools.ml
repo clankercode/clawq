@@ -592,7 +592,8 @@ let room_for_context ~db ~tool_name = function
              new Room turn."
       | Some snapshot_id -> (
           match Access_snapshot.get_by_id ~db snapshot_id with
-          | None ->
+          (* Grant authority never authorizes another tool family. *)
+          | None | Some { Access_snapshot.work_type = Standing_order; _ } ->
               Result.Error
                 "GitHub Room tool access snapshot is unavailable; start a new \
                  Room turn."

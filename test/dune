@@ -318,6 +318,7 @@
   test_slack_huddle_observer
   test_slack_standing_order_config
   test_access_snapshot_decode
+  test_access_snapshot_standing_order
   test_slash_commands
   test_status_message
   test_stream_visibility

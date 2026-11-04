@@ -295,6 +295,7 @@ let all_suites =
     ("slack_huddle_observer", Test_slack_huddle_observer.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("access_snapshot_decode", Test_access_snapshot_decode.suite);
+    ("access_snapshot_standing_order", Test_access_snapshot_standing_order.suite);
     ("discord", Test_discord.suite);
     ("attachment_download", Test_attachment_download.suite);
     ("group_chat_filter", Test_group_chat_filter.suite);
