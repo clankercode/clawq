@@ -293,6 +293,7 @@ let all_suites =
     ("slack_huddle_classify", Test_slack_huddle_classify.suite);
     ("slack_huddle_ledger", Test_slack_huddle_ledger.suite);
     ("slack_huddle_observer", Test_slack_huddle_observer.suite);
+    ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("access_snapshot_decode", Test_access_snapshot_decode.suite);
     ("discord", Test_discord.suite);
     ("attachment_download", Test_attachment_download.suite);

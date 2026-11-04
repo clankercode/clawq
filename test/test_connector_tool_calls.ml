@@ -104,6 +104,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
           socket_mode = false;
           default_model = None;
           event_log = Slack_config_types.default_event_log;
+          standing_orders = Slack_config_types.default_standing_orders;
         }
       in
       let session_manager =

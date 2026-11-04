@@ -146,6 +146,7 @@ let default_slack_config : Runtime_config.slack_config =
     socket_mode = true;
     default_model = None;
     event_log = Slack_config_types.default_event_log;
+    standing_orders = Slack_config_types.default_standing_orders;
   }
 
 let run () =

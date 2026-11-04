@@ -85,3 +85,146 @@ let event_log_to_json e : Yojson.Safe.t =
                  ])
              e.capture_text_from) );
     ]
+
+(** Standing orders: which bots a channel may grant, who may create an order,
+    and a kill switch. *)
+type standing_order_creator_policy = So_creator_member | So_creator_admin
+
+type standing_order_target_config = {
+  app_id : string;
+  label : string;
+      (** Operator-chosen name; the only target name cards and notices show. *)
+}
+
+type slack_standing_orders_config = {
+  orders_enabled : bool;
+      (** JSON key ["enabled"]. Named apart from [event_log.enabled] so that
+          unannotated [x.enabled] keeps resolving to [event_log]. *)
+  allowed_targets : standing_order_target_config list;
+      (** Empty denies every order. *)
+  creator_policy : standing_order_creator_policy;
+}
+
+let default_standing_orders =
+  {
+    orders_enabled = true;
+    allowed_targets = [];
+    creator_policy = So_creator_member;
+  }
+
+let max_target_label_chars = 80
+
+let standing_order_creator_policy_to_string = function
+  | So_creator_member -> "member"
+  | So_creator_admin -> "admin"
+
+let standing_order_creator_policy_of_string = function
+  | "member" -> Some So_creator_member
+  | "admin" -> Some So_creator_admin
+  | _ -> None
+
+let warn_orders reason =
+  Logs.warn (fun m -> m "Config: 'channels.slack.standing_orders': %s" reason)
+
+(* Callers check [String.is_valid_utf_8] first, so this is exact. *)
+let code_points s =
+  let rec go i n =
+    if i >= String.length s then n
+    else go (i + Uchar.utf_decode_length (String.get_utf_8_uchar s i)) (n + 1)
+  in
+  go 0 0
+
+let target_of_json = function
+  | `String app_id when valid_id "A" app_id -> Some { app_id; label = app_id }
+  | `Assoc fields -> (
+      let label =
+        match List.assoc_opt "label" fields with
+        | None | Some `Null -> `Missing
+        | Some (`String l) -> `Label (String.trim l)
+        | Some _ -> `Invalid
+      in
+      match (List.assoc_opt "app_id" fields, label) with
+      | Some (`String app_id), `Missing when valid_id "A" app_id ->
+          Some { app_id; label = app_id }
+      | Some (`String app_id), `Label label
+        when valid_id "A" app_id && label <> ""
+             && String.is_valid_utf_8 label
+             && code_points label <= max_target_label_chars ->
+          Some { app_id; label }
+      | _ -> None)
+  | _ -> None
+
+(* Values are never printed: an entry is identified by its index only. *)
+let targets_of_json items =
+  List.mapi (fun i item -> (i, item)) items
+  |> List.fold_left
+       (fun kept (i, item) ->
+         match target_of_json item with
+         | None ->
+             warn_orders
+               (Printf.sprintf
+                  "dropped allowed_targets entry %d (needs an A app id and a \
+                   non-empty UTF-8 label of at most %d characters)"
+                  i max_target_label_chars);
+             kept
+         | Some t when List.exists (fun k -> k.app_id = t.app_id) kept ->
+             warn_orders
+               (Printf.sprintf
+                  "dropped allowed_targets entry %d (repeats an earlier app id)"
+                  i);
+             kept
+         | Some t -> t :: kept)
+       []
+  |> List.rev
+
+let standing_orders_of_json = function
+  | `Null -> default_standing_orders
+  | `Assoc fields ->
+      let orders_enabled =
+        match List.assoc_opt "enabled" fields with
+        | None | Some `Null -> default_standing_orders.orders_enabled
+        | Some (`Bool b) -> b
+        | Some _ ->
+            warn_orders "enabled is not a bool; standing orders are off";
+            false
+      in
+      let allowed_targets =
+        match List.assoc_opt "allowed_targets" fields with
+        | None | Some `Null -> []
+        | Some (`List items) -> targets_of_json items
+        | Some _ ->
+            warn_orders "allowed_targets is not a list; every target is denied";
+            []
+      in
+      let creator_policy =
+        match List.assoc_opt "creator_policy" fields with
+        | None | Some `Null -> default_standing_orders.creator_policy
+        | Some (`String s) -> (
+            match standing_order_creator_policy_of_string s with
+            | Some p -> p
+            | None ->
+                warn_orders "unknown creator_policy; using admin";
+                So_creator_admin)
+        | Some _ ->
+            warn_orders "creator_policy is not a string; using admin";
+            So_creator_admin
+      in
+      { orders_enabled; allowed_targets; creator_policy }
+  | _ ->
+      warn_orders "not an object; using the defaults (no targets allowed)";
+      default_standing_orders
+
+let standing_orders_to_json o : Yojson.Safe.t =
+  `Assoc
+    [
+      ("enabled", `Bool o.orders_enabled);
+      ( "allowed_targets",
+        `List
+          (List.map
+             (fun t ->
+               `Assoc
+                 [ ("app_id", `String t.app_id); ("label", `String t.label) ])
+             o.allowed_targets) );
+      ( "creator_policy",
+        `String (standing_order_creator_policy_to_string o.creator_policy) );
+    ]

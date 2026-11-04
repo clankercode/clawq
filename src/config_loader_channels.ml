@@ -145,6 +145,10 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
           Slack_config_types.event_log_of_json
             (try s |> member "event_log" with _ -> `Null)
         in
+        let standing_orders =
+          Slack_config_types.standing_orders_of_json
+            (s |> member "standing_orders")
+        in
         Some
           ({
              bot_token;
@@ -158,6 +162,7 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
              socket_mode;
              default_model;
              event_log;
+             standing_orders;
            }
             : Runtime_config.slack_config)
       with exn ->

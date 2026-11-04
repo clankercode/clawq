@@ -316,6 +316,7 @@
   test_slack_huddle_classify
   test_slack_huddle_ledger
   test_slack_huddle_observer
+  test_slack_standing_order_config
   test_access_snapshot_decode
   test_slash_commands
   test_status_message

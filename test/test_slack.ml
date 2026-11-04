@@ -39,7 +39,9 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     ?(events_path = "/slack/events") ?(allow_channels = [ "*" ])
     ?(allow_users = [ "*" ]) ?(allow_private_channels = [])
     ?(private_channel_policy = Runtime_config.Pc_allow_if_listed)
-    ?(app_token = "") ?(socket_mode = false) () : Runtime_config.slack_config =
+    ?(app_token = "") ?(socket_mode = false)
+    ?(standing_orders = Slack_config_types.default_standing_orders) () :
+    Runtime_config.slack_config =
   {
     bot_token;
     signing_secret;
@@ -52,6 +54,7 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     socket_mode;
     default_model = None;
     event_log = Slack_config_types.default_event_log;
+    standing_orders;
   }
 
 let make_fake_provider_config = Test_helpers.make_fake_provider_config
