@@ -11,7 +11,8 @@ let error_t =
     (fun ppf e -> Format.pp_print_string ppf (SO.error_code e))
     ( = )
 
-let order_ref = Some { Access_snapshot.order_id = "so_1"; fire_id = None }
+let order_ref =
+  Some { Access_snapshot.order_id = "so_1"; fire_id = Some "fire_1" }
 
 let snapshot db cfg =
   match SO.snapshot ~db ~config:cfg ~channel_id:"C123" ~order_ref with
@@ -44,8 +45,8 @@ let no_http what (m : S.mock) = check_bool what true (!(m.calls) = [])
 let test_unlisted_method () =
   let db = S.fresh_db () and m = S.mock () in
   let _, call = make db m (ref (S.config ())) in
-  expect_error "unlisted method" (Method_not_permitted "files.delete")
-    (run call "files.delete" [ ("file", `String "F1") ]);
+  expect_error "unlisted method" (Method_not_permitted "files.unknown")
+    (run call "files.unknown" [ ("file", `String "F1") ]);
   no_http "no HTTP for an unlisted method" m
 
 let test_verbs () =
@@ -62,7 +63,7 @@ let test_verbs () =
         true
         (verb = "GET" || verb = "POST"))
     SO.methods;
-  check_bool "eight call sites" true (List.length SO.methods = 8)
+  check_bool "sixteen methods" true (List.length SO.methods = 16)
 
 let test_egress_denied_before_transport () =
   let db = S.fresh_db () and m = S.mock () in
@@ -108,7 +109,7 @@ let test_unauditable_egress () =
       Access_snapshot.init_schema db;
       let m = S.mock () in
       let _, call = make db m (ref (S.config ())) in
-      expect_error "no audit table" (Egress_denied "users.info")
+      expect_error "no audit table" Audit_unavailable
         (run call "users.info" user_params);
       no_http "no HTTP without an audit row" m)
 
@@ -211,8 +212,7 @@ let test_peer_lookup_unauditable () =
       Access_snapshot.init_schema db;
       let m = S.mock () in
       let _, call = peer_call db (ref (dm_config (S.config ()))) m in
-      expect_error "peer lookup requires its audit row"
-        (Egress_denied "users.info")
+      expect_error "peer lookup requires its audit row" Audit_unavailable
         (run call "users.info" user_params);
       no_http "unauditable peer lookup never reaches HTTP" m)
 
@@ -261,6 +261,8 @@ let test_error_codes () =
       (SO.Rate_limited, "rate_limited");
       (Http_status 503, "http_503");
       (Transport, "transport");
+      (Audit_unavailable, "audit_unavailable");
+      (Snapshot_unavailable, "snapshot_unavailable");
       (Slack_error "missing_scope", "slack:missing_scope");
       (Egress_denied "chat.postMessage", "egress_denied:chat.postMessage");
       (Method_not_permitted "files.delete", "method_not_permitted:files.delete");
@@ -360,8 +362,319 @@ let test_labels () =
   check_string "audit label without an order" "standing_order:none:plan"
     (SO.audit_label ~order_id:None ~unit_label:"plan")
 
+let phase3_methods =
+  [
+    ("conversations.history", "GET");
+    ("conversations.replies", "GET");
+    ("files.info", "GET");
+    ("canvases.getContent", "POST");
+    ("reactions.get", "GET");
+    ("files.getUploadURLExternal", "GET");
+    ("files.completeUploadExternal", "POST");
+    ("files.delete", "POST");
+  ]
+
+let test_phase3_audit () =
+  List.iter
+    (fun (method_, verb) ->
+      List.iter
+        (fun allowed ->
+          let db = S.fresh_db () and m = S.mock () in
+          let cfg =
+            S.config
+              ~strict_rules:
+                (if allowed then
+                   [ S.slack_rule ~method_:verb ("/api/" ^ method_) ]
+                 else [])
+              ()
+          in
+          let snap = snapshot db cfg in
+          S.override m method_ (fun _ -> (200, S.ok []));
+          let label =
+            SO.audit_label ~order_id:(Some "so_1") ~unit_label:"fire_1"
+          in
+          let call =
+            SO.make ~db
+              ~current_config:(fun () -> cfg)
+              ~snapshot:snap ~channel_id:"C123" ~audit:label ~http:m.http ()
+          in
+          let params =
+            match method_ with
+            | "conversations.history" | "conversations.replies"
+            | "reactions.get" ->
+                [ ("channel", `String "C123") ]
+            | "files.completeUploadExternal" ->
+                [ ("channel_id", `String "C123") ]
+            | _ -> []
+          in
+          let result = run call method_ params in
+          if allowed then ignore (expect_ok method_ result)
+          else expect_error method_ (Egress_denied method_) result;
+          Alcotest.(check int)
+            "HTTP count"
+            (if allowed then 1 else 0)
+            (List.length !(m.calls));
+          check_bool "exact verb" true
+            (List.assoc_opt method_ SO.methods = Some verb);
+          if allowed then
+            check_bool "exact dispatched verb and parameters" true
+              (!(m.calls) = [ (verb, method_, `Assoc params) ]);
+          match Egress_audit.query ~db () with
+          | [ e ] ->
+              check_bool "decision" true
+                (e.decision = if allowed then Allowed else Denied);
+              check_bool "snapshot and tag" true
+                (e.snapshot_id = Some snap.id
+                && e.tool_name = Some "standing_order:so_1:fire_1");
+              check_bool "audited verb" true
+                (e.method_redacted = Some (Egress_audit.redact_method verb))
+          | _ -> Alcotest.fail "expected one audit row")
+        [ true; false ])
+    phase3_methods
+
+let test_unpersisted () =
+  let db = S.fresh_db () and m = S.mock () and cfg = S.config () in
+  let snap =
+    Access_snapshot.create ~config:cfg ~work_type:Standing_order
+      ~session_key:"slack:C123" ~room_id:"C123" ?standing_order:order_ref ()
+  in
+  let call =
+    SO.make ~db
+      ~current_config:(fun () -> cfg)
+      ~snapshot:snap ~channel_id:"C123" ~audit:"standing_order:so_1:fire_1"
+      ~http:m.http ()
+  in
+  expect_error "not persisted" Snapshot_unavailable
+    (run call "users.info" user_params);
+  no_http "unpersisted snapshot costs zero HTTP" m;
+  Alcotest.(check int)
+    "zero policy checks" 0
+    (List.length (Egress_audit.query ~db ()))
+
+let test_channel_params () =
+  let db = S.fresh_db () and m = S.mock () in
+  let _, call = make db m (ref (S.config ())) in
+  List.iter
+    (fun method_ ->
+      List.iter
+        (fun params ->
+          expect_error method_ Channel_denied (run call method_ params))
+        [
+          [ ("channel", `String "C456") ];
+          [ ("channel_id", `String "C456") ];
+          [ ("channels", `String "C123") ];
+          [ ("channel", `Int 123) ];
+          [ ("channel", `String "C123"); ("channel", `String "C456") ];
+        ])
+    (List.map fst SO.methods);
+  expect_error "complete must be top level" Channel_denied
+    (run call "files.completeUploadExternal"
+       [ ("channel_id", `String "C123"); ("thread_ts", `String "1.0") ]);
+  no_http "channel selectors cannot escape" m
+
+let test_audit_step_failure () =
+  List.iter
+    (fun allowed ->
+      let db = S.fresh_db () and m = S.mock () in
+      let _, call =
+        make db m
+          (ref
+             (S.config
+                ~strict_rules:
+                  (if allowed then [ S.slack_rule "/api/*" ] else [])
+                ()))
+      in
+      Sql_util.exec_exn db
+        "CREATE TRIGGER fail_audit BEFORE INSERT ON egress_audit BEGIN SELECT \
+         RAISE(FAIL, 'test audit failure'); END";
+      expect_error "failed audit is transient" Audit_unavailable
+        (run call "users.info" user_params);
+      no_http "audit failure refuses HTTP" m)
+    [ true; false ]
+
+let test_raising_config () =
+  let db = S.fresh_db () and m = S.mock () in
+  let snap = snapshot db (S.config ()) in
+  let call =
+    SO.make ~db
+      ~current_config:(fun () -> failwith "config unavailable")
+      ~snapshot:snap ~channel_id:"C123" ~audit:"standing_order:so_1:fire_1"
+      ~http:m.http ()
+  in
+  expect_error "typed config failure" Transport
+    (run call "users.info" user_params);
+  no_http "config failure refuses HTTP" m
+
+let test_limiter_reload () =
+  let db = S.fresh_db () and m = S.mock () in
+  let cfg = ref (S.config ()) and limited = ref 0 in
+  let snap = snapshot db !cfg in
+  let limit () =
+    incr limited;
+    let open Lwt.Syntax in
+    let+ () = Lwt.pause () in
+    cfg := S.config ~strict_rules:[] ()
+  in
+  let call =
+    SO.make ~db
+      ~current_config:(fun () -> !cfg)
+      ~snapshot:snap ~channel_id:"C123" ~audit:"standing_order:so_1:fire_1"
+      ~http:m.http ~limit ()
+  in
+  expect_error "reload after pacing" (Egress_denied "users.info")
+    (run call "users.info" user_params);
+  Alcotest.(check int) "limiter ran once" 1 !limited;
+  no_http "policy reload while pacing stops HTTP" m
+
+let test_mock_assertion () =
+  let db = S.fresh_db () and m = S.mock () in
+  let _, call = make db m (ref (S.config ())) in
+  (* This permitted method deliberately lacks a response in this mock. *)
+  ignore (run call "files.delete" []);
+  check_bool "unexpected mock call recorded outside transport" true
+    (!(m.failures) <> []);
+  let failed_outside =
+    try
+      S.check_mock m;
+      false
+    with _ -> true
+  in
+  m.failures := [];
+  check_bool "mock failure raises outside SO catch" true failed_outside;
+  S.override m "users.info" (fun _ -> assert false);
+  ignore (run call "users.info" user_params);
+  check_bool "assertion failures recorded too" true (!(m.failures) <> []);
+  let failed_outside =
+    try
+      S.check_mock m;
+      false
+    with _ -> true
+  in
+  m.failures := [];
+  check_bool "assertion fails outside SO catch" true failed_outside
+
+let test_snapshot_binding () =
+  let db = S.fresh_db () and m = S.mock () and cfg = S.config () in
+  let check snap =
+    let call =
+      SO.make ~db
+        ~current_config:(fun () -> cfg)
+        ~snapshot:snap ~channel_id:"C123" ~audit:"standing_order:so_1:fire_1"
+        ~http:m.http ()
+    in
+    expect_error "snapshot binding" Snapshot_unavailable
+      (run call "users.info" user_params)
+  in
+  let snap = snapshot db cfg in
+  List.iter check
+    [
+      { snap with session_key = Some "slack:C456" };
+      { snap with room_id = Some "C456" };
+      { snap with work_type = Room_turn };
+      {
+        snap with
+        standing_order = Some { order_id = "so_other"; fire_id = Some "fire_1" };
+      };
+    ];
+  let wrong_type =
+    Access_snapshot.create ~config:cfg ~work_type:Room_turn
+      ~session_key:"slack:C123" ~room_id:"C123" ()
+  in
+  Access_snapshot.persist ~db wrong_type;
+  check wrong_type;
+  let wrong_key =
+    Access_snapshot.create ~config:cfg ~work_type:Standing_order
+      ~session_key:"slack:C456" ~room_id:"C456" ()
+  in
+  Access_snapshot.persist ~db wrong_key;
+  check wrong_key;
+  Sql_util.exec_exn db "DROP TABLE access_snapshots";
+  check snap;
+  no_http "mismatched or unreadable snapshots never reach HTTP" m;
+  Alcotest.(check int)
+    "snapshot refusal precedes policy" 0
+    (List.length (Egress_audit.query ~db ()))
+
+let test_failure_classification () =
+  let module G = Slack_standing_order_grant in
+  List.iter
+    (fun error ->
+      check_bool "grant error is indeterminate" true
+        (G.reason_of_error ~user_not_found:G.Grantor_not_member "users.info"
+           error
+        = G.Indeterminate "users.info");
+      check_bool "member error is indeterminate" true
+        (G.member_refusal_of_error "users.info" error
+        = G.Member_indeterminate "users.info");
+      let call _ _ = Lwt.return (Error error) in
+      let result =
+        Lwt_main.run
+          (Slack_standing_order_target.resolve ~call
+             ~allowed:[ S.claude_target ] "UCLAUDE")
+      in
+      check_bool "target preserves typed failure" true
+        (result = Error (Slack_standing_order_target.Lookup_failed error)))
+    [ SO.Audit_unavailable; SO.Snapshot_unavailable ]
+
+let test_no_http_debug_capture () =
+  Test_helpers.with_temp_dir (fun dir ->
+      let previous_home = Sys.getenv_opt Dot_dir.env_var in
+      let previous_debug = !Http_debug.enabled_ref in
+      Fun.protect
+        ~finally:(fun () ->
+          Unix.putenv Dot_dir.env_var (Option.value previous_home ~default:"");
+          Http_debug.enabled_ref := previous_debug)
+        (fun () ->
+          (* A scratch directory, never the user's Clawq home. *)
+          Unix.putenv Dot_dir.env_var dir;
+          Http_debug.enabled_ref := true;
+          let seen = ref [] in
+          let callback _ request body =
+            let open Lwt.Syntax in
+            let* body = Cohttp_lwt.Body.to_string body in
+            seen := (Cohttp.Request.meth request, body) :: !seen;
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~body:"secret-response-body" ()
+          in
+          Test_policy_http_client.with_http_server callback (fun port ->
+              let uri =
+                Printf.sprintf
+                  "http://127.0.0.1:%d/secret-path?token=secret-query" port
+              in
+              let transport = SO.api_transport in
+              let get_result, post_result =
+                Lwt_main.run
+                  (let open Lwt.Syntax in
+                   let* get_result = transport.get ~uri ~headers:[] in
+                   let+ post_result =
+                     transport.post ~uri ~headers:[] ~body:"secret-request-body"
+                   in
+                   (get_result, post_result))
+              in
+              check_bool "GET response preserved" true
+                (get_result = (200, "secret-response-body"));
+              check_bool "POST response preserved" true
+                (post_result = (200, "secret-response-body")));
+          check_bool "both requests reached loopback" true
+            (List.rev !seen = [ (`GET, ""); (`POST, "secret-request-body") ]);
+          Alcotest.(check (list string))
+            "HTTP debug creates no capture" []
+            (Array.to_list (Sys.readdir dir))))
+
 let suite =
   [
+    S.case "default API adapter never captures HTTP bodies"
+      test_no_http_debug_capture;
+    S.case "snapshot scope and persisted row remain bound" test_snapshot_binding;
+    S.case "audit and snapshot failures remain indeterminate"
+      test_failure_classification;
+    S.case "all phase3 methods audited" test_phase3_audit;
+    S.case "unpersisted snapshot never calls HTTP" test_unpersisted;
+    S.case "channel param cannot escape order" test_channel_params;
+    S.case "audit step failure refuses dispatch" test_audit_step_failure;
+    S.case "raising config returns typed transport error" test_raising_config;
+    S.case "limiter reload precedes final preflight" test_limiter_reload;
+    S.case "mock assertion is not swallowed" test_mock_assertion;
     S.case "unlisted method" test_unlisted_method;
     S.case "verbs" test_verbs;
     S.case "egress denied before transport" test_egress_denied_before_transport;
