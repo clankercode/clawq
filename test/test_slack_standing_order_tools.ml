@@ -608,10 +608,42 @@ let test_drained_ingress () =
       check_bool "nothing stored" true (all_orders env = []);
       Lwt.return_unit)
 
+(* ---- builtin agent templates (spec §6.8: no template creates, changes,
+   resumes or cancels) ---- *)
+
+let test_ops_template () =
+  let read_and_pause = [ Tools.list_name; Tools.show_name; Tools.pause_name ]
+  and grant_tools =
+    [
+      Tools.create_name;
+      Slack_standing_order_change.tool_name;
+      Tools.resume_name;
+      Tools.cancel_name;
+    ]
+  in
+  (match Agent_template_builtins.find "ops" with
+  | None -> Alcotest.fail "no ops template"
+  | Some t ->
+      List.iter
+        (fun name ->
+          check_bool ("ops allows " ^ name) true (List.mem name t.allowed_tools))
+        read_and_pause);
+  List.iter
+    (fun (t : Agent_template.t) ->
+      List.iter
+        (fun name ->
+          check_bool
+            (t.name ^ " never allows " ^ name)
+            false
+            (List.mem name t.allowed_tools))
+        grant_tools)
+    Agent_template_builtins.all
+
 let suite =
   List.map
     (fun (name, f) -> (name, `Quick, f))
     [
+      ("ops template exposes read and pause only", test_ops_template);
       ("create posts a bound card", test_create_card);
       ("create needs a live turn", test_live_turn);
       ("identity arguments are rejected", test_identity_args);

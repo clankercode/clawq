@@ -476,8 +476,12 @@ bypass channel membership or private-channel policy.
 The bot token needs the relevant `channels:read`/`groups:read`,
 `channels:history`/`groups:history`, plus `users:read` and `files:read` scopes.
 Under strict HTTP egress policy, explicitly allow GET requests to
-`slack.com` at `/api/*` in the applicable egress rules; every method is checked
-against the frozen turn policy. Reinstall the app after granting scopes. The `xapp` Socket Mode token grants no
+`slack.com` at `/api/*` in the applicable egress rules for huddle reads; every
+method is checked against the frozen turn policy. [Standing
+orders](#standing-orders-huddle-relay) also need **POST** to `slack.com` at
+`/api/auth.test`, `/api/chat.postMessage` and `/api/chat.update`. Without them
+every create fails at `auth.test` (`Egress_denied`), and pauses still apply but
+their receipts and grantor notices are refused and only logged. Reinstall the app after granting scopes. The `xapp` Socket Mode token grants no
 content access. Scope/access/rate-limit errors explain how to proceed, with no
 automatic retries. Affected commercial non-Marketplace apps may be limited to
 one history/replies request per minute; request subsequent pages only when Slack
@@ -493,6 +497,177 @@ References: [conversation objects](https://docs.slack.dev/reference/objects/conv
 [file objects](https://docs.slack.dev/reference/objects/file-object/),
 [files.info](https://docs.slack.dev/reference/methods/files.info/), and
 [Slack AI huddle notes](https://slack.com/intl/en-au/help/articles/31377193680019-Use-AI-to-take-huddle-notes-in-Slack).
+
+### Standing orders (huddle relay)
+
+A standing order is a channel-bound, revocable grant: after every huddle in a
+channel, relay Slack's AI notes (and the transcript, when Slack has one) to an
+approved bot, such as Claude, with a fixed instruction. People create and
+manage orders in natural language in that channel. Only a bound Block Kit
+click confirms, changes or resumes an order, and anyone in the channel can
+pause one.
+
+> **Status:** this release stores orders, posts their confirm, change and
+> resume cards, applies pauses, and records huddles in channels that have an
+> order. The relay executor (fetching notes and posting them to the target)
+> ships later, so no huddle is relayed yet.
+
+#### Config
+
+```json
+{
+  "channels": {
+    "slack": {
+      "standing_orders": {"allowed_targets": [{"app_id": "A08SF47R6P4", "label": "Claude (Anthropic)"}]}
+    }
+  }
+}
+```
+
+`A08SF47R6P4` is the Claude (Anthropic) Slack app. A bot's app id is
+`bot.app_id` in `bots.info`.
+
+| Key (`channels.slack.standing_orders.*`) | Meaning | Default |
+| --- | --- | --- |
+| `enabled` | Kill switch. `false` makes every order inactive (nothing is created, confirmed, changed, resumed or relayed) without suspending any. A non-boolean value also turns the feature off. | `true` |
+| `allowed_targets` | Bots an order may relay to: `{"app_id", "label"}` objects, or bare `A…` app ids (the label is then the id). The trimmed label (1–80 characters) is the only target name cards and notices show. Malformed and repeated entries are dropped with a warning. **An empty allowlist denies every order**, so the feature is off until you add a target. | `[]` |
+| `creator_policy` | Who may create an order: `member` (any verified human channel member who is not deleted, not a guest and passes `allow_users`) or `admin` (clawq admins only). An unknown value falls back to `admin`. | `"member"` |
+
+The daily relay cap is a per-order value (10 a day), not a config key.
+`security.tools_enabled` must also be true. Config changes apply live: the
+next check reads the current config, and a confirm or change card made before
+a config change answers "ask again to get a new card" when clicked.
+
+#### Tools
+
+The full daemon registers seven tools beside the huddle tools:
+
+| Tool | Arguments | Risk |
+| --- | --- | --- |
+| `slack_standing_order_create` | `instruction` (≤ 1000 characters), `target` (an approved bot's name or mention), optional `when_no_transcript` (`relay_notes`, the default, or `skip`) | Medium |
+| `slack_standing_order_list` | none | Low |
+| `slack_standing_order_show` | `order` (`SO-n`) | Low |
+| `slack_standing_order_pause` | `order` | Low |
+| `slack_standing_order_resume` | `order` | Low |
+| `slack_standing_order_cancel` | `order` | Low |
+| `slack_standing_order_change` | `order`, `instruction`, optional `when_no_transcript` (kept when left out) | Medium |
+
+No tool takes a grantor, team or channel argument. Each acts for the verified
+sender of the current Slack message, only on orders of that message's channel,
+and refuses steering, synthetic and queued-drain turns. A missing order and
+another channel's order get the same "There is no standing order SO-n in this
+channel." reply. Users see `SO-n`, a per-channel number; ids stay opaque.
+`list` and `show` mark the instruction as untrusted data. The builtin `ops`
+template allows only `list`, `show` and `pause`; no builtin template can create,
+change, resume or cancel.
+
+**Profile allowlists.** A room profile with an `allowed_tools` list must list
+each management tool its members should use. Creating, confirming, changing
+and resuming an order also need the three capability names `slack_huddles`,
+`slack_huddle_content` and `slack_standing_order_fire`. Each is decided
+separately, deny wins, on a `standing_order` access snapshot keyed
+`slack:<channel_id>`, and all three must be allowed. A deny-list profile that
+denies any of them blocks orders in that room. A capability deny makes no Slack
+call for the check; on a click, the code-rendered refusal is the only Slack
+call.
+
+#### Egress
+
+Every Slack call an order makes is a method from this closed list. Each call is
+checked against the egress rules for `slack:<channel_id>` and audited under its
+snapshot:
+
+| Method | Verb |
+| --- | --- |
+| `auth.test` | POST |
+| `bots.info` | GET |
+| `users.info` | GET |
+| `users.list` | GET |
+| `conversations.info` | GET |
+| `conversations.members` | GET |
+| `chat.postMessage` | POST |
+| `chat.update` | POST |
+
+Under strict egress, allow GET `slack.com` `/api/*` (as for huddle reads) plus
+POST `slack.com` `/api/auth.test`, `/api/chat.postMessage` and
+`/api/chat.update`. Without the POST rules every create fails at `auth.test`
+(`Egress_denied`), and pauses still apply but their receipts and grantor
+notices are refused and only logged. `clawq slack orders resume` makes these
+calls from the CLI process too.
+
+#### Cards, changes and pauses
+
+- **Create.** The create tool re-validates the grant (target allowlisted, a bot
+  and a channel member; clawq a member; channel not shared with another org and
+  without guests; creator policy; all three capability names; no other live
+  order for this channel and target) and posts a code-rendered confirm card in
+  the request's thread: when, do, the instruction in full as inert plain text,
+  what happens with no transcript, who it runs as, spoken requests, privacy,
+  the daily limit and an AI-notes check. Nothing is active yet. The order waits
+  as `pending_confirmation` with its `SO-n`, and the card expires in 10
+  minutes. Only the requester's **Confirm** click activates it. That click
+  re-runs every check, and its Slack `action_ts` becomes `active_since`, so
+  earlier huddles are never eligible. A click without a valid `action_ts` is
+  refused. **Cancel** (the requester or a clawq admin) withdraws it. Double
+  clicks confirm once. On confirm clawq posts a top-level activation notice with
+  a **Pause** button. If that notice can't be posted, the order is paused and
+  the failure is reported in the request's thread.
+- **Change.** `slack_standing_order_change` posts a change card and changes
+  nothing yet. Only the requester's **Confirm change** click applies it, and
+  only while the requester is the order's grantor or a clawq admin. The click
+  re-runs every check, then in one transaction cancels the old order and starts
+  its successor as active with the next `SO-n`, the new instruction, the same
+  channel and target, the clicker as grantor and a fresh daily cap. Changing a
+  paused or suspended order starts relaying again, and the card says so.
+- **Resume.** The resume tool only posts a resume card. Only the grantor's or a
+  clawq admin's click resumes. The click re-runs every check, resets
+  `active_since` to the click time and bumps the order's epoch. Huddles that
+  became ready while the order was paused are never relayed.
+- **Cancel.** The grantor or a clawq admin, who must also be a channel member.
+- **Pause.** Pause doesn't depend on the LLM. It has three paths: an exact
+  `pause SO-n` message (case-insensitive, optionally after one leading user
+  mention and before a final `.` or `!`), the **Pause** button on the
+  activation notice, and the pause tool. Anyone may pause who is a member of
+  the channel and whom `users.info` reports as a human who is not deleted and
+  not a guest, from an event verified for this team and app. `allow_users`,
+  room policy, admin status and the capability names are not required. The
+  message parser and the button run before chat authorization and before
+  relay-thread silence, so a pause works when the LLM provider is failing. A
+  human's `thread_broadcast` reply ("Also send to channel") reaches the parser
+  too, and never starts a turn. Slackbot messages never pause. Pausing a
+  pending order withdraws it. Every pause ends in a code-rendered receipt or
+  reason in the thread, and the grantor is notified. The one exception is a
+  typed `pause SO-n` in a channel with no standing order at all: it is consumed
+  and logged with no Slack post, so clawq never speaks in a channel no grant
+  check admitted. Huddles that become ready while an order is paused are never
+  relayed, even after a resume. Pause messages sent while the daemon is down or
+  shutting down are not seen.
+
+Management replies, receipts and notices are fixed templates with ids and
+enumerated reasons. They never quote Slack error bodies, display names or file
+titles (the operator's target label is the one exception), and never mention
+the target bot.
+
+#### Observation, privacy and rollback
+
+The huddle observer records huddles only in channels with an active or paused
+order for this team and app. It never calls Slack or runs an LLM. Private
+channels follow `private_channel_policy` and `allow_private_channels`
+unchanged (see [Private Channel Policy](#private-channel-policy-b735)): an
+order can be created and checked only in a private channel that policy
+admits. Binaries older than fail-closed access-snapshot decoding read a
+`standing_order` snapshot as `room_turn`, so once orders exist, don't roll back
+past that change.
+
+#### CLI
+
+`clawq slack orders list [--channel C] | show ID | fires ID [--limit N] |
+pause ID | resume ID | cancel ID` gives operator parity. Reads are open;
+mutations need `CLAWQ_ADMIN=1`, a refused one is audited, and each applied one
+writes a room ledger row with actor `cli`. `ID` is the opaque id `list`
+shows. CLI pause and cancel post nothing to Slack and don't notify the grantor.
+CLI resume re-runs the resume checks with Slack. Orders are created and changed
+only in Slack. See the [CLI reference](cli-reference.md#clawq-slack).
 
 ### Socket Mode connection recovery
 
@@ -565,6 +740,7 @@ Or configure manually:
 | `allow_private_channels` | Explicit opt-in list for private channels (required under `deny` policy) | `[]` |
 | `private_channel_policy` | `"deny"` (default) or `"allow_if_listed"` — controls whether private channels in `allow_channels` are permitted | `"deny"` |
 | `event_log` | Phase 0 diagnostic: metadata-only JSONL of every Slack event that reaches ingress (except `url_verification` handshakes, events received while the daemon is shutting down, and redeliveries already seen by event-id dedup) at `$CLAWQ_HOME/slack-events.jsonl` (0600, rotates at 16 MiB to `.1`); `capture_text_from` adds full text only for an exact `{channel, bot_id}` pair | `{"enabled": false, "capture_text_from": []}` |
+| `standing_orders` | Huddle relay grants: `enabled`, `allowed_targets`, `creator_policy`; see [Standing orders](#standing-orders-huddle-relay). An empty `allowed_targets` denies every order | `{"enabled": true, "allowed_targets": [], "creator_policy": "member"}` |
 
 #### Private Channel Policy (B735)
 
